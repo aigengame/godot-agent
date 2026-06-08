@@ -55,3 +55,20 @@ _Avoid_: MVP (broader), v1
 The later delivery — `gda` also serves live operations through `gda-daemon`'s
 persistent engine connection.
 _Avoid_: v2
+
+### Command surface
+
+**Command group**:
+A top-level grouping of `gda` commands named after a Godot domain object
+(`scene`, `node`, `script`, `project`, `resource`, `export`, …). Invoked as
+`gda <group> <command>`.
+_Avoid_: namespace, category, module
+
+**Domain command**:
+A grouped command that acts on a Godot domain object (e.g. `gda scene create`).
+_Avoid_: tool, action
+
+**Meta command**:
+A top-level command about `gda` or the engine itself rather than a domain object
+(`gda info`, `gda version`, `gda help`); exempt from grouping.
+_Avoid_: global command, system command
