@@ -6,13 +6,18 @@ programmatic consumption.
 
 ## Language
 
+### Components
+
 **gda**:
 The agent-facing Godot CLI — the bottom layer that exposes Godot operations with
 structured output. Other components build on it.
 _Avoid_: the CLI, godot-cli
 
 **gda-mcp**:
-A thin protocol-adapter that exposes `gda` capabilities as an MCP server.
+A thin protocol-adapter that exposes `gda` capabilities as an MCP server. It is
+orthogonal to the delivery phases: first delivered on top of Phase 1, it follows
+`gda` into Phase 2 automatically via `--schema` self-description (ADR-0004), and is
+never itself a phase. Its order relative to other components follows ADR-0000.
 _Avoid_: the server, mcp wrapper
 
 **gda-daemon**:
@@ -21,10 +26,12 @@ engine, serving operations that require a live engine rather than a fresh
 headless process per call.
 _Avoid_: the service, background server
 
+### Operations
+
 **Headless operation**:
 An operation that can be fulfilled by spawning a one-shot `godot --headless`
 process — it needs no pre-existing engine state (e.g. create a scene, export,
-run a test). The basis of the first delivery phase.
+run a test). The basis of Phase 1.
 _Avoid_: batch op, offline op
 
 **Live operation**:
@@ -32,3 +39,19 @@ An operation that requires an already-running engine/editor to observe or mutate
 in-place state (e.g. inspect the live scene tree, runtime inspection, UndoRedo,
 input simulation). Served through `gda-daemon`, not by a one-shot headless call.
 _Avoid_: realtime op, online op
+
+### Delivery phases
+
+The order in which **capabilities** are delivered. This is distinct from ADR-0000's
+bottom-up **component** order (`gda` → `gda-mcp` → `gda-daemon`): phases sequence
+what `gda` can do, not which component is built.
+
+**Phase 1**:
+The first delivery — `gda` serves only headless operations, standalone with no
+service dependency.
+_Avoid_: MVP (broader), v1
+
+**Phase 2**:
+The later delivery — `gda` also serves live operations through `gda-daemon`'s
+persistent engine connection.
+_Avoid_: v2

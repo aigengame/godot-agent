@@ -40,4 +40,7 @@ ADR-0000 implies), but the **necessary carrier of all live-engine capabilities**
   system in ADR-0000 do **not** apply to the Phase-1 headless CLI: spawning a
   process per call is slow, and each call is stateless. Those properties arrive
   with `gda-daemon` in Phase 2.
-- `gda-mcp` remains a thin adapter over whatever `gda` can do in the current phase.
+- `gda-mcp` is orthogonal to these phases: it is a thin adapter first delivered on
+  top of Phase 1, and it follows `gda` into Phase 2 automatically via the `--schema`
+  self-description (ADR-0004) rather than needing per-phase work. It is never itself a
+  phase; its order relative to other components follows ADR-0000 (after `gda`).
