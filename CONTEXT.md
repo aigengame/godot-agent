@@ -1,0 +1,34 @@
+# godot-agent
+
+The shared language of godot-agent: an agent-facing toolchain that lets AI agents
+drive the Godot engine to build games, with structured output suitable for
+programmatic consumption.
+
+## Language
+
+**gda**:
+The agent-facing Godot CLI — the bottom layer that exposes Godot operations with
+structured output. Other components build on it.
+_Avoid_: the CLI, godot-cli
+
+**gda-mcp**:
+A thin protocol-adapter that exposes `gda` capabilities as an MCP server.
+_Avoid_: the server, mcp wrapper
+
+**gda-daemon**:
+A long-lived process that holds a persistent connection to a running Godot
+engine, serving operations that require a live engine rather than a fresh
+headless process per call.
+_Avoid_: the service, background server
+
+**Headless operation**:
+An operation that can be fulfilled by spawning a one-shot `godot --headless`
+process — it needs no pre-existing engine state (e.g. create a scene, export,
+run a test). The basis of the first delivery phase.
+_Avoid_: batch op, offline op
+
+**Live operation**:
+An operation that requires an already-running engine/editor to observe or mutate
+in-place state (e.g. inspect the live scene tree, runtime inspection, UndoRedo,
+input simulation). Served through `gda-daemon`, not by a one-shot headless call.
+_Avoid_: realtime op, online op
