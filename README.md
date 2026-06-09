@@ -261,12 +261,15 @@ Track progress and proposals on the [issue tracker](https://github.com/aigengame
 
 Contributions are welcome. Before starting:
 
-- Read [`AGENTS.md`](AGENTS.md) and [`CONTEXT.md`](CONTEXT.md) to align with the project's
-  conventions and shared language.
-- Review the relevant [ADRs](docs/adr/) for the area you're touching.
+- Read [`CONTEXT.md`](CONTEXT.md) to align with the project's shared language, and review the
+  relevant [ADRs](docs/adr/) for the area you're touching.
 - Issues and PRDs live as GitHub issues in [`aigengame/godot-agent`](https://github.com/aigengame/godot-agent/issues).
 
 Commits follow the [Conventional Commits](https://www.conventionalcommits.org/) specification.
+
+> **Working with an AI coding agent?** This project is built to be agent-navigable.
+> [`AGENTS.md`](AGENTS.md) is the entry point for coding agents — it wires in the project's
+> rules, domain docs, and skills.
 
 ---
 
