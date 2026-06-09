@@ -7,13 +7,13 @@ bullet: it runs the headless ``info`` operation and reports the engine version.
 
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import NoReturn, Optional
 
 import typer
 
 from gda.binary import resolve_godot_binary
-from gda.models import EngineVersion
-from gda.parser import parse_result
+from gda.errors import Failure, classify_info
+from gda.models import GdaErrorEnvelope
 from gda.runner import GodotRunner, SubprocessGodotRunner
 
 app = typer.Typer(
@@ -40,6 +40,18 @@ def _make_runner(binary: Path) -> GodotRunner:
     return SubprocessGodotRunner(binary)
 
 
+def _fail(failure: Failure) -> NoReturn:
+    """Emit a structured error to stdout and exit non-zero (issue #3).
+
+    The error JSON is the stdout contract for the failure path (always emitted,
+    independent of ``--json``); the process exit code distinguishes categories.
+    ``NoReturn`` lets the type checker prove the caller's fallthrough narrows
+    the classification to the success model.
+    """
+    typer.echo(GdaErrorEnvelope(error=failure.error).model_dump_json())
+    raise typer.Exit(code=failure.exit_code)
+
+
 @app.command()
 def info(
     json_output: bool = typer.Option(
@@ -60,10 +72,11 @@ def info(
     # surfaced on stderr (ADR-0002).
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
-    if result.exit_code != 0:
-        raise typer.Exit(code=1)
 
-    version = EngineVersion.model_validate(parse_result(result.stdout))
+    outcome = classify_info(result, binary)
+    if isinstance(outcome, Failure):
+        _fail(outcome)
+    version = outcome
 
     if json_output:
         typer.echo(version.model_dump_json())

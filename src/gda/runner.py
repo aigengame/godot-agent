@@ -12,17 +12,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+# The codes the runner synthesizes when it never got a result from the engine.
+# Defined once in gda.exit_codes (the full exit-code ABI); imported here because
+# the runner is what produces them (issue #3).
+from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
+
 # The bundled GDScript operations payload, dispatched by operation name.
 OPERATIONS_GD = Path(__file__).parent / "ops" / "operations.gd"
 
 # A headless one-shot operation should be quick; this bounds a hung engine so
 # the CLI fails loudly instead of blocking forever.
 DEFAULT_TIMEOUT_SECONDS = 60.0
-
-# Non-zero exit codes used when the engine never produced its own (shell
-# conventions: 124 = timed out, 127 = command not found).
-_EXIT_TIMEOUT = 124
-_EXIT_NOT_FOUND = 127
 
 
 @dataclass
@@ -74,13 +74,13 @@ class SubprocessGodotRunner:
             return RunResult(
                 stdout="",
                 stderr=f"gda: Godot timed out after {self.timeout}s\n",
-                exit_code=_EXIT_TIMEOUT,
+                exit_code=EXIT_TIMEOUT,
             )
         except FileNotFoundError:
             return RunResult(
                 stdout="",
                 stderr=f"gda: Godot binary not found: {self.binary}\n",
-                exit_code=_EXIT_NOT_FOUND,
+                exit_code=EXIT_NOT_FOUND,
             )
         return RunResult(
             stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode
