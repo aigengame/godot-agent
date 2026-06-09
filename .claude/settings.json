@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"Reminder: if a requirement or technical decision changed this session, run /reconcile to sync issues and docs (CONTEXT.md, docs/adr/).\"}'"
+          }
+        ]
+      }
+    ]
+  }
+}
