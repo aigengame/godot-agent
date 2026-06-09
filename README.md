@@ -1,5 +1,7 @@
 # godot-agent (`gda`)
 
+![godot-agent title image](assets/godot-agent-title.png)
+
 > An agent-first **CLI and MCP server** that lets AI agents drive the [Godot Engine](https://godotengine.org) to build games — with **structured output** built for programmatic consumption.
 
 [![Status](https://img.shields.io/badge/status-Phase%201%20(in%20development)-orange)](#project-status)
