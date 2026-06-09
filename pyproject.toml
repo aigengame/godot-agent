@@ -5,6 +5,8 @@ description = "An agent-facing Godot CLI with structured output"
 authors = [
     { name = "haihong.qin", email = "haihongqin@gmail.com" }
 ]
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
     "pydantic>=2.13.4",
