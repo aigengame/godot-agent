@@ -53,7 +53,20 @@ semantics here, and deliberately scope out an overloaded interpretation.
   opposite direction; projection/filtering and external validation are better served
   by other means; caller-declared return shapes belong only to future open-ended ops.
 
+## `--schema` is mandatory for every domain command (hard gate)
+
+Once the mechanism lands on `gda info` (issue #4), every subsequent domain command
+ships with a working `--schema` as part of its **definition of done**: a passing
+`--schema` test is a merge gate, with **no exceptions**. The cost is near-zero — a
+command already defines a typed model to back `--json`, and `--schema` is derived from
+that same model — and the no-exceptions rule is exactly what guarantees `gda-mcp` can
+generate its entire tool surface mechanically. A single command without a schema would
+silently break that guarantee, so the gate is absolute rather than best-effort.
+
 ## Consequences
 
 - Adding a new `gda` command means defining its I/O models; `--json` and `--schema`
   then both come for free, and `gda-mcp` picks it up without bespoke work.
+- #4 (the `--schema` mechanism on `gda info`) is sequenced **before** any domain
+  command slice, so that the self-description gate above is enforceable from the first
+  domain command onward.

@@ -41,6 +41,17 @@ command on the same object (e.g. `gda scene create` vs a future live scene-inspe
 are siblings under the same `scene` group; the phase/operation kind is expressed in
 each command's `--schema` metadata, not by splitting the tree.
 
+## The command surface is delivered incrementally, not enumerated up front
+
+The surface grows **one vertical slice at a time** (ADR-0000), not as a pre-declared
+closed set. The full territory each group will eventually hold is tracked as a
+**non-binding roadmap** in [`docs/command-catalog.md`](../command-catalog.md), seeded
+from the `godot-mcp-pro` taxonomy and refined as we go. The catalog is a *map, not a
+commitment*: a command becomes a commitment only when its slice is picked up as an
+issue. This keeps the territory visible (for prioritisation and for agents) without
+forcing big-design-up-front. Every command that ships does so self-describing
+(`--schema`, ADR-0004) — a hard gate, no exceptions.
+
 ## Considered options
 
 - **Grouped by domain object** (chosen) — navigable, intuitive, extensible, clean MCP
