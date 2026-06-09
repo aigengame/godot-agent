@@ -14,20 +14,14 @@ const RESULT_END := "<<<GDA:END>>>"
 
 
 func _init() -> void:
-	var args := OS.get_cmdline_args()
-	var script_index := args.find("--script")
-	if script_index == -1:
-		_fail("could not find --script argument")
+	# Everything after `--` on the Godot command line — i.e. <operation>
+	# [params_json] — arrives here, independent of engine argument ordering.
+	var args := OS.get_cmdline_user_args()
+	if args.is_empty():
+		_fail("usage: godot --headless --script operations.gd -- <operation> [params_json]")
 		return
 
-	# The operation name sits two positions after --script (the script path
-	# itself is at script_index + 1).
-	var operation_index := script_index + 2
-	if args.size() <= operation_index:
-		_fail("usage: godot --headless --script operations.gd <operation> [params_json]")
-		return
-
-	var operation := args[operation_index]
+	var operation := args[0]
 
 	match operation:
 		"info":

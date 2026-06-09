@@ -14,7 +14,7 @@ import typer
 from gda.binary import resolve_godot_binary
 from gda.models import EngineVersion
 from gda.parser import parse_result
-from gda.runner import GodotRunner
+from gda.runner import GodotRunner, SubprocessGodotRunner
 
 app = typer.Typer(
     name="gda",
@@ -35,11 +35,8 @@ def main() -> None:
 def _make_runner(binary: Path) -> GodotRunner:
     """Build the default (real) Godot runner for ``binary``.
 
-    Imported lazily so tests can substitute a fake runner without constructing
-    the subprocess-backed implementation.
+    A seam tests override (via monkeypatch) to inject a fake runner.
     """
-    from gda.runner import SubprocessGodotRunner
-
     return SubprocessGodotRunner(binary)
 
 

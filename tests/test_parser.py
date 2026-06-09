@@ -1,5 +1,7 @@
 """S2: the result parser implements the ADR-0002 sentinel contract."""
 
+import pytest
+
 from gda.parser import parse_result
 
 
@@ -19,3 +21,12 @@ def test_extracts_json_ignoring_engine_noise():
     result = parse_result(stdout)
 
     assert result == {"major": 4, "minor": 6, "patch": 3, "status": "stable"}
+
+
+def test_empty_payload_raises_descriptive_error():
+    # A contract violation: the GDScript emitted adjacent sentinels with no
+    # payload. The parser should say so, not leak an opaque JSONDecodeError.
+    stdout = "noise\n<<<GDA:RESULT>>>   <<<GDA:END>>>\n"
+
+    with pytest.raises(ValueError, match="empty GDA result payload"):
+        parse_result(stdout)

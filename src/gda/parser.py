@@ -26,4 +26,7 @@ def parse_result(stdout: str) -> Any:
     end = stdout.find(RESULT_END, payload_start)
     if end == -1:
         raise ValueError("unterminated GDA result sentinel in stdout")
-    return json.loads(stdout[payload_start:end])
+    payload = stdout[payload_start:end].strip()
+    if not payload:
+        raise ValueError("empty GDA result payload between sentinels")
+    return json.loads(payload)

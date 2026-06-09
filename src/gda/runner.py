@@ -15,6 +15,15 @@ from typing import Protocol
 # The bundled GDScript operations payload, dispatched by operation name.
 OPERATIONS_GD = Path(__file__).parent / "ops" / "operations.gd"
 
+# A headless one-shot operation should be quick; this bounds a hung engine so
+# the CLI fails loudly instead of blocking forever.
+DEFAULT_TIMEOUT_SECONDS = 60.0
+
+# Non-zero exit codes used when the engine never produced its own (shell
+# conventions: 124 = timed out, 127 = command not found).
+_EXIT_TIMEOUT = 124
+_EXIT_NOT_FOUND = 127
+
 
 @dataclass
 class RunResult:
@@ -42,17 +51,37 @@ class SubprocessGodotRunner:
 
     binary: Path
     script: Path = OPERATIONS_GD
+    timeout: float = DEFAULT_TIMEOUT_SECONDS
 
     def run(self, operation: str, params: dict) -> RunResult:
+        # Everything after `--` is delivered to the script verbatim via
+        # OS.get_cmdline_user_args(), so the payload is decoupled from however
+        # Godot orders its own engine arguments.
         cmd = [
             str(self.binary),
             "--headless",
             "--script",
             str(self.script),
+            "--",
             operation,
             json.dumps(params),
         ]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=self.timeout
+            )
+        except subprocess.TimeoutExpired:
+            return RunResult(
+                stdout="",
+                stderr=f"gda: Godot timed out after {self.timeout}s\n",
+                exit_code=_EXIT_TIMEOUT,
+            )
+        except FileNotFoundError:
+            return RunResult(
+                stdout="",
+                stderr=f"gda: Godot binary not found: {self.binary}\n",
+                exit_code=_EXIT_NOT_FOUND,
+            )
         return RunResult(
             stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode
         )

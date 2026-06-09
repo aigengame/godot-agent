@@ -24,5 +24,12 @@ def resolve_godot_binary(
     """Resolve the Godot binary path using flag > env > default precedence."""
     if env is None:
         env = os.environ
-    raw = explicit or env.get(GODOT_BIN_ENV) or DEFAULT_GODOT_BIN
+    if explicit is not None:
+        # An explicit (even if empty) value is a deliberate choice; an empty
+        # one is a mistake we surface rather than silently override.
+        if not explicit:
+            raise ValueError("explicit Godot binary path is empty")
+        raw = explicit
+    else:
+        raw = env.get(GODOT_BIN_ENV) or DEFAULT_GODOT_BIN
     return Path(raw).expanduser()
