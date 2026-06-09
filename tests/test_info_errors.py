@@ -122,6 +122,31 @@ def test_missing_sentinel_maps_to_parse_error_distinct_from_operation(monkeypatc
     assert err["code"] == "contract_violation"
 
 
+def test_wrong_shape_sentinel_payload_maps_to_parse_error(monkeypatch):
+    # Sentinels present, payload is valid JSON, but it does not match the
+    # EngineVersion shape (e.g. the GDScript emitted a partial/renamed payload,
+    # or a non-object). This is still a contract violation — it must surface as
+    # a structured parse error, NOT an unhandled pydantic ValidationError that
+    # escapes as a traceback with exit 1.
+    _inject(
+        monkeypatch,
+        RunResult(
+            stdout='<<<GDA:RESULT>>>{"major": 4, "minor": 4}<<<GDA:END>>>\n',
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(app, ["info"])
+
+    # A clean exit (SystemExit via typer.Exit), NOT an escaped ValidationError.
+    assert isinstance(result.exception, SystemExit)
+    assert result.exit_code == 5
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "parse"
+    assert err["code"] == "contract_violation"
+
+
 def _version_payload(major: int, minor: int) -> str:
     info = {
         "major": major,

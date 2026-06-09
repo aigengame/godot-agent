@@ -23,6 +23,8 @@ categories apart without parsing the JSON error.
 from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from gda.models import EngineVersion, ErrorCategory, GdaError
 from gda.parser import parse_result
 from gda.runner import EXIT_NOT_FOUND, EXIT_TIMEOUT, RunResult
@@ -80,11 +82,15 @@ def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
         )
 
     try:
-        payload = parse_result(result.stdout)
-    except ValueError as exc:
-        # The sentinel block is missing, or the payload between sentinels is
-        # malformed JSON — a violation of the structured-output contract
-        # (ADR-0002), distinct from an operation error.
+        # The sentinel block must be present, hold valid JSON, AND match the
+        # result shape. A missing/empty sentinel or malformed JSON raises
+        # ValueError from parse_result; a well-formed-JSON-but-wrong-shape
+        # payload raises pydantic ValidationError. All three are the same
+        # violation of the structured-output contract (ADR-0002), distinct from
+        # an operation error — and must surface as a structured parse error
+        # rather than escape as a traceback.
+        version = EngineVersion.model_validate(parse_result(result.stdout))
+    except (ValueError, ValidationError) as exc:
         return Failure(
             GdaError(
                 category=ErrorCategory.PARSE,
@@ -94,8 +100,6 @@ def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
             ),
             exit_code=EXIT_PARSE,
         )
-
-    version = EngineVersion.model_validate(payload)
 
     if (version.major, version.minor) < MIN_GODOT_VERSION:
         # The engine ran fine but is older than gda supports (ADR-0003), making

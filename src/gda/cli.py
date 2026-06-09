@@ -7,7 +7,7 @@ bullet: it runs the headless ``info`` operation and reports the engine version.
 
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import NoReturn, Optional
 
 import typer
 
@@ -40,11 +40,13 @@ def _make_runner(binary: Path) -> GodotRunner:
     return SubprocessGodotRunner(binary)
 
 
-def _fail(failure: Failure) -> None:
+def _fail(failure: Failure) -> NoReturn:
     """Emit a structured error to stdout and exit non-zero (issue #3).
 
     The error JSON is the stdout contract for the failure path (always emitted,
     independent of ``--json``); the process exit code distinguishes categories.
+    ``NoReturn`` lets the type checker prove the caller's fallthrough narrows
+    the classification to the success model.
     """
     typer.echo(GdaErrorEnvelope(error=failure.error).model_dump_json())
     raise typer.Exit(code=failure.exit_code)
