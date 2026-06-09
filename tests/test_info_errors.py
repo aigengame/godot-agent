@@ -101,6 +101,25 @@ def test_operation_failure_maps_to_operation_error_distinct_from_environment(mon
     assert "unknown operation" in result.stderr
 
 
+def test_engine_signal_crash_maps_to_operation_error_distinct_from_clean_exit(monkeypatch):
+    # subprocess reports a signal death as a NEGATIVE return code. The engine
+    # ran but was killed (e.g. SIGSEGV) — surfaced as an engine_crashed code,
+    # distinct from a clean non-zero operation exit, never a raw negative code.
+    _inject(
+        monkeypatch,
+        RunResult(stdout="", stderr="", exit_code=-11),
+    )
+
+    result = CliRunner().invoke(app, ["info"])
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "engine_crashed"
+    # The signal number is surfaced for diagnosis.
+    assert "11" in err["message"]
+
+
 def test_missing_sentinel_maps_to_parse_error_distinct_from_operation(monkeypatch):
     # The engine exited 0 but stdout carries no result sentinel — a violation
     # of the structured-output contract (ADR-0002), distinct from an operation

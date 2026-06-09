@@ -12,13 +12,19 @@ from pydantic import BaseModel
 
 
 class ErrorCategory(str, Enum):
-    """The four distinguishable ways a ``gda`` operation can fail (issue #3).
+    """The four coarse buckets a ``gda`` operation can fail into (issue #3).
+
+    This is the coarse axis; each category fans out to one or more finer,
+    stable ``GdaError.code`` values (e.g. ENVIRONMENT → ``binary_not_found`` /
+    ``launch_timeout``; OPERATION → ``operation_failed`` / ``engine_crashed``).
+    See ``gda.errors.classify_info`` for the category→code decision tree.
 
     ENVIRONMENT covers everything before the operation produces a result — the
     binary not launching, or launching and hanging past the timeout. VERSION is
-    a launched engine below the supported minimum (ADR-0003). OPERATION is the
-    headless operation itself reporting an error. PARSE is a violation of the
-    structured-output contract (ADR-0002): a missing or malformed sentinel.
+    a launched engine below the supported minimum (ADR-0003). OPERATION is a
+    launched engine that failed to deliver a result (the operation reported an
+    error, or the engine crashed). PARSE is a violation of the structured-output
+    contract (ADR-0002): a missing/malformed sentinel or a wrong-shape payload.
     """
 
     ENVIRONMENT = "environment"
