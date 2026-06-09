@@ -6,6 +6,7 @@
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
 [![Godot](https://img.shields.io/badge/godot-4.4%2B%20(tested%204.6)-478CBF)](https://godotengine.org)
 [![Package manager](https://img.shields.io/badge/packaging-uv-DE5FE9)](https://github.com/astral-sh/uv)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 `godot-agent` lets AI agents drive the Godot engine through **structured, machine-readable
 operations** rather than raw logs: an agent issues an operation and gets back a single clean
@@ -280,5 +281,4 @@ strengths (see [ADR-0001](docs/adr/0001-godot-integration-mechanism.md)).
 
 ## License
 
-A license has not yet been finalized for this project. Until one is added, all rights are reserved
-by the authors. If you intend to use `gda`, please open an issue to discuss.
+Released under the [MIT License](LICENSE). Copyright (c) 2026 aigengame.
