@@ -59,12 +59,14 @@ for the full picture.
 - ✅ Structured errors for every `gda info` failure mode — a stable `{"error": {category, code,
   message, diagnostics}}` JSON object on stdout plus a category-distinguishing non-zero exit code
   (environment 127/124, version 3, operation 4, parse 5); stderr carries engine diagnostics.
+- ✅ `gda info --schema` — model-driven self-description: emits the command's `input` and `output`
+  JSON Schemas, derived from the same typed models that back `--json`, without spawning Godot
+  ([ADR-0004](docs/adr/0004-schema-flag-self-description.md)).
 - ✅ `gda --help`, `gda info --help`.
 - ✅ Godot binary resolution via flag / environment variable / default.
 
 **On the roadmap** (designed, not yet implemented)
 
-- 🔜 `--schema` self-description for each command.
 - 🔜 Domain command groups: `scene`, `node`, `script`, `project`, `resource`, `export`, …
 - 🔜 `gda-mcp`, a thin [Model Context Protocol](https://modelcontextprotocol.io) adapter generated
   from `--schema`.
@@ -177,7 +179,7 @@ gda <meta-command> [options]        # meta commands about gda/the engine, e.g. g
 | Flag       | Description                                                          |
 | ---------- | ------------------------------------------------------------------- |
 | `--json`   | Emit the result as a single JSON object on stdout.                  |
-| `--schema` | *(planned)* Emit the command's input/output JSON Schema contract.   |
+| `--schema` | Emit the command's input/output JSON Schema contract (no Godot spawned). |
 | `--help`   | Show usage for `gda` or any command.                                |
 
 ---

@@ -13,7 +13,7 @@ import typer
 
 from gda.binary import resolve_godot_binary
 from gda.errors import Failure, classify_info
-from gda.models import GdaErrorEnvelope
+from gda.models import CommandSchema, EngineVersion, GdaErrorEnvelope, InfoParams
 from gda.runner import GodotRunner, SubprocessGodotRunner
 
 app = typer.Typer(
@@ -57,6 +57,11 @@ def info(
     json_output: bool = typer.Option(
         False, "--json", help="Emit the result as a single JSON object."
     ),
+    schema: bool = typer.Option(
+        False,
+        "--schema",
+        help="Emit this command's input/output JSON Schemas; no Godot is spawned.",
+    ),
     godot: Optional[str] = typer.Option(
         None,
         "--godot",
@@ -64,6 +69,13 @@ def info(
     ),
 ) -> None:
     """Report the Godot engine version info."""
+    if schema:
+        # Local, no-Godot self-description (ADR-0004): derived from the same
+        # typed models that back --json. Short-circuit before touching the
+        # engine — no binary resolution, no process spawned.
+        typer.echo(CommandSchema.of(InfoParams, EngineVersion).model_dump_json())
+        return
+
     binary = resolve_godot_binary(godot)
     runner = _make_runner(binary)
     result = runner.run("info", {})

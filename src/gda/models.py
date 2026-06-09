@@ -7,6 +7,7 @@ hand-maintaining the contract twice.
 """
 
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -56,6 +57,39 @@ class GdaErrorEnvelope(BaseModel):
     """
 
     error: GdaError
+
+
+class InfoParams(BaseModel):
+    """The operation params of ``gda info`` — none (ADR-0004).
+
+    ``gda info`` takes no operation params, so its ``input`` schema is trivially
+    empty; this is expected, not an error. The model still exists so the
+    ``--schema`` document is derived model-side rather than hand-written.
+    """
+
+
+class CommandSchema(BaseModel):
+    """A command's self-description: its ``input`` and ``output`` JSON Schemas (ADR-0004).
+
+    ``--schema`` emits this. Both halves are derived from the command's typed
+    models via :meth:`of`, so the contract is never hand-maintained: ``input``
+    from the params model, ``output`` from the same result model that backs
+    ``--json``. ``gda-mcp`` later maps ``input`` → ``inputSchema`` and ``output``
+    → ``outputSchema`` mechanically.
+    """
+
+    input: dict[str, Any]
+    output: dict[str, Any]
+
+    @classmethod
+    def of(
+        cls, input_model: type[BaseModel], output_model: type[BaseModel]
+    ) -> "CommandSchema":
+        """Derive the contract from a command's params and result models."""
+        return cls(
+            input=input_model.model_json_schema(),
+            output=output_model.model_json_schema(),
+        )
 
 
 class EngineVersion(BaseModel):
