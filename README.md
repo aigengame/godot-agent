@@ -7,10 +7,18 @@
 [![Godot](https://img.shields.io/badge/godot-4.4%2B%20(tested%204.6)-478CBF)](https://godotengine.org)
 [![Package manager](https://img.shields.io/badge/packaging-uv-DE5FE9)](https://github.com/astral-sh/uv)
 
-`gda` is a command-line interface to Godot designed for **agents, not humans staring at logs**.
-Where a normal Godot headless run mixes its banner, warnings, and `print()` output
-into one stream, `gda` returns a single clean JSON object you can parse with confidence —
-and is built so that every command is self-describing for downstream tooling.
+`godot-agent` lets AI agents drive the Godot engine through **structured, machine-readable
+operations** rather than raw logs: an agent issues an operation and gets back a single clean
+result it can act on, not prose it has to scrape.
+
+It is delivered as three layers: **`gda`**, the agent-facing CLI that exposes Godot operations
+with structured `--json` output and self-describing schemas; **`gda-mcp`**, a thin
+[Model Context Protocol](https://modelcontextprotocol.io) server that turns those same
+capabilities into MCP tools, derived mechanically from `gda`'s schemas; and **`gda-daemon`**, a
+long-lived process holding a persistent connection to a running engine to serve *live operations*
+that a one-shot headless process cannot. `gda` lands first as a standalone headless CLI (Phase 1);
+live operations follow through `gda-daemon` (Phase 2). See [Architecture](#architecture-at-a-glance)
+for the full picture.
 
 ---
 
