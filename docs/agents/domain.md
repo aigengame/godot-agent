@@ -18,7 +18,7 @@ This is a single-context repo:
 /
 ├── CONTEXT.md
 ├── docs/adr/
-│   ├── 0000-architechture-design.md
+│   ├── 0000-architecture-design.md
 │   └── ...
 └── src/
 ```
