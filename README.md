@@ -1,18 +1,276 @@
-# godot-agent (gd-agent)
+# godot-agent (`gda`)
 
-An agent-friendly CLI and MCP server that empowers agents to seamlessly control the Godot engine and develop games.
+> An agent-first **CLI and MCP server** that lets AI agents drive the [Godot Engine](https://godotengine.org) to build games — with **structured output** built for programmatic consumption.
 
+[![Status](https://img.shields.io/badge/status-Phase%201%20(in%20development)-orange)](#project-status)
+[![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
+[![Godot](https://img.shields.io/badge/godot-4.4%2B%20(tested%204.6)-478CBF)](https://godotengine.org)
+[![Package manager](https://img.shields.io/badge/packaging-uv-DE5FE9)](https://github.com/astral-sh/uv)
+
+`gda` is a command-line interface to Godot designed for **agents, not humans staring at logs**.
+Where a normal Godot headless run mixes its banner, warnings, and `print()` output
+into one stream, `gda` returns a single clean JSON object you can parse with confidence —
+and is built so that every command is self-describing for downstream tooling.
 
 ---
 
-## 🚀 Features 
+## Why `gda`?
 
-- **Agentic Workflow Ready**: Designed from the ground up for agents .
-- **Godot Integration**: Deep bridging into Godot's ecosystem (project management, scene parsing, GDScript execution, and build pipelines).
-- **CLI with Structured Output**: Built for programmatic execution. Supports `--json` flags to output strict JSON schemas.
-- **Model Context Protocol (MCP)**: Native MCP server support, allowing agents to inspect, edit, and build Godot projects through standard protocol contexts.
-
+- **🤖 Agent-first, structured output.** Every command supports `--json` and emits exactly one
+  result object on stdout. Engine noise and diagnostics are routed to stderr, so an agent never
+  has to scrape prose. See the [structured-output contract](#the-structured-output-contract).
+- **📐 Model-driven & self-describing.** Each command's input and output are defined as typed
+  models. The same model serializes `--json` today and will emit a machine-readable `--schema`
+  (a JSON Schema contract) — so an MCP adapter can generate tool definitions mechanically instead
+  of hand-maintaining them. *(See [ADR-0004](docs/adr/0004-schema-flag-self-description.md).)*
+- **🧩 Godot-native command surface.** Commands are grouped by Godot domain object
+  (`gda scene create`, `gda node add`, …) with a small, orthogonal verb vocabulary — zero learning
+  cost if you already know Godot. *(See [ADR-0005](docs/adr/0005-cli-command-taxonomy.md).)*
+- **📦 Standalone, no service required.** The first delivery fulfils *headless operations* by
+  spawning one-shot `godot --headless` processes — nothing to install in the editor, no daemon to
+  run. Live, stateful operations arrive later behind the same CLI. *(See [ADR-0001](docs/adr/0001-godot-integration-mechanism.md).)*
+- **🛡️ Fails loudly, not silently.** A missing or hung engine is bounded by a timeout and mapped
+  to a non-zero exit with a clear diagnostic — never an indefinite hang or a raw traceback.
 
 ---
 
-## 🛠️ Installation 
+## Project status
+
+> **`gda` is in active early development (Phase 1).** The architecture and contracts are settled
+> (see [`CONTEXT.md`](CONTEXT.md) and [`docs/adr/`](docs/adr/)), and the first end-to-end slice ships
+> today. This README documents the working surface *and* the roadmap, and is explicit about which
+> is which.
+
+**Working today**
+
+- ✅ `gda info` / `gda info --json` — report the Godot engine version through the full Phase-1
+  pipeline (binary resolution → headless one-shot runner → sentinel contract → typed model → JSON).
+- ✅ `gda --help`, `gda info --help`.
+- ✅ Godot binary resolution via flag / environment variable / default.
+
+**On the roadmap** (designed, not yet implemented)
+
+- 🔜 Structured errors and stable non-zero exit codes for every failure mode.
+- 🔜 `--schema` self-description for each command.
+- 🔜 Domain command groups: `scene`, `node`, `script`, `project`, `resource`, `export`, …
+- 🔜 `gda-mcp`, a thin [Model Context Protocol](https://modelcontextprotocol.io) adapter generated
+  from `--schema`.
+- 🔜 `gda-daemon` for *live operations* against a running engine (Phase 2).
+
+See the [roadmap](#roadmap) and the [issue tracker](https://github.com/aigengame/godot-agent/issues).
+
+---
+
+## Architecture at a glance
+
+`gda` is delivered bottom-up as three components and in two capability phases:
+
+| Component     | Role                                                                                   | Phase |
+| ------------- | -------------------------------------------------------------------------------------- | ----- |
+| **`gda`**     | The agent-facing Godot CLI — the bottom layer that exposes Godot with structured output | 1     |
+| **`gda-mcp`** | A thin MCP adapter that exposes `gda`'s capabilities as MCP tools, derived from `--schema` | 1+    |
+| **`gda-daemon`** | A long-lived process holding a persistent connection to a running engine for *live operations* | 2     |
+
+- **Headless operations** need no pre-existing engine state and are fulfilled by a one-shot
+  `godot --headless` process (e.g. report version, create a scene, export). This is the basis of
+  **Phase 1**.
+- **Live operations** require an already-running engine (live scene tree, runtime inspection,
+  UndoRedo, input simulation) and are served by `gda-daemon` in **Phase 2**.
+
+The vocabulary above is defined precisely in [`CONTEXT.md`](CONTEXT.md); the decisions behind it live
+in [`docs/adr/`](docs/adr/).
+
+---
+
+## Requirements
+
+- **[uv](https://github.com/astral-sh/uv)** — the Python toolchain/package manager used by this project.
+- **Python 3.13+** (uv can provision this for you).
+- **Godot 4.4+** — `gda` targets Godot 4.x with a minimum of 4.4; 4.6 is the tested baseline.
+  3.x is not supported. *(See [ADR-0003](docs/adr/0003-target-godot-version.md).)*
+
+---
+
+## Installation
+
+`gda` is not yet published to a package index; install it from source with `uv`.
+
+```bash
+git clone https://github.com/aigengame/godot-agent.git
+cd godot-agent
+uv sync          # create the environment and install dependencies
+uv run gda --help
+```
+
+To install `gda` as a standalone CLI on your `PATH`:
+
+```bash
+uv tool install .
+gda --help
+```
+
+---
+
+## Quick start
+
+Point `gda` at your Godot binary and ask for the engine version:
+
+```bash
+# Use the GDA_GODOT environment variable (or the --godot flag, or the default path)
+export GDA_GODOT="/path/to/Godot"
+
+gda info --json
+```
+
+```json
+{"major":4,"minor":6,"patch":3,"hex":263683,"status":"stable","build":"official","hash":"7d41c59c457bd5a245092b4e7eb2d833e3b3f8c3","string":"4.6.3-stable (official)","timestamp":0}
+```
+
+Without `--json`, `gda info` prints the human-readable version string (`4.6.3-stable (official)`).
+All engine and script diagnostics go to **stderr**, so stdout is always clean JSON you can pipe:
+
+```bash
+gda info --json | jq .major   # → 4
+```
+
+---
+
+## Usage
+
+### Command surface
+
+`gda` commands are **grouped by Godot domain object** and use a small, consistent verb vocabulary,
+so the same verb means the same thing in every group:
+
+```
+gda <group> <command> [options]     # domain commands, e.g. gda scene create
+gda <meta-command> [options]        # meta commands about gda/the engine, e.g. gda info
+```
+
+| Verb                     | Meaning                                                          |
+| ------------------------ | ---------------------------------------------------------------- |
+| `create` / `delete`      | Make / remove a **standalone** entity (scene, script, resource)  |
+| `add` / `remove`         | Add / remove a **sub-entity** within a container (node → scene)  |
+| `get` / `list`           | Read one entity / enumerate many                                 |
+| `set`                    | Mutate a property                                                |
+| domain verbs             | `play`, `run`, `export`, `import`, … kept with their natural meaning |
+
+> Today only the `info` meta command is implemented. The domain command groups
+> (`scene`, `node`, `script`, …) are on the [roadmap](#roadmap). The taxonomy and naming rules are
+> specified in [ADR-0005](docs/adr/0005-cli-command-taxonomy.md).
+
+### Global flags
+
+| Flag       | Description                                                          |
+| ---------- | ------------------------------------------------------------------- |
+| `--json`   | Emit the result as a single JSON object on stdout.                  |
+| `--schema` | *(planned)* Emit the command's input/output JSON Schema contract.   |
+| `--help`   | Show usage for `gda` or any command.                                |
+
+---
+
+## Configuration
+
+`gda` resolves the Godot binary in this order (highest precedence first):
+
+1. The **`--godot <path>`** flag.
+2. The **`GDA_GODOT`** environment variable.
+3. A **default development path** — `~/Applications/Godot.app/Contents/MacOS/Godot` (macOS).
+   On other platforms, set `GDA_GODOT` or pass `--godot`.
+
+```bash
+gda info --godot "/Applications/Godot.app/Contents/MacOS/Godot" --json
+```
+
+---
+
+## The structured-output contract
+
+Headless Godot interleaves its banner, warnings, and `print()` output into stdout. `gda` solves this
+with a sentinel contract ([ADR-0002](docs/adr/0002-headless-structured-output-contract.md)):
+
+- The GDScript payload emits **exactly one** result, wrapped in unique sentinels on stdout:
+
+  ```
+  <<<GDA:RESULT>>>{ ...json... }<<<GDA:END>>>
+  ```
+
+- It routes **all** of its own diagnostics to stderr; stdout carries nothing but the contract.
+- `gda` extracts and parses only the bytes between the sentinels, ignoring the surrounding engine
+  noise, and surfaces stderr for inspection.
+
+This is what makes `gda`'s output safe to consume programmatically, and it generalizes to the
+per-message protocol the daemon will use in Phase 2.
+
+---
+
+## Development
+
+```bash
+uv sync                       # set up the environment
+
+uv run pytest                 # run the full suite (includes an e2e test against a real Godot)
+uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
+uv run pytest -m e2e          # only the end-to-end test (needs Godot 4.4+ on this machine)
+```
+
+The `e2e` test auto-skips if no Godot binary is found at the resolved path.
+
+### Project layout
+
+```
+src/gda/
+  cli.py            # CLI entrypoint (Typer); commands, --json, binary override
+  binary.py         # Godot binary resolution (flag > $GDA_GODOT > default)
+  runner.py         # GodotRunner seam (Protocol) + SubprocessGodotRunner (one-shot headless)
+  parser.py         # sentinel-contract result parser (ADR-0002)
+  models.py         # typed result models (Pydantic) backing --json and --schema (ADR-0004)
+  ops/operations.gd # GDScript payload, dispatched by operation name
+tests/              # unit tests + an e2e test against a real engine
+docs/adr/           # architecture decision records
+CONTEXT.md          # the project's shared domain language
+```
+
+The codebase is intentionally built around **fakeable seams** (e.g. the `GodotRunner` Protocol) so
+commands can be tested without launching a real engine.
+
+---
+
+## Roadmap
+
+| Phase       | Delivers                                                                            |
+| ----------- | ----------------------------------------------------------------------------------- |
+| **Phase 1** | `gda` serving *headless operations* standalone: `info`, structured errors, `--schema`, and domain command groups (`scene`, `node`, `script`, `project`, `resource`, `export`, …). |
+| **`gda-mcp`** | A thin MCP adapter generated mechanically from `--schema` — first on top of Phase 1, following `gda` forward automatically. |
+| **Phase 2** | `gda` also serving *live operations* through `gda-daemon`'s persistent engine connection. |
+
+Track progress and proposals on the [issue tracker](https://github.com/aigengame/godot-agent/issues).
+
+---
+
+## Contributing
+
+Contributions are welcome. Before starting:
+
+- Read [`AGENTS.md`](AGENTS.md) and [`CONTEXT.md`](CONTEXT.md) to align with the project's
+  conventions and shared language.
+- Review the relevant [ADRs](docs/adr/) for the area you're touching.
+- Issues and PRDs live as GitHub issues in [`aigengame/godot-agent`](https://github.com/aigengame/godot-agent/issues).
+
+Commits follow the [Conventional Commits](https://www.conventionalcommits.org/) specification.
+
+---
+
+## Acknowledgements
+
+`gda`'s design draws on two reference implementations from the Godot + agent ecosystem: the
+one-shot-headless approach of `godot-mcp` and the persistent editor-plugin approach of
+`godot-mcp-pro`. `gda` deliberately adopts a **hybrid, phased** strategy that combines their
+strengths (see [ADR-0001](docs/adr/0001-godot-integration-mechanism.md)).
+
+---
+
+## License
+
+A license has not yet been finalized for this project. Until one is added, all rights are reserved
+by the authors. If you intend to use `gda`, please open an issue to discuss.
