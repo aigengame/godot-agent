@@ -77,8 +77,12 @@ Per `domain.md`: if a finding contradicts an accepted ADR, surface it explicitly
 
 ## Hook sample (propose, never auto-add — HITL)
 
-A Stop hook that auto-invokes reconciliation at session end. Review timing/behavior with the user
-before writing to `settings.json`.
+A Stop hook that reminds to run reconciliation at session end. Review timing/behavior with the
+user before writing to `settings.json`.
+
+For a `Stop` event, exit-0 stdout goes to the **debug log**, not the transcript — a plain
+`echo 'reminder'` fires invisibly. To surface a message to the user, emit JSON with a
+`systemMessage` field (still exit 0, still non-blocking):
 
 ```jsonc
 // .claude/settings.json
@@ -86,15 +90,16 @@ before writing to `settings.json`.
   "hooks": {
     "Stop": [
       {
-        "matcher": "",
         "hooks": [
-          { "type": "command", "command": "echo 'Consider running /reconcile if a decision changed this session.'" }
+          { "type": "command", "command": "echo '{\"systemMessage\": \"Consider running /reconcile if a decision changed this session.\"}'" }
         ]
       }
     ]
   }
 }
 ```
+
+(`matcher` is omitted — it has no meaning for `Stop`, which carries no tool context.)
 
 A `git` pre-commit alternative belongs in `.git/hooks/pre-commit` or the repo's hook manager; it
 should likewise only *remind*, since reconcile is HITL and must not block on un-confirmed edits.
