@@ -56,12 +56,14 @@ for the full picture.
 
 - ✅ `gda info` / `gda info --json` — report the Godot engine version through the full Phase-1
   pipeline (binary resolution → headless one-shot runner → sentinel contract → typed model → JSON).
+- ✅ Structured errors for every `gda info` failure mode — a stable `{"error": {category, code,
+  message, diagnostics}}` JSON object on stdout plus a category-distinguishing non-zero exit code
+  (environment 127/124, version 3, operation 4, parse 5); stderr carries engine diagnostics.
 - ✅ `gda --help`, `gda info --help`.
 - ✅ Godot binary resolution via flag / environment variable / default.
 
 **On the roadmap** (designed, not yet implemented)
 
-- 🔜 Structured errors and stable non-zero exit codes for every failure mode.
 - 🔜 `--schema` self-description for each command.
 - 🔜 Domain command groups: `scene`, `node`, `script`, `project`, `resource`, `export`, …
 - 🔜 `gda-mcp`, a thin [Model Context Protocol](https://modelcontextprotocol.io) adapter generated

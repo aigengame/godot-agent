@@ -6,7 +6,50 @@ the ``--schema`` document later (``model_json_schema()``) without
 hand-maintaining the contract twice.
 """
 
+from enum import Enum
+
 from pydantic import BaseModel
+
+
+class ErrorCategory(str, Enum):
+    """The four distinguishable ways a ``gda`` operation can fail (issue #3).
+
+    ENVIRONMENT covers everything before the operation produces a result — the
+    binary not launching, or launching and hanging past the timeout. VERSION is
+    a launched engine below the supported minimum (ADR-0003). OPERATION is the
+    headless operation itself reporting an error. PARSE is a violation of the
+    structured-output contract (ADR-0002): a missing or malformed sentinel.
+    """
+
+    ENVIRONMENT = "environment"
+    VERSION = "version"
+    OPERATION = "operation"
+    PARSE = "parse"
+
+
+class GdaError(BaseModel):
+    """A structured, stable failure of a ``gda`` operation (issue #3).
+
+    Emitted as ``{"error": <this>}`` on stdout so an agent reacts to failure
+    modes programmatically without parsing prose. ``category`` is the coarse,
+    process-exit-code-aligned bucket; ``code`` is the finer, stable identifier;
+    ``diagnostics`` carries the engine/script stderr surfaced per ADR-0002.
+    """
+
+    category: ErrorCategory
+    code: str
+    message: str
+    diagnostics: str = ""
+
+
+class GdaErrorEnvelope(BaseModel):
+    """The ``{"error": {...}}`` wrapper that discriminates a failure from a result.
+
+    The success result (``EngineVersion``) is emitted bare, so the presence of
+    the top-level ``error`` key is the stable success/failure discriminator.
+    """
+
+    error: GdaError
 
 
 class EngineVersion(BaseModel):

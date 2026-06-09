@@ -41,3 +41,26 @@ def test_gda_info_json_against_real_godot():
     assert isinstance(data["string"], str)
     # The reported version satisfies the minimum supported version (ADR-0003).
     assert (data["major"], data["minor"]) >= (4, 4)
+
+
+@pytest.mark.e2e
+def test_gda_info_missing_binary_yields_structured_error_end_to_end():
+    # The failure path through the whole stack (issue #3): a real subprocess
+    # against a binary that cannot launch. No installed engine required — the
+    # point is that the path does NOT exist. The runner synthesizes exit 127,
+    # the CLI emits a structured JSON error on stdout.
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+
+    proc = subprocess.run(
+        [gda_bin, "info", "--godot", "/nonexistent/Godot"],
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.returncode == 127
+    err = json.loads(proc.stdout)["error"]
+    assert err["category"] == "environment"
+    assert err["code"] == "binary_not_found"
+    # Engine/script diagnostics are surfaced on stderr (ADR-0002).
+    assert "/nonexistent/Godot" in proc.stderr
