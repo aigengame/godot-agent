@@ -33,7 +33,7 @@ Status legend: ✅ shipped · 🔜 Phase-1 candidate · ⏸ Phase-2 (parked).
 | `gda info` | Report Godot engine version info | 1 | ✅ |
 | `gda version` | Report `gda`'s own version | — (local) | 🔜 |
 | `gda help` | Usage help | — (local) | ✅ (`--help`) |
-| `gda <command> --schema` | Emit a command's input/output JSON Schema (ADR-0004) | — (local) | 🔜 (#4) |
+| `gda <command> --schema` | Emit a command's input/output JSON Schema (ADR-0004) | — (local) | ✅ (`info`, #4) |
 
 > `--schema` is a per-command flag, not a command, and ships with **every** domain
 > command as a hard gate (ADR-0004). It is local introspection — no Godot process.
