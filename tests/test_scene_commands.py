@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import RunResult
-from tests.support import inject_runner, sentinel
+from tests.support import FakeRunner, inject_runner, sentinel
 
 CREATE_RESULT = {
     "path": "/tmp/proj/main.tscn",
@@ -76,3 +76,37 @@ def test_scene_get_json_emits_structured_node_tree_and_exit_zero(monkeypatch):
     assert data["root"]["children"][0]["type"] == "Sprite2D"
     assert data["root"]["children"][0]["children"][0]["name"] == "Hitbox"
     assert fake.calls == [("scene-get", {"path": "/tmp/proj/main.tscn"})]
+
+
+def test_scene_get_passes_resolved_project_to_the_runner(monkeypatch, tmp_path):
+    # --project resolves to a project dir and is handed to the runner (which
+    # turns it into the engine's --path so res:// resolves there, issue #32).
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    seen: dict = {}
+
+    def record(binary, project):
+        seen["project"] = project
+        return FakeRunner(RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0))
+
+    monkeypatch.setattr("gda.cli._make_runner", record)
+
+    result = CliRunner().invoke(
+        app, ["scene", "get", "res://main.tscn", "--project", str(tmp_path), "--json"]
+    )
+
+    assert result.exit_code == 0
+    assert seen["project"] == tmp_path
+
+
+def test_scene_get_expands_user_home_in_filesystem_path_but_not_res(monkeypatch):
+    # Path normalization lives at the CLI layer (issue #32): a filesystem path
+    # gets ~ expanded; an engine-resolved res:// path passes through untouched.
+    fake = inject_runner(monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0))
+
+    CliRunner().invoke(app, ["scene", "get", "~/game/main.tscn", "--json"])
+    assert "~" not in fake.calls[0][1]["path"]
+    assert fake.calls[0][1]["path"].endswith("/game/main.tscn")
+
+    fake.calls.clear()
+    CliRunner().invoke(app, ["scene", "get", "res://main.tscn", "--json"])
+    assert fake.calls[0][1]["path"] == "res://main.tscn"

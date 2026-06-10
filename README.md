@@ -191,9 +191,11 @@ gda <meta-command> [options]        # meta commands about gda/the engine, e.g. g
 
 | Flag       | Description                                                          |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`   | Emit the result as a single JSON object on stdout. Without it, commands print a concise human-readable rendering. |
-| `--schema` | Emit the command's input/output JSON Schema contract (no Godot spawned). |
-| `--help`   | Show usage for `gda` or any command.                                |
+| `--json`    | Emit the result as a single JSON object on stdout. Without it, commands print a concise human-readable rendering. |
+| `--schema`  | Emit the command's input/output JSON Schema contract (no Godot spawned). |
+| `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT` and the default). |
+| `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. |
+| `--help`    | Show usage for `gda` or any command.                                |
 
 ---
 
@@ -208,6 +210,25 @@ gda <meta-command> [options]        # meta commands about gda/the engine, e.g. g
 
 ```bash
 gda info --godot "/Applications/Godot.app/Contents/MacOS/Godot" --json
+```
+
+### Project context
+
+Domain commands resolve a **Godot project** so that `res://` paths and a scene's
+inter-resource references resolve deterministically, in this order (highest precedence first):
+
+1. The **`--project <dir>`** flag.
+2. The **`GDA_PROJECT`** environment variable.
+3. The **current directory**, when it is a Godot project (contains `project.godot`).
+
+A named directory must be a project, or `gda` reports it as an error. When none resolves, `gda`
+runs **projectless** — only filesystem paths (absolute or cwd-relative) resolve, not `res://`.
+Path normalization happens once at the CLI layer: `res://` / `user://` / `uid://` pass through to
+the engine; filesystem paths get `~` expanded. See
+[ADR-0006](docs/adr/0006-project-context-and-path-resolution.md).
+
+```bash
+gda scene get res://main.tscn --project ~/game --json
 ```
 
 ---

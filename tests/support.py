@@ -32,5 +32,5 @@ def sentinel(payload: dict) -> str:
 def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
     """Swap the CLI's runner seam for a ``FakeRunner`` returning ``result``."""
     fake = FakeRunner(result)
-    monkeypatch.setattr("gda.cli._make_runner", lambda binary: fake)
+    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
     return fake

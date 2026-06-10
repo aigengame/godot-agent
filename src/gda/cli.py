@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from gda.binary import resolve_godot_binary
 from gda.errors import Failure, classify_info, classify_run
+from gda.project import resolve_project_dir
 from gda.models import (
     CommandSchema,
     EngineVersion,
@@ -51,12 +52,12 @@ def main() -> None:
     # the top level, as Typer does for a single-command app.
 
 
-def _make_runner(binary: Path) -> GodotRunner:
-    """Build the default (real) Godot runner for ``binary``.
+def _make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
+    """Build the default (real) Godot runner for ``binary`` and ``project``.
 
     A seam tests override (via monkeypatch) to inject a fake runner.
     """
-    return SubprocessGodotRunner(binary)
+    return SubprocessGodotRunner(binary, project=project)
 
 
 def _json_option() -> bool:
@@ -71,6 +72,27 @@ def _godot_option() -> Optional[str]:
         "--godot",
         help="Path to the Godot binary (overrides $GDA_GODOT and the default).",
     )
+
+
+def _project_option() -> Optional[str]:
+    return typer.Option(
+        None,
+        "--project",
+        help="Godot project directory for res:// resolution "
+        "(overrides $GDA_PROJECT; defaults to the current directory if it is a project).",
+    )
+
+
+def _normalize_path(path: str) -> str:
+    """Normalize a path argument at the CLI layer (issue #32).
+
+    Engine-resolved virtual paths (``res://``, ``user://``, ``uid://``) pass
+    through untouched — the engine resolves them against the project. A
+    filesystem path gets ``~`` expanded so a literal ``~`` works without a shell.
+    """
+    if "://" in path:
+        return path
+    return str(Path(path).expanduser())
 
 
 def _schema_option(
@@ -120,16 +142,18 @@ def _run_classified(
     params: BaseModel,
     classify: Callable[[RunResult, Path], M | Failure],
     godot: Optional[str],
+    project: Optional[Path] = None,
 ) -> M:
     """Drive the shared headless pipeline to a typed success model.
 
-    Resolve the binary, run ``operation`` with the typed params, surface
-    engine/script diagnostics on stderr (ADR-0002), classify the raw result,
-    and on failure emit the structured error and exit — so each command body
-    is reduced to its params, its classifier, and its output rendering.
+    Resolve the binary, run ``operation`` with the typed params against the
+    resolved ``project`` (``None`` runs projectless), surface engine/script
+    diagnostics on stderr (ADR-0002), classify the raw result, and on failure
+    emit the structured error and exit — so each command body is reduced to its
+    params, its classifier, and its output rendering.
     """
     binary = resolve_godot_binary(godot)
-    runner = _make_runner(binary)
+    runner = _make_runner(binary, project)
     result = runner.run(operation, params.model_dump())
 
     # stdout carries only the result payload; engine/script diagnostics are
@@ -161,13 +185,15 @@ def create(
     json_output: bool = _json_option(),
     schema: bool = _schema_option(SceneCreateParams, SceneCreateResult),
     godot: Optional[str] = _godot_option(),
+    project: Optional[str] = _project_option(),
 ) -> None:
     """Create a new .tscn scene file with the given root node type."""
     created = _run_classified(
         "scene-create",
-        SceneCreateParams(path=path, root_type=root_type),
+        SceneCreateParams(path=_normalize_path(path), root_type=root_type),
         lambda result, binary: classify_run(result, binary, SceneCreateResult),
         godot,
+        resolve_project_dir(project),
     )
 
     if json_output:
@@ -182,13 +208,15 @@ def get(
     json_output: bool = _json_option(),
     schema: bool = _schema_option(SceneGetParams, SceneGetResult),
     godot: Optional[str] = _godot_option(),
+    project: Optional[str] = _project_option(),
 ) -> None:
     """Read a scene file and report its structured node tree."""
     scene = _run_classified(
         "scene-get",
-        SceneGetParams(path=path),
+        SceneGetParams(path=_normalize_path(path)),
         lambda result, binary: classify_run(result, binary, SceneGetResult),
         godot,
+        resolve_project_dir(project),
     )
 
     if json_output:

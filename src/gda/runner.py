@@ -46,10 +46,13 @@ class SubprocessGodotRunner:
 
     It dispatches the operation to the bundled ``operations.gd`` payload and
     returns the process's raw stdout/stderr/exit code unparsed — extracting the
-    result from the noise is the parser's job (ADR-0002).
+    result from the noise is the parser's job (ADR-0002). When ``project`` is
+    set it is passed as ``--path`` so the engine runs against that project and
+    ``res://`` resolves there (issue #32); otherwise the engine runs projectless.
     """
 
     binary: Path
+    project: Path | None = None
     script: Path = OPERATIONS_GD
     timeout: float = DEFAULT_TIMEOUT_SECONDS
 
@@ -57,9 +60,10 @@ class SubprocessGodotRunner:
         # Everything after `--` is delivered to the script verbatim via
         # OS.get_cmdline_user_args(), so the payload is decoupled from however
         # Godot orders its own engine arguments.
-        cmd = [
-            str(self.binary),
-            "--headless",
+        cmd = [str(self.binary), "--headless"]
+        if self.project is not None:
+            cmd += ["--path", str(self.project)]
+        cmd += [
             "--script",
             str(self.script),
             "--",

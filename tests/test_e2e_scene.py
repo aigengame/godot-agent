@@ -31,6 +31,33 @@ def _gda(*args: str) -> subprocess.CompletedProcess:
 
 @pytest.mark.e2e
 @requires_godot
+def test_res_path_round_trip_against_the_project_fixture(godot_project):
+    # The project context (issue #32): with --project pointing at the temp
+    # project fixture, a res:// path resolves against it — proving the fixture
+    # is actually handed to the engine (it previously never reached it). The
+    # created scene lands inside the project and reads back through res://.
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+
+    def gda(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [gda_bin, *args, "--godot", str(GODOT), "--project", str(godot_project)],
+            capture_output=True,
+            text=True,
+        )
+
+    created = gda("scene", "create", "res://hero.tscn", "--root-type", "Node2D", "--json")
+    assert created.returncode == 0, created.stdout + created.stderr
+    # res:// resolved against the fixture project, not gda's cwd.
+    assert (godot_project / "hero.tscn").exists()
+
+    got = gda("scene", "get", "res://hero.tscn", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert json.loads(got.stdout)["root"]["type"] == "Node2D"
+
+
+@pytest.mark.e2e
+@requires_godot
 def test_scene_create_then_get_round_trip(godot_project):
     scene_path = godot_project / "main.tscn"
 
