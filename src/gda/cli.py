@@ -10,10 +10,21 @@ from pathlib import Path
 from typing import NoReturn, Optional
 
 import typer
+from pydantic import BaseModel
 
 from gda.binary import resolve_godot_binary
-from gda.errors import Failure, classify_info
-from gda.models import CommandSchema, EngineVersion, GdaErrorEnvelope, InfoParams
+from gda.errors import Failure, classify_info, classify_run
+from gda.models import (
+    CommandSchema,
+    EngineVersion,
+    GdaErrorEnvelope,
+    InfoParams,
+    SceneCreateParams,
+    SceneCreateResult,
+    SceneGetParams,
+    SceneGetResult,
+    SceneNode,
+)
 from gda.runner import GodotRunner, SubprocessGodotRunner
 
 app = typer.Typer(
@@ -22,6 +33,12 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+
+# The first domain command group (ADR-0005): commands acting on scene files.
+scene_app = typer.Typer(
+    help="Act on Godot scene files (.tscn).", no_args_is_help=True
+)
+app.add_typer(scene_app, name="scene")
 
 
 @app.callback()
@@ -40,6 +57,33 @@ def _make_runner(binary: Path) -> GodotRunner:
     return SubprocessGodotRunner(binary)
 
 
+def _schema_option(
+    input_model: type[BaseModel], output_model: type[BaseModel]
+) -> bool:
+    """A ``--schema`` flag wired to its own emission (ADR-0004, issue #18).
+
+    Declaring the flag IS the implementation: an eager callback emits the
+    command's model-derived ``{input, output}`` contract and exits before any
+    other parameter — required arguments included — is validated, and before
+    any engine path (binary resolution, runner) is touched. One declaration
+    per command replaces the per-command ``if schema:`` block, so a command
+    cannot ship the flag without its mandated behavior.
+    """
+
+    def emit(value: bool) -> None:
+        if value:
+            typer.echo(CommandSchema.of(input_model, output_model).model_dump_json())
+            raise typer.Exit()
+
+    return typer.Option(
+        False,
+        "--schema",
+        help="Emit this command's input/output JSON Schemas; no Godot is spawned.",
+        callback=emit,
+        is_eager=True,
+    )
+
+
 def _fail(failure: Failure) -> NoReturn:
     """Emit a structured error to stdout and exit non-zero (issue #3).
 
@@ -52,16 +96,90 @@ def _fail(failure: Failure) -> NoReturn:
     raise typer.Exit(code=failure.exit_code)
 
 
+@scene_app.command()
+def create(
+    path: str = typer.Argument(..., help="Target .tscn path to write."),
+    root_type: str = typer.Option(
+        ...,
+        "--root-type",
+        help="Godot node class of the new scene's root (e.g. Node2D).",
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Emit the result as a single JSON object."
+    ),
+    schema: bool = _schema_option(SceneCreateParams, SceneCreateResult),
+    godot: Optional[str] = typer.Option(
+        None,
+        "--godot",
+        help="Path to the Godot binary (overrides $GDA_GODOT and the default).",
+    ),
+) -> None:
+    """Create a new .tscn scene file with the given root node type."""
+    binary = resolve_godot_binary(godot)
+    runner = _make_runner(binary)
+    params = SceneCreateParams(path=path, root_type=root_type)
+    result = runner.run("scene-create", params.model_dump())
+
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+
+    outcome = classify_run(result, binary, SceneCreateResult)
+    if isinstance(outcome, Failure):
+        _fail(outcome)
+    created = outcome
+
+    if json_output:
+        typer.echo(created.model_dump_json())
+    else:
+        typer.echo(f"created {created.path} (root {created.root_type})")
+
+
+def _render_tree(node: SceneNode, depth: int = 0) -> str:
+    """Render a node tree as an indented ``name (Type)`` outline for humans."""
+    lines = [f"{'  ' * depth}{node.name} ({node.type})"]
+    lines += (_render_tree(child, depth + 1) for child in node.children)
+    return "\n".join(lines)
+
+
+@scene_app.command()
+def get(
+    path: str = typer.Argument(..., help="The .tscn scene file to read."),
+    json_output: bool = typer.Option(
+        False, "--json", help="Emit the result as a single JSON object."
+    ),
+    schema: bool = _schema_option(SceneGetParams, SceneGetResult),
+    godot: Optional[str] = typer.Option(
+        None,
+        "--godot",
+        help="Path to the Godot binary (overrides $GDA_GODOT and the default).",
+    ),
+) -> None:
+    """Read a scene file and report its structured node tree."""
+    binary = resolve_godot_binary(godot)
+    runner = _make_runner(binary)
+    params = SceneGetParams(path=path)
+    result = runner.run("scene-get", params.model_dump())
+
+    if result.stderr:
+        print(result.stderr, end="", file=sys.stderr)
+
+    outcome = classify_run(result, binary, SceneGetResult)
+    if isinstance(outcome, Failure):
+        _fail(outcome)
+    scene = outcome
+
+    if json_output:
+        typer.echo(scene.model_dump_json())
+    else:
+        typer.echo(_render_tree(scene.root))
+
+
 @app.command()
 def info(
     json_output: bool = typer.Option(
         False, "--json", help="Emit the result as a single JSON object."
     ),
-    schema: bool = typer.Option(
-        False,
-        "--schema",
-        help="Emit this command's input/output JSON Schemas; no Godot is spawned.",
-    ),
+    schema: bool = _schema_option(InfoParams, EngineVersion),
     godot: Optional[str] = typer.Option(
         None,
         "--godot",
@@ -69,13 +187,6 @@ def info(
     ),
 ) -> None:
     """Report the Godot engine version info."""
-    if schema:
-        # Local, no-Godot self-description (ADR-0004): derived from the same
-        # typed models that back --json. Short-circuit before touching the
-        # engine — no binary resolution, no process spawned.
-        typer.echo(CommandSchema.of(InfoParams, EngineVersion).model_dump_json())
-        return
-
     binary = resolve_godot_binary(godot)
     runner = _make_runner(binary)
     result = runner.run("info", {})

@@ -88,6 +88,62 @@ def test_schema_is_emit_only_and_rejects_a_supplied_value():
     assert result.exit_code != 0
 
 
+def test_scene_create_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for the first domain commands (issue #18): the
+    # bare `--schema` flag — no path, no --root-type — short-circuits into the
+    # self-description, derived from the same typed models that back --json.
+    from gda.models import SceneCreateParams, SceneCreateResult
+
+    result = CliRunner().invoke(app, ["scene", "create", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == SceneCreateParams.model_json_schema()
+    assert doc["output"] == SceneCreateResult.model_json_schema()
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_scene_get_schema_emits_model_derived_contract_without_other_args():
+    from gda.models import SceneGetParams, SceneGetResult
+
+    result = CliRunner().invoke(app, ["scene", "get", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == SceneGetParams.model_json_schema()
+    assert doc["output"] == SceneGetResult.model_json_schema()
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_sample_scene_results_validate_against_emitted_output_schemas():
+    # The other half of the ADR-0004 hard gate (issue #18): a sample --json
+    # payload of each scene command satisfies the contract its --schema emits.
+    from tests.test_scene_commands import CREATE_RESULT, GET_RESULT
+
+    create_doc = json.loads(CliRunner().invoke(app, ["scene", "create", "--schema"]).stdout)
+    get_doc = json.loads(CliRunner().invoke(app, ["scene", "get", "--schema"]).stdout)
+
+    jsonschema.validate(instance=CREATE_RESULT, schema=create_doc["output"])
+    jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
+
+
+def test_scene_schema_spawns_no_godot(monkeypatch):
+    # Same locality guarantee the info flag established: --schema must
+    # short-circuit before binary resolution or any runner construction.
+    def boom(*args, **kwargs):
+        raise AssertionError("--schema must not touch the engine")
+
+    monkeypatch.setattr("gda.cli.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.cli._make_runner", boom)
+
+    for command in (["scene", "create"], ["scene", "get"]):
+        result = CliRunner().invoke(app, [*command, "--schema"])
+        assert result.exit_code == 0
+        assert set(json.loads(result.stdout)) >= {"input", "output"}
+
+
 def test_info_input_schema_is_derived_from_the_params_model():
     # info takes no operation params, so its input schema is trivially empty —
     # expected, not an error — and still derived model-side (ADR-0004).
