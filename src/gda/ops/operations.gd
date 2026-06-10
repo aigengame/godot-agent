@@ -10,68 +10,88 @@ extends SceneTree
 # nothing but the sentinel-delimited result; everything else is engine noise.
 #
 # An operation that fails reports it structurally on stderr as
-# `gda-error:<code>: <message>` and quits non-zero; gda's shared classifier
-# surfaces <code> as the stable GdaError.code (issue #18).
+# `gda-error:<code>: <message>`; gda's shared classifier surfaces <code> as the
+# stable GdaError.code (issue #18).
+#
+# Control flow (issue #31): all work happens in _initialize, but the process is
+# quit from _process — which runs on the first idle frame regardless of whether
+# _initialize completed. So even an uncaught runtime error mid-operation, which
+# aborts _initialize, still exits promptly and non-zero (the default _exit_code)
+# instead of leaving the headless main loop spinning forever. An operation never
+# calls quit() itself: it records its outcome via _succeed / _fail, and the
+# single quit() lives in _process — no path can quit twice or clobber the code.
 
 const RESULT_BEGIN := "<<<GDA:RESULT>>>"
 const RESULT_END := "<<<GDA:END>>>"
 
+# The exit code the process will use. Defaults to failure, so an operation that
+# aborts before recording an outcome (e.g. an uncaught runtime error) still
+# exits non-zero rather than reporting a phantom success.
+var _exit_code := 1
 
-func _init() -> void:
+
+func _initialize() -> void:
 	# Everything after `--` on the Godot command line — i.e. <operation>
 	# [params_json] — arrives here, independent of engine argument ordering.
 	var args := OS.get_cmdline_user_args()
 	if args.is_empty():
-		_fail("usage: godot --headless --script operations.gd -- <operation> [params_json]")
+		_fail("usage_error", "usage: godot --headless --script operations.gd -- <operation> [params_json]")
 		return
 
-	var operation := args[0]
+	var operation: String = args[0]
+	var params: Variant = _parse_params(args)
+	if params == null:
+		return  # _parse_params already recorded the failure
 
-	var params: Dictionary = {}
-	if args.size() > 1:
-		var parsed: Variant = JSON.parse_string(args[1])
-		if parsed == null or not (parsed is Dictionary):
-			_fail("params is not a JSON object: " + args[1])
-			return
-		params = parsed
-
-	# Each op returns whether it succeeded; a failing op has already quit(1),
-	# so only a successful run may reach the final quit() — quitting twice
-	# would overwrite the failure exit code.
-	var ok: bool
 	match operation:
 		"info":
-			ok = _op_info()
+			_op_info()
 		"scene-create":
-			ok = _op_scene_create(params)
+			_op_scene_create(params)
 		"scene-get":
-			ok = _op_scene_get(params)
+			_op_scene_get(params)
 		_:
-			_fail("unknown operation: " + operation)
-			return
+			_fail("unknown_operation", "unknown operation: " + operation)
 
-	if ok:
-		quit()
+
+# Quit on the first idle frame, whatever happened during _initialize — this is
+# the single exit point and the watchdog against a hung main loop (issue #31).
+func _process(_delta: float) -> bool:
+	quit(_exit_code)
+	return true
+
+
+# Parse the optional params JSON into a Dictionary; null signals a recorded
+# failure (the caller must stop). A missing payload is an empty Dictionary.
+func _parse_params(args: PackedStringArray) -> Variant:
+	if args.size() <= 1:
+		return {}
+	var parsed: Variant = JSON.parse_string(args[1])
+	if not (parsed is Dictionary):
+		_fail("invalid_params", "params is not a JSON object: " + args[1])
+		return null
+	return parsed
 
 
 # info: emit Engine.get_version_info() through the structured-output contract.
-func _op_info() -> bool:
+func _op_info() -> void:
 	_diag("running operation: info")
-	_emit_result(JSON.stringify(Engine.get_version_info()))
-	return true
+	_succeed(Engine.get_version_info())
 
 
 # scene-create: instantiate a root node of the requested type, pack it, save
 # it as a .tscn at the requested path (issue #18).
-func _op_scene_create(params: Dictionary) -> bool:
+func _op_scene_create(params: Dictionary) -> void:
 	_diag("running operation: scene-create")
-	var path: String = params.get("path", "")
+	var path := _string_param(params, "path")
 	if path.is_empty():
-		return _fail_op("invalid_path", "missing required param: path")
-	var root_type: String = params.get("root_type", "")
+		_fail("invalid_path", "missing required param: path")
+		return
+	var root_type := _string_param(params, "root_type")
 	if root_type.is_empty() or not ClassDB.can_instantiate(root_type) \
 			or not ClassDB.is_parent_class(root_type, "Node"):
-		return _fail_op("invalid_root_type", "not an instantiable Node class: " + root_type)
+		_fail("invalid_root_type", "not an instantiable Node class: " + root_type)
+		return
 
 	var root: Node = ClassDB.instantiate(root_type)
 	root.name = path.get_file().get_basename()
@@ -81,18 +101,19 @@ func _op_scene_create(params: Dictionary) -> bool:
 	var pack_err := packed.pack(root)
 	if pack_err != OK:
 		root.free()
-		return _fail_op("save_failed", "failed to pack scene: " + error_string(pack_err))
+		_fail("save_failed", "failed to pack scene: " + error_string(pack_err))
+		return
 	var save_err := ResourceSaver.save(packed, path)
 	root.free()
 	if save_err != OK:
-		return _fail_op("save_failed", "failed to save scene to " + path + ": " + error_string(save_err))
+		_fail("save_failed", "failed to save scene to " + path + ": " + error_string(save_err))
+		return
 
-	_emit_result(JSON.stringify({
+	_succeed({
 		"path": path,
 		"root_name": root_name,
 		"root_type": root_type,
-	}))
-	return true
+	})
 
 
 # scene-get: load a .tscn from disk and emit its structured node tree.
@@ -102,23 +123,26 @@ func _op_scene_create(params: Dictionary) -> bool:
 # arbitrary project code merely to read a scene, and letting that code print a
 # forged result onto stdout (issue #30). SceneState exposes the declared tree
 # without constructing a single node.
-func _op_scene_get(params: Dictionary) -> bool:
+func _op_scene_get(params: Dictionary) -> void:
 	_diag("running operation: scene-get")
-	var path: String = params.get("path", "")
+	var path := _string_param(params, "path")
 	if path.is_empty():
-		return _fail_op("invalid_path", "missing required param: path")
+		_fail("invalid_path", "missing required param: path")
+		return
 	if not FileAccess.file_exists(path):
-		return _fail_op("path_not_found", "scene file does not exist: " + path)
+		_fail("path_not_found", "scene file does not exist: " + path)
+		return
 
 	var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
 	if packed == null:
-		return _fail_op("not_a_scene", "failed to load as a scene: " + path)
+		_fail("not_a_scene", "failed to load as a scene: " + path)
+		return
 	var state := packed.get_state()
 	if state == null or state.get_node_count() == 0:
-		return _fail_op("not_a_scene", "scene declares no root node: " + path)
+		_fail("not_a_scene", "scene declares no root node: " + path)
+		return
 
-	_emit_result(JSON.stringify({"path": path, "root": _tree_from_state(state)}))
-	return true
+	_succeed({"path": path, "root": _tree_from_state(state)})
 
 
 # Build the structured node tree from a SceneState. The state lists nodes in
@@ -144,22 +168,29 @@ func _tree_from_state(state: SceneState) -> Dictionary:
 	return root
 
 
-func _emit_result(json_payload: String) -> void:
-	print(RESULT_BEGIN + json_payload + RESULT_END)
+# Read a string param defensively: a non-string value (the params arrive as
+# arbitrary JSON) is treated as absent rather than crashing a typed assignment,
+# so a malformed param surfaces as a structured failure, not a runtime error.
+func _string_param(params: Dictionary, key: String) -> String:
+	var value: Variant = params.get(key, "")
+	if value is String:
+		return value
+	return ""
+
+
+# Record a successful result: emit it through the sentinel contract and mark
+# the process to exit 0. The single quit() lives in _process.
+func _succeed(payload: Dictionary) -> void:
+	print(RESULT_BEGIN + JSON.stringify(payload) + RESULT_END)
+	_exit_code = 0
 
 
 func _diag(message: String) -> void:
 	printerr("gda: " + message)
 
 
-# A structured operation failure: the stable finer code rides the stderr
-# marker; returns false so the caller can stop without reaching quit().
-func _fail_op(code: String, message: String) -> bool:
+# Record a structured failure: the stable finer code rides the stderr marker
+# (issue #18) and the process is left to exit non-zero via _process.
+func _fail(code: String, message: String) -> void:
 	printerr("gda-error:" + code + ": " + message)
-	quit(1)
-	return false
-
-
-func _fail(message: String) -> void:
-	_diag(message)
-	quit(1)
+	_exit_code = 1
