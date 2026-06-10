@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, e.g. v0.1.0"
+        required: true
+        type: string
+      draft:
+        description: "Create the release as a draft"
+        required: true
+        default: true
+        type: boolean
+      prerelease:
+        description: "Mark the release as a prerelease"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.13"
+  GODOT_VERSION: "4.6-stable"
+  GDA_GODOT: ${{ github.workspace }}/.godot/Godot_v4.6-stable_linux.x86_64
+
+jobs:
+  github-release:
+    name: Build and draft GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      RELEASE_DRAFT: ${{ github.event_name != 'workflow_dispatch' || inputs.draft }}
+      RELEASE_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Run unit tests
+        run: uv run --frozen pytest -m "not e2e"
+
+      - name: Install Godot
+        run: |
+          mkdir -p .godot
+          curl --fail --location --show-error \
+            --output .godot/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q .godot/godot.zip -d .godot
+          chmod +x "${GDA_GODOT}"
+          "${GDA_GODOT}" --headless --version
+
+      - name: Run Godot e2e tests
+        run: uv run --frozen pytest -m e2e
+
+      - name: Validate release tag
+        run: |
+          uv run python - <<'PY'
+          import os
+          import tomllib
+
+          release_tag = os.environ["RELEASE_TAG"]
+          if not release_tag.startswith("v"):
+              raise SystemExit(f"Release tag must start with 'v': {release_tag}")
+
+          with open("pyproject.toml", "rb") as pyproject:
+              version = tomllib.load(pyproject)["project"]["version"]
+
+          expected_tag = f"v{version}"
+          if release_tag != expected_tag:
+              raise SystemExit(
+                  f"Release tag {release_tag} does not match pyproject.toml version {version}; "
+                  f"expected {expected_tag}"
+              )
+          PY
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_args=(
+            --repo "$GITHUB_REPOSITORY"
+            --verify-tag
+            --generate-notes
+          )
+
+          if [[ "$RELEASE_DRAFT" == "true" ]]; then
+            release_args+=(--draft)
+          fi
+
+          if [[ "$RELEASE_PRERELEASE" == "true" ]]; then
+            release_args+=(--prerelease)
+          fi
+
+          gh release create "$RELEASE_TAG" dist/* "${release_args[@]}"
