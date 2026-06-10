@@ -85,6 +85,31 @@ def test_scene_create_then_get_round_trip(godot_project):
 
 @pytest.mark.e2e
 @requires_godot
+def test_scene_path_containing_end_sentinel_round_trips(godot_project):
+    # issue #34: the result payload echoes the target path verbatim. A path
+    # containing the literal end sentinel must round-trip, not be truncated into
+    # a parse error (exit 5). root_name is explicit because the sentinel's ':'
+    # is not a legal node-name char, so it cannot be derived from this filename.
+    scene_path = godot_project / "weird<<<GDA:END>>>name.tscn"
+
+    created = _gda(
+        "scene", "create", str(scene_path),
+        "--root-type", "Node2D", "--root-name", "Main", "--json",
+    )
+
+    assert created.returncode == 0, created.stdout + created.stderr
+    assert json.loads(created.stdout)["path"] == str(scene_path)
+
+    got = _gda("scene", "get", str(scene_path), "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    tree = json.loads(got.stdout)
+    assert tree["path"] == str(scene_path)
+    assert tree["root"]["name"] == "Main"
+
+
+@pytest.mark.e2e
+@requires_godot
 def test_scene_create_creates_missing_parent_directories(godot_project):
     scene_path = godot_project / "levels" / "demo" / "main.tscn"
 

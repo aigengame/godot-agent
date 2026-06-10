@@ -1,5 +1,7 @@
 """S2: the result parser implements the ADR-0002 sentinel contract."""
 
+import json
+
 import pytest
 
 from gda.parser import parse_result
@@ -30,3 +32,14 @@ def test_empty_payload_raises_descriptive_error():
 
     with pytest.raises(ValueError, match="empty GDA result payload"):
         parse_result(stdout)
+
+
+def test_payload_containing_end_sentinel_round_trips():
+    # issue #34: the result payload echoes user-controlled content (a path, and
+    # later node names / script source). If that content contains the literal
+    # end sentinel, extraction must still recover the whole payload — the real
+    # terminator is the LAST end sentinel, not the first.
+    payload = {"path": "res://weird<<<GDA:END>>>name.tscn", "root_type": "Node2D"}
+    stdout = f"<<<GDA:RESULT>>>{json.dumps(payload)}<<<GDA:END>>>\n"
+
+    assert parse_result(stdout) == payload
