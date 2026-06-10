@@ -7,7 +7,10 @@ wrapped in unique sentinels::
     <<<GDA:RESULT>>>{...json...}<<<GDA:END>>>
 
 ``parse_result`` extracts the bytes between the sentinels and parses them as
-JSON, ignoring everything else on stdout.
+JSON, ignoring everything else on stdout. The payload echoes user-controlled
+content (a path, and later node names / script source), so it may itself contain
+the literal end sentinel; the real terminator is the *last* end sentinel, since
+the operation emits exactly one result (ADR-0002).
 """
 
 import json
@@ -23,7 +26,10 @@ def parse_result(stdout: str) -> Any:
     if start == -1:
         raise ValueError("no GDA result sentinel found in stdout")
     payload_start = start + len(RESULT_BEGIN)
-    end = stdout.find(RESULT_END, payload_start)
+    # The last end sentinel after the payload start, not the first: the payload
+    # may contain sentinel-shaped content, but the real terminator is last since
+    # exactly one result is emitted (issue #34).
+    end = stdout.rfind(RESULT_END, payload_start)
     if end == -1:
         raise ValueError("unterminated GDA result sentinel in stdout")
     payload = stdout[payload_start:end].strip()
