@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      run-e2e:
+        description: "Run tests that require a real Godot binary"
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "24 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  python:
+    name: Python unit tests and package build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Run unit tests
+        run: uv run --frozen pytest -m "not e2e"
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: gda-distributions
+          path: dist/
+          if-no-files-found: error
+
+  godot-e2e:
+    name: Godot e2e tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs['run-e2e']) }}
+
+    env:
+      GODOT_VERSION: "4.6-stable"
+      GDA_GODOT: ${{ github.workspace }}/.godot/Godot_v4.6-stable_linux.x86_64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v8
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Install Godot
+        run: |
+          mkdir -p .godot
+          curl --fail --location --show-error \
+            --output .godot/godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q .godot/godot.zip -d .godot
+          chmod +x "${GDA_GODOT}"
+          "${GDA_GODOT}" --headless --version
+
+      - name: Run Godot e2e tests
+        run: uv run --frozen pytest -m e2e
