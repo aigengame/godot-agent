@@ -83,6 +83,31 @@ def test_scene_create_unknown_root_type_maps_to_stable_invalid_root_type_code(
     assert "Foo" in err["message"]
 
 
+def test_scene_create_save_failure_maps_to_stable_save_failed_code(monkeypatch):
+    # The op built the scene but could not write it (unwritable destination,
+    # read-only filesystem): the structured marker maps to the stable
+    # save_failed code so an agent can tell "fix the destination" apart from
+    # "fix the request" (issue #35).
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="",
+            stderr="gda-error:save_failed: failed to save scene to /x/demo/main.tscn: Can't open\n",
+            exit_code=1,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app, ["scene", "create", "/x/demo/main.tscn", "--root-type", "Node2D"]
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "save_failed"
+    assert "/x/demo/main.tscn" in err["message"]
+
+
 def test_scene_get_broken_sentinel_maps_to_parse_error(monkeypatch):
     # Exit 0 but no result sentinel: the structured-output contract (ADR-0002)
     # was violated — the shared parse classification applies to scene commands
