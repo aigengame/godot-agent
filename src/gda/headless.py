@@ -1,10 +1,10 @@
 """Headless command execution for ``gda``.
 
 A headless command declares the small interface that varies per command:
-operation name, input model, output model, classifier, and human rendering.
+operation name, input model, output model, and human rendering.
 This module owns the shared implementation behind that interface: schema
 emission, Godot binary resolution, runner construction, diagnostics forwarding,
-failure output, and JSON rendering.
+classification, failure output, and JSON rendering.
 """
 
 import sys
@@ -17,7 +17,7 @@ import typer
 from pydantic import BaseModel
 
 from gda.binary import resolve_godot_binary
-from gda.errors import Failure
+from gda.errors import Failure, classify_run
 from gda.models import CommandSchema, GdaErrorEnvelope
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
 
@@ -98,7 +98,7 @@ class HeadlessCommand(Generic[M]):
     operation: str
     input_model: type[BaseModel]
     output_model: type[M]
-    classify: Classifier[M]
+    classify: Classifier[M] | None = None
 
     def schema_option(self) -> bool:
         """Return the Typer ``--schema`` option for this command."""
@@ -124,7 +124,11 @@ class HeadlessCommand(Generic[M]):
         if result.stderr:
             print(result.stderr, end="", file=sys.stderr)
 
-        outcome = self.classify(result, binary)
+        outcome = (
+            self.classify(result, binary)
+            if self.classify is not None
+            else classify_run(result, binary, self.output_model)
+        )
         if isinstance(outcome, Failure):
             _fail(outcome)
         return outcome

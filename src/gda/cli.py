@@ -12,7 +12,7 @@ from typing import Optional
 
 import typer
 
-from gda.errors import classify_info, classify_run
+from gda.errors import classify_info
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -73,14 +73,12 @@ SCENE_CREATE_COMMAND: HeadlessCommand[SceneCreateResult] = HeadlessCommand(
     operation="scene-create",
     input_model=SceneCreateParams,
     output_model=SceneCreateResult,
-    classify=lambda result, binary: classify_run(result, binary, SceneCreateResult),
 )
 
 SCENE_GET_COMMAND: HeadlessCommand[SceneGetResult] = HeadlessCommand(
     operation="scene-get",
     input_model=SceneGetParams,
     output_model=SceneGetResult,
-    classify=lambda result, binary: classify_run(result, binary, SceneGetResult),
 )
 
 

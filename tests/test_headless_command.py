@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 import typer
 
-from gda.errors import classify_info
 from gda.headless import HeadlessCommand
 from gda.models import EngineVersion, InfoParams
 from gda.runner import RunResult
@@ -40,7 +39,6 @@ def test_headless_command_emit_owns_runner_classification_and_json_output(capsys
         operation="info",
         input_model=InfoParams,
         output_model=EngineVersion,
-        classify=classify_info,
     )
 
     command.emit(
@@ -75,7 +73,6 @@ def test_headless_command_emit_owns_structured_failure_output(capsys):
         operation="info",
         input_model=InfoParams,
         output_model=EngineVersion,
-        classify=classify_info,
     )
 
     with pytest.raises(typer.Exit) as raised:
