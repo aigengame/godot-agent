@@ -19,6 +19,8 @@ engine. The decision tree, top to bottom (``code`` in parentheses; the four
 - exit 127  → environment / binary_not_found      (runner could not launch it)
 - exit 124  → environment / launch_timeout        (launched, hung past timeout)
 - exit < 0  → operation   / engine_crashed         (engine killed by a signal)
+- exit ≠ 0  → operation   / <marker code>           (operation reported a structured
+  failure via the ``gda-error:<code>:`` stderr marker — e.g. path_not_found)
 - exit ≠ 0  → operation   / operation_failed        (engine ran, operation errored)
 - contract  → parse       / contract_violation      (sentinel/JSON/shape invalid)
 - old       → version     / unsupported_version     (below the ADR-0003 minimum,
@@ -30,6 +32,7 @@ get distinct small codes so a shell consumer can tell categories apart without
 parsing the JSON error.
 """
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -50,6 +53,12 @@ from gda.runner import RunResult
 # The minimum supported Godot version (ADR-0003): the floor where the modern
 # features gda relies on exist. Resolved from the version gda info reports.
 MIN_GODOT_VERSION = (4, 4)
+
+# A structured operation failure, as the operations payload reports it on
+# stderr: ``gda-error:<code>: <message>``. The marker refines the generic
+# operation_failed bucket into the operation's own stable, finer code
+# (e.g. path_not_found, not_a_scene) — same category, same exit code.
+_OP_ERROR_MARKER = re.compile(r"^gda-error:([a-z_]+): ?(.*)$", re.MULTILINE)
 
 
 @dataclass
@@ -117,7 +126,19 @@ def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | 
         )
     if result.exit_code != 0:
         # The engine ran but the operation itself reported an error and quit
-        # non-zero (its own exit, not the runner's synthetic 124/127).
+        # non-zero (its own exit, not the runner's synthetic 124/127). When the
+        # operation reported the failure *structurally* via the gda-error
+        # stderr marker, surface its finer stable code; otherwise fall back to
+        # the generic operation_failed.
+        marker = _OP_ERROR_MARKER.search(result.stderr)
+        if marker:
+            return _failure(
+                ErrorCategory.OPERATION,
+                marker.group(1),
+                marker.group(2) or "the headless operation reported an error",
+                EXIT_OPERATION,
+                result.stderr,
+            )
         return _failure(
             ErrorCategory.OPERATION,
             "operation_failed",

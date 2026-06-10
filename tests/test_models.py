@@ -1,8 +1,8 @@
-"""The gda info result is carried by a typed model (ADR-0004)."""
+"""The gda command results are carried by typed models (ADR-0004)."""
 
 import json
 
-from gda.models import EngineVersion
+from gda.models import EngineVersion, SceneCreateResult, SceneGetResult
 
 
 def test_validates_from_engine_get_version_info_dict():
@@ -48,3 +48,37 @@ def test_round_trips_to_json_object():
     assert dumped["major"] == 4
     assert dumped["minor"] == 6
     assert dumped["string"] == "4.6.3-stable (official)"
+
+
+def test_scene_create_result_round_trips():
+    payload = {"path": "/p/main.tscn", "root_name": "main", "root_type": "Node2D"}
+
+    created = SceneCreateResult.model_validate(payload)
+
+    assert json.loads(created.model_dump_json()) == payload
+
+
+def test_scene_get_result_round_trips_a_nested_tree():
+    # The recursive SceneNode shape, as the scene-get operation emits it: a
+    # validated nested tree must dump back to the identical payload (S2).
+    payload = {
+        "path": "/p/main.tscn",
+        "root": {
+            "name": "main",
+            "type": "Node2D",
+            "children": [
+                {
+                    "name": "Hero",
+                    "type": "Sprite2D",
+                    "children": [
+                        {"name": "Hitbox", "type": "Area2D", "children": []}
+                    ],
+                }
+            ],
+        },
+    }
+
+    scene = SceneGetResult.model_validate(payload)
+
+    assert scene.root.children[0].children[0].name == "Hitbox"
+    assert json.loads(scene.model_dump_json()) == payload
