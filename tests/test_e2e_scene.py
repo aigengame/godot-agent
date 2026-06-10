@@ -55,6 +55,37 @@ def test_scene_create_then_get_round_trip(godot_project):
     assert tree["root"]["children"] == []
 
 
+# A hand-written nested scene: Root → Hero → Hitbox, distinct node types.
+NESTED_TSCN = """\
+[gd_scene format=3]
+
+[node name="Root" type="Node2D"]
+
+[node name="Hero" type="Sprite2D" parent="."]
+
+[node name="Hitbox" type="Area2D" parent="Hero"]
+"""
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_get_reports_nested_tree(godot_project):
+    # Guards the SceneState parent/child reconstruction (issue #30): a scene
+    # read without instantiation must still report nested structure correctly.
+    scene_path = godot_project / "nested.tscn"
+    scene_path.write_text(NESTED_TSCN, encoding="utf-8")
+
+    got = _gda("scene", "get", str(scene_path), "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    root = json.loads(got.stdout)["root"]
+    assert (root["name"], root["type"]) == ("Root", "Node2D")
+    hero = root["children"][0]
+    assert (hero["name"], hero["type"]) == ("Hero", "Sprite2D")
+    hitbox = hero["children"][0]
+    assert (hitbox["name"], hitbox["type"]) == ("Hitbox", "Area2D")
+
+
 @pytest.mark.e2e
 @requires_godot
 def test_scene_get_missing_file_yields_structured_error_end_to_end(godot_project):

@@ -96,6 +96,12 @@ func _op_scene_create(params: Dictionary) -> bool:
 
 
 # scene-get: load a .tscn from disk and emit its structured node tree.
+#
+# Reads the packed scene's STORED STATE (SceneState) rather than instantiating
+# it. Instantiating would run the _init of any attached script — executing
+# arbitrary project code merely to read a scene, and letting that code print a
+# forged result onto stdout (issue #30). SceneState exposes the declared tree
+# without constructing a single node.
 func _op_scene_get(params: Dictionary) -> bool:
 	_diag("running operation: scene-get")
 	var path: String = params.get("path", "")
@@ -107,21 +113,35 @@ func _op_scene_get(params: Dictionary) -> bool:
 	var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
 	if packed == null:
 		return _fail_op("not_a_scene", "failed to load as a scene: " + path)
-	var root := packed.instantiate()
-	if root == null:
-		return _fail_op("not_a_scene", "scene has no instantiable root: " + path)
+	var state := packed.get_state()
+	if state == null or state.get_node_count() == 0:
+		return _fail_op("not_a_scene", "scene declares no root node: " + path)
 
-	var tree := _node_dict(root)
-	root.free()
-	_emit_result(JSON.stringify({"path": path, "root": tree}))
+	_emit_result(JSON.stringify({"path": path, "root": _tree_from_state(state)}))
 	return true
 
 
-func _node_dict(node: Node) -> Dictionary:
-	var children: Array = []
-	for child in node.get_children():
-		children.append(_node_dict(child))
-	return {"name": String(node.name), "type": node.get_class(), "children": children}
+# Build the structured node tree from a SceneState. The state lists nodes in
+# tree order; each carries a node path ("." for the root, "Hero/Hitbox" for a
+# descendant) and the path to its parent, which is enough to reconstruct the
+# parent/child structure without instantiating anything.
+func _tree_from_state(state: SceneState) -> Dictionary:
+	var by_path := {}
+	var root: Dictionary = {}
+	for i in state.get_node_count():
+		var node := {
+			"name": String(state.get_node_name(i)),
+			"type": String(state.get_node_type(i)),
+			"children": [],
+		}
+		by_path[String(state.get_node_path(i))] = node
+		if i == 0:
+			root = node
+		else:
+			var parent: Variant = by_path.get(String(state.get_node_path(i, true)))
+			if parent != null:
+				parent["children"].append(node)
+	return root
 
 
 func _emit_result(json_payload: String) -> void:
