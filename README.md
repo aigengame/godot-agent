@@ -55,8 +55,9 @@ for the full picture.
 
 **Working today**
 
-- ✅ A first working command surface: the `info` meta command and the first domain command group,
-  `gda scene create` / `gda scene get` ([ADR-0005](docs/adr/0005-cli-command-taxonomy.md)).
+- ✅ A first working command surface: the `info` meta command and the first domain command groups —
+  `gda scene create` / `gda scene get` and `gda node add` / `gda node list`
+  ([ADR-0005](docs/adr/0005-cli-command-taxonomy.md)).
 - ✅ The contract every shipped command carries: structured `--json` output, model-derived
   `--schema` self-description ([ADR-0004](docs/adr/0004-schema-flag-self-description.md)), and
   structured `{"error": {category, code, …}}` failures with category-distinguishing exit codes.
@@ -66,8 +67,8 @@ for the full picture.
 
 **On the roadmap** (designed, not yet implemented)
 
-- 🔜 The remaining domain command groups and commands: `node`, `script`, `project`, `resource`,
-  `export`, …
+- 🔜 The remaining domain command groups and commands: the rest of `node`, `script`, `project`,
+  `resource`, `export`, …
 - 🔜 `gda-mcp`, a thin [Model Context Protocol](https://modelcontextprotocol.io) adapter generated
   from `--schema`.
 - 🔜 `gda-daemon` for *live operations* against a running engine (Phase 2).
@@ -159,6 +160,17 @@ gda scene create game/main.tscn --root-type Node2D --json
 
 gda scene get game/main.tscn --json
 # {"path":"game/main.tscn","root":{"name":"main","type":"Node2D","children":[]}}
+```
+
+Add a node into that scene and verify it landed — nodes are addressed by their path relative to
+the scene root (`.` is the root itself):
+
+```bash
+gda node add game/main.tscn --type Sprite2D --name Hero --json
+# {"scene_path":"game/main.tscn","path":"Hero","name":"Hero","type":"Sprite2D","script_class":null}
+
+gda node list game/main.tscn --json
+# {"scene_path":"game/main.tscn","root":{"name":"main","type":"Node2D","path":".","children":[{"name":"Hero","type":"Sprite2D","path":"Hero","children":[]}]}}
 ```
 
 ---

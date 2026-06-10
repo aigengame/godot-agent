@@ -34,7 +34,7 @@ issue ref (e.g. `🔜 (#53)`) marks a candidate already committed as an open sli
 | `gda info` | Report Godot engine version info | 1 | ✅ |
 | `gda version` | Report `gda`'s own version | — (local) | 🔜 |
 | `gda help` | Usage help | — (local) | ✅ (`--help`) |
-| `gda <command> --schema` | Emit a command's input/output JSON Schema (ADR-0004) | — (local) | ✅ (`info` #4; `scene create`/`scene get` #18) |
+| `gda <command> --schema` | Emit a command's input/output JSON Schema (ADR-0004) | — (local) | ✅ (`info` #4; `scene create`/`scene get` #18; `node add`/`node list` #53) |
 
 > `--schema` is a per-command flag, not a command, and ships with **every** domain
 > command as a hard gate (ADR-0004). It is local introspection — no Godot process.
@@ -57,12 +57,18 @@ issue ref (e.g. `🔜 (#53)`) marks a candidate already committed as an open sli
 
 Operates on nodes **within a scene file** (load → mutate → pack → save), so headless.
 
+**Node-path addressing** (established by #53): a node within a scene is addressed by its node
+path **relative to the scene root** — `.` is the root itself, `Player/Arm` a nested node.
+Absolute paths (`/root/…`) are rejected. `gda node list` reports every node's path in exactly
+this form, so a listed path can be fed straight back into other node commands (e.g.
+`node add --parent`).
+
 | Command | Description | Status |
 | --- | --- | --- |
-| `gda node add` | Add a node (by type or `class_name` script) into a scene | 🔜 (#53) |
+| `gda node add` | Add a node (by type or `class_name` script) into a scene | ✅ (#53) |
 | `gda node remove` | Remove a node from a scene | 🔜 (#56) |
 | `gda node get` | Read a node's properties | 🔜 (#55) |
-| `gda node list` | List nodes in a scene (optionally filtered by type/group) | 🔜 (#53) |
+| `gda node list` | List nodes in a scene (optionally filtered by type/group) | ✅ (#53) |
 | `gda node set` | Set a node property (type-coerced) | 🔜 (#55) |
 | `gda node move` | Reparent a node | 🔜 (#56) |
 | `gda node duplicate` | Duplicate a node | 🔜 (#56) |
