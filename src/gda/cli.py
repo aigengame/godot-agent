@@ -1,13 +1,15 @@
 """The ``gda`` CLI entrypoint.
 
-Meta commands (about ``gda`` or the engine itself) sit at the top level
-(ADR-0005). ``gda info`` is the first such command and the Phase-1 tracer
-bullet: it runs the headless ``info`` operation and reports the engine version.
+Meta commands (about ``gda`` or the engine itself) sit at the top level;
+domain commands are grouped under their Godot domain object (ADR-0005).
+``gda info`` is the Phase-1 tracer bullet; the ``scene`` group is the first
+domain group (issue #18). Every command drives the same headless pipeline:
+binary resolution → runner → sentinel parse → typed model → JSON.
 """
 
 import sys
 from pathlib import Path
-from typing import NoReturn, Optional
+from typing import Callable, NoReturn, Optional, TypeVar
 
 import typer
 from pydantic import BaseModel
@@ -25,7 +27,7 @@ from gda.models import (
     SceneGetResult,
     SceneNode,
 )
-from gda.runner import GodotRunner, SubprocessGodotRunner
+from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
 
 app = typer.Typer(
     name="gda",
@@ -55,6 +57,20 @@ def _make_runner(binary: Path) -> GodotRunner:
     A seam tests override (via monkeypatch) to inject a fake runner.
     """
     return SubprocessGodotRunner(binary)
+
+
+def _json_option() -> bool:
+    return typer.Option(
+        False, "--json", help="Emit the result as a single JSON object."
+    )
+
+
+def _godot_option() -> Optional[str]:
+    return typer.Option(
+        None,
+        "--godot",
+        help="Path to the Godot binary (overrides $GDA_GODOT and the default).",
+    )
 
 
 def _schema_option(
@@ -96,42 +112,35 @@ def _fail(failure: Failure) -> NoReturn:
     raise typer.Exit(code=failure.exit_code)
 
 
-@scene_app.command()
-def create(
-    path: str = typer.Argument(..., help="Target .tscn path to write."),
-    root_type: str = typer.Option(
-        ...,
-        "--root-type",
-        help="Godot node class of the new scene's root (e.g. Node2D).",
-    ),
-    json_output: bool = typer.Option(
-        False, "--json", help="Emit the result as a single JSON object."
-    ),
-    schema: bool = _schema_option(SceneCreateParams, SceneCreateResult),
-    godot: Optional[str] = typer.Option(
-        None,
-        "--godot",
-        help="Path to the Godot binary (overrides $GDA_GODOT and the default).",
-    ),
-) -> None:
-    """Create a new .tscn scene file with the given root node type."""
+M = TypeVar("M", bound=BaseModel)
+
+
+def _run_classified(
+    operation: str,
+    params: BaseModel,
+    classify: Callable[[RunResult, Path], M | Failure],
+    godot: Optional[str],
+) -> M:
+    """Drive the shared headless pipeline to a typed success model.
+
+    Resolve the binary, run ``operation`` with the typed params, surface
+    engine/script diagnostics on stderr (ADR-0002), classify the raw result,
+    and on failure emit the structured error and exit — so each command body
+    is reduced to its params, its classifier, and its output rendering.
+    """
     binary = resolve_godot_binary(godot)
     runner = _make_runner(binary)
-    params = SceneCreateParams(path=path, root_type=root_type)
-    result = runner.run("scene-create", params.model_dump())
+    result = runner.run(operation, params.model_dump())
 
+    # stdout carries only the result payload; engine/script diagnostics are
+    # surfaced on stderr (ADR-0002).
     if result.stderr:
         print(result.stderr, end="", file=sys.stderr)
 
-    outcome = classify_run(result, binary, SceneCreateResult)
+    outcome = classify(result, binary)
     if isinstance(outcome, Failure):
         _fail(outcome)
-    created = outcome
-
-    if json_output:
-        typer.echo(created.model_dump_json())
-    else:
-        typer.echo(f"created {created.path} (root {created.root_type})")
+    return outcome
 
 
 def _render_tree(node: SceneNode, depth: int = 0) -> str:
@@ -142,31 +151,45 @@ def _render_tree(node: SceneNode, depth: int = 0) -> str:
 
 
 @scene_app.command()
+def create(
+    path: str = typer.Argument(..., help="Target .tscn path to write."),
+    root_type: str = typer.Option(
+        ...,
+        "--root-type",
+        help="Godot node class of the new scene's root (e.g. Node2D).",
+    ),
+    json_output: bool = _json_option(),
+    schema: bool = _schema_option(SceneCreateParams, SceneCreateResult),
+    godot: Optional[str] = _godot_option(),
+) -> None:
+    """Create a new .tscn scene file with the given root node type."""
+    created = _run_classified(
+        "scene-create",
+        SceneCreateParams(path=path, root_type=root_type),
+        lambda result, binary: classify_run(result, binary, SceneCreateResult),
+        godot,
+    )
+
+    if json_output:
+        typer.echo(created.model_dump_json())
+    else:
+        typer.echo(f"created {created.path} (root {created.root_type})")
+
+
+@scene_app.command()
 def get(
     path: str = typer.Argument(..., help="The .tscn scene file to read."),
-    json_output: bool = typer.Option(
-        False, "--json", help="Emit the result as a single JSON object."
-    ),
+    json_output: bool = _json_option(),
     schema: bool = _schema_option(SceneGetParams, SceneGetResult),
-    godot: Optional[str] = typer.Option(
-        None,
-        "--godot",
-        help="Path to the Godot binary (overrides $GDA_GODOT and the default).",
-    ),
+    godot: Optional[str] = _godot_option(),
 ) -> None:
     """Read a scene file and report its structured node tree."""
-    binary = resolve_godot_binary(godot)
-    runner = _make_runner(binary)
-    params = SceneGetParams(path=path)
-    result = runner.run("scene-get", params.model_dump())
-
-    if result.stderr:
-        print(result.stderr, end="", file=sys.stderr)
-
-    outcome = classify_run(result, binary, SceneGetResult)
-    if isinstance(outcome, Failure):
-        _fail(outcome)
-    scene = outcome
+    scene = _run_classified(
+        "scene-get",
+        SceneGetParams(path=path),
+        lambda result, binary: classify_run(result, binary, SceneGetResult),
+        godot,
+    )
 
     if json_output:
         typer.echo(scene.model_dump_json())
@@ -176,30 +199,12 @@ def get(
 
 @app.command()
 def info(
-    json_output: bool = typer.Option(
-        False, "--json", help="Emit the result as a single JSON object."
-    ),
+    json_output: bool = _json_option(),
     schema: bool = _schema_option(InfoParams, EngineVersion),
-    godot: Optional[str] = typer.Option(
-        None,
-        "--godot",
-        help="Path to the Godot binary (overrides $GDA_GODOT and the default).",
-    ),
+    godot: Optional[str] = _godot_option(),
 ) -> None:
     """Report the Godot engine version info."""
-    binary = resolve_godot_binary(godot)
-    runner = _make_runner(binary)
-    result = runner.run("info", {})
-
-    # stdout carries only the result payload; engine/script diagnostics are
-    # surfaced on stderr (ADR-0002).
-    if result.stderr:
-        print(result.stderr, end="", file=sys.stderr)
-
-    outcome = classify_info(result, binary)
-    if isinstance(outcome, Failure):
-        _fail(outcome)
-    version = outcome
+    version = _run_classified("info", InfoParams(), classify_info, godot)
 
     if json_output:
         typer.echo(version.model_dump_json())

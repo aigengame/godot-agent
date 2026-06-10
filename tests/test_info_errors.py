@@ -14,24 +14,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import RunResult
-
-
-class FakeRunner:
-    """A fakeable GodotRunner that returns a canned raw RunResult."""
-
-    def __init__(self, result: RunResult) -> None:
-        self.result = result
-        self.calls: list[tuple[str, dict]] = []
-
-    def run(self, operation: str, params: dict) -> RunResult:
-        self.calls.append((operation, params))
-        return self.result
-
-
-def _inject(monkeypatch, result: RunResult) -> FakeRunner:
-    fake = FakeRunner(result)
-    monkeypatch.setattr("gda.cli._make_runner", lambda binary: fake)
-    return fake
+from tests.support import inject_runner as _inject
 
 
 def test_binary_not_found_maps_to_environment_error(monkeypatch):

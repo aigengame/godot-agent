@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import RunResult
+from tests.support import inject_runner, sentinel
 
 VERSION_INFO = {
     "major": 4,
@@ -20,27 +21,15 @@ VERSION_INFO = {
 }
 
 
-class FakeRunner:
-    """A fakeable GodotRunner that records its calls and returns a canned result."""
-
-    def __init__(self, result: RunResult) -> None:
-        self.result = result
-        self.calls: list[tuple[str, dict]] = []
-
-    def run(self, operation: str, params: dict) -> RunResult:
-        self.calls.append((operation, params))
-        return self.result
-
-
 def test_info_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     # Engine banner / warnings around the sentinel, plus diagnostics on stderr.
     stdout = (
         "Godot Engine v4.6.3.stable.official\n"
-        "WARNING: benign\n"
-        "<<<GDA:RESULT>>>" + json.dumps(VERSION_INFO) + "<<<GDA:END>>>\n"
+        "WARNING: benign\n" + sentinel(VERSION_INFO)
     )
-    fake = FakeRunner(RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0))
-    monkeypatch.setattr("gda.cli._make_runner", lambda binary: fake)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    )
 
     result = CliRunner().invoke(app, ["info", "--json"])
 
