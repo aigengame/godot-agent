@@ -157,3 +157,48 @@ def test_info_input_schema_is_derived_from_the_params_model():
     doc = json.loads(result.stdout)
     assert doc["input"] == InfoParams.model_json_schema()
     assert doc["input"].get("properties", {}) == {}
+
+
+def test_help_takes_precedence_over_schema_regardless_of_argv_order():
+    # issue #36 (1): both --schema and --help were eager, so the winner
+    # depended on argv order. --help must always win, either order.
+    runner = CliRunner()
+
+    schema_first = runner.invoke(app, ["info", "--schema", "--help"])
+    help_first = runner.invoke(app, ["info", "--help", "--schema"])
+
+    for result in (schema_first, help_first):
+        assert result.exit_code == 0
+        assert "Usage" in result.stdout
+        # The help screen, not the schema document.
+        assert not result.stdout.lstrip().startswith("{")
+
+
+def test_extra_positional_args_are_a_usage_error_even_with_schema():
+    # issue #36 (2): --schema must not swallow a malformed command line. Extra
+    # positional args still fail with a usage error (exit 2), not exit 0 + schema.
+    result = CliRunner().invoke(app, ["scene", "create", "--schema", "a", "b", "c"])
+
+    assert result.exit_code == 2
+    # No schema document was emitted for the malformed invocation.
+    assert not result.stdout.lstrip().startswith("{")
+
+
+def test_schema_flag_binds_false_not_none_when_absent():
+    # issue #36 (3): the flag must bind a real bool default (False), not None,
+    # so a command body reads a correct boolean. Exercise the shared option in a
+    # throwaway app and observe the value the body receives.
+    import typer
+
+    from gda.headless import schema_option
+
+    probe = typer.Typer()
+
+    @probe.command()
+    def run(schema: bool = schema_option()) -> None:
+        typer.echo(f"schema={schema!r}")
+
+    result = CliRunner().invoke(probe, [])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "schema=False"
