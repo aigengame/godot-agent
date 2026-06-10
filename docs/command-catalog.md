@@ -22,7 +22,8 @@ when they only touch a scene/resource *file*. `gda` classifies by CONTEXT.md ins
   in-place state (runtime scene tree, runtime properties, input simulation, play/stop,
   screenshots of a running game, editor diagnostics). Served by `gda-daemon`. **Parked.**
 
-Status legend: ✅ shipped · 🔜 Phase-1 candidate · ⏸ Phase-2 (parked).
+Status legend: ✅ shipped · 🔜 Phase-1 candidate · ⏸ Phase-2 (parked). A trailing
+issue ref (e.g. `🔜 (#53)`) marks a candidate already committed as an open slice issue.
 
 ---
 
@@ -47,10 +48,10 @@ Status legend: ✅ shipped · 🔜 Phase-1 candidate · ⏸ Phase-2 (parked).
 | Command | Description | Status |
 | --- | --- | --- |
 | `gda scene create` | Create a new `.tscn` with a given root node type | ✅ (#18) |
-| `gda scene delete` | Delete a scene file | 🔜 |
+| `gda scene delete` | Delete a scene file | 🔜 (#54) |
 | `gda scene get` | Read a scene's structured tree from its file on disk | ✅ (#18) |
-| `gda scene list` | Enumerate scenes in the project | 🔜 |
-| `gda scene get-exports` | List `@export` properties declared by a scene's nodes | 🔜 |
+| `gda scene list` | Enumerate scenes in the project | 🔜 (#54) |
+| `gda scene get-exports` | List `@export` properties declared by a scene's nodes | 🔜 (#58) |
 
 ### `node`
 
@@ -58,14 +59,14 @@ Operates on nodes **within a scene file** (load → mutate → pack → save), s
 
 | Command | Description | Status |
 | --- | --- | --- |
-| `gda node add` | Add a node (by type or `class_name` script) into a scene | 🔜 |
-| `gda node remove` | Remove a node from a scene | 🔜 |
-| `gda node get` | Read a node's properties | 🔜 |
-| `gda node list` | List nodes in a scene (optionally filtered by type/group) | 🔜 |
-| `gda node set` | Set a node property (type-coerced) | 🔜 |
-| `gda node move` | Reparent a node | 🔜 |
-| `gda node duplicate` | Duplicate a node | 🔜 |
-| `gda node connect-signal` / `disconnect-signal` | Wire / unwire a signal to a method | 🔜 |
+| `gda node add` | Add a node (by type or `class_name` script) into a scene | 🔜 (#53) |
+| `gda node remove` | Remove a node from a scene | 🔜 (#56) |
+| `gda node get` | Read a node's properties | 🔜 (#55) |
+| `gda node list` | List nodes in a scene (optionally filtered by type/group) | 🔜 (#53) |
+| `gda node set` | Set a node property (type-coerced) | 🔜 (#55) |
+| `gda node move` | Reparent a node | 🔜 (#56) |
+| `gda node duplicate` | Duplicate a node | 🔜 (#56) |
+| `gda node connect-signal` / `disconnect-signal` | Wire / unwire a signal to a method | 🔜 (#57) |
 
 ### `script`
 
