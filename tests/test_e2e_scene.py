@@ -83,6 +83,161 @@ def test_scene_create_then_get_round_trip(godot_project):
     assert tree["root"]["children"] == []
 
 
+@pytest.mark.e2e
+@requires_godot
+def test_scene_create_creates_missing_parent_directories(godot_project):
+    scene_path = godot_project / "levels" / "demo" / "main.tscn"
+
+    created = _gda(
+        "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
+    )
+
+    assert created.returncode == 0, created.stdout + created.stderr
+    data = json.loads(created.stdout)
+    assert data["created_dirs"] == [
+        str(godot_project / "levels"),
+        str(godot_project / "levels" / "demo"),
+    ]
+    assert scene_path.exists()
+
+    got = _gda("scene", "get", str(scene_path), "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert json.loads(got.stdout)["root"]["name"] == "main"
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_create_creates_relative_parent_directories_against_project(
+    godot_project,
+):
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+
+    created = subprocess.run(
+        [
+            gda_bin,
+            "scene",
+            "create",
+            "demo/main.tscn",
+            "--root-type",
+            "Node2D",
+            "--project",
+            str(godot_project),
+            "--godot",
+            str(GODOT),
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert created.returncode == 0, created.stdout + created.stderr
+    data = json.loads(created.stdout)
+    assert data["path"] == "demo/main.tscn"
+    assert data["created_dirs"] == ["demo"]
+    assert (godot_project / "demo" / "main.tscn").exists()
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_create_existing_path_yields_already_exists_without_overwriting(
+    godot_project,
+):
+    scene_path = godot_project / "main.tscn"
+    original = "not a scene\n"
+    scene_path.write_text(original, encoding="utf-8")
+
+    created = _gda(
+        "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
+    )
+
+    assert created.returncode == 4
+    err = json.loads(created.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "already_exists"
+    assert str(scene_path) in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_create_empty_root_name_yields_structured_error(godot_project):
+    scene_path = godot_project / ".tscn"
+
+    created = _gda(
+        "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
+    )
+
+    assert created.returncode == 4
+    err = json.loads(created.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "invalid_root_name"
+    assert "root_name" in err["message"]
+    assert not scene_path.exists()
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_create_rejects_root_name_godot_would_rewrite(godot_project):
+    scene_path = godot_project / "bad-name.tscn"
+
+    created = _gda(
+        "scene",
+        "create",
+        str(scene_path),
+        "--root-type",
+        "Node2D",
+        "--root-name",
+        "Bad%Name",
+        "--json",
+    )
+
+    assert created.returncode == 4
+    err = json.loads(created.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "invalid_root_name"
+    assert "root_name" in err["message"]
+    assert not scene_path.exists()
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_create_rejects_dotted_default_root_name_but_allows_override(
+    godot_project,
+):
+    scene_path = godot_project / "level.v2.tscn"
+
+    rejected = _gda(
+        "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
+    )
+
+    assert rejected.returncode == 4
+    err = json.loads(rejected.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "invalid_root_name"
+    assert not scene_path.exists()
+
+    created = _gda(
+        "scene",
+        "create",
+        str(scene_path),
+        "--root-type",
+        "Node2D",
+        "--root-name",
+        "LevelV2",
+        "--json",
+    )
+
+    assert created.returncode == 0, created.stdout + created.stderr
+    assert json.loads(created.stdout)["root_name"] == "LevelV2"
+
+    got = _gda("scene", "get", str(scene_path), "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert json.loads(got.stdout)["root"]["name"] == "LevelV2"
+
+
 # A hand-written nested scene: Root → Hero → Hitbox, distinct node types.
 NESTED_TSCN = """\
 [gd_scene format=3]
@@ -156,6 +311,8 @@ def test_scene_create_unwritable_directory_yields_structured_save_failed(godot_p
     assert err["code"] == "save_failed"
     # The message names the destination the caller must fix.
     assert str(target) in err["message"]
+    assert str(locked) in err["message"]
+    assert "write probe" in err["message"]
     assert not target.exists()
 
 

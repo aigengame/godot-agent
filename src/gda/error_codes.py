@@ -94,6 +94,18 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A requested Godot root node type cannot be instantiated as a Node.",
     ),
     ErrorCodeSpec(
+        "invalid_root_name",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested root node name is empty or would be rewritten by Godot.",
+    ),
+    ErrorCodeSpec(
+        "already_exists",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A create operation target already exists and will not be overwritten.",
+    ),
+    ErrorCodeSpec(
         "save_failed",
         ErrorCategory.OPERATION,
         ErrorCodeSource.OPERATION,
