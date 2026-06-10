@@ -7,6 +7,7 @@ domain group (issue #18). Every command drives the same headless pipeline:
 binary resolution → runner → sentinel parse → typed model → JSON.
 """
 
+from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Optional
 
@@ -46,8 +47,22 @@ scene_app = typer.Typer(
 app.add_typer(scene_app, name="scene")
 
 
+def _version_callback(value: Optional[bool]) -> None:
+    if value:
+        typer.echo(f"gda {package_version('gda')}")
+        raise typer.Exit()
+
+
 @app.callback()
-def main() -> None:
+def main(
+    show_version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the installed gda version and exit.",
+    ),
+) -> None:
     """An agent-facing Godot CLI with structured output."""
     # A no-op callback keeps gda a command *group* so meta commands like
     # `gda info` stay named subcommands (ADR-0005) rather than collapsing to
