@@ -6,8 +6,11 @@ split across ``runner`` and ``errors`` — so the whole contract is reviewable a
 glance and new codes cannot silently collide.
 
 - ``EXIT_NOT_FOUND`` / ``EXIT_TIMEOUT`` follow shell conventions (127 = command
-  not found, 124 = timed out) and are also what the runner *synthesizes* when it
-  cannot get a result from the engine; the CLI maps both to ``environment``.
+  not found, 124 = timed out) and are what the runner *synthesizes* when it
+  cannot get a result from the engine. The CLI maps those synthesized cases to
+  ``environment`` — keyed on the runner's typed ``RunResult.launch_failure``, not
+  the exit code, so an engine that genuinely returns 124/127 is an ``operation``
+  failure, not mislabelled environment (issue #15).
 - ``EXIT_VERSION`` / ``EXIT_OPERATION`` / ``EXIT_PARSE`` are distinct small codes
   the CLI assigns to failures the engine signalled differently or not at all.
 """

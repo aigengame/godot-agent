@@ -16,8 +16,9 @@ is exercised by injecting a crafted ``RunResult`` without touching a real
 engine. The decision tree, top to bottom (``code`` in parentheses; the four
 ``ErrorCategory`` buckets fan out to finer codes):
 
-- exit 127  → environment / binary_not_found      (runner could not launch it)
-- exit 124  → environment / launch_timeout        (launched, hung past timeout)
+- launch NOT_FOUND → environment / binary_not_found  (runner could not launch it)
+- launch TIMEOUT   → environment / launch_timeout     (runner launched it but it
+  hung past the timeout)
 - exit < 0  → operation   / engine_crashed         (engine killed by a signal)
 - exit ≠ 0  → operation   / <operation code>        (operation reported a structured
   failure via the ADR-0002 error envelope — e.g. path_not_found)
@@ -27,10 +28,12 @@ engine. The decision tree, top to bottom (``code`` in parentheses; the four
 - old       → version     / unsupported_version     (below the ADR-0003 minimum,
   ``info``'s per-command layer)
 
-Exit codes come from the single registry in ``gda.exit_codes``: environment
-reuses the runner's shell-convention codes (124/127); version/operation/parse
-get distinct small codes so a shell consumer can tell categories apart without
-parsing the JSON error.
+Environment failures are keyed on the runner's typed ``launch_failure`` reason,
+not the exit code, so an engine (or shell/AppImage wrapper) that *genuinely*
+returns 124/127 is classified as ``operation`` rather than mislabelled
+environment (issue #15). The synthesized environment failures still *exit* with
+the shell-convention codes 124/127; version/operation/parse get distinct small
+codes so a shell consumer can tell categories apart without parsing the JSON error.
 """
 
 from dataclasses import dataclass
@@ -49,7 +52,7 @@ from gda.exit_codes import (
 )
 from gda.models import EngineVersion, ErrorCategory, GdaError, OperationErrorEnvelope
 from gda.parser import parse_result
-from gda.runner import RunResult
+from gda.runner import LaunchFailure, RunResult
 
 # The minimum supported Godot version (ADR-0003): the floor where the modern
 # features gda relies on exist. Resolved from the version gda info reports.
@@ -113,7 +116,7 @@ def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | 
     Command-agnostic: owns the env/operation/parse decision tree shared by all
     commands. Per-command classifiers layer their specific checks on top.
     """
-    if result.exit_code == EXIT_NOT_FOUND:
+    if result.launch_failure is LaunchFailure.NOT_FOUND:
         return _failure(
             ErrorCategory.ENVIRONMENT,
             "binary_not_found",
@@ -121,7 +124,7 @@ def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | 
             EXIT_NOT_FOUND,
             result.stderr,
         )
-    if result.exit_code == EXIT_TIMEOUT:
+    if result.launch_failure is LaunchFailure.TIMEOUT:
         return _failure(
             ErrorCategory.ENVIRONMENT,
             "launch_timeout",

@@ -8,7 +8,8 @@ CLI already handles via its exit-code path.
 import subprocess
 from pathlib import Path
 
-from gda.runner import SubprocessGodotRunner
+from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
+from gda.runner import LaunchFailure, SubprocessGodotRunner
 
 
 def test_missing_binary_maps_to_nonzero_result_not_traceback():
@@ -16,9 +17,12 @@ def test_missing_binary_maps_to_nonzero_result_not_traceback():
 
     result = runner.run("info", {})
 
-    assert result.exit_code != 0
+    assert result.exit_code == EXIT_NOT_FOUND
     assert "/nonexistent/Godot" in result.stderr
     assert result.stdout == ""
+    # The runner flags this as a synthesized launch failure so the classifier
+    # keys environment on the typed reason, not the overloaded exit code (#15).
+    assert result.launch_failure is LaunchFailure.NOT_FOUND
 
 
 def test_timeout_maps_to_nonzero_result(monkeypatch):
@@ -30,8 +34,9 @@ def test_timeout_maps_to_nonzero_result(monkeypatch):
 
     result = runner.run("info", {})
 
-    assert result.exit_code != 0
+    assert result.exit_code == EXIT_TIMEOUT
     assert "timed out" in result.stderr.lower()
+    assert result.launch_failure is LaunchFailure.TIMEOUT
 
 
 def test_timeout_is_passed_through_to_subprocess(monkeypatch):
@@ -50,6 +55,9 @@ def test_timeout_is_passed_through_to_subprocess(monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run)
     runner = SubprocessGodotRunner(Path("/any/Godot"), timeout=42.0)
 
-    runner.run("info", {})
+    result = runner.run("info", {})
 
     assert captured["timeout"] == 42.0
+    # An engine that actually returned has no synthesized launch failure, so its
+    # exit code is classified as the engine's own result (#15).
+    assert result.launch_failure is None

@@ -12,7 +12,7 @@ import json
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.runner import RunResult
+from gda.runner import LaunchFailure, RunResult
 from tests.support import error_sentinel, inject_runner
 
 
@@ -141,7 +141,10 @@ def test_scene_create_missing_binary_maps_to_environment_error(monkeypatch):
     inject_runner(
         monkeypatch,
         RunResult(
-            stdout="", stderr="gda: Godot binary not found: /x/Godot\n", exit_code=127
+            stdout="",
+            stderr="gda: Godot binary not found: /x/Godot\n",
+            exit_code=127,
+            launch_failure=LaunchFailure.NOT_FOUND,
         ),
     )
 

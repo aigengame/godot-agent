@@ -8,7 +8,7 @@ import typer
 
 from gda.headless import HeadlessCommand
 from gda.models import EngineVersion, InfoParams
-from gda.runner import RunResult
+from gda.runner import LaunchFailure, RunResult
 from tests.support import FakeRunner, sentinel
 
 VERSION_INFO = {
@@ -63,6 +63,7 @@ def test_headless_command_emit_owns_structured_failure_output(capsys):
             stdout="",
             stderr="gda: Godot binary not found: /tmp/missing\n",
             exit_code=127,
+            launch_failure=LaunchFailure.NOT_FOUND,
         )
     )
 
