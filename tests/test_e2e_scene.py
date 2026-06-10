@@ -7,6 +7,7 @@ structured-level verification of ``scene create``'s effect.
 """
 
 import json
+import os
 import shutil
 import subprocess
 
@@ -128,6 +129,33 @@ def test_scene_get_missing_file_yields_structured_error_end_to_end(godot_project
     assert err["category"] == "operation"
     assert err["code"] == "path_not_found"
     assert str(missing) in err["message"]
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_create_unwritable_directory_yields_structured_save_failed(godot_project):
+    # The residual save-failure contract (issue #35): when the destination
+    # cannot be written, the engine's ERR_CANT_OPEN surfaces as the stable
+    # save_failed code. An existing-but-unwritable directory triggers it, so
+    # this stays valid once #35 auto-creates missing parent directories.
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("directory write permissions do not bind as root")
+    locked = godot_project / "locked"
+    locked.mkdir()
+    target = locked / "main.tscn"
+    locked.chmod(0o500)
+    try:
+        created = _gda("scene", "create", str(target), "--root-type", "Node2D", "--json")
+    finally:
+        locked.chmod(0o700)
+
+    assert created.returncode == 4
+    err = json.loads(created.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "save_failed"
+    # The message names the destination the caller must fix.
+    assert str(target) in err["message"]
+    assert not target.exists()
 
 
 @pytest.mark.e2e
