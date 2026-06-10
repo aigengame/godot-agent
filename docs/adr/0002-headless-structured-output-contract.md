@@ -25,8 +25,10 @@ For [headless operations](../../CONTEXT.md) we define a result contract:
   everything else on stdout is ignored, and stderr is surfaced for diagnostics.
   The payload echoes user-controlled content (a path, and later node names /
   script source) that may itself contain the end sentinel text, so extraction
-  takes the **last** end sentinel as the terminator — the operation emits exactly
-  one result, so sentinel-shaped payload content cannot truncate it (issue #34).
+  takes the **last** end sentinel after the begin sentinel as the terminator.
+  This rests on two invariants below: the operation emits exactly one result and
+  writes nothing else to stdout, so any sentinel-shaped bytes are payload content
+  *before* the real terminator and cannot truncate the result (issue #34).
 - A **result file** (a path passed in by `gda`, written by the GDScript) is reserved
   as an escape hatch for large or binary payloads that should not stream through
   stdout.

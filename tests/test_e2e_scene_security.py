@@ -4,7 +4,8 @@
 scene's stored state, NOT by instantiating it. Instantiating would run the
 ``_init`` of any attached script, so merely *reading* a scene would execute
 arbitrary project code — and a script that prints a sentinel-shaped line could
-forge the command's result (the parser takes the first sentinel match).
+forge or corrupt the command's result. The guarantee is that the scene is never
+instantiated (issue #30), so that line is never emitted in the first place.
 
 This test plants a root script whose ``_init`` both writes a marker file (an
 observable side effect) and prints a forged result block, then asserts neither
