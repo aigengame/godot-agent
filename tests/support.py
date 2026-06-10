@@ -29,6 +29,11 @@ def sentinel(payload: dict) -> str:
     return f"<<<GDA:RESULT>>>{json.dumps(payload)}<<<GDA:END>>>\n"
 
 
+def error_sentinel(code: str, message: str) -> str:
+    """Wrap a minimal ADR-0002 operation error envelope in result sentinels."""
+    return sentinel({"error": {"code": code, "message": message}})
+
+
 def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
     """Swap the CLI's runner seam for a ``FakeRunner`` returning ``result``."""
     fake = FakeRunner(result)

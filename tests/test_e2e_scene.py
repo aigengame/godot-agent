@@ -118,8 +118,9 @@ def test_scene_get_reports_nested_tree(godot_project):
 @requires_godot
 def test_scene_get_missing_file_yields_structured_error_end_to_end(godot_project):
     # The finer operation code (issue #18) survives the whole real stack: the
-    # GDScript op reports path_not_found on stderr, the shared classifier
-    # surfaces it as the stable code with the operation exit code.
+    # GDScript op reports path_not_found through the ADR-0002 error envelope,
+    # and the shared classifier surfaces it as the stable code with the
+    # operation exit code.
     missing = godot_project / "missing.tscn"
 
     got = _gda("scene", "get", str(missing), "--json")

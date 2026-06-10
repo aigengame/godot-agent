@@ -3,8 +3,8 @@
 Issue #18's acceptance: scene-command failures reuse the shared classification
 (no parallel decision tree) and are distinguishable — environment vs operation
 vs parse by exit code, finer modes (missing path, not-a-scene, bad root type)
-by stable ``GdaError.code`` values. The finer codes ride the ``gda-error:``
-stderr marker the operations payload emits on a structured failure.
+by stable ``GdaError.code`` values. The finer codes ride the ADR-0002 error
+envelope the operations payload emits on a structured failure.
 """
 
 import json
@@ -13,7 +13,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import RunResult
-from tests.support import inject_runner
+from tests.support import error_sentinel, inject_runner
 
 
 def test_scene_get_missing_file_maps_to_stable_path_not_found_code(monkeypatch):
@@ -23,8 +23,11 @@ def test_scene_get_missing_file_maps_to_stable_path_not_found_code(monkeypatch):
     inject_runner(
         monkeypatch,
         RunResult(
-            stdout="Godot Engine v4.6.3.stable.official\n",
-            stderr="gda-error:path_not_found: scene file does not exist: /x/missing.tscn\n",
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(
+                "path_not_found", "scene file does not exist: /x/missing.tscn"
+            ),
+            stderr="gda: running operation: scene-get\n",
             exit_code=1,
         ),
     )
@@ -37,7 +40,7 @@ def test_scene_get_missing_file_maps_to_stable_path_not_found_code(monkeypatch):
     assert err["code"] == "path_not_found"
     assert "/x/missing.tscn" in err["message"]
     # The raw stderr still rides along as diagnostics (ADR-0002).
-    assert "path_not_found" in err["diagnostics"]
+    assert err["diagnostics"] == "gda: running operation: scene-get\n"
 
 
 def test_scene_get_unloadable_file_maps_to_stable_not_a_scene_code(monkeypatch):
@@ -46,8 +49,10 @@ def test_scene_get_unloadable_file_maps_to_stable_not_a_scene_code(monkeypatch):
     inject_runner(
         monkeypatch,
         RunResult(
-            stdout="",
-            stderr="gda-error:not_a_scene: failed to load as a scene: /x/notes.txt\n",
+            stdout=error_sentinel(
+                "not_a_scene", "failed to load as a scene: /x/notes.txt"
+            ),
+            stderr="",
             exit_code=1,
         ),
     )
@@ -66,8 +71,10 @@ def test_scene_create_unknown_root_type_maps_to_stable_invalid_root_type_code(
     inject_runner(
         monkeypatch,
         RunResult(
-            stdout="",
-            stderr="gda-error:invalid_root_type: not an instantiable Node class: Foo\n",
+            stdout=error_sentinel(
+                "invalid_root_type", "not an instantiable Node class: Foo"
+            ),
+            stderr="",
             exit_code=1,
         ),
     )
@@ -85,14 +92,17 @@ def test_scene_create_unknown_root_type_maps_to_stable_invalid_root_type_code(
 
 def test_scene_create_save_failure_maps_to_stable_save_failed_code(monkeypatch):
     # The op built the scene but could not write it (unwritable destination,
-    # read-only filesystem): the structured marker maps to the stable
+    # read-only filesystem): the structured error envelope maps to the stable
     # save_failed code so an agent can tell "fix the destination" apart from
     # "fix the request" (issue #35).
     inject_runner(
         monkeypatch,
         RunResult(
-            stdout="",
-            stderr="gda-error:save_failed: failed to save scene to /x/demo/main.tscn: Can't open\n",
+            stdout=error_sentinel(
+                "save_failed",
+                "failed to save scene to /x/demo/main.tscn: Can't open",
+            ),
+            stderr="",
             exit_code=1,
         ),
     )
