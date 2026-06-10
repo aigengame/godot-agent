@@ -15,6 +15,7 @@ from typing import Generic, NoReturn, Optional, TypeVar
 
 import typer
 from pydantic import BaseModel
+from typer.core import TyperCommand
 
 from gda.binary import resolve_godot_binary
 from gda.errors import Failure, classify_run
@@ -56,28 +57,54 @@ def project_option() -> Optional[str]:
     )
 
 
-def schema_option(
-    input_model: type[BaseModel], output_model: type[BaseModel]
-) -> bool:
-    """A ``--schema`` flag wired to model-derived command self-description.
+def schema_option() -> bool:
+    """A plain ``--schema`` boolean flag.
 
-    The eager callback emits the command's ``{input, output}`` contract and
-    exits before required arguments are validated or any engine path is touched
-    (ADR-0004).
+    Emission is owned by the command class (:func:`schema_command_class`), not an
+    eager callback: a bare ``bool`` binds ``False`` when absent (not ``None``)
+    and yields to an eager ``--help`` (issue #36).
     """
-
-    def emit(value: bool) -> None:
-        if value:
-            typer.echo(CommandSchema.of(input_model, output_model).model_dump_json())
-            raise typer.Exit()
-
     return typer.Option(
         False,
         "--schema",
         help="Emit this command's input/output JSON Schemas; no Godot is spawned.",
-        callback=emit,
-        is_eager=True,
     )
+
+
+def schema_command_class(
+    input_model: type[BaseModel], output_model: type[BaseModel]
+) -> type[TyperCommand]:
+    """A Typer command that owns ``--schema`` handling (ADR-0004).
+
+    ``--schema`` is an introspection probe: it emits the command's
+    ``{input, output}`` contract without spawning Godot and without requiring the
+    command's operational arguments. It must still surface a structurally invalid
+    command line — unknown options or extra positional args — as a usage error,
+    and must always yield to ``--help`` (issue #36).
+    """
+
+    class _SchemaCommand(TyperCommand):
+        def parse_args(self, ctx: typer.Context, args: list[str]) -> list[str]:
+            if "--schema" not in args:
+                return super().parse_args(ctx, args)
+
+            # Relax required args so a bare ``--schema`` probe succeeds, while
+            # Click still rejects unknown options / extra positional args and an
+            # eager ``--help`` still wins. Restore afterwards: Typer reuses the
+            # command object across invocations.
+            relaxed = [(param, param.required) for param in self.params]
+            try:
+                for param, _ in relaxed:
+                    param.required = False
+                super().parse_args(ctx, list(args))
+            finally:
+                for param, required in relaxed:
+                    param.required = required
+
+            typer.echo(CommandSchema.of(input_model, output_model).model_dump_json())
+            raise typer.Exit()
+
+    return _SchemaCommand
 
 
 def _fail(failure: Failure) -> NoReturn:
@@ -101,8 +128,12 @@ class HeadlessCommand(Generic[M]):
     classify: Classifier[M] | None = None
 
     def schema_option(self) -> bool:
-        """Return the Typer ``--schema`` option for this command."""
-        return schema_option(self.input_model, self.output_model)
+        """Return the Typer ``--schema`` flag for this command."""
+        return schema_option()
+
+    def command_class(self) -> type[TyperCommand]:
+        """Return the Typer command class that owns this command's ``--schema``."""
+        return schema_command_class(self.input_model, self.output_model)
 
     def run(
         self,

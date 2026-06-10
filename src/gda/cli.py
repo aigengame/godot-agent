@@ -124,7 +124,7 @@ def _render_tree(node: SceneNode, depth: int = 0) -> str:
     return "\n".join(lines)
 
 
-@scene_app.command()
+@scene_app.command(cls=SCENE_CREATE_COMMAND.command_class())
 def create(
     path: str = typer.Argument(..., help="Target .tscn path to write."),
     root_type: str = typer.Option(
@@ -165,7 +165,7 @@ def create(
     )
 
 
-@scene_app.command()
+@scene_app.command(cls=SCENE_GET_COMMAND.command_class())
 def get(
     path: str = typer.Argument(..., help="The .tscn scene file to read."),
     json_output: bool = json_option(),
@@ -184,7 +184,7 @@ def get(
     )
 
 
-@app.command()
+@app.command(cls=INFO_COMMAND.command_class())
 def info(
     json_output: bool = json_option(),
     schema: bool = INFO_COMMAND.schema_option(),
