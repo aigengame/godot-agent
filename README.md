@@ -65,10 +65,16 @@ for the full picture.
   ([ADR-0004](docs/adr/0004-schema-flag-self-description.md)).
 - ✅ `gda --help`, `gda info --help`.
 - ✅ Godot binary resolution via flag / environment variable / default.
+- ✅ `gda scene create <path> --root-type <Type>` / `gda scene get <path>` — the first domain
+  command group ([ADR-0005](docs/adr/0005-cli-command-taxonomy.md)): create a `.tscn` headlessly
+  and read its structured node tree back, with `--json`, `--schema`, structured errors with
+  stable operation codes (`path_not_found`, `not_a_scene`, `invalid_root_type`, `save_failed`),
+  and an e2e-verified create → get round-trip.
 
 **On the roadmap** (designed, not yet implemented)
 
-- 🔜 Domain command groups: `scene`, `node`, `script`, `project`, `resource`, `export`, …
+- 🔜 Further domain command groups and commands: `node`, `script`, `project`, `resource`,
+  `export`, … (see the [command catalog](docs/command-catalog.md)).
 - 🔜 `gda-mcp`, a thin [Model Context Protocol](https://modelcontextprotocol.io) adapter generated
   from `--schema`.
 - 🔜 `gda-daemon` for *live operations* against a running engine (Phase 2).
@@ -149,6 +155,16 @@ All engine and script diagnostics go to **stderr**, so stdout is always clean JS
 gda info --json | jq .major   # → 4
 ```
 
+Create a scene headlessly and read its structured tree back:
+
+```bash
+gda scene create game/main.tscn --root-type Node2D --json
+# {"path":"game/main.tscn","root_name":"main","root_type":"Node2D"}
+
+gda scene get game/main.tscn --json
+# {"path":"game/main.tscn","root":{"name":"main","type":"Node2D","children":[]}}
+```
+
 ---
 
 ## Usage
@@ -171,8 +187,10 @@ gda <meta-command> [options]        # meta commands about gda/the engine, e.g. g
 | `set`                    | Mutate a property                                                |
 | domain verbs             | `play`, `run`, `export`, `import`, … kept with their natural meaning |
 
-> Today only the `info` meta command is implemented. The domain command groups
-> (`scene`, `node`, `script`, …) are on the [roadmap](#roadmap). The taxonomy and naming rules are
+> Today the `info` meta command and the first domain commands — `gda scene create` and
+> `gda scene get` — are implemented. The remaining groups and commands
+> (`node`, `script`, …) are on the [roadmap](#roadmap); the full territory is mapped in the
+> [command catalog](docs/command-catalog.md). The taxonomy and naming rules are
 > specified in [ADR-0005](docs/adr/0005-cli-command-taxonomy.md).
 
 ### Global flags

@@ -33,7 +33,7 @@ Status legend: ✅ shipped · 🔜 Phase-1 candidate · ⏸ Phase-2 (parked).
 | `gda info` | Report Godot engine version info | 1 | ✅ |
 | `gda version` | Report `gda`'s own version | — (local) | 🔜 |
 | `gda help` | Usage help | — (local) | ✅ (`--help`) |
-| `gda <command> --schema` | Emit a command's input/output JSON Schema (ADR-0004) | — (local) | ✅ (`info`, #4) |
+| `gda <command> --schema` | Emit a command's input/output JSON Schema (ADR-0004) | — (local) | ✅ (`info` #4; `scene create`/`scene get` #18) |
 
 > `--schema` is a per-command flag, not a command, and ships with **every** domain
 > command as a hard gate (ADR-0004). It is local introspection — no Godot process.
@@ -46,9 +46,9 @@ Status legend: ✅ shipped · 🔜 Phase-1 candidate · ⏸ Phase-2 (parked).
 
 | Command | Description | Status |
 | --- | --- | --- |
-| `gda scene create` | Create a new `.tscn` with a given root node type | 🔜 |
+| `gda scene create` | Create a new `.tscn` with a given root node type | ✅ (#18) |
 | `gda scene delete` | Delete a scene file | 🔜 |
-| `gda scene get` | Read a scene's structured tree from its file on disk | 🔜 |
+| `gda scene get` | Read a scene's structured tree from its file on disk | ✅ (#18) |
 | `gda scene list` | Enumerate scenes in the project | 🔜 |
 | `gda scene get-exports` | List `@export` properties declared by a scene's nodes | 🔜 |
 
