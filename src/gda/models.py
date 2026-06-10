@@ -18,7 +18,7 @@ class ErrorCategory(str, Enum):
     This is the coarse axis; each category fans out to one or more finer,
     stable ``GdaError.code`` values (e.g. ENVIRONMENT → ``binary_not_found`` /
     ``launch_timeout``; OPERATION → ``operation_failed`` / ``engine_crashed``).
-    See ``gda.errors.classify_info`` for the category→code decision tree.
+    See ``gda.errors.classify_run`` for the category→code decision tree.
 
     ENVIRONMENT covers everything before the operation produces a result — the
     binary not launching, or launching and hanging past the timeout. VERSION is
