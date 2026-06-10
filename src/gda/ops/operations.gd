@@ -29,9 +29,13 @@ const OP_ERROR_UNKNOWN_OPERATION := "unknown_operation"
 const OP_ERROR_INVALID_PARAMS := "invalid_params"
 const OP_ERROR_INVALID_PATH := "invalid_path"
 const OP_ERROR_INVALID_ROOT_TYPE := "invalid_root_type"
+const OP_ERROR_INVALID_ROOT_NAME := "invalid_root_name"
+const OP_ERROR_ALREADY_EXISTS := "already_exists"
 const OP_ERROR_SAVE_FAILED := "save_failed"
 const OP_ERROR_PATH_NOT_FOUND := "path_not_found"
 const OP_ERROR_NOT_A_SCENE := "not_a_scene"
+
+const ROOT_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
 # The exit code the process will use. Defaults to failure, so an operation that
 # aborts before recording an outcome (e.g. an uncaught runtime error) still
@@ -101,10 +105,21 @@ func _op_scene_create(params: Dictionary) -> void:
 			or not ClassDB.is_parent_class(root_type, "Node"):
 		_fail(OP_ERROR_INVALID_ROOT_TYPE, "not an instantiable Node class: " + root_type)
 		return
+	var root_name := _string_param(params, "root_name")
+	if not _is_valid_root_name(root_name):
+		_fail(OP_ERROR_INVALID_ROOT_NAME, "invalid root_name: " + root_name)
+		return
+	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
+		_fail(OP_ERROR_ALREADY_EXISTS, "scene target already exists: " + path)
+		return
 
 	var root: Node = ClassDB.instantiate(root_type)
-	root.name = path.get_file().get_basename()
-	var root_name := String(root.name)
+	root.name = root_name
+	var actual_root_name := String(root.name)
+	if actual_root_name != root_name:
+		root.free()
+		_fail(OP_ERROR_INVALID_ROOT_NAME, "Godot rewrote root_name from " + root_name + " to " + actual_root_name)
+		return
 
 	var packed := PackedScene.new()
 	var pack_err := packed.pack(root)
@@ -112,16 +127,21 @@ func _op_scene_create(params: Dictionary) -> void:
 		root.free()
 		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
 		return
+	var created_dirs: Variant = _ensure_parent_dirs(path)
+	if created_dirs == null:
+		root.free()
+		return
 	var save_err := ResourceSaver.save(packed, path)
 	root.free()
 	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, "failed to save scene to " + path + ": " + error_string(save_err))
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(path, save_err))
 		return
 
 	_succeed({
 		"path": path,
-		"root_name": root_name,
+		"root_name": actual_root_name,
 		"root_type": root_type,
+		"created_dirs": created_dirs,
 	})
 
 
@@ -185,6 +205,59 @@ func _string_param(params: Dictionary, key: String) -> String:
 	if value is String:
 		return value
 	return ""
+
+
+func _is_valid_root_name(root_name: String) -> bool:
+	if root_name.is_empty():
+		return false
+	for invalid_char in ROOT_NAME_INVALID_CHARS:
+		if root_name.contains(String(invalid_char)):
+			return false
+	return true
+
+
+func _ensure_parent_dirs(path: String) -> Variant:
+	var parent := path.get_base_dir()
+	if parent.is_empty() or DirAccess.dir_exists_absolute(parent):
+		return []
+
+	var missing: Array[String] = []
+	var current := parent
+	while not current.is_empty() and not DirAccess.dir_exists_absolute(current):
+		missing.push_front(current)
+		var next := current.get_base_dir()
+		if next == current:
+			break
+		current = next
+
+	var err := DirAccess.make_dir_recursive_absolute(parent)
+	if err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, "failed to create parent directory " + parent + ": " + error_string(err))
+		return null
+	return missing
+
+
+func _save_failure_message(path: String, save_err: Error) -> String:
+	var parent := path.get_base_dir()
+	var message := "failed to save scene to " + path
+	if not parent.is_empty():
+		message += " in parent directory " + parent
+	message += ": " + error_string(save_err)
+
+	var probe_dir := "."
+	if not parent.is_empty():
+		probe_dir = parent
+	var probe_name := ".gda-write-check.tmp"
+	var probe_path := probe_dir.path_join(probe_name)
+	var probe := FileAccess.open(probe_path, FileAccess.WRITE)
+	if probe == null:
+		message += "; write probe " + probe_path + " failed: " + error_string(FileAccess.get_open_error())
+	else:
+		probe.close()
+		var dir := DirAccess.open(probe_dir)
+		if dir != null:
+			dir.remove(probe_name)
+	return message
 
 
 # Record a successful result: emit it through the sentinel contract and mark

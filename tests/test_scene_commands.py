@@ -17,6 +17,7 @@ CREATE_RESULT = {
     "path": "/tmp/proj/main.tscn",
     "root_name": "main",
     "root_type": "Node2D",
+    "created_dirs": [],
 }
 
 
@@ -40,10 +41,51 @@ def test_scene_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch
     assert data["root_name"] == "main"
     # The operation was dispatched by name with the command's typed params.
     assert fake.calls == [
-        ("scene-create", {"path": "/tmp/proj/main.tscn", "root_type": "Node2D"})
+        (
+            "scene-create",
+            {
+                "path": "/tmp/proj/main.tscn",
+                "root_type": "Node2D",
+                "root_name": "main",
+            },
+        )
     ]
     # Engine/script diagnostics are surfaced on stderr, not stdout.
     assert "engine diagnostic" in result.stderr
+
+
+def test_scene_create_accepts_explicit_root_name(monkeypatch):
+    stdout = sentinel(
+        {**CREATE_RESULT, "path": "/tmp/proj/level.v2.tscn", "root_name": "LevelV2"}
+    )
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "scene",
+            "create",
+            "/tmp/proj/level.v2.tscn",
+            "--root-type",
+            "Node2D",
+            "--root-name",
+            "LevelV2",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["root_name"] == "LevelV2"
+    assert fake.calls == [
+        (
+            "scene-create",
+            {
+                "path": "/tmp/proj/level.v2.tscn",
+                "root_type": "Node2D",
+                "root_name": "LevelV2",
+            },
+        )
+    ]
 
 
 GET_RESULT = {

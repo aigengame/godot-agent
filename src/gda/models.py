@@ -9,7 +9,7 @@ hand-maintaining the contract twice.
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ErrorCategory(str, Enum):
@@ -118,23 +118,41 @@ class SceneCreateParams(BaseModel):
     """The operation params of ``gda scene create`` (issue #18).
 
     ``path`` is the target ``.tscn`` file; ``root_type`` the Godot node class
-    of the new scene's root (e.g. ``Node2D``).
+    of the new scene's root (e.g. ``Node2D``). ``root_name`` is explicit so the
+    operation never silently derives a name Godot later sanitizes; when the CLI
+    caller omits ``--root-name``, it derives this from the target filename
+    without the final extension.
     """
 
     path: str
     root_type: str
+    root_name: str | None = Field(
+        default=None,
+        description=(
+            "Root node name to write. If omitted by the CLI, it is derived from "
+            "the target filename without its final extension. Must be non-empty "
+            "and must not contain '.', ':', '@', '/', '\"', or '%'."
+        ),
+    )
 
 
 class SceneCreateResult(BaseModel):
     """The result of ``gda scene create``: what was written where.
 
     Echoes the saved path and the root node the operation actually created, so
-    an agent can assert the effect without a second call.
+    an agent can assert the effect without a second call. ``created_dirs`` lists
+    parent directories the operation created before saving, from outermost to
+    innermost.
     """
 
     path: str
     root_name: str
     root_type: str
+    created_dirs: list[str] = Field(
+        description=(
+            "Parent directories created before saving, from outermost to innermost."
+        )
+    )
 
 
 class SceneNode(BaseModel):

@@ -95,6 +95,14 @@ def _normalize_path(path: str) -> str:
     return str(Path(path).expanduser())
 
 
+def _derive_scene_root_name(path: str) -> str:
+    """Derive the default scene root name from the target file name."""
+    filename = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    if "." in filename:
+        return filename.rsplit(".", 1)[0]
+    return filename
+
+
 def _schema_option(
     input_model: type[BaseModel], output_model: type[BaseModel]
 ) -> bool:
@@ -182,15 +190,30 @@ def create(
         "--root-type",
         help="Godot node class of the new scene's root (e.g. Node2D).",
     ),
+    root_name: Optional[str] = typer.Option(
+        None,
+        "--root-name",
+        help=(
+            "Root node name to write. Defaults to the target filename without "
+            "its final extension."
+        ),
+    ),
     json_output: bool = _json_option(),
     schema: bool = _schema_option(SceneCreateParams, SceneCreateResult),
     godot: Optional[str] = _godot_option(),
     project: Optional[str] = _project_option(),
 ) -> None:
     """Create a new .tscn scene file with the given root node type."""
+    normalized_path = _normalize_path(path)
     created = _run_classified(
         "scene-create",
-        SceneCreateParams(path=_normalize_path(path), root_type=root_type),
+        SceneCreateParams(
+            path=normalized_path,
+            root_type=root_type,
+            root_name=root_name
+            if root_name is not None
+            else _derive_scene_root_name(normalized_path),
+        ),
         lambda result, binary: classify_run(result, binary, SceneCreateResult),
         godot,
         resolve_project_dir(project),

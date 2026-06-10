@@ -51,7 +51,12 @@ def test_round_trips_to_json_object():
 
 
 def test_scene_create_result_round_trips():
-    payload = {"path": "/p/main.tscn", "root_name": "main", "root_type": "Node2D"}
+    payload = {
+        "path": "/p/main.tscn",
+        "root_name": "main",
+        "root_type": "Node2D",
+        "created_dirs": ["/p"],
+    }
 
     created = SceneCreateResult.model_validate(payload)
 

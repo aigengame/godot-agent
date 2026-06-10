@@ -100,6 +100,11 @@ def test_scene_create_schema_emits_model_derived_contract_without_other_args():
     doc = json.loads(result.stdout)
     assert doc["input"] == SceneCreateParams.model_json_schema()
     assert doc["output"] == SceneCreateResult.model_json_schema()
+    assert "root_name" in doc["input"]["properties"]
+    assert "created_dirs" in doc["output"]["properties"]
+    root_name_description = doc["input"]["properties"]["root_name"]["description"]
+    assert '"' in root_name_description
+    assert "%" in root_name_description
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
