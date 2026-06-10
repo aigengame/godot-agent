@@ -49,31 +49,33 @@ for the full picture.
 ## Project status
 
 > **`gda` is in active early development (Phase 1).** The architecture and contracts are settled
-> (see [`CONTEXT.md`](CONTEXT.md) and [`docs/adr/`](docs/adr/)), and the first end-to-end slice ships
-> today. This README documents the working surface *and* the roadmap, and is explicit about which
-> is which.
+> (see [`CONTEXT.md`](CONTEXT.md) and [`docs/adr/`](docs/adr/)), and the headless pipeline is live
+> end-to-end. This README documents the working surface *and* the roadmap, and is explicit about
+> which is which.
 
 **Working today**
 
-- ✅ `gda info` / `gda info --json` — report the Godot engine version through the full Phase-1
-  pipeline (binary resolution → headless one-shot runner → sentinel contract → typed model → JSON).
-- ✅ Structured errors for every `gda info` failure mode — a stable `{"error": {category, code,
-  message, diagnostics}}` JSON object on stdout plus a category-distinguishing non-zero exit code
-  (environment 127/124, version 3, operation 4, parse 5); stderr carries engine diagnostics.
-- ✅ `gda info --schema` — model-driven self-description: emits the command's `input` and `output`
-  JSON Schemas, derived from the same typed models that back `--json`, without spawning Godot
-  ([ADR-0004](docs/adr/0004-schema-flag-self-description.md)).
-- ✅ `gda --help`, `gda info --help`.
-- ✅ Godot binary resolution via flag / environment variable / default.
+- ✅ A first working command surface: the `info` meta command and the first domain command group,
+  `gda scene create` / `gda scene get` ([ADR-0005](docs/adr/0005-cli-command-taxonomy.md)).
+- ✅ The contract every shipped command carries: structured `--json` output, model-derived
+  `--schema` self-description ([ADR-0004](docs/adr/0004-schema-flag-self-description.md)), and
+  structured `{"error": {category, code, …}}` failures with category-distinguishing exit codes.
+- ✅ The engine plumbing underneath: Godot binary resolution (flag / env var / default) and the
+  bounded one-shot `godot --headless` runner with its sentinel output contract
+  ([ADR-0002](docs/adr/0002-headless-structured-output-contract.md)).
 
 **On the roadmap** (designed, not yet implemented)
 
-- 🔜 Domain command groups: `scene`, `node`, `script`, `project`, `resource`, `export`, …
+- 🔜 The remaining domain command groups and commands: `node`, `script`, `project`, `resource`,
+  `export`, …
 - 🔜 `gda-mcp`, a thin [Model Context Protocol](https://modelcontextprotocol.io) adapter generated
   from `--schema`.
 - 🔜 `gda-daemon` for *live operations* against a running engine (Phase 2).
 
-See the [roadmap](#roadmap) and the [issue tracker](https://github.com/aigengame/godot-agent/issues).
+Per-command status (shipped / Phase-1 candidate / parked) is tracked in the
+[command catalog](docs/command-catalog.md) — the single source of truth this section deliberately
+does not duplicate. See also the [roadmap](#roadmap) and the
+[issue tracker](https://github.com/aigengame/godot-agent/issues).
 
 ---
 
@@ -149,6 +151,16 @@ All engine and script diagnostics go to **stderr**, so stdout is always clean JS
 gda info --json | jq .major   # → 4
 ```
 
+Create a scene headlessly and read its structured tree back:
+
+```bash
+gda scene create game/main.tscn --root-type Node2D --json
+# {"path":"game/main.tscn","root_name":"main","root_type":"Node2D"}
+
+gda scene get game/main.tscn --json
+# {"path":"game/main.tscn","root":{"name":"main","type":"Node2D","children":[]}}
+```
+
 ---
 
 ## Usage
@@ -171,17 +183,19 @@ gda <meta-command> [options]        # meta commands about gda/the engine, e.g. g
 | `set`                    | Mutate a property                                                |
 | domain verbs             | `play`, `run`, `export`, `import`, … kept with their natural meaning |
 
-> Today only the `info` meta command is implemented. The domain command groups
-> (`scene`, `node`, `script`, …) are on the [roadmap](#roadmap). The taxonomy and naming rules are
-> specified in [ADR-0005](docs/adr/0005-cli-command-taxonomy.md).
+> The surface grows one vertical slice at a time; `gda --help` lists what is installed, and
+> per-command status is tracked in the [command catalog](docs/command-catalog.md). The taxonomy
+> and naming rules are specified in [ADR-0005](docs/adr/0005-cli-command-taxonomy.md).
 
 ### Global flags
 
 | Flag       | Description                                                          |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`   | Emit the result as a single JSON object on stdout.                  |
-| `--schema` | Emit the command's input/output JSON Schema contract (no Godot spawned). |
-| `--help`   | Show usage for `gda` or any command.                                |
+| `--json`    | Emit the result as a single JSON object on stdout. Without it, commands print a concise human-readable rendering. |
+| `--schema`  | Emit the command's input/output JSON Schema contract (no Godot spawned). |
+| `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT` and the default). |
+| `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. |
+| `--help`    | Show usage for `gda` or any command.                                |
 
 ---
 
@@ -196,6 +210,25 @@ gda <meta-command> [options]        # meta commands about gda/the engine, e.g. g
 
 ```bash
 gda info --godot "/Applications/Godot.app/Contents/MacOS/Godot" --json
+```
+
+### Project context
+
+Domain commands resolve a **Godot project** so that `res://` paths and a scene's
+inter-resource references resolve deterministically, in this order (highest precedence first):
+
+1. The **`--project <dir>`** flag.
+2. The **`GDA_PROJECT`** environment variable.
+3. The **current directory**, when it is a Godot project (contains `project.godot`).
+
+A named directory must be a project, or `gda` reports it as an error. When none resolves, `gda`
+runs **projectless** — only filesystem paths (absolute or cwd-relative) resolve, not `res://`.
+Path normalization happens once at the CLI layer: `res://` / `user://` / `uid://` pass through to
+the engine; filesystem paths get `~` expanded. See
+[ADR-0006](docs/adr/0006-project-context-and-path-resolution.md).
+
+```bash
+gda scene get res://main.tscn --project ~/game --json
 ```
 
 ---
@@ -225,24 +258,26 @@ per-message protocol the daemon will use in Phase 2.
 ```bash
 uv sync                       # set up the environment
 
-uv run pytest                 # run the full suite (includes an e2e test against a real Godot)
+uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
-uv run pytest -m e2e          # only the end-to-end test (needs Godot 4.4+ on this machine)
+uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
 ```
 
-The `e2e` test auto-skips if no Godot binary is found at the resolved path.
+The `e2e` tests auto-skip if no Godot binary is found at the resolved path.
 
 ### Project layout
 
 ```
 src/gda/
-  cli.py            # CLI entrypoint (Typer); commands, --json, binary override
+  cli.py            # CLI entrypoint (Typer); command groups, --json/--schema, binary override
   binary.py         # Godot binary resolution (flag > $GDA_GODOT > default)
   runner.py         # GodotRunner seam (Protocol) + SubprocessGodotRunner (one-shot headless)
   parser.py         # sentinel-contract result parser (ADR-0002)
-  models.py         # typed result models (Pydantic) backing --json and --schema (ADR-0004)
+  models.py         # typed I/O models (Pydantic) backing --json and --schema (ADR-0004)
+  errors.py         # failure classification: shared classify_run + per-command layers
+  exit_codes.py     # the single registry of process exit codes (the CLI ABI)
   ops/operations.gd # GDScript payload, dispatched by operation name
-tests/              # unit tests + an e2e test against a real engine
+tests/              # unit tests + e2e tests against a real engine (shared fixtures in conftest.py)
 docs/adr/           # architecture decision records
 CONTEXT.md          # the project's shared domain language
 ```

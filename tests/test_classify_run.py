@@ -113,6 +113,29 @@ def test_engine_nonzero_exit_maps_to_operation_failure():
     assert outcome.error.code == "operation_failed"
 
 
+def test_structured_op_failure_marker_refines_the_operation_code():
+    # An operation that reports its failure structurally — the
+    # ``gda-error:<code>: <message>`` stderr marker (issue #18) — surfaces its
+    # own stable finer code instead of the generic operation_failed, with the
+    # same operation category and exit code. Command-agnostic: the refinement
+    # lives in the shared tree, not in any per-command classifier.
+    result = RunResult(
+        stdout="Godot Engine v4.6.stable\n",
+        stderr="gda: running operation: scene-get\n"
+        "gda-error:path_not_found: scene file does not exist: /x/a.tscn\n",
+        exit_code=1,
+    )
+
+    outcome = classify_run(result, BINARY, SceneSummary)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.exit_code == 4
+    assert outcome.error.category == ErrorCategory.OPERATION
+    assert outcome.error.code == "path_not_found"
+    assert outcome.error.message == "scene file does not exist: /x/a.tscn"
+    assert outcome.error.diagnostics == result.stderr
+
+
 @pytest.mark.parametrize(
     "stdout",
     [

@@ -92,6 +92,54 @@ class CommandSchema(BaseModel):
         )
 
 
+class SceneCreateParams(BaseModel):
+    """The operation params of ``gda scene create`` (issue #18).
+
+    ``path`` is the target ``.tscn`` file; ``root_type`` the Godot node class
+    of the new scene's root (e.g. ``Node2D``).
+    """
+
+    path: str
+    root_type: str
+
+
+class SceneCreateResult(BaseModel):
+    """The result of ``gda scene create``: what was written where.
+
+    Echoes the saved path and the root node the operation actually created, so
+    an agent can assert the effect without a second call.
+    """
+
+    path: str
+    root_name: str
+    root_type: str
+
+
+class SceneNode(BaseModel):
+    """One node of a scene's structured tree: name, type, nested children.
+
+    Recursive on purpose — the tree IS the contract: ``gda scene get`` reports
+    arbitrarily nested scenes through this one shape.
+    """
+
+    name: str
+    type: str
+    children: list["SceneNode"] = []
+
+
+class SceneGetParams(BaseModel):
+    """The operation params of ``gda scene get``: the ``.tscn`` file to read."""
+
+    path: str
+
+
+class SceneGetResult(BaseModel):
+    """The result of ``gda scene get``: the scene file's structured node tree."""
+
+    path: str
+    root: SceneNode
+
+
 class EngineVersion(BaseModel):
     """The Godot engine version, as reported by ``Engine.get_version_info()``.
 
