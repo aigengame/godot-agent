@@ -197,7 +197,7 @@ gda <meta-command> [options]        # meta commands about gda/the engine, e.g. g
 
 | Flag       | Description                                                          |
 | ---------- | ------------------------------------------------------------------- |
-| `--json`   | Emit the result as a single JSON object on stdout.                  |
+| `--json`   | Emit the result as a single JSON object on stdout. Without it, commands print a concise human-readable rendering. |
 | `--schema` | Emit the command's input/output JSON Schema contract (no Godot spawned). |
 | `--help`   | Show usage for `gda` or any command.                                |
 
