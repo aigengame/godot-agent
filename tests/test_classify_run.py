@@ -17,8 +17,9 @@ import pytest
 from pydantic import BaseModel
 
 from gda.errors import Failure, classify_run
+from gda.exit_codes import EXIT_OPERATION
 from gda.models import ErrorCategory
-from gda.runner import RunResult
+from gda.runner import LaunchFailure, RunResult
 
 BINARY = Path("/x/Godot")
 
@@ -58,7 +59,10 @@ def test_synthesized_not_found_maps_to_environment_failure():
     # The runner synthesizes exit 127 + a not-found diagnostic when the binary
     # is missing (#2 convention) — an environment failure naming the binary.
     result = RunResult(
-        stdout="", stderr="gda: Godot binary not found: /x/Godot\n", exit_code=127
+        stdout="",
+        stderr="gda: Godot binary not found: /x/Godot\n",
+        exit_code=127,
+        launch_failure=LaunchFailure.NOT_FOUND,
     )
 
     outcome = classify_run(result, BINARY, SceneSummary)
@@ -76,7 +80,10 @@ def test_synthesized_timeout_maps_to_environment_failure_distinct_from_not_found
     # A launched-but-hung engine is bounded by the runner's timeout: exit 124
     # (#2). Still environment, but distinguishable from binary-not-found.
     result = RunResult(
-        stdout="", stderr="gda: Godot timed out after 60.0s\n", exit_code=124
+        stdout="",
+        stderr="gda: Godot timed out after 60.0s\n",
+        exit_code=124,
+        launch_failure=LaunchFailure.TIMEOUT,
     )
 
     outcome = classify_run(result, BINARY, SceneSummary)
@@ -85,6 +92,34 @@ def test_synthesized_timeout_maps_to_environment_failure_distinct_from_not_found
     assert outcome.exit_code == 124
     assert outcome.error.category == ErrorCategory.ENVIRONMENT
     assert outcome.error.code == "launch_timeout"
+
+
+def test_engine_returned_127_is_operation_not_environment():
+    # A genuine engine/wrapper exit of 127 — with NO runner-synthesized launch
+    # failure — is the engine's own result, not a binary-not-found. It must
+    # classify as operation, never environment (issue #15).
+    result = RunResult(stdout="", stderr="engine said boom\n", exit_code=127)
+
+    outcome = classify_run(result, BINARY, SceneSummary)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.category == ErrorCategory.OPERATION
+    assert outcome.error.code != "binary_not_found"
+    assert outcome.exit_code == EXIT_OPERATION
+
+
+def test_engine_returned_124_is_operation_not_environment():
+    # Symmetric to 127: a genuine engine/wrapper exit of 124 with no runner-
+    # synthesized launch failure is the engine's own result, not a launch
+    # timeout (issue #15).
+    result = RunResult(stdout="", stderr="engine said 124\n", exit_code=124)
+
+    outcome = classify_run(result, BINARY, SceneSummary)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.category == ErrorCategory.OPERATION
+    assert outcome.error.code != "launch_timeout"
+    assert outcome.exit_code == EXIT_OPERATION
 
 
 def test_signal_death_maps_to_operation_failure_naming_the_signal():

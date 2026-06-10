@@ -13,7 +13,7 @@ import json
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.runner import RunResult
+from gda.runner import LaunchFailure, RunResult
 from tests.support import inject_runner as _inject
 
 
@@ -26,6 +26,7 @@ def test_binary_not_found_maps_to_environment_error(monkeypatch):
             stdout="",
             stderr="gda: Godot binary not found: /x/Godot\n",
             exit_code=127,
+            launch_failure=LaunchFailure.NOT_FOUND,
         ),
     )
 
@@ -49,6 +50,7 @@ def test_launch_timeout_maps_to_environment_error_distinct_from_not_found(monkey
             stdout="",
             stderr="gda: Godot timed out after 60.0s\n",
             exit_code=124,
+            launch_failure=LaunchFailure.TIMEOUT,
         ),
     )
 

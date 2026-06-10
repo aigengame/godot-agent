@@ -6,6 +6,7 @@ Given an operation name and JSON params, a runner spawns a one-shot
 exercised against a fake runner without touching a real engine (ADR-0001).
 """
 
+import enum
 import json
 import subprocess
 from dataclasses import dataclass
@@ -25,6 +26,19 @@ OPERATIONS_GD = Path(__file__).parent / "ops" / "operations.gd"
 DEFAULT_TIMEOUT_SECONDS = 60.0
 
 
+class LaunchFailure(enum.Enum):
+    """Why the runner never obtained a result from the engine (issue #15).
+
+    Set *only* by the runner when it synthesizes a result without the engine
+    returning one, so classification keys environment failures on this typed
+    reason rather than on shell-convention exit codes that a real engine or
+    wrapper can itself genuinely return.
+    """
+
+    NOT_FOUND = "not_found"  # the binary could not be launched
+    TIMEOUT = "timeout"  # launched, but did not return before the runner timeout
+
+
 @dataclass
 class RunResult:
     """The raw result of a one-shot headless Godot invocation."""
@@ -32,6 +46,10 @@ class RunResult:
     stdout: str
     stderr: str
     exit_code: int
+    # Set only when the runner synthesized this result (binary missing, timed
+    # out) instead of the engine returning one; ``None`` means the exit_code is
+    # the engine's own (issue #15).
+    launch_failure: "LaunchFailure | None" = None
 
 
 class GodotRunner(Protocol):
@@ -79,12 +97,14 @@ class SubprocessGodotRunner:
                 stdout="",
                 stderr=f"gda: Godot timed out after {self.timeout}s\n",
                 exit_code=EXIT_TIMEOUT,
+                launch_failure=LaunchFailure.TIMEOUT,
             )
         except FileNotFoundError:
             return RunResult(
                 stdout="",
                 stderr=f"gda: Godot binary not found: {self.binary}\n",
                 exit_code=EXIT_NOT_FOUND,
+                launch_failure=LaunchFailure.NOT_FOUND,
             )
         return RunResult(
             stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode
