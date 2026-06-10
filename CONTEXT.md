@@ -40,6 +40,28 @@ in-place state (e.g. inspect the live scene tree, runtime inspection, UndoRedo,
 input simulation). Served through `gda-daemon`, not by a one-shot headless call.
 _Avoid_: realtime op, online op
 
+### Failure reporting
+
+**Gda error code**:
+A stable machine-readable code on a `GdaError`, used by agents to branch on a
+specific failure mode without parsing prose.
+_Avoid_: error string, status code
+
+**Operation-reported error code**:
+A `Gda error code` reported by a headless operation itself. It names a failure
+the operation understood and chose to report.
+_Avoid_: script error code, raw engine error
+
+**Classifier error code**:
+A `Gda error code` assigned by `gda` after classifying a runner, parser,
+version, crash, or fallback operation failure.
+_Avoid_: wrapper error code, Python error code
+
+**Error envelope**:
+The structured failure result that distinguishes a failed command from a
+successful result.
+_Avoid_: error blob, failure JSON
+
 ### Delivery phases
 
 The order in which **capabilities** are delivered. This is distinct from ADR-0000's

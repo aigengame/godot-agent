@@ -1,0 +1,126 @@
+"""Authoritative registry of public ``GdaError.code`` values.
+
+The registry is the machine-readable companion to ADR-0002's table. Every code
+emitted in a public ``GdaError`` must be declared here; GDScript mirrors only
+the ``operation`` source subset because only those codes are reported by
+headless operations.
+"""
+
+from dataclasses import dataclass
+from enum import Enum
+
+from gda.models import ErrorCategory
+
+
+class ErrorCodeSource(str, Enum):
+    """Where a public ``GdaError.code`` originates."""
+
+    RUNNER = "runner"
+    CLASSIFIER = "classifier"
+    OPERATION = "operation"
+    PARSER = "parser"
+    VERSION_GATE = "version_gate"
+
+
+@dataclass(frozen=True)
+class ErrorCodeSpec:
+    """One public ``GdaError.code`` registry entry."""
+
+    code: str
+    category: ErrorCategory
+    source: ErrorCodeSource
+    description: str
+
+
+ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
+    ErrorCodeSpec(
+        "binary_not_found",
+        ErrorCategory.ENVIRONMENT,
+        ErrorCodeSource.RUNNER,
+        "The Godot binary could not be launched.",
+    ),
+    ErrorCodeSpec(
+        "launch_timeout",
+        ErrorCategory.ENVIRONMENT,
+        ErrorCodeSource.RUNNER,
+        "Godot launched but did not return before the runner timeout.",
+    ),
+    ErrorCodeSpec(
+        "unsupported_version",
+        ErrorCategory.VERSION,
+        ErrorCodeSource.VERSION_GATE,
+        "The detected Godot version is below the supported minimum.",
+    ),
+    ErrorCodeSpec(
+        "engine_crashed",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "Godot terminated abnormally, such as by signal death.",
+    ),
+    ErrorCodeSpec(
+        "operation_failed",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "The engine or operation failed without a valid registered operation error envelope.",
+    ),
+    ErrorCodeSpec(
+        "usage_error",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "The operation dispatcher was invoked without the required operation name.",
+    ),
+    ErrorCodeSpec(
+        "unknown_operation",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "The operation dispatcher received an unknown operation name.",
+    ),
+    ErrorCodeSpec(
+        "invalid_params",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "The operation dispatcher received params that are not a JSON object.",
+    ),
+    ErrorCodeSpec(
+        "invalid_path",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A required path parameter is missing or invalid.",
+    ),
+    ErrorCodeSpec(
+        "invalid_root_type",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested Godot root node type cannot be instantiated as a Node.",
+    ),
+    ErrorCodeSpec(
+        "save_failed",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A scene could not be packed or saved.",
+    ),
+    ErrorCodeSpec(
+        "path_not_found",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested scene file does not exist.",
+    ),
+    ErrorCodeSpec(
+        "not_a_scene",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested file cannot be loaded as a PackedScene.",
+    ),
+    ErrorCodeSpec(
+        "contract_violation",
+        ErrorCategory.PARSE,
+        ErrorCodeSource.PARSER,
+        "The process claimed success but violated the structured-output contract.",
+    ),
+)
+
+ERROR_CODE_BY_CODE: dict[str, ErrorCodeSpec] = {spec.code: spec for spec in ERROR_CODES}
+
+OPERATION_ERROR_CODES: frozenset[str] = frozenset(
+    spec.code for spec in ERROR_CODES if spec.source is ErrorCodeSource.OPERATION
+)

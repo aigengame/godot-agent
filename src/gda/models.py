@@ -9,7 +9,7 @@ hand-maintaining the contract twice.
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ErrorCategory(str, Enum):
@@ -57,6 +57,28 @@ class GdaErrorEnvelope(BaseModel):
     """
 
     error: GdaError
+
+
+class OperationError(BaseModel):
+    """The minimal operation-reported failure payload (ADR-0002).
+
+    Headless operations only report the part they own: a registered operation
+    error ``code`` and a human-readable ``message``. The Python classifier adds
+    category and diagnostics when it builds the public ``GdaError``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+
+
+class OperationErrorEnvelope(BaseModel):
+    """The sentinel payload shape for a headless operation failure."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    error: OperationError
 
 
 class InfoParams(BaseModel):

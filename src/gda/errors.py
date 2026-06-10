@@ -19,9 +19,10 @@ engine. The decision tree, top to bottom (``code`` in parentheses; the four
 - exit 127  → environment / binary_not_found      (runner could not launch it)
 - exit 124  → environment / launch_timeout        (launched, hung past timeout)
 - exit < 0  → operation   / engine_crashed         (engine killed by a signal)
-- exit ≠ 0  → operation   / <marker code>           (operation reported a structured
-  failure via the ``gda-error:<code>:`` stderr marker — e.g. path_not_found)
-- exit ≠ 0  → operation   / operation_failed        (engine ran, operation errored)
+- exit ≠ 0  → operation   / <operation code>        (operation reported a structured
+  failure via the ADR-0002 error envelope — e.g. path_not_found)
+- exit ≠ 0  → operation   / operation_failed        (engine ran, operation errored
+  without a valid registered error envelope)
 - contract  → parse       / contract_violation      (sentinel/JSON/shape invalid)
 - old       → version     / unsupported_version     (below the ADR-0003 minimum,
   ``info``'s per-command layer)
@@ -32,13 +33,13 @@ get distinct small codes so a shell consumer can tell categories apart without
 parsing the JSON error.
 """
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from gda.error_codes import ERROR_CODE_BY_CODE, OPERATION_ERROR_CODES
 from gda.exit_codes import (
     EXIT_NOT_FOUND,
     EXIT_OPERATION,
@@ -46,19 +47,13 @@ from gda.exit_codes import (
     EXIT_TIMEOUT,
     EXIT_VERSION,
 )
-from gda.models import EngineVersion, ErrorCategory, GdaError
+from gda.models import EngineVersion, ErrorCategory, GdaError, OperationErrorEnvelope
 from gda.parser import parse_result
 from gda.runner import RunResult
 
 # The minimum supported Godot version (ADR-0003): the floor where the modern
 # features gda relies on exist. Resolved from the version gda info reports.
 MIN_GODOT_VERSION = (4, 4)
-
-# A structured operation failure, as the operations payload reports it on
-# stderr: ``gda-error:<code>: <message>``. The marker refines the generic
-# operation_failed bucket into the operation's own stable, finer code
-# (e.g. path_not_found, not_a_scene) — same category, same exit code.
-_OP_ERROR_MARKER = re.compile(r"^gda-error:([a-z_]+): ?(.*)$", re.MULTILINE)
 
 
 @dataclass
@@ -82,6 +77,14 @@ def _failure(
     call site, so they live here once: the call sites then read as the taxonomy
     itself — a (category, code, message, exit_code) row per failure mode.
     """
+    spec = ERROR_CODE_BY_CODE.get(code)
+    if spec is None:
+        raise RuntimeError(f"unregistered GdaError.code: {code}")
+    if spec.category is not category:
+        raise RuntimeError(
+            f"GdaError.code {code!r} is registered as {spec.category.value}, "
+            f"not {category.value}"
+        )
     return Failure(
         GdaError(category=category, code=code, message=message, diagnostics=stderr),
         exit_code=exit_code,
@@ -89,6 +92,19 @@ def _failure(
 
 
 M = TypeVar("M", bound=BaseModel)
+
+
+def _operation_error_from_payload(result: RunResult) -> tuple[str, str] | None:
+    """Extract a minimal operation error envelope from stdout, if present."""
+    try:
+        payload = parse_result(result.stdout)
+    except ValueError:
+        return None
+    try:
+        envelope = OperationErrorEnvelope.model_validate(payload)
+    except ValidationError:
+        return None
+    return envelope.error.code, envelope.error.message
 
 
 def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | Failure:
@@ -127,22 +143,31 @@ def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | 
     if result.exit_code != 0:
         # The engine ran but the operation itself reported an error and quit
         # non-zero (its own exit, not the runner's synthetic 124/127). When the
-        # operation reported the failure *structurally* via the gda-error
-        # stderr marker, surface its finer stable code; otherwise fall back to
-        # the generic operation_failed.
-        marker = _OP_ERROR_MARKER.search(result.stderr)
-        if marker:
+        # operation reported the failure structurally via the ADR-0002 sentinel
+        # error envelope, surface its registered finer code; otherwise fall
+        # back to the generic operation_failed.
+        payload_error = _operation_error_from_payload(result)
+        if payload_error is not None:
+            code, message = payload_error
+            if code not in OPERATION_ERROR_CODES:
+                return _failure(
+                    ErrorCategory.OPERATION,
+                    "operation_failed",
+                    f"headless operation reported unregistered error code: {code}",
+                    EXIT_OPERATION,
+                    result.stderr,
+                )
             return _failure(
                 ErrorCategory.OPERATION,
-                marker.group(1),
-                marker.group(2) or "the headless operation reported an error",
+                code,
+                message or "the headless operation reported an error",
                 EXIT_OPERATION,
                 result.stderr,
             )
         return _failure(
             ErrorCategory.OPERATION,
             "operation_failed",
-            "the headless operation reported an error",
+            "the headless operation exited non-zero without a structured error",
             EXIT_OPERATION,
             result.stderr,
         )

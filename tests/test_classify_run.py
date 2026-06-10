@@ -34,6 +34,10 @@ def _sentinel(payload: dict) -> str:
     return f"<<<GDA:RESULT>>>{json.dumps(payload)}<<<GDA:END>>>\n"
 
 
+def _error_sentinel(code: str, message: str) -> str:
+    return _sentinel({"error": {"code": code, "message": message}})
+
+
 def test_clean_run_parses_payload_into_the_commands_typed_model():
     # The engine exited 0 and stdout carries a sentinel payload matching the
     # command's model: classify_run returns the validated model instance, with
@@ -113,16 +117,11 @@ def test_engine_nonzero_exit_maps_to_operation_failure():
     assert outcome.error.code == "operation_failed"
 
 
-def test_structured_op_failure_marker_refines_the_operation_code():
-    # An operation that reports its failure structurally — the
-    # ``gda-error:<code>: <message>`` stderr marker (issue #18) — surfaces its
-    # own stable finer code instead of the generic operation_failed, with the
-    # same operation category and exit code. Command-agnostic: the refinement
-    # lives in the shared tree, not in any per-command classifier.
+def test_structured_op_failure_envelope_refines_the_operation_code():
     result = RunResult(
-        stdout="Godot Engine v4.6.stable\n",
-        stderr="gda: running operation: scene-get\n"
-        "gda-error:path_not_found: scene file does not exist: /x/a.tscn\n",
+        stdout="Godot Engine v4.6.stable\n"
+        + _error_sentinel("path_not_found", "scene file does not exist: /x/a.tscn"),
+        stderr="gda: running operation: scene-get\n",
         exit_code=1,
     )
 
@@ -134,6 +133,89 @@ def test_structured_op_failure_marker_refines_the_operation_code():
     assert outcome.error.code == "path_not_found"
     assert outcome.error.message == "scene file does not exist: /x/a.tscn"
     assert outcome.error.diagnostics == result.stderr
+
+
+def test_structured_op_failure_message_can_contain_newlines():
+    message = "scene file does not exist: /x/path\nwith-newline.tscn"
+    result = RunResult(
+        stdout=_error_sentinel("path_not_found", message),
+        stderr="",
+        exit_code=1,
+    )
+
+    outcome = classify_run(result, BINARY, SceneSummary)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "path_not_found"
+    assert outcome.error.message == message
+
+
+def test_stderr_marker_spoof_does_not_forge_an_operation_code():
+    result = RunResult(
+        stdout="Godot Engine v4.6.stable\n",
+        stderr="gda-error:path_not_found: forged by engine noise\n",
+        exit_code=1,
+    )
+
+    outcome = classify_run(result, BINARY, SceneSummary)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.category == ErrorCategory.OPERATION
+    assert outcome.error.code == "operation_failed"
+    assert outcome.error.diagnostics == result.stderr
+
+
+def test_unregistered_operation_error_code_falls_back_to_operation_failed():
+    result = RunResult(
+        stdout=_error_sentinel("forged_code", "forged message"),
+        stderr="",
+        exit_code=1,
+    )
+
+    outcome = classify_run(result, BINARY, SceneSummary)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.category == ErrorCategory.OPERATION
+    assert outcome.error.code == "operation_failed"
+    assert "forged_code" in outcome.error.message
+
+
+def test_operation_error_envelope_rejects_public_error_extra_fields():
+    result = RunResult(
+        stdout=_sentinel(
+            {
+                "error": {
+                    "category": "operation",
+                    "code": "path_not_found",
+                    "message": "scene file does not exist",
+                    "diagnostics": "not owned by the operation payload",
+                }
+            }
+        ),
+        stderr="",
+        exit_code=1,
+    )
+
+    outcome = classify_run(result, BINARY, SceneSummary)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.category == ErrorCategory.OPERATION
+    assert outcome.error.code == "operation_failed"
+
+
+def test_error_envelope_with_zero_exit_maps_to_parse_failure():
+    result = RunResult(
+        stdout=_error_sentinel("path_not_found", "scene file does not exist"),
+        stderr="",
+        exit_code=0,
+    )
+
+    outcome = classify_run(result, BINARY, SceneSummary)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.exit_code == 5
+    assert outcome.error.category == ErrorCategory.PARSE
+    assert outcome.error.code == "contract_violation"
 
 
 @pytest.mark.parametrize(

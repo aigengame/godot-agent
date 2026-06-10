@@ -9,9 +9,9 @@ extends SceneTree
 # sentinels, and routes all of its own diagnostics to stderr. stdout carries
 # nothing but the sentinel-delimited result; everything else is engine noise.
 #
-# An operation that fails reports it structurally on stderr as
-# `gda-error:<code>: <message>`; gda's shared classifier surfaces <code> as the
-# stable GdaError.code (issue #18).
+# An operation that fails reports it structurally through the same stdout
+# sentinels as success, using a minimal error envelope. gda's shared classifier
+# surfaces the registered code as the stable GdaError.code (ADR-0002).
 #
 # Control flow (issue #31): all work happens in _initialize, but the process is
 # quit from _process — which runs on the first idle frame regardless of whether
@@ -24,6 +24,15 @@ extends SceneTree
 const RESULT_BEGIN := "<<<GDA:RESULT>>>"
 const RESULT_END := "<<<GDA:END>>>"
 
+const OP_ERROR_USAGE := "usage_error"
+const OP_ERROR_UNKNOWN_OPERATION := "unknown_operation"
+const OP_ERROR_INVALID_PARAMS := "invalid_params"
+const OP_ERROR_INVALID_PATH := "invalid_path"
+const OP_ERROR_INVALID_ROOT_TYPE := "invalid_root_type"
+const OP_ERROR_SAVE_FAILED := "save_failed"
+const OP_ERROR_PATH_NOT_FOUND := "path_not_found"
+const OP_ERROR_NOT_A_SCENE := "not_a_scene"
+
 # The exit code the process will use. Defaults to failure, so an operation that
 # aborts before recording an outcome (e.g. an uncaught runtime error) still
 # exits non-zero rather than reporting a phantom success.
@@ -35,7 +44,7 @@ func _initialize() -> void:
 	# [params_json] — arrives here, independent of engine argument ordering.
 	var args := OS.get_cmdline_user_args()
 	if args.is_empty():
-		_fail("usage_error", "usage: godot --headless --script operations.gd -- <operation> [params_json]")
+		_fail(OP_ERROR_USAGE, "usage: godot --headless --script operations.gd -- <operation> [params_json]")
 		return
 
 	var operation: String = args[0]
@@ -51,7 +60,7 @@ func _initialize() -> void:
 		"scene-get":
 			_op_scene_get(params)
 		_:
-			_fail("unknown_operation", "unknown operation: " + operation)
+			_fail(OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 
 
 # Quit on the first idle frame, whatever happened during _initialize — this is
@@ -68,7 +77,7 @@ func _parse_params(args: PackedStringArray) -> Variant:
 		return {}
 	var parsed: Variant = JSON.parse_string(args[1])
 	if not (parsed is Dictionary):
-		_fail("invalid_params", "params is not a JSON object: " + args[1])
+		_fail(OP_ERROR_INVALID_PARAMS, "params is not a JSON object: " + args[1])
 		return null
 	return parsed
 
@@ -85,12 +94,12 @@ func _op_scene_create(params: Dictionary) -> void:
 	_diag("running operation: scene-create")
 	var path := _string_param(params, "path")
 	if path.is_empty():
-		_fail("invalid_path", "missing required param: path")
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
 	var root_type := _string_param(params, "root_type")
 	if root_type.is_empty() or not ClassDB.can_instantiate(root_type) \
 			or not ClassDB.is_parent_class(root_type, "Node"):
-		_fail("invalid_root_type", "not an instantiable Node class: " + root_type)
+		_fail(OP_ERROR_INVALID_ROOT_TYPE, "not an instantiable Node class: " + root_type)
 		return
 
 	var root: Node = ClassDB.instantiate(root_type)
@@ -101,12 +110,12 @@ func _op_scene_create(params: Dictionary) -> void:
 	var pack_err := packed.pack(root)
 	if pack_err != OK:
 		root.free()
-		_fail("save_failed", "failed to pack scene: " + error_string(pack_err))
+		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
 		return
 	var save_err := ResourceSaver.save(packed, path)
 	root.free()
 	if save_err != OK:
-		_fail("save_failed", "failed to save scene to " + path + ": " + error_string(save_err))
+		_fail(OP_ERROR_SAVE_FAILED, "failed to save scene to " + path + ": " + error_string(save_err))
 		return
 
 	_succeed({
@@ -127,19 +136,19 @@ func _op_scene_get(params: Dictionary) -> void:
 	_diag("running operation: scene-get")
 	var path := _string_param(params, "path")
 	if path.is_empty():
-		_fail("invalid_path", "missing required param: path")
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
 	if not FileAccess.file_exists(path):
-		_fail("path_not_found", "scene file does not exist: " + path)
+		_fail(OP_ERROR_PATH_NOT_FOUND, "scene file does not exist: " + path)
 		return
 
 	var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
 	if packed == null:
-		_fail("not_a_scene", "failed to load as a scene: " + path)
+		_fail(OP_ERROR_NOT_A_SCENE, "failed to load as a scene: " + path)
 		return
 	var state := packed.get_state()
 	if state == null or state.get_node_count() == 0:
-		_fail("not_a_scene", "scene declares no root node: " + path)
+		_fail(OP_ERROR_NOT_A_SCENE, "scene declares no root node: " + path)
 		return
 
 	_succeed({"path": path, "root": _tree_from_state(state)})
@@ -189,8 +198,13 @@ func _diag(message: String) -> void:
 	printerr("gda: " + message)
 
 
-# Record a structured failure: the stable finer code rides the stderr marker
-# (issue #18) and the process is left to exit non-zero via _process.
+# Record a structured failure through the ADR-0002 sentinel contract. The
+# process is left to exit non-zero via _process.
 func _fail(code: String, message: String) -> void:
-	printerr("gda-error:" + code + ": " + message)
+	print(RESULT_BEGIN + JSON.stringify({
+		"error": {
+			"code": code,
+			"message": message,
+		},
+	}) + RESULT_END)
 	_exit_code = 1
