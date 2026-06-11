@@ -39,6 +39,7 @@ const OP_ERROR_INVALID_NODE_TYPE := "invalid_node_type"
 const OP_ERROR_INVALID_NODE_NAME := "invalid_node_name"
 const OP_ERROR_DUPLICATE_NODE_NAME := "duplicate_node_name"
 const OP_ERROR_MISSING_DEPENDENCY := "missing_dependency"
+const OP_ERROR_UNINSTANTIABLE_SCRIPT := "uninstantiable_script"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -224,8 +225,7 @@ func _op_node_add(params: Dictionary) -> void:
 	var node := _instantiate_node_type(type)
 	if node == null:
 		root.free()
-		_fail(OP_ERROR_INVALID_NODE_TYPE, "not an instantiable Node class or registered class_name: " + type)
-		return
+		return  # _instantiate_node_type already recorded the failure
 
 	node.name = node_name
 	var actual_name := String(node.name)
@@ -343,26 +343,58 @@ func _resolve_parent(root: Node, parent_path: String) -> Node:
 
 # Instantiate a node by type: a built-in Node class first, then a class_name
 # from the project's global class list (script classes register only once the
-# project has been imported/scanned). Returns null when the type resolves to
-# nothing instantiable as a Node.
+# project has been imported/scanned). Records the failure itself and returns
+# null when the type resolves to nothing instantiable as a Node, telling apart
+# the two distinct failure modes (issue #65): a type that resolves to nothing
+# is invalid_node_type, while a registered class_name whose script broke since
+# registration is uninstantiable_script — repair the script, not the type name.
 func _instantiate_node_type(type: String) -> Node:
-	if type.is_empty():
-		return null
-	if ClassDB.can_instantiate(type) and ClassDB.is_parent_class(type, "Node"):
+	if not type.is_empty() and ClassDB.can_instantiate(type) and ClassDB.is_parent_class(type, "Node"):
 		return ClassDB.instantiate(type)
 	for entry in ProjectSettings.get_global_class_list():
-		if String(entry.get("class", "")) != type:
-			continue
-		var script := ResourceLoader.load(String(entry.get("path", ""))) as Script
-		if script == null:
-			return null
-		var instance: Variant = script.new()
-		if instance is Node:
-			return instance
-		if instance is Object and not (instance is RefCounted):
-			instance.free()
-		return null
+		if String(entry.get("class", "")) == type:
+			return _instantiate_script_class(type, String(entry.get("path", "")))
+	_fail(OP_ERROR_INVALID_NODE_TYPE, "not an instantiable Node class or registered class_name: " + type)
 	return null
+
+
+# Instantiate a registered class_name from its script. Registration only
+# proves the script was valid when the project was last scanned — the script
+# on disk may have broken since (issue #65), so each step is checked and a
+# failure reported as the script problem it is, never as an unknown type.
+func _instantiate_script_class(type: String, script_path: String) -> Node:
+	var script := ResourceLoader.load(script_path) as Script
+	if script == null:
+		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
+				+ " script failed to load: " + script_path
+				+ " — broken or removed since the project scan; see diagnostics")
+		return null
+	if not script.can_instantiate():
+		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
+				+ " script cannot be instantiated: " + script_path
+				+ " — it no longer compiles; see diagnostics")
+		return null
+	var instance: Variant = _new_script_instance(script)
+	if instance == null:
+		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
+				+ " script constructor failed: " + script_path
+				+ " — its _init may require arguments; see diagnostics")
+		return null
+	if instance is Node:
+		return instance
+	if instance is Object and not (instance is RefCounted):
+		instance.free()
+	_fail(OP_ERROR_INVALID_NODE_TYPE, "registered class_name " + type
+			+ " is not a Node-derived script: " + script_path)
+	return null
+
+
+# Isolated so an engine-raised call error from Script.new() — a constructor
+# that needs arguments, or a script broken in a way can_instantiate() does not
+# catch — aborts only this helper frame; the caller observes null and reports
+# the failure structurally instead of degrading into an unstructured abort.
+func _new_script_instance(script: Script) -> Variant:
+	return script.new()
 
 
 # The class_name of the node's attached script, or null for a plain built-in

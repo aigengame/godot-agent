@@ -179,6 +179,41 @@ def test_node_add_name_collision_yields_duplicate_node_name(godot_project):
 
 @pytest.mark.e2e
 @requires_godot
+def test_node_add_collision_with_internal_child_yields_duplicate_node_name(
+    godot_project,
+):
+    # Issue #65's internal-child mode, pinned as a regression test: some node
+    # classes construct INTERNAL children in their constructor (ScrollContainer
+    # builds scrollbars named "_h_scroll"/"_v_scroll"), which never appear in
+    # the scene file or node list. A name collision with one must still be the
+    # accurate duplicate_node_name — not invalid_node_name ("Godot rewrote
+    # name") and never a silent engine rename saved into the file. Verified
+    # correct on Godot 4.6.3: get_node_or_null resolves through the engine's
+    # child-name map, which includes internal children.
+    scene_path = godot_project / "ui.tscn"
+    created = _gda(
+        "scene", "create", str(scene_path), "--root-type", "Control", "--json"
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "ScrollContainer", "--name", "Scroll", "--json",
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+    before = scene_path.read_text(encoding="utf-8")
+
+    colliding = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Control", "--name", "_h_scroll", "--parent", "Scroll", "--json",
+    )
+
+    err = _assert_operation_error(colliding, "duplicate_node_name")
+    assert "_h_scroll" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+@requires_godot
 def test_node_add_unknown_type_yields_invalid_node_type(godot_project):
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
@@ -492,3 +527,112 @@ def test_node_add_by_unregistered_class_name_yields_invalid_node_type(godot_proj
 
     err = _assert_operation_error(added, "invalid_node_type")
     assert "Hero" in err["message"]
+
+
+# The same class_name, broken AFTER registration: a parse error the import-time
+# scan never saw, so the stale global class list still maps Hero to this script.
+BROKEN_HERO_GD = """\
+class_name Hero
+extends Node2D
+func broken( -> void:
+"""
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_by_registered_but_broken_class_name_names_the_script(godot_project):
+    # Issue #65's broken-class_name mode: the class_name IS in the global class
+    # list (the import scanned a then-valid script), but the script on disk has
+    # since broken. Reporting invalid_node_type ("not a registered class_name")
+    # misdiagnoses a script problem as an unknown type — the agent fix is to
+    # repair the script, not the type name. The failure must surface as the
+    # distinct uninstantiable_script code naming the script, with the scene
+    # file left unchanged.
+    (godot_project / "hero.gd").write_text(HERO_GD, encoding="utf-8")
+    _import_project(godot_project)
+    (godot_project / "hero.gd").write_text(BROKEN_HERO_GD, encoding="utf-8")
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Hero", "--project", str(godot_project), "--json",
+    )
+
+    err = _assert_operation_error(added, "uninstantiable_script")
+    assert "Hero" in err["message"]
+    assert "hero.gd" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+# A perfectly healthy class_name that just is not a node: instantiable, but
+# never addable to a scene tree.
+LOOT_GD = """\
+class_name Loot
+extends Resource
+"""
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_by_non_node_class_name_yields_invalid_node_type(godot_project):
+    # The boundary of issue #65's distinction: a registered class_name whose
+    # script is fine but not Node-derived is a true type error — it stays
+    # invalid_node_type (not uninstantiable_script), with a message naming the
+    # script and the real cause rather than "not a registered class_name".
+    (godot_project / "loot.gd").write_text(LOOT_GD, encoding="utf-8")
+    _import_project(godot_project)
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Loot", "--project", str(godot_project), "--json",
+    )
+
+    err = _assert_operation_error(added, "invalid_node_type")
+    assert "Loot" in err["message"]
+    assert "not a Node-derived script" in err["message"]
+    assert "loot.gd" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+# A class_name that compiles and registers fine but cannot be constructed
+# without arguments: script.new() has no args to give _init.
+NEEDS_ARGS_HERO_GD = """\
+class_name Hero
+extends Node2D
+
+
+func _init(speed: float) -> void:
+\tpass
+"""
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_by_class_name_whose_init_requires_args_names_the_constructor(
+    godot_project,
+):
+    # The other half of issue #65's broken-class_name mode: the script is
+    # valid and registered, but its _init requires constructor args, so
+    # script.new() cannot construct it. Same misdiagnosis risk as the broken
+    # script: the type IS registered, the constructor is the problem.
+    (godot_project / "hero.gd").write_text(NEEDS_ARGS_HERO_GD, encoding="utf-8")
+    _import_project(godot_project)
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Hero", "--project", str(godot_project), "--json",
+    )
+
+    err = _assert_operation_error(added, "uninstantiable_script")
+    assert "Hero" in err["message"]
+    assert "hero.gd" in err["message"]
+    assert "_init" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
