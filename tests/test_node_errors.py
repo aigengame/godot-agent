@@ -86,6 +86,25 @@ def test_node_add_bad_name_maps_to_stable_invalid_node_name_code(monkeypatch):
     assert "Bad%Name" in err["message"]
 
 
+def test_node_add_vanished_instance_maps_to_stable_missing_dependency_code(monkeypatch):
+    # Issue #64: a scene whose instanced sub-scene cannot be resolved on load
+    # would lose the whole instance on re-save; the refusal surfaces as the
+    # registered missing_dependency code so an agent knows to fix the scene's
+    # dependencies or its project context rather than retry the add.
+    result = _invoke_node_add(
+        monkeypatch,
+        "missing_dependency",
+        "scene nodes vanished on load (unresolvable instanced sub-scene?): "
+        "ChildInstance — re-saving would silently drop them",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "missing_dependency"
+    assert "ChildInstance" in err["message"]
+
+
 def test_node_add_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
     # The scene-file-level failure reuses the registered scene code: the
     # node group introduces no parallel code for the same mode.

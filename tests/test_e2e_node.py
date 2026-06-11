@@ -274,6 +274,62 @@ def _write_instance_fixture(project, child: str = "child.tscn"):
 
 @pytest.mark.e2e
 @requires_godot
+def test_node_add_preserves_editable_instance_overrides(godot_project):
+    # Issue #64's data-integrity contract, pinned as a regression test: the
+    # load → instantiate → edit → pack → save round-trip must keep every kind
+    # of instance state the editor writes — the instance reference itself, the
+    # `[editable ...]` marker, property overrides on the instance node and on
+    # nodes inside it (node-path-keyed, at any depth), and nodes added under
+    # the editable instance. Verified to hold on Godot 4.6.3.
+    parent = _write_instance_fixture(godot_project)
+
+    added = _gda(
+        "node", "add", str(parent),
+        "--type", "Marker2D", "--name", "M",
+        "--project", str(godot_project), "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    assert json.loads(added.stdout)["path"] == "M"
+    saved = parent.read_text(encoding="utf-8")
+    # The sub-scene is still an instance, not a flattened copy.
+    assert 'instance=ExtResource(' in saved
+    assert '[editable path="ChildInstance"]' in saved
+    # Top-level instance property override.
+    assert "position = Vector2(10, 20)" in saved
+    # Overrides on nodes INSIDE the instance, keyed by node path.
+    assert '[node name="Inner" parent="ChildInstance"' in saved
+    assert "modulate = Color(1, 0, 0, 1)" in saved
+    assert '[node name="Deep" parent="ChildInstance/Inner"' in saved
+    assert "position = Vector2(3, 4)" in saved
+    # A node added under the editable instance.
+    assert '[node name="Extra" type="Marker2D" parent="ChildInstance/Inner"' in saved
+    # And the node this command added.
+    assert '[node name="M" type="Marker2D" parent="."' in saved
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_without_project_context_refuses_rather_than_drops_instances(
+    godot_project,
+):
+    # The same vanish mode from the common invocation mistake: without
+    # --project, res:// ext_resources cannot resolve, so the instance would
+    # vanish from the re-saved file even though every scene file exists.
+    parent = _write_instance_fixture(godot_project)
+    before = parent.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(parent), "--type", "Marker2D", "--name", "M", "--json"
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "ChildInstance" in err["message"]
+    assert parent.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+@requires_godot
 def test_node_add_refuses_scene_whose_sub_scene_cannot_resolve(godot_project):
     # The real data-loss mode of issue #64: when an instanced sub-scene cannot
     # be resolved on load (broken dependency), instantiate drops the whole
