@@ -228,6 +228,73 @@ def test_node_list_non_scene_file_yields_not_a_scene(godot_project):
     _assert_operation_error(listed, "not_a_scene")
 
 
+# A legal editable-children fixture, in the engine's own serialization (issue
+# #64): the parent scene instances child.tscn, overrides nodes inside the
+# instance (keyed by node path), adds a node under the editable instance, and
+# carries the `[editable path=...]` marker the editor writes.
+CHILD_TSCN = """\
+[gd_scene format=3]
+
+[node name="Child" type="Node2D"]
+
+[node name="Inner" type="Sprite2D" parent="."]
+
+[node name="Deep" type="Node2D" parent="Inner"]
+"""
+
+PARENT_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://{child}" id="1_child"]
+
+[node name="Parent" type="Node2D"]
+
+[node name="ChildInstance" parent="." instance=ExtResource("1_child")]
+position = Vector2(10, 20)
+
+[node name="Inner" parent="ChildInstance" index="0"]
+modulate = Color(1, 0, 0, 1)
+
+[node name="Deep" parent="ChildInstance/Inner" index="0"]
+position = Vector2(3, 4)
+
+[node name="Extra" type="Marker2D" parent="ChildInstance/Inner"]
+
+[editable path="ChildInstance"]
+"""
+
+
+def _write_instance_fixture(project, child: str = "child.tscn"):
+    """Write parent.tscn instancing ``res://<child>`` with editable overrides."""
+    (project / "child.tscn").write_text(CHILD_TSCN, encoding="utf-8")
+    parent = project / "parent.tscn"
+    parent.write_text(PARENT_TSCN.format(child=child), encoding="utf-8")
+    return parent
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_refuses_scene_whose_sub_scene_cannot_resolve(godot_project):
+    # The real data-loss mode of issue #64: when an instanced sub-scene cannot
+    # be resolved on load (broken dependency), instantiate drops the whole
+    # instance — and a re-save would silently erase the instance, its
+    # overrides, and its editable marker from the file. node add must refuse
+    # with a structured error and leave the file byte-identical instead.
+    parent = _write_instance_fixture(godot_project, child="gone.tscn")
+    (godot_project / "gone.tscn").unlink(missing_ok=True)
+    before = parent.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(parent),
+        "--type", "Marker2D", "--name", "M",
+        "--project", str(godot_project), "--json",
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "ChildInstance" in err["message"]
+    assert parent.read_text(encoding="utf-8") == before
+
+
 HERO_GD = """\
 class_name Hero
 extends Node2D

@@ -38,6 +38,7 @@ const OP_ERROR_PARENT_NOT_FOUND := "parent_not_found"
 const OP_ERROR_INVALID_NODE_TYPE := "invalid_node_type"
 const OP_ERROR_INVALID_NODE_NAME := "invalid_node_name"
 const OP_ERROR_DUPLICATE_NODE_NAME := "duplicate_node_name"
+const OP_ERROR_MISSING_DEPENDENCY := "missing_dependency"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -194,6 +195,12 @@ func _op_node_add(params: Dictionary) -> void:
 		return
 
 	var root: Node = packed.instantiate()
+	var vanished := _vanished_node_paths(packed.get_state(), root)
+	if not vanished.is_empty():
+		root.free()
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene nodes vanished on load (unresolvable instanced sub-scene?): "
+				+ ", ".join(vanished) + " — re-saving would silently drop them; check the scene's dependencies and --project")
+		return
 	var parent_path := _string_param(params, "parent")
 	var parent := _resolve_parent(root, parent_path)
 	if parent == null:
@@ -282,6 +289,22 @@ func _load_scene(params: Dictionary) -> PackedScene:
 		_fail(OP_ERROR_NOT_A_SCENE, "scene declares no root node: " + path)
 		return null
 	return packed
+
+
+# Node paths declared in the scene's state that did not materialize in the
+# instantiated tree — typically an instanced sub-scene whose ext_resource
+# could not be resolved (missing file, or res:// without project context).
+# The engine instantiates such a scene WITHOUT the vanished nodes (issue #64),
+# so re-packing and saving would silently erase them — the instance, its
+# overrides, and its editable marker — from the file. Mutation must refuse
+# before saving rather than report success over that data loss.
+func _vanished_node_paths(state: SceneState, root: Node) -> Array[String]:
+	var vanished: Array[String] = []
+	for i in range(1, state.get_node_count()):
+		var state_path := String(state.get_node_path(i)).trim_prefix("./")
+		if root.get_node_or_null(NodePath(state_path)) == null:
+			vanished.append(state_path)
+	return vanished
 
 
 # Resolve a parent node path against the scene root. Node-path addressing

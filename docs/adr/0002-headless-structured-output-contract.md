@@ -84,6 +84,7 @@ source and is checked by tests. GDScript mirrors only the rows whose source is
 | `invalid_node_type` | `operation` | `operation` | A requested node type is neither an instantiable `Node` class nor a registered `class_name`. |
 | `invalid_node_name` | `operation` | `operation` | A requested node name is empty or would be rewritten by Godot. |
 | `duplicate_node_name` | `operation` | `operation` | The parent node already has a child with the requested name. |
+| `missing_dependency` | `operation` | `operation` | A scene's declared nodes vanished on load, typically an unresolvable instanced sub-scene; re-saving would silently drop them. |
 | `contract_violation` | `parse` | `parser` | The process claimed success but violated the structured-output contract. |
 
 ## Considered options
