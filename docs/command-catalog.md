@@ -63,6 +63,18 @@ Absolute paths (`/root/…`) are rejected. `gda node list` reports every node's 
 this form, so a listed path can be fed straight back into other node commands (e.g.
 `node add --parent`).
 
+**Mutation integrity boundary** (established by #64): mutating a scene instantiates it and
+re-saves the re-packed tree. The round-trip preserves existing instanced sub-scenes and their
+state — the `instance=` reference, `[editable ...]` markers, and node-path-keyed property
+overrides on nodes inside an instance (verified on Godot 4.6.3, regression-pinned in the e2e
+suite). When an instanced sub-scene cannot be resolved on load (a broken dependency, or
+`res://` references without project context — pass `--project`), the engine instantiates the
+scene *without* it, so a re-save would silently erase the instance and all its overrides;
+mutating node commands detect this and refuse with the registered `missing_dependency` error
+(exit 4), leaving the file untouched. Related trust boundary: instantiating executes `_init`
+of scripts already attached in the scene (#62) — treat headless mutation of an untrusted scene
+as running its code.
+
 | Command | Description | Status |
 | --- | --- | --- |
 | `gda node add` | Add a node (by type or `class_name` script) into a scene | ✅ (#53) |
