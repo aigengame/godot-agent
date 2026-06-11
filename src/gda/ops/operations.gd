@@ -338,9 +338,10 @@ func _resolve_parent(root: Node, parent_path: String) -> Node:
 	var node_path := NodePath(parent_path)
 	if node_path.is_absolute():
 		return null
-	for segment in parent_path.split("/"):
-		if segment == ".." or segment.is_empty():
-			return null
+	if parent_path != ".":
+		for segment in parent_path.split("/"):
+			if segment == ".." or segment == "." or segment.is_empty():
+				return null
 	return root.get_node_or_null(node_path)
 
 
