@@ -389,6 +389,40 @@ def test_node_add_refuses_scene_that_instantiates_to_null(godot_project):
     assert parent.read_text(encoding="utf-8") == before
 
 
+# A scene declaring a node class that does not exist in a stock 4.6.3 headless
+# engine — the shape of an absent GDExtension/module class.
+MISSING_CLASS_TSCN = """\
+[gd_scene format=3]
+
+[node name="Root" type="Node2D"]
+
+[node name="Widget" type="TotallyMissingClass" parent="."]
+"""
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_refuses_scene_whose_declared_class_is_substituted(godot_project):
+    # The degraded-node mode of issue #64: when a declared class is unavailable
+    # at instantiate time, the engine warns and substitutes a placeholder node
+    # at the same path (observed on 4.6.3 headless: a plain Node), so an
+    # existence check alone passes — but a re-save would rewrite the node as
+    # the substitute type, silently dropping its declared class. node add must
+    # refuse, naming declared vs materialized class, and leave the file alone.
+    scene_path = godot_project / "widget.tscn"
+    scene_path.write_text(MISSING_CLASS_TSCN, encoding="utf-8")
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Marker2D", "--name", "M", "--json",
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "Widget (declared TotallyMissingClass, materialized" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
 HERO_GD = """\
 class_name Hero
 extends Node2D

@@ -203,11 +203,11 @@ func _op_node_add(params: Dictionary) -> void:
 		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: " + path
 				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
 		return
-	var vanished := _vanished_node_paths(packed.get_state(), root)
-	if not vanished.is_empty():
+	var unmaterialized := _unmaterialized_node_paths(packed.get_state(), root)
+	if not unmaterialized.is_empty():
 		root.free()
-		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene nodes vanished on load (unresolvable instanced sub-scene?): "
-				+ ", ".join(vanished) + " — re-saving would silently drop them; check the scene's dependencies and --project")
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene nodes vanished or degraded on load: "
+				+ ", ".join(unmaterialized) + " — re-saving would silently drop or downgrade them; check the scene's dependencies and --project")
 		return
 	var parent_path := _string_param(params, "parent")
 	var parent := _resolve_parent(root, parent_path)
@@ -299,20 +299,33 @@ func _load_scene(params: Dictionary) -> PackedScene:
 	return packed
 
 
-# Node paths declared in the scene's state that did not materialize in the
-# instantiated tree — typically an instanced sub-scene whose ext_resource
-# could not be resolved (missing file, or res:// without project context).
-# The engine instantiates such a scene WITHOUT the vanished nodes (issue #64),
-# so re-packing and saving would silently erase them — the instance, its
-# overrides, and its editable marker — from the file. Mutation must refuse
-# before saving rather than report success over that data loss.
-func _vanished_node_paths(state: SceneState, root: Node) -> Array[String]:
-	var vanished: Array[String] = []
-	for i in range(1, state.get_node_count()):
+# Node paths declared in the scene's state that did not materialize faithfully
+# in the instantiated tree (issue #64), in the two modes the engine survives
+# silently:
+# - vanished: the node is absent — typically an instanced sub-scene whose
+#   ext_resource could not be resolved (missing file, or res:// without
+#   project context); the instance, its overrides, and its editable marker
+#   would all be erased by a re-save.
+# - degraded: the node exists but as a substitute class — the declared class
+#   was unavailable at instantiate time (e.g. an absent GDExtension/module)
+#   and the engine fell back to a placeholder node at the same path; a re-save
+#   would rewrite the node under the substitute type.
+# Mutation must refuse before saving rather than report success over either
+# data loss. Instance nodes and instance-override entries declare no type in
+# the state, so only nodes this scene itself declares get the class check.
+func _unmaterialized_node_paths(state: SceneState, root: Node) -> Array[String]:
+	var unmaterialized: Array[String] = []
+	for i in state.get_node_count():
 		var state_path := String(state.get_node_path(i)).trim_prefix("./")
-		if root.get_node_or_null(NodePath(state_path)) == null:
-			vanished.append(state_path)
-	return vanished
+		var node := root.get_node_or_null(NodePath(state_path))
+		if node == null:
+			unmaterialized.append(state_path + " (vanished)")
+			continue
+		var declared_type := String(state.get_node_type(i))
+		if not declared_type.is_empty() and node.get_class() != declared_type:
+			unmaterialized.append(state_path + " (declared " + declared_type
+					+ ", materialized " + node.get_class() + ")")
+	return unmaterialized
 
 
 # Resolve a parent node path against the scene root. Node-path addressing

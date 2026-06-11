@@ -151,8 +151,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "missing_dependency",
         ErrorCategory.OPERATION,
         ErrorCodeSource.OPERATION,
-        "A scene's declared nodes vanished on load, typically an unresolvable"
-        " instanced sub-scene; re-saving would silently drop them.",
+        "A scene's declared nodes vanished or degraded on load — an"
+        " unresolvable instanced sub-scene or an unavailable node class;"
+        " re-saving would silently drop or downgrade them.",
     ),
     ErrorCodeSpec(
         "contract_violation",

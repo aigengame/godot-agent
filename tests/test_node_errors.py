@@ -105,6 +105,26 @@ def test_node_add_vanished_instance_maps_to_stable_missing_dependency_code(monke
     assert "ChildInstance" in err["message"]
 
 
+def test_node_add_substituted_class_maps_to_stable_missing_dependency_code(monkeypatch):
+    # Issue #64's degraded mode: a declared class unavailable in this engine
+    # run materializes as a substitute node, so a re-save would rewrite its
+    # type. The refusal reuses missing_dependency — an unavailable class IS a
+    # missing dependency (extension/module), the same agent fix applies.
+    result = _invoke_node_add(
+        monkeypatch,
+        "missing_dependency",
+        "scene nodes vanished or degraded on load: "
+        "Widget (declared TotallyMissingClass, materialized Node) — "
+        "re-saving would silently drop or downgrade them",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "missing_dependency"
+    assert "declared TotallyMissingClass, materialized Node" in err["message"]
+
+
 def test_node_add_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
     # The scene-file-level failure reuses the registered scene code: the
     # node group introduces no parallel code for the same mode.
