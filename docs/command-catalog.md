@@ -77,6 +77,15 @@ registered `missing_dependency` error (exit 4), leaving the file untouched. Rela
 of scripts already attached in the scene (#62) — treat headless mutation of an untrusted scene
 as running its code.
 
+**Type resolution** (sharpened by #65): `node add --type` resolves a built-in `Node` class
+first, then a `class_name` from the project's global class list (which exists only after a
+project import — pass `--project`). A type that resolves to neither is refused with
+`invalid_node_type`. A `class_name` that is still registered but whose script has broken since
+the scan — it fails to load, no longer compiles, or its `_init` requires constructor
+arguments — is a script problem, not an unknown type, and is refused with the distinct
+`uninstantiable_script` error (exit 4) naming the script: repair the script (or re-import),
+don't change the type name. Either way the scene file is left untouched.
+
 | Command | Description | Status |
 | --- | --- | --- |
 | `gda node add` | Add a node (by type or `class_name` script) into a scene | ✅ (#53) |
