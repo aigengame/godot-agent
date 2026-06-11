@@ -492,3 +492,79 @@ def test_node_add_by_unregistered_class_name_yields_invalid_node_type(godot_proj
 
     err = _assert_operation_error(added, "invalid_node_type")
     assert "Hero" in err["message"]
+
+
+# The same class_name, broken AFTER registration: a parse error the import-time
+# scan never saw, so the stale global class list still maps Hero to this script.
+BROKEN_HERO_GD = """\
+class_name Hero
+extends Node2D
+func broken( -> void:
+"""
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_by_registered_but_broken_class_name_names_the_script(godot_project):
+    # Issue #65's broken-class_name mode: the class_name IS in the global class
+    # list (the import scanned a then-valid script), but the script on disk has
+    # since broken. Reporting invalid_node_type ("not a registered class_name")
+    # misdiagnoses a script problem as an unknown type — the agent fix is to
+    # repair the script, not the type name. The failure must surface as the
+    # distinct uninstantiable_script code naming the script, with the scene
+    # file left unchanged.
+    (godot_project / "hero.gd").write_text(HERO_GD, encoding="utf-8")
+    _import_project(godot_project)
+    (godot_project / "hero.gd").write_text(BROKEN_HERO_GD, encoding="utf-8")
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Hero", "--project", str(godot_project), "--json",
+    )
+
+    err = _assert_operation_error(added, "uninstantiable_script")
+    assert "Hero" in err["message"]
+    assert "hero.gd" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+# A class_name that compiles and registers fine but cannot be constructed
+# without arguments: script.new() has no args to give _init.
+NEEDS_ARGS_HERO_GD = """\
+class_name Hero
+extends Node2D
+
+
+func _init(speed: float) -> void:
+\tpass
+"""
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_by_class_name_whose_init_requires_args_names_the_constructor(
+    godot_project,
+):
+    # The other half of issue #65's broken-class_name mode: the script is
+    # valid and registered, but its _init requires constructor args, so
+    # script.new() cannot construct it. Same misdiagnosis risk as the broken
+    # script: the type IS registered, the constructor is the problem.
+    (godot_project / "hero.gd").write_text(NEEDS_ARGS_HERO_GD, encoding="utf-8")
+    _import_project(godot_project)
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Hero", "--project", str(godot_project), "--json",
+    )
+
+    err = _assert_operation_error(added, "uninstantiable_script")
+    assert "Hero" in err["message"]
+    assert "hero.gd" in err["message"]
+    assert "_init" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before

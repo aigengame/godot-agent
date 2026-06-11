@@ -125,6 +125,27 @@ def test_node_add_substituted_class_maps_to_stable_missing_dependency_code(monke
     assert "declared TotallyMissingClass, materialized Node" in err["message"]
 
 
+def test_node_add_broken_class_name_maps_to_stable_uninstantiable_script_code(
+    monkeypatch,
+):
+    # Issue #65: a class_name still present in the global class list but whose
+    # script broke after registration is a script problem, not an unknown type.
+    # The refusal surfaces as the registered uninstantiable_script code so an
+    # agent knows to repair the script rather than the type name.
+    result = _invoke_node_add(
+        monkeypatch,
+        "uninstantiable_script",
+        "registered class_name Hero script cannot be instantiated: "
+        "res://hero.gd — it no longer compiles; see diagnostics",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "uninstantiable_script"
+    assert "res://hero.gd" in err["message"]
+
+
 def test_node_add_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
     # The scene-file-level failure reuses the registered scene code: the
     # node group introduces no parallel code for the same mode.

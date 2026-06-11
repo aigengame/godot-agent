@@ -156,6 +156,13 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " re-saving would silently drop or downgrade them.",
     ),
     ErrorCodeSpec(
+        "uninstantiable_script",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A registered class_name's script can no longer be loaded, compiled,"
+        " or constructed, so it cannot be instantiated as a node.",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         ErrorCodeSource.PARSER,
