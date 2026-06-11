@@ -48,6 +48,31 @@ def test_node_add_bad_parent_maps_to_stable_parent_not_found_code(monkeypatch):
     assert err["diagnostics"] == "gda: running operation: node-add\n"
 
 
+def test_node_add_non_canonical_parent_maps_to_stable_parent_not_found_code(
+    monkeypatch,
+):
+    # Issue #66: a non-canonical parent path ("A/..", "A/", "./A", …) is
+    # rejected by the operation rather than silently resolved to a node the
+    # literal string never named. The refusal reuses the registered
+    # parent_not_found code — under strict addressing the path resolves to
+    # nothing — with a message naming the canonical form. Mapping pin: the
+    # envelope rides through the same parent_not_found path as a missing
+    # canonical parent.
+    result = _invoke_node_add(
+        monkeypatch,
+        "parent_not_found",
+        "non-canonical parent path: A/.. — address the parent exactly as "
+        "node list reports it: '.' for the root, 'A/B' for a descendant",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "parent_not_found"
+    assert "A/.." in err["message"]
+    assert "non-canonical" in err["message"]
+
+
 def test_node_add_unknown_type_maps_to_stable_invalid_node_type_code(monkeypatch):
     result = _invoke_node_add(
         monkeypatch,

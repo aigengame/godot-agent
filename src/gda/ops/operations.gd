@@ -214,7 +214,11 @@ func _op_node_add(params: Dictionary) -> void:
 	var parent := _resolve_parent(root, parent_path)
 	if parent == null:
 		root.free()
-		_fail(OP_ERROR_PARENT_NOT_FOUND, "parent node not found in scene: " + parent_path)
+		if _is_canonical_parent_path(parent_path):
+			_fail(OP_ERROR_PARENT_NOT_FOUND, "parent node not found in scene: " + parent_path)
+		else:
+			_fail(OP_ERROR_PARENT_NOT_FOUND, "non-canonical parent path: " + parent_path
+					+ " — address the parent exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 		return
 	if parent.get_node_or_null(NodePath(node_name)) != null:
 		root.free()
@@ -328,21 +332,36 @@ func _unmaterialized_node_paths(state: SceneState, root: Node) -> Array[String]:
 	return unmaterialized
 
 
+# Whether a parent path is in canonical root-relative form — exactly the form
+# node list reports: "." for the root, or '/'-joined node names for a
+# descendant. Godot's NodePath resolution silently accepts non-canonical forms
+# ("A/.." walks back up to the root, "A/" / "A//B" / "A/./B" collapse the
+# redundant segment, "A:position" drops the property part — all verified on
+# 4.6.3), landing the node somewhere the literal string never named (issue
+# #66). Addressing must be exact and round-trippable, so anything
+# non-canonical is rejected rather than normalized. Every legal node name
+# passes _is_valid_node_name (Godot sanitizes names on assignment with the
+# same character set), so this can never reject a path node list reports.
+func _is_canonical_parent_path(parent_path: String) -> bool:
+	if parent_path == ".":
+		return true
+	for segment in parent_path.split("/"):
+		if not _is_valid_node_name(segment):
+			return false
+	return true
+
+
 # Resolve a parent node path against the scene root. Node-path addressing
 # (issue #53) is relative to the scene root: '.' is the root itself,
-# 'Player/Arm' a descendant. Absolute paths are rejected — they would require
-# the scene to live inside a SceneTree, which a loaded-for-editing tree does not.
+# 'Player/Arm' a descendant. Only canonical paths resolve (issue #66) — this
+# subsumes rejecting absolute paths ('/root/…' opens with an empty segment),
+# which a loaded-for-editing tree outside any SceneTree could never serve.
 func _resolve_parent(root: Node, parent_path: String) -> Node:
-	if parent_path.is_empty():
+	if not _is_canonical_parent_path(parent_path):
 		return null
-	var node_path := NodePath(parent_path)
-	if node_path.is_absolute():
-		return null
-	if parent_path != ".":
-		for segment in parent_path.split("/"):
-			if segment == ".." or segment == "." or segment.is_empty():
-				return null
-	return root.get_node_or_null(node_path)
+	if parent_path == ".":
+		return root
+	return root.get_node_or_null(NodePath(parent_path))
 
 
 # Instantiate a node by type: a built-in Node class first, then a class_name
