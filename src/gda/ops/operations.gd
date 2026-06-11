@@ -195,6 +195,14 @@ func _op_node_add(params: Dictionary) -> void:
 		return
 
 	var root: Node = packed.instantiate()
+	if root == null:
+		# The engine returns null for a scene it cannot instantiate at all —
+		# e.g. an instanced sub-scene whose resource loads but instantiates to
+		# nothing (packed_scene.cpp propagates the nested null). Nothing exists
+		# to edit or save, so refuse with the dependency code.
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: " + path
+				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
+		return
 	var vanished := _vanished_node_paths(packed.get_state(), root)
 	if not vanished.is_empty():
 		root.free()

@@ -264,9 +264,11 @@ position = Vector2(3, 4)
 """
 
 
-def _write_instance_fixture(project, child: str = "child.tscn"):
+def _write_instance_fixture(
+    project, child: str = "child.tscn", child_content: str = CHILD_TSCN
+):
     """Write parent.tscn instancing ``res://<child>`` with editable overrides."""
-    (project / "child.tscn").write_text(CHILD_TSCN, encoding="utf-8")
+    (project / "child.tscn").write_text(child_content, encoding="utf-8")
     parent = project / "parent.tscn"
     parent.write_text(PARENT_TSCN.format(child=child), encoding="utf-8")
     return parent
@@ -348,6 +350,42 @@ def test_node_add_refuses_scene_whose_sub_scene_cannot_resolve(godot_project):
 
     err = _assert_operation_error(added, "missing_dependency")
     assert "ChildInstance" in err["message"]
+    assert parent.read_text(encoding="utf-8") == before
+
+
+# A child that loads as a valid PackedScene resource but cannot instantiate:
+# its root illegally declares a parent, which SceneState::instantiate refuses
+# with an engine null. The nested null propagates (packed_scene.cpp fails the
+# instanced node with nullptr), so the PARENT scene's own top-level
+# instantiate() also returns null — there is no tree to diff, edit, or save.
+UNINSTANTIABLE_CHILD_TSCN = """\
+[gd_scene format=3]
+
+[node name="Child" type="Node2D" parent="."]
+"""
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_refuses_scene_that_instantiates_to_null(godot_project):
+    # The nested-null mode of issue #64: the sub-scene resource loads fine but
+    # instantiates to nothing, and the parent scene's instantiate() returns
+    # null. node add must refuse with the structured missing_dependency
+    # envelope — not dereference the null and surface as the unstructured
+    # operation_failed classification.
+    parent = _write_instance_fixture(
+        godot_project, child_content=UNINSTANTIABLE_CHILD_TSCN
+    )
+    before = parent.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(parent),
+        "--type", "Marker2D", "--name", "M",
+        "--project", str(godot_project), "--json",
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert str(parent) in err["message"]
     assert parent.read_text(encoding="utf-8") == before
 
 
