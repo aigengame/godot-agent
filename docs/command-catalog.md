@@ -57,11 +57,16 @@ issue ref (e.g. `🔜 (#53)`) marks a candidate already committed as an open sli
 
 Operates on nodes **within a scene file** (load → mutate → pack → save), so headless.
 
-**Node-path addressing** (established by #53): a node within a scene is addressed by its node
-path **relative to the scene root** — `.` is the root itself, `Player/Arm` a nested node.
-Absolute paths (`/root/…`) are rejected. `gda node list` reports every node's path in exactly
-this form, so a listed path can be fed straight back into other node commands (e.g.
-`node add --parent`).
+**Node-path addressing** (established by #53, tightened by #66): a node within a scene is
+addressed by its node path **relative to the scene root** — `.` is the root itself,
+`Player/Arm` a nested node. Addressing is strict: a path must be **canonical** — exactly `.`,
+or `/`-joined node names. Non-canonical forms that Godot's own NodePath resolution would
+silently accept — `..` or `.` segments (`A/..` resolves to the root, `./A` to `A`), trailing
+or doubled slashes (`A/`, `A//B`), `:property` syntax (`A:position`) — are rejected with
+`parent_not_found` rather than normalized, as are absolute paths (`/root/…`): the node must
+land exactly where the literal path says or nowhere. `gda node list` reports every node's
+path in canonical form, so a listed path can always be fed straight back into other node
+commands (e.g. `node add --parent`).
 
 **Mutation integrity boundary** (established by #64): mutating a scene instantiates it and
 re-saves the re-packed tree. The round-trip preserves existing instanced sub-scenes and their
