@@ -179,6 +179,41 @@ def test_node_add_name_collision_yields_duplicate_node_name(godot_project):
 
 @pytest.mark.e2e
 @requires_godot
+def test_node_add_collision_with_internal_child_yields_duplicate_node_name(
+    godot_project,
+):
+    # Issue #65's internal-child mode, pinned as a regression test: some node
+    # classes construct INTERNAL children in their constructor (ScrollContainer
+    # builds scrollbars named "_h_scroll"/"_v_scroll"), which never appear in
+    # the scene file or node list. A name collision with one must still be the
+    # accurate duplicate_node_name — not invalid_node_name ("Godot rewrote
+    # name") and never a silent engine rename saved into the file. Verified
+    # correct on Godot 4.6.3: get_node_or_null resolves through the engine's
+    # child-name map, which includes internal children.
+    scene_path = godot_project / "ui.tscn"
+    created = _gda(
+        "scene", "create", str(scene_path), "--root-type", "Control", "--json"
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "ScrollContainer", "--name", "Scroll", "--json",
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+    before = scene_path.read_text(encoding="utf-8")
+
+    colliding = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Control", "--name", "_h_scroll", "--parent", "Scroll", "--json",
+    )
+
+    err = _assert_operation_error(colliding, "duplicate_node_name")
+    assert "_h_scroll" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+@requires_godot
 def test_node_add_unknown_type_yields_invalid_node_type(godot_project):
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
