@@ -149,6 +149,65 @@ def test_scene_schema_spawns_no_godot(monkeypatch):
         assert set(json.loads(result.stdout)) >= {"input", "output"}
 
 
+def test_node_add_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for the node group (issue #53): the bare --schema
+    # flag — no path, no --type — short-circuits into the self-description,
+    # derived from the same typed models that back --json.
+    from gda.models import NodeAddParams, NodeAddResult
+
+    result = CliRunner().invoke(app, ["node", "add", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == NodeAddParams.model_json_schema()
+    assert doc["output"] == NodeAddResult.model_json_schema()
+    # Node-path addressing is defined in the contract itself: the parent param
+    # documents the root-relative convention agents must use.
+    parent_description = doc["input"]["properties"]["parent"]["description"]
+    assert "scene root" in parent_description
+    assert "'.'" in parent_description
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_node_list_schema_emits_model_derived_contract_without_other_args():
+    from gda.models import NodeListParams, NodeListResult
+
+    result = CliRunner().invoke(app, ["node", "list", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == NodeListParams.model_json_schema()
+    assert doc["output"] == NodeListResult.model_json_schema()
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_sample_node_results_validate_against_emitted_output_schemas():
+    # A sample --json payload of each node command satisfies the contract its
+    # --schema emits (the other half of the ADR-0004 hard gate, issue #53).
+    from tests.test_node_commands import ADD_RESULT, LIST_RESULT
+
+    add_doc = json.loads(CliRunner().invoke(app, ["node", "add", "--schema"]).stdout)
+    list_doc = json.loads(CliRunner().invoke(app, ["node", "list", "--schema"]).stdout)
+
+    jsonschema.validate(instance=ADD_RESULT, schema=add_doc["output"])
+    jsonschema.validate(instance=LIST_RESULT, schema=list_doc["output"])
+
+
+def test_node_schema_spawns_no_godot(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("--schema must not touch the engine")
+
+    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.cli._make_runner", boom)
+
+    for command in (["node", "add"], ["node", "list"]):
+        result = CliRunner().invoke(app, [*command, "--schema"])
+        assert result.exit_code == 0
+        assert set(json.loads(result.stdout)) >= {"input", "output"}
+
+
 def test_info_input_schema_is_derived_from_the_params_model():
     # info takes no operation params, so its input schema is trivially empty —
     # expected, not an error — and still derived model-side (ADR-0004).

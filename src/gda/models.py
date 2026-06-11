@@ -180,6 +180,96 @@ class SceneGetResult(BaseModel):
     root: SceneNode
 
 
+class NodeAddParams(BaseModel):
+    """The operation params of ``gda node add`` (issue #53).
+
+    ``path`` is the ``.tscn`` scene file to mutate. ``parent`` addresses the
+    parent node by node path. ``type`` is resolved first as a built-in Godot
+    node class, then as a ``class_name`` registered in the project's global
+    class list. ``name`` is explicit so the operation never silently derives a
+    name Godot later sanitizes; when the CLI caller omits ``--name``, it uses
+    the type name.
+    """
+
+    path: str
+    parent: str = Field(
+        default=".",
+        description=(
+            "Parent node path, relative to the scene root: '.' addresses the "
+            "root itself, 'Player/Arm' a nested node."
+        ),
+    )
+    type: str
+    name: str | None = Field(
+        default=None,
+        description=(
+            "Name for the new node. If omitted by the CLI, the type name is "
+            "used. Must be non-empty and must not contain '.', ':', '@', '/', "
+            "'\"', or '%'."
+        ),
+    )
+
+
+class NodeAddResult(BaseModel):
+    """The result of ``gda node add``: the created node and where it landed.
+
+    ``path`` is the created node's node path relative to the scene root, so an
+    agent can address the node in follow-up node commands without re-listing.
+    """
+
+    scene_path: str
+    path: str = Field(
+        description="The created node's node path, relative to the scene root."
+    )
+    name: str
+    type: str = Field(
+        description=(
+            "The created node's engine class (e.g. Node2D) — for a class_name "
+            "addition, the script's base class."
+        )
+    )
+    script_class: str | None = Field(
+        default=None,
+        description=(
+            "The class_name of the script attached to the created node, when "
+            "the requested type resolved to a script class; null for a "
+            "built-in type."
+        ),
+    )
+
+
+class ListedNode(BaseModel):
+    """One node of ``gda node list``'s tree: name, type, node path, children.
+
+    Like ``SceneNode`` but each node also carries its node path relative to the
+    scene root ('.' for the root itself) — the address an agent feeds back into
+    other node commands (e.g. ``node add --parent``).
+    """
+
+    name: str
+    type: str
+    path: str = Field(
+        description=(
+            "The node's node path relative to the scene root: '.' for the root "
+            "itself, 'Player/Arm' for a nested node."
+        )
+    )
+    children: list["ListedNode"] = []
+
+
+class NodeListParams(BaseModel):
+    """The operation params of ``gda node list``: the ``.tscn`` file to read."""
+
+    path: str
+
+
+class NodeListResult(BaseModel):
+    """The result of ``gda node list``: the scene's node tree with node paths."""
+
+    scene_path: str
+    root: ListedNode
+
+
 class EngineVersion(BaseModel):
     """The Godot engine version, as reported by ``Engine.get_version_info()``.
 

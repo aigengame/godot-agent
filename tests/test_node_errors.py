@@ -1,0 +1,100 @@
+"""S3: gda node failure modes map to structured JSON errors + stable exit codes.
+
+Issue #53's acceptance: node-command failures (scene not found, bad parent
+path, invalid type, name collision) surface as structured ``GdaError``s with
+registered operation codes (ADR-0002) — exit 4 for the operation category,
+finer stable codes so an agent can branch on the mode without parsing prose.
+"""
+
+import json
+
+from typer.testing import CliRunner
+
+from gda.cli import app
+from gda.runner import RunResult
+from tests.support import error_sentinel, inject_runner
+
+
+def _invoke_node_add(monkeypatch, code: str, message: str):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: node-add\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(
+        app,
+        ["node", "add", "/x/main.tscn", "--type", "Sprite2D", "--json"],
+    )
+
+
+def test_node_add_bad_parent_maps_to_stable_parent_not_found_code(monkeypatch):
+    # The scene exists but the requested parent node path resolves to nothing —
+    # a new node-group code, distinct from the file-level path_not_found, so an
+    # agent knows to fix the node path, not the scene path.
+    result = _invoke_node_add(
+        monkeypatch, "parent_not_found", "parent node not found in scene: Bogus/Path"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "parent_not_found"
+    assert "Bogus/Path" in err["message"]
+    # The raw stderr still rides along as diagnostics (ADR-0002).
+    assert err["diagnostics"] == "gda: running operation: node-add\n"
+
+
+def test_node_add_unknown_type_maps_to_stable_invalid_node_type_code(monkeypatch):
+    result = _invoke_node_add(
+        monkeypatch,
+        "invalid_node_type",
+        "not an instantiable Node class or registered class_name: Foo",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "invalid_node_type"
+    assert "Foo" in err["message"]
+
+
+def test_node_add_name_collision_maps_to_stable_duplicate_node_name_code(monkeypatch):
+    result = _invoke_node_add(
+        monkeypatch, "duplicate_node_name", "parent already has a child named: Hero"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "duplicate_node_name"
+    assert "Hero" in err["message"]
+
+
+def test_node_add_bad_name_maps_to_stable_invalid_node_name_code(monkeypatch):
+    result = _invoke_node_add(
+        monkeypatch, "invalid_node_name", "invalid name: Bad%Name"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "invalid_node_name"
+    assert "Bad%Name" in err["message"]
+
+
+def test_node_add_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
+    # The scene-file-level failure reuses the registered scene code: the
+    # node group introduces no parallel code for the same mode.
+    result = _invoke_node_add(
+        monkeypatch, "path_not_found", "scene file does not exist: /x/main.tscn"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "path_not_found"
+    assert "/x/main.tscn" in err["message"]

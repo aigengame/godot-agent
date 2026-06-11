@@ -124,6 +124,30 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A requested file cannot be loaded as a PackedScene.",
     ),
     ErrorCodeSpec(
+        "parent_not_found",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested parent node path does not resolve to a node in the scene.",
+    ),
+    ErrorCodeSpec(
+        "invalid_node_type",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested node type is neither an instantiable Node class nor a registered class_name.",
+    ),
+    ErrorCodeSpec(
+        "invalid_node_name",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested node name is empty or would be rewritten by Godot.",
+    ),
+    ErrorCodeSpec(
+        "duplicate_node_name",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "The parent node already has a child with the requested name.",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         ErrorCodeSource.PARSER,

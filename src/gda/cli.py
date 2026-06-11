@@ -24,6 +24,11 @@ from gda.headless import (
 from gda.models import (
     EngineVersion,
     InfoParams,
+    ListedNode,
+    NodeAddParams,
+    NodeAddResult,
+    NodeListParams,
+    NodeListResult,
     SceneCreateParams,
     SceneCreateResult,
     SceneGetParams,
@@ -45,6 +50,13 @@ scene_app = typer.Typer(
     help="Act on Godot scene files (.tscn).", no_args_is_help=True
 )
 app.add_typer(scene_app, name="scene")
+
+# The node command group (issue #53): commands acting on nodes WITHIN a scene
+# file (load → locate → mutate → pack → save), so they stay headless.
+node_app = typer.Typer(
+    help="Act on nodes within a scene file (.tscn).", no_args_is_help=True
+)
+app.add_typer(node_app, name="node")
 
 
 def _version_callback(value: Optional[bool]) -> None:
@@ -96,6 +108,18 @@ SCENE_GET_COMMAND: HeadlessCommand[SceneGetResult] = HeadlessCommand(
     output_model=SceneGetResult,
 )
 
+NODE_ADD_COMMAND: HeadlessCommand[NodeAddResult] = HeadlessCommand(
+    operation="node-add",
+    input_model=NodeAddParams,
+    output_model=NodeAddResult,
+)
+
+NODE_LIST_COMMAND: HeadlessCommand[NodeListResult] = HeadlessCommand(
+    operation="node-list",
+    input_model=NodeListParams,
+    output_model=NodeListResult,
+)
+
 
 def _normalize_path(path: str) -> str:
     """Normalize a path argument at the CLI layer (issue #32).
@@ -117,7 +141,7 @@ def _derive_scene_root_name(path: str) -> str:
     return filename
 
 
-def _render_tree(node: SceneNode, depth: int = 0) -> str:
+def _render_tree(node: "SceneNode | ListedNode", depth: int = 0) -> str:
     """Render a node tree as an indented ``name (Type)`` outline for humans."""
     lines = [f"{'  ' * depth}{node.name} ({node.type})"]
     lines += (_render_tree(child, depth + 1) for child in node.children)
@@ -180,6 +204,72 @@ def get(
         project=resolve_project_dir(project),
         json_output=json_output,
         render_text=lambda scene: _render_tree(scene.root),
+        make_runner=_make_runner,
+    )
+
+
+@node_app.command(cls=NODE_ADD_COMMAND.command_class())
+def add(
+    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
+    node_type: str = typer.Option(
+        ...,
+        "--type",
+        help=(
+            "Node type to add: a Godot node class (e.g. Sprite2D), or a "
+            "class_name registered in the project's global class list."
+        ),
+    ),
+    parent: str = typer.Option(
+        ".",
+        "--parent",
+        help=(
+            "Parent node path, relative to the scene root: '.' addresses the "
+            "root itself, 'Player/Arm' a nested node."
+        ),
+    ),
+    name: Optional[str] = typer.Option(
+        None,
+        "--name",
+        help="Name for the new node. Defaults to the type name.",
+    ),
+    json_output: bool = json_option(),
+    schema: bool = NODE_ADD_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Add a node to a scene file under the given parent node path."""
+    NODE_ADD_COMMAND.emit(
+        NodeAddParams(
+            path=_normalize_path(path),
+            parent=parent,
+            type=node_type,
+            name=name if name is not None else node_type,
+        ),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=lambda added: (
+            f"added {added.path} ({added.type}) to {added.scene_path}"
+        ),
+        make_runner=_make_runner,
+    )
+
+
+@node_app.command(name="list", cls=NODE_LIST_COMMAND.command_class())
+def list_nodes(
+    path: str = typer.Argument(..., help="The .tscn scene file to read."),
+    json_output: bool = json_option(),
+    schema: bool = NODE_LIST_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """List a scene's node tree with each node's path relative to the root."""
+    NODE_LIST_COMMAND.emit(
+        NodeListParams(path=_normalize_path(path)),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=lambda listed: _render_tree(listed.root),
         make_runner=_make_runner,
     )
 

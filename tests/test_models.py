@@ -2,7 +2,13 @@
 
 import json
 
-from gda.models import EngineVersion, SceneCreateResult, SceneGetResult
+from gda.models import (
+    EngineVersion,
+    NodeAddResult,
+    NodeListResult,
+    SceneCreateResult,
+    SceneGetResult,
+)
 
 
 def test_validates_from_engine_get_version_info_dict():
@@ -87,3 +93,72 @@ def test_scene_get_result_round_trips_a_nested_tree():
 
     assert scene.root.children[0].children[0].name == "Hitbox"
     assert json.loads(scene.model_dump_json()) == payload
+
+
+def test_node_add_result_round_trips():
+    # The node-add operation reports the created node's address (issue #53):
+    # its node path relative to the scene root, alongside name and type.
+    # script_class is null for a built-in type, the class_name for a script one.
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "path": "Player/Hero",
+        "name": "Hero",
+        "type": "Sprite2D",
+        "script_class": None,
+    }
+
+    added = NodeAddResult.model_validate(payload)
+
+    assert added.path == "Player/Hero"
+    assert json.loads(added.model_dump_json()) == payload
+
+
+def test_node_add_result_carries_the_class_name_of_a_script_addition():
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "path": "Hero",
+        "name": "Hero",
+        "type": "Node2D",
+        "script_class": "Hero",
+    }
+
+    added = NodeAddResult.model_validate(payload)
+
+    assert added.type == "Node2D"
+    assert added.script_class == "Hero"
+    assert json.loads(added.model_dump_json()) == payload
+
+
+def test_node_list_result_round_trips_a_nested_tree_with_paths():
+    # The recursive ListedNode shape: like SceneNode but every node carries its
+    # node path ('.' for the root), so a validated nested tree must dump back
+    # to the identical payload (S2).
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "root": {
+            "name": "main",
+            "type": "Node2D",
+            "path": ".",
+            "children": [
+                {
+                    "name": "Hero",
+                    "type": "Sprite2D",
+                    "path": "Hero",
+                    "children": [
+                        {
+                            "name": "Hitbox",
+                            "type": "Area2D",
+                            "path": "Hero/Hitbox",
+                            "children": [],
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+
+    listed = NodeListResult.model_validate(payload)
+
+    assert listed.root.path == "."
+    assert listed.root.children[0].children[0].path == "Hero/Hitbox"
+    assert json.loads(listed.model_dump_json()) == payload
