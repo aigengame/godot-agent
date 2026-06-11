@@ -566,6 +566,39 @@ def test_node_add_by_registered_but_broken_class_name_names_the_script(godot_pro
     assert scene_path.read_text(encoding="utf-8") == before
 
 
+# A perfectly healthy class_name that just is not a node: instantiable, but
+# never addable to a scene tree.
+LOOT_GD = """\
+class_name Loot
+extends Resource
+"""
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_by_non_node_class_name_yields_invalid_node_type(godot_project):
+    # The boundary of issue #65's distinction: a registered class_name whose
+    # script is fine but not Node-derived is a true type error — it stays
+    # invalid_node_type (not uninstantiable_script), with a message naming the
+    # script and the real cause rather than "not a registered class_name".
+    (godot_project / "loot.gd").write_text(LOOT_GD, encoding="utf-8")
+    _import_project(godot_project)
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Loot", "--project", str(godot_project), "--json",
+    )
+
+    err = _assert_operation_error(added, "invalid_node_type")
+    assert "Loot" in err["message"]
+    assert "not a Node-derived script" in err["message"]
+    assert "loot.gd" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
 # A class_name that compiles and registers fine but cannot be constructed
 # without arguments: script.new() has no args to give _init.
 NEEDS_ARGS_HERO_GD = """\
