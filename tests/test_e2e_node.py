@@ -195,6 +195,30 @@ def test_node_add_parent_path_escaping_or_absolute_stays_rejected(
 
 @pytest.mark.e2e
 @requires_godot
+@pytest.mark.parametrize("form", ["A/.."])
+def test_node_add_rejects_non_canonical_parent_path(godot_project, form):
+    # Issue #66: node-path addressing is exact — a parent path must be the
+    # canonical root-relative form node list reports ('.' or 'Name/Name').
+    # Godot's NodePath resolution would happily accept these forms and land
+    # the node somewhere other than what the literal string implies (e.g.
+    # "A/.." resolved to the ROOT on 4.6.3), so they must be rejected with
+    # parent_not_found and the scene file left untouched — never silently
+    # normalized into a placement the agent did not ask for.
+    scene_path = _scene_with_nested_children(godot_project)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Marker2D", "--name", "M", "--parent", form, "--json",
+    )
+
+    err = _assert_operation_error(added, "parent_not_found")
+    assert form in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+@requires_godot
 def test_node_add_explicit_dot_parent_addresses_the_root(godot_project):
     # The canonical root address: '.' must keep working verbatim — it is the
     # form node list reports for the root, and the CLI's --parent default.
