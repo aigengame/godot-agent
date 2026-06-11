@@ -148,6 +148,14 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "The parent node already has a child with the requested name.",
     ),
     ErrorCodeSpec(
+        "missing_dependency",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A scene's declared nodes vanished or degraded on load — an"
+        " unresolvable instanced sub-scene or an unavailable node class;"
+        " re-saving would silently drop or downgrade them.",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         ErrorCodeSource.PARSER,

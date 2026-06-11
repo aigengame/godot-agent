@@ -228,6 +228,201 @@ def test_node_list_non_scene_file_yields_not_a_scene(godot_project):
     _assert_operation_error(listed, "not_a_scene")
 
 
+# A legal editable-children fixture, in the engine's own serialization (issue
+# #64): the parent scene instances child.tscn, overrides nodes inside the
+# instance (keyed by node path), adds a node under the editable instance, and
+# carries the `[editable path=...]` marker the editor writes.
+CHILD_TSCN = """\
+[gd_scene format=3]
+
+[node name="Child" type="Node2D"]
+
+[node name="Inner" type="Sprite2D" parent="."]
+
+[node name="Deep" type="Node2D" parent="Inner"]
+"""
+
+PARENT_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://{child}" id="1_child"]
+
+[node name="Parent" type="Node2D"]
+
+[node name="ChildInstance" parent="." instance=ExtResource("1_child")]
+position = Vector2(10, 20)
+
+[node name="Inner" parent="ChildInstance" index="0"]
+modulate = Color(1, 0, 0, 1)
+
+[node name="Deep" parent="ChildInstance/Inner" index="0"]
+position = Vector2(3, 4)
+
+[node name="Extra" type="Marker2D" parent="ChildInstance/Inner"]
+
+[editable path="ChildInstance"]
+"""
+
+
+def _write_instance_fixture(
+    project, child: str = "child.tscn", child_content: str = CHILD_TSCN
+):
+    """Write parent.tscn instancing ``res://<child>`` with editable overrides."""
+    (project / "child.tscn").write_text(child_content, encoding="utf-8")
+    parent = project / "parent.tscn"
+    parent.write_text(PARENT_TSCN.format(child=child), encoding="utf-8")
+    return parent
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_preserves_editable_instance_overrides(godot_project):
+    # Issue #64's data-integrity contract, pinned as a regression test: the
+    # load → instantiate → edit → pack → save round-trip must keep every kind
+    # of instance state the editor writes — the instance reference itself, the
+    # `[editable ...]` marker, property overrides on the instance node and on
+    # nodes inside it (node-path-keyed, at any depth), and nodes added under
+    # the editable instance. Verified to hold on Godot 4.6.3.
+    parent = _write_instance_fixture(godot_project)
+
+    added = _gda(
+        "node", "add", str(parent),
+        "--type", "Marker2D", "--name", "M",
+        "--project", str(godot_project), "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    assert json.loads(added.stdout)["path"] == "M"
+    saved = parent.read_text(encoding="utf-8")
+    # The sub-scene is still an instance, not a flattened copy.
+    assert 'instance=ExtResource(' in saved
+    assert '[editable path="ChildInstance"]' in saved
+    # Top-level instance property override.
+    assert "position = Vector2(10, 20)" in saved
+    # Overrides on nodes INSIDE the instance, keyed by node path.
+    assert '[node name="Inner" parent="ChildInstance"' in saved
+    assert "modulate = Color(1, 0, 0, 1)" in saved
+    assert '[node name="Deep" parent="ChildInstance/Inner"' in saved
+    assert "position = Vector2(3, 4)" in saved
+    # A node added under the editable instance.
+    assert '[node name="Extra" type="Marker2D" parent="ChildInstance/Inner"' in saved
+    # And the node this command added.
+    assert '[node name="M" type="Marker2D" parent="."' in saved
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_without_project_context_refuses_rather_than_drops_instances(
+    godot_project,
+):
+    # The same vanish mode from the common invocation mistake: without
+    # --project, res:// ext_resources cannot resolve, so the instance would
+    # vanish from the re-saved file even though every scene file exists.
+    parent = _write_instance_fixture(godot_project)
+    before = parent.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(parent), "--type", "Marker2D", "--name", "M", "--json"
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "ChildInstance" in err["message"]
+    assert parent.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_refuses_scene_whose_sub_scene_cannot_resolve(godot_project):
+    # The real data-loss mode of issue #64: when an instanced sub-scene cannot
+    # be resolved on load (broken dependency), instantiate drops the whole
+    # instance — and a re-save would silently erase the instance, its
+    # overrides, and its editable marker from the file. node add must refuse
+    # with a structured error and leave the file byte-identical instead.
+    parent = _write_instance_fixture(godot_project, child="gone.tscn")
+    (godot_project / "gone.tscn").unlink(missing_ok=True)
+    before = parent.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(parent),
+        "--type", "Marker2D", "--name", "M",
+        "--project", str(godot_project), "--json",
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "ChildInstance" in err["message"]
+    assert parent.read_text(encoding="utf-8") == before
+
+
+# A child that loads as a valid PackedScene resource but cannot instantiate:
+# its root illegally declares a parent, which SceneState::instantiate refuses
+# with an engine null. The nested null propagates (packed_scene.cpp fails the
+# instanced node with nullptr), so the PARENT scene's own top-level
+# instantiate() also returns null — there is no tree to diff, edit, or save.
+UNINSTANTIABLE_CHILD_TSCN = """\
+[gd_scene format=3]
+
+[node name="Child" type="Node2D" parent="."]
+"""
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_refuses_scene_that_instantiates_to_null(godot_project):
+    # The nested-null mode of issue #64: the sub-scene resource loads fine but
+    # instantiates to nothing, and the parent scene's instantiate() returns
+    # null. node add must refuse with the structured missing_dependency
+    # envelope — not dereference the null and surface as the unstructured
+    # operation_failed classification.
+    parent = _write_instance_fixture(
+        godot_project, child_content=UNINSTANTIABLE_CHILD_TSCN
+    )
+    before = parent.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(parent),
+        "--type", "Marker2D", "--name", "M",
+        "--project", str(godot_project), "--json",
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert str(parent) in err["message"]
+    assert parent.read_text(encoding="utf-8") == before
+
+
+# A scene declaring a node class that does not exist in a stock 4.6.3 headless
+# engine — the shape of an absent GDExtension/module class.
+MISSING_CLASS_TSCN = """\
+[gd_scene format=3]
+
+[node name="Root" type="Node2D"]
+
+[node name="Widget" type="TotallyMissingClass" parent="."]
+"""
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_refuses_scene_whose_declared_class_is_substituted(godot_project):
+    # The degraded-node mode of issue #64: when a declared class is unavailable
+    # at instantiate time, the engine warns and substitutes a placeholder node
+    # at the same path (observed on 4.6.3 headless: a plain Node), so an
+    # existence check alone passes — but a re-save would rewrite the node as
+    # the substitute type, silently dropping its declared class. node add must
+    # refuse, naming declared vs materialized class, and leave the file alone.
+    scene_path = godot_project / "widget.tscn"
+    scene_path.write_text(MISSING_CLASS_TSCN, encoding="utf-8")
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Marker2D", "--name", "M", "--json",
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "Widget (declared TotallyMissingClass, materialized" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
 HERO_GD = """\
 class_name Hero
 extends Node2D
