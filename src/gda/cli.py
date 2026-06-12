@@ -31,8 +31,12 @@ from gda.models import (
     NodeListResult,
     SceneCreateParams,
     SceneCreateResult,
+    SceneDeleteParams,
+    SceneDeleteResult,
     SceneGetParams,
     SceneGetResult,
+    SceneListParams,
+    SceneListResult,
     SceneNode,
 )
 from gda.project import resolve_project_dir
@@ -46,9 +50,7 @@ app = typer.Typer(
 )
 
 # The first domain command group (ADR-0005): commands acting on scene files.
-scene_app = typer.Typer(
-    help="Act on Godot scene files (.tscn).", no_args_is_help=True
-)
+scene_app = typer.Typer(help="Act on Godot scene files (.tscn).", no_args_is_help=True)
 app.add_typer(scene_app, name="scene")
 
 # The node command group (issue #53): commands acting on nodes WITHIN a scene
@@ -106,6 +108,18 @@ SCENE_GET_COMMAND: HeadlessCommand[SceneGetResult] = HeadlessCommand(
     operation="scene-get",
     input_model=SceneGetParams,
     output_model=SceneGetResult,
+)
+
+SCENE_LIST_COMMAND: HeadlessCommand[SceneListResult] = HeadlessCommand(
+    operation="scene-list",
+    input_model=SceneListParams,
+    output_model=SceneListResult,
+)
+
+SCENE_DELETE_COMMAND: HeadlessCommand[SceneDeleteResult] = HeadlessCommand(
+    operation="scene-delete",
+    input_model=SceneDeleteParams,
+    output_model=SceneDeleteResult,
 )
 
 NODE_ADD_COMMAND: HeadlessCommand[NodeAddResult] = HeadlessCommand(
@@ -204,6 +218,58 @@ def get(
         project=resolve_project_dir(project),
         json_output=json_output,
         render_text=lambda scene: _render_tree(scene.root),
+        make_runner=_make_runner,
+    )
+
+
+def _render_scene_list(listed: "SceneListResult") -> str:
+    """Render the enumerated scenes as ``path (root_name: root_type)`` lines."""
+    if not listed.scenes:
+        return "(no scenes)"
+    lines = []
+    for scene in listed.scenes:
+        if scene.root_name is not None and scene.root_type is not None:
+            lines.append(f"{scene.path} ({scene.root_name}: {scene.root_type})")
+        else:
+            lines.append(f"{scene.path} (unreadable)")
+    return "\n".join(lines)
+
+
+@scene_app.command(name="list", cls=SCENE_LIST_COMMAND.command_class())
+def list_scenes(
+    json_output: bool = json_option(),
+    schema: bool = SCENE_LIST_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Enumerate the .tscn scenes in the resolved project."""
+    SCENE_LIST_COMMAND.emit(
+        SceneListParams(),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=_render_scene_list,
+        make_runner=_make_runner,
+    )
+
+
+@scene_app.command(cls=SCENE_DELETE_COMMAND.command_class())
+def delete(
+    path: str = typer.Argument(..., help="The .tscn scene file to delete."),
+    json_output: bool = json_option(),
+    schema: bool = SCENE_DELETE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Delete a scene file and report what was removed."""
+    SCENE_DELETE_COMMAND.emit(
+        SceneDeleteParams(path=_normalize_path(path)),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=lambda removed: (
+            f"deleted {removed.path} (root {removed.root_name}: {removed.root_type})"
+        ),
         make_runner=_make_runner,
     )
 

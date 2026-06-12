@@ -56,7 +56,8 @@ for the full picture.
 **Working today**
 
 - ✅ A first working command surface: the `info` meta command and the first domain command groups —
-  `gda scene create` / `gda scene get` and `gda node add` / `gda node list`
+  `gda scene create` / `gda scene get` / `gda scene list` / `gda scene delete` and
+  `gda node add` / `gda node list`
   ([ADR-0005](docs/adr/0005-cli-command-taxonomy.md)).
 - ✅ The contract every shipped command carries: structured `--json` output, model-derived
   `--schema` self-description ([ADR-0004](docs/adr/0004-schema-flag-self-description.md)), and
@@ -171,6 +172,17 @@ gda node add game/main.tscn --type Sprite2D --name Hero --json
 
 gda node list game/main.tscn --json
 # {"scene_path":"game/main.tscn","root":{"name":"main","type":"Node2D","path":".","children":[{"name":"Hero","type":"Sprite2D","path":"Hero","children":[]}]}}
+```
+
+Enumerate a project's scenes, then delete one — `scene list` walks the project's `res://` tree, so it
+needs a project context (`--project`, `$GDA_PROJECT`, or a cwd that is a project):
+
+```bash
+gda scene list --project game --json
+# {"scenes":[{"path":"res://main.tscn","root_name":"main","root_type":"Node2D"}]}
+
+gda scene delete res://main.tscn --project game --json
+# {"path":"res://main.tscn","root_name":"main","root_type":"Node2D"}
 ```
 
 ---

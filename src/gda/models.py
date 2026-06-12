@@ -180,6 +180,65 @@ class SceneGetResult(BaseModel):
     root: SceneNode
 
 
+class SceneListParams(BaseModel):
+    """The operation params of ``gda scene list`` — none (ADR-0004).
+
+    ``scene list`` enumerates the ``.tscn`` scenes in the resolved project's
+    ``res://`` tree; the project is process context (``--project``), not an
+    operation param (ADR-0006), so the ``input`` schema is trivially empty.
+    """
+
+
+class ListedScene(BaseModel):
+    """One enumerated scene of ``gda scene list``: its path and root summary.
+
+    ``path`` is the scene's ``res://`` path — the address an agent feeds back
+    into other scene commands. ``root_name``/``root_type`` are read cheaply from
+    the scene's stored state (no instantiation, issue #30); both are null when
+    the ``.tscn`` could not be loaded as a scene, so the entry still names a file
+    the listing found rather than dropping it.
+    """
+
+    path: str
+    root_name: str | None = Field(
+        default=None,
+        description="The scene root node's name, or null if the file could not be loaded as a scene.",
+    )
+    root_type: str | None = Field(
+        default=None,
+        description="The scene root node's type, or null if the file could not be loaded as a scene.",
+    )
+
+
+class SceneListResult(BaseModel):
+    """The result of ``gda scene list``: the project's enumerated ``.tscn`` scenes.
+
+    An empty project is a valid, empty listing — ``scenes == []`` — not a
+    failure.
+    """
+
+    scenes: list[ListedScene]
+
+
+class SceneDeleteParams(BaseModel):
+    """The operation params of ``gda scene delete``: the ``.tscn`` file to remove."""
+
+    path: str
+
+
+class SceneDeleteResult(BaseModel):
+    """The result of ``gda scene delete``: what was removed.
+
+    Echoes the deleted scene's path and its root node's name/type (read from the
+    scene's stored state before deletion), so the result names the content
+    removed, not just the file path.
+    """
+
+    path: str
+    root_name: str
+    root_type: str
+
+
 class NodeAddParams(BaseModel):
     """The operation params of ``gda node add`` (issue #53).
 
