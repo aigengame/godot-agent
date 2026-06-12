@@ -416,6 +416,59 @@ def test_scene_list_enumerates_created_scenes(godot_project):
 
 @pytest.mark.e2e
 @requires_godot
+def test_scene_list_enumerates_dot_prefixed_scenes_but_skips_godot_cache(godot_project):
+    # scene list promises to enumerate every .tscn in the project, so a
+    # dot-prefixed scene (a hidden file, or one under a hidden directory) must
+    # appear — only the engine's res://.godot import cache is skipped, not every
+    # dot-prefixed entry. The empty-project test already proves res://.godot does
+    # not leak; this proves the skip is scoped to res://.godot, not "anything
+    # starting with a dot".
+    gda = _gda_project(godot_project)
+
+    assert (
+        gda(
+            "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
+        ).returncode
+        == 0
+    )
+    assert (
+        gda(
+            "scene",
+            "create",
+            "res://.hidden.tscn",
+            "--root-type",
+            "Node2D",
+            "--root-name",
+            "Hidden",
+            "--json",
+        ).returncode
+        == 0
+    )
+    assert (
+        gda(
+            "scene",
+            "create",
+            "res://.config/deep.tscn",
+            "--root-type",
+            "Node2D",
+            "--json",
+        ).returncode
+        == 0
+    )
+
+    listed = gda("scene", "list", "--json")
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    paths = {s["path"] for s in json.loads(listed.stdout)["scenes"]}
+    assert "res://main.tscn" in paths
+    assert "res://.hidden.tscn" in paths
+    assert "res://.config/deep.tscn" in paths
+    # The engine import cache is still excluded — no res://.godot entry leaks in.
+    assert not any(p.startswith("res://.godot") for p in paths)
+
+
+@pytest.mark.e2e
+@requires_godot
 def test_scene_list_on_empty_project_is_an_empty_listing(godot_project):
     # A project with no scenes is a valid, empty listing — not an error (the
     # res://.godot import cache must not leak in as a phantom scene).

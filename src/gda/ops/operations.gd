@@ -351,23 +351,30 @@ func _has_project() -> bool:
 	return DirAccess.dir_exists_absolute("res://") and FileAccess.file_exists("res://project.godot")
 
 
-# Recursively collect every .tscn under res:// (issue #54), skipping the
+# Recursively collect every .tscn under res:// (issue #54), skipping only the
 # engine's own res://.godot cache directory (import artifacts, not authored
-# scenes). Paths are returned as res:// paths so they round-trip into other
+# scenes). The skip is scoped to that one directory name rather than every
+# dot-prefixed entry, so legitimately hidden scenes (a .hidden.tscn, or a scene
+# under a dot-prefixed directory) are still enumerated as promised (issue #54
+# review). Paths are returned as res:// paths so they round-trip into other
 # scene commands.
 func _collect_scene_paths(dir_path: String, out: Array[String]) -> void:
 	var dir := DirAccess.open(dir_path)
 	if dir == null:
 		return
+	# Hidden entries are off by default; enable them so a .hidden.tscn or a scene
+	# under a dot-prefixed directory is enumerated. Navigational entries ('.',
+	# '..') stay off, so recursion cannot loop back on itself (issue #54 review).
+	dir.include_hidden = true
 	dir.list_dir_begin()
 	var entry := dir.get_next()
 	while not entry.is_empty():
-		if not entry.begins_with("."):
-			var child := dir_path.path_join(entry)
-			if dir.current_is_dir():
+		var child := dir_path.path_join(entry)
+		if dir.current_is_dir():
+			if entry != ".godot":
 				_collect_scene_paths(child, out)
-			elif entry.get_extension() == "tscn":
-				out.append(child)
+		elif entry.get_extension() == "tscn":
+			out.append(child)
 		entry = dir.get_next()
 	dir.list_dir_end()
 
