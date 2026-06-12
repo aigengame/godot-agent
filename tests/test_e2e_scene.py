@@ -47,7 +47,9 @@ def test_res_path_round_trip_against_the_project_fixture(godot_project):
             text=True,
         )
 
-    created = gda("scene", "create", "res://hero.tscn", "--root-type", "Node2D", "--json")
+    created = gda(
+        "scene", "create", "res://hero.tscn", "--root-type", "Node2D", "--json"
+    )
     assert created.returncode == 0, created.stdout + created.stderr
     # res:// resolved against the fixture project, not gda's cwd.
     assert (godot_project / "hero.tscn").exists()
@@ -93,8 +95,14 @@ def test_scene_path_containing_end_sentinel_round_trips(godot_project):
     scene_path = godot_project / "weird<<<GDA:END>>>name.tscn"
 
     created = _gda(
-        "scene", "create", str(scene_path),
-        "--root-type", "Node2D", "--root-name", "Main", "--json",
+        "scene",
+        "create",
+        str(scene_path),
+        "--root-type",
+        "Node2D",
+        "--root-name",
+        "Main",
+        "--json",
     )
 
     assert created.returncode == 0, created.stdout + created.stderr
@@ -326,7 +334,9 @@ def test_scene_create_unwritable_directory_yields_structured_save_failed(godot_p
     target = locked / "main.tscn"
     locked.chmod(0o500)
     try:
-        created = _gda("scene", "create", str(target), "--root-type", "Node2D", "--json")
+        created = _gda(
+            "scene", "create", str(target), "--root-type", "Node2D", "--json"
+        )
     finally:
         locked.chmod(0o700)
 
@@ -355,3 +365,147 @@ def test_scene_create_unknown_root_type_yields_structured_error_end_to_end(
     assert err["category"] == "operation"
     assert err["code"] == "invalid_root_type"
     assert not target.exists()
+
+
+def _gda_project(project) -> "callable":
+    """A ``_gda`` bound to ``--project`` for res:// enumeration/resolution."""
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+
+    def gda(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [gda_bin, *args, "--godot", str(GODOT), "--project", str(project)],
+            capture_output=True,
+            text=True,
+        )
+
+    return gda
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_list_enumerates_created_scenes(godot_project):
+    # scene list (issue #54) enumerates the project's .tscn scenes by walking
+    # res://: two scenes created at different depths both appear, each with its
+    # res:// path and the root name/type read from stored state. The listing IS
+    # the structured-level verification of what scene create wrote.
+    gda = _gda_project(godot_project)
+
+    assert (
+        gda(
+            "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
+        ).returncode
+        == 0
+    )
+    assert (
+        gda(
+            "scene", "create", "res://ui/menu.tscn", "--root-type", "Control", "--json"
+        ).returncode
+        == 0
+    )
+
+    listed = gda("scene", "list", "--json")
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    scenes = json.loads(listed.stdout)["scenes"]
+    by_path = {s["path"]: s for s in scenes}
+    assert by_path["res://main.tscn"]["root_type"] == "Node2D"
+    assert by_path["res://main.tscn"]["root_name"] == "main"
+    assert by_path["res://ui/menu.tscn"]["root_type"] == "Control"
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_list_on_empty_project_is_an_empty_listing(godot_project):
+    # A project with no scenes is a valid, empty listing — not an error (the
+    # res://.godot import cache must not leak in as a phantom scene).
+    gda = _gda_project(godot_project)
+
+    listed = gda("scene", "list", "--json")
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    assert json.loads(listed.stdout)["scenes"] == []
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_list_without_project_yields_project_not_found(tmp_path):
+    # scene list cannot enumerate res:// projectless: run from a non-project
+    # directory with no --project, it must refuse with the structured
+    # project_not_found code rather than return a misleading empty listing.
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+
+    listed = subprocess.run(
+        [gda_bin, "scene", "list", "--json", "--godot", str(GODOT)],
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
+    )
+
+    assert listed.returncode == 4, listed.stdout + listed.stderr
+    err = json.loads(listed.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "project_not_found"
+    assert "--project" in err["message"]
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_delete_removes_a_scene_and_names_what_was_removed(godot_project):
+    # scene delete (issue #54) removes a scene file and names the removed root.
+    # The round-trip verifier: scene list before shows the scene, delete reports
+    # the removed root's name/type, and scene list after no longer shows it.
+    gda = _gda_project(godot_project)
+    assert (
+        gda(
+            "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
+        ).returncode
+        == 0
+    )
+    scene_path = godot_project / "main.tscn"
+    assert scene_path.exists()
+
+    deleted = gda("scene", "delete", "res://main.tscn", "--json")
+
+    assert deleted.returncode == 0, deleted.stdout + deleted.stderr
+    data = json.loads(deleted.stdout)
+    assert data["path"] == "res://main.tscn"
+    assert data["root_name"] == "main"
+    assert data["root_type"] == "Node2D"
+    # The file is gone from disk, not just from the report.
+    assert not scene_path.exists()
+    assert json.loads(gda("scene", "list", "--json").stdout)["scenes"] == []
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_delete_missing_file_yields_path_not_found(godot_project):
+    missing = godot_project / "missing.tscn"
+
+    deleted = _gda("scene", "delete", str(missing), "--json")
+
+    assert deleted.returncode == 4
+    err = json.loads(deleted.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "path_not_found"
+    assert str(missing) in err["message"]
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_scene_delete_refuses_non_scene_file_and_leaves_it_on_disk(godot_project):
+    # The delete safety boundary (issue #54): delete only removes a file that
+    # loads as a PackedScene, so a stray non-scene file is refused with
+    # not_a_scene and left untouched — delete never erases arbitrary files.
+    notes = godot_project / "notes.txt"
+    notes.write_text("not a scene\n", encoding="utf-8")
+
+    deleted = _gda("scene", "delete", str(notes), "--json")
+
+    assert deleted.returncode == 4
+    err = json.loads(deleted.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "not_a_scene"
+    # The non-scene file survives the refusal.
+    assert notes.read_text(encoding="utf-8") == "not a scene\n"
