@@ -155,6 +155,86 @@ def test_node_add_bad_parent_yields_parent_not_found_and_leaves_file_unchanged(
     assert scene_path.read_text(encoding="utf-8") == before
 
 
+def _scene_with_nested_children(godot_project):
+    """A scene whose root has child A and grandchild A/B — the fixture tree
+    the parent-path addressing tests resolve against."""
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    for name, parent in (("A", "."), ("B", "A")):
+        added = _gda(
+            "node", "add", str(scene_path),
+            "--type", "Node2D", "--name", name, "--parent", parent, "--json",
+        )
+        assert added.returncode == 0, added.stdout + added.stderr
+    return scene_path
+
+
+@pytest.mark.e2e
+@requires_godot
+@pytest.mark.parametrize("form", ["..", "../A", "/root/A"])
+def test_node_add_parent_path_escaping_or_absolute_stays_rejected(
+    godot_project, form
+):
+    # Regression pins for issue #66: these forms were already rejected on main
+    # before the strictness change — absolute paths by _resolve_parent's
+    # explicit check, and leading ".." because a scene loaded for editing has
+    # no parent above its root to escape to. Pinned so the canonical-form
+    # tightening can never regress them into resolving.
+    scene_path = _scene_with_nested_children(godot_project)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Marker2D", "--name", "M", "--parent", form, "--json",
+    )
+
+    err = _assert_operation_error(added, "parent_not_found")
+    assert form in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+@requires_godot
+@pytest.mark.parametrize(
+    "form", ["A/..", "A/", "A/B/", "A//B", "./A", "A/./B", "A:position"]
+)
+def test_node_add_rejects_non_canonical_parent_path(godot_project, form):
+    # Issue #66: node-path addressing is exact — a parent path must be the
+    # canonical root-relative form node list reports ('.' or 'Name/Name').
+    # Godot's NodePath resolution would happily accept these forms and land
+    # the node somewhere other than what the literal string implies (e.g.
+    # "A/.." resolved to the ROOT on 4.6.3), so they must be rejected with
+    # parent_not_found and the scene file left untouched — never silently
+    # normalized into a placement the agent did not ask for.
+    scene_path = _scene_with_nested_children(godot_project)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Marker2D", "--name", "M", "--parent", form, "--json",
+    )
+
+    err = _assert_operation_error(added, "parent_not_found")
+    assert form in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+@requires_godot
+def test_node_add_explicit_dot_parent_addresses_the_root(godot_project):
+    # The canonical root address: '.' must keep working verbatim — it is the
+    # form node list reports for the root, and the CLI's --parent default.
+    scene_path = _scene_with_nested_children(godot_project)
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Marker2D", "--name", "M", "--parent", ".", "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    assert json.loads(added.stdout)["path"] == "M"
+
+
 @pytest.mark.e2e
 @requires_godot
 def test_node_add_name_collision_yields_duplicate_node_name(godot_project):
