@@ -34,7 +34,7 @@ issue ref (e.g. `🔜 (#53)`) marks a candidate already committed as an open sli
 | `gda info` | Report Godot engine version info | 1 | ✅ |
 | `gda version` | Report `gda`'s own version | — (local) | 🔜 |
 | `gda help` | Usage help | — (local) | ✅ (`--help`) |
-| `gda <command> --schema` | Emit a command's input/output JSON Schema (ADR-0004) | — (local) | ✅ (`info` #4; `scene create`/`scene get` #18; `node add`/`node list` #53) |
+| `gda <command> --schema` | Emit a command's input/output JSON Schema (ADR-0004) | — (local) | ✅ (`info` #4; `scene create`/`scene get` #18; `scene list`/`scene delete` #54; `node add`/`node list` #53) |
 
 > `--schema` is a per-command flag, not a command, and ships with **every** domain
 > command as a hard gate (ADR-0004). It is local introspection — no Godot process.
@@ -48,9 +48,9 @@ issue ref (e.g. `🔜 (#53)`) marks a candidate already committed as an open sli
 | Command | Description | Status |
 | --- | --- | --- |
 | `gda scene create` | Create a new `.tscn` with a given root node type | ✅ (#18) |
-| `gda scene delete` | Delete a scene file | 🔜 (#54) |
+| `gda scene delete` | Delete a scene file | ✅ (#54) |
 | `gda scene get` | Read a scene's structured tree from its file on disk | ✅ (#18) |
-| `gda scene list` | Enumerate scenes in the project | 🔜 (#54) |
+| `gda scene list` | Enumerate scenes in the project | ✅ (#54) |
 | `gda scene get-exports` | List `@export` properties declared by a scene's nodes | 🔜 (#58) |
 
 ### `node`
