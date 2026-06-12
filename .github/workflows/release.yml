@@ -34,9 +34,14 @@ env:
   GODOT_VERSION: "4.6-stable"
   GDA_GODOT: ${{ github.workspace }}/.godot/Godot_v4.6-stable_linux.x86_64
 
+# release-please runs twice, bracketing the verify-and-build chain: a draft
+# release carries no git tag until published, and release-please's lookback is
+# tag-based, so computing the next Release PR before the publish reads the
+# whole history as unreleased and proposes a spurious release (#79).
+
 jobs:
-  release-please:
-    name: Maintain release PR / cut release
+  cut-release:
+    name: Cut draft release for a merged Release PR
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     permissions:
@@ -46,28 +51,29 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
-      - name: Run release-please
+      - name: Run release-please (release cutting only)
         uses: googleapis/release-please-action@v4
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          skip-github-pull-request: true
 
   github-release:
     name: Build, verify, and publish release artifacts
     runs-on: ubuntu-latest
-    needs: release-please
+    needs: cut-release
     # Run when release-please just cut a release (draft), or on the manual
-    # escape hatch (release-please job is skipped on workflow_dispatch).
+    # escape hatch (the cut-release job is skipped on workflow_dispatch).
     if: >-
       !failure() && !cancelled() &&
-      (needs.release-please.outputs.release_created == 'true' ||
+      (needs.cut-release.outputs.release_created == 'true' ||
        github.event_name == 'workflow_dispatch')
     permissions:
       contents: write
 
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.release-please.outputs.tag_name }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.cut-release.outputs.tag_name }}
       RELEASE_DRAFT: ${{ inputs.draft || false }}
       RELEASE_PRERELEASE: ${{ inputs.prerelease || false }}
 
@@ -159,3 +165,28 @@ jobs:
             gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY"
             gh release edit "$RELEASE_TAG" --draft=false --repo "$GITHUB_REPOSITORY"
           fi
+
+  release-pr:
+    name: Maintain release PR
+    runs-on: ubuntu-latest
+    needs:
+      - cut-release
+      - github-release
+    # Runs after any cut release is published, so the tag lookback always sees
+    # the new tag. Skipped when the verify-and-build chain fails: computing a
+    # Release PR while the cut release's tag is missing reads the whole
+    # history as unreleased (#79). On pushes that cut no release the
+    # github-release job is skipped and this still runs.
+    if: >-
+      !failure() && !cancelled() &&
+      github.event_name == 'push'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Run release-please (release PR maintenance only)
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          skip-github-release: true

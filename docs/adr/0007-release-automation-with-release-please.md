@@ -38,6 +38,15 @@ do not trigger other workflows (GitHub's recursion guard). For the same reason
 no PAT is introduced: the default token suffices to open the Release PR, and a
 long-lived credential is a cost we do not need to pay.
 
+Within that workflow, **release-please itself runs twice**, bracketing the
+verify-and-build chain: a release-cutting invocation before it and a
+release-PR-maintenance invocation after the publish. A draft release carries
+no git tag until it is published, and release-please's lookback is tag-based —
+so computing the next Release PR while the just-cut release is still a draft
+reads the entire history as unreleased and proposes a spurious full-history
+release. Maintenance is likewise skipped when the chain fails, since the cut
+release's tag is then still missing (#79).
+
 A `workflow_dispatch` escape hatch retains the previous manual semantics:
 given an existing tag, it runs the same verify-and-build chain and creates a
 release from that tag.
@@ -66,6 +75,9 @@ release from that tag.
   PR title (which must therefore be a conventional commit message) and the body
   is left blank, so a squashed body can never be re-parsed into phantom
   changelog entries. A breaking change is flagged with `!` in the PR title.
+- The 0.1.2 and 0.1.3 releases are spurious — produced by the draft-tag race
+  before release-please was split into two invocations (#79). They are kept
+  (fix-forward); their changelog sections are reduced to one-line notes.
 
 ## Considered options
 
