@@ -7,7 +7,9 @@ from gda.models import (
     NodeAddResult,
     NodeListResult,
     SceneCreateResult,
+    SceneDeleteResult,
     SceneGetResult,
+    SceneListResult,
 )
 
 
@@ -93,6 +95,54 @@ def test_scene_get_result_round_trips_a_nested_tree():
 
     assert scene.root.children[0].children[0].name == "Hitbox"
     assert json.loads(scene.model_dump_json()) == payload
+
+
+def test_scene_list_result_round_trips_enumerated_scenes():
+    # The scene-list operation enumerates the project's .tscn files (issue #54):
+    # each entry carries its res:// path plus the root's name/type read cheaply
+    # from the scene's stored state. A scene that fails to load still appears,
+    # with null root info, so the listing names every .tscn it found.
+    payload = {
+        "scenes": [
+            {"path": "res://main.tscn", "root_name": "main", "root_type": "Node2D"},
+            {"path": "res://ui/menu.tscn", "root_name": "Menu", "root_type": "Control"},
+            {"path": "res://broken.tscn", "root_name": None, "root_type": None},
+        ]
+    }
+
+    listed = SceneListResult.model_validate(payload)
+
+    assert listed.scenes[0].path == "res://main.tscn"
+    assert listed.scenes[1].root_type == "Control"
+    assert listed.scenes[2].root_name is None
+    assert json.loads(listed.model_dump_json()) == payload
+
+
+def test_scene_list_result_round_trips_an_empty_project():
+    # A project with no scenes is a valid, empty listing — not an error.
+    payload = {"scenes": []}
+
+    listed = SceneListResult.model_validate(payload)
+
+    assert listed.scenes == []
+    assert json.loads(listed.model_dump_json()) == payload
+
+
+def test_scene_delete_result_round_trips():
+    # The scene-delete operation reports what it removed (issue #54): the path,
+    # and the deleted scene's root name/type so the result names the content,
+    # not just the file.
+    payload = {
+        "path": "res://main.tscn",
+        "root_name": "main",
+        "root_type": "Node2D",
+    }
+
+    deleted = SceneDeleteResult.model_validate(payload)
+
+    assert deleted.path == "res://main.tscn"
+    assert deleted.root_name == "main"
+    assert json.loads(deleted.model_dump_json()) == payload
 
 
 def test_node_add_result_round_trips():
