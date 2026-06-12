@@ -135,6 +135,79 @@ def test_scene_get_broken_sentinel_maps_to_parse_error(monkeypatch):
     assert err["code"] == "contract_violation"
 
 
+def test_scene_delete_missing_file_maps_to_stable_path_not_found_code(monkeypatch):
+    # scene delete reuses the shared load-failure ladder (issue #54): a target
+    # that does not exist is the file-level path_not_found, exit 4, so an agent
+    # can tell "no such scene" apart from other delete failures.
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel(
+                "path_not_found", "scene file does not exist: /x/missing.tscn"
+            ),
+            stderr="",
+            exit_code=1,
+        ),
+    )
+
+    result = CliRunner().invoke(app, ["scene", "delete", "/x/missing.tscn"])
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "path_not_found"
+    assert "/x/missing.tscn" in err["message"]
+
+
+def test_scene_delete_non_scene_file_maps_to_stable_not_a_scene_code(monkeypatch):
+    # delete refuses a target that is not loadable as a scene (issue #54): the
+    # safety boundary is that delete only removes things that load as a
+    # PackedScene, so a stray file is not_a_scene rather than silently deleted.
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel(
+                "not_a_scene", "failed to load as a scene: /x/notes.txt"
+            ),
+            stderr="",
+            exit_code=1,
+        ),
+    )
+
+    result = CliRunner().invoke(app, ["scene", "delete", "/x/notes.txt"])
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "not_a_scene"
+
+
+def test_scene_list_without_project_maps_to_stable_project_not_found_code(monkeypatch):
+    # scene list enumerates res:// in a project, so it cannot run projectless
+    # (issue #54): with no resolvable project, the operation reports the new
+    # project_not_found code — a finer mode than the generic operation_failed so
+    # an agent knows to pass --project rather than retry.
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel(
+                "project_not_found",
+                "scene list requires a Godot project; none was resolved — pass --project",
+            ),
+            stderr="",
+            exit_code=1,
+        ),
+    )
+
+    result = CliRunner().invoke(app, ["scene", "list"])
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "project_not_found"
+    assert "--project" in err["message"]
+
+
 def test_scene_create_missing_binary_maps_to_environment_error(monkeypatch):
     # The runner's synthetic exit 127 flows through the same shared environment
     # branch for scene commands as for info.

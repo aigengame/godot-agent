@@ -32,6 +32,7 @@ const OP_ERROR_INVALID_ROOT_TYPE := "invalid_root_type"
 const OP_ERROR_INVALID_ROOT_NAME := "invalid_root_name"
 const OP_ERROR_ALREADY_EXISTS := "already_exists"
 const OP_ERROR_SAVE_FAILED := "save_failed"
+const OP_ERROR_PROJECT_NOT_FOUND := "project_not_found"
 const OP_ERROR_PATH_NOT_FOUND := "path_not_found"
 const OP_ERROR_NOT_A_SCENE := "not_a_scene"
 const OP_ERROR_PARENT_NOT_FOUND := "parent_not_found"
@@ -69,6 +70,10 @@ func _initialize() -> void:
 			_op_scene_create(params)
 		"scene-get":
 			_op_scene_get(params)
+		"scene-list":
+			_op_scene_list(params)
+		"scene-delete":
+			_op_scene_delete(params)
 		"node-add":
 			_op_node_add(params)
 		"node-list":
@@ -171,6 +176,62 @@ func _op_scene_get(params: Dictionary) -> void:
 	_succeed({
 		"path": _string_param(params, "path"),
 		"root": _tree_from_state(packed.get_state()),
+	})
+
+
+# scene-list: enumerate the project's .tscn scenes (issue #54). Walks the
+# project's res:// tree, reporting each scene's res:// path plus its root
+# name/type read from stored state (no instantiation, exactly like scene-get,
+# issue #30 — listing must not execute project code). A .tscn that cannot be
+# loaded as a scene is still listed, with null root info, so the listing names
+# every .tscn it found rather than dropping it.
+#
+# Enumerating res:// requires a project: a projectless headless process has no
+# res:// tree to walk, so scene-list refuses with project_not_found rather than
+# returning a misleading empty listing.
+func _op_scene_list(_params: Dictionary) -> void:
+	_diag("running operation: scene-list")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "scene list requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+
+	var paths: Array[String] = []
+	_collect_scene_paths("res://", paths)
+	paths.sort()
+
+	var scenes: Array = []
+	for path in paths:
+		scenes.append(_scene_summary(path))
+
+	_succeed({"scenes": scenes})
+
+
+# scene-delete: remove a scene file and report what was removed (issue #54).
+# Reuses the shared load-failure ladder (missing → path_not_found, not loadable
+# → not_a_scene): delete only removes a file that loads as a PackedScene, so a
+# stray non-scene file is refused rather than silently deleted. The root
+# name/type are read from stored state before deletion so the result names the
+# content removed, not just the path.
+func _op_scene_delete(params: Dictionary) -> void:
+	_diag("running operation: scene-delete")
+	var packed: PackedScene = _load_scene(params)
+	if packed == null:
+		return  # _load_scene already recorded the failure
+	var path := _string_param(params, "path")
+
+	var state := packed.get_state()
+	var root_name := String(state.get_node_name(0))
+	var root_type := String(state.get_node_type(0))
+
+	var err := DirAccess.remove_absolute(path)
+	if err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, "failed to delete scene " + path + ": " + error_string(err))
+		return
+
+	_succeed({
+		"path": path,
+		"root_name": root_name,
+		"root_type": root_type,
 	})
 
 
@@ -279,6 +340,52 @@ func _op_node_list(params: Dictionary) -> void:
 		"scene_path": _string_param(params, "path"),
 		"root": _tree_from_state(packed.get_state(), true),
 	})
+
+
+# Whether this headless process is running against a Godot project. A project
+# scan writes the resource UID cache under res://.godot; its presence is the
+# marker the engine itself uses, and a projectless --script run (no --path to a
+# project dir) does not have it. scene-list needs a real res:// tree to walk.
+func _has_project() -> bool:
+	return DirAccess.dir_exists_absolute("res://") and FileAccess.file_exists("res://project.godot")
+
+
+# Recursively collect every .tscn under res:// (issue #54), skipping the
+# engine's own res://.godot cache directory (import artifacts, not authored
+# scenes). Paths are returned as res:// paths so they round-trip into other
+# scene commands.
+func _collect_scene_paths(dir_path: String, out: Array[String]) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var entry := dir.get_next()
+	while not entry.is_empty():
+		if not entry.begins_with("."):
+			var child := dir_path.path_join(entry)
+			if dir.current_is_dir():
+				_collect_scene_paths(child, out)
+			elif entry.get_extension() == "tscn":
+				out.append(child)
+		entry = dir.get_next()
+	dir.list_dir_end()
+
+
+# Summarize one .tscn for the listing: its path plus the root node's name/type
+# from stored state (no instantiation, issue #30). A file that cannot be loaded
+# as a scene still appears, with null root info, rather than being dropped.
+func _scene_summary(path: String) -> Dictionary:
+	var packed := ResourceLoader.load(path, "PackedScene") as PackedScene
+	if packed == null:
+		return {"path": path, "root_name": null, "root_type": null}
+	var state := packed.get_state()
+	if state == null or state.get_node_count() == 0:
+		return {"path": path, "root_name": null, "root_type": null}
+	return {
+		"path": path,
+		"root_name": String(state.get_node_name(0)),
+		"root_type": String(state.get_node_type(0)),
+	}
 
 
 # Load the .tscn named by params.path for reading or mutation, validating the

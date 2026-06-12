@@ -78,6 +78,7 @@ source and is checked by tests. GDScript mirrors only the rows whose source is
 | `invalid_root_name` | `operation` | `operation` | A requested root node name is empty or would be rewritten by Godot. |
 | `already_exists` | `operation` | `operation` | A create operation target already exists and will not be overwritten. |
 | `save_failed` | `operation` | `operation` | A scene could not be packed or saved. |
+| `project_not_found` | `operation` | `operation` | An operation that enumerates a project's `res://` tree ran without a resolved Godot project. |
 | `path_not_found` | `operation` | `operation` | A requested scene file does not exist. |
 | `not_a_scene` | `operation` | `operation` | A requested file cannot be loaded as a `PackedScene`. |
 | `parent_not_found` | `operation` | `operation` | A requested parent node path does not resolve to a node in the scene. |
