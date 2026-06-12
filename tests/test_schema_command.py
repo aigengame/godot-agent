@@ -122,16 +122,62 @@ def test_scene_get_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
-def test_sample_scene_results_validate_against_emitted_output_schemas():
-    # The other half of the ADR-0004 hard gate (issue #18): a sample --json
-    # payload of each scene command satisfies the contract its --schema emits.
-    from tests.test_scene_commands import CREATE_RESULT, GET_RESULT
+def test_scene_list_schema_emits_model_derived_contract_without_a_project():
+    # The ADR-0004 hard gate for scene list (issue #54): the bare --schema flag
+    # — no --project — short-circuits into the self-description, derived from the
+    # same typed models that back --json. scene list takes no operation params,
+    # so its input schema is trivially empty (the project is process context,
+    # ADR-0006), exactly like info.
+    from gda.models import SceneListParams, SceneListResult
 
-    create_doc = json.loads(CliRunner().invoke(app, ["scene", "create", "--schema"]).stdout)
+    result = CliRunner().invoke(app, ["scene", "list", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == SceneListParams.model_json_schema()
+    assert doc["output"] == SceneListResult.model_json_schema()
+    assert doc["input"].get("properties", {}) == {}
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_scene_delete_schema_emits_model_derived_contract_without_other_args():
+    from gda.models import SceneDeleteParams, SceneDeleteResult
+
+    result = CliRunner().invoke(app, ["scene", "delete", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == SceneDeleteParams.model_json_schema()
+    assert doc["output"] == SceneDeleteResult.model_json_schema()
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_sample_scene_results_validate_against_emitted_output_schemas():
+    # The other half of the ADR-0004 hard gate (issues #18, #54): a sample
+    # --json payload of each scene command satisfies the contract its --schema
+    # emits.
+    from tests.test_scene_commands import (
+        CREATE_RESULT,
+        DELETE_RESULT,
+        GET_RESULT,
+        LIST_RESULT,
+    )
+
+    create_doc = json.loads(
+        CliRunner().invoke(app, ["scene", "create", "--schema"]).stdout
+    )
     get_doc = json.loads(CliRunner().invoke(app, ["scene", "get", "--schema"]).stdout)
+    list_doc = json.loads(CliRunner().invoke(app, ["scene", "list", "--schema"]).stdout)
+    delete_doc = json.loads(
+        CliRunner().invoke(app, ["scene", "delete", "--schema"]).stdout
+    )
 
     jsonschema.validate(instance=CREATE_RESULT, schema=create_doc["output"])
     jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
+    jsonschema.validate(instance=LIST_RESULT, schema=list_doc["output"])
+    jsonschema.validate(instance=DELETE_RESULT, schema=delete_doc["output"])
 
 
 def test_scene_schema_spawns_no_godot(monkeypatch):
@@ -143,7 +189,12 @@ def test_scene_schema_spawns_no_godot(monkeypatch):
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
     monkeypatch.setattr("gda.cli._make_runner", boom)
 
-    for command in (["scene", "create"], ["scene", "get"]):
+    for command in (
+        ["scene", "create"],
+        ["scene", "get"],
+        ["scene", "list"],
+        ["scene", "delete"],
+    ):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0
         assert set(json.loads(result.stdout)) >= {"input", "output"}

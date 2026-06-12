@@ -83,9 +83,7 @@ def test_scene_get_result_round_trips_a_nested_tree():
                 {
                     "name": "Hero",
                     "type": "Sprite2D",
-                    "children": [
-                        {"name": "Hitbox", "type": "Area2D", "children": []}
-                    ],
+                    "children": [{"name": "Hitbox", "type": "Area2D", "children": []}],
                 }
             ],
         },
