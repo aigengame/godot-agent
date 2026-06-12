@@ -112,6 +112,12 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A scene could not be packed or saved.",
     ),
     ErrorCodeSpec(
+        "delete_failed",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A scene file could not be removed from disk.",
+    ),
+    ErrorCodeSpec(
         "project_not_found",
         ErrorCategory.OPERATION,
         ErrorCodeSource.OPERATION,

@@ -32,6 +32,7 @@ const OP_ERROR_INVALID_ROOT_TYPE := "invalid_root_type"
 const OP_ERROR_INVALID_ROOT_NAME := "invalid_root_name"
 const OP_ERROR_ALREADY_EXISTS := "already_exists"
 const OP_ERROR_SAVE_FAILED := "save_failed"
+const OP_ERROR_DELETE_FAILED := "delete_failed"
 const OP_ERROR_PROJECT_NOT_FOUND := "project_not_found"
 const OP_ERROR_PATH_NOT_FOUND := "path_not_found"
 const OP_ERROR_NOT_A_SCENE := "not_a_scene"
@@ -225,7 +226,7 @@ func _op_scene_delete(params: Dictionary) -> void:
 
 	var err := DirAccess.remove_absolute(path)
 	if err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, "failed to delete scene " + path + ": " + error_string(err))
+		_fail(OP_ERROR_DELETE_FAILED, "failed to delete scene " + path + ": " + error_string(err))
 		return
 
 	_succeed({

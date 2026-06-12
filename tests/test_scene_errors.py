@@ -182,6 +182,34 @@ def test_scene_delete_non_scene_file_maps_to_stable_not_a_scene_code(monkeypatch
     assert err["code"] == "not_a_scene"
 
 
+def test_scene_delete_unlink_failure_maps_to_stable_delete_failed_code(monkeypatch):
+    # The op loaded the scene but the underlying unlink/remove failed (a
+    # read-only filesystem, a permission boundary): this is a delete IO failure,
+    # not a save/pack failure, so it maps to the stable delete_failed code rather
+    # than reusing save_failed (whose contract is "a scene could not be packed or
+    # saved"). An agent can then tell "deletion was blocked" apart from "writing
+    # the scene failed".
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel(
+                "delete_failed",
+                "failed to delete scene /x/main.tscn: Permission denied",
+            ),
+            stderr="",
+            exit_code=1,
+        ),
+    )
+
+    result = CliRunner().invoke(app, ["scene", "delete", "/x/main.tscn"])
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "delete_failed"
+    assert "/x/main.tscn" in err["message"]
+
+
 def test_scene_list_without_project_maps_to_stable_project_not_found_code(monkeypatch):
     # scene list enumerates res:// in a project, so it cannot run projectless
     # (issue #54): with no resolvable project, the operation reports the new
