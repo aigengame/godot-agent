@@ -59,6 +59,13 @@ release from that tag.
   GitHub App token.
 - Release cadence is decoupled from commit cadence: the Release PR accumulates
   changes until someone decides to merge it.
+- PRs are merged **squash-only** (repo setting). With merge commits,
+  release-please counted both the PR title and every conventional commit inside
+  the merge, double-listing each PR in the changelog — the 0.1.1 changelog
+  carries these historical duplicates. The squash commit title is forced to the
+  PR title (which must therefore be a conventional commit message) and the body
+  is left blank, so a squashed body can never be re-parsed into phantom
+  changelog entries. A breaking change is flagged with `!` in the PR title.
 
 ## Considered options
 
