@@ -134,9 +134,44 @@ to it yet and refuses with `uncoercible_value` — the coercible set grows as la
 
 ### `script`
 
+Operates on **GDScript files** (`.gd`) on disk — writing source text and reading it back —
+so headless: `script create` writes raw text, `script get` reads raw text. Neither ever
+`load()`s or compiles the script, so creating or reading a script never runs project code (the
+read trust boundary of #30): a script's text is data, not something to execute.
+
+> **C# (`.cs`) is out of scope for now.** It needs the .NET build of Godot, whereas ADR-0003
+> targets the **standard** build (4.4+ / 4.6 baseline), and supporting it is a decision in its
+> own right (class/base semantics differ from GDScript's leading `class_name`/`extends`). Until
+> a `.NET`-build target and a dedicated decision exist, the `script` group is GDScript-only — a
+> non-`.gd` path is refused as `invalid_path` rather than half-supported as opaque text. The
+> deferral — whether/how to support the .NET build and C# — is tracked in #124.
+
+**Script-file addressing** (established by #110): a script is addressed by its **file path** —
+a `res://` or filesystem path ending in `.gd` — exactly the way a scene is addressed by its
+`.tscn` path, *not* by its `class_name`. A `res://` path resolves against the project
+(`--project`); a filesystem path is used as given (`~` is expanded). A path whose extension is
+not `.gd` is refused with `invalid_path` rather than being treated as a script.
+
+**Create: template or content** (established by #110): `gda script create PATH` writes a
+minimal built-in template, `extends Node\n`; `--extends <Base>` parameterizes the template's
+base class (e.g. `--extends Node2D` → `extends Node2D\n`), mirroring `scene create --root-type`.
+`--content "<source>"` instead writes verbatim source and is **mutually exclusive** with
+`--extends` (verbatim content is not templated, so a base class would have nowhere to go;
+supplying both is a usage error). Create is **no-clobber**: an existing target is refused with
+`already_exists`, leaving the file untouched (mirrors `scene create`). Missing parent
+directories are created before the write (reported in `created_dirs`, outermost to innermost).
+
+**Class metadata** (established by #110): both `script create` and `script get` report the
+`class_name` and `extends` the source declares, as `{class_name, extends}` (each null when
+absent), parsed by lightweight line scanning of the **raw text** — never by compiling the
+script. The scan reads only the GDScript header (skipping leading `@tool`/`@icon(...)`
+annotations) and stops at the first real statement, so declaration-shaped text deeper in the
+body cannot be mistaken for the declaration. `script get` additionally returns the full
+`source`, so a `create` is verifiable end-to-end: `create` then `get` returns the same source.
+
 | Command | Description |
 | --- | --- |
-| `gda script create` | Create a `.gd`/`.cs` script (template or content) |
+| `gda script create` | Create a `.gd` script (template or content) |
 | `gda script delete` | Delete a script file |
 | `gda script get` | Read script source |
 | `gda script list` | Enumerate scripts (with `class_name`/`extends` metadata) |

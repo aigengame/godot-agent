@@ -444,6 +444,104 @@ class NodeSetResult(BaseModel):
     )
 
 
+class ScriptCreateParams(BaseModel):
+    """The operation params of ``gda script create`` (issue #110).
+
+    ``path`` is the target ``.gd`` script file, addressed by its ``res://`` or
+    filesystem path (script-file addressing — by file path, not by
+    ``class_name``). ``content`` supplies verbatim source; when omitted, the
+    operation writes a minimal built-in template extending ``extends_type``.
+    ``content`` and ``extends_type`` are mutually exclusive at the CLI: verbatim
+    content is not templated, so a base class would have nowhere to go.
+    """
+
+    path: str
+    content: str | None = Field(
+        default=None,
+        description=(
+            "Verbatim script source to write. When omitted, a minimal built-in "
+            "template extending 'extends_type' is written instead. Mutually "
+            "exclusive with the template's base class."
+        ),
+    )
+    extends_type: str | None = Field(
+        default=None,
+        description=(
+            "Base class for the built-in template's 'extends' line (e.g. Node, "
+            "Node2D). Ignored when 'content' is supplied; defaults to 'Node' "
+            "when neither is given."
+        ),
+    )
+
+
+class ScriptCreateResult(BaseModel):
+    """The result of ``gda script create``: what was written where (issue #110).
+
+    Echoes the saved ``path`` and the ``class_name``/``extends`` the written
+    source declares, so an agent can assert the effect without a second call.
+    ``created_dirs`` lists parent directories the operation created before
+    saving, from outermost to innermost. The ``class_name``/``extends`` are
+    parsed from the written source.
+    """
+
+    path: str
+    class_name: str | None = Field(
+        default=None,
+        description=(
+            "The class_name the written script declares, or null when it "
+            "declares none."
+        ),
+    )
+    extends: str | None = Field(
+        default=None,
+        description=(
+            "The base class the written script extends, or null when it "
+            "declares none."
+        ),
+    )
+    created_dirs: list[str] = Field(
+        description=(
+            "Parent directories created before saving, from outermost to innermost."
+        )
+    )
+
+
+class ScriptGetParams(BaseModel):
+    """The operation params of ``gda script get``: the script file to read (issue #110).
+
+    ``path`` addresses the ``.gd`` script by its ``res://`` or filesystem path.
+    The source is read as raw text — the script is never loaded or compiled, so
+    reading it can never run project code (issue #30).
+    """
+
+    path: str
+
+
+class ScriptGetResult(BaseModel):
+    """The result of ``gda script get``: a script's source and metadata (issue #110).
+
+    Echoes the ``path``, the full ``source`` read as raw text, and the
+    ``class_name``/``extends`` the source declares (parsed from the text).
+    Carrying the source verbatim makes a ``create`` verifiable end-to-end:
+    ``create`` then ``get`` returns the same source.
+    """
+
+    path: str
+    source: str
+    class_name: str | None = Field(
+        default=None,
+        description=(
+            "The class_name the script declares, or null when it declares none."
+        ),
+    )
+    extends: str | None = Field(
+        default=None,
+        description=(
+            "The base class the script extends, or null when it declares none."
+        ),
+    )
+
+
 class EngineVersion(BaseModel):
     """The Godot engine version, as reported by ``Engine.get_version_info()``.
 

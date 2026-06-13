@@ -80,7 +80,7 @@ source and is checked by tests. GDScript mirrors only the rows whose source is
 | `save_failed` | `operation` | `operation` | A scene could not be packed or saved. |
 | `delete_failed` | `operation` | `operation` | A scene file could not be removed from disk. |
 | `project_not_found` | `operation` | `operation` | An operation that enumerates a project's `res://` tree ran without a resolved Godot project. |
-| `path_not_found` | `operation` | `operation` | A requested scene file does not exist. |
+| `path_not_found` | `operation` | `operation` | A requested file does not exist. |
 | `not_a_scene` | `operation` | `operation` | A requested file cannot be loaded as a `PackedScene`. |
 | `parent_not_found` | `operation` | `operation` | A requested parent node path does not resolve to a node in the scene. |
 | `invalid_node_type` | `operation` | `operation` | A requested node type is neither an instantiable `Node` class nor a registered `class_name`. |

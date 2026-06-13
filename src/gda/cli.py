@@ -43,6 +43,10 @@ from gda.models import (
     SceneListParams,
     SceneListResult,
     SceneNode,
+    ScriptCreateParams,
+    ScriptCreateResult,
+    ScriptGetParams,
+    ScriptGetResult,
 )
 from gda.project import resolve_project_dir
 from gda.runner import GodotRunner
@@ -64,6 +68,15 @@ node_app = typer.Typer(
     help="Act on nodes within a scene file (.tscn).", no_args_is_help=True
 )
 app.add_typer(node_app, name="node")
+
+# The script command group (issue #110): commands acting on .gd script files on
+# disk (write text / read text back), so they stay headless. C# (.cs) is out of
+# scope for now — it needs the .NET build of Godot (ADR-0003 targets the standard
+# build) and a dedicated decision.
+script_app = typer.Typer(
+    help="Act on script files (.gd).", no_args_is_help=True
+)
+app.add_typer(script_app, name="script")
 
 
 def _version_callback(value: Optional[bool]) -> None:
@@ -149,6 +162,18 @@ NODE_SET_COMMAND: HeadlessCommand[NodeSetResult] = HeadlessCommand(
     operation="node-set",
     input_model=NodeSetParams,
     output_model=NodeSetResult,
+)
+
+SCRIPT_CREATE_COMMAND: HeadlessCommand[ScriptCreateResult] = HeadlessCommand(
+    operation="script-create",
+    input_model=ScriptCreateParams,
+    output_model=ScriptCreateResult,
+)
+
+SCRIPT_GET_COMMAND: HeadlessCommand[ScriptGetResult] = HeadlessCommand(
+    operation="script-get",
+    input_model=ScriptGetParams,
+    output_model=ScriptGetResult,
 )
 
 
@@ -432,6 +457,80 @@ def set_property(
         render_text=lambda was_set: (
             f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
             f"{json.dumps(was_set.value)}"
+        ),
+        make_runner=_make_runner,
+    )
+
+
+def _render_script_metadata(script: "ScriptCreateResult | ScriptGetResult") -> str:
+    """Render a script's path plus its class_name/extends for humans."""
+    meta = []
+    if script.extends is not None:
+        meta.append(f"extends {script.extends}")
+    if script.class_name is not None:
+        meta.append(f"class_name {script.class_name}")
+    if not meta:
+        return script.path
+    return f"{script.path} ({', '.join(meta)})"
+
+
+@script_app.command(cls=SCRIPT_CREATE_COMMAND.command_class())
+def create(
+    path: str = typer.Argument(..., help="Target .gd script path to write."),
+    content: Optional[str] = typer.Option(
+        None,
+        "--content",
+        help=(
+            "Verbatim script source to write. Mutually exclusive with --extends; "
+            "when omitted, a minimal template extending --extends is written."
+        ),
+    ),
+    extends_type: Optional[str] = typer.Option(
+        None,
+        "--extends",
+        help=(
+            "Base class for the built-in template's 'extends' line (e.g. Node, "
+            "Node2D). Defaults to Node. Ignored — and rejected — with --content."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_CREATE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Create a new .gd script from a template or verbatim --content."""
+    if content is not None and extends_type is not None:
+        raise typer.BadParameter("--content and --extends are mutually exclusive.")
+    SCRIPT_CREATE_COMMAND.emit(
+        ScriptCreateParams(
+            path=_normalize_path(path),
+            content=content,
+            extends_type=extends_type,
+        ),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=lambda created: f"created {_render_script_metadata(created)}",
+        make_runner=_make_runner,
+    )
+
+
+@script_app.command(name="get", cls=SCRIPT_GET_COMMAND.command_class())
+def get_script(
+    path: str = typer.Argument(..., help="The .gd script file to read."),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_GET_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read a script's source and report its class_name/extends metadata."""
+    SCRIPT_GET_COMMAND.emit(
+        ScriptGetParams(path=_normalize_path(path)),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=lambda got: "\n".join(
+            [_render_script_metadata(got), got.source]
         ),
         make_runner=_make_runner,
     )

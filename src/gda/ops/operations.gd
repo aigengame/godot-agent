@@ -86,6 +86,10 @@ func _initialize() -> void:
 			_op_node_get(params)
 		"node-set":
 			_op_node_set(params)
+		"script-create":
+			_op_script_create(params)
+		"script-get":
+			_op_script_get(params)
 		_:
 			_fail(OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 
@@ -157,7 +161,7 @@ func _op_scene_create(params: Dictionary) -> void:
 	var save_err := ResourceSaver.save(packed, path)
 	root.free()
 	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(path, save_err))
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
 		return
 
 	_succeed({
@@ -307,7 +311,7 @@ func _op_node_add(params: Dictionary) -> void:
 	var save_err := ResourceSaver.save(repacked, path)
 	root.free()
 	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(path, save_err))
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
 		return
 
 	_succeed({
@@ -438,7 +442,7 @@ func _op_node_set(params: Dictionary) -> void:
 	var stored_value: Variant = _jsonify(node.get(prop_name))
 	root.free()
 	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(path, save_err))
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
 		return
 
 	_succeed({
@@ -448,6 +452,170 @@ func _op_node_set(params: Dictionary) -> void:
 		"type": _type_name(declared_type),
 		"value": stored_value,
 	})
+
+
+# script-create: write a new .gd script at the requested path — from verbatim
+# content or a minimal built-in template — and report the saved path plus the
+# class_name/extends the written source declares (issue #110). The script group
+# addresses scripts by FILE PATH, not by class_name.
+#
+# This writes raw text (FileAccess), never compiling or loading the script:
+# creating a script must not run project code, the same trust boundary the read
+# ops honor (issue #30). No-clobber: an existing target is refused with
+# already_exists, leaving it untouched (mirrors scene-create).
+func _op_script_create(params: Dictionary) -> void:
+	_diag("running operation: script-create")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _is_script_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
+		return
+	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
+		_fail(OP_ERROR_ALREADY_EXISTS, "script target already exists: " + path)
+		return
+
+	# Verbatim content wins; otherwise write a minimal template extending the
+	# requested base class (defaulting to Node).
+	var source: String
+	var content: Variant = params.get("content", null)
+	if content is String:
+		source = content
+	else:
+		var base := _string_param(params, "extends_type")
+		if base.is_empty():
+			base = "Node"
+		source = "extends " + base + "\n"
+
+	var created_dirs: Variant = _ensure_parent_dirs(path)
+	if created_dirs == null:
+		return  # _ensure_parent_dirs already recorded the failure
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, FileAccess.get_open_error()))
+		return
+	file.store_string(source)
+	# A successful open does not guarantee a successful write: a disk-full or I/O
+	# error surfaces here, not at open. Capture it before close() invalidates the
+	# handle, so a failed write is reported as save_failed rather than a phantom
+	# success over a partial or empty file (mirrors scene-create checking save).
+	var write_err := file.get_error()
+	file.close()
+	if write_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
+		return
+
+	var meta := _script_metadata(source)
+	_succeed({
+		"path": path,
+		"class_name": meta["class_name"],
+		"extends": meta["extends"],
+		"created_dirs": created_dirs,
+	})
+
+
+# script-get: read a script's source back as RAW TEXT and report it with the
+# class_name/extends the source declares — the read half of issue #110, which
+# makes a script-create verifiable end-to-end (create → get returns the source).
+#
+# Reads via FileAccess.get_file_as_string (which resolves res:// against the
+# project) and parses the metadata from the text — it never load()s/compiles the
+# script, so reading a script can never run or even parse-execute project code
+# (issue #30).
+func _op_script_get(params: Dictionary) -> void:
+	_diag("running operation: script-get")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _is_script_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
+		return
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
+		return
+
+	var source := FileAccess.get_file_as_string(path)
+	# get_file_as_string returns "" both for an empty file and on an open error;
+	# disambiguate via the open-error code so an unreadable file is not reported
+	# as empty source. An empty .gd is legal and reads back as empty.
+	if source.is_empty():
+		var open_err := FileAccess.get_open_error()
+		if open_err != OK:
+			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
+					+ ": " + error_string(open_err))
+			return
+
+	var meta := _script_metadata(source)
+	_succeed({
+		"path": path,
+		"source": source,
+		"class_name": meta["class_name"],
+		"extends": meta["extends"],
+	})
+
+
+# Whether a path names a script file the script group operates on: a .gd
+# (GDScript) file. Script-file addressing is by extension, the same way scene
+# addressing keys on .tscn. C# (.cs) is out of scope for now — it needs the .NET
+# build of Godot (ADR-0003 targets the standard build) and a dedicated decision.
+func _is_script_path(path: String) -> bool:
+	return path.get_extension().to_lower() == "gd"
+
+
+# Extract a GDScript's declared class_name and extends from its raw source by
+# lightweight line-by-line parsing — never compiling the script (issue #30).
+# Both are null when absent. Only .gd scripts reach here (the entry points reject
+# any other extension as invalid_path), so this keys off GDScript syntax alone.
+func _script_metadata(source: String) -> Dictionary:
+	var class_name_value: Variant = null
+	var extends_value: Variant = null
+	# class_name and extends, when present, lead a GDScript file: they sit in the
+	# header, after the optional annotation lines (@tool, @icon(...), …) and
+	# before the first real statement. Scan only that header — skip blanks,
+	# comments and annotations, capture the first of each declaration, and STOP at
+	# the first line that is neither. Stopping is what keeps a class_name/extends-
+	# shaped line deeper in the body (e.g. inside a multiline string) from ever
+	# being mistaken for the declaration.
+	for raw_line in source.split("\n"):
+		var line := raw_line.strip_edges()
+		if line.is_empty() or line.begins_with("#") or line.begins_with("@"):
+			continue
+		if line.begins_with("class_name "):
+			if class_name_value == null:
+				class_name_value = _first_token(line.substr("class_name ".length()))
+			continue
+		if line.begins_with("extends "):
+			if extends_value == null:
+				extends_value = _first_token(line.substr("extends ".length()))
+			continue
+		# The first real statement past the header: no further class_name/extends
+		# declaration can legally appear, so stop scanning.
+		break
+	return {"class_name": class_name_value, "extends": extends_value}
+
+
+# The first token of a declaration's remainder — the class_name or base-class
+# identifier. A bare identifier drops a trailing inline comment and stops at the
+# first whitespace: "Hero # the hero" → "Hero", "Node2D" → "Node2D". The quoted
+# base-class-by-path form (extends "res://Base.gd") is kept whole up to its
+# closing quote — including any '#' inside the path, which is part of the string,
+# not an inline comment.
+func _first_token(rest: String) -> Variant:
+	var trimmed := rest.strip_edges()
+	if trimmed.is_empty():
+		return null
+	if trimmed.begins_with("\"") or trimmed.begins_with("'"):
+		var quote := trimmed[0]
+		var close := trimmed.find(quote, 1)
+		# An unterminated quote is reported as-is rather than silently truncated.
+		return trimmed.substr(0, close + 1) if close != -1 else trimmed
+	var comment := trimmed.find("#")
+	if comment != -1:
+		trimmed = trimmed.substr(0, comment).strip_edges()
+	var token := trimmed.split(" ", false)[0]
+	return token if not token.is_empty() else null
 
 
 # Whether this headless process is running against a Godot project. A project
@@ -937,9 +1105,13 @@ func _ensure_parent_dirs(path: String) -> Variant:
 	return missing
 
 
-func _save_failure_message(path: String, save_err: Error) -> String:
+# Build a save-failure diagnostic for a `noun` (scene / script) written to
+# `path`: the error, the parent directory, and a write-probe that names why the
+# directory is unwritable when that is the cause. Shared by every save path so
+# the diagnostic (and the probe) stays identical across groups.
+func _save_failure_message(noun: String, path: String, save_err: Error) -> String:
 	var parent := path.get_base_dir()
-	var message := "failed to save scene to " + path
+	var message := "failed to save " + noun + " to " + path
 	if not parent.is_empty():
 		message += " in parent directory " + parent
 	message += ": " + error_string(save_err)
