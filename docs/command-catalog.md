@@ -34,7 +34,7 @@ issue ref (e.g. `🔜 (#53)`) marks a candidate already committed as an open sli
 | `gda info` | Report Godot engine version info | 1 | ✅ |
 | `gda version` | Report `gda`'s own version | — (local) | 🔜 |
 | `gda help` | Usage help | — (local) | ✅ (`--help`) |
-| `gda <command> --schema` | Emit a command's input/output JSON Schema (ADR-0004) | — (local) | ✅ (`info` #4; `scene create`/`scene get` #18; `scene list`/`scene delete` #54; `node add`/`node list` #53) |
+| `gda <command> --schema` | Emit a command's input/output JSON Schema (ADR-0004) | — (local) | ✅ (`info` #4; `scene create`/`scene get` #18; `scene list`/`scene delete` #54; `node add`/`node list` #53; `node get`/`node set` #55) |
 
 > `--schema` is a per-command flag, not a command, and ships with **every** domain
 > command as a hard gate (ADR-0004). It is local introspection — no Godot process.
@@ -91,13 +91,39 @@ arguments — is a script problem, not an unknown type, and is refused with the 
 `uninstantiable_script` error (exit 4) naming the script: repair the script (or re-import),
 don't change the type name. Either way the scene file is left untouched.
 
+**Property reporting and value coercion** (established by #55): `gda node get` instantiates the
+scene and reports the addressed node's **storage** properties (the ones that serialize into the
+`.tscn`) as typed JSON — each a `{name, type, value}` triple where `type` is the property's
+declared Godot type name and `value` is its JSON projection. `gda node set` takes the property's
+declared type as the coercion target and converts the CLI `--value` **string** to it; the value
+the node ends up holding is reported back in the same JSON projection `node get` uses, so a `set`
+round-trips through a `get`. An unknown property is `unknown_property`; a value that cannot be
+coerced to the property's type is `uncoercible_value` (both exit 4, file untouched). `node get`
+reads but does not save, so it skips the re-save guard; `node set` is a mutating op and honors the
+mutation integrity boundary above. The supported target types and the string forms they accept:
+
+| Godot type | Accepted CLI `--value` string | JSON projection (`get` / `set` result) |
+| --- | --- | --- |
+| `bool` | `true` / `false` (case-insensitive) | `true` / `false` |
+| `int` | an integer literal (e.g. `7`, `-3`) | a JSON number |
+| `float` | a number literal (e.g. `1.5`, `3`) | a JSON number |
+| `String` | any string, verbatim | the string |
+| `StringName` | any string, verbatim | the string |
+| `Vector2` | two comma-separated floats: `x,y` (e.g. `10,20`) | `[x, y]` |
+| `Vector2i` | two comma-separated integers: `x,y` | `[x, y]` |
+| `Color` | `#rrggbb` / `#rrggbbaa`, or 3–4 comma-separated floats in 0..1 (`r,g,b[,a]`) | `[r, g, b, a]` |
+
+Whitespace around a value or a component is tolerated. A property of any other type is still
+reported by `node get` (its value degrades to a string projection), but `node set` cannot coerce
+to it yet and refuses with `uncoercible_value` — the coercible set grows as later slices need it.
+
 | Command | Description | Status |
 | --- | --- | --- |
 | `gda node add` | Add a node (by type or `class_name` script) into a scene | ✅ (#53) |
 | `gda node remove` | Remove a node from a scene | 🔜 (#56) |
-| `gda node get` | Read a node's properties | 🔜 (#55) |
+| `gda node get` | Read a node's properties (typed JSON) | ✅ (#55) |
 | `gda node list` | List nodes in a scene (optionally filtered by type/group) | ✅ (#53) |
-| `gda node set` | Set a node property (type-coerced) | 🔜 (#55) |
+| `gda node set` | Set a node property (type-coerced) | ✅ (#55) |
 | `gda node move` | Reparent a node | 🔜 (#56) |
 | `gda node duplicate` | Duplicate a node | 🔜 (#56) |
 | `gda node connect-signal` / `disconnect-signal` | Wire / unwire a signal to a method | 🔜 (#57) |
