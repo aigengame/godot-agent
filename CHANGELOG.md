@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/aigengame/godot-agent/compare/v0.1.5...v0.1.6) (2026-06-13)
+
+
+### Features
+
+* **schema:** emit a uniform error envelope in --schema ([#43](https://github.com/aigengame/godot-agent/issues/43)) ([#104](https://github.com/aigengame/godot-agent/issues/104)) ([015d72c](https://github.com/aigengame/godot-agent/commit/015d72c6e051e629b8cd8b5852e96f613a73c0b8))
+
 ## [0.1.5](https://github.com/aigengame/godot-agent/compare/v0.1.4...v0.1.5) (2026-06-13)
 
 
