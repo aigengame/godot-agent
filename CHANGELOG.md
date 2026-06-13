@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.4](https://github.com/aigengame/godot-agent/compare/v0.1.3...v0.1.4) (2026-06-13)
+
+
+### Bug Fixes
+
+* **release:** build release artifacts from the tagged commit, not push HEAD ([#91](https://github.com/aigengame/godot-agent/issues/91)) ([11e4030](https://github.com/aigengame/godot-agent/commit/11e40301f3158be596eefa72f1dea54ea681ba8b))
+* **release:** gate release-PR maintenance on the manifest version's tag ([#89](https://github.com/aigengame/godot-agent/issues/89)) ([2bb801b](https://github.com/aigengame/godot-agent/commit/2bb801b57b5ae9d9d3917fbdf50ae81c7de438bb))
+* **release:** isolate workflow_dispatch from the push concurrency lane ([#93](https://github.com/aigengame/godot-agent/issues/93)) ([7799357](https://github.com/aigengame/godot-agent/commit/77993578686cfac6574b190eb9f33f032a1c0293))
+* **release:** make the release publish idempotent with --clobber ([#92](https://github.com/aigengame/godot-agent/issues/92)) ([41cfcc8](https://github.com/aigengame/godot-agent/commit/41cfcc8cb132bcf0062ea0df89ed3aa0423176b6))
+
+
+### Documentation
+
+* **adr:** document wedged-draft recovery and the residual failure state ([#96](https://github.com/aigengame/godot-agent/issues/96)) ([8a750b8](https://github.com/aigengame/godot-agent/commit/8a750b82eac52841559e426a114f5e17e03a6eb7))
+
 ## [0.1.3](https://github.com/aigengame/godot-agent/compare/v0.1.2...v0.1.3) (2026-06-12)
 
 Spurious release produced by the release-automation draft-tag race
