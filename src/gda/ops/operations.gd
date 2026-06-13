@@ -567,19 +567,28 @@ func _script_metadata(path: String, source: String) -> Dictionary:
 		return {"class_name": null, "extends": null}
 	var class_name_value: Variant = null
 	var extends_value: Variant = null
+	# class_name and extends, when present, lead a GDScript file: they sit in the
+	# header, after the optional annotation lines (@tool, @icon(...), …) and
+	# before the first real statement. Scan only that header — skip blanks,
+	# comments and annotations, capture the first of each declaration, and STOP at
+	# the first line that is neither. Stopping is what keeps a class_name/extends-
+	# shaped line deeper in the body (e.g. inside a multiline string) from ever
+	# being mistaken for the declaration.
 	for raw_line in source.split("\n"):
 		var line := raw_line.strip_edges()
-		if line.is_empty() or line.begins_with("#"):
+		if line.is_empty() or line.begins_with("#") or line.begins_with("@"):
 			continue
-		if class_name_value == null and line.begins_with("class_name "):
-			class_name_value = _first_token(line.substr("class_name ".length()))
-		elif extends_value == null and line.begins_with("extends "):
-			extends_value = _first_token(line.substr("extends ".length()))
-		# Once a real statement past the declarations is reached, stop: class_name
-		# and extends, when present, lead a GDScript file. Keep scanning only while
-		# we still might find one of them.
-		if class_name_value != null and extends_value != null:
-			break
+		if line.begins_with("class_name "):
+			if class_name_value == null:
+				class_name_value = _first_token(line.substr("class_name ".length()))
+			continue
+		if line.begins_with("extends "):
+			if extends_value == null:
+				extends_value = _first_token(line.substr("extends ".length()))
+			continue
+		# The first real statement past the header: no further class_name/extends
+		# declaration can legally appear, so stop scanning.
+		break
 	return {"class_name": class_name_value, "extends": extends_value}
 
 

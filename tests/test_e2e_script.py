@@ -235,3 +235,105 @@ def test_script_create_then_get_preserves_a_path_containing_the_end_sentinel(
     got = _gda("script", "get", str(script_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["source"] == "extends Node\n"
+
+
+@pytest.mark.e2e
+def test_script_get_parses_metadata_past_a_leading_annotation_header(godot_project):
+    # class_name/extends lead a GDScript file, but the optional annotation header
+    # (@tool, @icon(...)) comes first. The lightweight parser must skip those
+    # header lines and still report the real class_name/extends — not give up at
+    # the first @-line.
+    script_path = godot_project / "widget.gd"
+    source = (
+        "@tool\n"
+        '@icon("res://icon.svg")\n'
+        "class_name Widget\n"
+        "extends Control\n"
+        "\n"
+        "func _ready() -> void:\n"
+        "\tpass\n"
+    )
+
+    created = _gda("script", "create", str(script_path), "--content", source, "--json")
+
+    assert created.returncode == 0, created.stdout + created.stderr
+    create_data = json.loads(created.stdout)
+    assert create_data["class_name"] == "Widget"
+    assert create_data["extends"] == "Control"
+
+    got = _gda("script", "get", str(script_path), "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    got_data = json.loads(got.stdout)
+    assert got_data["class_name"] == "Widget"
+    assert got_data["extends"] == "Control"
+
+
+@pytest.mark.e2e
+def test_script_get_does_not_mistake_declaration_shaped_body_text_for_metadata(
+    godot_project,
+):
+    # The parser scans only the header and stops at the first real statement, so
+    # a `class_name`/`extends`-shaped line deeper in the body (here inside a
+    # multiline string) is never mistaken for the declaration: the real extends
+    # is reported, and class_name stays null.
+    script_path = godot_project / "doc.gd"
+    source = (
+        "extends Node\n"
+        "\n"
+        'var doc := """\n'
+        "class_name Injected\n"
+        "extends Injected\n"
+        '"""\n'
+    )
+
+    created = _gda("script", "create", str(script_path), "--content", source, "--json")
+
+    assert created.returncode == 0, created.stdout + created.stderr
+    create_data = json.loads(created.stdout)
+    assert create_data["extends"] == "Node"
+    assert create_data["class_name"] is None
+
+    got = _gda("script", "get", str(script_path), "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    got_data = json.loads(got.stdout)
+    assert got_data["source"] == source
+    assert got_data["extends"] == "Node"
+    assert got_data["class_name"] is None
+
+
+@pytest.mark.e2e
+def test_script_create_empty_content_round_trips_as_empty_source(godot_project):
+    # An empty file is legal source: --content "" writes an empty script, and get
+    # reads it back as empty (the get_file_as_string empty-vs-error disambiguation
+    # treats a readable empty file as empty source, not a read failure), with null
+    # metadata.
+    script_path = godot_project / "empty.gd"
+
+    created = _gda("script", "create", str(script_path), "--content", "", "--json")
+
+    assert created.returncode == 0, created.stdout + created.stderr
+    create_data = json.loads(created.stdout)
+    assert create_data["class_name"] is None
+    assert create_data["extends"] is None
+    assert script_path.read_text(encoding="utf-8") == ""
+
+    got = _gda("script", "get", str(script_path), "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    got_data = json.loads(got.stdout)
+    assert got_data["source"] == ""
+    assert got_data["class_name"] is None
+    assert got_data["extends"] is None
+
+
+@pytest.mark.e2e
+def test_script_create_cs_without_content_is_refused_without_writing(godot_project):
+    # The built-in template is GDScript; a .cs target without --content is a usage
+    # error (exit 2), and nothing is written — a GDScript template must never land
+    # in a .cs file.
+    script_path = godot_project / "Player.cs"
+
+    created = _gda("script", "create", str(script_path), "--json")
+
+    assert created.returncode == 2, created.stdout + created.stderr
+    assert not script_path.exists()

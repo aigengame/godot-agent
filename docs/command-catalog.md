@@ -153,6 +153,9 @@ base class (e.g. `--extends Node2D` → `extends Node2D\n`), mirroring `scene cr
 supplying both is a usage error). Create is **no-clobber**: an existing target is refused with
 `already_exists`, leaving the file untouched (mirrors `scene create`). Missing parent
 directories are created before the write (reported in `created_dirs`, outermost to innermost).
+The built-in template is GDScript (`extends`-based), so a `.cs` target requires `--content`:
+creating a `.cs` without it is a usage error rather than a GDScript template written into a C#
+file.
 
 **Class metadata** (established by #110): both `script create` and `script get` report the
 `class_name` and `extends` the source declares, as `{class_name, extends}` (each null when

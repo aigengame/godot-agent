@@ -473,7 +473,7 @@ def _render_script_metadata(script: "ScriptCreateResult | ScriptGetResult") -> s
 
 
 @script_app.command(cls=SCRIPT_CREATE_COMMAND.command_class())
-def create(  # noqa: F811 — same command name in a different Typer group
+def create(
     path: str = typer.Argument(..., help="Target .gd/.cs script path to write."),
     content: Optional[str] = typer.Option(
         None,
@@ -499,9 +499,17 @@ def create(  # noqa: F811 — same command name in a different Typer group
     """Create a new .gd/.cs script from a template or verbatim --content."""
     if content is not None and extends_type is not None:
         raise typer.BadParameter("--content and --extends are mutually exclusive.")
+    normalized_path = _normalize_path(path)
+    # The built-in template is GDScript (`extends`-based); it is meaningless as
+    # C#, so a .cs target must supply its source verbatim via --content rather
+    # than get a GDScript-shaped template written into a .cs file.
+    if content is None and normalized_path.lower().endswith(".cs"):
+        raise typer.BadParameter(
+            "a .cs script needs --content; the built-in template is GDScript-only."
+        )
     SCRIPT_CREATE_COMMAND.emit(
         ScriptCreateParams(
-            path=_normalize_path(path),
+            path=normalized_path,
             content=content,
             extends_type=extends_type,
         ),

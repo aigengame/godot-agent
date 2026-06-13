@@ -127,6 +127,17 @@ def test_script_create_content_and_extends_are_mutually_exclusive(monkeypatch):
     assert result.exit_code == 2
 
 
+def test_script_create_cs_without_content_is_a_usage_error(monkeypatch):
+    # The built-in template is GDScript; writing it into a .cs file is
+    # meaningless, so a .cs target without --content is a usage error (exit 2)
+    # rather than a GDScript template silently landing in a C# file.
+    inject_runner(monkeypatch, RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0))
+
+    result = CliRunner().invoke(app, ["script", "create", "/tmp/proj/Player.cs", "--json"])
+
+    assert result.exit_code == 2
+
+
 GET_RESULT = {
     "path": "/tmp/proj/hero.gd",
     "source": "class_name Hero\nextends Node2D\n",
