@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/aigengame/godot-agent/compare/v0.1.6...v0.1.7) (2026-06-13)
+
+
+### Features
+
+* **node:** node get + node set — node property read/write ([#55](https://github.com/aigengame/godot-agent/issues/55)) ([#108](https://github.com/aigengame/godot-agent/issues/108)) ([ddb0135](https://github.com/aigengame/godot-agent/commit/ddb013583fb4bf880a62d385c86e2a94b57644ba))
+
 ## [0.1.6](https://github.com/aigengame/godot-agent/compare/v0.1.5...v0.1.6) (2026-06-13)
 
 
