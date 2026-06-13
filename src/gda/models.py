@@ -91,26 +91,39 @@ class InfoParams(BaseModel):
 
 
 class CommandSchema(BaseModel):
-    """A command's self-description: its ``input`` and ``output`` JSON Schemas (ADR-0004).
+    """A command's self-description: its ``input``, ``output`` and ``error`` JSON Schemas (ADR-0004).
 
-    ``--schema`` emits this. Both halves are derived from the command's typed
-    models via :meth:`of`, so the contract is never hand-maintained: ``input``
-    from the params model, ``output`` from the same result model that backs
-    ``--json``. ``gda-mcp`` later maps ``input`` → ``inputSchema`` and ``output``
-    → ``outputSchema`` mechanically.
+    ``--schema`` emits this. ``input`` and ``output`` are derived from the
+    command's own typed models via :meth:`of`, so the contract is never
+    hand-maintained: ``input`` from the params model, ``output`` from the same
+    *success* result model that backs ``--json``. ``error`` is the **uniform**
+    failure-envelope schema, identical for every command, produced from the one
+    shared :class:`GdaErrorEnvelope` model — zero per-command maintenance (#43).
+
+    ``gda-mcp`` later maps ``input`` → ``inputSchema`` and ``output`` →
+    ``outputSchema`` (success / structuredContent) mechanically. The ``error``
+    half is kept OUT of ``output``: a non-zero-exit failure maps to MCP's
+    separate ``isError`` channel, so the future adapter must not fold ``error``
+    into ``outputSchema``.
     """
 
     input: dict[str, Any]
     output: dict[str, Any]
+    error: dict[str, Any]
 
     @classmethod
     def of(
         cls, input_model: type[BaseModel], output_model: type[BaseModel]
     ) -> "CommandSchema":
-        """Derive the contract from a command's params and result models."""
+        """Derive the contract from a command's params and result models.
+
+        ``error`` is the shared failure-envelope schema, the same for every
+        command, so it takes no per-command model argument.
+        """
         return cls(
             input=input_model.model_json_schema(),
             output=output_model.model_json_schema(),
+            error=GdaErrorEnvelope.model_json_schema(),
         )
 
 
