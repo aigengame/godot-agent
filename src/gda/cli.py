@@ -69,10 +69,12 @@ node_app = typer.Typer(
 )
 app.add_typer(node_app, name="node")
 
-# The script command group (issue #110): commands acting on .gd/.cs script
-# files on disk (write text / read text back), so they stay headless.
+# The script command group (issue #110): commands acting on .gd script files on
+# disk (write text / read text back), so they stay headless. C# (.cs) is out of
+# scope for now — it needs the .NET build of Godot (ADR-0003 targets the standard
+# build) and a dedicated decision.
 script_app = typer.Typer(
-    help="Act on script files (.gd/.cs).", no_args_is_help=True
+    help="Act on script files (.gd).", no_args_is_help=True
 )
 app.add_typer(script_app, name="script")
 
@@ -474,7 +476,7 @@ def _render_script_metadata(script: "ScriptCreateResult | ScriptGetResult") -> s
 
 @script_app.command(cls=SCRIPT_CREATE_COMMAND.command_class())
 def create(
-    path: str = typer.Argument(..., help="Target .gd/.cs script path to write."),
+    path: str = typer.Argument(..., help="Target .gd script path to write."),
     content: Optional[str] = typer.Option(
         None,
         "--content",
@@ -496,20 +498,12 @@ def create(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Create a new .gd/.cs script from a template or verbatim --content."""
+    """Create a new .gd script from a template or verbatim --content."""
     if content is not None and extends_type is not None:
         raise typer.BadParameter("--content and --extends are mutually exclusive.")
-    normalized_path = _normalize_path(path)
-    # The built-in template is GDScript (`extends`-based); it is meaningless as
-    # C#, so a .cs target must supply its source verbatim via --content rather
-    # than get a GDScript-shaped template written into a .cs file.
-    if content is None and normalized_path.lower().endswith(".cs"):
-        raise typer.BadParameter(
-            "a .cs script needs --content; the built-in template is GDScript-only."
-        )
     SCRIPT_CREATE_COMMAND.emit(
         ScriptCreateParams(
-            path=normalized_path,
+            path=_normalize_path(path),
             content=content,
             extends_type=extends_type,
         ),
@@ -523,7 +517,7 @@ def create(
 
 @script_app.command(name="get", cls=SCRIPT_GET_COMMAND.command_class())
 def get_script(
-    path: str = typer.Argument(..., help="The .gd/.cs script file to read."),
+    path: str = typer.Argument(..., help="The .gd script file to read."),
     json_output: bool = json_option(),
     schema: bool = SCRIPT_GET_COMMAND.schema_option(),
     godot: Optional[str] = godot_option(),

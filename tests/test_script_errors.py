@@ -63,19 +63,19 @@ def test_script_create_collision_reuses_stable_already_exists_code(monkeypatch):
 
 
 def test_script_create_wrong_extension_reuses_stable_invalid_path_code(monkeypatch):
-    # A target that is not a .gd/.cs script is an invalid path param — reuse the
+    # A target that is not a .gd script is an invalid path param — reuse the
     # registered invalid_path code rather than a focused per-group code.
     result = _invoke_script_create(
         monkeypatch,
         "invalid_path",
-        "script path must end in .gd or .cs: /x/hero.txt",
+        "script path must end in .gd: /x/hero.txt",
     )
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
     assert err["category"] == "operation"
     assert err["code"] == "invalid_path"
-    assert ".gd or .cs" in err["message"]
+    assert ".gd" in err["message"]
 
 
 def test_script_create_missing_path_reuses_stable_invalid_path_code(monkeypatch):
@@ -118,10 +118,10 @@ def test_script_get_wrong_extension_reuses_stable_invalid_path_code(monkeypatch)
     result = _invoke_script_get(
         monkeypatch,
         "invalid_path",
-        "script path must end in .gd or .cs: /x/notes.txt",
+        "script path must end in .gd: /x/notes.txt",
     )
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
     assert err["code"] == "invalid_path"
-    assert ".gd or .cs" in err["message"]
+    assert ".gd" in err["message"]

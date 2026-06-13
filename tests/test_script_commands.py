@@ -1,6 +1,6 @@
 """S3: gda script create / script get success paths against a fake runner (issue #110).
 
-The script command group acts on .gd/.cs script files on disk (write text /
+The script command group acts on .gd script files on disk (write text /
 read text back), staying headless. These tests drive the same proven pipeline
 as the scene and node groups — Typer → binary resolution → runner → sentinel
 parse → typed model → JSON — with canned engine output, no real Godot.
@@ -123,17 +123,6 @@ def test_script_create_content_and_extends_are_mutually_exclusive(monkeypatch):
             "--json",
         ],
     )
-
-    assert result.exit_code == 2
-
-
-def test_script_create_cs_without_content_is_a_usage_error(monkeypatch):
-    # The built-in template is GDScript; writing it into a .cs file is
-    # meaningless, so a .cs target without --content is a usage error (exit 2)
-    # rather than a GDScript template silently landing in a C# file.
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0))
-
-    result = CliRunner().invoke(app, ["script", "create", "/tmp/proj/Player.cs", "--json"])
 
     assert result.exit_code == 2
 

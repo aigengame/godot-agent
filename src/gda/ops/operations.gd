@@ -454,10 +454,10 @@ func _op_node_set(params: Dictionary) -> void:
 	})
 
 
-# script-create: write a new .gd/.cs script at the requested path — from
-# verbatim content or a minimal built-in template — and report the saved path
-# plus the class_name/extends the written source declares (issue #110). The
-# script group addresses scripts by FILE PATH, not by class_name.
+# script-create: write a new .gd script at the requested path — from verbatim
+# content or a minimal built-in template — and report the saved path plus the
+# class_name/extends the written source declares (issue #110). The script group
+# addresses scripts by FILE PATH, not by class_name.
 #
 # This writes raw text (FileAccess), never compiling or loading the script:
 # creating a script must not run project code, the same trust boundary the read
@@ -470,15 +470,14 @@ func _op_script_create(params: Dictionary) -> void:
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
 	if not _is_script_path(path):
-		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd or .cs: " + path)
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
 		return
 	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
 		_fail(OP_ERROR_ALREADY_EXISTS, "script target already exists: " + path)
 		return
 
 	# Verbatim content wins; otherwise write a minimal template extending the
-	# requested base class (defaulting to Node). The template is GDScript-shaped;
-	# for a .cs target an explicit --content is the way to supply real C# source.
+	# requested base class (defaulting to Node).
 	var source: String
 	var content: Variant = params.get("content", null)
 	if content is String:
@@ -499,7 +498,7 @@ func _op_script_create(params: Dictionary) -> void:
 	file.store_string(source)
 	file.close()
 
-	var meta := _script_metadata(path, source)
+	var meta := _script_metadata(source)
 	_succeed({
 		"path": path,
 		"class_name": meta["class_name"],
@@ -515,7 +514,7 @@ func _op_script_create(params: Dictionary) -> void:
 # Reads via FileAccess.get_file_as_string (which resolves res:// against the
 # project) and parses the metadata from the text — it never load()s/compiles the
 # script, so reading a script can never run or even parse-execute project code
-# (issue #30). The metadata is parsed only for .gd; .cs returns nulls.
+# (issue #30).
 func _op_script_get(params: Dictionary) -> void:
 	_diag("running operation: script-get")
 	var path := _string_param(params, "path")
@@ -523,7 +522,7 @@ func _op_script_get(params: Dictionary) -> void:
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
 	if not _is_script_path(path):
-		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd or .cs: " + path)
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
 		return
 	if not FileAccess.file_exists(path):
 		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
@@ -540,7 +539,7 @@ func _op_script_get(params: Dictionary) -> void:
 					+ ": " + error_string(open_err))
 			return
 
-	var meta := _script_metadata(path, source)
+	var meta := _script_metadata(source)
 	_succeed({
 		"path": path,
 		"source": source,
@@ -550,21 +549,18 @@ func _op_script_get(params: Dictionary) -> void:
 
 
 # Whether a path names a script file the script group operates on: a .gd
-# (GDScript) or .cs (C#) file. Script-file addressing is by extension, the same
-# way scene addressing keys on .tscn.
+# (GDScript) file. Script-file addressing is by extension, the same way scene
+# addressing keys on .tscn. C# (.cs) is out of scope for now — it needs the .NET
+# build of Godot (ADR-0003 targets the standard build) and a dedicated decision.
 func _is_script_path(path: String) -> bool:
-	var ext := path.get_extension().to_lower()
-	return ext == "gd" or ext == "cs"
+	return path.get_extension().to_lower() == "gd"
 
 
-# Extract a .gd script's declared class_name and extends from its raw source by
+# Extract a GDScript's declared class_name and extends from its raw source by
 # lightweight line-by-line parsing — never compiling the script (issue #30).
-# Both are null when absent. For a .cs script both are null: C# class/base
-# semantics differ from GDScript's leading declarations, so this tracer reports
-# nulls for .cs and lets the source itself round-trip (issue #110).
-func _script_metadata(path: String, source: String) -> Dictionary:
-	if path.get_extension().to_lower() != "gd":
-		return {"class_name": null, "extends": null}
+# Both are null when absent. Only .gd scripts reach here (the entry points reject
+# any other extension as invalid_path), so this keys off GDScript syntax alone.
+func _script_metadata(source: String) -> Dictionary:
 	var class_name_value: Variant = null
 	var extends_value: Variant = null
 	# class_name and extends, when present, lead a GDScript file: they sit in the

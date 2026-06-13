@@ -295,10 +295,10 @@ def test_script_create_result_round_trips_with_metadata():
 
 
 def test_script_create_result_round_trips_null_metadata():
-    # A template script with no class_name (or a .cs target) carries null
-    # class_name/extends; the null metadata round-trips faithfully.
+    # A template script with no class_name carries null class_name/extends; the
+    # null metadata round-trips faithfully.
     payload = {
-        "path": "res://util.cs",
+        "path": "res://util.gd",
         "class_name": None,
         "extends": None,
         "created_dirs": [],

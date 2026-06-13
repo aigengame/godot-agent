@@ -1,6 +1,6 @@
 """S1 (e2e): the script create → get round-trip against the real Godot engine.
 
-The script-group tracer (issue #110): ``gda script create`` writes a .gd/.cs
+The script-group tracer (issue #110): ``gda script create`` writes a .gd
 script (from a template or verbatim --content), no-clobber; ``gda script get``
 reads its source back with class_name/extends metadata — ``script get`` IS the
 structured-level verification of ``script create``'s effect (create → get
@@ -157,14 +157,29 @@ def test_script_create_existing_path_yields_already_exists_without_overwriting(
 
 @pytest.mark.e2e
 def test_script_create_wrong_extension_yields_invalid_path(godot_project):
-    # A target that is not a .gd/.cs script is an invalid path param; nothing is
+    # A target that is not a .gd script is an invalid path param; nothing is
     # written.
     target = godot_project / "notes.txt"
 
     created = _gda("script", "create", str(target), "--json")
 
     err = _assert_operation_error(created, "invalid_path")
-    assert ".gd or .cs" in err["message"]
+    assert ".gd" in err["message"]
+    assert not target.exists()
+
+
+@pytest.mark.e2e
+def test_script_create_cs_extension_is_refused(godot_project):
+    # C# is out of scope for now (it needs the .NET build of Godot, ADR-0003
+    # targets the standard build): a .cs target is refused as invalid_path, the
+    # same as any non-.gd path, and nothing is written — never half-supported as
+    # opaque text.
+    target = godot_project / "Player.cs"
+
+    created = _gda("script", "create", str(target), "--json")
+
+    err = _assert_operation_error(created, "invalid_path")
+    assert ".gd" in err["message"]
     assert not target.exists()
 
 
@@ -186,36 +201,7 @@ def test_script_get_wrong_extension_yields_invalid_path(godot_project):
     got = _gda("script", "get", str(notes), "--json")
 
     err = _assert_operation_error(got, "invalid_path")
-    assert ".gd or .cs" in err["message"]
-
-
-@pytest.mark.e2e
-def test_script_create_cs_round_trips_source_with_null_metadata(godot_project):
-    # .cs handling (issue #110): a C# script created via --content round-trips
-    # its source verbatim, but class_name/extends are null — C# class/base
-    # semantics differ from GDScript's leading declarations, so this tracer
-    # reports nulls for .cs rather than mis-parsing it as GDScript.
-    script_path = godot_project / "Player.cs"
-    source = (
-        "using Godot;\n\npublic partial class Player : Node2D\n{\n}\n"
-    )
-
-    created = _gda(
-        "script", "create", str(script_path), "--content", source, "--json"
-    )
-
-    assert created.returncode == 0, created.stdout + created.stderr
-    create_data = json.loads(created.stdout)
-    assert create_data["class_name"] is None
-    assert create_data["extends"] is None
-
-    got = _gda("script", "get", str(script_path), "--json")
-
-    assert got.returncode == 0, got.stdout + got.stderr
-    got_data = json.loads(got.stdout)
-    assert got_data["source"] == source
-    assert got_data["class_name"] is None
-    assert got_data["extends"] is None
+    assert ".gd" in err["message"]
 
 
 @pytest.mark.e2e
@@ -324,16 +310,3 @@ def test_script_create_empty_content_round_trips_as_empty_source(godot_project):
     assert got_data["source"] == ""
     assert got_data["class_name"] is None
     assert got_data["extends"] is None
-
-
-@pytest.mark.e2e
-def test_script_create_cs_without_content_is_refused_without_writing(godot_project):
-    # The built-in template is GDScript; a .cs target without --content is a usage
-    # error (exit 2), and nothing is written — a GDScript template must never land
-    # in a .cs file.
-    script_path = godot_project / "Player.cs"
-
-    created = _gda("script", "create", str(script_path), "--json")
-
-    assert created.returncode == 2, created.stdout + created.stderr
-    assert not script_path.exists()

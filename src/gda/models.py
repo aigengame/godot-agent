@@ -447,8 +447,8 @@ class NodeSetResult(BaseModel):
 class ScriptCreateParams(BaseModel):
     """The operation params of ``gda script create`` (issue #110).
 
-    ``path`` is the target ``.gd``/``.cs`` script file, addressed by its
-    ``res://`` or filesystem path (script-file addressing — by file path, not by
+    ``path`` is the target ``.gd`` script file, addressed by its ``res://`` or
+    filesystem path (script-file addressing — by file path, not by
     ``class_name``). ``content`` supplies verbatim source; when omitted, the
     operation writes a minimal built-in template extending ``extends_type``.
     ``content`` and ``extends_type`` are mutually exclusive at the CLI: verbatim
@@ -469,7 +469,7 @@ class ScriptCreateParams(BaseModel):
         description=(
             "Base class for the built-in template's 'extends' line (e.g. Node, "
             "Node2D). Ignored when 'content' is supplied; defaults to 'Node' "
-            "when neither is given. Only meaningful for .gd scripts."
+            "when neither is given."
         ),
     )
 
@@ -480,9 +480,8 @@ class ScriptCreateResult(BaseModel):
     Echoes the saved ``path`` and the ``class_name``/``extends`` the written
     source declares, so an agent can assert the effect without a second call.
     ``created_dirs`` lists parent directories the operation created before
-    saving, from outermost to innermost. For a ``.gd`` script the metadata is
-    parsed from the written source; for ``.cs`` both are null (C# class/base
-    semantics differ — the source still round-trips).
+    saving, from outermost to innermost. The ``class_name``/``extends`` are
+    parsed from the written source.
     """
 
     path: str
@@ -490,14 +489,14 @@ class ScriptCreateResult(BaseModel):
         default=None,
         description=(
             "The class_name the written script declares, or null when it "
-            "declares none (always null for .cs)."
+            "declares none."
         ),
     )
     extends: str | None = Field(
         default=None,
         description=(
             "The base class the written script extends, or null when it "
-            "declares none (always null for .cs)."
+            "declares none."
         ),
     )
     created_dirs: list[str] = Field(
@@ -510,9 +509,9 @@ class ScriptCreateResult(BaseModel):
 class ScriptGetParams(BaseModel):
     """The operation params of ``gda script get``: the script file to read (issue #110).
 
-    ``path`` addresses the ``.gd``/``.cs`` script by its ``res://`` or
-    filesystem path. The source is read as raw text — the script is never
-    loaded or compiled, so reading it can never run project code (issue #30).
+    ``path`` addresses the ``.gd`` script by its ``res://`` or filesystem path.
+    The source is read as raw text — the script is never loaded or compiled, so
+    reading it can never run project code (issue #30).
     """
 
     path: str
@@ -522,10 +521,9 @@ class ScriptGetResult(BaseModel):
     """The result of ``gda script get``: a script's source and metadata (issue #110).
 
     Echoes the ``path``, the full ``source`` read as raw text, and the
-    ``class_name``/``extends`` the source declares (parsed from the text for
-    ``.gd``; both null for ``.cs``). Carrying the source verbatim makes a
-    ``create`` verifiable end-to-end: ``create`` then ``get`` returns the same
-    source.
+    ``class_name``/``extends`` the source declares (parsed from the text).
+    Carrying the source verbatim makes a ``create`` verifiable end-to-end:
+    ``create`` then ``get`` returns the same source.
     """
 
     path: str
@@ -533,15 +531,13 @@ class ScriptGetResult(BaseModel):
     class_name: str | None = Field(
         default=None,
         description=(
-            "The class_name the script declares, or null when it declares none "
-            "(always null for .cs)."
+            "The class_name the script declares, or null when it declares none."
         ),
     )
     extends: str | None = Field(
         default=None,
         description=(
-            "The base class the script extends, or null when it declares none "
-            "(always null for .cs)."
+            "The base class the script extends, or null when it declares none."
         ),
     )
 
