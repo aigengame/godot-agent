@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/aigengame/godot-agent/compare/v0.1.4...v0.1.5) (2026-06-13)
+
+
+### Bug Fixes
+
+* **release:** single-authority version model — retire escape hatch, keep uv.lock in lockstep ([#98](https://github.com/aigengame/godot-agent/issues/98)) ([4e6aa7f](https://github.com/aigengame/godot-agent/commit/4e6aa7fea046a4d3dd2fcddb707bcc236342b0e4))
+
 ## [0.1.4](https://github.com/aigengame/godot-agent/compare/v0.1.3...v0.1.4) (2026-06-13)
 
 
