@@ -62,6 +62,11 @@ a release from that tag. It is deliberately *not* the recovery path for a
 failed automated release (which leaves a tag-less draft) — see "Failure
 handling and recovery" below.
 
+> **Superseded by [ADR-0008](0008-single-authoritative-version-source.md):**
+> the manual escape hatch is retired. release-please is the single version
+> authority and merging the Release PR is the only release path; forcing a
+> version uses `release-as`, and recovery uses "Re-run failed jobs".
+
 ## Consequences
 
 - The version/tag mismatch failure mode is gone by construction; the tag
@@ -73,6 +78,8 @@ handling and recovery" below.
   visible before anything happens.
 - Pushing a `v*` tag no longer triggers a release. The only release paths are
   merging the Release PR and the manual `workflow_dispatch` escape hatch.
+  ([ADR-0008](0008-single-authoritative-version-source.md) retires the escape
+  hatch — merging the Release PR is now the only release path.)
 - CI's `pull_request` jobs do not run on the Release PR (same `GITHUB_TOKEN`
   recursion guard). Acceptable: it touches only version and changelog. If
   branch protection ever requires checks on it, switch the action's token to a
@@ -108,13 +115,10 @@ means a release is wedged.
 use **"Re-run failed jobs"**. The build job rebuilds and the publish is
 idempotent (`--clobber` upload, plus an already-no-op un-draft), so the re-run
 converges to a published release, which creates the tag and unwedges
-maintenance. Do **not**:
-
-- use the `workflow_dispatch` escape hatch — it requires an existing tag, which
-  the wedged draft lacks; or
-- hand-push the tag — `gh release create` would then mint a *second* release
-  for that tag name beside the orphaned draft, leaving two releases sharing one
-  tag.
+maintenance. Do **not** hand-push the tag — `gh release create` would then mint
+a *second* release for that tag name beside the orphaned draft, leaving two
+releases sharing one tag. (Before [ADR-0008](0008-single-authoritative-version-source.md)
+this also warned against the `workflow_dispatch` escape hatch, now retired.)
 
 If the cut release is unwanted, delete the draft release and revert the
 manifest/`CHANGELOG` bump so the Release PR returns to `autorelease: pending`.
