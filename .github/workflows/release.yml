@@ -4,36 +4,24 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing tag to release manually (escape hatch), e.g. v0.1.0"
-        required: true
-        type: string
-      draft:
-        description: "Create the manual release as a draft"
-        required: true
-        default: true
-        type: boolean
-      prerelease:
-        description: "Mark the manual release as a prerelease"
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: read
 
-# Serialize push-triggered release runs among themselves (never cancel an
-# in-flight build). workflow_dispatch gets a per-run lane (keyed on run_id) so
-# a manual recovery run is never queue-cancelled by an ordinary push — they
-# would otherwise share refs/heads/main and only one pending run survives (#85).
+# Serialize release runs among themselves (never cancel an in-flight build).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
-# Toolchain versions (Python, Godot) live in the shared composite actions under
-# .github/actions, so CI and Release pin them in one place.
+# release-please is the single authority for the version (ADR-0008): every
+# version-bearing file — pyproject.toml, the manifest, uv.lock, the tag,
+# CHANGELOG.md — is a release-please-authored output, and a release happens
+# only by merging the Release PR. There is no manual escape hatch; forcing a
+# specific version uses release-please's `release-as` and recovering a failed
+# release uses "Re-run failed jobs" (ADR-0007).
+
+# Toolchain versions (Python, Godot) remain the single source pinned in the
+# shared composite actions under .github/actions, so CI and Release agree.
 
 # release-please runs twice, bracketing the verify-and-build chain: a draft
 # release carries no git tag until published, and release-please's lookback is
@@ -48,7 +36,6 @@ jobs:
   cut-release:
     name: Cut draft release for a merged Release PR
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     permissions:
       contents: write
       # Load-bearing despite skip-github-pull-request: release-please relabels
@@ -74,33 +61,17 @@ jobs:
     name: Build, verify, and publish release artifacts
     runs-on: ubuntu-latest
     needs: cut-release
-    # Run when release-please just cut a release (draft), or on the manual
-    # escape hatch (the cut-release job is skipped on workflow_dispatch).
+    # Run when release-please just cut a release (draft).
     if: >-
       !failure() && !cancelled() &&
-      (needs.cut-release.outputs.release_created == 'true' ||
-       github.event_name == 'workflow_dispatch')
+      needs.cut-release.outputs.release_created == 'true'
     permissions:
       contents: write
 
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.cut-release.outputs.tag_name }}
-      RELEASE_DRAFT: ${{ inputs.draft || false }}
-      RELEASE_PRERELEASE: ${{ inputs.prerelease || false }}
+      RELEASE_TAG: ${{ needs.cut-release.outputs.tag_name }}
 
     steps:
-      - name: Validate manual tag input
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          # The web UI enforces required inputs, but an API/`gh -f tag=`
-          # dispatch can pass an empty string; fail fast before any build.
-          if [[ -z "$INPUT_TAG" ]]; then
-            echo "::error title=Missing tag::The 'tag' input is required for a manual release."
-            exit 1
-          fi
-
       - name: Checkout release commit
         uses: actions/checkout@v6
         with:
@@ -109,7 +80,7 @@ jobs:
           # push's run can cut an earlier merged Release PR, so github.sha may
           # be ahead of the tagged commit and the version check would not catch
           # it (the version is unchanged across the intervening commits) (#83).
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.cut-release.outputs.sha }}
+          ref: ${{ needs.cut-release.outputs.sha }}
 
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
@@ -151,35 +122,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            # Manual escape hatch: create a release from an existing tag.
-            release_args=(
-              --repo "$GITHUB_REPOSITORY"
-              --verify-tag
-              --generate-notes
-            )
-
-            if [[ "$RELEASE_DRAFT" == "true" ]]; then
-              release_args+=(--draft)
-            fi
-
-            if [[ "$RELEASE_PRERELEASE" == "true" ]]; then
-              release_args+=(--prerelease)
-            fi
-
-            gh release create "$RELEASE_TAG" dist/* "${release_args[@]}"
-          else
-            # release-please path: attach artifacts to the draft release it
-            # created, then publish (publishing also creates the git tag).
-            # --clobber makes the upload idempotent so "Re-run failed jobs"
-            # recovers a partial publish instead of erroring on existing
-            # assets and leaving a stranded tag-less draft (#84). Both commands
-            # are no-ops if already done, so re-running converges to published.
-            gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
-            # --latest pins the Latest badge to this release even if an earlier
-            # draft is published out of order (#87).
-            gh release edit "$RELEASE_TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
-          fi
+          # Attach artifacts to the draft release release-please created, then
+          # publish (publishing also creates the git tag).
+          # --clobber makes the upload idempotent so "Re-run failed jobs"
+          # recovers a partial publish instead of erroring on existing
+          # assets and leaving a stranded tag-less draft (#84). Both commands
+          # are no-ops if already done, so re-running converges to published.
+          gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          # --latest pins the Latest badge to this release even if an earlier
+          # draft is published out of order (#87).
+          gh release edit "$RELEASE_TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
 
   release-pr:
     name: Maintain release PR
@@ -196,8 +148,7 @@ jobs:
     # tag exists (#82). On pushes that cut no release the github-release job is
     # skipped and this still runs.
     if: >-
-      !failure() && !cancelled() &&
-      github.event_name == 'push'
+      !failure() && !cancelled()
     permissions:
       contents: write
       pull-requests: write
