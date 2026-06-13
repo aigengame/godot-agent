@@ -26,6 +26,7 @@ from gda.models import (
     EngineVersion,
     InfoParams,
     ListedNode,
+    ListedScript,
     NodeAddParams,
     NodeAddResult,
     NodeGetParams,
@@ -45,8 +46,12 @@ from gda.models import (
     SceneNode,
     ScriptCreateParams,
     ScriptCreateResult,
+    ScriptDeleteParams,
+    ScriptDeleteResult,
     ScriptGetParams,
     ScriptGetResult,
+    ScriptListParams,
+    ScriptListResult,
 )
 from gda.project import resolve_project_dir
 from gda.runner import GodotRunner
@@ -174,6 +179,18 @@ SCRIPT_GET_COMMAND: HeadlessCommand[ScriptGetResult] = HeadlessCommand(
     operation="script-get",
     input_model=ScriptGetParams,
     output_model=ScriptGetResult,
+)
+
+SCRIPT_LIST_COMMAND: HeadlessCommand[ScriptListResult] = HeadlessCommand(
+    operation="script-list",
+    input_model=ScriptListParams,
+    output_model=ScriptListResult,
+)
+
+SCRIPT_DELETE_COMMAND: HeadlessCommand[ScriptDeleteResult] = HeadlessCommand(
+    operation="script-delete",
+    input_model=ScriptDeleteParams,
+    output_model=ScriptDeleteResult,
 )
 
 
@@ -462,7 +479,9 @@ def set_property(
     )
 
 
-def _render_script_metadata(script: "ScriptCreateResult | ScriptGetResult") -> str:
+def _render_script_metadata(
+    script: "ScriptCreateResult | ScriptGetResult | ListedScript | ScriptDeleteResult",
+) -> str:
     """Render a script's path plus its class_name/extends for humans."""
     meta = []
     if script.extends is not None:
@@ -532,6 +551,50 @@ def get_script(
         render_text=lambda got: "\n".join(
             [_render_script_metadata(got), got.source]
         ),
+        make_runner=_make_runner,
+    )
+
+
+def _render_script_list(listed: "ScriptListResult") -> str:
+    """Render the enumerated scripts as ``path (extends X, class_name Y)`` lines."""
+    if not listed.scripts:
+        return "(no scripts)"
+    return "\n".join(_render_script_metadata(script) for script in listed.scripts)
+
+
+@script_app.command(name="list", cls=SCRIPT_LIST_COMMAND.command_class())
+def list_scripts(
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_LIST_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Enumerate the .gd scripts in the resolved project."""
+    SCRIPT_LIST_COMMAND.emit(
+        ScriptListParams(),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=_render_script_list,
+        make_runner=_make_runner,
+    )
+
+
+@script_app.command(name="delete", cls=SCRIPT_DELETE_COMMAND.command_class())
+def delete_script(
+    path: str = typer.Argument(..., help="The .gd script file to delete."),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_DELETE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Delete a script file and report what was removed."""
+    SCRIPT_DELETE_COMMAND.emit(
+        ScriptDeleteParams(path=_normalize_path(path)),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=lambda removed: f"deleted {_render_script_metadata(removed)}",
         make_runner=_make_runner,
     )
 

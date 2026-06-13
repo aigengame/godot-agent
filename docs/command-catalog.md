@@ -169,6 +169,18 @@ annotations) and stops at the first real statement, so declaration-shaped text d
 body cannot be mistaken for the declaration. `script get` additionally returns the full
 `source`, so a `create` is verifiable end-to-end: `create` then `get` returns the same source.
 
+**Discovery and removal** (established by #117, mirrors `scene list` + `scene delete` #54):
+`gda script list` walks the project's `res://` tree and enumerates every `.gd` script, each with
+its `res://` path and the `class_name`/`extends` parsed from the **raw text** (no compilation,
+issue #30) — null when the source declares neither, so the listing names every `.gd` it found.
+Enumeration needs a project, so projectless it is refused with `project_not_found` (pass
+`--project`); an empty project is a valid, empty listing, not an error. `gda script delete`
+removes a script file and reports the removed script's `class_name`/`extends` (parsed before
+deletion), so the result names the content, not just the path. Delete honors the same addressing
+boundary as the rest of the group — only a `.gd` path is removed (a non-`.gd` target is refused
+with `invalid_path`, never erasing an arbitrary file), and a missing target is `path_not_found`.
+The lifecycle round-trips: `create` → `list` shows it → `delete` → `list` no longer shows it.
+
 | Command | Description |
 | --- | --- |
 | `gda script create` | Create a `.gd` script (template or content) |

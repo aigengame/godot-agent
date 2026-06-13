@@ -90,6 +90,10 @@ func _initialize() -> void:
 			_op_script_create(params)
 		"script-get":
 			_op_script_get(params)
+		"script-list":
+			_op_script_list(params)
+		"script-delete":
+			_op_script_delete(params)
 		_:
 			_fail(OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 
@@ -556,6 +560,70 @@ func _op_script_get(params: Dictionary) -> void:
 	})
 
 
+# script-list: enumerate the project's .gd scripts (issue #117). Walks the
+# project's res:// tree, reporting each script's res:// path plus the
+# class_name/extends parsed from its raw source (no compilation, exactly like
+# script-get, issue #30 — listing must not execute project code). Mirrors
+# scene-list (issue #54): a script whose source declares neither is still
+# listed, with null metadata, so the listing names every .gd it found.
+#
+# Enumerating res:// requires a project: a projectless headless process has no
+# res:// tree to walk, so script-list refuses with project_not_found rather than
+# returning a misleading empty listing.
+func _op_script_list(_params: Dictionary) -> void:
+	_diag("running operation: script-list")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "script list requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+
+	var paths: Array[String] = []
+	_collect_script_paths("res://", paths)
+	paths.sort()
+
+	var scripts: Array = []
+	for path in paths:
+		scripts.append(_script_summary(path))
+
+	_succeed({"scripts": scripts})
+
+
+# script-delete: remove a script file and report what was removed (issue #117).
+# Reuses the script group's existing addressing boundary (must be .gd → missing
+# file → path_not_found), exactly as script-get does: delete only removes a .gd
+# script that exists, so a non-.gd target is refused with invalid_path and a
+# stray missing path with path_not_found, never silently deleting an arbitrary
+# file. The class_name/extends are parsed from the raw source before deletion so
+# the result names the content removed, not just the path (mirrors scene-delete).
+func _op_script_delete(params: Dictionary) -> void:
+	_diag("running operation: script-delete")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _is_script_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
+		return
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
+		return
+
+	# Read the metadata before deletion so the result names the content removed.
+	# A read error here is non-fatal: the file exists and is about to be deleted,
+	# so fall back to null metadata rather than failing the delete.
+	var meta := _script_metadata(FileAccess.get_file_as_string(path))
+
+	var err := DirAccess.remove_absolute(path)
+	if err != OK:
+		_fail(OP_ERROR_DELETE_FAILED, "failed to delete script " + path + ": " + error_string(err))
+		return
+
+	_succeed({
+		"path": path,
+		"class_name": meta["class_name"],
+		"extends": meta["extends"],
+	})
+
+
 # Whether a path names a script file the script group operates on: a .gd
 # (GDScript) file. Script-file addressing is by extension, the same way scene
 # addressing keys on .tscn. C# (.cs) is out of scope for now — it needs the .NET
@@ -668,6 +736,43 @@ func _scene_summary(path: String) -> Dictionary:
 		"path": path,
 		"root_name": String(state.get_node_name(0)),
 		"root_type": String(state.get_node_type(0)),
+	}
+
+
+# Recursively collect every .gd script under res:// (issue #117), skipping only
+# the engine's own res://.godot cache directory. Mirrors _collect_scene_paths
+# (issue #54): hidden entries are enumerated (a .hidden.gd, or a script under a
+# dot-prefixed directory), navigational entries stay off, and the skip is scoped
+# to res://.godot alone. Paths are returned as res:// paths so they round-trip
+# into other script commands.
+func _collect_script_paths(dir_path: String, out: Array[String]) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	dir.include_hidden = true
+	dir.list_dir_begin()
+	var entry := dir.get_next()
+	while not entry.is_empty():
+		var child := dir_path.path_join(entry)
+		if dir.current_is_dir():
+			if entry != ".godot":
+				_collect_script_paths(child, out)
+		elif entry.get_extension().to_lower() == "gd":
+			out.append(child)
+		entry = dir.get_next()
+	dir.list_dir_end()
+
+
+# Summarize one .gd for the listing: its path plus the class_name/extends parsed
+# from its raw source (no compilation, issue #30 — reading a script must never
+# run it). A script whose source declares neither (or could not be read) still
+# appears, with null metadata, rather than being dropped.
+func _script_summary(path: String) -> Dictionary:
+	var meta := _script_metadata(FileAccess.get_file_as_string(path))
+	return {
+		"path": path,
+		"class_name": meta["class_name"],
+		"extends": meta["extends"],
 	}
 
 

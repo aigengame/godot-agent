@@ -361,18 +361,64 @@ def test_script_get_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_script_list_schema_emits_model_derived_contract_without_a_project():
+    # The ADR-0004 hard gate for script list (issue #117): the bare --schema flag
+    # — no --project — short-circuits into the self-description, derived from the
+    # same typed models that back --json. script list takes no operation params,
+    # so its input schema is trivially empty (the project is process context,
+    # ADR-0006), exactly like scene list.
+    from gda.models import ScriptListParams, ScriptListResult
+
+    result = CliRunner().invoke(app, ["script", "list", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ScriptListParams.model_json_schema()
+    assert doc["output"] == ScriptListResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert doc["input"].get("properties", {}) == {}
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_script_delete_schema_emits_model_derived_contract_without_other_args():
+    from gda.models import ScriptDeleteParams, ScriptDeleteResult
+
+    result = CliRunner().invoke(app, ["script", "delete", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ScriptDeleteParams.model_json_schema()
+    assert doc["output"] == ScriptDeleteResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_sample_script_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each script command satisfies the contract its
-    # --schema emits (the other half of the ADR-0004 hard gate, issue #110).
-    from tests.test_script_commands import CREATE_RESULT, GET_RESULT
+    # --schema emits (the other half of the ADR-0004 hard gate, issues #110, #117).
+    from tests.test_script_commands import CREATE_RESULT, GET_RESULT, LIST_RESULT
 
     create_doc = json.loads(
         CliRunner().invoke(app, ["script", "create", "--schema"]).stdout
     )
     get_doc = json.loads(CliRunner().invoke(app, ["script", "get", "--schema"]).stdout)
+    list_doc = json.loads(
+        CliRunner().invoke(app, ["script", "list", "--schema"]).stdout
+    )
+    delete_doc = json.loads(
+        CliRunner().invoke(app, ["script", "delete", "--schema"]).stdout
+    )
 
     jsonschema.validate(instance=CREATE_RESULT, schema=create_doc["output"])
     jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
+    jsonschema.validate(instance=LIST_RESULT, schema=list_doc["output"])
+    # A sample delete payload, shaped as the script-delete operation emits it.
+    jsonschema.validate(
+        instance={"path": "res://hero.gd", "class_name": "Hero", "extends": "Node2D"},
+        schema=delete_doc["output"],
+    )
 
 
 def test_script_schema_spawns_no_godot(monkeypatch):
@@ -382,7 +428,12 @@ def test_script_schema_spawns_no_godot(monkeypatch):
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
     monkeypatch.setattr("gda.cli._make_runner", boom)
 
-    for command in (["script", "create"], ["script", "get"]):
+    for command in (
+        ["script", "create"],
+        ["script", "get"],
+        ["script", "list"],
+        ["script", "delete"],
+    ):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0
         assert set(json.loads(result.stdout)) >= {"input", "output", "error"}

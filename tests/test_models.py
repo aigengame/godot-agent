@@ -17,7 +17,9 @@ from gda.models import (
     SceneGetResult,
     SceneListResult,
     ScriptCreateResult,
+    ScriptDeleteResult,
     ScriptGetResult,
+    ScriptListResult,
 )
 
 
@@ -328,6 +330,57 @@ def test_script_get_result_round_trips_source_and_metadata():
     assert got.class_name == "Hero"
     assert got.extends == "Node2D"
     assert json.loads(got.model_dump_json()) == payload
+
+
+def test_script_list_result_round_trips_enumerated_scripts():
+    # The script-list operation enumerates the project's .gd files (issue #117):
+    # each entry carries its res:// path plus the class_name/extends parsed
+    # cheaply from the script's raw source (no compilation, issue #30). A script
+    # that declares neither carries null metadata, so the listing names every
+    # .gd it found.
+    payload = {
+        "scripts": [
+            {"path": "res://hero.gd", "class_name": "Hero", "extends": "Node2D"},
+            {"path": "res://util.gd", "class_name": None, "extends": "RefCounted"},
+            {"path": "res://empty.gd", "class_name": None, "extends": None},
+        ]
+    }
+
+    listed = ScriptListResult.model_validate(payload)
+
+    assert listed.scripts[0].path == "res://hero.gd"
+    assert listed.scripts[0].class_name == "Hero"
+    assert listed.scripts[1].extends == "RefCounted"
+    assert listed.scripts[2].class_name is None
+    assert json.loads(listed.model_dump_json()) == payload
+
+
+def test_script_list_result_round_trips_an_empty_project():
+    # A project with no scripts is a valid, empty listing — not an error.
+    payload = {"scripts": []}
+
+    listed = ScriptListResult.model_validate(payload)
+
+    assert listed.scripts == []
+    assert json.loads(listed.model_dump_json()) == payload
+
+
+def test_script_delete_result_round_trips():
+    # The script-delete operation reports what it removed (issue #117): the path,
+    # and the deleted script's class_name/extends so the result names the content,
+    # not just the file.
+    payload = {
+        "path": "res://hero.gd",
+        "class_name": "Hero",
+        "extends": "Node2D",
+    }
+
+    deleted = ScriptDeleteResult.model_validate(payload)
+
+    assert deleted.path == "res://hero.gd"
+    assert deleted.class_name == "Hero"
+    assert deleted.extends == "Node2D"
+    assert json.loads(deleted.model_dump_json()) == payload
 
 
 def test_node_set_result_round_trips_the_coerced_property():
