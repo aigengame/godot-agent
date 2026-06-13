@@ -11,7 +11,7 @@ import jsonschema
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.models import EngineVersion, InfoParams
+from gda.models import EngineVersion, GdaErrorEnvelope, InfoParams
 
 # A sample `gda info` result, shaped as Engine.get_version_info() reports it.
 VERSION_INFO = {
@@ -45,6 +45,17 @@ def test_info_output_schema_is_derived_from_the_info_result_model():
 
     doc = json.loads(result.stdout)
     assert doc["output"] == EngineVersion.model_json_schema()
+
+
+def test_info_error_schema_is_the_uniform_failure_envelope():
+    # issue #43 / ADR-0004: --schema now carries a third key, `error`, holding the uniform
+    # failure-envelope schema shared by every command (GdaErrorEnvelope). It is
+    # the same for all commands and kept OUT of `output` so gda-mcp can map
+    # `output` → outputSchema (success) and `error` → the isError channel.
+    result = CliRunner().invoke(app, ["info", "--schema"])
+
+    doc = json.loads(result.stdout)
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
 
 
 def test_emitted_schemas_are_valid_json_schema():
