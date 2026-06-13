@@ -7,6 +7,7 @@ domain group (issue #18). Every command drives the same headless pipeline:
 binary resolution → runner → sentinel parse → typed model → JSON.
 """
 
+import json
 from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Optional
@@ -27,8 +28,12 @@ from gda.models import (
     ListedNode,
     NodeAddParams,
     NodeAddResult,
+    NodeGetParams,
+    NodeGetResult,
     NodeListParams,
     NodeListResult,
+    NodeSetParams,
+    NodeSetResult,
     SceneCreateParams,
     SceneCreateResult,
     SceneDeleteParams,
@@ -132,6 +137,18 @@ NODE_LIST_COMMAND: HeadlessCommand[NodeListResult] = HeadlessCommand(
     operation="node-list",
     input_model=NodeListParams,
     output_model=NodeListResult,
+)
+
+NODE_GET_COMMAND: HeadlessCommand[NodeGetResult] = HeadlessCommand(
+    operation="node-get",
+    input_model=NodeGetParams,
+    output_model=NodeGetResult,
+)
+
+NODE_SET_COMMAND: HeadlessCommand[NodeSetResult] = HeadlessCommand(
+    operation="node-set",
+    input_model=NodeSetParams,
+    output_model=NodeSetResult,
 )
 
 
@@ -336,6 +353,86 @@ def list_nodes(
         project=resolve_project_dir(project),
         json_output=json_output,
         render_text=lambda listed: _render_tree(listed.root),
+        make_runner=_make_runner,
+    )
+
+
+def _render_node_properties(got: "NodeGetResult") -> str:
+    """Render a node's properties as ``name (Type) = value`` lines for humans."""
+    header = f"{got.path} ({got.type})"
+    lines = [
+        f"  {prop.name} ({prop.type}) = {json.dumps(prop.value)}"
+        for prop in got.properties
+    ]
+    return "\n".join([header, *lines])
+
+
+@node_app.command(cls=NODE_GET_COMMAND.command_class())
+def get(
+    path: str = typer.Argument(..., help="The .tscn scene file to read."),
+    node: str = typer.Option(
+        ...,
+        "--node",
+        help=(
+            "Node path, relative to the scene root: '.' addresses the root "
+            "itself, 'Player/Arm' a nested node."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = NODE_GET_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read a node's properties (by node path) as typed JSON."""
+    NODE_GET_COMMAND.emit(
+        NodeGetParams(path=_normalize_path(path), node=node),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=_render_node_properties,
+        make_runner=_make_runner,
+    )
+
+
+@node_app.command(name="set", cls=NODE_SET_COMMAND.command_class())
+def set_property(
+    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
+    node: str = typer.Option(
+        ...,
+        "--node",
+        help=(
+            "Node path, relative to the scene root: '.' addresses the root "
+            "itself, 'Player/Arm' a nested node."
+        ),
+    ),
+    property: str = typer.Option(
+        ..., "--property", help="The property to set (e.g. position, visible)."
+    ),
+    value: str = typer.Option(
+        ...,
+        "--value",
+        help=(
+            "The value to set, as a string. Coerced to the property's declared "
+            "Godot type; an uncoercible value is a clean error."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = NODE_SET_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Set a node property, coercing the value to its declared Godot type."""
+    NODE_SET_COMMAND.emit(
+        NodeSetParams(
+            path=_normalize_path(path), node=node, property=property, value=value
+        ),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=lambda was_set: (
+            f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
+            f"{json.dumps(was_set.value)}"
+        ),
         make_runner=_make_runner,
     )
 

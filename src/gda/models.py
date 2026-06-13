@@ -342,6 +342,108 @@ class NodeListResult(BaseModel):
     root: ListedNode
 
 
+class NodeProperty(BaseModel):
+    """One of a node's properties as ``gda node get`` reports it (issue #55).
+
+    ``type`` is the property's declared Godot type name (``int``, ``Vector2``,
+    ``Color``, …). ``value`` is the property's value in its JSON projection —
+    left as arbitrary JSON so every Godot type is carried uniformly through one
+    field: a scalar stays a scalar, a Vector2 becomes ``[x, y]``, a Color
+    ``[r, g, b, a]`` — the same projection ``node set`` accepts back.
+    """
+
+    name: str
+    type: str = Field(
+        description="The property's declared Godot type name (e.g. int, Vector2, Color)."
+    )
+    value: Any = Field(
+        description=(
+            "The property's value as JSON: a scalar for a scalar type, a list "
+            "for a packed type (Vector2 → [x, y], Color → [r, g, b, a])."
+        )
+    )
+
+
+class NodeGetParams(BaseModel):
+    """The operation params of ``gda node get`` (issue #55).
+
+    ``path`` is the ``.tscn`` scene file to read; ``node`` addresses the node by
+    its node path relative to the scene root ('.' is the root itself).
+    """
+
+    path: str
+    node: str = Field(
+        description=(
+            "Node path relative to the scene root: '.' addresses the root "
+            "itself, 'Player/Arm' a nested node."
+        )
+    )
+
+
+class NodeGetResult(BaseModel):
+    """The result of ``gda node get``: a node's properties as typed JSON (issue #55).
+
+    Echoes the addressed node (``path``/``name``/``type``) and its storage
+    properties — the ones that serialize into the ``.tscn`` — each as a typed
+    :class:`NodeProperty`, so an agent reads a node's state without parsing the
+    scene file and can feed any property straight back into ``node set``.
+    """
+
+    scene_path: str
+    path: str = Field(
+        description="The addressed node's node path, relative to the scene root."
+    )
+    name: str
+    type: str = Field(description="The node's engine class (e.g. Sprite2D).")
+    properties: list[NodeProperty]
+
+
+class NodeSetParams(BaseModel):
+    """The operation params of ``gda node set`` (issue #55).
+
+    ``path`` is the ``.tscn`` scene file to mutate; ``node`` addresses the node
+    by node path relative to the scene root. ``property`` names the property to
+    set; ``value`` is the CLI string value, coerced to the property's declared
+    Godot type by the operation before the scene is re-packed and saved.
+    """
+
+    path: str
+    node: str = Field(
+        description=(
+            "Node path relative to the scene root: '.' addresses the root "
+            "itself, 'Player/Arm' a nested node."
+        )
+    )
+    property: str
+    value: str = Field(
+        description=(
+            "The value to set, as a string. The operation coerces it to the "
+            "property's declared Godot type (see the command catalog's "
+            "'Property value coercion'); an uncoercible value is a clean error."
+        )
+    )
+
+
+class NodeSetResult(BaseModel):
+    """The result of ``gda node set``: the one property it set (issue #55).
+
+    Echoes the addressed node's ``path``, the ``property`` set, the declared
+    ``type`` the CLI value was coerced to, and the coerced ``value`` as JSON —
+    the projection ``node get`` reports, so a ``set`` round-trips through a
+    ``get`` without re-reading the file.
+    """
+
+    scene_path: str
+    path: str = Field(
+        description="The addressed node's node path, relative to the scene root."
+    )
+    property: str
+    type: str = Field(description="The property's declared Godot type the value was coerced to.")
+    value: Any = Field(
+        description="The coerced value as JSON, as the node now holds it."
+    )
+
+
 class EngineVersion(BaseModel):
     """The Godot engine version, as reported by ``Engine.get_version_info()``.
 

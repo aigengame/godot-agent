@@ -9,7 +9,9 @@ from gda.models import (
     GdaError,
     GdaErrorEnvelope,
     NodeAddResult,
+    NodeGetResult,
     NodeListResult,
+    NodeSetResult,
     SceneCreateResult,
     SceneDeleteResult,
     SceneGetResult,
@@ -242,3 +244,51 @@ def test_node_list_result_round_trips_a_nested_tree_with_paths():
     assert listed.root.path == "."
     assert listed.root.children[0].children[0].path == "Hero/Hitbox"
     assert json.loads(listed.model_dump_json()) == payload
+
+
+def test_node_get_result_round_trips_typed_properties():
+    # node get reports a node's storage properties as typed JSON (issue #55):
+    # each property carries its name, its declared Godot type, and its value in
+    # the JSON projection the operation emits. The value is left as arbitrary
+    # JSON so the model carries every Godot type uniformly (a number, a string,
+    # a list for a Vector2, …) without a per-type field.
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "path": "Hero",
+        "name": "Hero",
+        "type": "Sprite2D",
+        "properties": [
+            {"name": "position", "type": "Vector2", "value": [10.0, 20.0]},
+            {"name": "visible", "type": "bool", "value": True},
+            {"name": "z_index", "type": "int", "value": 3},
+        ],
+    }
+
+    got = NodeGetResult.model_validate(payload)
+
+    assert got.path == "Hero"
+    assert got.properties[0].name == "position"
+    assert got.properties[0].type == "Vector2"
+    assert got.properties[0].value == [10.0, 20.0]
+    assert json.loads(got.model_dump_json()) == payload
+
+
+def test_node_set_result_round_trips_the_coerced_property():
+    # node set echoes the one property it changed (issue #55): its name, the
+    # property's declared type the CLI value was coerced to, and the coerced
+    # value as the node now holds it — the result an agent asserts without a
+    # second `get`.
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "path": "Hero",
+        "property": "position",
+        "type": "Vector2",
+        "value": [3.0, 4.0],
+    }
+
+    was_set = NodeSetResult.model_validate(payload)
+
+    assert was_set.property == "position"
+    assert was_set.type == "Vector2"
+    assert was_set.value == [3.0, 4.0]
+    assert json.loads(was_set.model_dump_json()) == payload

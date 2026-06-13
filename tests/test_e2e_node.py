@@ -305,6 +305,185 @@ def test_node_add_rejects_name_godot_would_rewrite(godot_project):
     assert "Bad%Name" in err["message"]
 
 
+# --- node get / node set (issue #55) ---
+
+
+def _get_property(scene_path, node: str, name: str):
+    """Read one property dict (by name) off a node via `gda node get --json`."""
+    got = _gda("node", "get", str(scene_path), "--node", node, "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    for prop in json.loads(got.stdout)["properties"]:
+        if prop["name"] == name:
+            return prop
+    return None
+
+
+@pytest.mark.e2e
+def test_node_get_reports_typed_properties(godot_project):
+    # node get is the read half of issue #55: it loads a scene and reports the
+    # addressed node's storage properties as typed JSON — each with its name,
+    # declared Godot type, and value in the JSON projection.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Sprite2D", "--name", "Hero", "--json",
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+
+    got = _gda("node", "get", str(scene_path), "--node", "Hero", "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    data = json.loads(got.stdout)
+    assert (data["path"], data["name"], data["type"]) == ("Hero", "Hero", "Sprite2D")
+    by_name = {p["name"]: p for p in data["properties"]}
+    # A representative scalar, packed, and bool property carry their declared
+    # Godot type and a JSON-projected value.
+    assert by_name["position"]["type"] == "Vector2"
+    assert by_name["position"]["value"] == [0.0, 0.0]
+    assert by_name["visible"] == {"name": "visible", "type": "bool", "value": True}
+    assert by_name["z_index"]["type"] == "int"
+
+
+@pytest.mark.e2e
+def test_node_get_addresses_the_root_with_dot(godot_project):
+    # The canonical root address works for get too: '.' is the root itself,
+    # exactly as node list reports it and node add's --parent default.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+
+    got = _gda("node", "get", str(scene_path), "--node", ".", "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    data = json.loads(got.stdout)
+    assert (data["path"], data["name"], data["type"]) == (".", "main", "Node2D")
+
+
+@pytest.mark.e2e
+def test_node_get_missing_node_yields_node_not_found(godot_project):
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+
+    got = _gda("node", "get", str(scene_path), "--node", "Bogus", "--json")
+
+    err = _assert_operation_error(got, "node_not_found")
+    assert "Bogus" in err["message"]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "prop,value,want_type,want_value",
+    [
+        ("position", "3,4", "Vector2", [3.0, 4.0]),
+        ("z_index", "7", "int", 7),
+        ("rotation", "1.5", "float", 1.5),
+        ("visible", "false", "bool", False),
+        ("modulate", "1,0,0,1", "Color", [1.0, 0.0, 0.0, 1.0]),
+        ("modulate", "#ff0000ff", "Color", [1.0, 0.0, 0.0, 1.0]),
+    ],
+)
+def test_node_set_coerces_and_round_trips_via_get(
+    godot_project, prop, value, want_type, want_value
+):
+    # The core of issue #55: node set coerces the CLI string to the property's
+    # declared Godot type, saves, and the change round-trips via node get —
+    # the acceptance criterion "set is verifiable via get", across the coercion
+    # rules documented in the command catalog.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    _gda("node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json")
+
+    was_set = _gda(
+        "node", "set", str(scene_path),
+        "--node", "Hero", "--property", prop, "--value", value, "--json",
+    )
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    set_data = json.loads(was_set.stdout)
+    assert (set_data["property"], set_data["type"]) == (prop, want_type)
+    assert set_data["value"] == want_value
+    # The change is on disk, verified through a fresh get.
+    assert _get_property(scene_path, "Hero", prop)["value"] == want_value
+
+
+@pytest.mark.e2e
+def test_node_set_unknown_property_yields_unknown_property_and_leaves_file_unchanged(
+    godot_project,
+):
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    _gda("node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json")
+    before = scene_path.read_text(encoding="utf-8")
+
+    was_set = _gda(
+        "node", "set", str(scene_path),
+        "--node", "Hero", "--property", "no_such_prop", "--value", "1", "--json",
+    )
+
+    err = _assert_operation_error(was_set, "unknown_property")
+    assert "no_such_prop" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_set_uncoercible_value_yields_uncoercible_value_and_leaves_file_unchanged(
+    godot_project,
+):
+    # The type-coercion contract's failure path: a value that cannot become the
+    # property's declared type is a clean error, not a silent wrong value, and
+    # the scene file is left untouched.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    _gda("node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json")
+    before = scene_path.read_text(encoding="utf-8")
+
+    was_set = _gda(
+        "node", "set", str(scene_path),
+        "--node", "Hero", "--property", "position", "--value", "not_a_vector", "--json",
+    )
+
+    err = _assert_operation_error(was_set, "uncoercible_value")
+    assert "Vector2" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_set_missing_node_yields_node_not_found(godot_project):
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    was_set = _gda(
+        "node", "set", str(scene_path),
+        "--node", "Bogus", "--property", "position", "--value", "1,2", "--json",
+    )
+
+    err = _assert_operation_error(was_set, "node_not_found")
+    assert "Bogus" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_set_refuses_scene_whose_sub_scene_cannot_resolve(godot_project):
+    # node set is the second mutating op (issue #55), so it must honor the same
+    # mutation-integrity boundary as node add (issue #64): when an instanced
+    # sub-scene cannot resolve on load, set refuses with missing_dependency and
+    # leaves the file byte-identical rather than dropping the instance on save.
+    parent = _write_instance_fixture(godot_project, child="gone.tscn")
+    (godot_project / "gone.tscn").unlink(missing_ok=True)
+    before = parent.read_text(encoding="utf-8")
+
+    was_set = _gda(
+        "node", "set", str(parent),
+        "--node", ".", "--property", "position", "--value", "1,2",
+        "--project", str(godot_project), "--json",
+    )
+
+    err = _assert_operation_error(was_set, "missing_dependency")
+    assert "ChildInstance" in err["message"]
+    assert parent.read_text(encoding="utf-8") == before
+
+
 @pytest.mark.e2e
 def test_node_list_missing_scene_yields_path_not_found(godot_project):
     missing = godot_project / "missing.tscn"

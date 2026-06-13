@@ -183,3 +183,135 @@ def test_node_add_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
     assert err["category"] == "operation"
     assert err["code"] == "path_not_found"
     assert "/x/main.tscn" in err["message"]
+
+
+def _invoke_node_get(monkeypatch, code: str, message: str):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: node-get\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(
+        app, ["node", "get", "/x/main.tscn", "--node", "Bogus", "--json"]
+    )
+
+
+def _invoke_node_set(monkeypatch, code: str, message: str):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: node-set\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(
+        app,
+        [
+            "node",
+            "set",
+            "/x/main.tscn",
+            "--node",
+            "Hero",
+            "--property",
+            "position",
+            "--value",
+            "3,4",
+            "--json",
+        ],
+    )
+
+
+def test_node_get_missing_node_maps_to_stable_node_not_found_code(monkeypatch):
+    # issue #55: a node path that resolves to nothing is node_not_found —
+    # distinct from the file-level path_not_found and from node add's
+    # parent_not_found, so an agent knows the node, not the file or parent, is
+    # the thing that's missing.
+    result = _invoke_node_get(
+        monkeypatch, "node_not_found", "node not found in scene: Bogus"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "node_not_found"
+    assert "Bogus" in err["message"]
+
+
+def test_node_set_missing_node_maps_to_stable_node_not_found_code(monkeypatch):
+    result = _invoke_node_set(
+        monkeypatch, "node_not_found", "node not found in scene: Hero"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "node_not_found"
+    assert "Hero" in err["message"]
+
+
+def test_node_set_unknown_property_maps_to_stable_unknown_property_code(monkeypatch):
+    # issue #55: setting a property the node does not declare is a clean
+    # unknown_property error, so an agent can branch on a typo'd or absent
+    # property name rather than parsing prose.
+    result = _invoke_node_set(
+        monkeypatch,
+        "unknown_property",
+        "node Hero has no settable property: positon",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "unknown_property"
+    assert "positon" in err["message"]
+
+
+def test_node_set_uncoercible_value_maps_to_stable_uncoercible_value_code(monkeypatch):
+    # issue #55's type-coercion contract: a value that cannot be coerced to the
+    # property's declared Godot type is a clean uncoercible_value error naming
+    # the value, the target type, and the property — never a silent wrong value.
+    result = _invoke_node_set(
+        monkeypatch,
+        "uncoercible_value",
+        'cannot coerce value "nope" to Vector2 for property position on node Hero',
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "uncoercible_value"
+    assert "Vector2" in err["message"]
+
+
+def test_node_set_missing_dependency_maps_to_stable_missing_dependency_code(monkeypatch):
+    # node set is a mutating op, so it honors the mutation-integrity boundary
+    # (issue #64) via the shared mutate-entry: a scene whose instance vanishes
+    # on load is refused with missing_dependency, the same as node add, leaving
+    # the file untouched rather than dropping the instance on re-save.
+    result = _invoke_node_set(
+        monkeypatch,
+        "missing_dependency",
+        "scene nodes vanished or degraded on load: ChildInstance (vanished) — "
+        "re-saving would silently drop or downgrade them",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "missing_dependency"
+    assert "ChildInstance" in err["message"]
+
+
+def test_node_get_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
+    result = _invoke_node_get(
+        monkeypatch, "path_not_found", "scene file does not exist: /x/main.tscn"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "path_not_found"
+    assert "/x/main.tscn" in err["message"]
