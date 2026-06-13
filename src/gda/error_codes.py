@@ -127,7 +127,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "path_not_found",
         ErrorCategory.OPERATION,
         ErrorCodeSource.OPERATION,
-        "A requested scene file does not exist.",
+        "A requested file does not exist.",
     ),
     ErrorCodeSpec(
         "not_a_scene",

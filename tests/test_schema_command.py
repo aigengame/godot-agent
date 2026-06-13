@@ -325,6 +325,69 @@ def test_node_schema_spawns_no_godot(monkeypatch):
         assert set(json.loads(result.stdout)) >= {"input", "output", "error"}
 
 
+def test_script_create_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for the script group (issue #110): the bare
+    # --schema flag — no path — short-circuits into the self-description,
+    # derived from the same typed models that back --json.
+    from gda.models import ScriptCreateParams, ScriptCreateResult
+
+    result = CliRunner().invoke(app, ["script", "create", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ScriptCreateParams.model_json_schema()
+    assert doc["output"] == ScriptCreateResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    # The template/content surface is in the contract itself.
+    assert "content" in doc["input"]["properties"]
+    assert "extends_type" in doc["input"]["properties"]
+    assert "class_name" in doc["output"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_script_get_schema_emits_model_derived_contract_without_other_args():
+    from gda.models import ScriptGetParams, ScriptGetResult
+
+    result = CliRunner().invoke(app, ["script", "get", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ScriptGetParams.model_json_schema()
+    assert doc["output"] == ScriptGetResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "source" in doc["output"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_sample_script_results_validate_against_emitted_output_schemas():
+    # A sample --json payload of each script command satisfies the contract its
+    # --schema emits (the other half of the ADR-0004 hard gate, issue #110).
+    from tests.test_script_commands import CREATE_RESULT, GET_RESULT
+
+    create_doc = json.loads(
+        CliRunner().invoke(app, ["script", "create", "--schema"]).stdout
+    )
+    get_doc = json.loads(CliRunner().invoke(app, ["script", "get", "--schema"]).stdout)
+
+    jsonschema.validate(instance=CREATE_RESULT, schema=create_doc["output"])
+    jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
+
+
+def test_script_schema_spawns_no_godot(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("--schema must not touch the engine")
+
+    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.cli._make_runner", boom)
+
+    for command in (["script", "create"], ["script", "get"]):
+        result = CliRunner().invoke(app, [*command, "--schema"])
+        assert result.exit_code == 0
+        assert set(json.loads(result.stdout)) >= {"input", "output", "error"}
+
+
 def test_info_input_schema_is_derived_from_the_params_model():
     # info takes no operation params, so its input schema is trivially empty —
     # expected, not an error — and still derived model-side (ADR-0004).

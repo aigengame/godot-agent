@@ -16,6 +16,8 @@ from gda.models import (
     SceneDeleteResult,
     SceneGetResult,
     SceneListResult,
+    ScriptCreateResult,
+    ScriptGetResult,
 )
 
 
@@ -270,6 +272,61 @@ def test_node_get_result_round_trips_typed_properties():
     assert got.properties[0].name == "position"
     assert got.properties[0].type == "Vector2"
     assert got.properties[0].value == [10.0, 20.0]
+    assert json.loads(got.model_dump_json()) == payload
+
+
+def test_script_create_result_round_trips_with_metadata():
+    # script create echoes the saved path plus the class_name/extends the
+    # written source declares (issue #110), so an agent verifies the effect
+    # without a second call.
+    payload = {
+        "path": "res://hero.gd",
+        "class_name": "Hero",
+        "extends": "Node2D",
+        "created_dirs": ["res://scripts"],
+    }
+
+    created = ScriptCreateResult.model_validate(payload)
+
+    assert created.path == "res://hero.gd"
+    assert created.class_name == "Hero"
+    assert created.extends == "Node2D"
+    assert json.loads(created.model_dump_json()) == payload
+
+
+def test_script_create_result_round_trips_null_metadata():
+    # A template script with no class_name (or a .cs target) carries null
+    # class_name/extends; the null metadata round-trips faithfully.
+    payload = {
+        "path": "res://util.cs",
+        "class_name": None,
+        "extends": None,
+        "created_dirs": [],
+    }
+
+    created = ScriptCreateResult.model_validate(payload)
+
+    assert created.class_name is None
+    assert created.extends is None
+    assert json.loads(created.model_dump_json()) == payload
+
+
+def test_script_get_result_round_trips_source_and_metadata():
+    # script get carries the source verbatim alongside the parsed metadata, so a
+    # create round-trips through a get (issue #110): the source dumps back
+    # byte-identical, including its trailing newline.
+    payload = {
+        "path": "res://hero.gd",
+        "source": "class_name Hero\nextends Node2D\n\nfunc _ready() -> void:\n\tpass\n",
+        "class_name": "Hero",
+        "extends": "Node2D",
+    }
+
+    got = ScriptGetResult.model_validate(payload)
+
+    assert got.source.endswith("pass\n")
+    assert got.class_name == "Hero"
+    assert got.extends == "Node2D"
     assert json.loads(got.model_dump_json()) == payload
 
 
