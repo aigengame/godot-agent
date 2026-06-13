@@ -74,10 +74,12 @@ for the full picture.
   from `--schema`.
 - 🔜 `gda-daemon` for *live operations* against a running engine (Phase 2).
 
-Per-command status (shipped / Phase-1 candidate / parked) is tracked in the
-[command catalog](docs/command-catalog.md) — the single source of truth this section deliberately
-does not duplicate. See also the [roadmap](#roadmap) and the
-[issue tracker](https://github.com/aigengame/godot-agent/issues).
+The active backlog and per-command status live in the
+[issue tracker](https://github.com/aigengame/godot-agent/issues) — the headless increment is
+grouped under the [**Phase 1 — headless operations** milestone](https://github.com/aigengame/godot-agent/milestone/1).
+The [command catalog](docs/command-catalog.md) maps the whole command surface (a non-binding
+*feature map*, not a status tracker); this section deliberately duplicates neither. See also the
+[roadmap](#roadmap).
 
 ---
 
@@ -218,9 +220,10 @@ gda <meta-command> [options]        # meta commands about gda/the engine, e.g. g
 | `set`                    | Mutate a property                                                |
 | domain verbs             | `play`, `run`, `export`, `import`, … kept with their natural meaning |
 
-> The surface grows one vertical slice at a time; `gda --help` lists what is installed, and
-> per-command status is tracked in the [command catalog](docs/command-catalog.md). The taxonomy
-> and naming rules are specified in [ADR-0005](docs/adr/0005-cli-command-taxonomy.md).
+> The surface grows one vertical slice at a time; `gda --help` lists what is installed, and the
+> active backlog / per-command status lives in the
+> [issue tracker](https://github.com/aigengame/godot-agent/issues) (the Phase 1 milestone). The
+> taxonomy and naming rules are specified in [ADR-0005](docs/adr/0005-cli-command-taxonomy.md).
 
 ### Global flags
 
