@@ -24,9 +24,12 @@ on:
 permissions:
   contents: read
 
-# Serialize release runs; never cancel an in-flight release build.
+# Serialize push-triggered release runs among themselves (never cancel an
+# in-flight build). workflow_dispatch gets a per-run lane (keyed on run_id) so
+# a manual recovery run is never queue-cancelled by an ordinary push — they
+# would otherwise share refs/heads/main and only one pending run survives (#85).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
   cancel-in-progress: false
 
 env:
