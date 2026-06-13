@@ -10,18 +10,41 @@ semantics here, and deliberately scope out an overloaded interpretation.
 ## Decision
 
 - **`gda <command> --schema` emits the command's own machine-readable contract**: a
-  JSON object containing both an `input` JSON Schema (the command's arguments/params)
-  and an `output` JSON Schema (the shape of its `--json` result). The contract is
-  owned by `gda`; the flag only *emits*, it never *accepts*, a schema.
+  JSON object with three keys — an `input` JSON Schema (the command's
+  arguments/params), an `output` JSON Schema (the shape of its **success** `--json`
+  result), and an `error` JSON Schema (the **uniform** failure envelope, #43). The
+  contract is owned by `gda`; the flag only *emits*, it never *accepts*, a schema.
+
+- **`output` describes only the success result; `error` describes the failure
+  envelope** (#43). `output` is the command's own success result model, exactly as
+  before — it is *not* turned into a success/failure union. `error` is the shared
+  `GdaErrorEnvelope` schema, **identical for every command**, that `gda` emits on a
+  non-zero exit. Keeping the two halves separate mirrors how the result reaches the
+  caller: a successful `--json` result on exit 0, a structured error envelope on a
+  non-zero exit. The change is a strict superset of the old `{input, output}`
+  contract — `output` is untouched — so it is backward compatible.
 
 - **Schemas are model-driven.** Each command's input and output are defined as typed
   models (Pydantic/msgspec on the Python 3.13 stack). The same model both serializes
   / validates the `--json` result and produces the `--schema` document
-  (`model_json_schema()`), so the contract is never hand-maintained twice.
+  (`model_json_schema()`), so the contract is never hand-maintained twice. The
+  `error` half is derived the same way from the one shared `GdaErrorEnvelope` model,
+  so it costs **zero per-command maintenance** — every command's `error` is byte-for-byte
+  the same schema.
 
 - **`gda-mcp` derives tool definitions mechanically** from `--schema`: `inputSchema`
-  from `input`, `outputSchema` from `output`. This is what makes `gda-mcp` a thin
-  adapter (ADR-0001) rather than a parallel hand-written surface.
+  from `input`, `outputSchema` from `output`. The success/failure split maps onto
+  MCP's two channels: `output` → MCP `outputSchema` (a tool's success result /
+  `structuredContent`), while a `gda` non-zero-exit failure maps to MCP's separate
+  `isError` channel. The `error` schema makes that failure envelope **discoverable**
+  but is deliberately kept **out of `outputSchema`** — the future adapter must not
+  fold `error` into `outputSchema`. This is what makes `gda-mcp` a thin adapter
+  (ADR-0001) rather than a parallel hand-written surface.
+
+- **Per-command *operation* error codes are out of scope for the `error` key.** The
+  `error` schema is the uniform envelope shape, not an enumeration of which
+  `GdaError.code` values a given command can report. Whether `--schema` should also
+  advertise a command's specific operation error codes is a separate, later question.
 
 - **`--schema` does not accept a custom schema.** Making one flag both emit the
   output contract and accept an input contract overloads two opposite directions onto
@@ -45,8 +68,13 @@ semantics here, and deliberately scope out an overloaded interpretation.
 
 ## Considered options
 
-- **Emit input + output contract** (chosen) — fully self-describing; lets `gda-mcp`
-  generate tool definitions for free.
+- **Emit input + output + error contract** (chosen) — fully self-describing; lets
+  `gda-mcp` generate tool definitions for free, and makes the uniform failure
+  envelope discoverable for the `isError` channel without per-command cost (#43).
+- **Fold the failure envelope into `output` as a success/failure union** (rejected)
+  — conflates the two MCP channels: `output` should map to `outputSchema` (success /
+  `structuredContent`) only, while failures belong to `isError`. A `oneOf` union
+  would force the adapter to discriminate success from failure inside `outputSchema`.
 - **Emit output only / input only** — narrower; insufficient for `gda-mcp` to derive
   both `inputSchema` and `outputSchema`.
 - **Accept a custom schema on `--schema`** (rejected) — overloads the flag with the
