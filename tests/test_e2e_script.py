@@ -591,6 +591,81 @@ def test_script_set_missing_file_yields_path_not_found(godot_project):
     assert not missing.exists()
 
 
+# --- script validate (issue #118) ---
+
+
+@pytest.mark.e2e
+def test_script_validate_valid_script_reports_valid_true_no_diagnostics(godot_project):
+    # The mechanism gate (issue #118): a self-contained `extends Node` script
+    # compiles (GDScript.reload() == OK) projectless, so validate reports valid=
+    # true, no error_string, no diagnostics — exit 0.
+    script_path = godot_project / "ok.gd"
+    _gda(
+        "script", "create", str(script_path),
+        "--content", "extends Node\n\nfunc greet() -> String:\n\treturn \"hi\"\n",
+        "--json",
+    )
+
+    validated = _gda("script", "validate", str(script_path), "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is True
+    assert data["error_string"] is None
+    assert data["diagnostics"] == []
+
+
+@pytest.mark.e2e
+def test_script_validate_broken_script_is_success_with_a_real_diagnostic(godot_project):
+    # The mechanism gate's hard half: a deliberately BROKEN script is a SUCCESSFUL
+    # op (exit 0) reporting valid=false, and at least one diagnostic with a real
+    # `line` and non-empty `message` — proving the stderr-parsing regex against
+    # the REAL engine output, not a fixture.
+    script_path = godot_project / "broken.gd"
+    # `var x =` with no initializer is a parse error the engine reports on its line.
+    _gda(
+        "script", "create", str(script_path),
+        "--content", "extends Node\n\nvar x =\n", "--json",
+    )
+
+    validated = _gda("script", "validate", str(script_path), "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    assert data["error_string"] is not None
+    assert len(data["diagnostics"]) >= 1
+    diag = data["diagnostics"][0]
+    assert isinstance(diag["line"], int)
+    assert diag["line"] >= 1
+    assert diag["message"]
+    # Column is unavailable on the standard build.
+    assert diag["column"] is None
+
+
+@pytest.mark.e2e
+def test_script_validate_missing_file_yields_path_not_found(godot_project):
+    # validate only op-fails for op errors: a missing file is path_not_found, NOT
+    # a valid=false success.
+    missing = godot_project / "nope.gd"
+
+    validated = _gda("script", "validate", str(missing), "--json")
+
+    err = _assert_operation_error(validated, "path_not_found")
+    assert str(missing) in err["message"]
+
+
+@pytest.mark.e2e
+def test_script_validate_wrong_extension_yields_invalid_path(godot_project):
+    notes = godot_project / "notes.txt"
+    notes.write_text("not a script\n", encoding="utf-8")
+
+    validated = _gda("script", "validate", str(notes), "--json")
+
+    err = _assert_operation_error(validated, "invalid_path")
+    assert ".gd" in err["message"]
+
+
 # --- script attach (issue #118) ---
 
 

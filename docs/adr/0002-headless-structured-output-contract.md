@@ -56,6 +56,19 @@ The GDScript payload owns only `code` and `message`. `gda` owns the public
 `GdaError` wrapper: it validates that the code is registered, assigns the
 `operation` category, preserves the message, and copies stderr into diagnostics.
 
+### stderr as advisory diagnostics
+
+stderr is still **never** parsed for the success/failure *outcome* or for stable
+error codes — those come only from the exit code and the stdout sentinel, as
+above. A command **may**, however, surface engine error text from stderr as
+**advisory, best-effort diagnostics** on its *success* result, when a useful
+detail is available nowhere else. `script validate` (#118) is the established
+case: when it reports `valid=false`, the per-error `line` and `message` exist
+only in the engine's stderr (no bound API exposes them), so `gda` parses them
+into the result's `diagnostics`. This stays within the contract: the diagnostics
+are advisory (they may hold only the first error, and `column` is unavailable on
+the standard build), and they never determine the outcome or a stable code.
+
 ## `GdaError.code` registry
 
 `GdaError.code` values are a public ABI for agents. Their authoritative source is

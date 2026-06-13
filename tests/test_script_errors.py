@@ -395,3 +395,44 @@ def test_script_attach_unloadable_script_reuses_stable_invalid_path_code(monkeyp
     assert err["category"] == "operation"
     assert err["code"] == "invalid_path"
     assert "/x/hero.gd" in err["message"]
+
+
+def _invoke_script_validate(monkeypatch, code: str, message: str):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: script-validate\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(app, ["script", "validate", "/x/hero.gd", "--json"])
+
+
+def test_script_validate_missing_file_reuses_stable_path_not_found_code(monkeypatch):
+    # validate only op-fails (non-zero) for op errors. A missing file is
+    # path_not_found (the same one get/set use); an INVALID script is NOT a
+    # failure — it is a successful op reporting valid=false (covered in S3 success).
+    result = _invoke_script_validate(
+        monkeypatch, "path_not_found", "script file does not exist: /x/hero.gd"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "path_not_found"
+    assert "/x/hero.gd" in err["message"]
+    assert err["diagnostics"] == "gda: running operation: script-validate\n"
+
+
+def test_script_validate_wrong_extension_reuses_stable_invalid_path_code(monkeypatch):
+    result = _invoke_script_validate(
+        monkeypatch, "invalid_path", "script path must end in .gd: /x/notes.txt"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "invalid_path"
+    assert ".gd" in err["message"]

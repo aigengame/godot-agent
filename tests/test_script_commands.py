@@ -457,6 +457,58 @@ def test_script_attach_dispatches_scene_node_and_script(monkeypatch):
     assert "engine diagnostic" in result.stderr
 
 
+def test_script_validate_valid_script_reports_valid_true_no_diagnostics(monkeypatch):
+    # script validate (issue #118): a valid script is a successful op (exit 0)
+    # reporting valid=true, no error_string, and no diagnostics.
+    payload = {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None}
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(payload)
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/ok.gd", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["valid"] is True
+    assert data["error_string"] is None
+    assert data["diagnostics"] == []
+    assert fake.calls == [("script-validate", {"path": "/tmp/proj/ok.gd"})]
+
+
+def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(monkeypatch):
+    # Validating an INVALID script is a SUCCESSFUL op (exit 0): the sentinel says
+    # valid=false, and the per-command classifier parses the line/message
+    # diagnostics from stderr (the only place they live) into the result.
+    payload = {
+        "path": "/tmp/proj/broken.gd",
+        "valid": False,
+        "error_string": "Parse error.",
+    }
+    stderr = (
+        'SCRIPT ERROR: Parse Error: Expected expression for variable initial '
+        'value after "=".\n'
+        "          at: GDScript::reload (gdscript://-9223371888644840980.gd:3)\n"
+    )
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(payload)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=stdout, stderr=stderr, exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", "/tmp/proj/broken.gd", "--json"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["valid"] is False
+    assert data["error_string"] == "Parse error."
+    # The advisory diagnostics were parsed from stderr (line + message, no column).
+    assert len(data["diagnostics"]) == 1
+    assert data["diagnostics"][0]["line"] == 3
+    assert data["diagnostics"][0]["column"] is None
+    assert "Expected expression" in data["diagnostics"][0]["message"]
+    assert fake.calls == [("script-validate", {"path": "/tmp/proj/broken.gd"})]
+
+
 def test_script_set_start_line_without_content_is_a_usage_error(monkeypatch):
     # --start-line/--end-line require --content: a line range with no replacement
     # text is a usage error.

@@ -216,6 +216,22 @@ the scene, node, script, and the attached script's `class_name` (null when it de
 verifiable by reading the saved `.tscn` back: the script now appears as an `ext_resource` the node
 references.
 
+**Validating** (established by #118): `gda script validate PATH` syntax/compile-checks a `.gd`
+script. **Mechanism**: it reads the file text, sets it on a fresh `GDScript`, and calls
+`reload()` — `OK` means the script compiles. It compiles the script (`reload` parses and
+compiles), but never **instantiates** it, so it does not run the script's instance code. Pass
+`--project` when the script `extends` a project `class_name` or preloads a project resource and so
+needs project context to compile; a self-contained `extends Node` script validates projectless.
+
+A **`valid=false` result is a successful operation** — `validate` exits `0` with
+`{valid: false, error_string, diagnostics}` for a script that does not compile. The op only
+*fails* (non-zero, `invalid_path`/`path_not_found`) for op errors (empty/non-`.gd` path, missing
+or unreadable file). `diagnostics` are **best-effort advisory** `{line, message}` pairs: the line
+and message are not available from any bound API — only from the engine's stderr — so they are
+parsed Python-side and may carry only the **first** error. **`column` is always null** on the
+standard Godot build (the engine exposes no column for a parse error). `validate` reuses existing
+codes only (no new ones).
+
 | Command | Description |
 | --- | --- |
 | `gda script create` | Create a `.gd` script (template or content) |

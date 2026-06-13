@@ -807,10 +807,52 @@ func _op_script_attach(params: Dictionary) -> void:
 	})
 
 
-# script-validate: filled in for issue #118's validate slice.
+# script-validate: syntax/compile-check a .gd script (issue #118). Read the file
+# text, set it on a fresh GDScript, and reload() it: err == OK means it compiles.
+# Validating an INVALID script is a SUCCESSFUL operation — the op exits 0 with
+# valid=false; the op only FAILS (non-zero) for op errors (empty/non-.gd path →
+# invalid_path, missing/unreadable file → path_not_found).
+#
+# Unlike the other script-file ops, validate DOES compile the script (reload
+# parses and compiles it), but it never INSTANTIATES it, so it does not run the
+# script's instance code. The line/message of a compile error are not available
+# from any bound API (is_valid() is not even callable from GDScript) — only from
+# the engine's stderr — so the op emits just {path, valid, error_string} in the
+# sentinel and gda parses the advisory line/message diagnostics from stderr.
 func _op_script_validate(params: Dictionary) -> void:
 	_diag("running operation: script-validate")
-	_fail(OP_ERROR_UNKNOWN_OPERATION, "script-validate not yet implemented")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _is_script_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
+		return
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
+		return
+
+	var source := FileAccess.get_file_as_string(path)
+	# get_file_as_string returns "" both for an empty file and on an open error;
+	# disambiguate via the open-error code so an unreadable file is path_not_found
+	# rather than validated as empty (mirrors script-get). An empty .gd compiles.
+	if source.is_empty():
+		var open_err := FileAccess.get_open_error()
+		if open_err != OK:
+			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
+					+ ": " + error_string(open_err))
+			return
+
+	# Compile-check without instantiating: set the source on a fresh GDScript and
+	# reload() it. The reload error (and its diagnostics on stderr) is the verdict.
+	var script := GDScript.new()
+	script.source_code = source
+	var err := script.reload()
+	_succeed({
+		"path": path,
+		"valid": err == OK,
+		"error_string": null if err == OK else error_string(err),
+	})
 
 
 # Whether a path names a script file the script group operates on: a .gd

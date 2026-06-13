@@ -437,6 +437,46 @@ def test_script_attach_result_round_trips_null_class_name():
     assert json.loads(attached.model_dump_json()) == payload
 
 
+def test_script_validate_result_round_trips_a_valid_script():
+    # A valid script (issue #118): valid=true, no error_string, no diagnostics —
+    # the successful-op shape.
+    payload = {
+        "path": "res://ok.gd",
+        "valid": True,
+        "error_string": None,
+        "diagnostics": [],
+    }
+
+    validated = ScriptValidateResult.model_validate(payload)
+
+    assert validated.valid is True
+    assert validated.error_string is None
+    assert validated.diagnostics == []
+    assert json.loads(validated.model_dump_json()) == payload
+
+
+def test_script_validate_result_round_trips_an_invalid_script_with_diagnostics():
+    # An invalid script carries valid=false, the engine's one-line summary, and a
+    # best-effort diagnostic (line + message; column always null on the standard
+    # build).
+    payload = {
+        "path": "res://broken.gd",
+        "valid": False,
+        "error_string": "Parse error.",
+        "diagnostics": [
+            {"line": 3, "column": None, "message": "Parse Error: bad token."}
+        ],
+    }
+
+    validated = ScriptValidateResult.model_validate(payload)
+
+    assert validated.valid is False
+    assert validated.diagnostics[0].line == 3
+    assert validated.diagnostics[0].column is None
+    assert validated.diagnostics[0].message == "Parse Error: bad token."
+    assert json.loads(validated.model_dump_json()) == payload
+
+
 def test_node_set_result_round_trips_the_coerced_property():
     # node set echoes the one property it changed (issue #55): its name, the
     # property's declared type the CLI value was coerced to, and the coerced
