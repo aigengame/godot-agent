@@ -67,7 +67,7 @@ def schema_option() -> bool:
     return typer.Option(
         False,
         "--schema",
-        help="Emit this command's input/output JSON Schemas; no Godot is spawned.",
+        help="Emit this command's input/output/error JSON Schemas; no Godot is spawned.",
     )
 
 
@@ -77,10 +77,11 @@ def schema_command_class(
     """A Typer command that owns ``--schema`` handling (ADR-0004).
 
     ``--schema`` is an introspection probe: it emits the command's
-    ``{input, output}`` contract without spawning Godot and without requiring the
-    command's operational arguments. It must still surface a structurally invalid
-    command line — unknown options or extra positional args — as a usage error,
-    and must always yield to ``--help`` (issue #36).
+    ``{input, output, error}`` contract without spawning Godot and without
+    requiring the command's operational arguments. ``error`` is the uniform
+    failure envelope shared by every command (#43). It must still surface a
+    structurally invalid command line — unknown options or extra positional
+    args — as a usage error, and must always yield to ``--help`` (issue #36).
     """
 
     class _SchemaCommand(TyperCommand):
