@@ -143,7 +143,8 @@ read trust boundary of #30): a script's text is data, not something to execute.
 > targets the **standard** build (4.4+ / 4.6 baseline), and supporting it is a decision in its
 > own right (class/base semantics differ from GDScript's leading `class_name`/`extends`). Until
 > a `.NET`-build target and a dedicated decision exist, the `script` group is GDScript-only — a
-> non-`.gd` path is refused as `invalid_path` rather than half-supported as opaque text.
+> non-`.gd` path is refused as `invalid_path` rather than half-supported as opaque text. The
+> deferral — whether/how to support the .NET build and C# — is tracked in #124.
 
 **Script-file addressing** (established by #110): a script is addressed by its **file path** —
 a `res://` or filesystem path ending in `.gd` — exactly the way a scene is addressed by its
