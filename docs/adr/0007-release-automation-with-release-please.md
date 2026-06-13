@@ -44,12 +44,23 @@ release-PR-maintenance invocation after the publish. A draft release carries
 no git tag until it is published, and release-please's lookback is tag-based —
 so computing the next Release PR while the just-cut release is still a draft
 reads the entire history as unreleased and proposes a spurious full-history
-release. Maintenance is likewise skipped when the chain fails, since the cut
-release's tag is then still missing (#79).
+release (#79). Bracketing alone only fixes the happy path: the hazardous state
+survives a failed run, so maintenance additionally **gates on the manifest
+version's tag actually existing** and is skipped (with a warning annotation)
+when it does not — that gate, not the bracketing, is what stops a later push
+from regenerating the spurious Release PR across runs (#82). Three further
+guards harden the chain: the build job checks out the exact commit
+release-please tagged rather than the push HEAD, so concurrent pushes cannot
+publish artifacts from the wrong commit (#83); the publish is idempotent so a
+re-run recovers a partial publish (#84); and manual dispatch runs in an
+isolated concurrency lane so an ordinary push cannot cancel a recovery run
+(#85).
 
 A `workflow_dispatch` escape hatch retains the previous manual semantics:
-given an existing tag, it runs the same verify-and-build chain and creates a
-release from that tag.
+given an **existing** tag, it runs the same verify-and-build chain and creates
+a release from that tag. It is deliberately *not* the recovery path for a
+failed automated release (which leaves a tag-less draft) — see "Failure
+handling and recovery" below.
 
 ## Consequences
 
@@ -78,6 +89,46 @@ release from that tag.
 - The 0.1.2 and 0.1.3 releases are spurious — produced by the draft-tag race
   before release-please was split into two invocations (#79). They are kept
   (fix-forward); their changelog sections are reduced to one-line notes.
+
+## Failure handling and recovery
+
+The pipeline has one state that is not self-healing: a **wedged tag-less
+draft**. If the verify-and-build chain fails (or is cancelled) after the
+release was cut, the draft GitHub release exists but was never published, so it
+has no git tag; meanwhile release-please has already relabelled the merged
+Release PR `autorelease: tagged` (so it is never re-cut) and the manifest on
+`main` is ahead of every tag.
+
+**Recognising it.** The release-PR-maintenance job emits a warning annotation
+("Release pipeline needs recovery…") whenever the manifest version's tag is
+absent, and skips maintenance. A persistent such warning on ordinary pushes
+means a release is wedged.
+
+**Recovering it — re-run, do not improvise.** Open the failed release run and
+use **"Re-run failed jobs"**. The build job rebuilds and the publish is
+idempotent (`--clobber` upload, plus an already-no-op un-draft), so the re-run
+converges to a published release, which creates the tag and unwedges
+maintenance. Do **not**:
+
+- use the `workflow_dispatch` escape hatch — it requires an existing tag, which
+  the wedged draft lacks; or
+- hand-push the tag — `gh release create` would then mint a *second* release
+  for that tag name beside the orphaned draft, leaving two releases sharing one
+  tag.
+
+If the cut release is unwanted, delete the draft release and revert the
+manifest/`CHANGELOG` bump so the Release PR returns to `autorelease: pending`.
+
+**Known narrow windows** (low probability, documented rather than guarded):
+
+- *Non-atomic cut.* release-please creates the draft and then relabels the PR;
+  a crash in between leaves a `pending` PR with a draft already created, so the
+  next run cuts a duplicate tag-less draft for the same version.
+- *Multiple pending Release PRs.* If more than one merged Release PR is pending
+  when a single run cuts, multiple drafts are created but only one tag is
+  published, so an orphaned draft can re-wedge the lookback. In a single-package
+  repo this requires an abnormal precondition (an earlier cut that crashed, or
+  concurrency queue replacement).
 
 ## Considered options
 
