@@ -37,7 +37,11 @@ env:
 # release-please runs twice, bracketing the verify-and-build chain: a draft
 # release carries no git tag until published, and release-please's lookback is
 # tag-based, so computing the next Release PR before the publish reads the
-# whole history as unreleased and proposes a spurious release (#79).
+# whole history as unreleased and proposes a spurious release (#79). The
+# release-pr phase additionally gates on the manifest version's tag actually
+# existing: a failed publish leaves a tag-less draft, and without that gate a
+# later ordinary push would run release-please against the missing tag and
+# regenerate the spurious full-history Release PR across runs (#82).
 
 jobs:
   cut-release:
@@ -172,11 +176,14 @@ jobs:
     needs:
       - cut-release
       - github-release
-    # Runs after any cut release is published, so the tag lookback always sees
-    # the new tag. Skipped when the verify-and-build chain fails: computing a
-    # Release PR while the cut release's tag is missing reads the whole
-    # history as unreleased (#79). On pushes that cut no release the
-    # github-release job is skipped and this still runs.
+    # Runs after any cut release is published. The same-run `needs` only sees
+    # this run's job statuses, but the hazard is repo-global and survives the
+    # run: a failed verify-and-build chain leaves a tag-less draft whose merged
+    # Release PR is already labeled "autorelease: tagged", so a later ordinary
+    # push reaches here with everything merely skipped. The tag_gate step below
+    # is the actual guard — it refuses maintenance unless the manifest version's
+    # tag exists (#82). On pushes that cut no release the github-release job is
+    # skipped and this still runs.
     if: >-
       !failure() && !cancelled() &&
       github.event_name == 'push'
@@ -184,7 +191,33 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      - name: Check out the release manifest
+        uses: actions/checkout@v6
+
+      - name: Require the manifest version's tag before maintaining the release PR
+        id: tag_gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(python3 -c "import json; print(json.load(open('.release-please-manifest.json'))['.'])")"
+          tag="v${version}"
+          # Bounded retry: a tag created by the publish step moments ago may not
+          # be visible immediately (read-after-write), which would otherwise let
+          # an all-green release run still regenerate the spurious PR (#79/#82).
+          for attempt in $(seq 1 6); do
+            if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+              echo "Tag ${tag} is visible; maintaining the release PR."
+              echo "tag_present=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Tag ${tag} not visible yet (attempt ${attempt}/6); waiting 5s..."
+            sleep 5
+          done
+          echo "tag_present=false" >> "$GITHUB_OUTPUT"
+          echo "::warning title=Release pipeline needs recovery::Tag ${tag} for the current manifest version does not exist, so release-PR maintenance is skipped to avoid regenerating a spurious full-history Release PR (#79). A previous release likely failed to publish, leaving a tag-less draft. See ADR-0007 for recovery."
+
       - name: Run release-please (release PR maintenance only)
+        if: steps.tag_gate.outputs.tag_present == 'true'
         uses: googleapis/release-please-action@v4
         with:
           config-file: release-please-config.json
