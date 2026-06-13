@@ -201,6 +201,21 @@ modes is selected at the CLI (a missing or mixed mode is a usage error, exit 2):
 `script set` re-parses the **written** source's `class_name`/`extends` and returns them, so an
 edit round-trips through `script get` (the verifier).
 
+**Attaching to a node** (established by #118): `gda script attach SCENE --node <node-path>
+--script <gd-path>` binds a `.gd` script to a node inside a `.tscn`. It reuses the node group's
+**node-path addressing** (#53): `--node .` is the scene root, `--node A/B` a descendant — exactly
+the form `node list` reports. Unlike the other script-file ops, `attach` is a **scene mutation**:
+it loads and **instantiates** the scene (so it runs the `_init` of scripts already in the scene —
+the inherent trust boundary of `node set`, ADR-0009), attaches the script via `set_script`, and
+re-packs and saves; loading the `.gd` to attach compiles it but never runs an instance of it. It
+reuses existing codes (no new ones): a missing/unloadable `.gd` is `path_not_found`/`invalid_path`,
+a non-`.gd` script is `invalid_path`, a node path that resolves to nothing is `node_not_found`, a
+missing or non-scene file is `path_not_found`/`not_a_scene`, and a scene whose instances vanish or
+degrade on load is `missing_dependency` (the mutation-integrity boundary, #64). The result echoes
+the scene, node, script, and the attached script's `class_name` (null when it declares none),
+verifiable by reading the saved `.tscn` back: the script now appears as an `ext_resource` the node
+references.
+
 | Command | Description |
 | --- | --- |
 | `gda script create` | Create a `.gd` script (template or content) |

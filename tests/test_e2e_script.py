@@ -591,6 +591,185 @@ def test_script_set_missing_file_yields_path_not_found(godot_project):
     assert not missing.exists()
 
 
+# --- script attach (issue #118) ---
+
+
+@pytest.mark.e2e
+def test_script_attach_binds_script_to_node_and_scene_references_it(godot_project):
+    # script attach (issue #118) loads a scene, resolves a node by node path,
+    # attaches a .gd, and saves. Verify by reading the saved .tscn back: the
+    # script path now appears as an ext_resource the node references, the result
+    # echoes the script's class_name, and the scene still re-loads (node list).
+    gda = _gda_project(godot_project)
+    assert (
+        gda("scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+    assert (
+        gda(
+            "script", "create", "res://hero.gd",
+            "--content", "class_name Hero\nextends Node2D\n", "--json",
+        ).returncode
+        == 0
+    )
+
+    attached = gda(
+        "script", "attach", "res://main.tscn",
+        "--node", ".", "--script", "res://hero.gd", "--json",
+    )
+
+    assert attached.returncode == 0, attached.stdout + attached.stderr
+    data = json.loads(attached.stdout)
+    assert data["node"] == "."
+    assert data["script"] == "res://hero.gd"
+    assert data["class_name"] == "Hero"
+    # The saved .tscn now references the script as an ext_resource on the root.
+    saved = (godot_project / "main.tscn").read_text(encoding="utf-8")
+    assert "hero.gd" in saved
+    assert 'type="Script"' in saved
+    # The scene still re-loads after the mutation.
+    listed = gda("node", "list", "res://main.tscn", "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+
+
+@pytest.mark.e2e
+def test_script_attach_to_a_descendant_node(godot_project):
+    # Attach addresses the node by the #53 node path: a descendant, not just the
+    # root. The script lands on that exact node.
+    gda = _gda_project(godot_project)
+    assert (
+        gda("scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+    assert (
+        gda("node", "add", "res://main.tscn", "--type", "Sprite2D", "--name", "Hero",
+            "--json").returncode
+        == 0
+    )
+    assert (
+        gda("script", "create", "res://hero.gd", "--extends", "Sprite2D", "--json")
+        .returncode
+        == 0
+    )
+
+    attached = gda(
+        "script", "attach", "res://main.tscn",
+        "--node", "Hero", "--script", "res://hero.gd", "--json",
+    )
+
+    assert attached.returncode == 0, attached.stdout + attached.stderr
+    assert json.loads(attached.stdout)["node"] == "Hero"
+    saved = (godot_project / "main.tscn").read_text(encoding="utf-8")
+    assert "hero.gd" in saved
+
+
+@pytest.mark.e2e
+def test_script_attach_no_class_name_echoes_null_class_name(godot_project):
+    # A script with no class_name attaches fine and the result carries null.
+    gda = _gda_project(godot_project)
+    assert (
+        gda("scene", "create", "res://main.tscn", "--root-type", "Node", "--json")
+        .returncode
+        == 0
+    )
+    assert (
+        gda("script", "create", "res://plain.gd", "--extends", "Node", "--json")
+        .returncode
+        == 0
+    )
+
+    attached = gda(
+        "script", "attach", "res://main.tscn",
+        "--node", ".", "--script", "res://plain.gd", "--json",
+    )
+
+    assert attached.returncode == 0, attached.stdout + attached.stderr
+    assert json.loads(attached.stdout)["class_name"] is None
+
+
+@pytest.mark.e2e
+def test_script_attach_missing_script_yields_path_not_found(godot_project):
+    gda = _gda_project(godot_project)
+    assert (
+        gda("scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+
+    attached = gda(
+        "script", "attach", "res://main.tscn",
+        "--node", ".", "--script", "res://nope.gd", "--json",
+    )
+
+    err = _assert_operation_error(attached, "path_not_found")
+    assert "nope.gd" in err["message"]
+
+
+@pytest.mark.e2e
+def test_script_attach_wrong_script_extension_yields_invalid_path(godot_project):
+    gda = _gda_project(godot_project)
+    assert (
+        gda("scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+    (godot_project / "notes.txt").write_text("not a script\n", encoding="utf-8")
+
+    attached = gda(
+        "script", "attach", "res://main.tscn",
+        "--node", ".", "--script", "res://notes.txt", "--json",
+    )
+
+    err = _assert_operation_error(attached, "invalid_path")
+    assert ".gd" in err["message"]
+
+
+@pytest.mark.e2e
+def test_script_attach_missing_node_yields_node_not_found_and_leaves_scene(godot_project):
+    gda = _gda_project(godot_project)
+    assert (
+        gda("scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+    assert (
+        gda("script", "create", "res://hero.gd", "--extends", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+    before = (godot_project / "main.tscn").read_text(encoding="utf-8")
+
+    attached = gda(
+        "script", "attach", "res://main.tscn",
+        "--node", "Bogus", "--script", "res://hero.gd", "--json",
+    )
+
+    err = _assert_operation_error(attached, "node_not_found")
+    assert "Bogus" in err["message"]
+    # The refusal leaves the scene untouched.
+    assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_script_attach_missing_scene_yields_path_not_found(godot_project):
+    gda = _gda_project(godot_project)
+    assert (
+        gda("script", "create", "res://hero.gd", "--extends", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+
+    attached = gda(
+        "script", "attach", "res://missing.tscn",
+        "--node", ".", "--script", "res://hero.gd", "--json",
+    )
+
+    err = _assert_operation_error(attached, "path_not_found")
+    assert "missing.tscn" in err["message"]
+
+
 @pytest.mark.e2e
 def test_script_create_empty_content_round_trips_as_empty_source(godot_project):
     # An empty file is legal source: --content "" writes an empty script, and get

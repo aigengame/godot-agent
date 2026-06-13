@@ -293,3 +293,105 @@ def test_script_set_wrong_extension_reuses_stable_invalid_path_code(monkeypatch)
     assert err["category"] == "operation"
     assert err["code"] == "invalid_path"
     assert ".gd" in err["message"]
+
+
+def _invoke_script_attach(monkeypatch, code: str, message: str):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: script-attach\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(
+        app,
+        [
+            "script",
+            "attach",
+            "/x/main.tscn",
+            "--node",
+            "Hero",
+            "--script",
+            "/x/hero.gd",
+            "--json",
+        ],
+    )
+
+
+def test_script_attach_missing_script_reuses_stable_path_not_found_code(monkeypatch):
+    # attach binds an existing script; a missing .gd is path_not_found (the same
+    # one script get uses) so an agent knows the script file, not the scene, is
+    # the thing that's missing.
+    result = _invoke_script_attach(
+        monkeypatch, "path_not_found", "script file does not exist: /x/hero.gd"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "path_not_found"
+    assert "/x/hero.gd" in err["message"]
+    assert err["diagnostics"] == "gda: running operation: script-attach\n"
+
+
+def test_script_attach_wrong_script_extension_reuses_stable_invalid_path_code(
+    monkeypatch,
+):
+    # A non-.gd script target is refused with invalid_path — the same addressing
+    # boundary the rest of the script group uses.
+    result = _invoke_script_attach(
+        monkeypatch, "invalid_path", "script path must end in .gd: /x/notes.txt"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "invalid_path"
+    assert ".gd" in err["message"]
+
+
+def test_script_attach_missing_node_reuses_stable_node_not_found_code(monkeypatch):
+    # The scene loaded but the node path resolves to nothing — node_not_found
+    # (the same one node get/set use), distinct from the file-level path_not_found.
+    result = _invoke_script_attach(
+        monkeypatch, "node_not_found", "node not found in scene: Hero"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "node_not_found"
+    assert "Hero" in err["message"]
+
+
+def test_script_attach_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
+    # The scene-file-level failure reuses the registered scene code; attach
+    # introduces no parallel code for the same mode.
+    result = _invoke_script_attach(
+        monkeypatch, "path_not_found", "scene file does not exist: /x/main.tscn"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "path_not_found"
+    assert "/x/main.tscn" in err["message"]
+
+
+def test_script_attach_unloadable_script_reuses_stable_invalid_path_code(monkeypatch):
+    # A .gd that exists but cannot be loaded as a Script (it does not compile) is
+    # refused with invalid_path naming the path; loading it compiles but never
+    # runs an instance of it.
+    result = _invoke_script_attach(
+        monkeypatch,
+        "invalid_path",
+        "file could not be loaded as a GDScript: /x/hero.gd — it may not compile",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "invalid_path"
+    assert "/x/hero.gd" in err["message"]

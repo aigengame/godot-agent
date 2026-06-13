@@ -407,6 +407,56 @@ def test_script_set_search_replace_and_content_are_mutually_exclusive(monkeypatc
     _assert_set_usage_error(fake, result)
 
 
+ATTACH_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "node": "Hero",
+    "script": "/tmp/proj/hero.gd",
+    "class_name": "Hero",
+}
+
+
+def test_script_attach_dispatches_scene_node_and_script(monkeypatch):
+    # script attach (issue #118) binds a .gd to a node in a scene: the scene
+    # path, the node path, and the script path ride through as the typed params;
+    # the result echoes the attached script's class_name.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(ATTACH_RESULT)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "attach",
+            "/tmp/proj/main.tscn",
+            "--node",
+            "Hero",
+            "--script",
+            "/tmp/proj/hero.gd",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["scene_path"] == "/tmp/proj/main.tscn"
+    assert data["node"] == "Hero"
+    assert data["script"] == "/tmp/proj/hero.gd"
+    assert data["class_name"] == "Hero"
+    assert fake.calls == [
+        (
+            "script-attach",
+            {
+                "path": "/tmp/proj/main.tscn",
+                "node": "Hero",
+                "script": "/tmp/proj/hero.gd",
+            },
+        )
+    ]
+    assert "engine diagnostic" in result.stderr
+
+
 def test_script_set_start_line_without_content_is_a_usage_error(monkeypatch):
     # --start-line/--end-line require --content: a line range with no replacement
     # text is a usage error.

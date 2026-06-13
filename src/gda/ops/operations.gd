@@ -743,10 +743,68 @@ func _apply_line_range(source: String, params: Dictionary) -> Variant:
 	return "\n".join(PackedStringArray(rebuilt))
 
 
-# script-attach: filled in for issue #118's attach slice.
+# script-attach: bind a .gd script to a node in a .tscn (issue #118). Load the
+# scene → resolve the node by node path (the #53 addressing: '.' = root, 'A/B' =
+# descendant) → load the .gd as a Script resource → node.set_script(script) →
+# re-pack and save.
+#
+# As a scene MUTATION it goes through the shared mutate-entry (load → instantiate
+# → unmaterialized-node guard, the same as node set), so it honors the
+# mutation-integrity boundary (issue #64) and instantiates the scene — running
+# the _init of scripts already attached in the scene (the inherent trust
+# boundary of ADR-0009). Loading the .gd to attach compiles it but never runs an
+# instance of it.
 func _op_script_attach(params: Dictionary) -> void:
 	_diag("running operation: script-attach")
-	_fail(OP_ERROR_UNKNOWN_OPERATION, "script-attach not yet implemented")
+	var path := _string_param(params, "path")
+
+	# Cheap script-path shape checks first, before the costlier scene load.
+	var script_path := _string_param(params, "script")
+	if not _is_script_path(script_path):
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + script_path)
+		return
+	if not FileAccess.file_exists(script_path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + script_path)
+		return
+
+	var root: Node = _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+	var node_path := _string_param(params, "node")
+	var node := _resolve_node(root, node_path)
+	if node == null:
+		root.free()
+		_fail_node_not_found(node_path)
+		return
+
+	var script := ResourceLoader.load(script_path) as Script
+	if script == null:
+		root.free()
+		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a GDScript: " + script_path
+				+ " — it may not compile")
+		return
+
+	node.set_script(script)
+
+	var repacked := PackedScene.new()
+	var pack_err := repacked.pack(root)
+	if pack_err != OK:
+		root.free()
+		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
+		return
+	var class_name_value: Variant = _script_class_of(node)
+	var save_err := ResourceSaver.save(repacked, path)
+	root.free()
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
+		return
+
+	_succeed({
+		"scene_path": path,
+		"node": node_path,
+		"script": script_path,
+		"class_name": class_name_value,
+	})
 
 
 # script-validate: filled in for issue #118's validate slice.

@@ -19,8 +19,10 @@ from gda.models import (
     ScriptCreateResult,
     ScriptDeleteResult,
     ScriptGetResult,
+    ScriptAttachResult,
     ScriptListResult,
     ScriptSetResult,
+    ScriptValidateResult,
 )
 
 
@@ -399,6 +401,40 @@ def test_script_set_result_round_trips_metadata():
     assert edited.class_name == "Hero"
     assert edited.extends == "Node2D"
     assert json.loads(edited.model_dump_json()) == payload
+
+
+def test_script_attach_result_round_trips_with_class_name():
+    # script attach (issue #118) echoes the scene, node, attached script, and the
+    # script's declared class_name — the result an agent asserts to confirm the
+    # binding took effect.
+    payload = {
+        "scene_path": "res://main.tscn",
+        "node": "Hero",
+        "script": "res://hero.gd",
+        "class_name": "Hero",
+    }
+
+    attached = ScriptAttachResult.model_validate(payload)
+
+    assert attached.node == "Hero"
+    assert attached.script == "res://hero.gd"
+    assert attached.class_name == "Hero"
+    assert json.loads(attached.model_dump_json()) == payload
+
+
+def test_script_attach_result_round_trips_null_class_name():
+    # A script with no class_name attaches fine; the result carries null.
+    payload = {
+        "scene_path": "res://main.tscn",
+        "node": ".",
+        "script": "res://util.gd",
+        "class_name": None,
+    }
+
+    attached = ScriptAttachResult.model_validate(payload)
+
+    assert attached.class_name is None
+    assert json.loads(attached.model_dump_json()) == payload
 
 
 def test_node_set_result_round_trips_the_coerced_property():
