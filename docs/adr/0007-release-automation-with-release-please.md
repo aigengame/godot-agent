@@ -48,13 +48,16 @@ release (#79). Bracketing alone only fixes the happy path: the hazardous state
 survives a failed run, so maintenance additionally **gates on the manifest
 version's tag actually existing** and is skipped (with a warning annotation)
 when it does not — that gate, not the bracketing, is what stops a later push
-from regenerating the spurious Release PR across runs (#82). Three further
+from regenerating the spurious Release PR across runs (#82). Two further
 guards harden the chain: the build job checks out the exact commit
 release-please tagged rather than the push HEAD, so concurrent pushes cannot
-publish artifacts from the wrong commit (#83); the publish is idempotent so a
-re-run recovers a partial publish (#84); and manual dispatch runs in an
-isolated concurrency lane so an ordinary push cannot cancel a recovery run
-(#85).
+publish artifacts from the wrong commit (#83); and the publish is idempotent so
+a re-run recovers a partial publish (#84).
+(A third guard, an isolated concurrency lane for manual dispatch (#85), is
+[superseded by ADR-0008](0008-single-authoritative-version-source.md): with the
+manual escape hatch retired the lane was removed, and the release workflow's
+concurrency group reverted to the simple `${{ github.workflow }}-${{ github.ref }}`
+form.)
 
 A `workflow_dispatch` escape hatch retains the previous manual semantics:
 given an **existing** tag, it runs the same verify-and-build chain and creates
