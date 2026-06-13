@@ -17,10 +17,6 @@ from gda.binary import resolve_godot_binary
 
 GODOT = resolve_godot_binary()
 
-requires_godot = pytest.mark.skipif(
-    not GODOT.exists(), reason=f"real Godot binary not found at {GODOT}"
-)
-
 
 def _gda(*args: str) -> subprocess.CompletedProcess:
     gda_bin = shutil.which("gda")
@@ -31,7 +27,6 @@ def _gda(*args: str) -> subprocess.CompletedProcess:
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_res_path_round_trip_against_the_project_fixture(godot_project):
     # The project context (issue #32): with --project pointing at the temp
     # project fixture, a res:// path resolves against it — proving the fixture
@@ -60,7 +55,6 @@ def test_res_path_round_trip_against_the_project_fixture(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_create_then_get_round_trip(godot_project):
     scene_path = godot_project / "main.tscn"
 
@@ -86,7 +80,6 @@ def test_scene_create_then_get_round_trip(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_path_containing_end_sentinel_round_trips(godot_project):
     # issue #34: the result payload echoes the target path verbatim. A path
     # containing the literal end sentinel must round-trip, not be truncated into
@@ -117,7 +110,6 @@ def test_scene_path_containing_end_sentinel_round_trips(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_create_creates_missing_parent_directories(godot_project):
     scene_path = godot_project / "levels" / "demo" / "main.tscn"
 
@@ -140,7 +132,6 @@ def test_scene_create_creates_missing_parent_directories(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_create_creates_relative_parent_directories_against_project(
     godot_project,
 ):
@@ -173,7 +164,6 @@ def test_scene_create_creates_relative_parent_directories_against_project(
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_create_existing_path_yields_already_exists_without_overwriting(
     godot_project,
 ):
@@ -194,7 +184,6 @@ def test_scene_create_existing_path_yields_already_exists_without_overwriting(
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_create_empty_root_name_yields_structured_error(godot_project):
     scene_path = godot_project / ".tscn"
 
@@ -211,7 +200,6 @@ def test_scene_create_empty_root_name_yields_structured_error(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_create_rejects_root_name_godot_would_rewrite(godot_project):
     scene_path = godot_project / "bad-name.tscn"
 
@@ -235,7 +223,6 @@ def test_scene_create_rejects_root_name_godot_would_rewrite(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_create_rejects_dotted_default_root_name_but_allows_override(
     godot_project,
 ):
@@ -284,7 +271,6 @@ NESTED_TSCN = """\
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_get_reports_nested_tree(godot_project):
     # Guards the SceneState parent/child reconstruction (issue #30): a scene
     # read without instantiation must still report nested structure correctly.
@@ -303,7 +289,6 @@ def test_scene_get_reports_nested_tree(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_get_missing_file_yields_structured_error_end_to_end(godot_project):
     # The finer operation code (issue #18) survives the whole real stack: the
     # GDScript op reports path_not_found through the ADR-0002 error envelope,
@@ -321,7 +306,6 @@ def test_scene_get_missing_file_yields_structured_error_end_to_end(godot_project
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_create_unwritable_directory_yields_structured_save_failed(godot_project):
     # The residual save-failure contract (issue #35): when the destination
     # cannot be written, the engine's ERR_CANT_OPEN surfaces as the stable
@@ -352,7 +336,6 @@ def test_scene_create_unwritable_directory_yields_structured_save_failed(godot_p
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_create_unknown_root_type_yields_structured_error_end_to_end(
     godot_project,
 ):
@@ -383,7 +366,6 @@ def _gda_project(project) -> "callable":
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_list_enumerates_created_scenes(godot_project):
     # scene list (issue #54) enumerates the project's .tscn scenes by walking
     # res://: two scenes created at different depths both appear, each with its
@@ -415,7 +397,6 @@ def test_scene_list_enumerates_created_scenes(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_list_enumerates_dot_prefixed_scenes_but_skips_godot_cache(godot_project):
     # scene list promises to enumerate every .tscn in the project, so a
     # dot-prefixed scene (a hidden file, or one under a hidden directory) must
@@ -468,7 +449,6 @@ def test_scene_list_enumerates_dot_prefixed_scenes_but_skips_godot_cache(godot_p
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_list_on_empty_project_is_an_empty_listing(godot_project):
     # A project with no scenes is a valid, empty listing — not an error (the
     # res://.godot import cache must not leak in as a phantom scene).
@@ -481,7 +461,6 @@ def test_scene_list_on_empty_project_is_an_empty_listing(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_list_without_project_yields_project_not_found(tmp_path):
     # scene list cannot enumerate res:// projectless: run from a non-project
     # directory with no --project, it must refuse with the structured
@@ -504,7 +483,6 @@ def test_scene_list_without_project_yields_project_not_found(tmp_path):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_delete_removes_a_scene_and_names_what_was_removed(godot_project):
     # scene delete (issue #54) removes a scene file and names the removed root.
     # The round-trip verifier: scene list before shows the scene, delete reports
@@ -532,7 +510,6 @@ def test_scene_delete_removes_a_scene_and_names_what_was_removed(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_delete_missing_file_yields_path_not_found(godot_project):
     missing = godot_project / "missing.tscn"
 
@@ -546,7 +523,6 @@ def test_scene_delete_missing_file_yields_path_not_found(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_delete_refuses_non_scene_file_and_leaves_it_on_disk(godot_project):
     # The delete safety boundary (issue #54): delete only removes a file that
     # loads as a PackedScene, so a stray non-scene file is refused with

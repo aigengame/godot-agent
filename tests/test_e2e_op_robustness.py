@@ -21,13 +21,8 @@ from gda.runner import OPERATIONS_GD, RunResult, SubprocessGodotRunner
 
 GODOT = resolve_godot_binary()
 
-requires_godot = pytest.mark.skipif(
-    not GODOT.exists(), reason=f"real Godot binary not found at {GODOT}"
-)
-
 
 @pytest.mark.e2e
-@requires_godot
 def test_malformed_param_fails_promptly_not_as_timeout():
     # A non-string path is the input that previously crashed the GDScript's
     # typed assignment and hung the process until the 60s runner timeout, then
@@ -46,7 +41,6 @@ def test_malformed_param_fails_promptly_not_as_timeout():
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_unknown_operation_yields_stable_code():
     runner = SubprocessGodotRunner(GODOT)
     result = runner.run("bogus-op", {})
@@ -58,7 +52,6 @@ def test_unknown_operation_yields_stable_code():
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_non_json_params_yield_stable_code():
     # Bypass the runner (which json.dumps its params) to hand the op a
     # syntactically invalid params payload directly.
