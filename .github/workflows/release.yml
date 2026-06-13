@@ -179,9 +179,55 @@ jobs:
           echo "::warning title=Release pipeline needs recovery::Tag ${tag} for the current manifest version does not exist, so release-PR maintenance is skipped to avoid regenerating a spurious full-history Release PR (#79). A previous release likely failed to publish, leaving a tag-less draft. See ADR-0007 for recovery."
 
       - name: Run release-please (release PR maintenance only)
+        id: release
         if: steps.tag_gate.outputs.tag_present == 'true'
         uses: googleapis/release-please-action@v4
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           skip-github-release: true
+
+      # Bring uv.lock under release-please's single version authority (ADR-0008):
+      # release-please bumps pyproject.toml/the manifest but never touches
+      # uv.lock's editable `gda` self-version, so it would drift every release
+      # (#97). Regenerate uv.lock on the Release PR branch so the lock's gda
+      # version tracks the bumped pyproject.toml and both land in the same PR.
+      #
+      # Both steps run only when maintenance ran (tag_present) AND a Release PR
+      # exists (steps.release.outputs.pr is the PullRequest JSON, unset
+      # otherwise), so a normal no-op push that maintains nothing is unaffected.
+      - name: Set up uv
+        if: steps.tag_gate.outputs.tag_present == 'true' && steps.release.outputs.pr
+        uses: astral-sh/setup-uv@v8.2.0
+
+      # release-please force-updates its branch each run, so this re-applies the
+      # lock each run — intended: the branch ends every run with the synced lock.
+      # Pushes with the default GITHUB_TOKEN do not trigger workflows (recursion
+      # guard), which is fine here. uv sync --frozen would NOT rewrite the lock,
+      # so we run uv lock. If uv.lock is unchanged the step is a no-op.
+      - name: Sync uv.lock on the Release PR branch
+        if: steps.tag_gate.outputs.tag_present == 'true' && steps.release.outputs.pr
+        env:
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+        run: |
+          branch="$(echo "$RELEASE_PR" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("headBranchName", ""))')"
+          if [[ -z "$branch" ]]; then
+            # Fall back to release-please's branch-naming convention.
+            branch="release-please--branches--${GITHUB_REF_NAME}"
+            echo "Release PR JSON had no headBranchName; falling back to ${branch}."
+          fi
+          git fetch origin "$branch"
+          # -B ... FETCH_HEAD is robust regardless of the narrow refspec
+          # actions/checkout configures: a bare `git checkout "$branch"` would
+          # fail because the bare fetch updates only FETCH_HEAD, not origin/$branch.
+          git checkout -B "$branch" FETCH_HEAD
+          uv lock
+          if git diff --quiet -- uv.lock; then
+            echo "uv.lock already in sync with the release version; nothing to do."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add uv.lock
+          git commit -m "chore: sync uv.lock with the release version"
+          git push origin "HEAD:${branch}"
