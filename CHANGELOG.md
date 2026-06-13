@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/aigengame/godot-agent/compare/v0.1.7...v0.1.8) (2026-06-13)
+
+
+### Features
+
+* **script:** script create + script get — script-group tracer ([#110](https://github.com/aigengame/godot-agent/issues/110)) ([#123](https://github.com/aigengame/godot-agent/issues/123)) ([24cd5c5](https://github.com/aigengame/godot-agent/commit/24cd5c5e6427ea27c59bf4dc0915d1584913ef5b))
+
 ## [0.1.7](https://github.com/aigengame/godot-agent/compare/v0.1.6...v0.1.7) (2026-06-13)
 
 
