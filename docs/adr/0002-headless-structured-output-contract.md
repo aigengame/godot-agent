@@ -113,6 +113,8 @@ source and is checked by tests. GDScript mirrors only the rows whose source is
 - Adding or changing a `GdaError.code` requires updating the Python registry, this
   ADR's registry table, and any GDScript operation-code mirror. Tests must reject
   drift between those copies.
-- `gda <command> --schema` currently describes the success result model. Whether
-  command output schemas should include failure envelopes is a separate decision
-  tracked in #43.
+- `gda <command> --schema` describes the success result model under its `output`
+  key. Whether command schemas should include the failure envelope was resolved in
+  #43: `--schema` now also carries a uniform `error` key holding this ADR's failure
+  envelope (the shared `GdaErrorEnvelope` schema), kept separate from `output` so the
+  success result and the failure envelope stay distinct channels. See ADR-0004.
