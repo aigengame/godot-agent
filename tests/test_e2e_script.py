@@ -165,6 +165,7 @@ def test_script_create_wrong_extension_yields_invalid_path(godot_project):
 
     err = _assert_operation_error(created, "invalid_path")
     assert ".gd" in err["message"]
+    assert str(target) in err["message"]
     assert not target.exists()
 
 
@@ -180,6 +181,7 @@ def test_script_create_cs_extension_is_refused(godot_project):
 
     err = _assert_operation_error(created, "invalid_path")
     assert ".gd" in err["message"]
+    assert str(target) in err["message"]
     assert not target.exists()
 
 
@@ -202,6 +204,7 @@ def test_script_get_wrong_extension_yields_invalid_path(godot_project):
 
     err = _assert_operation_error(got, "invalid_path")
     assert ".gd" in err["message"]
+    assert str(notes) in err["message"]
 
 
 @pytest.mark.e2e
@@ -285,6 +288,25 @@ def test_script_get_does_not_mistake_declaration_shaped_body_text_for_metadata(
     assert got_data["source"] == source
     assert got_data["extends"] == "Node"
     assert got_data["class_name"] is None
+
+
+@pytest.mark.e2e
+def test_script_get_keeps_a_quoted_base_class_path_intact(godot_project):
+    # `extends "res://Base.gd"` (base-class-by-path) is legal GDScript. The
+    # metadata parser keeps the quoted string whole up to its closing quote —
+    # including a '#' inside the path, which is part of the string, not an inline
+    # comment — rather than truncating at the '#' or splitting on whitespace.
+    script_path = godot_project / "derived.gd"
+    source = 'extends "res://weapons/a#b.gd"\n'
+
+    created = _gda("script", "create", str(script_path), "--content", source, "--json")
+
+    assert created.returncode == 0, created.stdout + created.stderr
+    assert json.loads(created.stdout)["extends"] == '"res://weapons/a#b.gd"'
+
+    got = _gda("script", "get", str(script_path), "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert json.loads(got.stdout)["extends"] == '"res://weapons/a#b.gd"'
 
 
 @pytest.mark.e2e

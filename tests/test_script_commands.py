@@ -108,7 +108,7 @@ def test_script_create_content_passes_verbatim_source(monkeypatch):
 def test_script_create_content_and_extends_are_mutually_exclusive(monkeypatch):
     # Verbatim content is not templated, so a base class has nowhere to go;
     # supplying both is a usage error (exit 2), never a silent precedence rule.
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0))
+    fake = inject_runner(monkeypatch, RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0))
 
     result = CliRunner().invoke(
         app,
@@ -125,6 +125,8 @@ def test_script_create_content_and_extends_are_mutually_exclusive(monkeypatch):
     )
 
     assert result.exit_code == 2
+    # The usage error fires before any dispatch — the engine is never reached.
+    assert fake.calls == []
 
 
 GET_RESULT = {

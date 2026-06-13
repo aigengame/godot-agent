@@ -161,7 +161,7 @@ func _op_scene_create(params: Dictionary) -> void:
 	var save_err := ResourceSaver.save(packed, path)
 	root.free()
 	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(path, save_err))
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
 		return
 
 	_succeed({
@@ -311,7 +311,7 @@ func _op_node_add(params: Dictionary) -> void:
 	var save_err := ResourceSaver.save(repacked, path)
 	root.free()
 	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(path, save_err))
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
 		return
 
 	_succeed({
@@ -442,7 +442,7 @@ func _op_node_set(params: Dictionary) -> void:
 	var stored_value: Variant = _jsonify(node.get(prop_name))
 	root.free()
 	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(path, save_err))
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
 		return
 
 	_succeed({
@@ -493,10 +493,18 @@ func _op_script_create(params: Dictionary) -> void:
 		return  # _ensure_parent_dirs already recorded the failure
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
-		_fail(OP_ERROR_SAVE_FAILED, _script_save_failure_message(path, FileAccess.get_open_error()))
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, FileAccess.get_open_error()))
 		return
 	file.store_string(source)
+	# A successful open does not guarantee a successful write: a disk-full or I/O
+	# error surfaces here, not at open. Capture it before close() invalidates the
+	# handle, so a failed write is reported as save_failed rather than a phantom
+	# success over a partial or empty file (mirrors scene-create checking save).
+	var write_err := file.get_error()
 	file.close()
+	if write_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
+		return
 
 	var meta := _script_metadata(source)
 	_succeed({
@@ -588,29 +596,26 @@ func _script_metadata(source: String) -> Dictionary:
 	return {"class_name": class_name_value, "extends": extends_value}
 
 
-# The first whitespace-delimited token of a declaration's remainder — the
-# class_name or base-class identifier — with a trailing inline comment dropped.
-# e.g. "Hero # the hero" → "Hero", "Node2D" → "Node2D".
+# The first token of a declaration's remainder — the class_name or base-class
+# identifier. A bare identifier drops a trailing inline comment and stops at the
+# first whitespace: "Hero # the hero" → "Hero", "Node2D" → "Node2D". The quoted
+# base-class-by-path form (extends "res://Base.gd") is kept whole up to its
+# closing quote — including any '#' inside the path, which is part of the string,
+# not an inline comment.
 func _first_token(rest: String) -> Variant:
 	var trimmed := rest.strip_edges()
 	if trimmed.is_empty():
 		return null
+	if trimmed.begins_with("\"") or trimmed.begins_with("'"):
+		var quote := trimmed[0]
+		var close := trimmed.find(quote, 1)
+		# An unterminated quote is reported as-is rather than silently truncated.
+		return trimmed.substr(0, close + 1) if close != -1 else trimmed
 	var comment := trimmed.find("#")
 	if comment != -1:
 		trimmed = trimmed.substr(0, comment).strip_edges()
 	var token := trimmed.split(" ", false)[0]
 	return token if not token.is_empty() else null
-
-
-# A save-failure message for a raw-text script write, mirroring the scene
-# variant's write-probe diagnostic so an unwritable target reports why.
-func _script_save_failure_message(path: String, open_err: Error) -> String:
-	var parent := path.get_base_dir()
-	var message := "failed to save script to " + path
-	if not parent.is_empty():
-		message += " in parent directory " + parent
-	message += ": " + error_string(open_err)
-	return message
 
 
 # Whether this headless process is running against a Godot project. A project
@@ -1100,9 +1105,13 @@ func _ensure_parent_dirs(path: String) -> Variant:
 	return missing
 
 
-func _save_failure_message(path: String, save_err: Error) -> String:
+# Build a save-failure diagnostic for a `noun` (scene / script) written to
+# `path`: the error, the parent directory, and a write-probe that names why the
+# directory is unwritable when that is the cause. Shared by every save path so
+# the diagnostic (and the probe) stays identical across groups.
+func _save_failure_message(noun: String, path: String, save_err: Error) -> String:
 	var parent := path.get_base_dir()
-	var message := "failed to save scene to " + path
+	var message := "failed to save " + noun + " to " + path
 	if not parent.is_empty():
 		message += " in parent directory " + parent
 	message += ": " + error_string(save_err)
