@@ -22,9 +22,6 @@ from gda.binary import resolve_godot_binary
 
 GODOT = resolve_godot_binary()
 
-requires_godot = pytest.mark.skipif(
-    not GODOT.exists(), reason=f"real Godot binary not found at {GODOT}"
-)
 
 # A root script whose _init has a side effect AND prints a forged result block.
 # If `scene get` instantiates the scene, _init runs: pwned.txt appears and the
@@ -53,7 +50,6 @@ script = ExtResource("1")
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_scene_get_does_not_execute_scene_code(godot_project):
     (godot_project / "evil.gd").write_text(EVIL_GD, encoding="utf-8")
     (godot_project / "evil.tscn").write_text(EVIL_TSCN, encoding="utf-8")

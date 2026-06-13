@@ -16,10 +16,6 @@ from gda.binary import resolve_godot_binary
 
 GODOT = resolve_godot_binary()
 
-requires_godot = pytest.mark.skipif(
-    not GODOT.exists(), reason=f"real Godot binary not found at {GODOT}"
-)
-
 
 def _gda(*args: str) -> subprocess.CompletedProcess:
     gda_bin = shutil.which("gda")
@@ -37,7 +33,6 @@ def _create_scene(scene_path) -> None:
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_then_list_round_trip(godot_project):
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
@@ -69,7 +64,6 @@ def test_node_add_then_list_round_trip(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_under_nested_parent_path(godot_project):
     # Node-path addressing end-to-end (issue #53): the path node list reports
     # for a node ("Hero") is exactly the address node add accepts as --parent,
@@ -104,7 +98,6 @@ def test_node_add_under_nested_parent_path(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_default_name_is_the_type_name(godot_project):
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
@@ -126,7 +119,6 @@ def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dic
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_to_missing_scene_yields_path_not_found(godot_project):
     missing = godot_project / "missing.tscn"
 
@@ -137,7 +129,6 @@ def test_node_add_to_missing_scene_yields_path_not_found(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_bad_parent_yields_parent_not_found_and_leaves_file_unchanged(
     godot_project,
 ):
@@ -170,7 +161,6 @@ def _scene_with_nested_children(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 @pytest.mark.parametrize("form", ["..", "../A", "/root/A"])
 def test_node_add_parent_path_escaping_or_absolute_stays_rejected(
     godot_project, form
@@ -194,7 +184,6 @@ def test_node_add_parent_path_escaping_or_absolute_stays_rejected(
 
 
 @pytest.mark.e2e
-@requires_godot
 @pytest.mark.parametrize(
     "form", ["A/..", "A/", "A/B/", "A//B", "./A", "A/./B", "A:position"]
 )
@@ -220,7 +209,6 @@ def test_node_add_rejects_non_canonical_parent_path(godot_project, form):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_explicit_dot_parent_addresses_the_root(godot_project):
     # The canonical root address: '.' must keep working verbatim — it is the
     # form node list reports for the root, and the CLI's --parent default.
@@ -236,7 +224,6 @@ def test_node_add_explicit_dot_parent_addresses_the_root(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_name_collision_yields_duplicate_node_name(godot_project):
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
@@ -258,7 +245,6 @@ def test_node_add_name_collision_yields_duplicate_node_name(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_collision_with_internal_child_yields_duplicate_node_name(
     godot_project,
 ):
@@ -293,7 +279,6 @@ def test_node_add_collision_with_internal_child_yields_duplicate_node_name(
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_unknown_type_yields_invalid_node_type(godot_project):
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
@@ -307,7 +292,6 @@ def test_node_add_unknown_type_yields_invalid_node_type(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_rejects_name_godot_would_rewrite(godot_project):
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
@@ -322,7 +306,6 @@ def test_node_add_rejects_name_godot_would_rewrite(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_list_missing_scene_yields_path_not_found(godot_project):
     missing = godot_project / "missing.tscn"
 
@@ -333,7 +316,6 @@ def test_node_list_missing_scene_yields_path_not_found(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_list_non_scene_file_yields_not_a_scene(godot_project):
     notes = godot_project / "notes.txt"
     notes.write_text("not a scene\n", encoding="utf-8")
@@ -390,7 +372,6 @@ def _write_instance_fixture(
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_preserves_editable_instance_overrides(godot_project):
     # Issue #64's data-integrity contract, pinned as a regression test: the
     # load → instantiate → edit → pack → save round-trip must keep every kind
@@ -426,7 +407,6 @@ def test_node_add_preserves_editable_instance_overrides(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_without_project_context_refuses_rather_than_drops_instances(
     godot_project,
 ):
@@ -446,7 +426,6 @@ def test_node_add_without_project_context_refuses_rather_than_drops_instances(
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_refuses_scene_whose_sub_scene_cannot_resolve(godot_project):
     # The real data-loss mode of issue #64: when an instanced sub-scene cannot
     # be resolved on load (broken dependency), instantiate drops the whole
@@ -481,7 +460,6 @@ UNINSTANTIABLE_CHILD_TSCN = """\
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_refuses_scene_that_instantiates_to_null(godot_project):
     # The nested-null mode of issue #64: the sub-scene resource loads fine but
     # instantiates to nothing, and the parent scene's instantiate() returns
@@ -516,7 +494,6 @@ MISSING_CLASS_TSCN = """\
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_refuses_scene_whose_declared_class_is_substituted(godot_project):
     # The degraded-node mode of issue #64: when a declared class is unavailable
     # at instantiate time, the engine warns and substitutes a placeholder node
@@ -557,7 +534,6 @@ def _import_project(project) -> None:
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_by_class_name_attaches_the_script(godot_project):
     # The second half of --type's contract (issue #53): a class_name registered
     # in the project's global class list resolves like a built-in type. The
@@ -592,7 +568,6 @@ def test_node_add_by_class_name_attaches_the_script(godot_project):
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_by_unregistered_class_name_yields_invalid_node_type(godot_project):
     # Without a project import there is no global class list: the class_name
     # cannot resolve, and the failure must be the structured invalid_node_type,
@@ -619,7 +594,6 @@ func broken( -> void:
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_by_registered_but_broken_class_name_names_the_script(godot_project):
     # Issue #65's broken-class_name mode: the class_name IS in the global class
     # list (the import scanned a then-valid script), but the script on disk has
@@ -655,7 +629,6 @@ extends Resource
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_by_non_node_class_name_yields_invalid_node_type(godot_project):
     # The boundary of issue #65's distinction: a registered class_name whose
     # script is fine but not Node-derived is a true type error — it stays
@@ -692,7 +665,6 @@ func _init(speed: float) -> void:
 
 
 @pytest.mark.e2e
-@requires_godot
 def test_node_add_by_class_name_whose_init_requires_args_names_the_constructor(
     godot_project,
 ):

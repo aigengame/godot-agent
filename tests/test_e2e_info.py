@@ -16,13 +16,8 @@ from gda.binary import resolve_godot_binary
 
 GODOT = resolve_godot_binary()
 
-requires_godot = pytest.mark.skipif(
-    not GODOT.exists(), reason=f"real Godot binary not found at {GODOT}"
-)
-
 
 @pytest.mark.e2e
-@requires_godot
 def test_gda_info_json_against_real_godot():
     gda_bin = shutil.which("gda")
     assert gda_bin, "the `gda` console script is not on PATH"
