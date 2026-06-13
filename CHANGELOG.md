@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/aigengame/godot-agent/compare/v0.1.8...v0.1.9) (2026-06-13)
+
+
+### Features
+
+* **script:** script list + script delete — round out script-file CRUD ([#117](https://github.com/aigengame/godot-agent/issues/117)) ([#127](https://github.com/aigengame/godot-agent/issues/127)) ([56926a3](https://github.com/aigengame/godot-agent/commit/56926a38002e97397519f2427ae579ea9006accc))
+
 ## [0.1.8](https://github.com/aigengame/godot-agent/compare/v0.1.7...v0.1.8) (2026-06-13)
 
 
