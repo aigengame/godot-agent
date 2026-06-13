@@ -287,7 +287,10 @@ uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
 ```
 
-The `e2e` tests auto-skip if no Godot binary is found at the resolved path.
+The `e2e` tier runs by default with `uv run pytest`, and **fails loudly** — naming the
+resolved path and how to fix it — if no Godot binary is found there, rather than skipping.
+Deselect the whole tier with `-m "not e2e"` (CI's per-PR job uses exactly this) when you
+have no engine; use `-m e2e` to run only the e2e tests.
 
 ### Project layout
 
@@ -306,8 +309,9 @@ docs/adr/           # architecture decision records
 CONTEXT.md          # the project's shared domain language
 ```
 
-The codebase is intentionally built around **fakeable seams** (e.g. the `GodotRunner` Protocol) so
-commands can be tested without launching a real engine.
+The only external boundary — spawning a Godot process — sits behind the `GodotRunner` Protocol
+(`runner.py`). Fast unit and CLI tests inject a canned result through that boundary; the e2e suite
+drives a real engine. Everything between the CLI and the runner runs as real code in both tiers.
 
 ---
 
