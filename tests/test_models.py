@@ -20,6 +20,7 @@ from gda.models import (
     ScriptDeleteResult,
     ScriptGetResult,
     ScriptListResult,
+    ScriptSetResult,
 )
 
 
@@ -381,6 +382,23 @@ def test_script_delete_result_round_trips():
     assert deleted.class_name == "Hero"
     assert deleted.extends == "Node2D"
     assert json.loads(deleted.model_dump_json()) == payload
+
+
+def test_script_set_result_round_trips_metadata():
+    # script set re-parses the written source's class_name/extends (issue #118),
+    # so an edit round-trips through script get: the metadata dumps back faithfully.
+    payload = {
+        "path": "res://hero.gd",
+        "class_name": "Hero",
+        "extends": "Node2D",
+    }
+
+    edited = ScriptSetResult.model_validate(payload)
+
+    assert edited.path == "res://hero.gd"
+    assert edited.class_name == "Hero"
+    assert edited.extends == "Node2D"
+    assert json.loads(edited.model_dump_json()) == payload
 
 
 def test_node_set_result_round_trips_the_coerced_property():

@@ -45,6 +45,8 @@ const OP_ERROR_UNINSTANTIABLE_SCRIPT := "uninstantiable_script"
 const OP_ERROR_NODE_NOT_FOUND := "node_not_found"
 const OP_ERROR_UNKNOWN_PROPERTY := "unknown_property"
 const OP_ERROR_UNCOERCIBLE_VALUE := "uncoercible_value"
+const OP_ERROR_NO_SEARCH_MATCH := "no_search_match"
+const OP_ERROR_INVALID_LINE_RANGE := "invalid_line_range"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -94,6 +96,12 @@ func _initialize() -> void:
 			_op_script_list(params)
 		"script-delete":
 			_op_script_delete(params)
+		"script-set":
+			_op_script_set(params)
+		"script-attach":
+			_op_script_attach(params)
+		"script-validate":
+			_op_script_validate(params)
 		_:
 			_fail(OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 
@@ -622,6 +630,129 @@ func _op_script_delete(params: Dictionary) -> void:
 		"class_name": meta["class_name"],
 		"extends": meta["extends"],
 	})
+
+
+# script-set: edit an EXISTING .gd script on disk as RAW TEXT (issue #118) — it
+# never compiles or loads the script, so editing it cannot run project code (the
+# read trust boundary of issue #30, the same one create/get/delete honor). Three
+# mutually-exclusive edit modes, inferred by param presence with precedence
+# search → line-range → full (the CLI guarantees exactly one is supplied):
+# - search-replace: replace EVERY literal (not regex) occurrence of `search`.
+# - line-range: replace the 1-based, inclusive line span [start_line, end_line]
+#   with `content`. Lines are the parts of the source split on "\n", so a
+#   trailing newline yields a final empty part ("a\nb\n" → ["a","b",""], 3 lines).
+# - full: overwrite the whole file with `content`.
+# set edits an existing script; it never creates — a missing target is
+# path_not_found, not a silent create.
+func _op_script_set(params: Dictionary) -> void:
+	_diag("running operation: script-set")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _is_script_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
+		return
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
+		return
+
+	var source := FileAccess.get_file_as_string(path)
+	# get_file_as_string returns "" both for an empty file and on an open error;
+	# disambiguate via the open-error code so an unreadable file is not edited as
+	# if it were empty (mirrors script-get). An empty .gd is legal source.
+	if source.is_empty():
+		var open_err := FileAccess.get_open_error()
+		if open_err != OK:
+			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
+					+ ": " + error_string(open_err))
+			return
+
+	# Infer the mode by presence, precedence search → line-range → full.
+	var new_source: Variant
+	if params.get("search", null) is String:
+		new_source = _apply_search_replace(source, params)
+	elif params.get("start_line", null) != null:
+		new_source = _apply_line_range(source, params)
+	else:
+		# full overwrite: content is guaranteed present by the CLI's mode check.
+		new_source = _string_param(params, "content")
+	if new_source == null:
+		return  # the apply helper already recorded the failure
+
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, FileAccess.get_open_error()))
+		return
+	file.store_string(new_source)
+	# A successful open does not guarantee a successful write (mirrors
+	# script-create): capture a disk-full/I/O error before close() invalidates
+	# the handle, so a failed write is save_failed, not a phantom success.
+	var write_err := file.get_error()
+	file.close()
+	if write_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
+		return
+
+	# Re-parse the written source so set round-trips through script get.
+	var meta := _script_metadata(new_source)
+	_succeed({
+		"path": path,
+		"class_name": meta["class_name"],
+		"extends": meta["extends"],
+	})
+
+
+# search-replace edit: replace every literal occurrence of `search` with
+# `replace`. An empty or absent search string can never be located, and a search
+# string the source does not contain is a no_search_match failure (so an agent
+# learns the edit landed nowhere rather than silently writing the file back
+# unchanged). Returns null after recording the failure.
+func _apply_search_replace(source: String, params: Dictionary) -> Variant:
+	var search := _string_param(params, "search")
+	var replace := _string_param(params, "replace")
+	if search.is_empty() or not source.contains(search):
+		_fail(OP_ERROR_NO_SEARCH_MATCH, "search string not found in script: " + search.c_escape())
+		return null
+	return source.replace(search, replace)
+
+
+# line-range edit: replace the 1-based, inclusive line span [start_line,
+# end_line] with `content`. Lines are the parts of the source split on "\n", so
+# a trailing newline yields a final empty part ("a\nb\n" → ["a","b",""], N=3);
+# the valid range is 1..N. end_line defaults to start_line (a single-line edit).
+# A range outside the bounds, or end before start, is invalid_line_range.
+# Returns null after recording the failure.
+func _apply_line_range(source: String, params: Dictionary) -> Variant:
+	var lines := source.split("\n")
+	var line_count := lines.size()
+	var start_line := int(params.get("start_line", 0))
+	var end_line: int = int(params.get("end_line", start_line)) if params.get("end_line", null) != null else start_line
+	if start_line < 1 or start_line > line_count or end_line < start_line or end_line > line_count:
+		_fail(OP_ERROR_INVALID_LINE_RANGE, "line range " + str(start_line) + ".." + str(end_line)
+				+ " is outside the script's bounds (1.." + str(line_count) + ") or ends before it starts")
+		return null
+	var content := _string_param(params, "content")
+	var before := lines.slice(0, start_line - 1)
+	var after := lines.slice(end_line)
+	var replacement := content.split("\n")
+	var rebuilt: Array = []
+	rebuilt.append_array(before)
+	rebuilt.append_array(replacement)
+	rebuilt.append_array(after)
+	return "\n".join(PackedStringArray(rebuilt))
+
+
+# script-attach: filled in for issue #118's attach slice.
+func _op_script_attach(params: Dictionary) -> void:
+	_diag("running operation: script-attach")
+	_fail(OP_ERROR_UNKNOWN_OPERATION, "script-attach not yet implemented")
+
+
+# script-validate: filled in for issue #118's validate slice.
+func _op_script_validate(params: Dictionary) -> void:
+	_diag("running operation: script-validate")
+	_fail(OP_ERROR_UNKNOWN_OPERATION, "script-validate not yet implemented")
 
 
 # Whether a path names a script file the script group operates on: a .gd

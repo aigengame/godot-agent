@@ -181,6 +181,26 @@ boundary as the rest of the group — only a `.gd` path is removed (a non-`.gd` 
 with `invalid_path`, never erasing an arbitrary file), and a missing target is `path_not_found`.
 The lifecycle round-trips: `create` → `list` shows it → `delete` → `list` no longer shows it.
 
+**Editing source** (established by #118): `gda script set PATH` edits an **existing** `.gd`
+script as **raw text** — it never compiles or loads the script, so editing one never runs
+project code (the read trust boundary of #30). It edits only a script that exists; a missing
+target is `path_not_found`, never a silent create. Exactly one of three mutually-exclusive
+modes is selected at the CLI (a missing or mixed mode is a usage error, exit 2):
+
+- **search-replace** — `--search <old> --replace <new>`: replace **every** literal (not regex)
+  occurrence of `<old>` with `<new>`. A search string the source does not contain is refused
+  with `no_search_match` (the edit landed nowhere; the file is left untouched). `--search` and
+  `--replace` are required together and cannot be combined with the other modes' flags.
+- **line-range** — `--start-line N [--end-line M] --content <text>`: replace lines `N..M`
+  (1-based, **inclusive**; `M` defaults to `N`) with `<text>`. **Lines are the parts of the
+  source split on `\n`**, so a trailing newline yields a final empty part — `"a\nb\n"` is **3**
+  lines (`["a", "b", ""]`). The valid range is `1..N` where `N` is that part count; a range
+  outside the bounds, or `end` before `start`, is refused with `invalid_line_range`.
+- **full** — `--content <text>` with no `--start-line`: overwrite the entire file.
+
+`script set` re-parses the **written** source's `class_name`/`extends` and returns them, so an
+edit round-trips through `script get` (the verifier).
+
 | Command | Description |
 | --- | --- |
 | `gda script create` | Create a `.gd` script (template or content) |

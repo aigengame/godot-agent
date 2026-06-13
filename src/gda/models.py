@@ -607,6 +607,210 @@ class ScriptDeleteResult(BaseModel):
     )
 
 
+class ScriptSetParams(BaseModel):
+    """The operation params of ``gda script set`` (issue #118).
+
+    Edits an existing ``.gd`` script on disk as RAW TEXT — it never compiles or
+    loads the script, so editing one can never run project code (the read trust
+    boundary of issue #30). ``path`` addresses the script by its ``res://`` or
+    filesystem path. The remaining params select one of three mutually-exclusive
+    edit modes (the CLI guarantees exactly one is supplied); the operation infers
+    the mode by presence, with precedence search → line-range → full:
+
+    - **search-replace** — ``search``/``replace`` both present: every literal
+      (not regex) occurrence of ``search`` is replaced with ``replace``.
+    - **line-range** — ``start_line`` (+ optional ``end_line``) with ``content``:
+      the given 1-based, inclusive line span is replaced with ``content``.
+    - **full** — only ``content`` present: the whole file is overwritten.
+    """
+
+    path: str
+    search: str | None = Field(
+        default=None,
+        description=(
+            "search-replace mode: the literal substring to find (NOT a regex). "
+            "Every occurrence is replaced with 'replace'. Requires 'replace'."
+        ),
+    )
+    replace: str | None = Field(
+        default=None,
+        description=(
+            "search-replace mode: the literal text each occurrence of 'search' "
+            "is replaced with. Requires 'search'."
+        ),
+    )
+    start_line: int | None = Field(
+        default=None,
+        description=(
+            "line-range mode: the first line to replace, 1-based and inclusive. "
+            "Lines are the parts of the source split on '\\n', so a trailing "
+            "newline yields a final empty part: 'a\\nb\\n' is 3 lines "
+            "(['a', 'b', '']). Valid range is 1..N where N is that part count. "
+            "Requires 'content'."
+        ),
+    )
+    end_line: int | None = Field(
+        default=None,
+        description=(
+            "line-range mode: the last line to replace, 1-based and inclusive; "
+            "defaults to 'start_line' (a single-line replace). Must satisfy "
+            "start_line <= end_line <= N (the line count). Requires 'content'."
+        ),
+    )
+    content: str | None = Field(
+        default=None,
+        description=(
+            "The replacement text. In line-range mode it replaces the "
+            "start_line..end_line span; with no 'start_line' it overwrites the "
+            "entire file (full mode)."
+        ),
+    )
+
+
+class ScriptSetResult(BaseModel):
+    """The result of ``gda script set``: the edited script's metadata (issue #118).
+
+    Echoes the saved ``path`` and the ``class_name``/``extends`` re-parsed from
+    the source as written, so an edit round-trips through ``script get`` (the
+    verifier) without a second call — and an agent can assert the post-edit
+    metadata directly.
+    """
+
+    path: str
+    class_name: str | None = Field(
+        default=None,
+        description=(
+            "The class_name the edited source declares, or null when it "
+            "declares none."
+        ),
+    )
+    extends: str | None = Field(
+        default=None,
+        description=(
+            "The base class the edited source extends, or null when it "
+            "declares none."
+        ),
+    )
+
+
+class ScriptAttachParams(BaseModel):
+    """The operation params of ``gda script attach`` (issue #118).
+
+    Binds a ``.gd`` script to a node inside a ``.tscn`` scene: load the scene,
+    resolve the node by node path, attach the script, then re-pack and save. As a
+    scene mutation it instantiates the scene (the same inherent trust boundary as
+    ``node set``, ADR-0009): instantiating runs the ``_init`` of scripts already
+    attached in the scene. ``path`` is the scene; ``script`` is the ``.gd`` to
+    attach (loading it compiles the script but never runs an instance of it).
+    """
+
+    path: str = Field(
+        description="The .tscn scene file to mutate."
+    )
+    node: str = Field(
+        description=(
+            "Node path relative to the scene root: '.' addresses the root "
+            "itself, 'Player/Arm' a nested node."
+        )
+    )
+    script: str = Field(
+        description="The .gd script file to attach to the node."
+    )
+
+
+class ScriptAttachResult(BaseModel):
+    """The result of ``gda script attach``: what was bound where (issue #118).
+
+    Echoes the ``scene_path``, the addressed ``node``, and the attached
+    ``script``, plus the script's ``class_name`` when it declares a global one —
+    the result an agent asserts to confirm the binding took effect, verifiable by
+    reading the saved scene back (the script now appears on the node).
+    """
+
+    scene_path: str
+    node: str = Field(
+        description="The node path the script was attached to, relative to the scene root."
+    )
+    script: str = Field(description="The .gd script that was attached.")
+    class_name: str | None = Field(
+        default=None,
+        description=(
+            "The global class_name the attached script declares, or null when "
+            "it declares none."
+        ),
+    )
+
+
+class ScriptDiagnostic(BaseModel):
+    """One advisory diagnostic from ``gda script validate`` (issue #118).
+
+    Best-effort: parsed from the engine's stderr, not from a bound API, so it may
+    carry only the FIRST parse error. ``line`` is 1-based when the engine
+    reported it; ``column`` is ALWAYS null on the standard Godot build — the
+    engine does not expose a column for a parse error — and is kept as a field
+    only so the shape is stable if a future build ever does. ``message`` is the
+    engine's error text with its ``SCRIPT ERROR:`` prefix stripped.
+    """
+
+    line: int | None = Field(
+        default=None,
+        description="The 1-based source line the error was reported at, or null when unknown.",
+    )
+    column: int | None = Field(
+        default=None,
+        description=(
+            "Always null on the standard Godot build: the engine does not "
+            "expose a column for a parse error."
+        ),
+    )
+    message: str
+
+
+class ScriptValidateParams(BaseModel):
+    """The operation params of ``gda script validate``: the script to check (issue #118).
+
+    ``path`` addresses the ``.gd`` script by its ``res://`` or filesystem path.
+    Unlike the other script-file ops, validate DOES compile the script (it sets
+    the source on a fresh ``GDScript`` and reloads it to learn whether it parses),
+    but it never instantiates the script, so it does not run instance code. Pass
+    ``--project`` when the script extends a project ``class_name`` or preloads a
+    project resource and so needs project context to compile.
+    """
+
+    path: str
+
+
+class ScriptValidateResult(BaseModel):
+    """The result of ``gda script validate``: whether the script compiles (issue #118).
+
+    Validating an INVALID script is a SUCCESSFUL operation — the command exits 0
+    and reports ``valid=false`` rather than failing. ``error_string`` carries the
+    engine's one-line summary of the compile error (null when valid).
+    ``diagnostics`` is a best-effort list parsed from the engine's stderr (the
+    only place line/message are available); it may hold only the first error, and
+    is empty when the script is valid or nothing could be parsed.
+    """
+
+    path: str
+    valid: bool = Field(
+        description="True when the script compiles (GDScript.reload() == OK), false otherwise."
+    )
+    error_string: str | None = Field(
+        default=None,
+        description=(
+            "The engine's one-line summary of the compile failure, or null when "
+            "the script is valid."
+        ),
+    )
+    diagnostics: list[ScriptDiagnostic] = Field(
+        default_factory=list,
+        description=(
+            "Best-effort advisory diagnostics parsed from the engine's stderr "
+            "(line + message). May hold only the first error; empty when valid."
+        ),
+    )
+
+
 class EngineVersion(BaseModel):
     """The Godot engine version, as reported by ``Engine.get_version_info()``.
 

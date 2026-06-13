@@ -455,6 +455,143 @@ def test_script_delete_wrong_extension_yields_invalid_path_and_leaves_it(godot_p
 
 
 @pytest.mark.e2e
+def test_script_set_search_replace_edits_in_place_and_round_trips_via_get(godot_project):
+    # search-replace mode (issue #118): every literal occurrence of --search is
+    # replaced with --replace; script get round-trips the edited source on disk.
+    script_path = godot_project / "hero.gd"
+    _gda(
+        "script", "create", str(script_path),
+        "--content", "extends Node\nvar a := Node\n", "--json",
+    )
+
+    edited = _gda(
+        "script", "set", str(script_path),
+        "--search", "Node", "--replace", "Node2D", "--json",
+    )
+
+    assert edited.returncode == 0, edited.stdout + edited.stderr
+    assert json.loads(edited.stdout)["extends"] == "Node2D"
+    got = _gda("script", "get", str(script_path), "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    # Both occurrences replaced; the edited source IS what get reports.
+    assert json.loads(got.stdout)["source"] == "extends Node2D\nvar a := Node2D\n"
+    assert script_path.read_text(encoding="utf-8") == "extends Node2D\nvar a := Node2D\n"
+
+
+@pytest.mark.e2e
+def test_script_set_line_range_replaces_the_span_and_round_trips_via_get(godot_project):
+    # line-range mode: replace lines 2..3 (1-based, inclusive) with new content;
+    # the rest of the file is untouched. Lines are the parts split on "\n".
+    script_path = godot_project / "actor.gd"
+    _gda(
+        "script", "create", str(script_path),
+        "--content", "extends Node\nvar a := 1\nvar b := 2\nfunc f(): pass\n", "--json",
+    )
+
+    edited = _gda(
+        "script", "set", str(script_path),
+        "--start-line", "2", "--end-line", "3", "--content", "var x := 9", "--json",
+    )
+
+    assert edited.returncode == 0, edited.stdout + edited.stderr
+    got = _gda("script", "get", str(script_path), "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert json.loads(got.stdout)["source"] == (
+        "extends Node\nvar x := 9\nfunc f(): pass\n"
+    )
+
+
+@pytest.mark.e2e
+def test_script_set_line_range_defaults_end_to_start_for_a_single_line(godot_project):
+    # --end-line defaults to --start-line: a single-line replace.
+    script_path = godot_project / "single.gd"
+    _gda(
+        "script", "create", str(script_path),
+        "--content", "extends Node\nvar a := 1\nvar b := 2\n", "--json",
+    )
+
+    edited = _gda(
+        "script", "set", str(script_path),
+        "--start-line", "2", "--content", "var a := 99", "--json",
+    )
+
+    assert edited.returncode == 0, edited.stdout + edited.stderr
+    got = _gda("script", "get", str(script_path), "--json")
+    assert json.loads(got.stdout)["source"] == "extends Node\nvar a := 99\nvar b := 2\n"
+
+
+@pytest.mark.e2e
+def test_script_set_full_overwrites_the_whole_file_and_round_trips_via_get(godot_project):
+    # full mode: --content with no --start-line overwrites the entire file.
+    script_path = godot_project / "full.gd"
+    _gda("script", "create", str(script_path), "--content", "extends Node\n", "--json")
+
+    new_source = "class_name Hero\nextends Node2D\n\nvar speed := 100\n"
+    edited = _gda("script", "set", str(script_path), "--content", new_source, "--json")
+
+    assert edited.returncode == 0, edited.stdout + edited.stderr
+    data = json.loads(edited.stdout)
+    assert data["class_name"] == "Hero"
+    assert data["extends"] == "Node2D"
+    got = _gda("script", "get", str(script_path), "--json")
+    assert json.loads(got.stdout)["source"] == new_source
+
+
+@pytest.mark.e2e
+def test_script_set_no_search_match_is_refused_and_leaves_file_untouched(godot_project):
+    # A search string the source does not contain is refused with no_search_match
+    # and the file is left exactly as it was — the edit landed nowhere.
+    script_path = godot_project / "hero.gd"
+    _gda("script", "create", str(script_path), "--content", "extends Node\n", "--json")
+    before = script_path.read_text(encoding="utf-8")
+
+    edited = _gda(
+        "script", "set", str(script_path),
+        "--search", "Sprite2D", "--replace", "Node2D", "--json",
+    )
+
+    _assert_operation_error(edited, "no_search_match")
+    assert script_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_script_set_out_of_bounds_line_range_is_refused_and_leaves_file_untouched(
+    godot_project,
+):
+    # A line range past the file's bounds is refused with invalid_line_range and
+    # the file is left untouched.
+    script_path = godot_project / "hero.gd"
+    _gda(
+        "script", "create", str(script_path),
+        "--content", "extends Node\nvar a := 1\n", "--json",
+    )
+    before = script_path.read_text(encoding="utf-8")
+
+    edited = _gda(
+        "script", "set", str(script_path),
+        "--start-line", "9", "--content", "var x := 0", "--json",
+    )
+
+    _assert_operation_error(edited, "invalid_line_range")
+    assert script_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_script_set_missing_file_yields_path_not_found(godot_project):
+    # set edits an existing script; a missing target is path_not_found, never a
+    # silent create.
+    missing = godot_project / "nope.gd"
+
+    edited = _gda(
+        "script", "set", str(missing), "--content", "extends Node\n", "--json"
+    )
+
+    err = _assert_operation_error(edited, "path_not_found")
+    assert str(missing) in err["message"]
+    assert not missing.exists()
+
+
+@pytest.mark.e2e
 def test_script_create_empty_content_round_trips_as_empty_source(godot_project):
     # An empty file is legal source: --content "" writes an empty script, and get
     # reads it back as empty (the get_file_as_string empty-vs-error disambiguation

@@ -209,3 +209,237 @@ def test_script_list_passes_resolved_project_to_the_runner(monkeypatch, tmp_path
 
     assert result.exit_code == 0
     assert seen["project"] == tmp_path
+
+
+SET_RESULT = {
+    "path": "/tmp/proj/hero.gd",
+    "class_name": "Hero",
+    "extends": "Node2D",
+}
+
+
+def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
+    # search-replace mode (issue #118): --search/--replace ride through as the
+    # search/replace params; the other mode params pass as null. The result
+    # re-parses the written source's class_name/extends, so set round-trips
+    # through get.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(SET_RESULT)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "/tmp/proj/hero.gd",
+            "--search",
+            "Node",
+            "--replace",
+            "Node2D",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["path"] == "/tmp/proj/hero.gd"
+    assert data["class_name"] == "Hero"
+    assert data["extends"] == "Node2D"
+    assert fake.calls == [
+        (
+            "script-set",
+            {
+                "path": "/tmp/proj/hero.gd",
+                "search": "Node",
+                "replace": "Node2D",
+                "start_line": None,
+                "end_line": None,
+                "content": None,
+            },
+        )
+    ]
+    assert "engine diagnostic" in result.stderr
+
+
+def test_script_set_line_range_dispatches_start_end_and_content(monkeypatch):
+    # line-range mode: --start-line/--end-line + --content ride through; the
+    # search-replace params pass as null.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "/tmp/proj/hero.gd",
+            "--start-line",
+            "2",
+            "--end-line",
+            "3",
+            "--content",
+            "extends Node2D",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls == [
+        (
+            "script-set",
+            {
+                "path": "/tmp/proj/hero.gd",
+                "search": None,
+                "replace": None,
+                "start_line": 2,
+                "end_line": 3,
+                "content": "extends Node2D",
+            },
+        )
+    ]
+
+
+def test_script_set_full_overwrite_dispatches_content_only(monkeypatch):
+    # full mode: --content with no --start-line overwrites the whole file; every
+    # other mode param passes as null.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "/tmp/proj/hero.gd",
+            "--content",
+            "extends Node\n",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls == [
+        (
+            "script-set",
+            {
+                "path": "/tmp/proj/hero.gd",
+                "search": None,
+                "replace": None,
+                "start_line": None,
+                "end_line": None,
+                "content": "extends Node\n",
+            },
+        )
+    ]
+
+
+def _assert_set_usage_error(fake, result):
+    # A mode-validation error is a usage error (exit 2) that fires before any
+    # dispatch — the engine is never reached.
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
+def test_script_set_no_flags_is_a_usage_error(monkeypatch):
+    # No edit mode at all is a usage error: set always needs exactly one mode.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(app, ["script", "set", "/tmp/proj/hero.gd", "--json"])
+
+    _assert_set_usage_error(fake, result)
+
+
+def test_script_set_search_without_replace_is_a_usage_error(monkeypatch):
+    # --search requires --replace (and vice versa) — a half-specified
+    # search-replace is a usage error, never a silent default.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "set", "/tmp/proj/hero.gd", "--search", "Node", "--json"]
+    )
+
+    _assert_set_usage_error(fake, result)
+
+
+def test_script_set_replace_without_search_is_a_usage_error(monkeypatch):
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "set", "/tmp/proj/hero.gd", "--replace", "Node2D", "--json"]
+    )
+
+    _assert_set_usage_error(fake, result)
+
+
+def test_script_set_search_replace_and_content_are_mutually_exclusive(monkeypatch):
+    # Mixing search-replace with a line-range/full param (--content) is a usage
+    # error: the modes are mutually exclusive.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "/tmp/proj/hero.gd",
+            "--search",
+            "Node",
+            "--replace",
+            "Node2D",
+            "--content",
+            "x",
+            "--json",
+        ],
+    )
+
+    _assert_set_usage_error(fake, result)
+
+
+def test_script_set_start_line_without_content_is_a_usage_error(monkeypatch):
+    # --start-line/--end-line require --content: a line range with no replacement
+    # text is a usage error.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "set", "/tmp/proj/hero.gd", "--start-line", "2", "--json"]
+    )
+
+    _assert_set_usage_error(fake, result)
+
+
+def test_script_set_end_line_without_start_line_is_a_usage_error(monkeypatch):
+    # --end-line alone (with --content) is a usage error: end without a start has
+    # no anchor.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "/tmp/proj/hero.gd",
+            "--end-line",
+            "3",
+            "--content",
+            "x",
+            "--json",
+        ],
+    )
+
+    _assert_set_usage_error(fake, result)

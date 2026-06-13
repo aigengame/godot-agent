@@ -216,3 +216,80 @@ def test_script_delete_unlink_failure_reuses_stable_delete_failed_code(monkeypat
     assert err["category"] == "operation"
     assert err["code"] == "delete_failed"
     assert "/x/hero.gd" in err["message"]
+
+
+def _invoke_script_set(monkeypatch, code: str, message: str):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: script-set\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(
+        app,
+        ["script", "set", "/x/hero.gd", "--search", "a", "--replace", "b", "--json"],
+    )
+
+
+def test_script_set_no_search_match_maps_to_stable_no_search_match_code(monkeypatch):
+    # search-replace mode (issue #118): a search string the source does not
+    # contain is a new no_search_match code, so an agent learns the edit landed
+    # nowhere (and the file was left untouched) rather than parsing prose.
+    result = _invoke_script_set(
+        monkeypatch, "no_search_match", "search string not found in script: \"xyzzy\""
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "no_search_match"
+    assert "xyzzy" in err["message"]
+    assert err["diagnostics"] == "gda: running operation: script-set\n"
+
+
+def test_script_set_invalid_line_range_maps_to_stable_invalid_line_range_code(
+    monkeypatch,
+):
+    # line-range mode: a range outside the script's bounds (or end before start)
+    # is a new invalid_line_range code, distinct from no_search_match, so an
+    # agent knows the line numbers — not the search string — are the problem.
+    result = _invoke_script_set(
+        monkeypatch,
+        "invalid_line_range",
+        "line range 5..9 is outside the script's bounds (1..3) or ends before it starts",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "invalid_line_range"
+    assert "1..3" in err["message"]
+
+
+def test_script_set_missing_file_reuses_stable_path_not_found_code(monkeypatch):
+    # set edits an existing script; a missing target is path_not_found (the same
+    # one get/delete use), never a silent create.
+    result = _invoke_script_set(
+        monkeypatch, "path_not_found", "script file does not exist: /x/hero.gd"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "path_not_found"
+    assert "/x/hero.gd" in err["message"]
+
+
+def test_script_set_wrong_extension_reuses_stable_invalid_path_code(monkeypatch):
+    result = _invoke_script_set(
+        monkeypatch, "invalid_path", "script path must end in .gd: /x/notes.txt"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "invalid_path"
+    assert ".gd" in err["message"]

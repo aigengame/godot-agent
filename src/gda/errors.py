@@ -36,6 +36,7 @@ the shell-convention codes 124/127; version/operation/parse get distinct small
 codes so a shell consumer can tell categories apart without parsing the JSON error.
 """
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -50,7 +51,14 @@ from gda.exit_codes import (
     EXIT_TIMEOUT,
     EXIT_VERSION,
 )
-from gda.models import EngineVersion, ErrorCategory, GdaError, OperationErrorEnvelope
+from gda.models import (
+    EngineVersion,
+    ErrorCategory,
+    GdaError,
+    OperationErrorEnvelope,
+    ScriptDiagnostic,
+    ScriptValidateResult,
+)
 from gda.parser import parse_result
 from gda.runner import LaunchFailure, RunResult
 
@@ -191,6 +199,58 @@ def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | 
             EXIT_PARSE,
             result.stderr,
         )
+
+
+# A `SCRIPT ERROR: <message>` line and the `GDScript::reload (...:<line>)` frame
+# that follows it carry, between them, the one advisory diagnostic the engine
+# emits for a failed validate (issue #118). The line number is the final `:`
+# part of the reload frame; there is NO column on the standard build. Backtrace
+# frames (`[n] _initialize (...)`) are operations.gd's own lines, not the
+# validated script's, so they are deliberately not matched.
+_SCRIPT_ERROR_LINE = re.compile(r"^\s*SCRIPT ERROR:\s*(?P<message>.*?)\s*$", re.MULTILINE)
+_RELOAD_FRAME = re.compile(r"GDScript::reload \([^)]*:(?P<line>\d+)\)")
+
+
+def parse_validate_diagnostics(stderr: str) -> list[ScriptDiagnostic]:
+    """Parse advisory ``script validate`` diagnostics from the engine's stderr.
+
+    A pure function (no engine, no I/O): the line/message of a failed
+    ``GDScript.reload()`` are available only from stderr, not from any bound API
+    (ADR-0002's stderr is advisory only — it is never parsed for the stable
+    success/failure outcome or error codes, only surfaced here as best-effort
+    diagnostics). Each ``SCRIPT ERROR: <message>`` line is paired with the line
+    number from its following ``GDScript::reload (...:<line>)`` frame; ``column``
+    is always null (the engine exposes none). Returns ``[]`` when nothing parses.
+    """
+    diagnostics: list[ScriptDiagnostic] = []
+    for match in _SCRIPT_ERROR_LINE.finditer(stderr):
+        message = match.group("message")
+        # The reload frame, when present, follows the SCRIPT ERROR line; look
+        # for the next one after this match to read its line number.
+        frame = _RELOAD_FRAME.search(stderr, match.end())
+        line = int(frame.group("line")) if frame is not None else None
+        diagnostics.append(ScriptDiagnostic(line=line, column=None, message=message))
+    return diagnostics
+
+
+def classify_script_validate(
+    result: RunResult, binary: Path
+) -> ScriptValidateResult | Failure:
+    """Classify the raw ``script validate`` result (issue #118).
+
+    The per-command layer for ``script validate``: the shared decision tree comes
+    from ``classify_run`` (an op error — missing path, wrong extension,
+    unreadable file — is still a ``Failure``). For a SUCCESSFUL op reporting an
+    invalid script (``valid=false``), the line/message diagnostics are not in the
+    sentinel — they live only in the engine's stderr — so this layer parses them
+    in and attaches them to the result.
+    """
+    outcome = classify_run(result, binary, ScriptValidateResult)
+    if isinstance(outcome, Failure):
+        return outcome
+    if not outcome.valid:
+        outcome.diagnostics = parse_validate_diagnostics(result.stderr)
+    return outcome
 
 
 def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
