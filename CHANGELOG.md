@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/aigengame/godot-agent/compare/v0.1.5...v0.1.6) (2026-06-13)
+
+
+### Documentation
+
+* **adr:** reconcile ADR-0007 with the retired manual release path ([#100](https://github.com/aigengame/godot-agent/issues/100)) ([a75a576](https://github.com/aigengame/godot-agent/commit/a75a57679c9d81690e766815ccc5e965b32bf846))
+
 ## [0.1.5](https://github.com/aigengame/godot-agent/compare/v0.1.4...v0.1.5) (2026-06-13)
 
 
