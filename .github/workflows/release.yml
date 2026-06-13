@@ -172,7 +172,11 @@ jobs:
           else
             # release-please path: attach artifacts to the draft release it
             # created, then publish (publishing also creates the git tag).
-            gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY"
+            # --clobber makes the upload idempotent so "Re-run failed jobs"
+            # recovers a partial publish instead of erroring on existing
+            # assets and leaving a stranded tag-less draft (#84). Both commands
+            # are no-ops if already done, so re-running converges to published.
+            gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$RELEASE_TAG" --draft=false --repo "$GITHUB_REPOSITORY"
           fi
 
