@@ -542,6 +542,71 @@ class ScriptGetResult(BaseModel):
     )
 
 
+class ScriptListParams(BaseModel):
+    """The operation params of ``gda script list`` — none (ADR-0004).
+
+    ``script list`` enumerates the ``.gd`` scripts in the resolved project's
+    ``res://`` tree; the project is process context (``--project``), not an
+    operation param (ADR-0006), so the ``input`` schema is trivially empty.
+    """
+
+
+class ListedScript(BaseModel):
+    """One enumerated script of ``gda script list``: its path and metadata.
+
+    ``path`` is the script's ``res://`` path — the address an agent feeds back
+    into other script commands. ``class_name``/``extends`` are parsed cheaply
+    from the script's raw source (no compilation, issue #30); both are null when
+    the script declares neither, so the entry still names a file the listing
+    found rather than dropping it.
+    """
+
+    path: str
+    class_name: str | None = Field(
+        default=None,
+        description="The class_name the script declares, or null when it declares none.",
+    )
+    extends: str | None = Field(
+        default=None,
+        description="The base class the script extends, or null when it declares none.",
+    )
+
+
+class ScriptListResult(BaseModel):
+    """The result of ``gda script list``: the project's enumerated ``.gd`` scripts.
+
+    An empty project is a valid, empty listing — ``scripts == []`` — not a
+    failure.
+    """
+
+    scripts: list[ListedScript]
+
+
+class ScriptDeleteParams(BaseModel):
+    """The operation params of ``gda script delete``: the ``.gd`` file to remove."""
+
+    path: str
+
+
+class ScriptDeleteResult(BaseModel):
+    """The result of ``gda script delete``: what was removed (issue #117).
+
+    Echoes the deleted script's ``path`` and the ``class_name``/``extends`` its
+    source declared (parsed from the raw text before deletion), so the result
+    names the content removed, not just the file path.
+    """
+
+    path: str
+    class_name: str | None = Field(
+        default=None,
+        description="The class_name the deleted script declared, or null when it declared none.",
+    )
+    extends: str | None = Field(
+        default=None,
+        description="The base class the deleted script extended, or null when it declared none.",
+    )
+
+
 class EngineVersion(BaseModel):
     """The Godot engine version, as reported by ``Engine.get_version_info()``.
 

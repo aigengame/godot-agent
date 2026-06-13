@@ -26,6 +26,21 @@ def _gda(*args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _gda_project(project) -> "callable":
+    """A ``_gda`` bound to ``--project`` for res:// enumeration/resolution."""
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+
+    def gda(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [gda_bin, *args, "--godot", str(GODOT), "--project", str(project)],
+            capture_output=True,
+            text=True,
+        )
+
+    return gda
+
+
 def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
     assert proc.returncode == 4, proc.stdout + proc.stderr
     err = json.loads(proc.stdout)["error"]
@@ -307,6 +322,136 @@ def test_script_get_keeps_a_quoted_base_class_path_intact(godot_project):
     got = _gda("script", "get", str(script_path), "--json")
     assert got.returncode == 0, got.stdout + got.stderr
     assert json.loads(got.stdout)["extends"] == '"res://weapons/a#b.gd"'
+
+
+@pytest.mark.e2e
+def test_script_list_enumerates_created_scripts(godot_project):
+    # script list (issue #117) enumerates the project's .gd scripts by walking
+    # res://: two scripts created at different depths both appear, each with its
+    # res:// path and the class_name/extends parsed from raw source. The listing
+    # IS the structured-level verification of what script create wrote.
+    gda = _gda_project(godot_project)
+
+    assert (
+        gda(
+            "script",
+            "create",
+            "res://hero.gd",
+            "--content",
+            "class_name Hero\nextends Node2D\n",
+            "--json",
+        ).returncode
+        == 0
+    )
+    assert (
+        gda(
+            "script", "create", "res://lib/util.gd", "--extends", "RefCounted", "--json"
+        ).returncode
+        == 0
+    )
+
+    listed = gda("script", "list", "--json")
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    scripts = json.loads(listed.stdout)["scripts"]
+    by_path = {s["path"]: s for s in scripts}
+    assert by_path["res://hero.gd"]["class_name"] == "Hero"
+    assert by_path["res://hero.gd"]["extends"] == "Node2D"
+    assert by_path["res://lib/util.gd"]["class_name"] is None
+    assert by_path["res://lib/util.gd"]["extends"] == "RefCounted"
+
+
+@pytest.mark.e2e
+def test_script_list_on_empty_project_is_an_empty_listing(godot_project):
+    # A project with no scripts is a valid, empty listing — not an error (the
+    # res://.godot import cache must not leak in as a phantom script).
+    gda = _gda_project(godot_project)
+
+    listed = gda("script", "list", "--json")
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    assert json.loads(listed.stdout)["scripts"] == []
+
+
+@pytest.mark.e2e
+def test_script_list_without_project_yields_project_not_found(tmp_path):
+    # script list cannot enumerate res:// projectless: run from a non-project
+    # directory with no --project, it must refuse with the structured
+    # project_not_found code rather than return a misleading empty listing.
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+
+    listed = subprocess.run(
+        [gda_bin, "script", "list", "--json", "--godot", str(GODOT)],
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
+    )
+
+    err = _assert_operation_error(listed, "project_not_found")
+    assert "--project" in err["message"]
+
+
+@pytest.mark.e2e
+def test_script_delete_removes_a_script_and_names_what_was_removed(godot_project):
+    # script delete (issue #117) removes a script file and names the removed
+    # script's metadata. The round-trip verifier: script list before shows the
+    # script, delete reports the removed class_name/extends, and script list
+    # after no longer shows it.
+    gda = _gda_project(godot_project)
+    assert (
+        gda(
+            "script",
+            "create",
+            "res://hero.gd",
+            "--content",
+            "class_name Hero\nextends Node2D\n",
+            "--json",
+        ).returncode
+        == 0
+    )
+    script_path = godot_project / "hero.gd"
+    assert script_path.exists()
+    listed_before = json.loads(gda("script", "list", "--json").stdout)["scripts"]
+    assert any(s["path"] == "res://hero.gd" for s in listed_before)
+
+    deleted = gda("script", "delete", "res://hero.gd", "--json")
+
+    assert deleted.returncode == 0, deleted.stdout + deleted.stderr
+    data = json.loads(deleted.stdout)
+    assert data["path"] == "res://hero.gd"
+    assert data["class_name"] == "Hero"
+    assert data["extends"] == "Node2D"
+    # The file is gone from disk, not just from the report.
+    assert not script_path.exists()
+    assert json.loads(gda("script", "list", "--json").stdout)["scripts"] == []
+
+
+@pytest.mark.e2e
+def test_script_delete_missing_file_yields_path_not_found(godot_project):
+    missing = godot_project / "nope.gd"
+
+    deleted = _gda("script", "delete", str(missing), "--json")
+
+    err = _assert_operation_error(deleted, "path_not_found")
+    assert str(missing) in err["message"]
+
+
+@pytest.mark.e2e
+def test_script_delete_wrong_extension_yields_invalid_path_and_leaves_it(godot_project):
+    # The delete safety boundary mirrors create/get: delete only removes a .gd
+    # script, so a non-.gd target is refused with invalid_path and left on disk —
+    # delete never erases arbitrary files.
+    notes = godot_project / "notes.txt"
+    notes.write_text("not a script\n", encoding="utf-8")
+
+    deleted = _gda("script", "delete", str(notes), "--json")
+
+    err = _assert_operation_error(deleted, "invalid_path")
+    assert ".gd" in err["message"]
+    assert str(notes) in err["message"]
+    # The non-script file survives the refusal.
+    assert notes.read_text(encoding="utf-8") == "not a script\n"
 
 
 @pytest.mark.e2e
