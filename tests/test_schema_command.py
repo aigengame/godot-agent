@@ -27,15 +27,17 @@ VERSION_INFO = {
 }
 
 
-def test_info_schema_emits_json_object_with_input_and_output():
+def test_info_schema_emits_json_object_with_input_output_and_error():
     result = CliRunner().invoke(app, ["info", "--schema"])
 
     assert result.exit_code == 0
     doc = json.loads(result.stdout)
-    assert set(doc) >= {"input", "output"}
-    # Both halves are JSON Schema objects (have a "type"/"properties" shape).
+    # The contract is the three-key {input, output, error} object (#43).
+    assert set(doc) >= {"input", "output", "error"}
+    # All three halves are JSON Schema objects (have a "type"/"properties" shape).
     assert isinstance(doc["input"], dict)
     assert isinstance(doc["output"], dict)
+    assert isinstance(doc["error"], dict)
 
 
 def test_info_output_schema_is_derived_from_the_info_result_model():
@@ -65,6 +67,8 @@ def test_emitted_schemas_are_valid_json_schema():
     # check_schema raises if the document is not itself a valid JSON Schema.
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
+    # The uniform error envelope is itself well-formed JSON Schema too (#43).
+    jsonschema.Draft202012Validator.check_schema(doc["error"])
 
 
 def test_sample_info_result_validates_against_emitted_output_schema():
@@ -88,7 +92,7 @@ def test_schema_spawns_no_godot(monkeypatch):
     result = CliRunner().invoke(app, ["info", "--schema"])
 
     assert result.exit_code == 0
-    assert set(json.loads(result.stdout)) >= {"input", "output"}
+    assert set(json.loads(result.stdout)) >= {"input", "output", "error"}
 
 
 def test_schema_is_emit_only_and_rejects_a_supplied_value():
@@ -111,6 +115,7 @@ def test_scene_create_schema_emits_model_derived_contract_without_other_args():
     doc = json.loads(result.stdout)
     assert doc["input"] == SceneCreateParams.model_json_schema()
     assert doc["output"] == SceneCreateResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     assert "root_name" in doc["input"]["properties"]
     assert "created_dirs" in doc["output"]["properties"]
     root_name_description = doc["input"]["properties"]["root_name"]["description"]
@@ -129,6 +134,7 @@ def test_scene_get_schema_emits_model_derived_contract_without_other_args():
     doc = json.loads(result.stdout)
     assert doc["input"] == SceneGetParams.model_json_schema()
     assert doc["output"] == SceneGetResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -147,6 +153,7 @@ def test_scene_list_schema_emits_model_derived_contract_without_a_project():
     doc = json.loads(result.stdout)
     assert doc["input"] == SceneListParams.model_json_schema()
     assert doc["output"] == SceneListResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     assert doc["input"].get("properties", {}) == {}
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
@@ -161,6 +168,7 @@ def test_scene_delete_schema_emits_model_derived_contract_without_other_args():
     doc = json.loads(result.stdout)
     assert doc["input"] == SceneDeleteParams.model_json_schema()
     assert doc["output"] == SceneDeleteResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -208,7 +216,7 @@ def test_scene_schema_spawns_no_godot(monkeypatch):
     ):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0
-        assert set(json.loads(result.stdout)) >= {"input", "output"}
+        assert set(json.loads(result.stdout)) >= {"input", "output", "error"}
 
 
 def test_node_add_schema_emits_model_derived_contract_without_other_args():
@@ -223,6 +231,7 @@ def test_node_add_schema_emits_model_derived_contract_without_other_args():
     doc = json.loads(result.stdout)
     assert doc["input"] == NodeAddParams.model_json_schema()
     assert doc["output"] == NodeAddResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     # Node-path addressing is defined in the contract itself: the parent param
     # documents the root-relative convention agents must use.
     parent_description = doc["input"]["properties"]["parent"]["description"]
@@ -241,6 +250,7 @@ def test_node_list_schema_emits_model_derived_contract_without_other_args():
     doc = json.loads(result.stdout)
     assert doc["input"] == NodeListParams.model_json_schema()
     assert doc["output"] == NodeListResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -267,7 +277,7 @@ def test_node_schema_spawns_no_godot(monkeypatch):
     for command in (["node", "add"], ["node", "list"]):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0
-        assert set(json.loads(result.stdout)) >= {"input", "output"}
+        assert set(json.loads(result.stdout)) >= {"input", "output", "error"}
 
 
 def test_info_input_schema_is_derived_from_the_params_model():

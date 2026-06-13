@@ -2,8 +2,12 @@
 
 import json
 
+import jsonschema
+
 from gda.models import (
     EngineVersion,
+    GdaError,
+    GdaErrorEnvelope,
     NodeAddResult,
     NodeListResult,
     SceneCreateResult,
@@ -56,6 +60,34 @@ def test_round_trips_to_json_object():
     assert dumped["major"] == 4
     assert dumped["minor"] == 6
     assert dumped["string"] == "4.6.3-stable (official)"
+
+
+def test_error_envelope_schema_is_well_formed_json_schema():
+    # The uniform `error` half of the --schema contract (#43) is produced from
+    # this one shared model. check_schema raises if it is not itself valid JSON
+    # Schema, so every command's emitted `error` is well-formed by construction.
+    schema = GdaErrorEnvelope.model_json_schema()
+
+    jsonschema.Draft202012Validator.check_schema(schema)
+
+
+def test_error_envelope_round_trips_a_failure():
+    # A real failure envelope validates against its own model — the wire shape
+    # an agent branches on (the top-level `error` key discriminates failure).
+    payload = {
+        "error": {
+            "category": "operation",
+            "code": "path_not_found",
+            "message": "scene file does not exist: res://missing.tscn",
+            "diagnostics": "",
+        }
+    }
+
+    envelope = GdaErrorEnvelope.model_validate(payload)
+
+    assert isinstance(envelope.error, GdaError)
+    assert envelope.error.code == "path_not_found"
+    assert json.loads(envelope.model_dump_json()) == payload
 
 
 def test_scene_create_result_round_trips():
