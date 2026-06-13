@@ -42,6 +42,9 @@ const OP_ERROR_INVALID_NODE_NAME := "invalid_node_name"
 const OP_ERROR_DUPLICATE_NODE_NAME := "duplicate_node_name"
 const OP_ERROR_MISSING_DEPENDENCY := "missing_dependency"
 const OP_ERROR_UNINSTANTIABLE_SCRIPT := "uninstantiable_script"
+const OP_ERROR_NODE_NOT_FOUND := "node_not_found"
+const OP_ERROR_UNKNOWN_PROPERTY := "unknown_property"
+const OP_ERROR_UNCOERCIBLE_VALUE := "uncoercible_value"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -79,6 +82,10 @@ func _initialize() -> void:
 			_op_node_add(params)
 		"node-list":
 			_op_node_list(params)
+		"node-get":
+			_op_node_get(params)
+		"node-set":
+			_op_node_set(params)
 		_:
 			_fail(OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 
@@ -247,9 +254,6 @@ func _op_scene_delete(params: Dictionary) -> void:
 # node runs that script's constructor. Inherent to headless file mutation.
 func _op_node_add(params: Dictionary) -> void:
 	_diag("running operation: node-add")
-	var packed: PackedScene = _load_scene(params)
-	if packed == null:
-		return  # _load_scene already recorded the failure
 	var path := _string_param(params, "path")
 
 	var node_name := _string_param(params, "name")
@@ -257,23 +261,11 @@ func _op_node_add(params: Dictionary) -> void:
 		_fail(OP_ERROR_INVALID_NODE_NAME, "invalid name: " + node_name)
 		return
 
-	var root: Node = packed.instantiate()
+	var root: Node = _load_for_mutation(params)
 	if root == null:
-		# The engine returns null for a scene it cannot instantiate at all —
-		# e.g. an instanced sub-scene whose resource loads but instantiates to
-		# nothing (packed_scene.cpp propagates the nested null). Nothing exists
-		# to edit or save, so refuse with the dependency code.
-		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: " + path
-				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
-		return
-	var unmaterialized := _unmaterialized_node_paths(packed.get_state(), root)
-	if not unmaterialized.is_empty():
-		root.free()
-		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene nodes vanished or degraded on load: "
-				+ ", ".join(unmaterialized) + " — re-saving would silently drop or downgrade them; check the scene's dependencies and --project")
-		return
+		return  # _load_for_mutation already recorded the failure
 	var parent_path := _string_param(params, "parent")
-	var parent := _resolve_parent(root, parent_path)
+	var parent := _resolve_node(root, parent_path)
 	if parent == null:
 		root.free()
 		if _is_canonical_parent_path(parent_path):
@@ -340,6 +332,121 @@ func _op_node_list(params: Dictionary) -> void:
 	_succeed({
 		"scene_path": _string_param(params, "path"),
 		"root": _tree_from_state(packed.get_state(), true),
+	})
+
+
+# node-get: load a .tscn, resolve a node by node path, and emit its storage
+# properties as typed JSON — the read half of issue #55. Unlike node-list,
+# reporting a node's actual property VALUES requires the instantiated node:
+# SceneState only stores explicitly-overridden values, not defaults, and not in
+# a clean typed projection. Instantiating runs the _init of attached scripts
+# (the same trust boundary as node-add), but node-get does not re-save, so it
+# skips the unmaterialized-node guard (that boundary protects a re-save from
+# silently dropping data, issue #64 — there is no save here to protect). The
+# node still has to exist in the instantiated tree, reported as node_not_found.
+func _op_node_get(params: Dictionary) -> void:
+	_diag("running operation: node-get")
+	var packed: PackedScene = _load_scene(params)
+	if packed == null:
+		return  # _load_scene already recorded the failure
+	var root: Node = packed.instantiate()
+	if root == null:
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: "
+				+ _string_param(params, "path")
+				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
+		return
+	var node_path := _string_param(params, "node")
+	var node := _resolve_node(root, node_path)
+	if node == null:
+		root.free()
+		_fail_node_not_found(node_path)
+		return
+
+	var properties: Array = []
+	for prop in node.get_property_list():
+		if not _is_storage_property(prop):
+			continue
+		var prop_name := String(prop.get("name", ""))
+		properties.append({
+			"name": prop_name,
+			"type": _type_name(int(prop.get("type", TYPE_NIL))),
+			"value": _jsonify(node.get(prop_name)),
+		})
+	# Capture the node's identity before freeing the tree: freeing root frees
+	# node too, and reading off a freed node is a runtime error.
+	var node_name := String(node.name)
+	var node_type := node.get_class()
+	root.free()
+
+	_succeed({
+		"scene_path": _string_param(params, "path"),
+		"path": node_path,
+		"name": node_name,
+		"type": node_type,
+		"properties": properties,
+	})
+
+
+# node-set: load a .tscn, resolve a node by node path, set one property —
+# coercing the CLI string value to the property's declared Godot type — then
+# pack and save (the write half of issue #55, verifiable via node-get). As a
+# mutating op it goes through the shared mutate-entry (load → instantiate →
+# unmaterialized-node guard), so it honors the mutation-integrity boundary the
+# command catalog promises (issue #64): a re-save can never silently drop an
+# unresolvable instance or downgrade a substituted class.
+func _op_node_set(params: Dictionary) -> void:
+	_diag("running operation: node-set")
+	var path := _string_param(params, "path")
+	var root: Node = _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+	var node_path := _string_param(params, "node")
+	var node := _resolve_node(root, node_path)
+	if node == null:
+		root.free()
+		_fail_node_not_found(node_path)
+		return
+
+	var prop_name := _string_param(params, "property")
+	var declared_type := _property_type(node, prop_name)
+	if declared_type == TYPE_NIL:
+		root.free()
+		_fail(OP_ERROR_UNKNOWN_PROPERTY, "node " + node_path
+				+ " has no settable property: " + prop_name)
+		return
+
+	var raw_value := _string_param(params, "value")
+	var coerced: Variant = _coerce_value(raw_value, declared_type)
+	if coerced == null:
+		root.free()
+		_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
+				+ " to " + _type_name(declared_type) + " for property " + prop_name
+				+ " on node " + node_path)
+		return
+
+	node.set(prop_name, coerced)
+
+	var repacked := PackedScene.new()
+	var pack_err := repacked.pack(root)
+	if pack_err != OK:
+		root.free()
+		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
+		return
+	var save_err := ResourceSaver.save(repacked, path)
+	# Read the value back off the node — the node now holds the coerced value in
+	# its canonical form, the same projection node-get reports.
+	var stored_value: Variant = _jsonify(node.get(prop_name))
+	root.free()
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(path, save_err))
+		return
+
+	_succeed({
+		"scene_path": path,
+		"path": node_path,
+		"property": prop_name,
+		"type": _type_name(declared_type),
+		"value": stored_value,
 	})
 
 
@@ -418,6 +525,39 @@ func _load_scene(params: Dictionary) -> PackedScene:
 	return packed
 
 
+# The single mutate-entry for the node group (issue #55): load the .tscn,
+# instantiate it, and clear the mutation-integrity boundary before any op
+# touches the tree, returning the instantiated root (or null after recording
+# the failure). Mutation REQUIRES instantiating the scene — only a real node
+# tree can be edited and re-packed — which runs the _init of any script
+# attached in the scene, so mutating ops execute project code where the read
+# ops (issue #30) deliberately do not. Centralising load → instantiate → guard
+# here means every current and future mutating op honors the boundary the
+# command catalog promises, rather than re-inlining (and risking forgetting)
+# the unmaterialized-node check (issue #64). The caller owns root.free().
+func _load_for_mutation(params: Dictionary) -> Node:
+	var packed: PackedScene = _load_scene(params)
+	if packed == null:
+		return null  # _load_scene already recorded the failure
+	var path := _string_param(params, "path")
+	var root: Node = packed.instantiate()
+	if root == null:
+		# The engine returns null for a scene it cannot instantiate at all —
+		# e.g. an instanced sub-scene whose resource loads but instantiates to
+		# nothing (packed_scene.cpp propagates the nested null). Nothing exists
+		# to edit or save, so refuse with the dependency code.
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: " + path
+				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
+		return null
+	var unmaterialized := _unmaterialized_node_paths(packed.get_state(), root)
+	if not unmaterialized.is_empty():
+		root.free()
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene nodes vanished or degraded on load: "
+				+ ", ".join(unmaterialized) + " — re-saving would silently drop or downgrade them; check the scene's dependencies and --project")
+		return null
+	return root
+
+
 # Node paths declared in the scene's state that did not materialize faithfully
 # in the instantiated tree (issue #64), in the two modes the engine survives
 # silently:
@@ -435,7 +575,7 @@ func _load_scene(params: Dictionary) -> PackedScene:
 func _unmaterialized_node_paths(state: SceneState, root: Node) -> Array[String]:
 	var unmaterialized: Array[String] = []
 	for i in state.get_node_count():
-		var state_path := String(state.get_node_path(i)).trim_prefix("./")
+		var state_path := _normalize_state_path(state, i)
 		var node := root.get_node_or_null(NodePath(state_path))
 		if node == null:
 			unmaterialized.append(state_path + " (vanished)")
@@ -466,17 +606,52 @@ func _is_canonical_parent_path(parent_path: String) -> bool:
 	return true
 
 
-# Resolve a parent node path against the scene root. Node-path addressing
-# (issue #53) is relative to the scene root: '.' is the root itself,
-# 'Player/Arm' a descendant. Only canonical paths resolve (issue #66) — this
-# subsumes rejecting absolute paths ('/root/…' opens with an empty segment),
-# which a loaded-for-editing tree outside any SceneTree could never serve.
-func _resolve_parent(root: Node, parent_path: String) -> Node:
-	if not _is_canonical_parent_path(parent_path):
+# Resolve a node path against the scene root. Node-path addressing (issue #53)
+# is relative to the scene root: '.' is the root itself, 'Player/Arm' a
+# descendant. Only canonical paths resolve (issue #66) — this subsumes
+# rejecting absolute paths ('/root/…' opens with an empty segment), which a
+# loaded-for-editing tree outside any SceneTree could never serve. Shared by
+# node add (its --parent), node get and node set (their --node): one strict
+# resolver so every node-group op addresses nodes identically.
+func _resolve_node(root: Node, node_path: String) -> Node:
+	if not _is_canonical_parent_path(node_path):
 		return null
-	if parent_path == ".":
+	if node_path == ".":
 		return root
-	return root.get_node_or_null(NodePath(parent_path))
+	return root.get_node_or_null(NodePath(node_path))
+
+
+# Record a node-not-found failure for node get / node set, distinguishing the
+# two ways resolution can fail the same way node add does for its parent: a
+# canonical path that names no node, versus a non-canonical path rejected by
+# strict addressing (issue #66) rather than silently resolved elsewhere.
+func _fail_node_not_found(node_path: String) -> void:
+	if _is_canonical_parent_path(node_path):
+		_fail(OP_ERROR_NODE_NOT_FOUND, "node not found in scene: " + node_path)
+	else:
+		_fail(OP_ERROR_NODE_NOT_FOUND, "non-canonical node path: " + node_path
+				+ " — address the node exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
+
+
+# Whether a property-list entry is a STORAGE property — the ones node get
+# reports and node set targets: the properties that serialize into the .tscn,
+# excluding the engine's category headers, group separators, and editor-only
+# (non-storage) entries. This is the same usage flag the scene serializer keys
+# on, so node get reports exactly the surface a saved scene can carry.
+func _is_storage_property(prop: Dictionary) -> bool:
+	var usage := int(prop.get("usage", 0))
+	return (usage & PROPERTY_USAGE_STORAGE) != 0
+
+
+# The declared Godot type of a settable property on the node, or TYPE_NIL if the
+# node has no storage property by that name. node set keys coercion off this:
+# the value's target type comes from the property the node actually declares,
+# never from guessing.
+func _property_type(node: Node, prop_name: String) -> int:
+	for prop in node.get_property_list():
+		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
+			return int(prop.get("type", TYPE_NIL))
+	return TYPE_NIL
 
 
 # Instantiate a node by type: a built-in Node class first, then a class_name
@@ -548,6 +723,15 @@ func _script_class_of(node: Node) -> Variant:
 	return global_name
 
 
+# A SceneState node path normalized to the canonical root-relative form the
+# node group addresses by and reports: the state stores "." for the root and a
+# "./Hero/Hitbox" prefix form for a descendant, which becomes "Hero/Hitbox".
+# Shared so the unmaterialized-node guard and the tree builder agree on one
+# normalization rather than re-spelling it (issue #55 review).
+func _normalize_state_path(state: SceneState, index: int) -> String:
+	return String(state.get_node_path(index)).trim_prefix("./")
+
+
 # Build the structured node tree from a SceneState. The state lists nodes in
 # tree order; each carries a node path ("." for the root, "./Hero/Hitbox" for
 # a descendant) and the path to its parent, which is enough to reconstruct the
@@ -566,7 +750,7 @@ func _tree_from_state(state: SceneState, with_paths := false) -> Dictionary:
 			"children": [],
 		}
 		if with_paths:
-			node["path"] = state_path.trim_prefix("./")
+			node["path"] = _normalize_state_path(state, i)
 		by_path[state_path] = node
 		if i == 0:
 			root = node
@@ -585,6 +769,142 @@ func _string_param(params: Dictionary, key: String) -> String:
 	if value is String:
 		return value
 	return ""
+
+
+# The Godot type name for a Variant.Type, as node get / node set report it
+# (the same spelling type_string uses: "int", "Vector2", "Color", …).
+func _type_name(type: int) -> String:
+	return type_string(type)
+
+
+# Project a Godot property value into JSON-safe form for the result payload
+# (issue #55). Scalars pass through; the packed value types node set supports
+# become flat number arrays so node get's output is exactly the projection node
+# set accepts back: Vector2 → [x, y], Vector2i likewise, Color → [r, g, b, a].
+# Any other type degrades to its string form rather than crashing JSON.stringify
+# on an unencodable Variant — node get reports the whole storage surface, but
+# only the coercible types claim a structured projection.
+func _jsonify(value: Variant) -> Variant:
+	match typeof(value):
+		TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING, TYPE_STRING_NAME:
+			return value
+		TYPE_VECTOR2:
+			return [value.x, value.y]
+		TYPE_VECTOR2I:
+			return [value.x, value.y]
+		TYPE_COLOR:
+			return [value.r, value.g, value.b, value.a]
+		_:
+			return str(value)
+
+
+# Coerce a CLI string value to a property's declared Godot type (issue #55).
+# The supported types and their accepted string forms are documented in the
+# command catalog's "Property value coercion" section — keep the two in sync.
+# Returns null when the value cannot be coerced to that type, which the caller
+# reports as the clean uncoercible_value error. null is unambiguous as a
+# failure signal because no supported target type coerces TO null.
+func _coerce_value(raw: String, type: int) -> Variant:
+	match type:
+		TYPE_BOOL:
+			return _coerce_bool(raw)
+		TYPE_INT:
+			return _coerce_int(raw)
+		TYPE_FLOAT:
+			return _coerce_float(raw)
+		TYPE_STRING:
+			return raw
+		TYPE_STRING_NAME:
+			return StringName(raw)
+		TYPE_VECTOR2:
+			var parts: Variant = _coerce_float_list(raw, 2)
+			return Vector2(parts[0], parts[1]) if parts != null else null
+		TYPE_VECTOR2I:
+			var parts: Variant = _coerce_int_list(raw, 2)
+			return Vector2i(parts[0], parts[1]) if parts != null else null
+		TYPE_COLOR:
+			return _coerce_color(raw)
+		_:
+			return null
+
+
+# A bool from "true"/"false" (case-insensitive), nothing else — so a typo never
+# silently becomes false.
+func _coerce_bool(raw: String) -> Variant:
+	var lowered := raw.strip_edges().to_lower()
+	if lowered == "true":
+		return true
+	if lowered == "false":
+		return false
+	return null
+
+
+func _coerce_int(raw: String) -> Variant:
+	var trimmed := raw.strip_edges()
+	if not trimmed.is_valid_int():
+		return null
+	return trimmed.to_int()
+
+
+func _coerce_float(raw: String) -> Variant:
+	var trimmed := raw.strip_edges()
+	# is_valid_float accepts integer spellings too, which is intended: "3" is a
+	# valid float value, and Godot stores it as 3.0.
+	if not trimmed.is_valid_float():
+		return null
+	return trimmed.to_float()
+
+
+# Parse a comma-separated list of exactly `count` floats (e.g. "10,20" for a
+# Vector2). Whitespace around each component is tolerated; a wrong count or a
+# non-numeric component fails the whole coercion.
+func _coerce_float_list(raw: String, count: int) -> Variant:
+	var parts := raw.split(",")
+	if parts.size() != count:
+		return null
+	var out: Array[float] = []
+	for part in parts:
+		var coerced: Variant = _coerce_float(part)
+		if coerced == null:
+			return null
+		out.append(coerced)
+	return out
+
+
+func _coerce_int_list(raw: String, count: int) -> Variant:
+	var parts := raw.split(",")
+	if parts.size() != count:
+		return null
+	var out: Array[int] = []
+	for part in parts:
+		var coerced: Variant = _coerce_int(part)
+		if coerced == null:
+			return null
+		out.append(coerced)
+	return out
+
+
+# A Color from either a "#rrggbb"/"#rrggbbaa" hex string or a comma-separated
+# list of 3 (rgb) or 4 (rgba) floats in 0..1. Godot's Color.html validates the
+# hex form; the float-list form reuses the shared numeric coercion.
+func _coerce_color(raw: String) -> Variant:
+	var trimmed := raw.strip_edges()
+	if trimmed.begins_with("#"):
+		if not Color.html_is_valid(trimmed):
+			return null
+		return Color.html(trimmed)
+	var parts := trimmed.split(",")
+	if parts.size() != 3 and parts.size() != 4:
+		return null
+	var out: Array[float] = []
+	for part in parts:
+		var coerced: Variant = _coerce_float(part)
+		if coerced == null:
+			return null
+		out.append(coerced)
+	if out.size() == 3:
+		return Color(out[0], out[1], out[2])
+	return Color(out[0], out[1], out[2], out[3])
 
 
 func _is_valid_node_name(node_name: String) -> bool:

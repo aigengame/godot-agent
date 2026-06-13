@@ -57,7 +57,7 @@ for the full picture.
 
 - ✅ A first working command surface: the `info` meta command and the first domain command groups —
   `gda scene create` / `gda scene get` / `gda scene list` / `gda scene delete` and
-  `gda node add` / `gda node list`
+  `gda node add` / `gda node list` / `gda node get` / `gda node set`
   ([ADR-0005](docs/adr/0005-cli-command-taxonomy.md)).
 - ✅ The contract every shipped command carries: structured `--json` output, model-derived
   `--schema` self-description ([ADR-0004](docs/adr/0004-schema-flag-self-description.md)), and
@@ -172,6 +172,17 @@ gda node add game/main.tscn --type Sprite2D --name Hero --json
 
 gda node list game/main.tscn --json
 # {"scene_path":"game/main.tscn","root":{"name":"main","type":"Node2D","path":".","children":[{"name":"Hero","type":"Sprite2D","path":"Hero","children":[]}]}}
+```
+
+Read a node's properties as typed JSON, set one (the CLI value is coerced to the property's declared
+Godot type), and verify the change round-trips via `get`:
+
+```bash
+gda node set game/main.tscn --node Hero --property position --value 10,20 --json
+# {"scene_path":"game/main.tscn","path":"Hero","property":"position","type":"Vector2","value":[10.0,20.0]}
+
+gda node get game/main.tscn --node Hero --json
+# {"scene_path":"game/main.tscn","path":"Hero","name":"Hero","type":"Sprite2D","properties":[…,{"name":"position","type":"Vector2","value":[10.0,20.0]},…]}
 ```
 
 Enumerate a project's scenes, then delete one — `scene list` walks the project's `res://` tree, so it

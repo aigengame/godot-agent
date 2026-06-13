@@ -116,6 +116,99 @@ def test_node_list_json_emits_node_tree_with_paths_and_exit_zero(monkeypatch):
     assert fake.calls == [("node-list", {"path": "/tmp/proj/main.tscn"})]
 
 
+GET_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "path": "Hero",
+    "name": "Hero",
+    "type": "Sprite2D",
+    "properties": [
+        {"name": "position", "type": "Vector2", "value": [10.0, 20.0]},
+        {"name": "visible", "type": "bool", "value": True},
+    ],
+}
+
+
+def test_node_get_json_emits_typed_properties_and_exit_zero(monkeypatch):
+    # node get is the read half of issue #55: it loads a scene and reports the
+    # addressed node's properties as typed JSON — the read an agent verifies a
+    # `set` against.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(GET_RESULT)
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app, ["node", "get", "/tmp/proj/main.tscn", "--node", "Hero", "--json"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["scene_path"] == "/tmp/proj/main.tscn"
+    assert (data["path"], data["name"], data["type"]) == ("Hero", "Hero", "Sprite2D")
+    position = data["properties"][0]
+    assert (position["name"], position["type"], position["value"]) == (
+        "position",
+        "Vector2",
+        [10.0, 20.0],
+    )
+    # The node is addressed by node path, dispatched by the operation name.
+    assert fake.calls == [
+        ("node-get", {"path": "/tmp/proj/main.tscn", "node": "Hero"})
+    ]
+
+
+SET_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "path": "Hero",
+    "property": "position",
+    "type": "Vector2",
+    "value": [3.0, 4.0],
+}
+
+
+def test_node_set_json_echoes_the_coerced_property_and_exit_zero(monkeypatch):
+    # node set is the write half of issue #55: it coerces the CLI string value
+    # to the property's declared type, saves, and echoes the coerced property —
+    # the result an agent asserts (and which round-trips via node get).
+    stdout = sentinel(SET_RESULT)
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "node",
+            "set",
+            "/tmp/proj/main.tscn",
+            "--node",
+            "Hero",
+            "--property",
+            "position",
+            "--value",
+            "3,4",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert (data["path"], data["property"], data["type"]) == (
+        "Hero",
+        "position",
+        "Vector2",
+    )
+    assert data["value"] == [3.0, 4.0]
+    # The CLI value is passed as a raw string; coercion is the operation's job.
+    assert fake.calls == [
+        (
+            "node-set",
+            {
+                "path": "/tmp/proj/main.tscn",
+                "node": "Hero",
+                "property": "position",
+                "value": "3,4",
+            },
+        )
+    ]
+
+
 def test_node_add_defaults_parent_to_root_and_name_to_type(monkeypatch):
     # The two ergonomic defaults (issue #53): omitting --parent targets the
     # scene root ('.'), and omitting --name names the node after its type —

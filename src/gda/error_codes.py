@@ -175,6 +175,24 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " or constructed, so it cannot be instantiated as a node.",
     ),
     ErrorCodeSpec(
+        "node_not_found",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested node path does not resolve to a node in the scene.",
+    ),
+    ErrorCodeSpec(
+        "unknown_property",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested property does not exist as a settable property on the node.",
+    ),
+    ErrorCodeSpec(
+        "uncoercible_value",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A supplied value cannot be coerced to the property's declared Godot type.",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         ErrorCodeSource.PARSER,
