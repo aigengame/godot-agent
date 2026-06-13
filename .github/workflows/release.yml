@@ -32,10 +32,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
   cancel-in-progress: false
 
-env:
-  PYTHON_VERSION: "3.13"
-  GODOT_VERSION: "4.6-stable"
-  GDA_GODOT: ${{ github.workspace }}/.godot/Godot_v4.6-stable_linux.x86_64
+# Toolchain versions (Python, Godot) live in the shared composite actions under
+# .github/actions, so CI and Release pin them in one place.
 
 # release-please runs twice, bracketing the verify-and-build chain: a draft
 # release carries no git tag until published, and release-please's lookback is
@@ -53,6 +51,9 @@ jobs:
     if: github.event_name == 'push'
     permissions:
       contents: write
+      # Load-bearing despite skip-github-pull-request: release-please relabels
+      # the merged Release PR (autorelease: pending -> tagged) when it cuts the
+      # release. Removing this silently breaks that relabel and re-opens #82.
       pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -88,6 +89,18 @@ jobs:
       RELEASE_PRERELEASE: ${{ inputs.prerelease || false }}
 
     steps:
+      - name: Validate manual tag input
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          # The web UI enforces required inputs, but an API/`gh -f tag=`
+          # dispatch can pass an empty string; fail fast before any build.
+          if [[ -z "$INPUT_TAG" ]]; then
+            echo "::error title=Missing tag::The 'tag' input is required for a manual release."
+            exit 1
+          fi
+
       - name: Checkout release commit
         uses: actions/checkout@v6
         with:
@@ -97,32 +110,15 @@ jobs:
           # be ahead of the tagged commit and the version check would not catch
           # it (the version is unchanged across the intervening commits) (#83).
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || needs.cut-release.outputs.sha }}
-          fetch-depth: 0
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v8.2.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          enable-cache: true
-          cache-dependency-glob: |
-            pyproject.toml
-            uv.lock
-
-      - name: Install dependencies
-        run: uv sync --frozen --dev
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
 
       - name: Run unit tests
         run: uv run --frozen pytest -m "not e2e"
 
       - name: Install Godot
-        run: |
-          mkdir -p .godot
-          curl --fail --location --show-error \
-            --output .godot/godot.zip \
-            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
-          unzip -q .godot/godot.zip -d .godot
-          chmod +x "${GDA_GODOT}"
-          "${GDA_GODOT}" --headless --version
+        uses: ./.github/actions/install-godot
 
       - name: Run Godot e2e tests
         run: uv run --frozen pytest -m e2e
@@ -180,7 +176,9 @@ jobs:
             # assets and leaving a stranded tag-less draft (#84). Both commands
             # are no-ops if already done, so re-running converges to published.
             gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$RELEASE_TAG" --draft=false --repo "$GITHUB_REPOSITORY"
+            # --latest pins the Latest badge to this release even if an earlier
+            # draft is published out of order (#87).
+            gh release edit "$RELEASE_TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
           fi
 
   release-pr:

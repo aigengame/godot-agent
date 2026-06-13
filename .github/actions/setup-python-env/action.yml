@@ -1,0 +1,31 @@
+name: Set up Python environment
+description: >-
+  Install uv pinned to the project's Python and sync dev dependencies. Single
+  source of truth for the Python toolchain shared by CI and Release.
+
+inputs:
+  python-version:
+    description: Python version for uv to provide.
+    required: false
+    default: "3.13"
+  save-cache:
+    description: Whether setup-uv should save its dependency cache.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v8.2.0
+      with:
+        python-version: ${{ inputs.python-version }}
+        enable-cache: true
+        save-cache: ${{ inputs.save-cache }}
+        cache-dependency-glob: |
+          pyproject.toml
+          uv.lock
+
+    - name: Install dependencies
+      shell: bash
+      run: uv sync --frozen --dev

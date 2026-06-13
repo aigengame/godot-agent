@@ -1,0 +1,45 @@
+name: Install Godot
+description: >-
+  Download (and cache) a headless Godot binary and export GDA_GODOT for later
+  steps. Single source of truth for the Godot version shared by CI and Release.
+
+inputs:
+  godot-version:
+    description: Godot release to install, e.g. "4.6-stable".
+    required: false
+    default: "4.6-stable"
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve Godot paths
+      shell: bash
+      run: |
+        binary="Godot_v${{ inputs.godot-version }}_linux.x86_64"
+        echo "GODOT_BINARY=${binary}" >> "$GITHUB_ENV"
+        echo "GDA_GODOT=${GITHUB_WORKSPACE}/.godot/${binary}" >> "$GITHUB_ENV"
+
+    - name: Restore cached Godot
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: .godot
+        key: godot-${{ inputs.godot-version }}-linux-x86_64
+
+    - name: Download Godot
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        mkdir -p .godot
+        curl --fail --location --show-error \
+          --output .godot/godot.zip \
+          "https://github.com/godotengine/godot/releases/download/${{ inputs.godot-version }}/${GODOT_BINARY}.zip"
+        unzip -q .godot/godot.zip -d .godot
+        # Cache only the binary, not the downloaded archive.
+        rm -f .godot/godot.zip
+
+    - name: Verify Godot
+      shell: bash
+      run: |
+        chmod +x "${GDA_GODOT}"
+        "${GDA_GODOT}" --headless --version
