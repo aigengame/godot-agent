@@ -62,6 +62,20 @@ The structured failure result that distinguishes a failed command from a
 successful result.
 _Avoid_: error blob, failure JSON
 
+### Trust model
+
+**Trusted project**:
+The target project `gda` operates on — including its autoloads and scene
+scripts — is assumed trustworthy; Phase 1 does not defend against a malicious or
+untrusted project (ADR-0009).
+_Avoid_: safe project, sandboxed project
+
+**Project-code execution surface**:
+The set of points where a single `gda` run triggers the target project's own
+code to run: autoload constructors at engine startup (every `--project` op), and
+the `_init` of scripts on nodes that an instantiating operation constructs.
+_Avoid_: attack surface, code-execution risk
+
 ### Delivery phases
 
 The order in which **capabilities** are delivered. This is distinct from ADR-0000's
