@@ -333,3 +333,128 @@ def test_node_add_defaults_parent_to_root_and_name_to_type(monkeypatch):
             },
         )
     ]
+
+
+CONNECT_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "from": "Emitter",
+    "signal": "timeout",
+    "to": "Receiver",
+    "method": "on_timeout",
+}
+
+
+def test_node_connect_signal_json_dispatches_the_four_part_connection(monkeypatch):
+    # node connect-signal is the wire half of issue #57: it records a source
+    # node's signal -> target node's method connection in the .tscn. The four
+    # parts are addressed by --from/--signal/--to/--method; the wire param key
+    # for the source is `from` (matching the .tscn [connection] key), since
+    # `from` is a Python keyword only at the model layer.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(CONNECT_RESULT)
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "node",
+            "connect-signal",
+            "/tmp/proj/main.tscn",
+            "--from",
+            "Emitter",
+            "--signal",
+            "timeout",
+            "--to",
+            "Receiver",
+            "--method",
+            "on_timeout",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["scene_path"] == "/tmp/proj/main.tscn"
+    assert (data["from"], data["signal"]) == ("Emitter", "timeout")
+    assert (data["to"], data["method"]) == ("Receiver", "on_timeout")
+    assert fake.calls == [
+        (
+            "node-connect-signal",
+            {
+                "path": "/tmp/proj/main.tscn",
+                "from": "Emitter",
+                "signal": "timeout",
+                "to": "Receiver",
+                "method": "on_timeout",
+            },
+        )
+    ]
+
+
+def test_node_disconnect_signal_json_dispatches_the_four_part_connection(monkeypatch):
+    # node disconnect-signal is the unwire half of issue #57: same four-part
+    # addressing, dispatched by its own operation name.
+    stdout = sentinel(CONNECT_RESULT)
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "node",
+            "disconnect-signal",
+            "/tmp/proj/main.tscn",
+            "--from",
+            "Emitter",
+            "--signal",
+            "timeout",
+            "--to",
+            "Receiver",
+            "--method",
+            "on_timeout",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert (data["from"], data["to"]) == ("Emitter", "Receiver")
+    assert fake.calls == [
+        (
+            "node-disconnect-signal",
+            {
+                "path": "/tmp/proj/main.tscn",
+                "from": "Emitter",
+                "signal": "timeout",
+                "to": "Receiver",
+                "method": "on_timeout",
+            },
+        )
+    ]
+
+
+def test_node_connect_signal_requires_all_four_connection_flags(monkeypatch):
+    # The four connection flags are mandatory (no sensible default for any part
+    # of a connection): omitting one is a usage error (exit 2), surfaced before
+    # any engine path so no Godot process is spawned.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(CONNECT_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "node",
+            "connect-signal",
+            "/tmp/proj/main.tscn",
+            "--from",
+            "Emitter",
+            "--signal",
+            "timeout",
+            "--to",
+            "Receiver",
+            # --method omitted
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert fake.calls == []

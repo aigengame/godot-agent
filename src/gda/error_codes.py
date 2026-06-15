@@ -280,6 +280,27 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A script compiles but its native base type is incompatible with the target node's type.",
     ),
     ErrorCodeSpec(
+        "signal_not_found",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested signal does not exist on the source node.",
+    ),
+    ErrorCodeSpec(
+        "already_connected",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A signal is already connected to the target node's method.",
+    ),
+    ErrorCodeSpec(
+        "connection_not_found",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested signal-to-method connection does not exist on the source node.",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         EXIT_PARSE,

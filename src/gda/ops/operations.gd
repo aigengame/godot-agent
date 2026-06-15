@@ -51,6 +51,9 @@ const OP_ERROR_NO_SEARCH_MATCH := "no_search_match"
 const OP_ERROR_INVALID_LINE_RANGE := "invalid_line_range"
 const OP_ERROR_SCRIPT_COMPILE_FAILED := "script_compile_failed"
 const OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE := "incompatible_script_type"
+const OP_ERROR_SIGNAL_NOT_FOUND := "signal_not_found"
+const OP_ERROR_ALREADY_CONNECTED := "already_connected"
+const OP_ERROR_CONNECTION_NOT_FOUND := "connection_not_found"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -98,6 +101,10 @@ func _initialize() -> void:
 			_op_node_duplicate(params)
 		"node-move":
 			_op_node_move(params)
+		"node-connect-signal":
+			_op_node_connect_signal(params)
+		"node-disconnect-signal":
+			_op_node_disconnect_signal(params)
 		"script-create":
 			_op_script_create(params)
 		"script-get":
@@ -676,6 +683,139 @@ func _op_node_move(params: Dictionary) -> void:
 	})
 
 
+# node-connect-signal: wire a source node's signal to a target node's method,
+# persisted into the .tscn as a [connection] (issue #57). As a scene mutation it
+# reuses the same load -> resolve -> mutate -> pack -> save round-trip as node-set,
+# honoring the mutation-integrity boundary (#64) via _load_for_mutation.
+#
+# Persistence mechanism: PackedScene.pack only serializes a connection whose
+# Callable was registered with Object.CONNECT_PERSIST — a plain connect() is a
+# runtime-only wiring the pack drops. Setting it up on the instantiated tree with
+# CONNECT_PERSIST makes pack(root) emit the [connection signal=... from=... to=...
+# method=...] line, which a re-read sees as is_connected() == true.
+#
+# Contract (issue #57's design decision): the SIGNAL must exist on the source node
+# (signal_not_found). The target METHOD need NOT exist — a [connection] is just
+# persisted data, and Godot's own editor lets you wire a signal to a not-yet-
+# written method, so a dangling method is allowed (verified on Godot 4.6.3:
+# connecting to a missing method returns OK and serializes).
+func _op_node_connect_signal(params: Dictionary) -> void:
+	_diag("running operation: node-connect-signal")
+	var path := _string_param(params, "path")
+	var root: Node = _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+
+	var from_path := _string_param(params, "from")
+	var source := _resolve_node(root, from_path)
+	if source == null:
+		root.free()
+		_fail_node_not_found_labeled("source", from_path)
+		return
+	var to_path := _string_param(params, "to")
+	var target := _resolve_node(root, to_path)
+	if target == null:
+		root.free()
+		_fail_node_not_found_labeled("target", to_path)
+		return
+
+	var signal_name := _string_param(params, "signal")
+	if not source.has_signal(signal_name):
+		root.free()
+		_fail(OP_ERROR_SIGNAL_NOT_FOUND, "source node " + from_path
+				+ " has no signal: " + signal_name)
+		return
+
+	var method_name := _string_param(params, "method")
+	var callable := Callable(target, method_name)
+	# A duplicate connection is reported, not silently re-applied: a plain
+	# connect() of an existing connection errors noisily (ERR_INVALID_PARAMETER),
+	# so guard with is_connected and report already_connected instead.
+	if source.is_connected(signal_name, callable):
+		root.free()
+		_fail(OP_ERROR_ALREADY_CONNECTED, from_path + "." + signal_name
+				+ " is already connected to " + to_path + "." + method_name)
+		return
+
+	# CONNECT_PERSIST is what makes pack(root) serialize the connection into the
+	# .tscn; without it the wiring is runtime-only and the pack drops it.
+	var connect_err := source.connect(signal_name, callable, Object.CONNECT_PERSIST)
+	if connect_err != OK:
+		root.free()
+		_fail(OP_ERROR_SAVE_FAILED, "failed to connect " + from_path + "." + signal_name
+				+ " to " + to_path + "." + method_name + ": " + error_string(connect_err))
+		return
+
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
+
+	_succeed({
+		"scene_path": path,
+		"from": from_path,
+		"signal": signal_name,
+		"to": to_path,
+		"method": method_name,
+	})
+
+
+# node-disconnect-signal: remove an existing signal->method connection from the
+# .tscn (issue #57). A connection that does not exist is a clean
+# connection_not_found error rather than a silent no-op; a missing signal on the
+# source means there can be no such connection, so it maps to the same code.
+func _op_node_disconnect_signal(params: Dictionary) -> void:
+	_diag("running operation: node-disconnect-signal")
+	var path := _string_param(params, "path")
+	var root: Node = _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+
+	var from_path := _string_param(params, "from")
+	var source := _resolve_node(root, from_path)
+	if source == null:
+		root.free()
+		_fail_node_not_found_labeled("source", from_path)
+		return
+	var to_path := _string_param(params, "to")
+	var target := _resolve_node(root, to_path)
+	if target == null:
+		root.free()
+		_fail_node_not_found_labeled("target", to_path)
+		return
+
+	var signal_name := _string_param(params, "signal")
+	# A missing source signal is signal_not_found, symmetric with connect-signal
+	# and the documented contract: a typo'd signal is fixed by naming the right
+	# signal, not by being collapsed into an absent connection (issue #57 review).
+	if not source.has_signal(signal_name):
+		root.free()
+		_fail(OP_ERROR_SIGNAL_NOT_FOUND, "source node " + from_path
+				+ " has no signal: " + signal_name)
+		return
+	var method_name := _string_param(params, "method")
+	var callable := Callable(target, method_name)
+	# The signal exists but carries no such connection: nothing to remove. Guard
+	# with is_connected rather than call disconnect() (which errors on an absent
+	# connection).
+	if not source.is_connected(signal_name, callable):
+		root.free()
+		_fail(OP_ERROR_CONNECTION_NOT_FOUND, "no such connection: " + from_path + "."
+				+ signal_name + " -> " + to_path + "." + method_name)
+		return
+
+	source.disconnect(signal_name, callable)
+
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
+
+	_succeed({
+		"scene_path": path,
+		"from": from_path,
+		"signal": signal_name,
+		"to": to_path,
+		"method": method_name,
+	})
+
+
 # script-create: write a new .gd script at the requested path — from verbatim
 # content or a minimal built-in template — and report the saved path plus the
 # class_name/extends the written source declares (issue #110). The script group
@@ -945,15 +1085,29 @@ func _apply_line_range(source: String, params: Dictionary) -> Variant:
 # set_script). Rather than report a phantom success over a scene with no script
 # attached, attach verifies the bind took effect and refuses a non-compiling
 # script with script_compile_failed — fix it (or check with script validate).
+#
+# attach is a MUTATION verb (it is node.set_script): it OVERWRITES an existing
+# binding rather than refusing it (issue #132) — there is no `script detach`, so
+# refusing an already-scripted node would strand it. The overwrite is not silent:
+# the prior script's resource_path is captured BEFORE set_script and reported as
+# replaced_script (null only when the node had no prior script), so an agent can
+# detect a clobber from the result.
+#
+# Error ordering (issue #132, Part 2): the primary subject (the scene loads + the
+# addressed node exists) is validated BEFORE the secondary input (the --script
+# arg). Both the .gd-shape check and the script-existence check (_require_existing_
+# script) run AFTER the scene load and node resolution — one invariant, no
+# exceptions. So with both the scene and the script missing, the scene problem is
+# reported first. The accepted trade-off: a missing/malformed --script now pays
+# the scene load+instantiate on the error path — fine, since ADR-0009 makes the
+# project trusted (running _init is not a security concern) and the error path is
+# rare.
 func _op_script_attach(params: Dictionary) -> void:
 	_diag("running operation: script-attach")
 	var path := _string_param(params, "path")
 
-	# Cheap script-path shape checks first, before the costlier scene load.
-	var script_path := _string_param(params, "script")
-	if not _require_existing_script(script_path):
-		return  # _require_existing_script already recorded the failure
-
+	# Primary subject first: load + instantiate the scene, then resolve the node —
+	# validated before the secondary --script input (issue #132, Part 2).
 	var root: Node = _load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
@@ -964,6 +1118,15 @@ func _op_script_attach(params: Dictionary) -> void:
 		_fail_node_not_found(node_path)
 		return
 
+	# Secondary input: validate the --script arg only now — its .gd shape
+	# (invalid_path) and existence (path_not_found), via the shared #135 helper — so
+	# a scene/node problem is always reported ahead of a script problem (issue #132,
+	# Part 2). The helper records the failure; the caller frees the live tree.
+	var script_path := _string_param(params, "script")
+	if not _require_existing_script(script_path):
+		root.free()
+		return  # _require_existing_script already recorded the failure
+
 	# load returns a non-null Script even for a .gd that does not compile (compile
 	# errors go to stderr; the resource still loads), so a null here is a genuine
 	# resource-load failure (e.g. no format loader), not a compile verdict — guard
@@ -973,6 +1136,13 @@ func _op_script_attach(params: Dictionary) -> void:
 		root.free()
 		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a GDScript resource: " + script_path)
 		return
+
+	# Capture what this attach is about to DISPLACE before set_script overwrites it
+	# (issue #132). A node that already carries a script yields its prior script's
+	# resource_path verbatim — including a built-in/embedded script's sub-resource
+	# ref (res://scene.tscn::GDScript_xxx) — so a displacement always reports a
+	# non-null signal; a node with no prior script yields null.
+	var replaced_script: Variant = _displaced_script_path(node)
 
 	node.set_script(script)
 	# set_script silently rejects a script it cannot bind: get_script() stays null
@@ -1007,6 +1177,7 @@ func _op_script_attach(params: Dictionary) -> void:
 		"node": node_path,
 		"script": script_path,
 		"class_name": class_name_value,
+		"replaced_script": replaced_script,
 	})
 
 
@@ -1406,6 +1577,16 @@ func _fail_node_not_found(node_path: String) -> void:
 				+ " — address the node exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 
 
+# Like _fail_node_not_found but names which endpoint of a connection failed
+# ("source"/"target", issue #57), so an agent knows which node path to fix.
+func _fail_node_not_found_labeled(label: String, node_path: String) -> void:
+	if _is_canonical_parent_path(node_path):
+		_fail(OP_ERROR_NODE_NOT_FOUND, label + " node not found in scene: " + node_path)
+	else:
+		_fail(OP_ERROR_NODE_NOT_FOUND, "non-canonical " + label + " node path: " + node_path
+				+ " — address the node exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
+
+
 # Whether a property-list entry is a STORAGE property — the ones node get
 # reports and node set targets: the properties that serialize into the .tscn,
 # excluding the engine's category headers, group separators, and editor-only
@@ -1494,6 +1675,23 @@ func _script_class_of(node: Node) -> Variant:
 	if global_name.is_empty():
 		return null
 	return global_name
+
+
+# The resource_path of the script CURRENTLY bound to the node — the script that an
+# attach is about to DISPLACE (issue #132). Reported verbatim, so a built-in /
+# embedded script keeps its sub-resource ref (res://scene.tscn::GDScript_xxx) and
+# a displacement always yields a non-null signal. null when the node carries no
+# prior script (get_script() == null). The "had a script but resource_path is
+# empty" edge (does not occur for .tscn-embedded scripts, which carry an id) is
+# accepted as reported-null. Captured BEFORE set_script overwrites the binding.
+func _displaced_script_path(node: Node) -> Variant:
+	var script := node.get_script() as Script
+	if script == null:
+		return null
+	var resource_path := script.resource_path
+	if resource_path.is_empty():
+		return null
+	return resource_path
 
 
 # A SceneState node path normalized to the canonical root-relative form the

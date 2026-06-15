@@ -309,6 +309,35 @@ def test_node_remove_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_node_connect_signal_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for node connect-signal (issue #57): the bare
+    # --schema flag short-circuits into the self-description. The `from`/`to`
+    # params document the root-relative node-path addressing agents must use,
+    # and the wire key for the source is `from` (the .tscn [connection] key),
+    # not the model's Python field name.
+    from gda.models import NodeConnectSignalParams, NodeConnectSignalResult
+
+    result = CliRunner().invoke(app, ["node", "connect-signal", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == NodeConnectSignalParams.model_json_schema()
+    assert doc["output"] == NodeConnectSignalResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    # The four connection parts, addressed as `from`/`signal`/`to`/`method`.
+    assert set(doc["input"]["properties"]) == {
+        "path",
+        "from",
+        "signal",
+        "to",
+        "method",
+    }
+    assert "scene root" in doc["input"]["properties"]["from"]["description"]
+    assert "scene root" in doc["input"]["properties"]["to"]["description"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_node_duplicate_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for node duplicate (issue #56): the bare --schema
     # flag — no path, no --node — short-circuits into the self-description.
@@ -348,11 +377,37 @@ def test_node_move_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_node_disconnect_signal_schema_emits_model_derived_contract_without_other_args():
+    from gda.models import (
+        NodeDisconnectSignalParams,
+        NodeDisconnectSignalResult,
+    )
+
+    result = CliRunner().invoke(app, ["node", "disconnect-signal", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == NodeDisconnectSignalParams.model_json_schema()
+    assert doc["output"] == NodeDisconnectSignalResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert set(doc["input"]["properties"]) == {
+        "path",
+        "from",
+        "signal",
+        "to",
+        "method",
+    }
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_sample_node_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each node command satisfies the contract its
-    # --schema emits (the other half of the ADR-0004 hard gate, issues #53/#55/#56).
+    # --schema emits (the other half of the ADR-0004 hard gate, issues
+    # #53/#55/#56/#57).
     from tests.test_node_commands import (
         ADD_RESULT,
+        CONNECT_RESULT,
         DUPLICATE_RESULT,
         GET_RESULT,
         LIST_RESULT,
@@ -372,6 +427,12 @@ def test_sample_node_results_validate_against_emitted_output_schemas():
         CliRunner().invoke(app, ["node", "duplicate", "--schema"]).stdout
     )
     move_doc = json.loads(CliRunner().invoke(app, ["node", "move", "--schema"]).stdout)
+    connect_doc = json.loads(
+        CliRunner().invoke(app, ["node", "connect-signal", "--schema"]).stdout
+    )
+    disconnect_doc = json.loads(
+        CliRunner().invoke(app, ["node", "disconnect-signal", "--schema"]).stdout
+    )
 
     jsonschema.validate(instance=ADD_RESULT, schema=add_doc["output"])
     jsonschema.validate(instance=LIST_RESULT, schema=list_doc["output"])
@@ -380,6 +441,9 @@ def test_sample_node_results_validate_against_emitted_output_schemas():
     jsonschema.validate(instance=REMOVE_RESULT, schema=remove_doc["output"])
     jsonschema.validate(instance=DUPLICATE_RESULT, schema=duplicate_doc["output"])
     jsonschema.validate(instance=MOVE_RESULT, schema=move_doc["output"])
+    jsonschema.validate(instance=CONNECT_RESULT, schema=connect_doc["output"])
+    # connect and disconnect share the four-part connection shape.
+    jsonschema.validate(instance=CONNECT_RESULT, schema=disconnect_doc["output"])
 
 
 def test_node_schema_spawns_no_godot(monkeypatch):
@@ -397,6 +461,8 @@ def test_node_schema_spawns_no_godot(monkeypatch):
         ["node", "remove"],
         ["node", "duplicate"],
         ["node", "move"],
+        ["node", "connect-signal"],
+        ["node", "disconnect-signal"],
     ):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0

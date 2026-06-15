@@ -1025,6 +1025,104 @@ def test_script_attach_missing_scene_yields_path_not_found(godot_project):
 
 
 @pytest.mark.e2e
+def test_script_attach_no_prior_script_reports_null_replaced_script(godot_project):
+    # attach is overwrite-and-report (issue #132): a node with no prior script is
+    # bound and replaced_script is null — the signal that nothing was displaced.
+    gda = _gda_project(godot_project)
+    assert (
+        gda("scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+    assert (
+        gda("script", "create", "res://hero.gd", "--extends", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+
+    attached = gda(
+        "script", "attach", "res://main.tscn",
+        "--node", ".", "--script", "res://hero.gd", "--json",
+    )
+
+    assert attached.returncode == 0, attached.stdout + attached.stderr
+    assert json.loads(attached.stdout)["replaced_script"] is None
+
+
+@pytest.mark.e2e
+def test_script_attach_overwrites_and_reports_the_displaced_script(godot_project):
+    # The issue #132 core: re-attaching to an ALREADY-scripted node overwrites the
+    # binding (attach is a mutation verb — there is no `script detach`, so refusing
+    # would strand the node) but no longer hides the displacement: replaced_script
+    # names the prior script's res:// path verbatim. The overwrite is real — the
+    # saved .tscn now references the NEW script and no longer the old one.
+    gda = _gda_project(godot_project)
+    assert (
+        gda("scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+    assert (
+        gda("script", "create", "res://old.gd", "--extends", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+    assert (
+        gda(
+            "script", "create", "res://new.gd",
+            "--content", "class_name NewHero\nextends Node2D\n", "--json",
+        ).returncode
+        == 0
+    )
+    # First attach binds old.gd — the node is now already-scripted.
+    first = gda(
+        "script", "attach", "res://main.tscn",
+        "--node", ".", "--script", "res://old.gd", "--json",
+    )
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert json.loads(first.stdout)["replaced_script"] is None
+
+    # Second attach OVERWRITES old.gd with new.gd and REPORTS the displaced old.gd.
+    second = gda(
+        "script", "attach", "res://main.tscn",
+        "--node", ".", "--script", "res://new.gd", "--json",
+    )
+
+    assert second.returncode == 0, second.stdout + second.stderr
+    data = json.loads(second.stdout)
+    assert data["script"] == "res://new.gd"
+    assert data["class_name"] == "NewHero"
+    # The displaced script is reported verbatim by its resource_path.
+    assert data["replaced_script"] == "res://old.gd"
+    # The overwrite is real: the saved scene references the new script, not the old.
+    saved = (godot_project / "main.tscn").read_text(encoding="utf-8")
+    assert "new.gd" in saved
+    assert "old.gd" not in saved
+
+
+@pytest.mark.e2e
+def test_script_attach_both_scene_and_script_missing_reports_the_scene_first(
+    godot_project,
+):
+    # The scene-before-script ordering acceptance (issue #132, Part 2): with BOTH
+    # the scene and the --script absent, the SCENE problem is reported first — the
+    # primary subject (the scene loads + node exists) is validated before the
+    # secondary input (the --script arg), one invariant with no exceptions. Before
+    # the reorder this surfaced the script's path_not_found and masked the scene.
+    gda = _gda_project(godot_project)
+
+    attached = gda(
+        "script", "attach", "res://missing.tscn",
+        "--node", ".", "--script", "res://also_missing.gd", "--json",
+    )
+
+    err = _assert_operation_error(attached, "path_not_found")
+    # The reported failure names the SCENE, not the script.
+    assert "missing.tscn" in err["message"]
+    assert "also_missing.gd" not in err["message"]
+
+
+@pytest.mark.e2e
 def test_script_create_empty_content_round_trips_as_empty_source(godot_project):
     # An empty file is legal source: --content "" writes an empty script, and get
     # reads it back as empty (the get_file_as_string empty-vs-error disambiguation

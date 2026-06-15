@@ -923,6 +923,139 @@ def test_node_remove_missing_node_yields_node_not_found(godot_project):
     assert scene_path.read_text(encoding="utf-8") == before
 
 
+# --- node connect-signal / disconnect-signal (issue #57) ---
+
+
+def _scene_with_emitter_and_receiver(godot_project):
+    """A scene whose root has a Timer 'Emitter' and a Node2D 'Receiver' — the
+    fixture the signal-wiring tests connect across."""
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    for node_type, name in (("Timer", "Emitter"), ("Node2D", "Receiver")):
+        added = _gda(
+            "node", "add", str(scene_path),
+            "--type", node_type, "--name", name, "--json",
+        )
+        assert added.returncode == 0, added.stdout + added.stderr
+    return scene_path
+
+
+def _connection_lines(scene_path) -> list[str]:
+    """The [connection ...] lines a saved scene file declares (the persisted wiring)."""
+    return [
+        line
+        for line in scene_path.read_text(encoding="utf-8").splitlines()
+        if line.startswith("[connection")
+    ]
+
+
+@pytest.mark.e2e
+def test_node_connect_signal_records_a_connection_that_round_trips(godot_project):
+    # The core of issue #57: connect-signal wires a source node's signal to a
+    # target node's method, persisted as a [connection] in the .tscn — the
+    # mutation is on disk (a re-read shows it), not just in the reporting process.
+    scene_path = _scene_with_emitter_and_receiver(godot_project)
+
+    connected = _gda(
+        "node", "connect-signal", str(scene_path),
+        "--from", "Emitter", "--signal", "timeout",
+        "--to", "Receiver", "--method", "on_timeout", "--json",
+    )
+
+    assert connected.returncode == 0, connected.stdout + connected.stderr
+    data = json.loads(connected.stdout)
+    assert data["scene_path"] == str(scene_path)
+    assert (data["from"], data["signal"]) == ("Emitter", "timeout")
+    assert (data["to"], data["method"]) == ("Receiver", "on_timeout")
+    # Round-trip: the saved file declares the connection.
+    lines = _connection_lines(scene_path)
+    assert lines == [
+        '[connection signal="timeout" from="Emitter" to="Receiver" method="on_timeout"]'
+    ]
+
+
+@pytest.mark.e2e
+def test_node_connect_signal_allows_a_not_yet_defined_target_method(godot_project):
+    # issue #57's design decision: the target METHOD need not exist at connect
+    # time — a .tscn [connection] is persisted data, and Godot's own editor lets
+    # you wire a signal to a not-yet-written method, so the handler can be
+    # authored afterward. The connection is recorded with the dangling method.
+    scene_path = _scene_with_emitter_and_receiver(godot_project)
+
+    connected = _gda(
+        "node", "connect-signal", str(scene_path),
+        "--from", "Emitter", "--signal", "timeout",
+        "--to", "Receiver", "--method", "not_yet_written", "--json",
+    )
+
+    assert connected.returncode == 0, connected.stdout + connected.stderr
+    assert json.loads(connected.stdout)["method"] == "not_yet_written"
+    assert _connection_lines(scene_path) == [
+        '[connection signal="timeout" from="Emitter" to="Receiver" method="not_yet_written"]'
+    ]
+
+
+@pytest.mark.e2e
+def test_node_connect_signal_unknown_signal_yields_signal_not_found(godot_project):
+    # The SIGNAL must exist on the source node (the other half of the design
+    # decision): a typo'd or absent signal is a clean signal_not_found, and the
+    # scene file is left untouched.
+    scene_path = _scene_with_emitter_and_receiver(godot_project)
+    before = scene_path.read_text(encoding="utf-8")
+
+    connected = _gda(
+        "node", "connect-signal", str(scene_path),
+        "--from", "Emitter", "--signal", "no_such_signal",
+        "--to", "Receiver", "--method", "on_timeout", "--json",
+    )
+
+    err = _assert_operation_error(connected, "signal_not_found")
+    assert "no_such_signal" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_connect_signal_already_connected_yields_already_connected(godot_project):
+    # Wiring the same signal->method twice is a clean already_connected error
+    # rather than a noisy engine failure or a silent re-apply; the file is
+    # unchanged after the second attempt.
+    scene_path = _scene_with_emitter_and_receiver(godot_project)
+    first = _gda(
+        "node", "connect-signal", str(scene_path),
+        "--from", "Emitter", "--signal", "timeout",
+        "--to", "Receiver", "--method", "on_timeout", "--json",
+    )
+    assert first.returncode == 0, first.stdout + first.stderr
+    before = scene_path.read_text(encoding="utf-8")
+
+    again = _gda(
+        "node", "connect-signal", str(scene_path),
+        "--from", "Emitter", "--signal", "timeout",
+        "--to", "Receiver", "--method", "on_timeout", "--json",
+    )
+
+    err = _assert_operation_error(again, "already_connected")
+    assert "Receiver.on_timeout" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_connect_signal_missing_source_node_yields_node_not_found(godot_project):
+    scene_path = _scene_with_emitter_and_receiver(godot_project)
+    before = scene_path.read_text(encoding="utf-8")
+
+    connected = _gda(
+        "node", "connect-signal", str(scene_path),
+        "--from", "Bogus", "--signal", "timeout",
+        "--to", "Receiver", "--method", "on_timeout", "--json",
+    )
+
+    err = _assert_operation_error(connected, "node_not_found")
+    assert "source" in err["message"]
+    assert "Bogus" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
 @pytest.mark.e2e
 def test_node_remove_root_yields_cannot_target_root(godot_project):
     # Removing the scene root has no defined meaning — the root has no parent to
@@ -1174,6 +1307,67 @@ def test_node_move_name_collision_at_destination_yields_duplicate_node_name(
 
 
 @pytest.mark.e2e
+def test_node_connect_signal_missing_target_node_yields_node_not_found(godot_project):
+    scene_path = _scene_with_emitter_and_receiver(godot_project)
+
+    connected = _gda(
+        "node", "connect-signal", str(scene_path),
+        "--from", "Emitter", "--signal", "timeout",
+        "--to", "Bogus", "--method", "on_timeout", "--json",
+    )
+
+    err = _assert_operation_error(connected, "node_not_found")
+    assert "target" in err["message"]
+    assert "Bogus" in err["message"]
+
+
+@pytest.mark.e2e
+def test_node_disconnect_signal_removes_an_existing_connection(godot_project):
+    # disconnect-signal removes a connection connect-signal recorded; the round-
+    # trip read shows the [connection] is gone from the saved file.
+    scene_path = _scene_with_emitter_and_receiver(godot_project)
+    connected = _gda(
+        "node", "connect-signal", str(scene_path),
+        "--from", "Emitter", "--signal", "timeout",
+        "--to", "Receiver", "--method", "on_timeout", "--json",
+    )
+    assert connected.returncode == 0, connected.stdout + connected.stderr
+    assert _connection_lines(scene_path)  # the connection is there first
+
+    disconnected = _gda(
+        "node", "disconnect-signal", str(scene_path),
+        "--from", "Emitter", "--signal", "timeout",
+        "--to", "Receiver", "--method", "on_timeout", "--json",
+    )
+
+    assert disconnected.returncode == 0, disconnected.stdout + disconnected.stderr
+    data = json.loads(disconnected.stdout)
+    assert (data["from"], data["to"]) == ("Emitter", "Receiver")
+    # Round-trip: the connection is gone from the saved file.
+    assert _connection_lines(scene_path) == []
+
+
+@pytest.mark.e2e
+def test_node_disconnect_signal_absent_connection_yields_connection_not_found(
+    godot_project,
+):
+    # Disconnecting a connection that does not exist is a clean
+    # connection_not_found error, not a silent success; the file is untouched.
+    scene_path = _scene_with_emitter_and_receiver(godot_project)
+    before = scene_path.read_text(encoding="utf-8")
+
+    disconnected = _gda(
+        "node", "disconnect-signal", str(scene_path),
+        "--from", "Emitter", "--signal", "timeout",
+        "--to", "Receiver", "--method", "on_timeout", "--json",
+    )
+
+    err = _assert_operation_error(disconnected, "connection_not_found")
+    assert "Emitter.timeout" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
 def test_node_move_missing_node_yields_node_not_found(godot_project):
     scene_path = _scene_with_nested_children(godot_project)
     before = scene_path.read_text(encoding="utf-8")
@@ -1184,6 +1378,25 @@ def test_node_move_missing_node_yields_node_not_found(godot_project):
 
     err = _assert_operation_error(moved, "node_not_found")
     assert "Bogus" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_disconnect_signal_missing_signal_yields_signal_not_found(godot_project):
+    # A missing/typo'd source signal is signal_not_found on disconnect too —
+    # symmetric with connect-signal and the documented contract, not collapsed
+    # into connection_not_found (issue #57 review). The file is untouched.
+    scene_path = _scene_with_emitter_and_receiver(godot_project)
+    before = scene_path.read_text(encoding="utf-8")
+
+    disconnected = _gda(
+        "node", "disconnect-signal", str(scene_path),
+        "--from", "Emitter", "--signal", "no_such_signal",
+        "--to", "Receiver", "--method", "on_timeout", "--json",
+    )
+
+    err = _assert_operation_error(disconnected, "signal_not_found")
+    assert "no_such_signal" in err["message"]
     assert scene_path.read_text(encoding="utf-8") == before
 
 
@@ -1200,3 +1413,17 @@ def test_node_move_root_yields_cannot_target_root(godot_project):
 
     _assert_operation_error(moved, "cannot_target_root")
     assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_connect_signal_to_missing_scene_yields_path_not_found(godot_project):
+    missing = godot_project / "missing.tscn"
+
+    connected = _gda(
+        "node", "connect-signal", str(missing),
+        "--from", "Emitter", "--signal", "timeout",
+        "--to", "Receiver", "--method", "on_timeout", "--json",
+    )
+
+    err = _assert_operation_error(connected, "path_not_found")
+    assert str(missing) in err["message"]

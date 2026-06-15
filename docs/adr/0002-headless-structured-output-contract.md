@@ -116,6 +116,9 @@ operation, and parse codes the CLI assigns).
 | `invalid_line_range` | `operation` | `operation` | `4` | A line-range script edit specified lines outside the script's bounds, or end before start. |
 | `script_compile_failed` | `operation` | `operation` | `4` | A script could not be attached to a node because it does not compile. |
 | `incompatible_script_type` | `operation` | `operation` | `4` | A script compiles but its native base type is incompatible with the target node's type. |
+| `signal_not_found` | `operation` | `operation` | `4` | A requested signal does not exist on the source node. |
+| `already_connected` | `operation` | `operation` | `4` | A signal is already connected to the target node's method. |
+| `connection_not_found` | `operation` | `operation` | `4` | A requested signal-to-method connection does not exist on the source node. |
 | `contract_violation` | `parse` | `parser` | `5` | The process claimed success but violated the structured-output contract. |
 
 ## Considered options

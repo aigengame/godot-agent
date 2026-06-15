@@ -147,6 +147,34 @@ corrupting the scene.
   refused with the registered `cyclic_target` code. Moving the root (`--node .`) is
   `cannot_target_root` — the root has no parent to be reparented out of.
 
+**Signal wiring** (established by #57): `gda node connect-signal SCENE --from <source-path> --signal
+<name> --to <target-path> --method <name>` records a connection from a **source node's signal** to a
+**target node's method**, persisted into the `.tscn` as a `[connection]`. `disconnect-signal` takes the
+same four flags and removes an existing connection. The two node paths (`--from`, `--to`) reuse the
+node group's **node-path addressing** (#53/#66): `.` is the scene root, `A/B` a descendant — exactly
+the form `node list` reports. All four flags are required: a connection has no sensible default for
+any of its parts. As a scene mutation, signal wiring instantiates the scene and honors the **mutation
+integrity boundary** above (and its inherent trust boundary, ADR-0009).
+
+The contract for the two endpoints' existence (#57's design decision):
+
+- **The signal must exist on the source node.** A typo'd or absent signal is a clean
+  `signal_not_found` — the agent fixes the signal name, not the wiring.
+- **The target method need NOT exist.** A `.tscn` `[connection]` is persisted data, and Godot's own
+  editor lets you wire a signal to a not-yet-written method (it can auto-generate the handler), so
+  the handler may be authored *after* the wiring — a **dangling connection** is allowed and recorded
+  as-is. (Verified on Godot 4.6.3: connecting to a missing method returns `OK` and serializes.)
+
+Persistence mechanism: the connection is set up on the instantiated tree with Godot's
+`Object.CONNECT_PERSIST` flag before the scene is re-packed — only a persisting connection is
+serialized by `PackedScene.pack` into the `[connection ...]` line; a plain runtime connect is dropped.
+A re-read of the saved scene shows the connection (`is_connected` is true), so `connect-signal` is
+verifiable end-to-end. Connecting an already-wired signal→method is a clean `already_connected` error
+(not a noisy engine failure or a silent re-apply); disconnecting a connection that does not exist is
+`connection_not_found` (not a silent no-op). A node path that resolves to nothing is `node_not_found`
+(the message names whether the *source* or *target* endpoint failed); a missing or non-scene file
+reuses `path_not_found` / `not_a_scene`. All failures exit 4 and leave the file untouched.
+
 | Command | Description |
 | --- | --- |
 | `gda node add` | Add a node (by type or `class_name` script) into a scene |
@@ -244,10 +272,32 @@ but whose native base is **incompatible** with the node (e.g. an `extends Node3D
 `extends`). Other failures reuse existing codes: a missing script is `path_not_found`, a non-`.gd` script is
 `invalid_path`, a node path that resolves to nothing is `node_not_found`, a missing or non-scene
 file is `path_not_found`/`not_a_scene`, and a scene whose instances vanish or degrade on load is
-`missing_dependency` (the mutation-integrity boundary, #64). The result echoes
-the scene, node, script, and the attached script's `class_name` (null when it declares none),
-verifiable by reading the saved `.tscn` back: the script now appears as an `ext_resource` the node
-references.
+`missing_dependency` (the mutation-integrity boundary, #64).
+
+**Overwrite-and-report** (established by #132): `attach` is a **mutation verb** — it *is*
+`node.set_script()` — so it **overwrites** an existing binding rather than refusing it. (Contrast
+`script create`, a **create verb**: there the file is the entity and a silent overwrite is
+destructive, so it **no-clobbers** with `already_exists`. `attach` does the opposite because there
+is **no `script detach` command** — refusing an already-scripted node would strand it, unable to be
+re-scripted, and re-scripting is a common, legitimate operation.) The overwrite is **not silent**:
+the result's `replaced_script` field names the **displaced** script's `resource_path` **verbatim**
+— including a built-in/embedded script's sub-resource ref (e.g. `res://scene.tscn::GDScript_xxx`),
+so a displacement always reports a **non-null** signal. `replaced_script` is **null only** when the
+node had no prior script. An agent reads it to detect a clobber from the result.
+
+**Scene-before-script ordering** (established by #132): for this scene-mutating command the
+**primary subject** (the scene loads + the addressed node exists) is validated **before** the
+**secondary input** (the `--script` argument) — **one invariant, no exceptions**. Both the
+script's `.gd`-shape check (`invalid_path`) and its existence check (`path_not_found`) run **after**
+the scene load and node resolution, so with **both** the scene and the script missing the **scene**
+problem is reported first. The accepted trade-off: a missing/malformed `--script` now pays the
+scene load+instantiate on the error path — acceptable, since ADR-0009 makes the project trusted
+(running `_init` is not a security concern) and the error path is rare.
+
+The result echoes
+the scene, node, script, the attached script's `class_name` (null when it declares none), and
+`replaced_script` (the displaced script, or null), verifiable by reading the saved `.tscn` back: the
+script now appears as an `ext_resource` the node references.
 
 **Validating** (established by #118): `gda script validate PATH` syntax/compile-checks a `.gd`
 script. **Mechanism**: it reads the file text, sets it on a fresh `GDScript`, and calls
