@@ -505,20 +505,8 @@ func _op_script_create(params: Dictionary) -> void:
 	var created_dirs: Variant = _ensure_parent_dirs(path)
 	if created_dirs == null:
 		return  # _ensure_parent_dirs already recorded the failure
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, FileAccess.get_open_error()))
-		return
-	file.store_string(source)
-	# A successful open does not guarantee a successful write: a disk-full or I/O
-	# error surfaces here, not at open. Capture it before close() invalidates the
-	# handle, so a failed write is reported as save_failed rather than a phantom
-	# success over a partial or empty file (mirrors scene-create checking save).
-	var write_err := file.get_error()
-	file.close()
-	if write_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
-		return
+	if not _write_script_file(path, source):
+		return  # _write_script_file already recorded the failure
 
 	var meta := _script_metadata(source)
 	_succeed({
@@ -656,19 +644,8 @@ func _op_script_set(params: Dictionary) -> void:
 	if new_source == null:
 		return  # the apply helper already recorded the failure
 
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, FileAccess.get_open_error()))
-		return
-	file.store_string(new_source)
-	# A successful open does not guarantee a successful write (mirrors
-	# script-create): capture a disk-full/I/O error before close() invalidates
-	# the handle, so a failed write is save_failed, not a phantom success.
-	var write_err := file.get_error()
-	file.close()
-	if write_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
-		return
+	if not _write_script_file(path, new_source):
+		return  # _write_script_file already recorded the failure
 
 	# Re-parse the written source so set round-trips through script get.
 	var meta := _script_metadata(new_source)
@@ -1504,6 +1481,27 @@ func _save_failure_message(noun: String, path: String, save_err: Error) -> Strin
 		if dir != null:
 			dir.remove(probe_name)
 	return message
+
+
+# Write `source` to a .gd file as RAW TEXT, reporting both failure modes as
+# save_failed. Returns true on a clean write, or false after recording the
+# failure (the caller must stop). A successful open does not guarantee a
+# successful write: a disk-full/I/O error surfaces at get_error(), not at open,
+# so capture it BEFORE close() invalidates the handle — a failed write is
+# save_failed, never a phantom success over a partial or empty file. Shared by
+# script create and script set, the two ops that write script text.
+func _write_script_file(path: String, source: String) -> bool:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, FileAccess.get_open_error()))
+		return false
+	file.store_string(source)
+	var write_err := file.get_error()
+	file.close()
+	if write_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
+		return false
+	return true
 
 
 # Record a successful result: emit it through the sentinel contract and mark
