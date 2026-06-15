@@ -820,6 +820,41 @@ def test_script_attach_non_compiling_script_yields_script_compile_failed(godot_p
 
 
 @pytest.mark.e2e
+def test_script_attach_incompatible_node_type_yields_incompatible_script_type(godot_project):
+    # A script that COMPILES but whose native base is incompatible with the node
+    # (an `extends Node3D` script onto a Node2D root) is bounced by set_script for
+    # a reason that is NOT a compile error. attach must report the distinct
+    # incompatible_script_type — not script_compile_failed — so the agent fixes
+    # the node/script pairing rather than chasing a non-existent syntax error. The
+    # scene is left untouched.
+    gda = _gda_project(godot_project)
+    assert (
+        gda("scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+    # A perfectly valid script — it compiles — but extends Node3D, incompatible
+    # with the Node2D root.
+    assert (
+        gda("script", "create", "res://spatial.gd", "--extends", "Node3D", "--json")
+        .returncode
+        == 0
+    )
+    before = (godot_project / "main.tscn").read_text(encoding="utf-8")
+
+    attached = gda(
+        "script", "attach", "res://main.tscn",
+        "--node", ".", "--script", "res://spatial.gd", "--json",
+    )
+
+    err = _assert_operation_error(attached, "incompatible_script_type")
+    assert "Node3D" in err["message"]
+    assert "Node2D" in err["message"]
+    # The refusal leaves the scene untouched.
+    assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
 def test_script_attach_missing_script_yields_path_not_found(godot_project):
     gda = _gda_project(godot_project)
     assert (

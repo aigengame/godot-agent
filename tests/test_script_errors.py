@@ -415,6 +415,26 @@ def test_script_attach_non_compiling_script_uses_script_compile_failed_code(monk
     assert "/x/hero.gd" in err["message"]
 
 
+def test_script_attach_incompatible_type_uses_incompatible_script_type_code(monkeypatch):
+    # A script that COMPILES but whose native base is incompatible with the node
+    # (e.g. an `extends Node3D` script onto a Node2D) is bounced by set_script for
+    # a different reason than a compile error — attach reports the distinct
+    # incompatible_script_type code so the agent fixes the node/script pairing
+    # rather than chasing a non-existent syntax error.
+    result = _invoke_script_attach(
+        monkeypatch,
+        "incompatible_script_type",
+        "script extends Node3D, which is incompatible with node Hero of type Node2D",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "incompatible_script_type"
+    assert "Node3D" in err["message"]
+    assert "Node2D" in err["message"]
+
+
 def _invoke_script_validate(monkeypatch, code: str, message: str):
     inject_runner(
         monkeypatch,
