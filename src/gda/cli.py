@@ -33,10 +33,16 @@ from gda.models import (
     NodeConnectSignalResult,
     NodeDisconnectSignalParams,
     NodeDisconnectSignalResult,
+    NodeDuplicateParams,
+    NodeDuplicateResult,
     NodeGetParams,
     NodeGetResult,
     NodeListParams,
     NodeListResult,
+    NodeMoveParams,
+    NodeMoveResult,
+    NodeRemoveParams,
+    NodeRemoveResult,
     NodeSetParams,
     NodeSetResult,
     SceneCreateParams,
@@ -256,6 +262,24 @@ NODE_SET_COMMAND: HeadlessCommand[NodeSetResult] = HeadlessCommand(
     operation="node-set",
     input_model=NodeSetParams,
     output_model=NodeSetResult,
+)
+
+NODE_REMOVE_COMMAND: HeadlessCommand[NodeRemoveResult] = HeadlessCommand(
+    operation="node-remove",
+    input_model=NodeRemoveParams,
+    output_model=NodeRemoveResult,
+)
+
+NODE_DUPLICATE_COMMAND: HeadlessCommand[NodeDuplicateResult] = HeadlessCommand(
+    operation="node-duplicate",
+    input_model=NodeDuplicateParams,
+    output_model=NodeDuplicateResult,
+)
+
+NODE_MOVE_COMMAND: HeadlessCommand[NodeMoveResult] = HeadlessCommand(
+    operation="node-move",
+    input_model=NodeMoveParams,
+    output_model=NodeMoveResult,
 )
 
 NODE_CONNECT_SIGNAL_COMMAND: HeadlessCommand[NodeConnectSignalResult] = HeadlessCommand(
@@ -555,6 +579,97 @@ def set_property(
         NodeSetParams(
             path=_normalize_path(path), node=node, property=property, value=value
         ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@node_app.command(name="remove", cls=NODE_REMOVE_COMMAND.command_class())
+def remove_node(
+    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
+    node: str = typer.Option(
+        ...,
+        "--node",
+        help=(
+            "Node path of the node to delete, relative to the scene root: "
+            "'Player/Arm' a nested node. The root ('.') cannot be removed."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = NODE_REMOVE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Remove a node (and its subtree) from a scene file by node path."""
+    _dispatch(
+        NODE_REMOVE_COMMAND,
+        NodeRemoveParams(path=_normalize_path(path), node=node),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@node_app.command(name="duplicate", cls=NODE_DUPLICATE_COMMAND.command_class())
+def duplicate_node(
+    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
+    node: str = typer.Option(
+        ...,
+        "--node",
+        help=(
+            "Node path of the node to copy, relative to the scene root: "
+            "'Player/Arm' a nested node. The copy lands under this node's own "
+            "parent with a fresh name. The root ('.') cannot be duplicated."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = NODE_DUPLICATE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Duplicate a node (and its subtree) under its parent with a fresh name."""
+    _dispatch(
+        NODE_DUPLICATE_COMMAND,
+        NodeDuplicateParams(path=_normalize_path(path), node=node),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@node_app.command(name="move", cls=NODE_MOVE_COMMAND.command_class())
+def move_node(
+    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
+    node: str = typer.Option(
+        ...,
+        "--node",
+        help=(
+            "Node path of the node to reparent, relative to the scene root: "
+            "'Player/Arm' a nested node. The root ('.') cannot be moved."
+        ),
+    ),
+    to: str = typer.Option(
+        ...,
+        "--to",
+        help=(
+            "Node path of the new parent, relative to the scene root: '.' "
+            "addresses the root itself, 'Enemies' a nested node. Must not be the "
+            "moved node or one of its descendants (a cyclic target)."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = NODE_MOVE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Reparent a node (and its subtree) under a new parent node path."""
+    _dispatch(
+        NODE_MOVE_COMMAND,
+        NodeMoveParams(path=_normalize_path(path), node=node, to=to),
         json_output=json_output,
         godot=godot,
         project=project,

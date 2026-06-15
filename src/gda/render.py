@@ -27,8 +27,11 @@ from gda.models import (
     NodeAddResult,
     NodeConnectSignalResult,
     NodeDisconnectSignalResult,
+    NodeDuplicateResult,
     NodeGetResult,
     NodeListResult,
+    NodeMoveResult,
+    NodeRemoveResult,
     NodeSetResult,
     SceneCreateResult,
     SceneDeleteResult,
@@ -139,6 +142,24 @@ def render_node_set(was_set: "NodeSetResult") -> str:
     )
 
 
+def render_node_remove(removed: "NodeRemoveResult") -> str:
+    """Render a removed node as ``removed <path> (<type>) from <scene>``."""
+    return f"removed {removed.path} ({removed.type}) from {removed.scene_path}"
+
+
+def render_node_duplicate(duplicated: "NodeDuplicateResult") -> str:
+    """Render a duplicated node as ``duplicated <source> to <path> (<type>)``."""
+    return (
+        f"duplicated {duplicated.source_path} to {duplicated.path} "
+        f"({duplicated.type})"
+    )
+
+
+def render_node_move(moved: "NodeMoveResult") -> str:
+    """Render a moved node as ``moved <source> to <path> (<type>)``."""
+    return f"moved {moved.source_path} to {moved.path} ({moved.type})"
+
+
 def render_node_connect_signal(connected: "NodeConnectSignalResult") -> str:
     """Render a wired connection as ``connected <from>.<signal> -> <to>.<method>``."""
     return (
@@ -237,6 +258,9 @@ _RENDERERS = {
     NodeListResult: render_node_list,
     NodeGetResult: render_node_properties,
     NodeSetResult: render_node_set,
+    NodeRemoveResult: render_node_remove,
+    NodeDuplicateResult: render_node_duplicate,
+    NodeMoveResult: render_node_move,
     NodeConnectSignalResult: render_node_connect_signal,
     NodeDisconnectSignalResult: render_node_disconnect_signal,
     ScriptCreateResult: render_script_create,

@@ -444,6 +444,132 @@ class NodeSetResult(BaseModel):
     )
 
 
+class NodeRemoveParams(BaseModel):
+    """The operation params of ``gda node remove`` (issue #56).
+
+    ``path`` is the ``.tscn`` scene file to mutate; ``node`` addresses the node
+    to delete by its node path relative to the scene root. The scene root ('.')
+    has no parent to be removed from, so removing it is refused rather than
+    emptying the scene.
+    """
+
+    path: str
+    node: str = Field(
+        description=(
+            "Node path relative to the scene root: 'Player/Arm' a nested node. "
+            "The root ('.') cannot be removed."
+        )
+    )
+
+
+class NodeRemoveResult(BaseModel):
+    """The result of ``gda node remove``: the node and subtree it deleted (issue #56).
+
+    Echoes the removed node's ``path`` (its node path relative to the scene
+    root), ``name``, and ``type``, captured off the tree before the re-save —
+    so the result names the content removed, not just the path.
+    """
+
+    scene_path: str
+    path: str = Field(
+        description="The removed node's node path, relative to the scene root."
+    )
+    name: str
+    type: str = Field(description="The removed node's engine class (e.g. Sprite2D).")
+
+
+class NodeDuplicateParams(BaseModel):
+    """The operation params of ``gda node duplicate`` (issue #56).
+
+    ``path`` is the ``.tscn`` scene file to mutate; ``node`` addresses the node
+    to copy by its node path relative to the scene root. The copy (and its whole
+    subtree) lands under the source node's own parent with a fresh,
+    non-colliding name. The scene root ('.') has no parent to host a sibling
+    copy, so duplicating it is refused.
+    """
+
+    path: str
+    node: str = Field(
+        description=(
+            "Node path relative to the scene root: 'Player/Arm' a nested node. "
+            "The copy lands under this node's own parent; the root ('.') cannot "
+            "be duplicated."
+        )
+    )
+
+
+class NodeDuplicateResult(BaseModel):
+    """The result of ``gda node duplicate``: the new copy and where it landed (issue #56).
+
+    Echoes the ``source_path`` it copied and the new copy's ``path`` (its node
+    path relative to the scene root), ``name``, and ``type`` — the fresh,
+    non-colliding name the operation assigned — so an agent can address the
+    duplicate in follow-up node commands without re-listing.
+    """
+
+    scene_path: str
+    source_path: str = Field(
+        description="The copied node's node path, relative to the scene root."
+    )
+    path: str = Field(
+        description="The new copy's node path, relative to the scene root."
+    )
+    name: str = Field(
+        description="The fresh, non-colliding name assigned to the copy."
+    )
+    type: str = Field(description="The copy's engine class (e.g. Sprite2D).")
+
+
+class NodeMoveParams(BaseModel):
+    """The operation params of ``gda node move`` (issue #56).
+
+    ``path`` is the ``.tscn`` scene file to mutate; ``node`` addresses the node
+    to reparent by its node path relative to the scene root; ``to`` addresses the
+    new parent the same way. The move is refused when the target is invalid (no
+    such parent, or a name collision at the destination) or **cyclic** — moving a
+    node under itself or one of its own descendants would detach the subtree from
+    the scene. The scene root ('.') has no parent to be reparented out of.
+    """
+
+    path: str
+    node: str = Field(
+        description=(
+            "Node path of the node to reparent, relative to the scene root: "
+            "'Player/Arm' a nested node. The root ('.') cannot be moved."
+        )
+    )
+    to: str = Field(
+        description=(
+            "Node path of the new parent, relative to the scene root: '.' "
+            "addresses the root itself, 'Enemies' a nested node. Must not be the "
+            "moved node itself or one of its descendants (a cyclic target)."
+        )
+    )
+
+
+class NodeMoveResult(BaseModel):
+    """The result of ``gda node move``: the reparented node's new home (issue #56).
+
+    Echoes the ``source_path`` it moved, the ``new_parent`` it landed under, and
+    the node's new ``path`` (its node path relative to the scene root after the
+    move), ``name``, and ``type`` — so an agent can address the moved node in
+    follow-up node commands without re-listing.
+    """
+
+    scene_path: str
+    source_path: str = Field(
+        description="The moved node's original node path, relative to the scene root."
+    )
+    new_parent: str = Field(
+        description="The new parent's node path, relative to the scene root."
+    )
+    path: str = Field(
+        description="The moved node's new node path, relative to the scene root."
+    )
+    name: str
+    type: str = Field(description="The moved node's engine class (e.g. Sprite2D).")
+
+
 # A signal→method connection's four parts (issue #57): a source node's signal
 # wired to a target node's method, the shape of a ``.tscn`` ``[connection]``.
 # ``from`` is the source node's node path and ``to`` the target's, both relative

@@ -121,6 +121,38 @@ Whitespace around a value or a component is tolerated. A property of any other t
 reported by `node get` (its value degrades to a string projection), but `node set` cannot coerce
 to it yet and refuses with `uncoercible_value` — the coercible set grows as later slices need it.
 
+**Structural edits** (established by #56): three commands restructure the node tree within a
+scene file, each a `load → locate → restructure → pack → save` round-trip that reuses the
+node-path addressing and the mutation-integrity boundary above. They share one rule for the
+**scene root**: the root has no parent, so an edit that needs one is refused with the registered
+`cannot_target_root` error (exit 4), leaving the file untouched, rather than emptying or
+corrupting the scene.
+
+- `gda node remove SCENE --node <node-path>` deletes a node **and its whole subtree**, echoing
+  the removed node's path/name/type (captured before the re-save). A node path that resolves to
+  nothing is `node_not_found`; removing the root (`--node .`) is `cannot_target_root` — delete
+  the scene file instead.
+- `gda node duplicate SCENE --node <node-path>` copies a node **and its whole subtree** under the
+  source node's **own parent** (the copy is a sibling), assigning a **fresh, non-colliding name**:
+  the source name with an incrementing integer appended, starting at `2` (`Hero` → `Hero2`, then
+  `Hero3`, …), skipping any name already taken — including the engine's internal children. It
+  returns the copy's new node path. Duplicating the root (`--node .`) is `cannot_target_root` —
+  the root has no parent to host a sibling copy.
+- `gda node move SCENE --node <node-path> --to <new-parent-path>` reparents a node **and its whole
+  subtree** under the target parent, returning the node's new node path. The target is addressed
+  by node path like any other (`--to .` is the root). An invalid target (no such parent) is
+  `parent_not_found`, and a target that already has a child with the moved node's name is
+  `duplicate_node_name` — both the same codes `node add` reports. A **cyclic** target — the moved
+  node itself or one of its **own descendants** — would detach the subtree from the scene and is
+  refused with the registered `cyclic_target` code. Moving the root (`--node .`) is
+  `cannot_target_root` — the root has no parent to be reparented out of. Moving a node to the
+  parent it **already sits under** is a successful **no-op** that leaves the file untouched —
+  re-homing it under the same parent would reorder siblings, which is meaningful in Godot. The
+  reparent preserves the moved node's own **local transform** (a purely structural move, no
+  transform churn) and the instance state of any instanced sub-scene it carries — its
+  `instance=ExtResource(...)`, its `[editable ...]` marker, and its inherited/override children are
+  not rewritten into local nodes (the #64 mutation-integrity boundary).
+
 **Signal wiring** (established by #57): `gda node connect-signal SCENE --from <source-path> --signal
 <name> --to <target-path> --method <name>` records a connection from a **source node's signal** to a
 **target node's method**, persisted into the `.tscn` as a `[connection]`. `disconnect-signal` takes the

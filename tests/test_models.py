@@ -11,8 +11,11 @@ from gda.models import (
     NodeAddResult,
     NodeConnectSignalResult,
     NodeDisconnectSignalResult,
+    NodeDuplicateResult,
     NodeGetResult,
     NodeListResult,
+    NodeMoveResult,
+    NodeRemoveResult,
     NodeSetResult,
     SceneCreateResult,
     SceneDeleteResult,
@@ -504,6 +507,71 @@ def test_node_set_result_round_trips_the_coerced_property():
     assert was_set.type == "Vector2"
     assert was_set.value == [3.0, 4.0]
     assert json.loads(was_set.model_dump_json()) == payload
+
+
+def test_node_remove_result_round_trips():
+    # The node-remove operation reports what it removed (issue #56): the removed
+    # node's address (its node path relative to the scene root) alongside its
+    # name and type, captured off the tree before the re-save — so the result
+    # names the content removed, not just the path.
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "path": "Player/Hero",
+        "name": "Hero",
+        "type": "Sprite2D",
+    }
+
+    removed = NodeRemoveResult.model_validate(payload)
+
+    assert removed.path == "Player/Hero"
+    assert removed.name == "Hero"
+    assert removed.type == "Sprite2D"
+    assert json.loads(removed.model_dump_json()) == payload
+
+
+def test_node_duplicate_result_round_trips():
+    # The node-duplicate operation reports the new copy's address (issue #56):
+    # its node path relative to the scene root, plus the source node it copied,
+    # so an agent can address the duplicate without re-listing. The copy lands
+    # under the source's own parent with a fresh, non-colliding name.
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "source_path": "Player/Hero",
+        "path": "Player/Hero2",
+        "name": "Hero2",
+        "type": "Sprite2D",
+    }
+
+    duplicated = NodeDuplicateResult.model_validate(payload)
+
+    assert duplicated.source_path == "Player/Hero"
+    assert duplicated.path == "Player/Hero2"
+    assert duplicated.name == "Hero2"
+    assert duplicated.type == "Sprite2D"
+    assert json.loads(duplicated.model_dump_json()) == payload
+
+
+def test_node_move_result_round_trips():
+    # The node-move operation reports the reparented node's new address (issue
+    # #56): the source path it moved, the new parent it landed under, and the
+    # node's new node path/name/type relative to the scene root.
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "source_path": "Hero",
+        "new_parent": "Enemies",
+        "path": "Enemies/Hero",
+        "name": "Hero",
+        "type": "Sprite2D",
+    }
+
+    moved = NodeMoveResult.model_validate(payload)
+
+    assert moved.source_path == "Hero"
+    assert moved.new_parent == "Enemies"
+    assert moved.path == "Enemies/Hero"
+    assert moved.name == "Hero"
+    assert moved.type == "Sprite2D"
+    assert json.loads(moved.model_dump_json()) == payload
 
 
 def test_node_connect_signal_result_round_trips_the_four_part_connection():

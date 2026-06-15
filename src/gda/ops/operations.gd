@@ -43,6 +43,8 @@ const OP_ERROR_DUPLICATE_NODE_NAME := "duplicate_node_name"
 const OP_ERROR_MISSING_DEPENDENCY := "missing_dependency"
 const OP_ERROR_UNINSTANTIABLE_SCRIPT := "uninstantiable_script"
 const OP_ERROR_NODE_NOT_FOUND := "node_not_found"
+const OP_ERROR_CANNOT_TARGET_ROOT := "cannot_target_root"
+const OP_ERROR_CYCLIC_TARGET := "cyclic_target"
 const OP_ERROR_UNKNOWN_PROPERTY := "unknown_property"
 const OP_ERROR_UNCOERCIBLE_VALUE := "uncoercible_value"
 const OP_ERROR_NO_SEARCH_MATCH := "no_search_match"
@@ -93,6 +95,12 @@ func _initialize() -> void:
 			_op_node_get(params)
 		"node-set":
 			_op_node_set(params)
+		"node-remove":
+			_op_node_remove(params)
+		"node-duplicate":
+			_op_node_duplicate(params)
+		"node-move":
+			_op_node_move(params)
 		"node-connect-signal":
 			_op_node_connect_signal(params)
 		"node-disconnect-signal":
@@ -456,6 +464,253 @@ func _op_node_set(params: Dictionary) -> void:
 		"property": prop_name,
 		"type": _type_name(declared_type),
 		"value": stored_value,
+	})
+
+
+# node-remove: load a .tscn, resolve a node by node path, delete it and its
+# whole subtree, then re-pack and save — the first structural edit of issue #56.
+# As a mutating op it goes through the shared mutate-entry (load → instantiate →
+# unmaterialized-node guard), so it honors the mutation-integrity boundary
+# (issue #64): a re-save never silently drops an unresolvable instance.
+#
+# The scene root has no parent to be detached from, and the re-pack needs a
+# root, so removing '.' is refused with cannot_target_root rather than emptying
+# the scene. A node path that resolves to nothing is node_not_found, the same
+# code (and resolver) node get / node set use.
+func _op_node_remove(params: Dictionary) -> void:
+	_diag("running operation: node-remove")
+	var path := _string_param(params, "path")
+	var root: Node = _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+	var node_path := _string_param(params, "node")
+	var node := _resolve_node(root, node_path)
+	if node == null:
+		root.free()
+		_fail_node_not_found(node_path)
+		return
+	if node == root:
+		root.free()
+		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot remove the scene root: " + node_path
+				+ " — the root has no parent to be removed from; delete the scene file instead")
+		return
+
+	# Capture the removed node's identity off the live tree before detaching and
+	# re-saving free it.
+	var removed_name := String(node.name)
+	var removed_type := node.get_class()
+	node.get_parent().remove_child(node)
+	node.free()
+
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
+
+	_succeed({
+		"scene_path": path,
+		"path": node_path,
+		"name": removed_name,
+		"type": removed_type,
+	})
+
+
+# node-duplicate: load a .tscn, resolve a node by node path, duplicate it and
+# its whole subtree under the SAME parent with a fresh non-colliding name, then
+# re-pack and save (issue #56). Returns the copy's new node path so an agent can
+# address it without re-listing. As a mutating op it goes through the shared
+# mutate-entry, honoring the mutation-integrity boundary (issue #64).
+#
+# duplicate() copies the subtree (storage properties, script, children), but the
+# copy and its descendants are unowned, so a re-pack would not serialize them;
+# _reown_subtree claims the whole copied subtree under the scene root before
+# saving. The scene root has no parent to host a sibling copy, so duplicating
+# '.' is refused with cannot_target_root; a node path resolving to nothing is
+# node_not_found, the node group's shared code.
+func _op_node_duplicate(params: Dictionary) -> void:
+	_diag("running operation: node-duplicate")
+	var path := _string_param(params, "path")
+	var root: Node = _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+	var node_path := _string_param(params, "node")
+	var node := _resolve_node(root, node_path)
+	if node == null:
+		root.free()
+		_fail_node_not_found(node_path)
+		return
+	if node == root:
+		root.free()
+		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot duplicate the scene root: " + node_path
+				+ " — the root has no parent to host a sibling copy")
+		return
+
+	var parent := node.get_parent()
+	var fresh_name := _fresh_child_name(parent, String(node.name))
+	var copy := node.duplicate()
+	copy.name = fresh_name
+	parent.add_child(copy)
+	# The duplicated subtree is unowned; claim every node under the scene root so
+	# the re-pack serializes the whole copy, not just an empty placeholder.
+	_reown_subtree(copy, root)
+
+	# Capture the copy's identity off the live tree before re-saving frees it.
+	var new_path := String(root.get_path_to(copy))
+	var copy_name := String(copy.name)
+	var copy_type := copy.get_class()
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
+
+	_succeed({
+		"scene_path": path,
+		"source_path": node_path,
+		"path": new_path,
+		"name": copy_name,
+		"type": copy_type,
+	})
+
+
+# A fresh child name for `parent` derived from `base`, never colliding with an
+# existing child (including the engine's internal children, which
+# get_node_or_null resolves through). Mirrors the Godot editor's duplicate
+# naming: append an incrementing integer starting at 2 ("Hero" → "Hero2", then
+# "Hero3", …). A name Godot would itself rewrite can never be produced because
+# `base` is an already-valid node name and only digits are appended.
+func _fresh_child_name(parent: Node, base: String) -> String:
+	var index := 2
+	var candidate := base + str(index)
+	while parent.get_node_or_null(NodePath(candidate)) != null:
+		index += 1
+		candidate = base + str(index)
+	return candidate
+
+
+# Claim `node` and its whole subtree under `owner` so the re-pack serializes
+# every node (a node whose owner is not the scene root is dropped from the
+# packed scene). Used after duplicate(), which produces an unowned copy.
+func _reown_subtree(node: Node, owner: Node) -> void:
+	node.owner = owner
+	for child in node.get_children():
+		_reown_subtree(child, owner)
+
+
+# node-move: load a .tscn, resolve a node and a target parent by node path,
+# reparent the node (and its whole subtree) under the target, then re-pack and
+# save (the third and most complex structural edit of issue #56). Returns the
+# node's new node path. As a mutating op it goes through the shared mutate-entry,
+# honoring the mutation-integrity boundary (issue #64).
+#
+# Failure modes, each a registered code leaving the file untouched:
+# - the moved node resolves to nothing → node_not_found; the scene root has no
+#   parent to be reparented out of → cannot_target_root.
+# - the target parent resolves to nothing → parent_not_found (the same code, and
+#   canonical-vs-non-canonical message, node add reports for its --parent).
+# - the target is the node itself or one of its OWN descendants → cyclic_target:
+#   reparenting there would detach the whole subtree from the scene.
+# - the target already has a different child with the moved node's name →
+#   duplicate_node_name (the same code node add reports).
+#
+# Moving a node to the parent it ALREADY sits under is a successful no-op: the
+# node is already where the request wants it, so move returns success without
+# touching the tree or re-saving the file — a detach-and-reappend would shuffle
+# the node to the end of its (unchanged) parent and silently reorder siblings,
+# which is meaningful in Godot (issue #56 review).
+#
+# Reparenting uses Node.reparent(target, false) rather than a manual
+# remove_child → add_child + _reown_subtree. reparent() preserves the moved
+# node's owner AND its descendants' owners, so an instanced sub-scene under the
+# node keeps its instance= reference, its [editable ...] marker, and its
+# inherited/override children — a manual reown would rewrite those overrides into
+# locally-owned type= nodes, breaking instance inheritance and violating the #64
+# mutation-integrity boundary (verified empirically on Godot 4.6.3). The false
+# (keep_global_transform=false) argument keeps the move purely structural: the
+# node retains its LOCAL transform instead of having it rewritten to preserve a
+# global position the headless edit never cared about.
+func _op_node_move(params: Dictionary) -> void:
+	_diag("running operation: node-move")
+	var path := _string_param(params, "path")
+	var root: Node = _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+	var node_path := _string_param(params, "node")
+	var node := _resolve_node(root, node_path)
+	if node == null:
+		root.free()
+		_fail_node_not_found(node_path)
+		return
+	if node == root:
+		root.free()
+		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot move the scene root: " + node_path
+				+ " — the root has no parent to be reparented out of")
+		return
+
+	var target_path := _string_param(params, "to")
+	var target := _resolve_node(root, target_path)
+	if target == null:
+		root.free()
+		if _is_canonical_parent_path(target_path):
+			_fail(OP_ERROR_PARENT_NOT_FOUND, "target parent node not found in scene: " + target_path)
+		else:
+			_fail(OP_ERROR_PARENT_NOT_FOUND, "non-canonical target path: " + target_path
+					+ " — address the parent exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
+		return
+
+	# Cyclic target: moving a node under itself or one of its own descendants
+	# would detach the whole subtree from the scene. is_ancestor_of is false for
+	# the node itself, so check identity separately.
+	if target == node or node.is_ancestor_of(target):
+		root.free()
+		_fail(OP_ERROR_CYCLIC_TARGET, "cyclic move target: " + target_path
+				+ " is the moved node " + node_path + " or one of its descendants"
+				+ " — a node cannot become a child of its own subtree")
+		return
+
+	# Same-parent move: the node is already under the requested parent, so this is
+	# a successful no-op. Report its current identity and return WITHOUT reparenting
+	# or re-saving — re-homing it under the same parent would append it to the end
+	# and silently reorder siblings (issue #56 review), and there is nothing to
+	# persist that is not already on disk.
+	if node.get_parent() == target:
+		var here_name := String(node.name)
+		var here_type := node.get_class()
+		root.free()
+		_succeed({
+			"scene_path": path,
+			"source_path": node_path,
+			"new_parent": target_path,
+			"path": node_path,
+			"name": here_name,
+			"type": here_type,
+		})
+		return
+
+	# Name collision at the destination: the target already has a child with this
+	# name. (The same-parent no-op above already returned for a node already under
+	# the target, so any match here is a genuine different node.)
+	var node_name := String(node.name)
+	if target.get_node_or_null(NodePath(node_name)) != null:
+		root.free()
+		_fail(OP_ERROR_DUPLICATE_NODE_NAME, "target " + target_path
+				+ " already has a child named: " + node_name)
+		return
+
+	# reparent(target, false) preserves the moved node's and its descendants'
+	# owners (so an instanced sub-scene keeps its overrides and editable marker)
+	# and keeps the node's LOCAL transform (a purely structural move, no churn).
+	node.reparent(target, false)
+
+	# Capture the moved node's new identity off the live tree before re-saving.
+	var new_path := String(root.get_path_to(node))
+	var moved_name := String(node.name)
+	var moved_type := node.get_class()
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
+
+	_succeed({
+		"scene_path": path,
+		"source_path": node_path,
+		"new_parent": target_path,
+		"path": new_path,
+		"name": moved_name,
+		"type": moved_type,
 	})
 
 

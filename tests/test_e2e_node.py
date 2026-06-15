@@ -869,6 +869,60 @@ def test_node_add_by_class_name_whose_init_requires_args_names_the_constructor(
     assert scene_path.read_text(encoding="utf-8") == before
 
 
+# --- node remove (issue #56) ---
+
+
+@pytest.mark.e2e
+def test_node_remove_deletes_node_and_subtree_round_trip(godot_project):
+    # node remove is the first structural edit (issue #56): it deletes a node
+    # and its whole subtree, verified through a fresh node list — the deletion
+    # is on disk, not just in the reporting process. A sibling is untouched.
+    scene_path = _scene_with_nested_children(godot_project)  # root -> A -> B
+    _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "C", "--json")
+
+    removed = _gda("node", "remove", str(scene_path), "--node", "A", "--json")
+
+    assert removed.returncode == 0, removed.stdout + removed.stderr
+    data = json.loads(removed.stdout)
+    assert (data["path"], data["name"], data["type"]) == ("A", "A", "Node2D")
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    children = json.loads(listed.stdout)["root"]["children"]
+    names = {child["name"] for child in children}
+    # A (and its child B) are gone; the sibling C survives.
+    assert names == {"C"}
+
+
+@pytest.mark.e2e
+def test_node_remove_nested_node_leaves_ancestors(godot_project):
+    # Removing a descendant deletes only its subtree; its parent survives.
+    scene_path = _scene_with_nested_children(godot_project)  # root -> A -> B
+
+    removed = _gda("node", "remove", str(scene_path), "--node", "A/B", "--json")
+
+    assert removed.returncode == 0, removed.stdout + removed.stderr
+    assert json.loads(removed.stdout)["path"] == "A/B"
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+    a = json.loads(listed.stdout)["root"]["children"][0]
+    assert a["name"] == "A"
+    assert a["children"] == []
+
+
+@pytest.mark.e2e
+def test_node_remove_missing_node_yields_node_not_found(godot_project):
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    removed = _gda("node", "remove", str(scene_path), "--node", "Bogus", "--json")
+
+    err = _assert_operation_error(removed, "node_not_found")
+    assert "Bogus" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
 # --- node connect-signal / disconnect-signal (issue #57) ---
 
 
@@ -1003,6 +1057,256 @@ def test_node_connect_signal_missing_source_node_yields_node_not_found(godot_pro
 
 
 @pytest.mark.e2e
+def test_node_remove_root_yields_cannot_target_root(godot_project):
+    # Removing the scene root has no defined meaning — the root has no parent to
+    # be detached from, and a re-pack needs a root. node remove refuses with the
+    # registered cannot_target_root code and leaves the file untouched, rather
+    # than emptying the scene.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    removed = _gda("node", "remove", str(scene_path), "--node", ".", "--json")
+
+    err = _assert_operation_error(removed, "cannot_target_root")
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+# --- node duplicate (issue #56) ---
+
+
+@pytest.mark.e2e
+def test_node_duplicate_copies_node_under_same_parent_with_fresh_name(godot_project):
+    # node duplicate (issue #56): the copy lands under the source node's OWN
+    # parent (a sibling) with a fresh, non-colliding name, and the new node path
+    # is reported — verified through a fresh node list. The source survives.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    _gda("node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json")
+
+    duplicated = _gda("node", "duplicate", str(scene_path), "--node", "Hero", "--json")
+
+    assert duplicated.returncode == 0, duplicated.stdout + duplicated.stderr
+    data = json.loads(duplicated.stdout)
+    assert data["source_path"] == "Hero"
+    assert data["type"] == "Sprite2D"
+    # The fresh name is non-colliding and the new node path is a root-relative
+    # sibling of the source.
+    assert data["name"] != "Hero"
+    assert "/" not in data["path"]
+    assert data["path"] == data["name"]
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+    children = json.loads(listed.stdout)["root"]["children"]
+    names = sorted(child["name"] for child in children)
+    # Both the source and its fresh-named copy are present as siblings.
+    assert "Hero" in names
+    assert data["name"] in names
+    assert len(names) == 2
+
+
+@pytest.mark.e2e
+def test_node_duplicate_copies_the_whole_subtree(godot_project):
+    # Duplicate copies the node AND its subtree: the source has a child, and the
+    # copy must carry an equivalent child under the new node path.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "Hero", "--json")
+    _gda(
+        "node", "add", str(scene_path),
+        "--type", "Area2D", "--name", "Hitbox", "--parent", "Hero", "--json",
+    )
+
+    duplicated = _gda("node", "duplicate", str(scene_path), "--node", "Hero", "--json")
+    assert duplicated.returncode == 0, duplicated.stdout + duplicated.stderr
+    new_name = json.loads(duplicated.stdout)["name"]
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+    by_name = {c["name"]: c for c in json.loads(listed.stdout)["root"]["children"]}
+    copy = by_name[new_name]
+    # The copied subtree carries the child, re-pathed under the new parent.
+    assert copy["children"][0]["name"] == "Hitbox"
+    assert copy["children"][0]["type"] == "Area2D"
+    assert copy["children"][0]["path"] == f"{new_name}/Hitbox"
+
+
+@pytest.mark.e2e
+def test_node_duplicate_nested_node_lands_under_its_own_parent(godot_project):
+    # A nested source is duplicated under ITS parent, not the scene root: the new
+    # node path shares the source's parent prefix.
+    scene_path = _scene_with_nested_children(godot_project)  # root -> A -> B
+
+    duplicated = _gda("node", "duplicate", str(scene_path), "--node", "A/B", "--json")
+
+    assert duplicated.returncode == 0, duplicated.stdout + duplicated.stderr
+    data = json.loads(duplicated.stdout)
+    assert data["source_path"] == "A/B"
+    # The copy is a sibling of B, under A.
+    assert data["path"].startswith("A/")
+    assert data["path"] != "A/B"
+
+
+@pytest.mark.e2e
+def test_node_duplicate_missing_node_yields_node_not_found(godot_project):
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    duplicated = _gda("node", "duplicate", str(scene_path), "--node", "Bogus", "--json")
+
+    err = _assert_operation_error(duplicated, "node_not_found")
+    assert "Bogus" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_duplicate_root_yields_cannot_target_root(godot_project):
+    # The scene root has no parent to host a sibling copy, so duplicating '.' is
+    # refused with cannot_target_root and the file is left untouched.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    duplicated = _gda("node", "duplicate", str(scene_path), "--node", ".", "--json")
+
+    _assert_operation_error(duplicated, "cannot_target_root")
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+# --- node move (issue #56) ---
+
+
+@pytest.mark.e2e
+def test_node_move_reparents_node_and_subtree_round_trip(godot_project):
+    # node move (issue #56) reparents a node and its whole subtree under a new
+    # parent, returning the node's new node path — verified through a fresh node
+    # list: the moved node now sits under the target, carrying its child.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "Hero", "--json")
+    _gda(
+        "node", "add", str(scene_path),
+        "--type", "Area2D", "--name", "Hitbox", "--parent", "Hero", "--json",
+    )
+    _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "Enemies", "--json")
+
+    moved = _gda(
+        "node", "move", str(scene_path), "--node", "Hero", "--to", "Enemies", "--json"
+    )
+
+    assert moved.returncode == 0, moved.stdout + moved.stderr
+    data = json.loads(moved.stdout)
+    assert data["source_path"] == "Hero"
+    assert data["new_parent"] == "Enemies"
+    assert data["path"] == "Enemies/Hero"
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+    by_name = {c["name"]: c for c in json.loads(listed.stdout)["root"]["children"]}
+    # Hero is no longer a direct child of the root; it sits under Enemies, with
+    # its subtree intact.
+    assert "Hero" not in by_name
+    enemies = by_name["Enemies"]
+    hero = enemies["children"][0]
+    assert hero["name"] == "Hero"
+    assert hero["path"] == "Enemies/Hero"
+    assert hero["children"][0]["name"] == "Hitbox"
+
+
+@pytest.mark.e2e
+def test_node_move_to_root_reparents_under_the_root(godot_project):
+    # The target may be the root itself ('.'): a deeply nested node can be moved
+    # up to be a direct child of the scene root.
+    scene_path = _scene_with_nested_children(godot_project)  # root -> A -> B
+
+    moved = _gda(
+        "node", "move", str(scene_path), "--node", "A/B", "--to", ".", "--json"
+    )
+
+    assert moved.returncode == 0, moved.stdout + moved.stderr
+    data = json.loads(moved.stdout)
+    assert data["new_parent"] == "."
+    assert data["path"] == "B"
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+    names = {c["name"] for c in json.loads(listed.stdout)["root"]["children"]}
+    assert names == {"A", "B"}
+
+
+@pytest.mark.e2e
+def test_node_move_under_own_descendant_yields_cyclic_target(godot_project):
+    # The cyclic case (issue #56): moving a node under one of its own
+    # descendants would detach the whole subtree from the scene. It is refused
+    # with the registered cyclic_target code, leaving the file untouched.
+    scene_path = _scene_with_nested_children(godot_project)  # root -> A -> B
+    before = scene_path.read_text(encoding="utf-8")
+
+    moved = _gda(
+        "node", "move", str(scene_path), "--node", "A", "--to", "A/B", "--json"
+    )
+
+    err = _assert_operation_error(moved, "cyclic_target")
+    assert "A/B" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_move_under_itself_yields_cyclic_target(godot_project):
+    # Moving a node under itself is the degenerate cyclic case — the node cannot
+    # be its own parent.
+    scene_path = _scene_with_nested_children(godot_project)  # root -> A -> B
+    before = scene_path.read_text(encoding="utf-8")
+
+    moved = _gda(
+        "node", "move", str(scene_path), "--node", "A", "--to", "A", "--json"
+    )
+
+    _assert_operation_error(moved, "cyclic_target")
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_move_to_missing_parent_yields_parent_not_found(godot_project):
+    # An invalid target (no such parent node) reuses the node group's
+    # parent_not_found code, the same as node add's --parent.
+    scene_path = _scene_with_nested_children(godot_project)  # root -> A -> B
+    before = scene_path.read_text(encoding="utf-8")
+
+    moved = _gda(
+        "node", "move", str(scene_path), "--node", "A/B", "--to", "Bogus", "--json"
+    )
+
+    err = _assert_operation_error(moved, "parent_not_found")
+    assert "Bogus" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_move_name_collision_at_destination_yields_duplicate_node_name(
+    godot_project,
+):
+    # The target already has a child with the moved node's name: reparenting
+    # would collide, so it is refused with duplicate_node_name (the same code
+    # node add reports), leaving the file untouched.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "Hero", "--json")
+    _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "Enemies", "--json")
+    _gda(
+        "node", "add", str(scene_path),
+        "--type", "Sprite2D", "--name", "Hero", "--parent", "Enemies", "--json",
+    )
+    before = scene_path.read_text(encoding="utf-8")
+
+    moved = _gda(
+        "node", "move", str(scene_path), "--node", "Hero", "--to", "Enemies", "--json"
+    )
+
+    err = _assert_operation_error(moved, "duplicate_node_name")
+    assert "Hero" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
 def test_node_connect_signal_missing_target_node_yields_node_not_found(godot_project):
     scene_path = _scene_with_emitter_and_receiver(godot_project)
 
@@ -1064,6 +1368,20 @@ def test_node_disconnect_signal_absent_connection_yields_connection_not_found(
 
 
 @pytest.mark.e2e
+def test_node_move_missing_node_yields_node_not_found(godot_project):
+    scene_path = _scene_with_nested_children(godot_project)
+    before = scene_path.read_text(encoding="utf-8")
+
+    moved = _gda(
+        "node", "move", str(scene_path), "--node", "Bogus", "--to", ".", "--json"
+    )
+
+    err = _assert_operation_error(moved, "node_not_found")
+    assert "Bogus" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
 def test_node_disconnect_signal_missing_signal_yields_signal_not_found(godot_project):
     # A missing/typo'd source signal is signal_not_found on disconnect too —
     # symmetric with connect-signal and the documented contract, not collapsed
@@ -1080,6 +1398,93 @@ def test_node_disconnect_signal_missing_signal_yields_signal_not_found(godot_pro
     err = _assert_operation_error(disconnected, "signal_not_found")
     assert "no_such_signal" in err["message"]
     assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_move_root_yields_cannot_target_root(godot_project):
+    # The scene root has no parent to be reparented out of, so moving '.' is
+    # refused with cannot_target_root and the file is left untouched.
+    scene_path = _scene_with_nested_children(godot_project)
+    before = scene_path.read_text(encoding="utf-8")
+
+    moved = _gda(
+        "node", "move", str(scene_path), "--node", ".", "--to", "A", "--json"
+    )
+
+    _assert_operation_error(moved, "cannot_target_root")
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_move_to_current_parent_is_a_noop_preserving_sibling_order(godot_project):
+    # Moving a node to the parent it already sits under is a no-op (issue #56
+    # review): sibling order is meaningful in Godot, so re-homing the node under
+    # the same parent must not detach-and-reappend it (which would shuffle it to
+    # the end, [A, B, C] -> [B, C, A]). The order is read back off a fresh node
+    # list, so it reflects what was saved to disk, not just the reporting process.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    for name in ("A", "B", "C"):
+        added = _gda(
+            "node", "add", str(scene_path), "--type", "Node2D", "--name", name, "--json"
+        )
+        assert added.returncode == 0, added.stdout + added.stderr
+
+    moved = _gda("node", "move", str(scene_path), "--node", "A", "--to", ".", "--json")
+
+    assert moved.returncode == 0, moved.stdout + moved.stderr
+    data = json.loads(moved.stdout)
+    # The node is reported at its (unchanged) home.
+    assert data["new_parent"] == "."
+    assert data["path"] == "A"
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    order = [c["name"] for c in json.loads(listed.stdout)["root"]["children"]]
+    # Sibling order is preserved: A was not shuffled to the end.
+    assert order == ["A", "B", "C"]
+
+
+@pytest.mark.e2e
+def test_node_move_preserves_editable_instance_overrides(godot_project):
+    # Moving an instanced sub-scene must keep its instance inheritance intact
+    # (issue #56 review, the #64 mutation-integrity boundary): the reparent must
+    # not rewrite the editable instance's inherited/override children into
+    # locally-owned `type=` nodes, which would break instance inheritance. The
+    # whole sub-scene — its `instance=ExtResource(...)`, its `[editable ...]`
+    # marker, and its override nodes (Inner/Deep) — survives the move as-is.
+    # Verified empirically against Godot 4.6.3.
+    parent = _write_instance_fixture(godot_project)
+    # A destination parent to reparent the instance under.
+    added = _gda(
+        "node", "add", str(parent),
+        "--type", "Node2D", "--name", "Dest",
+        "--project", str(godot_project), "--json",
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+
+    moved = _gda(
+        "node", "move", str(parent),
+        "--node", "ChildInstance", "--to", "Dest",
+        "--project", str(godot_project), "--json",
+    )
+
+    assert moved.returncode == 0, moved.stdout + moved.stderr
+    assert json.loads(moved.stdout)["path"] == "Dest/ChildInstance"
+    saved = parent.read_text(encoding="utf-8")
+    # The sub-scene is still an instance under its new parent, not a flattened copy.
+    assert 'instance=ExtResource(' in saved
+    assert '[editable path="Dest/ChildInstance"]' in saved
+    # The override nodes inside the instance keep their override form (parent +
+    # index, NO type=) rather than being rewritten as local typed nodes.
+    assert '[node name="Inner" parent="Dest/ChildInstance" index=' in saved
+    assert '[node name="Deep" parent="Dest/ChildInstance/Inner" index=' in saved
+    assert 'name="Inner" type=' not in saved
+    assert 'name="Deep" type=' not in saved
+    # The property overrides survive the move.
+    assert "position = Vector2(10, 20)" in saved
+    assert "modulate = Color(1, 0, 0, 1)" in saved
+    assert "position = Vector2(3, 4)" in saved
 
 
 @pytest.mark.e2e
