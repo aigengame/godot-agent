@@ -507,6 +507,35 @@ def test_node_set_refuses_scene_whose_sub_scene_cannot_resolve(godot_project):
 
 
 @pytest.mark.e2e
+def test_node_list_reports_all_siblings_at_one_level_in_tree_order(godot_project):
+    # node list's sibling enumeration and child ordering (issue #53): every other
+    # round-trip fixture has at most one child per parent, so a parent with >1
+    # child is the case that exercises reporting ALL siblings and preserving their
+    # order. Add three distinct-typed children under the root, then assert node
+    # list reports all three, in the order they were added, off the saved file.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    siblings = [("A", "Node2D"), ("B", "Sprite2D"), ("C", "Area2D")]
+    for name, node_type in siblings:
+        added = _gda(
+            "node", "add", str(scene_path),
+            "--type", node_type, "--name", name, "--json",
+        )
+        assert added.returncode == 0, added.stdout + added.stderr
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    children = json.loads(listed.stdout)["root"]["children"]
+    # All siblings are reported, in tree order — name, type and node path each.
+    assert [(c["name"], c["type"], c["path"]) for c in children] == [
+        ("A", "Node2D", "A"),
+        ("B", "Sprite2D", "B"),
+        ("C", "Area2D", "C"),
+    ]
+
+
+@pytest.mark.e2e
 def test_node_list_missing_scene_yields_path_not_found(godot_project):
     missing = godot_project / "missing.tscn"
 
