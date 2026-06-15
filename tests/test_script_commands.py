@@ -419,6 +419,7 @@ ATTACH_RESULT = {
     "node": "Hero",
     "script": "/tmp/proj/hero.gd",
     "class_name": "Hero",
+    "replaced_script": None,
 }
 
 
@@ -451,6 +452,9 @@ def test_script_attach_dispatches_scene_node_and_script(monkeypatch):
     assert data["node"] == "Hero"
     assert data["script"] == "/tmp/proj/hero.gd"
     assert data["class_name"] == "Hero"
+    # attach overwrites-and-reports (issue #132): the displaced-script field rides
+    # through to the result; null here means the node had no prior script.
+    assert data["replaced_script"] is None
     assert fake.calls == [
         (
             "script-attach",
@@ -462,6 +466,38 @@ def test_script_attach_dispatches_scene_node_and_script(monkeypatch):
         )
     ]
     assert "engine diagnostic" in result.stderr
+
+
+def test_script_attach_reports_the_displaced_script(monkeypatch):
+    # attach is overwrite-and-report (issue #132): when the node already carried a
+    # script, the result names the displaced script's resource_path verbatim, so an
+    # agent can detect a clobber from the result rather than have it silently hidden.
+    payload = {
+        "scene_path": "/tmp/proj/main.tscn",
+        "node": "Hero",
+        "script": "/tmp/proj/new.gd",
+        "class_name": None,
+        "replaced_script": "res://old.gd",
+    }
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(payload)
+    inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "attach",
+            "/tmp/proj/main.tscn",
+            "--node",
+            "Hero",
+            "--script",
+            "/tmp/proj/new.gd",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["replaced_script"] == "res://old.gd"
 
 
 def test_script_validate_valid_script_reports_valid_true_no_diagnostics(monkeypatch):

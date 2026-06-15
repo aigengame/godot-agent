@@ -406,12 +406,14 @@ def test_script_set_result_round_trips_metadata():
 def test_script_attach_result_round_trips_with_class_name():
     # script attach (issue #118) echoes the scene, node, attached script, and the
     # script's declared class_name — the result an agent asserts to confirm the
-    # binding took effect.
+    # binding took effect. attach is overwrite-and-report (issue #132): here the
+    # node already carried a script, so replaced_script names the displaced path.
     payload = {
         "scene_path": "res://main.tscn",
         "node": "Hero",
         "script": "res://hero.gd",
         "class_name": "Hero",
+        "replaced_script": "res://old.gd",
     }
 
     attached = ScriptAttachResult.model_validate(payload)
@@ -419,21 +421,25 @@ def test_script_attach_result_round_trips_with_class_name():
     assert attached.node == "Hero"
     assert attached.script == "res://hero.gd"
     assert attached.class_name == "Hero"
+    assert attached.replaced_script == "res://old.gd"
     assert json.loads(attached.model_dump_json()) == payload
 
 
 def test_script_attach_result_round_trips_null_class_name():
-    # A script with no class_name attaches fine; the result carries null.
+    # A script with no class_name attaches fine; the result carries null. The node
+    # had no prior script, so replaced_script is null (issue #132).
     payload = {
         "scene_path": "res://main.tscn",
         "node": ".",
         "script": "res://util.gd",
         "class_name": None,
+        "replaced_script": None,
     }
 
     attached = ScriptAttachResult.model_validate(payload)
 
     assert attached.class_name is None
+    assert attached.replaced_script is None
     assert json.loads(attached.model_dump_json()) == payload
 
 

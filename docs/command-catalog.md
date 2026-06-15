@@ -218,10 +218,32 @@ but whose native base is **incompatible** with the node (e.g. an `extends Node3D
 `extends`). Other failures reuse existing codes: a missing script is `path_not_found`, a non-`.gd` script is
 `invalid_path`, a node path that resolves to nothing is `node_not_found`, a missing or non-scene
 file is `path_not_found`/`not_a_scene`, and a scene whose instances vanish or degrade on load is
-`missing_dependency` (the mutation-integrity boundary, #64). The result echoes
-the scene, node, script, and the attached script's `class_name` (null when it declares none),
-verifiable by reading the saved `.tscn` back: the script now appears as an `ext_resource` the node
-references.
+`missing_dependency` (the mutation-integrity boundary, #64).
+
+**Overwrite-and-report** (established by #132): `attach` is a **mutation verb** — it *is*
+`node.set_script()` — so it **overwrites** an existing binding rather than refusing it. (Contrast
+`script create`, a **create verb**: there the file is the entity and a silent overwrite is
+destructive, so it **no-clobbers** with `already_exists`. `attach` does the opposite because there
+is **no `script detach` command** — refusing an already-scripted node would strand it, unable to be
+re-scripted, and re-scripting is a common, legitimate operation.) The overwrite is **not silent**:
+the result's `replaced_script` field names the **displaced** script's `resource_path` **verbatim**
+— including a built-in/embedded script's sub-resource ref (e.g. `res://scene.tscn::GDScript_xxx`),
+so a displacement always reports a **non-null** signal. `replaced_script` is **null only** when the
+node had no prior script. An agent reads it to detect a clobber from the result.
+
+**Scene-before-script ordering** (established by #132): for this scene-mutating command the
+**primary subject** (the scene loads + the addressed node exists) is validated **before** the
+**secondary input** (the `--script` argument) — **one invariant, no exceptions**. Both the
+script's `.gd`-shape check (`invalid_path`) and its existence check (`path_not_found`) run **after**
+the scene load and node resolution, so with **both** the scene and the script missing the **scene**
+problem is reported first. The accepted trade-off: a missing/malformed `--script` now pays the
+scene load+instantiate on the error path — acceptable, since ADR-0009 makes the project trusted
+(running `_init` is not a security concern) and the error path is rare.
+
+The result echoes
+the scene, node, script, the attached script's `class_name` (null when it declares none), and
+`replaced_script` (the displaced script, or null), verifiable by reading the saved `.tscn` back: the
+script now appears as an `ext_resource` the node references.
 
 **Validating** (established by #118): `gda script validate PATH` syntax/compile-checks a `.gd`
 script. **Mechanism**: it reads the file text, sets it on a fresh `GDScript`, and calls

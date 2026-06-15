@@ -721,15 +721,29 @@ func _apply_line_range(source: String, params: Dictionary) -> Variant:
 # set_script). Rather than report a phantom success over a scene with no script
 # attached, attach verifies the bind took effect and refuses a non-compiling
 # script with script_compile_failed — fix it (or check with script validate).
+#
+# attach is a MUTATION verb (it is node.set_script): it OVERWRITES an existing
+# binding rather than refusing it (issue #132) — there is no `script detach`, so
+# refusing an already-scripted node would strand it. The overwrite is not silent:
+# the prior script's resource_path is captured BEFORE set_script and reported as
+# replaced_script (null only when the node had no prior script), so an agent can
+# detect a clobber from the result.
+#
+# Error ordering (issue #132, Part 2): the primary subject (the scene loads + the
+# addressed node exists) is validated BEFORE the secondary input (the --script
+# arg). Both the .gd-shape check and the script-existence check (_require_existing_
+# script) run AFTER the scene load and node resolution — one invariant, no
+# exceptions. So with both the scene and the script missing, the scene problem is
+# reported first. The accepted trade-off: a missing/malformed --script now pays
+# the scene load+instantiate on the error path — fine, since ADR-0009 makes the
+# project trusted (running _init is not a security concern) and the error path is
+# rare.
 func _op_script_attach(params: Dictionary) -> void:
 	_diag("running operation: script-attach")
 	var path := _string_param(params, "path")
 
-	# Cheap script-path shape checks first, before the costlier scene load.
-	var script_path := _string_param(params, "script")
-	if not _require_existing_script(script_path):
-		return  # _require_existing_script already recorded the failure
-
+	# Primary subject first: load + instantiate the scene, then resolve the node —
+	# validated before the secondary --script input (issue #132, Part 2).
 	var root: Node = _load_for_mutation(params)
 	if root == null:
 		return  # _load_for_mutation already recorded the failure
@@ -740,6 +754,15 @@ func _op_script_attach(params: Dictionary) -> void:
 		_fail_node_not_found(node_path)
 		return
 
+	# Secondary input: validate the --script arg only now — its .gd shape
+	# (invalid_path) and existence (path_not_found), via the shared #135 helper — so
+	# a scene/node problem is always reported ahead of a script problem (issue #132,
+	# Part 2). The helper records the failure; the caller frees the live tree.
+	var script_path := _string_param(params, "script")
+	if not _require_existing_script(script_path):
+		root.free()
+		return  # _require_existing_script already recorded the failure
+
 	# load returns a non-null Script even for a .gd that does not compile (compile
 	# errors go to stderr; the resource still loads), so a null here is a genuine
 	# resource-load failure (e.g. no format loader), not a compile verdict — guard
@@ -749,6 +772,13 @@ func _op_script_attach(params: Dictionary) -> void:
 		root.free()
 		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a GDScript resource: " + script_path)
 		return
+
+	# Capture what this attach is about to DISPLACE before set_script overwrites it
+	# (issue #132). A node that already carries a script yields its prior script's
+	# resource_path verbatim — including a built-in/embedded script's sub-resource
+	# ref (res://scene.tscn::GDScript_xxx) — so a displacement always reports a
+	# non-null signal; a node with no prior script yields null.
+	var replaced_script: Variant = _displaced_script_path(node)
 
 	node.set_script(script)
 	# set_script silently rejects a script it cannot bind: get_script() stays null
@@ -783,6 +813,7 @@ func _op_script_attach(params: Dictionary) -> void:
 		"node": node_path,
 		"script": script_path,
 		"class_name": class_name_value,
+		"replaced_script": replaced_script,
 	})
 
 
@@ -1270,6 +1301,23 @@ func _script_class_of(node: Node) -> Variant:
 	if global_name.is_empty():
 		return null
 	return global_name
+
+
+# The resource_path of the script CURRENTLY bound to the node — the script that an
+# attach is about to DISPLACE (issue #132). Reported verbatim, so a built-in /
+# embedded script keeps its sub-resource ref (res://scene.tscn::GDScript_xxx) and
+# a displacement always yields a non-null signal. null when the node carries no
+# prior script (get_script() == null). The "had a script but resource_path is
+# empty" edge (does not occur for .tscn-embedded scripts, which carry an id) is
+# accepted as reported-null. Captured BEFORE set_script overwrites the binding.
+func _displaced_script_path(node: Node) -> Variant:
+	var script := node.get_script() as Script
+	if script == null:
+		return null
+	var resource_path := script.resource_path
+	if resource_path.is_empty():
+		return null
+	return resource_path
 
 
 # A SceneState node path normalized to the canonical root-relative form the
