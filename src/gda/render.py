@@ -36,6 +36,7 @@ from gda.models import (
     NodeSetResult,
     ResourceCreateResult,
     ResourceGetResult,
+    ResourceUidResult,
     SceneCreateResult,
     SceneDeleteResult,
     SceneGetExportsResult,
@@ -325,6 +326,11 @@ def render_export_get(got: "ExportGetResult") -> str:
     return "\n".join([header, f"  export_path: {got.export_path}", f"  {templates}"])
 
 
+def render_resource_uid(resolved: "ResourceUidResult") -> str:
+    """Render a resolved UID↔path mapping as ``<uid> -> <path>`` for humans."""
+    return f"{resolved.uid} -> {resolved.path}"
+
+
 def render_engine_version(version: "EngineVersion") -> str:
     """Render the engine version as its one-line version string."""
     return version.string
@@ -361,6 +367,7 @@ _RENDERERS = {
     ResourceGetResult: render_resource_properties,
     ExportListResult: render_export_list,
     ExportGetResult: render_export_get,
+    ResourceUidResult: render_resource_uid,
     EngineVersion: render_engine_version,
 }
 

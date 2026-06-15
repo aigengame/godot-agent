@@ -322,6 +322,27 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "No export preset with the requested name exists in export_presets.cfg.",
     ),
     ErrorCodeSpec(
+        "invalid_uid",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested uid:// value is not a syntactically valid resource UID.",
+    ),
+    ErrorCodeSpec(
+        "unknown_uid",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A syntactically valid resource UID is not registered in the engine's UID cache.",
+    ),
+    ErrorCodeSpec(
+        "no_uid_assigned",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A resource path exists but has no UID assigned in the engine's UID cache.",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         EXIT_PARSE,

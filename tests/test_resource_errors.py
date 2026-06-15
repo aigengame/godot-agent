@@ -1,4 +1,4 @@
-"""S3: gda resource failure modes map to structured JSON errors + stable exit codes.
+"""S3: gda resource failure modes map to structured JSON errors + stable exit codes (issues #112, #113).
 
 Issue #112's acceptance: resource-command failures surface as structured
 ``GdaError``s with registered operation codes (ADR-0002) — exit 4 for the
@@ -9,6 +9,12 @@ without parsing prose:
 - resource not found on get → ``path_not_found`` (reused)
 - non-.tres target path → ``invalid_path`` (reused)
 - invalid/unknown resource type on create → ``invalid_resource_type`` (NEW, #112)
+
+Issue #113's acceptance: the ``resource uid`` UID-resolution failure modes — an
+unknown UID, a path not found, and a path that exists but has no assigned UID —
+surface the same way (exit 4, registered operation codes). A syntactically
+malformed ``uid://`` adds ``invalid_uid``, and a projectless run reuses the
+shared ``project_not_found``.
 """
 
 import json
@@ -105,3 +111,94 @@ def test_resource_get_missing_yields_path_not_found(monkeypatch):
     assert err["category"] == "operation"
     assert err["code"] == "path_not_found"
     assert "/x/palette.tres" in err["message"]
+
+
+def _invoke_resource_uid(monkeypatch, code: str, message: str, target: str):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: resource-uid\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(app, ["resource", "uid", target, "--json"])
+
+
+def _assert_operation_error(result, code: str, needle: str) -> dict:
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == code
+    assert needle in err["message"]
+    # The raw stderr still rides along as diagnostics (ADR-0002).
+    assert err["diagnostics"] == "gda: running operation: resource-uid\n"
+    return err
+
+
+def test_resource_uid_unknown_uid_is_structured_error(monkeypatch):
+    # A well-formed uid:// absent from the project's UID cache is unknown_uid —
+    # the agent learns the UID is unregistered, not that the syntax was wrong.
+    result = _invoke_resource_uid(
+        monkeypatch,
+        "unknown_uid",
+        "UID is not registered in the project's UID cache: uid://abc",
+        "uid://abc",
+    )
+
+    _assert_operation_error(result, "unknown_uid", "uid://abc")
+
+
+def test_resource_uid_invalid_uid_is_structured_error(monkeypatch):
+    # A syntactically malformed uid:// (engine text_to_id == INVALID_ID) is
+    # invalid_uid — distinct from an unknown-but-well-formed UID.
+    result = _invoke_resource_uid(
+        monkeypatch,
+        "invalid_uid",
+        "not a valid resource UID: uid://!!!",
+        "uid://!!!",
+    )
+
+    _assert_operation_error(result, "invalid_uid", "uid://!!!")
+
+
+def test_resource_uid_path_not_found_is_structured_error(monkeypatch):
+    # A res:// path naming no resource is path_not_found — the same registered
+    # code the file groups use, not a parallel resource-specific code.
+    result = _invoke_resource_uid(
+        monkeypatch,
+        "path_not_found",
+        "no resource at path: res://missing.tres",
+        "res://missing.tres",
+    )
+
+    _assert_operation_error(result, "path_not_found", "res://missing.tres")
+
+
+def test_resource_uid_no_uid_assigned_is_structured_error(monkeypatch):
+    # A resource that exists but carries no UID in the cache is no_uid_assigned —
+    # distinct from path_not_found (the file is there) and from a UID-direction
+    # failure (the query was a path).
+    result = _invoke_resource_uid(
+        monkeypatch,
+        "no_uid_assigned",
+        "resource has no UID assigned in the project's UID cache: res://plain.txt",
+        "res://plain.txt",
+    )
+
+    _assert_operation_error(result, "no_uid_assigned", "res://plain.txt")
+
+
+def test_resource_uid_projectless_run_is_project_not_found(monkeypatch):
+    # Resolution queries the project's UID cache, so a projectless run has no
+    # cache to query — refused with the shared project_not_found rather than a
+    # misleading "no UID" answer.
+    result = _invoke_resource_uid(
+        monkeypatch,
+        "project_not_found",
+        "resource uid requires a Godot project; none was resolved",
+        "uid://abc",
+    )
+
+    _assert_operation_error(result, "project_not_found", "requires a Godot project")

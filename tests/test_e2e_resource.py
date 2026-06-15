@@ -1,4 +1,4 @@
-"""S1 (e2e): the resource create → get round-trip against the real Godot engine.
+"""S1 (e2e): the resource create → get round-trip and resource uid resolution against the real Godot engine.
 
 The resource-group tracer (issue #112): ``gda resource create`` writes a .tres
 resource of a given type, no-clobber; ``gda resource get`` loads it and reports
@@ -6,6 +6,20 @@ its properties as typed JSON — ``resource get`` IS the structured-level
 verification of ``resource create``'s effect (create → get reports the
 resource). Establishes the .tres load/save plumbing the rest of the group
 reuses.
+
+The resource-uid tracer (issue #113): ``gda resource uid`` resolves a Godot
+resource UID to/from its resource path in BOTH directions against the engine's
+read-only UID cache (``res://.godot/uid_cache.bin``).
+
+The cache is populated by a project import scan, so each uid test scaffolds the
+relevant files and runs a one-shot ``godot --headless --import`` to write the
+cache before querying it — that import is the realistic precondition for any UID
+to resolve at all. A ``.gd`` script is auto-assigned a UID on import (a ``.uid``
+sidecar plus a cache entry), which is what makes both resolution directions
+resolve; a ``.tres`` resource imported without a sidecar exists but carries no
+cached UID, which is the realistic ``no_uid_assigned`` case. Both directions,
+plus the unknown-UID / invalid-UID / path-not-found / no-UID-assigned failure
+modes, are exercised end to end.
 """
 
 import json
@@ -18,6 +32,15 @@ from gda.binary import resolve_godot_binary
 
 GODOT = resolve_godot_binary()
 
+# A plain custom Resource .tres. On import (without a .uid sidecar) it exists as
+# a resource but is NOT assigned a UID in the non-editor reverse cache, so it is
+# the realistic no_uid_assigned case.
+DATA_TRES = """\
+[gd_resource type="Resource" format=3]
+
+[resource]
+"""
+
 
 def _gda(*args: str) -> subprocess.CompletedProcess:
     gda_bin = shutil.which("gda")
@@ -27,12 +50,46 @@ def _gda(*args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _import_project(project) -> None:
+    """Run a one-shot headless import so the project's UID cache is written."""
+    subprocess.run(
+        [str(GODOT), "--headless", "--path", str(project), "--import"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def _gda_project(project) -> "callable":
+    """A ``gda`` bound to ``--godot`` and ``--project`` for res:// / UID resolution."""
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+
+    def gda(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [gda_bin, *args, "--godot", str(GODOT), "--project", str(project)],
+            capture_output=True,
+            text=True,
+        )
+
+    return gda
+
+
 def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
     assert proc.returncode == 4, proc.stdout + proc.stderr
     err = json.loads(proc.stdout)["error"]
     assert err["category"] == "operation"
     assert err["code"] == code
     return err
+
+
+@pytest.fixture
+def imported_project(godot_project):
+    """A project fixture with a script (UID-cached) and a .tres (no cached UID)."""
+    (godot_project / "hero.gd").write_text("extends Node\n", encoding="utf-8")
+    (godot_project / "data.tres").write_text(DATA_TRES, encoding="utf-8")
+    _import_project(godot_project)
+    return godot_project
 
 
 @pytest.mark.e2e
@@ -163,3 +220,99 @@ def test_resource_get_non_tres_path_yields_invalid_path(godot_project):
 
     err = _assert_operation_error(got, "invalid_path")
     assert ".tres" in err["message"]
+
+
+@pytest.mark.e2e
+def test_resource_uid_resolves_both_directions_round_trip(imported_project):
+    # path -> uid -> path: the script's import-assigned UID resolves back to the
+    # same path. This is the bidirectional contract: query a path, get its UID;
+    # query that UID, get the path back — proving both directions read one
+    # consistent cache.
+    gda = _gda_project(imported_project)
+
+    path_to_uid = gda("resource", "uid", "res://hero.gd", "--json")
+    assert path_to_uid.returncode == 0, path_to_uid.stdout + path_to_uid.stderr
+    forward = json.loads(path_to_uid.stdout)
+    assert forward["queried"] == "path"
+    assert forward["path"] == "res://hero.gd"
+    assert forward["uid"].startswith("uid://")
+
+    uid = forward["uid"]
+    uid_to_path = gda("resource", "uid", uid, "--json")
+    assert uid_to_path.returncode == 0, uid_to_path.stdout + uid_to_path.stderr
+    back = json.loads(uid_to_path.stdout)
+    assert back["queried"] == "uid"
+    assert back["uid"] == uid
+    # The round-trip closes: the UID resolves back to the original path.
+    assert back["path"] == "res://hero.gd"
+
+
+@pytest.mark.e2e
+def test_resource_uid_human_output_renders_uid_arrow_path(imported_project):
+    # Without --json, a resolved mapping renders as `<uid> -> <path>`.
+    gda = _gda_project(imported_project)
+
+    proc = gda("resource", "uid", "res://hero.gd")
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.stdout.strip().endswith("-> res://hero.gd")
+    assert proc.stdout.strip().startswith("uid://")
+
+
+@pytest.mark.e2e
+def test_resource_uid_unknown_uid_is_unknown_uid(imported_project):
+    # A syntactically valid uid:// not in the project's cache is unknown_uid.
+    gda = _gda_project(imported_project)
+
+    proc = gda("resource", "uid", "uid://b00000000000b", "--json")
+
+    _assert_operation_error(proc, "unknown_uid")
+
+
+@pytest.mark.e2e
+def test_resource_uid_invalid_uid_is_invalid_uid(imported_project):
+    # A uid:// whose body holds illegal characters fails text_to_id (INVALID_ID),
+    # reported as invalid_uid — distinct from a well-formed-but-unknown UID.
+    gda = _gda_project(imported_project)
+
+    proc = gda("resource", "uid", "uid://<invalid>", "--json")
+
+    _assert_operation_error(proc, "invalid_uid")
+
+
+@pytest.mark.e2e
+def test_resource_uid_path_not_found_is_path_not_found(imported_project):
+    # A res:// path naming no resource is path_not_found.
+    gda = _gda_project(imported_project)
+
+    proc = gda("resource", "uid", "res://missing.tres", "--json")
+
+    _assert_operation_error(proc, "path_not_found")
+
+
+@pytest.mark.e2e
+def test_resource_uid_path_without_uid_is_no_uid_assigned(imported_project):
+    # A resource that exists but has no UID in the non-editor reverse cache is
+    # no_uid_assigned — distinct from path_not_found (the file is there) and from
+    # a UID-direction failure (the query was a path).
+    gda = _gda_project(imported_project)
+
+    proc = gda("resource", "uid", "res://data.tres", "--json")
+
+    _assert_operation_error(proc, "no_uid_assigned")
+
+
+@pytest.mark.e2e
+def test_resource_uid_projectless_run_is_project_not_found():
+    # Resolution queries the project's UID cache, so a projectless run is refused
+    # with project_not_found rather than a misleading "no UID" answer.
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+
+    proc = subprocess.run(
+        [gda_bin, "resource", "uid", "uid://b00000000000b", "--godot", str(GODOT), "--json"],
+        capture_output=True,
+        text=True,
+    )
+
+    _assert_operation_error(proc, "project_not_found")
