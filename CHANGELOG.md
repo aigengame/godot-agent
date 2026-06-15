@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.11](https://github.com/aigengame/godot-agent/compare/v0.1.10...v0.1.11) (2026-06-15)
+
+
+### Bug Fixes
+
+* **script:** attach distinguishes type incompatibility from compile failure ([#136](https://github.com/aigengame/godot-agent/issues/136)) ([#137](https://github.com/aigengame/godot-agent/issues/137)) ([169d7a5](https://github.com/aigengame/godot-agent/commit/169d7a55df9395a47326a94ddcff88ee0ba5de20))
+
 ## [0.1.10](https://github.com/aigengame/godot-agent/compare/v0.1.9...v0.1.10) (2026-06-15)
 
 
