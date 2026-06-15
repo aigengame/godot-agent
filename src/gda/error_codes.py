@@ -37,8 +37,9 @@ class ErrorCodeSpec:
     process ``exit_code`` a shell consumer keys on (per-code, not per-category:
     within ENVIRONMENT, ``binary_not_found`` exits 127 but ``launch_timeout``
     exits 124), the ``source`` that may report it, and its ``description``.
-    Failure construction derives ``category`` and ``exit_code`` from here, so
-    adding a code is one row, not edits across three sites (ADR-0002, #141).
+    Failure construction derives ``category`` and ``exit_code`` from here, so it
+    no longer restates either at the call site — both come from the row
+    (ADR-0002, #141).
     """
 
     code: str
