@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/aigengame/godot-agent/compare/v0.1.9...v0.1.10) (2026-06-15)
+
+
+### Features
+
+* **script:** script set + script validate + script attach — edit, compile-check, bind ([#118](https://github.com/aigengame/godot-agent/issues/118)) ([#129](https://github.com/aigengame/godot-agent/issues/129)) ([aa60a5b](https://github.com/aigengame/godot-agent/commit/aa60a5bc5586ced92bfdc3694bb5014ff3448e96))
+
 ## [0.1.9](https://github.com/aigengame/godot-agent/compare/v0.1.8...v0.1.9) (2026-06-13)
 
 
