@@ -76,39 +76,45 @@ the Python registry in `src/gda/error_codes.py`; the table below mirrors that
 source and is checked by tests. GDScript mirrors only the rows whose source is
 `operation`, because only those codes can be reported by headless operations.
 
-| Code | Category | Source | Meaning |
-| --- | --- | --- | --- |
-| `binary_not_found` | `environment` | `runner` | The Godot binary could not be launched. |
-| `launch_timeout` | `environment` | `runner` | Godot launched but did not return before the runner timeout. |
-| `unsupported_version` | `version` | `version_gate` | The detected Godot version is below the supported minimum. |
-| `engine_crashed` | `operation` | `classifier` | Godot terminated abnormally, such as by signal death. |
-| `operation_failed` | `operation` | `classifier` | The engine or operation failed without a valid registered operation error envelope. |
-| `usage_error` | `operation` | `operation` | The operation dispatcher was invoked without the required operation name. |
-| `unknown_operation` | `operation` | `operation` | The operation dispatcher received an unknown operation name. |
-| `invalid_params` | `operation` | `operation` | The operation dispatcher received params that are not a JSON object. |
-| `invalid_path` | `operation` | `operation` | A required path parameter is missing or invalid. |
-| `invalid_root_type` | `operation` | `operation` | A requested Godot root node type cannot be instantiated as a `Node`. |
-| `invalid_root_name` | `operation` | `operation` | A requested root node name is empty or would be rewritten by Godot. |
-| `already_exists` | `operation` | `operation` | A create operation target already exists and will not be overwritten. |
-| `save_failed` | `operation` | `operation` | A scene could not be packed or saved. |
-| `delete_failed` | `operation` | `operation` | A file could not be removed from disk. |
-| `project_not_found` | `operation` | `operation` | An operation that enumerates a project's `res://` tree ran without a resolved Godot project. |
-| `path_not_found` | `operation` | `operation` | A requested file does not exist. |
-| `not_a_scene` | `operation` | `operation` | A requested file cannot be loaded as a `PackedScene`. |
-| `parent_not_found` | `operation` | `operation` | A requested parent node path does not resolve to a node in the scene. |
-| `invalid_node_type` | `operation` | `operation` | A requested node type is neither an instantiable `Node` class nor a registered `class_name`. |
-| `invalid_node_name` | `operation` | `operation` | A requested node name is empty or would be rewritten by Godot. |
-| `duplicate_node_name` | `operation` | `operation` | The parent node already has a child with the requested name. |
-| `missing_dependency` | `operation` | `operation` | A scene's declared nodes vanished or degraded on load — an unresolvable instanced sub-scene or an unavailable node class; re-saving would silently drop or downgrade them. |
-| `uninstantiable_script` | `operation` | `operation` | A registered `class_name`'s script can no longer be loaded, compiled, or constructed, so it cannot be instantiated as a node. |
-| `node_not_found` | `operation` | `operation` | A requested node path does not resolve to a node in the scene. |
-| `unknown_property` | `operation` | `operation` | A requested property does not exist as a settable property on the node. |
-| `uncoercible_value` | `operation` | `operation` | A supplied value cannot be coerced to the property's declared Godot type. |
-| `no_search_match` | `operation` | `operation` | A search-replace script edit found no occurrence of the search string. |
-| `invalid_line_range` | `operation` | `operation` | A line-range script edit specified lines outside the script's bounds, or end before start. |
-| `script_compile_failed` | `operation` | `operation` | A script could not be attached to a node because it does not compile. |
-| `incompatible_script_type` | `operation` | `operation` | A script compiles but its native base type is incompatible with the target node's type. |
-| `contract_violation` | `parse` | `parser` | The process claimed success but violated the structured-output contract. |
+Each row carries the process `Exit Code` a shell consumer keys on. It is
+per-code, not per-category: within `environment`, `binary_not_found` exits `127`
+but `launch_timeout` exits `124`. The `exit_codes.py` registry defines the
+values (`127`/`124` follow shell convention; `3`/`4`/`5` are the version,
+operation, and parse codes the CLI assigns).
+
+| Code | Category | Source | Exit Code | Meaning |
+| --- | --- | --- | --- | --- |
+| `binary_not_found` | `environment` | `runner` | `127` | The Godot binary could not be launched. |
+| `launch_timeout` | `environment` | `runner` | `124` | Godot launched but did not return before the runner timeout. |
+| `unsupported_version` | `version` | `version_gate` | `3` | The detected Godot version is below the supported minimum. |
+| `engine_crashed` | `operation` | `classifier` | `4` | Godot terminated abnormally, such as by signal death. |
+| `operation_failed` | `operation` | `classifier` | `4` | The engine or operation failed without a valid registered operation error envelope. |
+| `usage_error` | `operation` | `operation` | `4` | The operation dispatcher was invoked without the required operation name. |
+| `unknown_operation` | `operation` | `operation` | `4` | The operation dispatcher received an unknown operation name. |
+| `invalid_params` | `operation` | `operation` | `4` | The operation dispatcher received params that are not a JSON object. |
+| `invalid_path` | `operation` | `operation` | `4` | A required path parameter is missing or invalid. |
+| `invalid_root_type` | `operation` | `operation` | `4` | A requested Godot root node type cannot be instantiated as a `Node`. |
+| `invalid_root_name` | `operation` | `operation` | `4` | A requested root node name is empty or would be rewritten by Godot. |
+| `already_exists` | `operation` | `operation` | `4` | A create operation target already exists and will not be overwritten. |
+| `save_failed` | `operation` | `operation` | `4` | A scene could not be packed or saved. |
+| `delete_failed` | `operation` | `operation` | `4` | A file could not be removed from disk. |
+| `project_not_found` | `operation` | `operation` | `4` | An operation that enumerates a project's `res://` tree ran without a resolved Godot project. |
+| `path_not_found` | `operation` | `operation` | `4` | A requested file does not exist. |
+| `not_a_scene` | `operation` | `operation` | `4` | A requested file cannot be loaded as a `PackedScene`. |
+| `parent_not_found` | `operation` | `operation` | `4` | A requested parent node path does not resolve to a node in the scene. |
+| `invalid_node_type` | `operation` | `operation` | `4` | A requested node type is neither an instantiable `Node` class nor a registered `class_name`. |
+| `invalid_node_name` | `operation` | `operation` | `4` | A requested node name is empty or would be rewritten by Godot. |
+| `duplicate_node_name` | `operation` | `operation` | `4` | The parent node already has a child with the requested name. |
+| `missing_dependency` | `operation` | `operation` | `4` | A scene's declared nodes vanished or degraded on load — an unresolvable instanced sub-scene or an unavailable node class; re-saving would silently drop or downgrade them. |
+| `uninstantiable_script` | `operation` | `operation` | `4` | A registered `class_name`'s script can no longer be loaded, compiled, or constructed, so it cannot be instantiated as a node. |
+| `node_not_found` | `operation` | `operation` | `4` | A requested node path does not resolve to a node in the scene. |
+| `unknown_property` | `operation` | `operation` | `4` | A requested property does not exist as a settable property on the node. |
+| `uncoercible_value` | `operation` | `operation` | `4` | A supplied value cannot be coerced to the property's declared Godot type. |
+| `no_search_match` | `operation` | `operation` | `4` | A search-replace script edit found no occurrence of the search string. |
+| `invalid_line_range` | `operation` | `operation` | `4` | A line-range script edit specified lines outside the script's bounds, or end before start. |
+| `script_compile_failed` | `operation` | `operation` | `4` | A script could not be attached to a node because it does not compile. |
+| `incompatible_script_type` | `operation` | `operation` | `4` | A script compiles but its native base type is incompatible with the target node's type. |
+| `contract_violation` | `parse` | `parser` | `5` | The process claimed success but violated the structured-output contract. |
 
 ## Considered options
 

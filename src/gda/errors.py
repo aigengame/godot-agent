@@ -44,16 +44,8 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from gda.error_codes import ERROR_CODE_BY_CODE, OPERATION_ERROR_CODES
-from gda.exit_codes import (
-    EXIT_NOT_FOUND,
-    EXIT_OPERATION,
-    EXIT_PARSE,
-    EXIT_TIMEOUT,
-    EXIT_VERSION,
-)
 from gda.models import (
     EngineVersion,
-    ErrorCategory,
     GdaError,
     OperationErrorEnvelope,
     ScriptDiagnostic,
@@ -75,30 +67,28 @@ class Failure:
     exit_code: int
 
 
-def _failure(
-    category: ErrorCategory,
-    code: str,
-    message: str,
-    exit_code: int,
-    stderr: str,
-) -> Failure:
-    """Build a ``Failure`` from the four parts that actually vary per failure.
+def _failure(code: str, message: str, stderr: str) -> Failure:
+    """Build a ``Failure`` from the parts that actually vary per failure.
 
-    The ``GdaError`` wrapping and ``diagnostics=stderr`` are identical at every
-    call site, so they live here once: the call sites then read as the taxonomy
-    itself — a (category, code, message, exit_code) row per failure mode.
+    Only ``code``, the per-occurrence ``message`` (it embeds the binary path,
+    the timeout, the offending value, …), and the ``stderr`` diagnostics vary at
+    a call site. The ``category`` and process ``exit_code`` are a stable property
+    of the code, so they are derived from the single authoritative registry row
+    (ADR-0002, #141) rather than re-stated — and re-checked — at each site. The
+    ``GdaError`` wrapping lives here once, so the call sites read as the taxonomy
+    itself: a ``(code, message)`` row per failure mode.
     """
     spec = ERROR_CODE_BY_CODE.get(code)
     if spec is None:
         raise RuntimeError(f"unregistered GdaError.code: {code}")
-    if spec.category is not category:
-        raise RuntimeError(
-            f"GdaError.code {code!r} is registered as {spec.category.value}, "
-            f"not {category.value}"
-        )
     return Failure(
-        GdaError(category=category, code=code, message=message, diagnostics=stderr),
-        exit_code=exit_code,
+        GdaError(
+            category=spec.category,
+            code=code,
+            message=message,
+            diagnostics=stderr,
+        ),
+        exit_code=spec.exit_code,
     )
 
 
@@ -126,18 +116,14 @@ def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | 
     """
     if result.launch_failure is LaunchFailure.NOT_FOUND:
         return _failure(
-            ErrorCategory.ENVIRONMENT,
             "binary_not_found",
             f"Godot binary could not be launched: {binary}",
-            EXIT_NOT_FOUND,
             result.stderr,
         )
     if result.launch_failure is LaunchFailure.TIMEOUT:
         return _failure(
-            ErrorCategory.ENVIRONMENT,
             "launch_timeout",
             "Godot launched but did not return before the timeout",
-            EXIT_TIMEOUT,
             result.stderr,
         )
     if result.exit_code < 0:
@@ -145,10 +131,8 @@ def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | 
         # engine ran but was killed (e.g. SIGSEGV crash, OOM SIGKILL) rather
         # than the operation cleanly reporting an error.
         return _failure(
-            ErrorCategory.OPERATION,
             "engine_crashed",
             f"Godot terminated abnormally (signal {-result.exit_code})",
-            EXIT_OPERATION,
             result.stderr,
         )
     if result.exit_code != 0:
@@ -162,24 +146,18 @@ def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | 
             code, message = payload_error
             if code not in OPERATION_ERROR_CODES:
                 return _failure(
-                    ErrorCategory.OPERATION,
                     "operation_failed",
                     f"headless operation reported unregistered error code: {code}",
-                    EXIT_OPERATION,
                     result.stderr,
                 )
             return _failure(
-                ErrorCategory.OPERATION,
                 code,
                 message or "the headless operation reported an error",
-                EXIT_OPERATION,
                 result.stderr,
             )
         return _failure(
-            ErrorCategory.OPERATION,
             "operation_failed",
             "the headless operation exited non-zero without a structured error",
-            EXIT_OPERATION,
             result.stderr,
         )
     try:
@@ -193,10 +171,8 @@ def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | 
         return output_model.model_validate(parse_result(result.stdout))
     except (ValueError, ValidationError) as exc:
         return _failure(
-            ErrorCategory.PARSE,
             "contract_violation",
             f"structured-output contract violated: {exc}",
-            EXIT_PARSE,
             result.stderr,
         )
 
@@ -291,10 +267,8 @@ def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
         # implicit one — distinct from the environment-error case.
         minimum = ".".join(str(part) for part in MIN_GODOT_VERSION)
         return _failure(
-            ErrorCategory.VERSION,
             "unsupported_version",
             f"Godot {version.string} is below the minimum supported version {minimum}",
-            EXIT_VERSION,
             result.stderr,
         )
 

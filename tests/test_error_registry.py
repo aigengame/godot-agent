@@ -12,31 +12,29 @@ from gda.error_codes import (
     ErrorCodeSource,
 )
 from gda.errors import _failure
-from gda.exit_codes import EXIT_OPERATION
-from gda.models import ErrorCategory
 
 ROOT = Path(__file__).resolve().parents[1]
 ADR_0002 = ROOT / "docs" / "adr" / "0002-headless-structured-output-contract.md"
 OPERATIONS_GD = ROOT / "src" / "gda" / "ops" / "operations.gd"
 
-ADR_REGISTRY_ROW = re.compile(r"^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \|")
+ADR_REGISTRY_ROW = re.compile(r"^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \| `(\d+)` \|")
 GDSCRIPT_OPERATION_CODE = re.compile(r'^const OP_ERROR_[A-Z_]+ := "([a-z_]+)"$', re.MULTILINE)
 BARE_FAIL_CODE = re.compile(r'_fail\(\s*"[a-z_]+"')
 
 
-def _adr_registry() -> dict[str, tuple[str, str]]:
-    rows: dict[str, tuple[str, str]] = {}
+def _adr_registry() -> dict[str, tuple[str, str, int]]:
+    rows: dict[str, tuple[str, str, int]] = {}
     for line in ADR_0002.read_text(encoding="utf-8").splitlines():
         match = ADR_REGISTRY_ROW.match(line)
         if match:
-            code, category, source = match.groups()
-            rows[code] = (category, source)
+            code, category, source, exit_code = match.groups()
+            rows[code] = (category, source, int(exit_code))
     return rows
 
 
-def _python_registry() -> dict[str, tuple[str, str]]:
+def _python_registry() -> dict[str, tuple[str, str, int]]:
     return {
-        spec.code: (spec.category.value, spec.source.value)
+        spec.code: (spec.category.value, spec.source.value, spec.exit_code)
         for spec in ERROR_CODES
     }
 
@@ -45,13 +43,19 @@ def test_python_error_registry_has_no_duplicate_codes():
     assert len(ERROR_CODES) == len(ERROR_CODE_BY_CODE)
 
 
+def test_failure_derives_exit_code_from_registry():
+    for spec in ERROR_CODES:
+        failure = _failure(spec.code, "message", "")
+        assert failure.exit_code == spec.exit_code
+        assert failure.error.category is spec.category
+        assert failure.error.code == spec.code
+
+
 def test_failure_builder_rejects_unregistered_public_codes():
     with pytest.raises(RuntimeError, match="unregistered GdaError.code"):
         _failure(
-            ErrorCategory.OPERATION,
             "not_registered",
             "message",
-            EXIT_OPERATION,
             "",
         )
 
