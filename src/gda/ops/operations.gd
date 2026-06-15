@@ -776,10 +776,11 @@ func _op_script_attach(params: Dictionary) -> void:
 
 
 # script-validate: syntax/compile-check a .gd script (issue #118). Read the file
-# text, set it on a fresh GDScript, and reload() it: err == OK means it compiles.
-# Validating an INVALID script is a SUCCESSFUL operation — the op exits 0 with
-# valid=false; the op only FAILS (non-zero) for op errors (empty/non-.gd path →
-# invalid_path, missing/unreadable file → path_not_found).
+# text, set it on a fresh GDScript at the script's REAL res:// path, and reload()
+# it: err == OK means it compiles. Validating an INVALID script is a SUCCESSFUL
+# operation — the op exits 0 with valid=false; the op only FAILS (non-zero) for op
+# errors (empty/non-.gd path → invalid_path, missing/unreadable file →
+# path_not_found).
 #
 # Unlike the other script-file ops, validate DOES compile the script (reload
 # parses and compiles it), but it never INSTANTIATES it, so it does not run the
@@ -787,6 +788,22 @@ func _op_script_attach(params: Dictionary) -> void:
 # from any bound API (is_valid() is not even callable from GDScript) — only from
 # the engine's stderr — so the op emits just {path, valid, error_string} in the
 # sentinel and gda parses the advisory line/message diagnostics from stderr.
+#
+# The compile context must match how the engine actually loads the file (issue
+# #131). Compiling an ANONYMOUS in-memory GDScript gives it a synthetic
+# `gdscript://` resource path, so a relative `preload("sibling.gd")` resolves
+# against that synthetic base and fails — a false negative for a script that loads
+# fine in-engine. take_over_path claims the script's real res:// path on the fresh
+# GDScript BEFORE reload(), so relative preloads and other path-dependent
+# resolution resolve against the script's own res:// location exactly as in-engine.
+# take_over_path (not `resource_path =`) is used deliberately: in the rare case the
+# path is already in the resource cache (an autoload pulled it in at startup), it
+# cleanly claims the cache slot, whereas assigning resource_path logs a spurious
+# "Another resource is loaded ... cyclic resource inclusion" error. Either way the
+# claim is harmless in this one-shot headless process: validate is a leaf op that
+# loads nothing at that path afterward, so the swapped cache entry cannot leak.
+# reload() stays the verdict, so the stderr still carries the GDScript::reload
+# frame the diagnostics parser pairs (the frame now names the real res:// path).
 func _op_script_validate(params: Dictionary) -> void:
 	_diag("running operation: script-validate")
 	var path := _string_param(params, "path")
@@ -800,10 +817,13 @@ func _op_script_validate(params: Dictionary) -> void:
 	if source == null:
 		return  # _read_script_source already recorded the failure
 
-	# Compile-check without instantiating: set the source on a fresh GDScript and
-	# reload() it. The reload error (and its diagnostics on stderr) is the verdict.
+	# Compile-check without instantiating: set the source on a fresh GDScript at the
+	# script's real res:// path and reload() it. The reload error (and its
+	# diagnostics on stderr) is the verdict; the real path makes relative preloads
+	# resolve as in-engine (issue #131).
 	var script := GDScript.new()
 	script.source_code = source
+	script.take_over_path(path)
 	var err := script.reload()
 	_succeed({
 		"path": path,

@@ -687,6 +687,72 @@ def test_script_validate_broken_script_is_success_with_a_real_diagnostic(godot_p
 
 
 @pytest.mark.e2e
+def test_script_validate_relative_preload_resolves_at_the_real_res_path(godot_project):
+    # The #131 fix: validate compiles the script AT ITS REAL res:// path, so a
+    # relative `preload("sibling.gd")` resolves against the script's own res://
+    # location exactly as the engine loads it. The sibling is present and compiles,
+    # so the dependent script is valid=true under --project — not a false negative
+    # from compiling an anonymous in-memory GDScript that has no res:// location to
+    # resolve the relative reference against.
+    gda = _gda_project(godot_project)
+    assert (
+        gda(
+            "script", "create", "res://sibling.gd",
+            "--content", "extends Node\nclass_name Sibling\n", "--json",
+        ).returncode
+        == 0
+    )
+    assert (
+        gda(
+            "script", "create", "res://uses_sibling.gd",
+            "--content",
+            'extends Node\n\nconst S = preload("sibling.gd")\n\n'
+            "func use() -> void:\n\tvar _x = S.new()\n",
+            "--json",
+        ).returncode
+        == 0
+    )
+
+    validated = gda("script", "validate", "res://uses_sibling.gd", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is True
+    assert data["error_string"] is None
+    assert data["diagnostics"] == []
+
+
+@pytest.mark.e2e
+def test_script_validate_broken_script_under_project_still_reports_diagnostics(godot_project):
+    # The #131 regression guard: compiling at the real res:// path must not break a
+    # genuinely broken script's verdict — it is still a SUCCESSFUL op (exit 0)
+    # reporting valid=false, and the stderr-parsed line/message diagnostic still
+    # works under --project (the reload frame now names the real res:// path, which
+    # the diagnostics parser pairs exactly as before).
+    gda = _gda_project(godot_project)
+    # `var x =` with no initializer is a parse error the engine reports on its line.
+    assert (
+        gda(
+            "script", "create", "res://broken.gd",
+            "--content", "extends Node\n\nvar x =\n", "--json",
+        ).returncode
+        == 0
+    )
+
+    validated = gda("script", "validate", "res://broken.gd", "--json")
+
+    assert validated.returncode == 0, validated.stdout + validated.stderr
+    data = json.loads(validated.stdout)
+    assert data["valid"] is False
+    assert data["error_string"] is not None
+    assert len(data["diagnostics"]) == 1
+    diag = data["diagnostics"][0]
+    assert diag["line"] == 3
+    assert diag["message"]
+    assert diag["column"] is None
+
+
+@pytest.mark.e2e
 def test_script_validate_missing_file_yields_path_not_found(godot_project):
     # validate only op-fails for op errors: a missing file is path_not_found, NOT
     # a valid=false success.
