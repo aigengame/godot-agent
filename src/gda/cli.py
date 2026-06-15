@@ -301,7 +301,8 @@ def create(
 ) -> None:
     """Create a new .tscn scene file with the given root node type."""
     normalized_path = _normalize_path(path)
-    SCENE_CREATE_COMMAND.emit(
+    _dispatch(
+        SCENE_CREATE_COMMAND,
         SceneCreateParams(
             path=normalized_path,
             root_type=root_type,
@@ -309,13 +310,12 @@ def create(
             if root_name is not None
             else _derive_scene_root_name(normalized_path),
         ),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda created: (
+        godot=godot,
+        project=project,
+        render=lambda created: (
             f"created {created.path} (root {created.root_type})"
         ),
-        make_runner=_make_runner,
     )
 
 
@@ -359,13 +359,13 @@ def list_scenes(
     project: Optional[str] = project_option(),
 ) -> None:
     """Enumerate the .tscn scenes in the resolved project."""
-    SCENE_LIST_COMMAND.emit(
+    _dispatch(
+        SCENE_LIST_COMMAND,
         SceneListParams(),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=_render_scene_list,
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=_render_scene_list,
     )
 
 
@@ -378,15 +378,15 @@ def delete(
     project: Optional[str] = project_option(),
 ) -> None:
     """Delete a scene file and report what was removed."""
-    SCENE_DELETE_COMMAND.emit(
+    _dispatch(
+        SCENE_DELETE_COMMAND,
         SceneDeleteParams(path=_normalize_path(path)),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda removed: (
+        godot=godot,
+        project=project,
+        render=lambda removed: (
             f"deleted {removed.path} (root {removed.root_name}: {removed.root_type})"
         ),
-        make_runner=_make_runner,
     )
 
 
