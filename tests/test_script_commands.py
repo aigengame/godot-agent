@@ -545,3 +545,71 @@ def test_script_set_end_line_without_start_line_is_a_usage_error(monkeypatch):
     )
 
     _assert_set_usage_error(fake, result)
+
+
+# --- human-readable output (no --json): the render_text paths (issue #118) ---
+
+
+def test_script_validate_human_output_valid(monkeypatch):
+    # Without --json, a valid result renders a one-line 'valid <path>'.
+    payload = {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None}
+    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0))
+
+    result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/ok.gd"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "valid /tmp/proj/ok.gd"
+
+
+def test_script_validate_human_output_invalid_lists_diagnostics(monkeypatch):
+    # An invalid result renders 'invalid <path>', the error_string, and each
+    # advisory diagnostic as 'line N: message' (parsed from stderr).
+    payload = {
+        "path": "/tmp/proj/broken.gd",
+        "valid": False,
+        "error_string": "Parse error.",
+    }
+    stderr = (
+        "SCRIPT ERROR: Parse Error: the message.\n"
+        "          at: GDScript::reload (gdscript://-1.gd:3)\n"
+    )
+    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr=stderr, exit_code=0))
+
+    result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/broken.gd"])
+
+    assert result.exit_code == 0
+    assert "invalid /tmp/proj/broken.gd" in result.stdout
+    assert "Parse error." in result.stdout
+    assert "line 3: Parse Error: the message." in result.stdout
+
+
+def test_script_attach_human_output(monkeypatch):
+    # Without --json, attach renders 'attached <script> to <node> in <scene>'.
+    payload = {
+        "scene_path": "/tmp/proj/main.tscn",
+        "node": "Hero",
+        "script": "/tmp/proj/hero.gd",
+        "class_name": "Hero",
+    }
+    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "attach", "/tmp/proj/main.tscn", "--node", "Hero", "--script", "/tmp/proj/hero.gd"],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "attached /tmp/proj/hero.gd to Hero in /tmp/proj/main.tscn"
+
+
+def test_script_set_human_output_renders_metadata(monkeypatch):
+    # Without --json, set reuses the shared script-metadata renderer.
+    payload = {"path": "/tmp/proj/hero.gd", "class_name": "Hero", "extends": "Node2D"}
+    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app, ["script", "set", "/tmp/proj/hero.gd", "--content", "x"]
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "set /tmp/proj/hero.gd (extends Node2D, class_name Hero)"

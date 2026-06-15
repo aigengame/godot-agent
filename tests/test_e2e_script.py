@@ -521,6 +521,24 @@ def test_script_set_line_range_defaults_end_to_start_for_a_single_line(godot_pro
 
 
 @pytest.mark.e2e
+def test_script_set_line_range_preserves_crlf_line_endings(godot_project):
+    # line-range splits/rejoins on the file's OWN newline, so editing a CRLF
+    # script keeps CRLF (not a mixed-ending span). The replacement text's own
+    # endings are normalized onto the file's.
+    script_path = godot_project / "crlf.gd"
+    script_path.write_bytes(b"extends Node\r\nvar a := 1\r\nvar b := 2\r\n")
+
+    edited = _gda(
+        "script", "set", str(script_path),
+        "--start-line", "2", "--content", "var x := 9", "--json",
+    )
+
+    assert edited.returncode == 0, edited.stdout + edited.stderr
+    # CRLF preserved on every line, including the untouched ones — no LF/CRLF mix.
+    assert script_path.read_bytes() == b"extends Node\r\nvar x := 9\r\nvar b := 2\r\n"
+
+
+@pytest.mark.e2e
 def test_script_set_full_overwrites_the_whole_file_and_round_trips_via_get(godot_project):
     # full mode: --content with no --start-line overwrites the entire file.
     script_path = godot_project / "full.gd"
