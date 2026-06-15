@@ -110,6 +110,28 @@ def test_node_add_default_name_is_the_type_name(godot_project):
     assert data["path"] == "Sprite2D"
 
 
+@pytest.mark.e2e
+def test_node_add_builtin_type_reports_null_script_class(godot_project):
+    # script_class is the class_name of an attached script (issue #53); a plain
+    # built-in type carries no script, so it must be null. Asserted end-to-end
+    # here because every other success test ignores it — a broken
+    # _script_class_of returning garbage for a built-in Sprite2D would otherwise
+    # pass them all. Its counterpart is the by-class_name add, which asserts
+    # script_class == "Hero".
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Sprite2D", "--name", "Hero", "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    data = json.loads(added.stdout)
+    assert data["type"] == "Sprite2D"
+    assert data["script_class"] is None
+
+
 def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
     assert proc.returncode == 4, proc.stdout + proc.stderr
     err = json.loads(proc.stdout)["error"]
