@@ -49,6 +49,9 @@ const OP_ERROR_NO_SEARCH_MATCH := "no_search_match"
 const OP_ERROR_INVALID_LINE_RANGE := "invalid_line_range"
 const OP_ERROR_SCRIPT_COMPILE_FAILED := "script_compile_failed"
 const OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE := "incompatible_script_type"
+const OP_ERROR_SIGNAL_NOT_FOUND := "signal_not_found"
+const OP_ERROR_ALREADY_CONNECTED := "already_connected"
+const OP_ERROR_CONNECTION_NOT_FOUND := "connection_not_found"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -90,6 +93,10 @@ func _initialize() -> void:
 			_op_node_get(params)
 		"node-set":
 			_op_node_set(params)
+		"node-connect-signal":
+			_op_node_connect_signal(params)
+		"node-disconnect-signal":
+			_op_node_disconnect_signal(params)
 		"script-create":
 			_op_script_create(params)
 		"script-get":
@@ -449,6 +456,131 @@ func _op_node_set(params: Dictionary) -> void:
 		"property": prop_name,
 		"type": _type_name(declared_type),
 		"value": stored_value,
+	})
+
+
+# node-connect-signal: wire a source node's signal to a target node's method,
+# persisted into the .tscn as a [connection] (issue #57). As a scene mutation it
+# reuses the same load -> resolve -> mutate -> pack -> save round-trip as node-set,
+# honoring the mutation-integrity boundary (#64) via _load_for_mutation.
+#
+# Persistence mechanism: PackedScene.pack only serializes a connection whose
+# Callable was registered with Object.CONNECT_PERSIST — a plain connect() is a
+# runtime-only wiring the pack drops. Setting it up on the instantiated tree with
+# CONNECT_PERSIST makes pack(root) emit the [connection signal=... from=... to=...
+# method=...] line, which a re-read sees as is_connected() == true.
+#
+# Contract (issue #57's design decision): the SIGNAL must exist on the source node
+# (signal_not_found). The target METHOD need NOT exist — a [connection] is just
+# persisted data, and Godot's own editor lets you wire a signal to a not-yet-
+# written method, so a dangling method is allowed (verified on Godot 4.6.3:
+# connecting to a missing method returns OK and serializes).
+func _op_node_connect_signal(params: Dictionary) -> void:
+	_diag("running operation: node-connect-signal")
+	var path := _string_param(params, "path")
+	var root: Node = _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+
+	var from_path := _string_param(params, "from")
+	var source := _resolve_node(root, from_path)
+	if source == null:
+		root.free()
+		_fail_node_not_found_labeled("source", from_path)
+		return
+	var to_path := _string_param(params, "to")
+	var target := _resolve_node(root, to_path)
+	if target == null:
+		root.free()
+		_fail_node_not_found_labeled("target", to_path)
+		return
+
+	var signal_name := _string_param(params, "signal")
+	if not source.has_signal(signal_name):
+		root.free()
+		_fail(OP_ERROR_SIGNAL_NOT_FOUND, "source node " + from_path
+				+ " has no signal: " + signal_name)
+		return
+
+	var method_name := _string_param(params, "method")
+	var callable := Callable(target, method_name)
+	# A duplicate connection is reported, not silently re-applied: a plain
+	# connect() of an existing connection errors noisily (ERR_INVALID_PARAMETER),
+	# so guard with is_connected and report already_connected instead.
+	if source.is_connected(signal_name, callable):
+		root.free()
+		_fail(OP_ERROR_ALREADY_CONNECTED, from_path + "." + signal_name
+				+ " is already connected to " + to_path + "." + method_name)
+		return
+
+	# CONNECT_PERSIST is what makes pack(root) serialize the connection into the
+	# .tscn; without it the wiring is runtime-only and the pack drops it.
+	var connect_err := source.connect(signal_name, callable, Object.CONNECT_PERSIST)
+	if connect_err != OK:
+		root.free()
+		_fail(OP_ERROR_SAVE_FAILED, "failed to connect " + from_path + "." + signal_name
+				+ " to " + to_path + "." + method_name + ": " + error_string(connect_err))
+		return
+
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
+
+	_succeed({
+		"scene_path": path,
+		"from": from_path,
+		"signal": signal_name,
+		"to": to_path,
+		"method": method_name,
+	})
+
+
+# node-disconnect-signal: remove an existing signal->method connection from the
+# .tscn (issue #57). A connection that does not exist is a clean
+# connection_not_found error rather than a silent no-op; a missing signal on the
+# source means there can be no such connection, so it maps to the same code.
+func _op_node_disconnect_signal(params: Dictionary) -> void:
+	_diag("running operation: node-disconnect-signal")
+	var path := _string_param(params, "path")
+	var root: Node = _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+
+	var from_path := _string_param(params, "from")
+	var source := _resolve_node(root, from_path)
+	if source == null:
+		root.free()
+		_fail_node_not_found_labeled("source", from_path)
+		return
+	var to_path := _string_param(params, "to")
+	var target := _resolve_node(root, to_path)
+	if target == null:
+		root.free()
+		_fail_node_not_found_labeled("target", to_path)
+		return
+
+	var signal_name := _string_param(params, "signal")
+	var method_name := _string_param(params, "method")
+	var callable := Callable(target, method_name)
+	# is_connected is false both when the signal is absent and when it exists but
+	# carries no such connection; either way there is nothing to remove. Guard
+	# with it rather than call disconnect() (which errors on an absent connection).
+	if not source.has_signal(signal_name) or not source.is_connected(signal_name, callable):
+		root.free()
+		_fail(OP_ERROR_CONNECTION_NOT_FOUND, "no such connection: " + from_path + "."
+				+ signal_name + " -> " + to_path + "." + method_name)
+		return
+
+	source.disconnect(signal_name, callable)
+
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
+
+	_succeed({
+		"scene_path": path,
+		"from": from_path,
+		"signal": signal_name,
+		"to": to_path,
+		"method": method_name,
 	})
 
 
@@ -1210,6 +1342,16 @@ func _fail_node_not_found(node_path: String) -> void:
 		_fail(OP_ERROR_NODE_NOT_FOUND, "node not found in scene: " + node_path)
 	else:
 		_fail(OP_ERROR_NODE_NOT_FOUND, "non-canonical node path: " + node_path
+				+ " — address the node exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
+
+
+# Like _fail_node_not_found but names which endpoint of a connection failed
+# ("source"/"target", issue #57), so an agent knows which node path to fix.
+func _fail_node_not_found_labeled(label: String, node_path: String) -> void:
+	if _is_canonical_parent_path(node_path):
+		_fail(OP_ERROR_NODE_NOT_FOUND, label + " node not found in scene: " + node_path)
+	else:
+		_fail(OP_ERROR_NODE_NOT_FOUND, "non-canonical " + label + " node path: " + node_path
 				+ " — address the node exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 
 

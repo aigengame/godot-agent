@@ -25,6 +25,8 @@ from gda.models import (
     EngineVersion,
     ListedNode,
     NodeAddResult,
+    NodeConnectSignalResult,
+    NodeDisconnectSignalResult,
     NodeGetResult,
     NodeListResult,
     NodeSetResult,
@@ -137,6 +139,22 @@ def render_node_set(was_set: "NodeSetResult") -> str:
     )
 
 
+def render_node_connect_signal(connected: "NodeConnectSignalResult") -> str:
+    """Render a wired connection as ``connected <from>.<signal> -> <to>.<method>``."""
+    return (
+        f"connected {connected.from_node}.{connected.signal} -> "
+        f"{connected.to}.{connected.method}"
+    )
+
+
+def render_node_disconnect_signal(disconnected: "NodeDisconnectSignalResult") -> str:
+    """Render an unwired connection as ``disconnected <from>.<signal> -> <to>.<method>``."""
+    return (
+        f"disconnected {disconnected.from_node}.{disconnected.signal} -> "
+        f"{disconnected.to}.{disconnected.method}"
+    )
+
+
 def render_script_metadata(script: ScriptMetadata) -> str:
     """Render a script's path plus its class_name/extends for humans.
 
@@ -219,6 +237,8 @@ _RENDERERS = {
     NodeListResult: render_node_list,
     NodeGetResult: render_node_properties,
     NodeSetResult: render_node_set,
+    NodeConnectSignalResult: render_node_connect_signal,
+    NodeDisconnectSignalResult: render_node_disconnect_signal,
     ScriptCreateResult: render_script_create,
     ScriptGetResult: render_script_get,
     ScriptListResult: render_script_list,

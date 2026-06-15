@@ -315,3 +315,165 @@ def test_node_get_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
     err = json.loads(result.stdout)["error"]
     assert err["code"] == "path_not_found"
     assert "/x/main.tscn" in err["message"]
+
+
+# --- node connect-signal / disconnect-signal (issue #57) ---
+
+
+def _invoke_connect_signal(monkeypatch, code: str, message: str):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: node-connect-signal\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(
+        app,
+        [
+            "node",
+            "connect-signal",
+            "/x/main.tscn",
+            "--from",
+            "Emitter",
+            "--signal",
+            "timeout",
+            "--to",
+            "Receiver",
+            "--method",
+            "on_timeout",
+            "--json",
+        ],
+    )
+
+
+def _invoke_disconnect_signal(monkeypatch, code: str, message: str):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: node-disconnect-signal\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(
+        app,
+        [
+            "node",
+            "disconnect-signal",
+            "/x/main.tscn",
+            "--from",
+            "Emitter",
+            "--signal",
+            "timeout",
+            "--to",
+            "Receiver",
+            "--method",
+            "on_timeout",
+            "--json",
+        ],
+    )
+
+
+def test_connect_signal_missing_signal_maps_to_stable_signal_not_found_code(monkeypatch):
+    # issue #57's design decision: the signal MUST exist on the source node — a
+    # typo or wrong node is a clean signal_not_found error, so an agent branches
+    # on a bad signal name rather than parsing prose.
+    result = _invoke_connect_signal(
+        monkeypatch, "signal_not_found", "source node Emitter has no signal: timoeut"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "signal_not_found"
+    assert "timoeut" in err["message"]
+
+
+def test_connect_signal_missing_source_node_reuses_node_not_found_code(monkeypatch):
+    # The source node path resolving to nothing reuses the node group's
+    # node_not_found code (issue #55) — the node group introduces no parallel
+    # code for the same mode.
+    result = _invoke_connect_signal(
+        monkeypatch, "node_not_found", "source node not found in scene: Emitter"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "node_not_found"
+    assert "Emitter" in err["message"]
+
+
+def test_connect_signal_missing_target_node_reuses_node_not_found_code(monkeypatch):
+    result = _invoke_connect_signal(
+        monkeypatch, "node_not_found", "target node not found in scene: Receiver"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "node_not_found"
+    assert "Receiver" in err["message"]
+
+
+def test_connect_signal_already_connected_maps_to_stable_already_connected_code(
+    monkeypatch,
+):
+    # Connecting a signal->method that is already wired is a clean
+    # already_connected error rather than a silent no-op or a noisy engine
+    # ERR_INVALID_PARAMETER — so an agent can tell "already there" apart from
+    # "newly wired".
+    result = _invoke_connect_signal(
+        monkeypatch,
+        "already_connected",
+        "Emitter.timeout is already connected to Receiver.on_timeout",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "already_connected"
+    assert "on_timeout" in err["message"]
+
+
+def test_disconnect_signal_absent_connection_maps_to_connection_not_found_code(
+    monkeypatch,
+):
+    # issue #57's acceptance: disconnecting a connection that does not exist is a
+    # clean connection_not_found error, not a silent success — so an agent knows
+    # the unwiring had nothing to remove.
+    result = _invoke_disconnect_signal(
+        monkeypatch,
+        "connection_not_found",
+        "no such connection: Emitter.timeout -> Receiver.on_timeout",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "connection_not_found"
+    assert "Emitter.timeout" in err["message"]
+
+
+def test_disconnect_signal_missing_node_reuses_node_not_found_code(monkeypatch):
+    result = _invoke_disconnect_signal(
+        monkeypatch, "node_not_found", "source node not found in scene: Emitter"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "node_not_found"
+    assert "Emitter" in err["message"]
+
+
+def test_connect_signal_missing_scene_reuses_path_not_found_code(monkeypatch):
+    result = _invoke_connect_signal(
+        monkeypatch, "path_not_found", "scene file does not exist: /x/main.tscn"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "path_not_found"
+    assert "/x/main.tscn" in err["message"]

@@ -444,6 +444,110 @@ class NodeSetResult(BaseModel):
     )
 
 
+# A signal→method connection's four parts (issue #57): a source node's signal
+# wired to a target node's method, the shape of a ``.tscn`` ``[connection]``.
+# ``from`` is the source node's node path and ``to`` the target's, both relative
+# to the scene root — the same node-path addressing as the rest of the node
+# group (#53/#66). ``from`` is a Python keyword, so the source field is named
+# ``from_node`` and aliased to the wire key ``from``, matching the ``[connection]``
+# key the engine writes; populate-by-name lets the CLI build the model with the
+# Python name while ``--json``/``--schema`` keep the ``from`` wire key.
+_FROM_FIELD = Field(
+    alias="from",
+    description=(
+        "Source node path, relative to the scene root: '.' addresses the root "
+        "itself, 'Player/Arm' a nested node."
+    ),
+)
+_SIGNAL_FIELD = Field(description="The signal name on the source node.")
+_TO_FIELD = Field(
+    description=(
+        "Target node path, relative to the scene root: '.' addresses the root "
+        "itself, 'Player/Arm' a nested node."
+    )
+)
+_METHOD_FIELD = Field(description="The method name on the target node.")
+
+
+class NodeConnectSignalParams(BaseModel):
+    """The operation params of ``gda node connect-signal`` (issue #57).
+
+    Records a connection from a source node's signal to a target node's method,
+    persisted into the ``.tscn`` as a ``[connection]``. As a scene mutation it
+    instantiates the scene (the same trust boundary as ``node set``, ADR-0009).
+    ``path`` is the scene file; ``from``/``signal`` address the source node's
+    signal, ``to``/``method`` the target node's method, by the node group's
+    node-path addressing (#53/#66).
+
+    Contract (issue #57's design decision): the SIGNAL must exist on the source
+    node — a typo or wrong node is a clean ``signal_not_found`` error. The target
+    METHOD need NOT exist: a ``.tscn`` ``[connection]`` is persisted data, and
+    Godot's own editor lets you wire a signal to a not-yet-written method, so the
+    handler can be authored after the wiring — a dangling method is allowed.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    path: str = Field(description="The .tscn scene file to mutate.")
+    from_node: str = _FROM_FIELD
+    signal: str = _SIGNAL_FIELD
+    to: str = _TO_FIELD
+    method: str = _METHOD_FIELD
+
+
+class NodeConnectSignalResult(BaseModel):
+    """The result of ``gda node connect-signal``: the connection it recorded (issue #57).
+
+    Echoes the ``scene_path`` and the four parts of the connection — source node
+    (``from``), ``signal``, target node (``to``), ``method`` — verifiable by
+    reading the saved scene back: the ``[connection]`` now appears in the file.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    scene_path: str
+    from_node: str = _FROM_FIELD
+    signal: str = _SIGNAL_FIELD
+    to: str = _TO_FIELD
+    method: str = _METHOD_FIELD
+
+
+class NodeDisconnectSignalParams(BaseModel):
+    """The operation params of ``gda node disconnect-signal`` (issue #57).
+
+    Removes an existing signal→method connection from the ``.tscn``. As a scene
+    mutation it instantiates the scene (the same trust boundary as ``node set``,
+    ADR-0009). The four parts address the connection exactly as ``connect-signal``
+    recorded it; a connection that does not exist is a clean ``connection_not_found``
+    error rather than a silent no-op.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    path: str = Field(description="The .tscn scene file to mutate.")
+    from_node: str = _FROM_FIELD
+    signal: str = _SIGNAL_FIELD
+    to: str = _TO_FIELD
+    method: str = _METHOD_FIELD
+
+
+class NodeDisconnectSignalResult(BaseModel):
+    """The result of ``gda node disconnect-signal``: the connection it removed (issue #57).
+
+    Echoes the ``scene_path`` and the four parts of the removed connection — the
+    same shape as ``connect-signal``'s result — verifiable by reading the saved
+    scene back: the ``[connection]`` is gone from the file.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    scene_path: str
+    from_node: str = _FROM_FIELD
+    signal: str = _SIGNAL_FIELD
+    to: str = _TO_FIELD
+    method: str = _METHOD_FIELD
+
+
 class ScriptCreateParams(BaseModel):
     """The operation params of ``gda script create`` (issue #110).
 

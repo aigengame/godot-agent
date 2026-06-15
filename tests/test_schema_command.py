@@ -291,11 +291,65 @@ def test_node_set_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_node_connect_signal_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for node connect-signal (issue #57): the bare
+    # --schema flag short-circuits into the self-description. The `from`/`to`
+    # params document the root-relative node-path addressing agents must use,
+    # and the wire key for the source is `from` (the .tscn [connection] key),
+    # not the model's Python field name.
+    from gda.models import NodeConnectSignalParams, NodeConnectSignalResult
+
+    result = CliRunner().invoke(app, ["node", "connect-signal", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == NodeConnectSignalParams.model_json_schema()
+    assert doc["output"] == NodeConnectSignalResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    # The four connection parts, addressed as `from`/`signal`/`to`/`method`.
+    assert set(doc["input"]["properties"]) == {
+        "path",
+        "from",
+        "signal",
+        "to",
+        "method",
+    }
+    assert "scene root" in doc["input"]["properties"]["from"]["description"]
+    assert "scene root" in doc["input"]["properties"]["to"]["description"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_node_disconnect_signal_schema_emits_model_derived_contract_without_other_args():
+    from gda.models import (
+        NodeDisconnectSignalParams,
+        NodeDisconnectSignalResult,
+    )
+
+    result = CliRunner().invoke(app, ["node", "disconnect-signal", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == NodeDisconnectSignalParams.model_json_schema()
+    assert doc["output"] == NodeDisconnectSignalResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert set(doc["input"]["properties"]) == {
+        "path",
+        "from",
+        "signal",
+        "to",
+        "method",
+    }
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_sample_node_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each node command satisfies the contract its
-    # --schema emits (the other half of the ADR-0004 hard gate, issues #53/#55).
+    # --schema emits (the other half of the ADR-0004 hard gate, issues #53/#55/#57).
     from tests.test_node_commands import (
         ADD_RESULT,
+        CONNECT_RESULT,
         GET_RESULT,
         LIST_RESULT,
         SET_RESULT,
@@ -305,11 +359,20 @@ def test_sample_node_results_validate_against_emitted_output_schemas():
     list_doc = json.loads(CliRunner().invoke(app, ["node", "list", "--schema"]).stdout)
     get_doc = json.loads(CliRunner().invoke(app, ["node", "get", "--schema"]).stdout)
     set_doc = json.loads(CliRunner().invoke(app, ["node", "set", "--schema"]).stdout)
+    connect_doc = json.loads(
+        CliRunner().invoke(app, ["node", "connect-signal", "--schema"]).stdout
+    )
+    disconnect_doc = json.loads(
+        CliRunner().invoke(app, ["node", "disconnect-signal", "--schema"]).stdout
+    )
 
     jsonschema.validate(instance=ADD_RESULT, schema=add_doc["output"])
     jsonschema.validate(instance=LIST_RESULT, schema=list_doc["output"])
     jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
     jsonschema.validate(instance=SET_RESULT, schema=set_doc["output"])
+    jsonschema.validate(instance=CONNECT_RESULT, schema=connect_doc["output"])
+    # connect and disconnect share the four-part connection shape.
+    jsonschema.validate(instance=CONNECT_RESULT, schema=disconnect_doc["output"])
 
 
 def test_node_schema_spawns_no_godot(monkeypatch):
@@ -319,7 +382,14 @@ def test_node_schema_spawns_no_godot(monkeypatch):
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
     monkeypatch.setattr("gda.cli._make_runner", boom)
 
-    for command in (["node", "add"], ["node", "list"], ["node", "get"], ["node", "set"]):
+    for command in (
+        ["node", "add"],
+        ["node", "list"],
+        ["node", "get"],
+        ["node", "set"],
+        ["node", "connect-signal"],
+        ["node", "disconnect-signal"],
+    ):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0
         assert set(json.loads(result.stdout)) >= {"input", "output", "error"}

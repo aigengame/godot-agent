@@ -121,6 +121,34 @@ Whitespace around a value or a component is tolerated. A property of any other t
 reported by `node get` (its value degrades to a string projection), but `node set` cannot coerce
 to it yet and refuses with `uncoercible_value` — the coercible set grows as later slices need it.
 
+**Signal wiring** (established by #57): `gda node connect-signal SCENE --from <source-path> --signal
+<name> --to <target-path> --method <name>` records a connection from a **source node's signal** to a
+**target node's method**, persisted into the `.tscn` as a `[connection]`. `disconnect-signal` takes the
+same four flags and removes an existing connection. The two node paths (`--from`, `--to`) reuse the
+node group's **node-path addressing** (#53/#66): `.` is the scene root, `A/B` a descendant — exactly
+the form `node list` reports. All four flags are required: a connection has no sensible default for
+any of its parts. As a scene mutation, signal wiring instantiates the scene and honors the **mutation
+integrity boundary** above (and its inherent trust boundary, ADR-0009).
+
+The contract for the two endpoints' existence (#57's design decision):
+
+- **The signal must exist on the source node.** A typo'd or absent signal is a clean
+  `signal_not_found` — the agent fixes the signal name, not the wiring.
+- **The target method need NOT exist.** A `.tscn` `[connection]` is persisted data, and Godot's own
+  editor lets you wire a signal to a not-yet-written method (it can auto-generate the handler), so
+  the handler may be authored *after* the wiring — a **dangling connection** is allowed and recorded
+  as-is. (Verified on Godot 4.6.3: connecting to a missing method returns `OK` and serializes.)
+
+Persistence mechanism: the connection is set up on the instantiated tree with Godot's
+`Object.CONNECT_PERSIST` flag before the scene is re-packed — only a persisting connection is
+serialized by `PackedScene.pack` into the `[connection ...]` line; a plain runtime connect is dropped.
+A re-read of the saved scene shows the connection (`is_connected` is true), so `connect-signal` is
+verifiable end-to-end. Connecting an already-wired signal→method is a clean `already_connected` error
+(not a noisy engine failure or a silent re-apply); disconnecting a connection that does not exist is
+`connection_not_found` (not a silent no-op). A node path that resolves to nothing is `node_not_found`
+(the message names whether the *source* or *target* endpoint failed); a missing or non-scene file
+reuses `path_not_found` / `not_a_scene`. All failures exit 4 and leave the file untouched.
+
 | Command | Description |
 | --- | --- |
 | `gda node add` | Add a node (by type or `class_name` script) into a scene |
