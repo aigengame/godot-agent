@@ -594,8 +594,9 @@ func _op_script_delete(params: Dictionary) -> void:
 # script-set: edit an EXISTING .gd script on disk as RAW TEXT (issue #118) — it
 # never compiles or loads the script, so editing it cannot run project code (the
 # read trust boundary of issue #30, the same one create/get/delete honor). Three
-# mutually-exclusive edit modes, inferred by param presence with precedence
-# search → line-range → full (the CLI guarantees exactly one is supplied):
+# mutually-exclusive edit modes; the CLI resolves exactly one and stamps it on the
+# explicit `mode` discriminator the op dispatches on (issue #133), never re-inferred
+# here from which params are present:
 # - search-replace: replace EVERY literal (not regex) occurrence of `search`.
 # - line-range: replace the 1-based, inclusive line span [start_line, end_line]
 #   with `content`. Lines are the parts of the source split on "\n", so a
