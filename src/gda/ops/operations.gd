@@ -177,21 +177,17 @@ func _op_scene_create(params: Dictionary) -> void:
 		_fail(OP_ERROR_INVALID_ROOT_NAME, "Godot rewrote root_name from " + root_name + " to " + actual_root_name)
 		return
 
-	var packed := PackedScene.new()
-	var pack_err := packed.pack(root)
-	if pack_err != OK:
-		root.free()
-		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
-		return
+	# Create any missing parent dirs BEFORE packing-and-saving. pack() works purely
+	# in memory on root and writes nothing, so making the directories first (rather
+	# than between pack and save) is behavior-equivalent and lets scene-create reuse
+	# the one shared pack-and-save tail (_repack_and_save) the node ops use (#135).
+	# _ensure_parent_dirs does not free root on failure, so free it here on that path.
 	var created_dirs: Variant = _ensure_parent_dirs(path)
 	if created_dirs == null:
 		root.free()
-		return
-	var save_err := ResourceSaver.save(packed, path)
-	root.free()
-	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
-		return
+		return  # _ensure_parent_dirs already recorded the failure
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
 		"path": path,
@@ -1508,14 +1504,17 @@ func _load_for_mutation(params: Dictionary) -> Node:
 	return root
 
 
-# The single mutate-exit paired with _load_for_mutation: re-pack the (mutated)
-# instantiated `root` and save it back to the .tscn at `path`, then free the
-# tree. Returns true on a clean save, or false after recording save_failed (the
-# caller must stop). root.free() runs on EVERY path — pack failure, save failure,
-# and success alike — so an instantiated scene (the most leak-prone object in the
-# mutating ops) is never leaked. Shared by node add / node set / script attach;
-# the caller captures any result fields it needs OFF THE TREE before calling, as
-# the tree is gone once this returns.
+# The single pack-and-save tail: pack `root` into a PackedScene and save it to the
+# .tscn at `path`, then free the tree. Returns true on a clean save, or false after
+# recording save_failed (the caller must stop). root.free() runs on EVERY path —
+# pack failure, save failure, and success alike — so an instantiated scene (the most
+# leak-prone object in the mutating ops) is never leaked. Shared by every op whose
+# tail packs-and-saves a root: scene create (a freshly-built root) and the mutating
+# ops node add / node set / node remove / node duplicate / node move / connect- &
+# disconnect-signal / script attach (a re-packed instantiated tree, paired with
+# _load_for_mutation). The caller captures any result fields it needs OFF THE TREE
+# before calling, as the tree is gone once this returns; for scene create the caller
+# also creates any missing parent dirs first, since this tail only packs and saves.
 func _repack_and_save(root: Node, path: String) -> bool:
 	var repacked := PackedScene.new()
 	var pack_err := repacked.pack(root)
