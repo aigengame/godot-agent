@@ -313,20 +313,12 @@ func _op_node_add(params: Dictionary) -> void:
 	parent.add_child(node)
 	node.owner = root
 
-	var repacked := PackedScene.new()
-	var pack_err := repacked.pack(root)
-	if pack_err != OK:
-		root.free()
-		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
-		return
+	# Capture the node's identity off the live tree before re-saving frees it.
 	var node_path := String(root.get_path_to(node))
 	var node_type := node.get_class()
 	var script_class: Variant = _script_class_of(node)
-	var save_err := ResourceSaver.save(repacked, path)
-	root.free()
-	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
-		return
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
 		"scene_path": path,
@@ -444,20 +436,12 @@ func _op_node_set(params: Dictionary) -> void:
 
 	node.set(prop_name, coerced)
 
-	var repacked := PackedScene.new()
-	var pack_err := repacked.pack(root)
-	if pack_err != OK:
-		root.free()
-		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
-		return
-	var save_err := ResourceSaver.save(repacked, path)
-	# Read the value back off the node — the node now holds the coerced value in
-	# its canonical form, the same projection node-get reports.
+	# Read the value back off the node before re-saving frees the tree — the node
+	# now holds the coerced value in its canonical form, the same projection
+	# node-get reports.
 	var stored_value: Variant = _jsonify(node.get(prop_name))
-	root.free()
-	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
-		return
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
 		"scene_path": path,
@@ -505,20 +489,8 @@ func _op_script_create(params: Dictionary) -> void:
 	var created_dirs: Variant = _ensure_parent_dirs(path)
 	if created_dirs == null:
 		return  # _ensure_parent_dirs already recorded the failure
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, FileAccess.get_open_error()))
-		return
-	file.store_string(source)
-	# A successful open does not guarantee a successful write: a disk-full or I/O
-	# error surfaces here, not at open. Capture it before close() invalidates the
-	# handle, so a failed write is reported as save_failed rather than a phantom
-	# success over a partial or empty file (mirrors scene-create checking save).
-	var write_err := file.get_error()
-	file.close()
-	if write_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
-		return
+	if not _write_script_file(path, source):
+		return  # _write_script_file already recorded the failure
 
 	var meta := _script_metadata(source)
 	_succeed({
@@ -543,23 +515,12 @@ func _op_script_get(params: Dictionary) -> void:
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
-	if not _is_script_path(path):
-		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
-		return
-	if not FileAccess.file_exists(path):
-		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
-		return
+	if not _require_existing_script(path):
+		return  # _require_existing_script already recorded the failure
 
-	var source := FileAccess.get_file_as_string(path)
-	# get_file_as_string returns "" both for an empty file and on an open error;
-	# disambiguate via the open-error code so an unreadable file is not reported
-	# as empty source. An empty .gd is legal and reads back as empty.
-	if source.is_empty():
-		var open_err := FileAccess.get_open_error()
-		if open_err != OK:
-			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
-					+ ": " + error_string(open_err))
-			return
+	var source: Variant = _read_script_source(path)
+	if source == null:
+		return  # _read_script_source already recorded the failure
 
 	var meta := _script_metadata(source)
 	_succeed({
@@ -610,12 +571,8 @@ func _op_script_delete(params: Dictionary) -> void:
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
-	if not _is_script_path(path):
-		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
-		return
-	if not FileAccess.file_exists(path):
-		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
-		return
+	if not _require_existing_script(path):
+		return  # _require_existing_script already recorded the failure
 
 	# Read the metadata before deletion so the result names the content removed.
 	# A read error here is non-fatal: the file exists and is about to be deleted,
@@ -652,23 +609,12 @@ func _op_script_set(params: Dictionary) -> void:
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
-	if not _is_script_path(path):
-		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
-		return
-	if not FileAccess.file_exists(path):
-		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
-		return
+	if not _require_existing_script(path):
+		return  # _require_existing_script already recorded the failure
 
-	var source := FileAccess.get_file_as_string(path)
-	# get_file_as_string returns "" both for an empty file and on an open error;
-	# disambiguate via the open-error code so an unreadable file is not edited as
-	# if it were empty (mirrors script-get). An empty .gd is legal source.
-	if source.is_empty():
-		var open_err := FileAccess.get_open_error()
-		if open_err != OK:
-			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
-					+ ": " + error_string(open_err))
-			return
+	var source: Variant = _read_script_source(path)
+	if source == null:
+		return  # _read_script_source already recorded the failure
 
 	# Infer the mode by presence, precedence search → line-range → full.
 	var new_source: Variant
@@ -682,19 +628,8 @@ func _op_script_set(params: Dictionary) -> void:
 	if new_source == null:
 		return  # the apply helper already recorded the failure
 
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, FileAccess.get_open_error()))
-		return
-	file.store_string(new_source)
-	# A successful open does not guarantee a successful write (mirrors
-	# script-create): capture a disk-full/I/O error before close() invalidates
-	# the handle, so a failed write is save_failed, not a phantom success.
-	var write_err := file.get_error()
-	file.close()
-	if write_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
-		return
+	if not _write_script_file(path, new_source):
+		return  # _write_script_file already recorded the failure
 
 	# Re-parse the written source so set round-trips through script get.
 	var meta := _script_metadata(new_source)
@@ -781,12 +716,8 @@ func _op_script_attach(params: Dictionary) -> void:
 
 	# Cheap script-path shape checks first, before the costlier scene load.
 	var script_path := _string_param(params, "script")
-	if not _is_script_path(script_path):
-		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + script_path)
-		return
-	if not FileAccess.file_exists(script_path):
-		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + script_path)
-		return
+	if not _require_existing_script(script_path):
+		return  # _require_existing_script already recorded the failure
 
 	var root: Node = _load_for_mutation(params)
 	if root == null:
@@ -831,18 +762,10 @@ func _op_script_attach(params: Dictionary) -> void:
 					+ script_path + " — fix it, or check it with `gda script validate`")
 		return
 
-	var repacked := PackedScene.new()
-	var pack_err := repacked.pack(root)
-	if pack_err != OK:
-		root.free()
-		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
-		return
+	# Capture the attached class_name off the live node before re-saving frees it.
 	var class_name_value: Variant = _script_class_of(node)
-	var save_err := ResourceSaver.save(repacked, path)
-	root.free()
-	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
-		return
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
 		"scene_path": path,
@@ -870,23 +793,12 @@ func _op_script_validate(params: Dictionary) -> void:
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
-	if not _is_script_path(path):
-		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
-		return
-	if not FileAccess.file_exists(path):
-		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
-		return
+	if not _require_existing_script(path):
+		return  # _require_existing_script already recorded the failure
 
-	var source := FileAccess.get_file_as_string(path)
-	# get_file_as_string returns "" both for an empty file and on an open error;
-	# disambiguate via the open-error code so an unreadable file is path_not_found
-	# rather than validated as empty (mirrors script-get). An empty .gd compiles.
-	if source.is_empty():
-		var open_err := FileAccess.get_open_error()
-		if open_err != OK:
-			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
-					+ ": " + error_string(open_err))
-			return
+	var source: Variant = _read_script_source(path)
+	if source == null:
+		return  # _read_script_source already recorded the failure
 
 	# Compile-check without instantiating: set the source on a fresh GDScript and
 	# reload() it. The reload error (and its diagnostics on stderr) is the verdict.
@@ -906,6 +818,40 @@ func _op_script_validate(params: Dictionary) -> void:
 # build of Godot (ADR-0003 targets the standard build) and a dedicated decision.
 func _is_script_path(path: String) -> bool:
 	return path.get_extension().to_lower() == "gd"
+
+
+# Clear the script group's addressing boundary for an EXISTING script: the path
+# must be a .gd (invalid_path otherwise) and the file must exist on disk
+# (path_not_found otherwise). Returns true to proceed, or false after recording
+# the failure (the caller must stop). Shared by every op that reads or mutates an
+# existing script — get / delete / set / validate / attach — so they all refuse a
+# non-.gd target and a missing file identically, rather than operating on it.
+func _require_existing_script(path: String) -> bool:
+	if not _is_script_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
+		return false
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
+		return false
+	return true
+
+
+# Read a .gd script's source back as RAW TEXT, disambiguating an empty file from
+# an unreadable one. get_file_as_string returns "" both for an empty file AND on
+# an open error; an empty .gd is legal source, so "" alone cannot be trusted as
+# the content. When the read returns "" but the open errored, the file is
+# unreadable, not empty — report path_not_found and return null (the caller must
+# stop). Otherwise return the source as-is ("" for a genuinely empty file).
+# Shared by script get / set / validate, which each only need the raw source.
+func _read_script_source(path: String) -> Variant:
+	var source := FileAccess.get_file_as_string(path)
+	if source.is_empty():
+		var open_err := FileAccess.get_open_error()
+		if open_err != OK:
+			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
+					+ ": " + error_string(open_err))
+			return null
+	return source
 
 
 # Extract a GDScript's declared class_name and extends from its raw source by
@@ -1105,6 +1051,29 @@ func _load_for_mutation(params: Dictionary) -> Node:
 				+ ", ".join(unmaterialized) + " — re-saving would silently drop or downgrade them; check the scene's dependencies and --project")
 		return null
 	return root
+
+
+# The single mutate-exit paired with _load_for_mutation: re-pack the (mutated)
+# instantiated `root` and save it back to the .tscn at `path`, then free the
+# tree. Returns true on a clean save, or false after recording save_failed (the
+# caller must stop). root.free() runs on EVERY path — pack failure, save failure,
+# and success alike — so an instantiated scene (the most leak-prone object in the
+# mutating ops) is never leaked. Shared by node add / node set / script attach;
+# the caller captures any result fields it needs OFF THE TREE before calling, as
+# the tree is gone once this returns.
+func _repack_and_save(root: Node, path: String) -> bool:
+	var repacked := PackedScene.new()
+	var pack_err := repacked.pack(root)
+	if pack_err != OK:
+		root.free()
+		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
+		return false
+	var save_err := ResourceSaver.save(repacked, path)
+	root.free()
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
+		return false
+	return true
 
 
 # Node paths declared in the scene's state that did not materialize faithfully
@@ -1511,6 +1480,27 @@ func _save_failure_message(noun: String, path: String, save_err: Error) -> Strin
 		if dir != null:
 			dir.remove(probe_name)
 	return message
+
+
+# Write `source` to a .gd file as RAW TEXT, reporting both failure modes as
+# save_failed. Returns true on a clean write, or false after recording the
+# failure (the caller must stop). A successful open does not guarantee a
+# successful write: a disk-full/I/O error surfaces at get_error(), not at open,
+# so capture it BEFORE close() invalidates the handle — a failed write is
+# save_failed, never a phantom success over a partial or empty file. Shared by
+# script create and script set, the two ops that write script text.
+func _write_script_file(path: String, source: String) -> bool:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, FileAccess.get_open_error()))
+		return false
+	file.store_string(source)
+	var write_err := file.get_error()
+	file.close()
+	if write_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
+		return false
+	return true
 
 
 # Record a successful result: emit it through the sentinel contract and mark
