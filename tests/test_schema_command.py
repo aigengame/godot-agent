@@ -915,3 +915,115 @@ def test_schema_flag_binds_false_not_none_when_absent():
 
     assert result.exit_code == 0
     assert result.stdout.strip() == "schema=False"
+
+
+def test_shader_create_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for the shader group (issue #115): the bare --schema
+    # flag — no path — short-circuits into the self-description, derived from the
+    # same typed models that back --json.
+    from gda.models import ShaderCreateParams, ShaderCreateResult
+
+    result = CliRunner().invoke(app, ["shader", "create", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ShaderCreateParams.model_json_schema()
+    assert doc["output"] == ShaderCreateResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "content" in doc["input"]["properties"]
+    assert "shader_type" in doc["input"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_shader_get_schema_emits_model_derived_contract_without_other_args():
+    from gda.models import ShaderGetParams, ShaderGetResult
+
+    result = CliRunner().invoke(app, ["shader", "get", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ShaderGetParams.model_json_schema()
+    assert doc["output"] == ShaderGetResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "source" in doc["output"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_shader_set_schema_emits_model_derived_contract_without_other_args():
+    # The shader set edit-mode interface is the script set interface reused
+    # (issue #115); the line-range 1-based rule is documented in the contract.
+    from gda.models import ShaderSetParams, ShaderSetResult
+
+    result = CliRunner().invoke(app, ["shader", "set", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ShaderSetParams.model_json_schema()
+    assert doc["output"] == ShaderSetResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "search" in doc["input"]["properties"]
+    assert "start_line" in doc["input"]["properties"]
+    assert "content" in doc["input"]["properties"]
+    assert "1-based" in doc["input"]["properties"]["start_line"]["description"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_theme_create_schema_emits_model_derived_contract_without_other_args():
+    from gda.models import ThemeCreateParams, ThemeCreateResult
+
+    result = CliRunner().invoke(app, ["theme", "create", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ThemeCreateParams.model_json_schema()
+    assert doc["output"] == ThemeCreateResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "type" in doc["output"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_sample_asset_file_results_validate_against_emitted_output_schemas():
+    # A sample --json payload of each asset-file command satisfies the contract
+    # its --schema emits (the other half of the ADR-0004 hard gate, issue #115).
+    from tests.test_asset_file_commands import (
+        SHADER_CREATE_RESULT,
+        SHADER_GET_RESULT,
+        SHADER_SET_RESULT,
+        THEME_CREATE_RESULT,
+    )
+
+    create_doc = json.loads(
+        CliRunner().invoke(app, ["shader", "create", "--schema"]).stdout
+    )
+    get_doc = json.loads(CliRunner().invoke(app, ["shader", "get", "--schema"]).stdout)
+    set_doc = json.loads(CliRunner().invoke(app, ["shader", "set", "--schema"]).stdout)
+    theme_doc = json.loads(
+        CliRunner().invoke(app, ["theme", "create", "--schema"]).stdout
+    )
+
+    jsonschema.validate(instance=SHADER_CREATE_RESULT, schema=create_doc["output"])
+    jsonschema.validate(instance=SHADER_GET_RESULT, schema=get_doc["output"])
+    jsonschema.validate(instance=SHADER_SET_RESULT, schema=set_doc["output"])
+    jsonschema.validate(instance=THEME_CREATE_RESULT, schema=theme_doc["output"])
+
+
+def test_asset_file_schema_spawns_no_godot(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("--schema must not touch the engine")
+
+    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.cli._make_runner", boom)
+
+    for command in (
+        ["shader", "create"],
+        ["shader", "get"],
+        ["shader", "set"],
+        ["theme", "create"],
+    ):
+        result = CliRunner().invoke(app, [*command, "--schema"])
+        assert result.exit_code == 0
+        assert set(json.loads(result.stdout)) >= {"input", "output", "error"}

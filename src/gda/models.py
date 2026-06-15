@@ -1347,6 +1347,62 @@ class ResourceCreateResult(BaseModel):
     )
 
 
+class ShaderCreateParams(BaseModel):
+    """The operation params of ``gda shader create`` (issue #115).
+
+    ``path`` is the target ``.gdshader`` file, addressed by its ``res://`` or
+    filesystem path. A ``.gdshader`` is plain shader source authored as RAW
+    TEXT — no engine compilation is needed to create, read or edit it, so the
+    create/get/set trio is pure file authoring (the same file-level boundary the
+    script group's create/get/set honor, issue #30). ``content`` supplies
+    verbatim shader source; when omitted, the operation writes a minimal
+    ``shader_type`` template.
+    """
+
+    path: str
+    content: str | None = Field(
+        default=None,
+        description=(
+            "Verbatim shader source to write. When omitted, a minimal template "
+            "declaring 'shader_type canvas_item' is written instead. Mutually "
+            "exclusive with the template's shader type."
+        ),
+    )
+    shader_type: str | None = Field(
+        default=None,
+        description=(
+            "Shader type for the built-in template's 'shader_type' line (e.g. "
+            "canvas_item, spatial, particles). Ignored when 'content' is "
+            "supplied; defaults to 'canvas_item' when neither is given."
+        ),
+    )
+
+
+class ShaderCreateResult(BaseModel):
+    """The result of ``gda shader create``: what was written where (issue #115).
+
+    Echoes the saved ``path`` and the ``shader_type`` the written source
+    declares, so an agent can assert the effect without a second call.
+    ``created_dirs`` lists parent directories the operation created before
+    saving, from outermost to innermost. The ``shader_type`` is parsed from the
+    written source.
+    """
+
+    path: str
+    shader_type: str | None = Field(
+        default=None,
+        description=(
+            "The shader_type the written shader declares, or null when it "
+            "declares none."
+        ),
+    )
+    created_dirs: list[str] = Field(
+        description=(
+            "Parent directories created before saving, from outermost to innermost."
+        )
+    )
+
+
 class ResourceGetParams(BaseModel):
     """The operation params of ``gda resource get``: the ``.tres`` to read (issue #112).
 
@@ -1354,6 +1410,17 @@ class ResourceGetParams(BaseModel):
     a ``.tres`` instantiates the resource (the same trust boundary every load
     carries, ADR-0009), but a plain resource file holds data, not a script that
     runs on load.
+    """
+
+    path: str
+
+
+class ShaderGetParams(BaseModel):
+    """The operation params of ``gda shader get``: the shader file to read (issue #115).
+
+    ``path`` addresses the ``.gdshader`` by its ``res://`` or filesystem path.
+    The source is read as raw text — the shader is never loaded or compiled, so
+    reading it can never run project code (the read boundary of issue #30).
     """
 
     path: str
@@ -1394,6 +1461,151 @@ class ResourceUidResult(BaseModel):
     )
     uid: str = Field(description="The resource's 'uid://…' value.")
     path: str = Field(description="The resource's 'res://…' path the UID maps to.")
+
+
+class ShaderGetResult(BaseModel):
+    """The result of ``gda shader get``: a shader's source and metadata (issue #115).
+
+    Echoes the ``path``, the full ``source`` read as raw text, and the
+    ``shader_type`` the source declares (parsed from the text). Carrying the
+    source verbatim makes a ``create`` verifiable end-to-end: ``create`` then
+    ``get`` returns the same source.
+    """
+
+    path: str
+    source: str
+    shader_type: str | None = Field(
+        default=None,
+        description=(
+            "The shader_type the shader declares, or null when it declares none."
+        ),
+    )
+
+
+class ShaderSetParams(BaseModel):
+    """The operation params of ``gda shader set`` (issue #115).
+
+    Edits an existing ``.gdshader`` on disk as RAW TEXT — it never compiles or
+    loads the shader, so editing one can never run project code (the read
+    boundary of issue #30). ``path`` addresses the shader by its ``res://`` or
+    filesystem path. The remaining params carry the SAME three mutually-exclusive
+    edit modes as ``script set`` (issue #118) — the shader group reuses that edit
+    interface rather than re-deriving it. The CLI resolves which mode and stamps
+    it on ``mode`` (issue #133), so the operation dispatches on that explicit
+    discriminator rather than re-inferring it from which params are present:
+
+    - **search-replace** (``mode = search_replace``) — ``search``/``replace`` both
+      present: every literal (not regex) occurrence of ``search`` is replaced with
+      ``replace``.
+    - **line-range** (``mode = line_range``) — ``start_line`` (+ optional
+      ``end_line``) with ``content``: the given 1-based, inclusive line span is
+      replaced with ``content``.
+    - **full** (``mode = full``) — only ``content`` present: the whole file is
+      overwritten.
+    """
+
+    path: str
+    mode: ScriptSetMode = Field(
+        description=(
+            "The resolved edit mode, the single source of truth the operation "
+            "dispatches on (issue #133). Set by the CLI from the supplied flags, "
+            "not inferred by the operation from param presence. The same edit "
+            "modes as script set (issue #118), reused here."
+        ),
+    )
+    search: str | None = Field(
+        default=None,
+        description=(
+            "search-replace mode: the literal substring to find (NOT a regex). "
+            "Every occurrence is replaced with 'replace'. Requires 'replace'."
+        ),
+    )
+    replace: str | None = Field(
+        default=None,
+        description=(
+            "search-replace mode: the literal text each occurrence of 'search' "
+            "is replaced with. Requires 'search'."
+        ),
+    )
+    start_line: int | None = Field(
+        default=None,
+        description=(
+            "line-range mode: the first line to replace, 1-based and inclusive. "
+            "Lines are the parts of the source split on '\\n', so a trailing "
+            "newline yields a final empty part: 'a\\nb\\n' is 3 lines "
+            "(['a', 'b', '']). Valid range is 1..N where N is that part count. "
+            "Requires 'content'."
+        ),
+    )
+    end_line: int | None = Field(
+        default=None,
+        description=(
+            "line-range mode: the last line to replace, 1-based and inclusive; "
+            "defaults to 'start_line' (a single-line replace). Must satisfy "
+            "start_line <= end_line <= N (the line count). Requires 'content'."
+        ),
+    )
+    content: str | None = Field(
+        default=None,
+        description=(
+            "The replacement text. In line-range mode it replaces the "
+            "start_line..end_line span; with no 'start_line' it overwrites the "
+            "entire file (full mode)."
+        ),
+    )
+
+
+class ShaderSetResult(BaseModel):
+    """The result of ``gda shader set``: the edited shader's metadata (issue #115).
+
+    Echoes the saved ``path`` and the ``shader_type`` re-parsed from the source
+    as written, so an edit round-trips through ``shader get`` (the verifier)
+    without a second call — and an agent can assert the post-edit metadata
+    directly.
+    """
+
+    path: str
+    shader_type: str | None = Field(
+        default=None,
+        description=(
+            "The shader_type the edited source declares, or null when it "
+            "declares none."
+        ),
+    )
+
+
+class ThemeCreateParams(BaseModel):
+    """The operation params of ``gda theme create`` (issue #115).
+
+    ``path`` is the target ``.tres`` file. Unlike the shader trio (plain
+    file authoring), a Theme is an ENGINE-BACKED resource: the operation
+    constructs a ``Theme`` and writes it through ``ResourceSaver`` so the result
+    is a genuine, loadable ``.tres`` (verified by loading it back), not hand-
+    written text. The split mirrors the script group: file-level ops author text;
+    a resource-producing op goes through the engine.
+    """
+
+    path: str
+
+
+class ThemeCreateResult(BaseModel):
+    """The result of ``gda theme create``: the created Theme resource (issue #115).
+
+    Echoes the saved ``path`` and the resource ``type`` written (``Theme``), so
+    an agent can assert the effect without a second call. ``created_dirs`` lists
+    parent directories the operation created before saving, from outermost to
+    innermost.
+    """
+
+    path: str
+    type: str = Field(
+        description="The resource type written to the .tres (Theme)."
+    )
+    created_dirs: list[str] = Field(
+        description=(
+            "Parent directories created before saving, from outermost to innermost."
+        )
+    )
 
 
 class EngineVersion(BaseModel):

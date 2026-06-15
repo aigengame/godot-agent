@@ -86,6 +86,14 @@ from gda.models import (
     ScriptSetResult,
     ScriptValidateParams,
     ScriptValidateResult,
+    ShaderCreateParams,
+    ShaderCreateResult,
+    ShaderGetParams,
+    ShaderGetResult,
+    ShaderSetParams,
+    ShaderSetResult,
+    ThemeCreateParams,
+    ThemeCreateResult,
 )
 from gda.project import resolve_project_dir
 from gda.render import render
@@ -145,6 +153,21 @@ project_app = typer.Typer(
     help="Read and write the project's project.godot settings.", no_args_is_help=True
 )
 app.add_typer(project_app, name="project")
+
+# The asset-file groups (issue #115): headless authoring of the asset-file types.
+# A .gdshader is plain shader source authored as text (create / get / set are
+# pure file authoring, no engine needed), while theme create produces a loadable
+# .tres Theme resource (engine-backed) — the same file-level vs engine-backed
+# split the script group draws between create/get/set and attach/validate.
+shader_app = typer.Typer(
+    help="Act on shader files (.gdshader).", no_args_is_help=True
+)
+app.add_typer(shader_app, name="shader")
+
+theme_app = typer.Typer(
+    help="Act on theme resource files (.tres).", no_args_is_help=True
+)
+app.add_typer(theme_app, name="theme")
 
 
 def _version_callback(value: Optional[bool]) -> None:
@@ -437,6 +460,30 @@ PROJECT_SET_COMMAND: HeadlessCommand[ProjectSetResult] = HeadlessCommand(
     operation="project-set",
     input_model=ProjectSetParams,
     output_model=ProjectSetResult,
+)
+
+SHADER_CREATE_COMMAND: HeadlessCommand[ShaderCreateResult] = HeadlessCommand(
+    operation="shader-create",
+    input_model=ShaderCreateParams,
+    output_model=ShaderCreateResult,
+)
+
+SHADER_GET_COMMAND: HeadlessCommand[ShaderGetResult] = HeadlessCommand(
+    operation="shader-get",
+    input_model=ShaderGetParams,
+    output_model=ShaderGetResult,
+)
+
+SHADER_SET_COMMAND: HeadlessCommand[ShaderSetResult] = HeadlessCommand(
+    operation="shader-set",
+    input_model=ShaderSetParams,
+    output_model=ShaderSetResult,
+)
+
+THEME_CREATE_COMMAND: HeadlessCommand[ThemeCreateResult] = HeadlessCommand(
+    operation="theme-create",
+    input_model=ThemeCreateParams,
+    output_model=ThemeCreateResult,
 )
 
 
@@ -1213,6 +1260,51 @@ def project_get(
     )
 
 
+@shader_app.command(cls=SHADER_CREATE_COMMAND.command_class())
+def create(
+    path: str = typer.Argument(..., help="Target .gdshader path to write."),
+    content: Optional[str] = typer.Option(
+        None,
+        "--content",
+        help=(
+            "Verbatim shader source to write. Mutually exclusive with "
+            "--shader-type; when omitted, a minimal template declaring the "
+            "--shader-type is written."
+        ),
+    ),
+    shader_type: Optional[str] = typer.Option(
+        None,
+        "--shader-type",
+        help=(
+            "Shader type for the built-in template's 'shader_type' line (e.g. "
+            "canvas_item, spatial). Defaults to canvas_item. Ignored — and "
+            "rejected — with --content."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SHADER_CREATE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Create a new .gdshader from a template or verbatim --content."""
+    if content is not None and shader_type is not None:
+        raise typer.BadParameter(
+            "--content and --shader-type are mutually exclusive."
+        )
+    _dispatch(
+        SHADER_CREATE_COMMAND,
+        ShaderCreateParams(
+            path=_normalize_path(path),
+            content=content,
+            shader_type=shader_type,
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
 @resource_app.command(name="get", cls=RESOURCE_GET_COMMAND.command_class())
 def get_resource(
     path: str = typer.Argument(..., help="The .tres resource file to read."),
@@ -1225,6 +1317,25 @@ def get_resource(
     _dispatch(
         RESOURCE_GET_COMMAND,
         ResourceGetParams(path=_normalize_path(path)),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@shader_app.command(name="get", cls=SHADER_GET_COMMAND.command_class())
+def get_shader(
+    path: str = typer.Argument(..., help="The .gdshader file to read."),
+    json_output: bool = json_option(),
+    schema: bool = SHADER_GET_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read a shader's source and report its shader_type metadata."""
+    _dispatch(
+        SHADER_GET_COMMAND,
+        ShaderGetParams(path=_normalize_path(path)),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1299,6 +1410,73 @@ def resolve_uid(
     )
 
 
+@shader_app.command(name="set", cls=SHADER_SET_COMMAND.command_class())
+def set_shader(
+    path: str = typer.Argument(..., help="The .gdshader file to edit."),
+    search: Optional[str] = typer.Option(
+        None,
+        "--search",
+        help=(
+            "search-replace mode: literal substring to find (not regex); all "
+            "occurrences are replaced. Requires --replace."
+        ),
+    ),
+    replace: Optional[str] = typer.Option(
+        None,
+        "--replace",
+        help="search-replace mode: literal replacement text. Requires --search.",
+    ),
+    start_line: Optional[int] = typer.Option(
+        None,
+        "--start-line",
+        help=(
+            "line-range mode: first line to replace (1-based, inclusive). "
+            "Requires --content."
+        ),
+    ),
+    end_line: Optional[int] = typer.Option(
+        None,
+        "--end-line",
+        help=(
+            "line-range mode: last line to replace (1-based, inclusive); "
+            "defaults to --start-line. Requires --content and --start-line."
+        ),
+    ),
+    content: Optional[str] = typer.Option(
+        None,
+        "--content",
+        help=(
+            "Replacement text: the line span in line-range mode, or the whole "
+            "file (full mode) when --start-line is omitted."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SHADER_SET_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Edit a .gdshader via search-replace, line-range, or full overwrite."""
+    # shader set reuses the script set edit-mode interface (issue #115): the same
+    # mutual-exclusion resolver decides the single ScriptSetMode discriminator.
+    mode = _resolve_set_mode(search, replace, start_line, end_line, content)
+    _dispatch(
+        SHADER_SET_COMMAND,
+        ShaderSetParams(
+            path=_normalize_path(path),
+            mode=mode,
+            search=search,
+            replace=replace,
+            start_line=start_line,
+            end_line=end_line,
+            content=content,
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
 @project_app.command(name="set", cls=PROJECT_SET_COMMAND.command_class())
 def project_set(
     setting: str = typer.Argument(
@@ -1321,6 +1499,25 @@ def project_set(
     _dispatch(
         PROJECT_SET_COMMAND,
         ProjectSetParams(setting=setting, value=value),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@theme_app.command(name="create", cls=THEME_CREATE_COMMAND.command_class())
+def create_theme(
+    path: str = typer.Argument(..., help="Target .tres Theme path to write."),
+    json_output: bool = json_option(),
+    schema: bool = THEME_CREATE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Create a new, loadable .tres Theme resource (no-clobber)."""
+    _dispatch(
+        THEME_CREATE_COMMAND,
+        ThemeCreateParams(path=_normalize_path(path)),
         json_output=json_output,
         godot=godot,
         project=project,

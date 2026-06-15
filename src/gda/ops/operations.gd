@@ -152,6 +152,14 @@ func _initialize() -> void:
 			_op_project_get(params)
 		"project-set":
 			_op_project_set(params)
+		"shader-create":
+			_op_shader_create(params)
+		"shader-get":
+			_op_shader_get(params)
+		"shader-set":
+			_op_shader_set(params)
+		"theme-create":
+			_op_theme_create(params)
 		_:
 			_fail(OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 
@@ -1161,9 +1169,9 @@ func _op_script_set(params: Dictionary) -> void:
 	var new_source: Variant
 	match mode:
 		"search_replace":
-			new_source = _apply_search_replace(source, params)
+			new_source = _apply_search_replace(source, params, "script")
 		"line_range":
-			new_source = _apply_line_range(source, params)
+			new_source = _apply_line_range(source, params, "script")
 		"full":
 			# full overwrite: content is guaranteed present by the CLI's mode check.
 			new_source = _string_param(params, "content")
@@ -1192,11 +1200,11 @@ func _op_script_set(params: Dictionary) -> void:
 # string the source does not contain is a no_search_match failure (so an agent
 # learns the edit landed nowhere rather than silently writing the file back
 # unchanged). Returns null after recording the failure.
-func _apply_search_replace(source: String, params: Dictionary) -> Variant:
+func _apply_search_replace(source: String, params: Dictionary, noun: String) -> Variant:
 	var search := _string_param(params, "search")
 	var replace := _string_param(params, "replace")
 	if search.is_empty() or not source.contains(search):
-		_fail(OP_ERROR_NO_SEARCH_MATCH, "search string not found in script: " + search.c_escape())
+		_fail(OP_ERROR_NO_SEARCH_MATCH, "search string not found in " + noun + ": " + search.c_escape())
 		return null
 	return source.replace(search, replace)
 
@@ -1212,7 +1220,7 @@ func _apply_search_replace(source: String, params: Dictionary) -> Variant:
 # split and rejoin, and the replacement `content` is normalized onto it, so
 # editing a CRLF script preserves CRLF instead of corrupting the edited span to
 # mixed endings. A mixed-ending file is pathological and resolves to CRLF.
-func _apply_line_range(source: String, params: Dictionary) -> Variant:
+func _apply_line_range(source: String, params: Dictionary, noun: String) -> Variant:
 	var newline := "\r\n" if source.contains("\r\n") else "\n"
 	var lines := source.split(newline)
 	var line_count := lines.size()
@@ -1220,7 +1228,7 @@ func _apply_line_range(source: String, params: Dictionary) -> Variant:
 	var end_line: int = int(params.get("end_line", start_line)) if params.get("end_line", null) != null else start_line
 	if start_line < 1 or start_line > line_count or end_line < start_line or end_line > line_count:
 		_fail(OP_ERROR_INVALID_LINE_RANGE, "line range " + str(start_line) + ".." + str(end_line)
-				+ " is outside the script's bounds (1.." + str(line_count) + ") or ends before it starts")
+				+ " is outside the " + noun + "'s bounds (1.." + str(line_count) + ") or ends before it starts")
 		return null
 	var content := _string_param(params, "content")
 	var before := lines.slice(0, start_line - 1)
@@ -1454,6 +1462,50 @@ func _op_resource_create(params: Dictionary) -> void:
 	})
 
 
+# shader-create: author a new .gdshader as RAW TEXT (issue #115). A .gdshader is
+# plain shader source — no engine compilation is needed to write it — so create
+# is pure file authoring, exactly like script-create (issue #110): no-clobber
+# (a target that exists is already_exists), and verbatim --content wins over the
+# built-in shader_type template. The created file is verifiable end-to-end by
+# shader-get (create → get returns the source).
+func _op_shader_create(params: Dictionary) -> void:
+	_diag("running operation: shader-create")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _is_shader_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "shader path must end in .gdshader: " + path)
+		return
+	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
+		_fail(OP_ERROR_ALREADY_EXISTS, "shader target already exists: " + path)
+		return
+
+	# Verbatim content wins; otherwise write a minimal template declaring the
+	# requested shader_type (defaulting to canvas_item).
+	var source: String
+	var content: Variant = params.get("content", null)
+	if content is String:
+		source = content
+	else:
+		var shader_type := _string_param(params, "shader_type")
+		if shader_type.is_empty():
+			shader_type = "canvas_item"
+		source = "shader_type " + shader_type + ";\n"
+
+	var created_dirs: Variant = _ensure_parent_dirs(path)
+	if created_dirs == null:
+		return  # _ensure_parent_dirs already recorded the failure
+	if not _write_text_file(path, source, "shader"):
+		return  # _write_text_file already recorded the failure
+
+	_succeed({
+		"path": path,
+		"shader_type": _shader_metadata(source),
+		"created_dirs": created_dirs,
+	})
+
+
 # resource-get: load a .tres and emit its storage properties as typed JSON — the
 # resource group's verifier (issue #112), which makes a resource-create
 # verifiable end-to-end (create → get reports the resource). Reports the same
@@ -1513,6 +1565,144 @@ func _require_existing_resource(path: String) -> bool:
 		return false
 	if not FileAccess.file_exists(path):
 		_fail(OP_ERROR_PATH_NOT_FOUND, "resource file does not exist: " + path)
+		return false
+	return true
+
+
+# shader-get: read a shader's source back as RAW TEXT and report it with the
+# shader_type the source declares — the read half of issue #115, which makes a
+# shader-create verifiable end-to-end (create → get returns the source). Like
+# script-get, it never load()s/compiles the shader, so reading it can never run
+# project code (issue #30).
+func _op_shader_get(params: Dictionary) -> void:
+	_diag("running operation: shader-get")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _require_existing_shader(path):
+		return  # _require_existing_shader already recorded the failure
+
+	var source: Variant = _read_text_file(path, "shader")
+	if source == null:
+		return  # _read_text_file already recorded the failure
+
+	_succeed({
+		"path": path,
+		"source": source,
+		"shader_type": _shader_metadata(source),
+	})
+
+
+# shader-set: edit an EXISTING .gdshader on disk as RAW TEXT (issue #115). It
+# REUSES the script-set edit-mode interface (issue #118): the same three
+# mutually-exclusive modes (search-replace / line-range / full), the same apply
+# helpers, dispatched on the same explicit `mode` discriminator the CLI resolves
+# (issue #133). It never compiles or loads the shader, so editing it cannot run
+# project code (issue #30). set edits an existing shader; a missing target is
+# path_not_found, never a silent create.
+func _op_shader_set(params: Dictionary) -> void:
+	_diag("running operation: shader-set")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _require_existing_shader(path):
+		return  # _require_existing_shader already recorded the failure
+
+	var source: Variant = _read_text_file(path, "shader")
+	if source == null:
+		return  # _read_text_file already recorded the failure
+
+	var mode := _string_param(params, "mode")
+	var new_source: Variant
+	match mode:
+		"search_replace":
+			new_source = _apply_search_replace(source, params, "shader")
+		"line_range":
+			new_source = _apply_line_range(source, params, "shader")
+		"full":
+			# full overwrite: content is guaranteed present by the CLI's mode check.
+			new_source = _string_param(params, "content")
+		_:
+			# The CLI always supplies one of the three modes; a missing/unknown mode
+			# means a malformed direct op invocation, not a reachable CLI path.
+			_fail(OP_ERROR_INVALID_PARAMS, "unknown shader-set mode: " + mode)
+			return
+	if new_source == null:
+		return  # the apply helper already recorded the failure
+
+	if not _write_text_file(path, new_source, "shader"):
+		return  # _write_text_file already recorded the failure
+
+	# Re-parse the written source so set round-trips through shader get.
+	_succeed({
+		"path": path,
+		"shader_type": _shader_metadata(new_source),
+	})
+
+
+# theme-create: produce a loadable .tres Theme resource (issue #115). Unlike the
+# shader trio (plain file authoring), a Theme is an ENGINE-BACKED resource: it is
+# constructed as a Theme and written through ResourceSaver so the .tres is a
+# genuine, loadable resource (the same ResourceSaver path scene-create uses for a
+# PackedScene), not hand-written text — the file-level vs engine-backed split the
+# script group draws between create/get/set and attach/validate. No-clobber: a
+# target that exists is already_exists.
+func _op_theme_create(params: Dictionary) -> void:
+	_diag("running operation: theme-create")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _is_theme_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "theme path must end in .tres: " + path)
+		return
+	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
+		_fail(OP_ERROR_ALREADY_EXISTS, "theme target already exists: " + path)
+		return
+
+	var theme := Theme.new()
+	var created_dirs: Variant = _ensure_parent_dirs(path)
+	if created_dirs == null:
+		return  # _ensure_parent_dirs already recorded the failure
+	var save_err := ResourceSaver.save(theme, path)
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("theme", path, save_err))
+		return
+
+	_succeed({
+		"path": path,
+		"type": "Theme",
+		"created_dirs": created_dirs,
+	})
+
+
+# Whether a path names a shader file the shader group operates on: a .gdshader
+# (Godot shader) file. Shader-file addressing is by extension, the same way
+# script addressing keys on .gd and scene addressing on .tscn.
+func _is_shader_path(path: String) -> bool:
+	return path.get_extension().to_lower() == "gdshader"
+
+
+# Whether a path names a theme resource file: a .tres. theme-create writes a
+# Theme resource, addressed by extension like the rest of the asset-file groups.
+func _is_theme_path(path: String) -> bool:
+	return path.get_extension().to_lower() == "tres"
+
+
+# Clear the shader group's addressing boundary for an EXISTING shader: the path
+# must be a .gdshader (invalid_path otherwise) and the file must exist on disk
+# (path_not_found otherwise). Returns true to proceed, or false after recording
+# the failure (the caller must stop). Mirrors _require_existing_script: shared by
+# shader get and set so they refuse a non-.gdshader target and a missing file
+# identically.
+func _require_existing_shader(path: String) -> bool:
+	if not _is_shader_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "shader path must end in .gdshader: " + path)
+		return false
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "shader file does not exist: " + path)
 		return false
 	return true
 
@@ -1831,6 +2021,60 @@ func _op_project_set(params: Dictionary) -> void:
 		"type": _type_name(declared_type),
 		"value": stored_value,
 	})
+# Extract a .gdshader's declared shader_type from its raw source by lightweight
+# line-by-line parsing — never compiling the shader (issue #30). Null when absent.
+# A .gdshader leads with `shader_type <type>;`, after optional blank/comment
+# lines; scan that header, capture the first shader_type, and stop at the first
+# real statement so a shader_type-shaped token deeper in the body is never
+# mistaken for the declaration.
+func _shader_metadata(source: String) -> Variant:
+	for raw_line in source.split("\n"):
+		var line := raw_line.strip_edges()
+		if line.is_empty() or line.begins_with("//"):
+			continue
+		if line.begins_with("shader_type "):
+			# Drop the trailing ';' and any inline comment, keep the first token.
+			var rest := line.substr("shader_type ".length())
+			var semicolon := rest.find(";")
+			if semicolon != -1:
+				rest = rest.substr(0, semicolon)
+			return _first_token(rest)
+		# The first real line past the header: no shader_type can legally appear
+		# after it, so stop scanning.
+		break
+	return null
+
+
+# Read a text asset's source back as RAW TEXT, disambiguating an empty file from
+# an unreadable one — the same trick as _read_script_source. Shared by the shader
+# get/set ops; `noun` names the asset in the failure message.
+func _read_text_file(path: String, noun: String) -> Variant:
+	var source := FileAccess.get_file_as_string(path)
+	if source.is_empty():
+		var open_err := FileAccess.get_open_error()
+		if open_err != OK:
+			_fail(OP_ERROR_PATH_NOT_FOUND, noun + " file could not be read: " + path
+					+ ": " + error_string(open_err))
+			return null
+	return source
+
+
+# Write `source` to a text asset file as RAW TEXT, reporting both failure modes
+# as save_failed — the generic twin of _write_script_file (which names "script"
+# in its diagnostic). Returns true on a clean write, or false after recording the
+# failure (the caller must stop). `noun` names the asset in the diagnostic.
+func _write_text_file(path: String, source: String, noun: String) -> bool:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(noun, path, FileAccess.get_open_error()))
+		return false
+	file.store_string(source)
+	var write_err := file.get_error()
+	file.close()
+	if write_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(noun, path, write_err))
+		return false
+	return true
 
 
 # Whether a path names a script file the script group operates on: a .gd
