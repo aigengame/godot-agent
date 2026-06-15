@@ -761,6 +761,10 @@ class ScriptAttachResult(BaseModel):
     ``script``, plus the script's ``class_name`` when it declares a global one —
     the result an agent asserts to confirm the binding took effect, verifiable by
     reading the saved scene back (the script now appears on the node).
+
+    ``attach`` is a mutation verb: it OVERWRITES an existing binding rather than
+    refusing it (issue #132). ``replaced_script`` makes that displacement visible
+    so the overwrite is never silent — an agent reads it to detect a clobber.
     """
 
     scene_path: str
@@ -773,6 +777,16 @@ class ScriptAttachResult(BaseModel):
         description=(
             "The global class_name the attached script declares, or null when "
             "it declares none."
+        ),
+    )
+    replaced_script: str | None = Field(
+        default=None,
+        description=(
+            "The resource_path of the script this attach DISPLACED, reported "
+            "verbatim — including a built-in/embedded script's sub-resource ref "
+            "(e.g. 'res://scene.tscn::GDScript_xxx'). Non-null whenever the node "
+            "already carried a script (attach overwrites-and-reports, issue "
+            "#132); null only when the node had no prior script."
         ),
     )
 
