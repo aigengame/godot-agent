@@ -1064,6 +1064,25 @@ def test_node_disconnect_signal_absent_connection_yields_connection_not_found(
 
 
 @pytest.mark.e2e
+def test_node_disconnect_signal_missing_signal_yields_signal_not_found(godot_project):
+    # A missing/typo'd source signal is signal_not_found on disconnect too —
+    # symmetric with connect-signal and the documented contract, not collapsed
+    # into connection_not_found (issue #57 review). The file is untouched.
+    scene_path = _scene_with_emitter_and_receiver(godot_project)
+    before = scene_path.read_text(encoding="utf-8")
+
+    disconnected = _gda(
+        "node", "disconnect-signal", str(scene_path),
+        "--from", "Emitter", "--signal", "no_such_signal",
+        "--to", "Receiver", "--method", "on_timeout", "--json",
+    )
+
+    err = _assert_operation_error(disconnected, "signal_not_found")
+    assert "no_such_signal" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
 def test_node_connect_signal_to_missing_scene_yields_path_not_found(godot_project):
     missing = godot_project / "missing.tscn"
 

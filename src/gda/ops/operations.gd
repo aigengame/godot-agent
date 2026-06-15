@@ -559,12 +559,20 @@ func _op_node_disconnect_signal(params: Dictionary) -> void:
 		return
 
 	var signal_name := _string_param(params, "signal")
+	# A missing source signal is signal_not_found, symmetric with connect-signal
+	# and the documented contract: a typo'd signal is fixed by naming the right
+	# signal, not by being collapsed into an absent connection (issue #57 review).
+	if not source.has_signal(signal_name):
+		root.free()
+		_fail(OP_ERROR_SIGNAL_NOT_FOUND, "source node " + from_path
+				+ " has no signal: " + signal_name)
+		return
 	var method_name := _string_param(params, "method")
 	var callable := Callable(target, method_name)
-	# is_connected is false both when the signal is absent and when it exists but
-	# carries no such connection; either way there is nothing to remove. Guard
-	# with it rather than call disconnect() (which errors on an absent connection).
-	if not source.has_signal(signal_name) or not source.is_connected(signal_name, callable):
+	# The signal exists but carries no such connection: nothing to remove. Guard
+	# with is_connected rather than call disconnect() (which errors on an absent
+	# connection).
+	if not source.is_connected(signal_name, callable):
 		root.free()
 		_fail(OP_ERROR_CONNECTION_NOT_FOUND, "no such connection: " + from_path + "."
 				+ signal_name + " -> " + to_path + "." + method_name)

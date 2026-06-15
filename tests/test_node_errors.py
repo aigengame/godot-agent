@@ -457,6 +457,23 @@ def test_disconnect_signal_absent_connection_maps_to_connection_not_found_code(
     assert "Emitter.timeout" in err["message"]
 
 
+def test_disconnect_signal_missing_signal_maps_to_signal_not_found_code(monkeypatch):
+    # A missing source signal on disconnect is signal_not_found, symmetric with
+    # connect-signal and the documented contract (issue #57 review) — it is not
+    # collapsed into connection_not_found.
+    result = _invoke_disconnect_signal(
+        monkeypatch,
+        "signal_not_found",
+        "source node Emitter has no signal: timoeut",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "signal_not_found"
+    assert "timoeut" in err["message"]
+
+
 def test_disconnect_signal_missing_node_reuses_node_not_found_code(monkeypatch):
     result = _invoke_disconnect_signal(
         monkeypatch, "node_not_found", "source node not found in scene: Emitter"
