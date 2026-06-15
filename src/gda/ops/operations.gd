@@ -543,12 +543,8 @@ func _op_script_get(params: Dictionary) -> void:
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
-	if not _is_script_path(path):
-		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
-		return
-	if not FileAccess.file_exists(path):
-		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
-		return
+	if not _require_existing_script(path):
+		return  # _require_existing_script already recorded the failure
 
 	var source: Variant = _read_script_source(path)
 	if source == null:
@@ -603,12 +599,8 @@ func _op_script_delete(params: Dictionary) -> void:
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
-	if not _is_script_path(path):
-		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
-		return
-	if not FileAccess.file_exists(path):
-		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
-		return
+	if not _require_existing_script(path):
+		return  # _require_existing_script already recorded the failure
 
 	# Read the metadata before deletion so the result names the content removed.
 	# A read error here is non-fatal: the file exists and is about to be deleted,
@@ -645,12 +637,8 @@ func _op_script_set(params: Dictionary) -> void:
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
-	if not _is_script_path(path):
-		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
-		return
-	if not FileAccess.file_exists(path):
-		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
-		return
+	if not _require_existing_script(path):
+		return  # _require_existing_script already recorded the failure
 
 	var source: Variant = _read_script_source(path)
 	if source == null:
@@ -767,12 +755,8 @@ func _op_script_attach(params: Dictionary) -> void:
 
 	# Cheap script-path shape checks first, before the costlier scene load.
 	var script_path := _string_param(params, "script")
-	if not _is_script_path(script_path):
-		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + script_path)
-		return
-	if not FileAccess.file_exists(script_path):
-		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + script_path)
-		return
+	if not _require_existing_script(script_path):
+		return  # _require_existing_script already recorded the failure
 
 	var root: Node = _load_for_mutation(params)
 	if root == null:
@@ -856,12 +840,8 @@ func _op_script_validate(params: Dictionary) -> void:
 	if path.is_empty():
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
-	if not _is_script_path(path):
-		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
-		return
-	if not FileAccess.file_exists(path):
-		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
-		return
+	if not _require_existing_script(path):
+		return  # _require_existing_script already recorded the failure
 
 	var source: Variant = _read_script_source(path)
 	if source == null:
@@ -885,6 +865,22 @@ func _op_script_validate(params: Dictionary) -> void:
 # build of Godot (ADR-0003 targets the standard build) and a dedicated decision.
 func _is_script_path(path: String) -> bool:
 	return path.get_extension().to_lower() == "gd"
+
+
+# Clear the script group's addressing boundary for an EXISTING script: the path
+# must be a .gd (invalid_path otherwise) and the file must exist on disk
+# (path_not_found otherwise). Returns true to proceed, or false after recording
+# the failure (the caller must stop). Shared by every op that reads or mutates an
+# existing script — get / delete / set / validate / attach — so they all refuse a
+# non-.gd target and a missing file identically, rather than operating on it.
+func _require_existing_script(path: String) -> bool:
+	if not _is_script_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
+		return false
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
+		return false
+	return true
 
 
 # Read a .gd script's source back as RAW TEXT, disambiguating an empty file from
