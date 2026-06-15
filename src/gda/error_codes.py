@@ -230,6 +230,14 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " removed from, duplicated alongside, or reparented out of.",
     ),
     ErrorCodeSpec(
+        "cyclic_target",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A node move targeted the node itself or one of its own descendants,"
+        " which would detach the moved subtree from the scene.",
+    ),
+    ErrorCodeSpec(
         "unknown_property",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,

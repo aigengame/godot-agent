@@ -266,6 +266,49 @@ def test_node_duplicate_json_echoes_the_new_copy_and_exit_zero(monkeypatch):
     ]
 
 
+MOVE_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "source_path": "Hero",
+    "new_parent": "Enemies",
+    "path": "Enemies/Hero",
+    "name": "Hero",
+    "type": "Sprite2D",
+}
+
+
+def test_node_move_json_echoes_the_reparented_node_and_exit_zero(monkeypatch):
+    # node move (issue #56) reparents a node and its subtree under a new parent,
+    # echoing the source, the new parent, and the node's new address — the
+    # result an agent feeds back into other node commands. Both node paths are
+    # passed through as raw strings; the operation resolves them.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(MOVE_RESULT)
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "node", "move", "/tmp/proj/main.tscn",
+            "--node", "Hero", "--to", "Enemies", "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["source_path"] == "Hero"
+    assert data["new_parent"] == "Enemies"
+    assert (data["path"], data["name"], data["type"]) == (
+        "Enemies/Hero",
+        "Hero",
+        "Sprite2D",
+    )
+    assert fake.calls == [
+        (
+            "node-move",
+            {"path": "/tmp/proj/main.tscn", "node": "Hero", "to": "Enemies"},
+        )
+    ]
+
+
 def test_node_add_defaults_parent_to_root_and_name_to_type(monkeypatch):
     # The two ergonomic defaults (issue #53): omitting --parent targets the
     # scene root ('.'), and omitting --name names the node after its type —

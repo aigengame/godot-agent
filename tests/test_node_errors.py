@@ -407,3 +407,97 @@ def test_node_duplicate_root_maps_to_stable_cannot_target_root_code(monkeypatch)
     err = json.loads(result.stdout)["error"]
     assert err["code"] == "cannot_target_root"
     assert "root" in err["message"]
+
+
+def _invoke_node_move(
+    monkeypatch, code: str, message: str, node: str = "Hero", to: str = "Enemies"
+):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: node-move\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(
+        app,
+        ["node", "move", "/x/main.tscn", "--node", node, "--to", to, "--json"],
+    )
+
+
+def test_node_move_cyclic_target_maps_to_stable_cyclic_target_code(monkeypatch):
+    # issue #56: moving a node under its own descendant would detach the subtree
+    # from the scene. The refusal surfaces as the new cyclic_target code so an
+    # agent branches on the cyclic mistake rather than parsing prose.
+    result = _invoke_node_move(
+        monkeypatch,
+        "cyclic_target",
+        "cyclic move target: A/B is the moved node A or one of its descendants",
+        node="A",
+        to="A/B",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "cyclic_target"
+    assert "A/B" in err["message"]
+
+
+def test_node_move_missing_target_maps_to_stable_parent_not_found_code(monkeypatch):
+    # An invalid move target reuses the node group's parent_not_found code (the
+    # same code node add reports for a bad --parent).
+    result = _invoke_node_move(
+        monkeypatch,
+        "parent_not_found",
+        "target parent node not found in scene: Bogus",
+        to="Bogus",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "parent_not_found"
+    assert "Bogus" in err["message"]
+
+
+def test_node_move_name_collision_maps_to_stable_duplicate_node_name_code(monkeypatch):
+    # A name collision at the destination reuses duplicate_node_name.
+    result = _invoke_node_move(
+        monkeypatch,
+        "duplicate_node_name",
+        "target Enemies already has a child named: Hero",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "duplicate_node_name"
+    assert "Hero" in err["message"]
+
+
+def test_node_move_missing_node_maps_to_stable_node_not_found_code(monkeypatch):
+    result = _invoke_node_move(
+        monkeypatch, "node_not_found", "node not found in scene: Bogus", node="Bogus"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "node_not_found"
+    assert "Bogus" in err["message"]
+
+
+def test_node_move_root_maps_to_stable_cannot_target_root_code(monkeypatch):
+    # Moving the scene root is refused with cannot_target_root — the root has no
+    # parent to be reparented out of.
+    result = _invoke_node_move(
+        monkeypatch,
+        "cannot_target_root",
+        "cannot move the scene root: . — the root has no parent to be reparented out of",
+        node=".",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "cannot_target_root"
+    assert "root" in err["message"]

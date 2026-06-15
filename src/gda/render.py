@@ -28,6 +28,7 @@ from gda.models import (
     NodeDuplicateResult,
     NodeGetResult,
     NodeListResult,
+    NodeMoveResult,
     NodeRemoveResult,
     NodeSetResult,
     SceneCreateResult,
@@ -152,6 +153,11 @@ def render_node_duplicate(duplicated: "NodeDuplicateResult") -> str:
     )
 
 
+def render_node_move(moved: "NodeMoveResult") -> str:
+    """Render a moved node as ``moved <source> to <path> (<type>)``."""
+    return f"moved {moved.source_path} to {moved.path} ({moved.type})"
+
+
 def render_script_metadata(script: ScriptMetadata) -> str:
     """Render a script's path plus its class_name/extends for humans.
 
@@ -236,6 +242,7 @@ _RENDERERS = {
     NodeSetResult: render_node_set,
     NodeRemoveResult: render_node_remove,
     NodeDuplicateResult: render_node_duplicate,
+    NodeMoveResult: render_node_move,
     ScriptCreateResult: render_script_create,
     ScriptGetResult: render_script_get,
     ScriptListResult: render_script_list,

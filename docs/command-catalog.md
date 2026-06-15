@@ -138,6 +138,14 @@ corrupting the scene.
   `Hero3`, …), skipping any name already taken — including the engine's internal children. It
   returns the copy's new node path. Duplicating the root (`--node .`) is `cannot_target_root` —
   the root has no parent to host a sibling copy.
+- `gda node move SCENE --node <node-path> --to <new-parent-path>` reparents a node **and its whole
+  subtree** under the target parent, returning the node's new node path. The target is addressed
+  by node path like any other (`--to .` is the root). An invalid target (no such parent) is
+  `parent_not_found`, and a target that already has a child with the moved node's name is
+  `duplicate_node_name` — both the same codes `node add` reports. A **cyclic** target — the moved
+  node itself or one of its **own descendants** — would detach the subtree from the scene and is
+  refused with the registered `cyclic_target` code. Moving the root (`--node .`) is
+  `cannot_target_root` — the root has no parent to be reparented out of.
 
 | Command | Description |
 | --- | --- |

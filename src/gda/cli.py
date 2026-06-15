@@ -35,6 +35,8 @@ from gda.models import (
     NodeGetResult,
     NodeListParams,
     NodeListResult,
+    NodeMoveParams,
+    NodeMoveResult,
     NodeRemoveParams,
     NodeRemoveResult,
     NodeSetParams,
@@ -268,6 +270,12 @@ NODE_DUPLICATE_COMMAND: HeadlessCommand[NodeDuplicateResult] = HeadlessCommand(
     operation="node-duplicate",
     input_model=NodeDuplicateParams,
     output_model=NodeDuplicateResult,
+)
+
+NODE_MOVE_COMMAND: HeadlessCommand[NodeMoveResult] = HeadlessCommand(
+    operation="node-move",
+    input_model=NodeMoveParams,
+    output_model=NodeMoveResult,
 )
 
 SCRIPT_CREATE_COMMAND: HeadlessCommand[ScriptCreateResult] = HeadlessCommand(
@@ -608,6 +616,42 @@ def duplicate_node(
     _dispatch(
         NODE_DUPLICATE_COMMAND,
         NodeDuplicateParams(path=_normalize_path(path), node=node),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@node_app.command(name="move", cls=NODE_MOVE_COMMAND.command_class())
+def move_node(
+    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
+    node: str = typer.Option(
+        ...,
+        "--node",
+        help=(
+            "Node path of the node to reparent, relative to the scene root: "
+            "'Player/Arm' a nested node. The root ('.') cannot be moved."
+        ),
+    ),
+    to: str = typer.Option(
+        ...,
+        "--to",
+        help=(
+            "Node path of the new parent, relative to the scene root: '.' "
+            "addresses the root itself, 'Enemies' a nested node. Must not be the "
+            "moved node or one of its descendants (a cyclic target)."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = NODE_MOVE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Reparent a node (and its subtree) under a new parent node path."""
+    _dispatch(
+        NODE_MOVE_COMMAND,
+        NodeMoveParams(path=_normalize_path(path), node=node, to=to),
         json_output=json_output,
         godot=godot,
         project=project,

@@ -12,6 +12,7 @@ from gda.models import (
     NodeDuplicateResult,
     NodeGetResult,
     NodeListResult,
+    NodeMoveResult,
     NodeRemoveResult,
     NodeSetResult,
     SceneCreateResult,
@@ -540,3 +541,26 @@ def test_node_duplicate_result_round_trips():
     assert duplicated.name == "Hero2"
     assert duplicated.type == "Sprite2D"
     assert json.loads(duplicated.model_dump_json()) == payload
+
+
+def test_node_move_result_round_trips():
+    # The node-move operation reports the reparented node's new address (issue
+    # #56): the source path it moved, the new parent it landed under, and the
+    # node's new node path/name/type relative to the scene root.
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "source_path": "Hero",
+        "new_parent": "Enemies",
+        "path": "Enemies/Hero",
+        "name": "Hero",
+        "type": "Sprite2D",
+    }
+
+    moved = NodeMoveResult.model_validate(payload)
+
+    assert moved.source_path == "Hero"
+    assert moved.new_parent == "Enemies"
+    assert moved.path == "Enemies/Hero"
+    assert moved.name == "Hero"
+    assert moved.type == "Sprite2D"
+    assert json.loads(moved.model_dump_json()) == payload

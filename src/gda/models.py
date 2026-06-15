@@ -520,6 +520,56 @@ class NodeDuplicateResult(BaseModel):
     type: str = Field(description="The copy's engine class (e.g. Sprite2D).")
 
 
+class NodeMoveParams(BaseModel):
+    """The operation params of ``gda node move`` (issue #56).
+
+    ``path`` is the ``.tscn`` scene file to mutate; ``node`` addresses the node
+    to reparent by its node path relative to the scene root; ``to`` addresses the
+    new parent the same way. The move is refused when the target is invalid (no
+    such parent, or a name collision at the destination) or **cyclic** — moving a
+    node under itself or one of its own descendants would detach the subtree from
+    the scene. The scene root ('.') has no parent to be reparented out of.
+    """
+
+    path: str
+    node: str = Field(
+        description=(
+            "Node path of the node to reparent, relative to the scene root: "
+            "'Player/Arm' a nested node. The root ('.') cannot be moved."
+        )
+    )
+    to: str = Field(
+        description=(
+            "Node path of the new parent, relative to the scene root: '.' "
+            "addresses the root itself, 'Enemies' a nested node. Must not be the "
+            "moved node itself or one of its descendants (a cyclic target)."
+        )
+    )
+
+
+class NodeMoveResult(BaseModel):
+    """The result of ``gda node move``: the reparented node's new home (issue #56).
+
+    Echoes the ``source_path`` it moved, the ``new_parent`` it landed under, and
+    the node's new ``path`` (its node path relative to the scene root after the
+    move), ``name``, and ``type`` — so an agent can address the moved node in
+    follow-up node commands without re-listing.
+    """
+
+    scene_path: str
+    source_path: str = Field(
+        description="The moved node's original node path, relative to the scene root."
+    )
+    new_parent: str = Field(
+        description="The new parent's node path, relative to the scene root."
+    )
+    path: str = Field(
+        description="The moved node's new node path, relative to the scene root."
+    )
+    name: str
+    type: str = Field(description="The moved node's engine class (e.g. Sprite2D).")
+
+
 class ScriptCreateParams(BaseModel):
     """The operation params of ``gda script create`` (issue #110).
 

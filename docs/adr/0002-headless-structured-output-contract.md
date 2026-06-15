@@ -109,6 +109,7 @@ operation, and parse codes the CLI assigns).
 | `uninstantiable_script` | `operation` | `operation` | `4` | A registered `class_name`'s script can no longer be loaded, compiled, or constructed, so it cannot be instantiated as a node. |
 | `node_not_found` | `operation` | `operation` | `4` | A requested node path does not resolve to a node in the scene. |
 | `cannot_target_root` | `operation` | `operation` | `4` | A structural edit targeted the scene root, which has no parent to be removed from, duplicated alongside, or reparented out of. |
+| `cyclic_target` | `operation` | `operation` | `4` | A node move targeted the node itself or one of its own descendants, which would detach the moved subtree from the scene. |
 | `unknown_property` | `operation` | `operation` | `4` | A requested property does not exist as a settable property on the node. |
 | `uncoercible_value` | `operation` | `operation` | `4` | A supplied value cannot be coerced to the property's declared Godot type. |
 | `no_search_match` | `operation` | `operation` | `4` | A search-replace script edit found no occurrence of the search string. |
