@@ -14,6 +14,7 @@ from gda.exit_codes import (
     EXIT_OPERATION,
     EXIT_PARSE,
     EXIT_TIMEOUT,
+    EXIT_TREE_TOO_DEEP,
     EXIT_VERSION,
 )
 from gda.models import ErrorCategory
@@ -306,6 +307,14 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_PARSE,
         ErrorCodeSource.PARSER,
         "The process claimed success but violated the structured-output contract.",
+    ),
+    ErrorCodeSpec(
+        "tree_too_deep",
+        ErrorCategory.PARSE,
+        EXIT_TREE_TOO_DEEP,
+        ErrorCodeSource.CLASSIFIER,
+        "The engine emitted a valid result tree that nests past gda's recursion"
+        " limit; the payload is contract-conformant, the limit is wrapper-side.",
     ),
 )
 

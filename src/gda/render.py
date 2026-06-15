@@ -85,9 +85,22 @@ def render_node_tree(node: "SceneNode", depth: int = 0) -> str:
     (one tree shape), so node list's tree flows through here without naming a
     union — the renderer reads only ``name``/``type``/``children``, which every
     node in the tree carries.
+
+    Iterative on purpose (issue #37): a legitimately deep scene tree can nest far
+    past Python's recursion limit, so this walks the tree with an explicit stack
+    (pre-order, children left-to-right — the same outline a recursive walk would
+    produce) rather than recursing per level and raising an unstructured
+    ``RecursionError`` on a deep-but-valid tree.
     """
-    lines = [f"{'  ' * depth}{node.name} ({node.type})"]
-    lines += (render_node_tree(child, depth + 1) for child in node.children)
+    lines: list[str] = []
+    # Stack of (node, depth); pushing children in reverse so the leftmost child
+    # is popped first preserves the recursive pre-order, in-order traversal.
+    stack: list[tuple["SceneNode", int]] = [(node, depth)]
+    while stack:
+        current, current_depth = stack.pop()
+        lines.append(f"{'  ' * current_depth}{current.name} ({current.type})")
+        for child in reversed(current.children):
+            stack.append((child, current_depth + 1))
     return "\n".join(lines)
 
 

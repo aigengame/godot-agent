@@ -291,3 +291,55 @@ def test_wrong_shape_payload_maps_to_parse_failure():
     assert outcome.exit_code == 5
     assert outcome.error.category == ErrorCategory.PARSE
     assert outcome.error.code == "contract_violation"
+
+
+def _deep_tree_payload(depth: int) -> dict:
+    # A valid SceneGetResult payload whose root nests `depth` levels deep — a
+    # single-child chain. Every node is contract-conformant; only the DEPTH is
+    # extreme, past pydantic-core's ~255 recursion ceiling (issue #37).
+    root = leaf = {"name": "n0", "type": "Node", "children": []}
+    for i in range(1, depth):
+        child = {"name": f"n{i}", "type": "Node", "children": []}
+        leaf["children"] = [child]
+        leaf = child
+    return {"path": "/p/deep.tscn", "root": root}
+
+
+def test_deep_but_valid_tree_is_not_a_contract_violation():
+    # A legitimately deep scene tree exceeds pydantic-core's ~255 recursion
+    # ceiling on the recursive SceneNode model. The engine payload is VALID and
+    # contract-conformant — the limit is gda's own (a wrapper-side validation
+    # ceiling), so blaming the engine with `parse / contract_violation` is wrong
+    # (issue #37). It must surface as a distinct, accurate failure instead.
+    from gda.models import SceneGetResult
+
+    result = RunResult(
+        stdout=_sentinel(_deep_tree_payload(1000)),
+        stderr="",
+        exit_code=0,
+    )
+
+    outcome = classify_run(result, BINARY, SceneGetResult)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "tree_too_deep"
+    assert outcome.error.code != "contract_violation"
+
+
+def test_tree_too_deep_carries_an_accurate_wrapper_side_message():
+    # The failure must name the limit accurately as gda's own (not "the engine
+    # violated the output contract"), so an agent reads a true cause (issue #37).
+    from gda.models import SceneGetResult
+
+    result = RunResult(
+        stdout=_sentinel(_deep_tree_payload(1000)),
+        stderr="",
+        exit_code=0,
+    )
+
+    outcome = classify_run(result, BINARY, SceneGetResult)
+
+    assert isinstance(outcome, Failure)
+    message = outcome.error.message.lower()
+    assert "deep" in message or "depth" in message
+    assert "contract" not in message

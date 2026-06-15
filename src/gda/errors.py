@@ -95,6 +95,20 @@ def _failure(code: str, message: str, stderr: str) -> Failure:
 M = TypeVar("M", bound=BaseModel)
 
 
+def _is_too_deep(exc: ValidationError) -> bool:
+    """Is this ValidationError purely pydantic-core's recursion-depth ceiling?
+
+    pydantic-core reports breaching its recursive-validation depth limit with the
+    ``recursion_loop`` error type — the same type a genuine cyclic reference
+    raises. A deep-but-valid tree (issue #37) produces ONLY ``recursion_loop``
+    errors, whereas a real shape violation that merely happens to also be deep
+    mixes in other error types; so depth is the cause only when every reported
+    error is ``recursion_loop``.
+    """
+    errors = exc.errors()
+    return bool(errors) and all(error["type"] == "recursion_loop" for error in errors)
+
+
 def _operation_error_from_payload(result: RunResult) -> tuple[str, str] | None:
     """Extract a minimal operation error envelope from stdout, if present."""
     try:
@@ -170,6 +184,23 @@ def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | 
         # rather than escape as a traceback.
         return output_model.model_validate(parse_result(result.stdout))
     except (ValueError, ValidationError) as exc:
+        # pydantic-core caps recursive-model validation at a hardcoded ceiling
+        # (~255 levels) and reports breaching it as a `recursion_loop` error —
+        # the SAME error type as a genuine cyclic reference. A legitimately deep
+        # scene tree (issue #37) trips this even though every node is valid and
+        # the payload is contract-conformant: the limit is gda's own (wrapper
+        # side), not the engine violating the output contract. Surface that as a
+        # distinct `tree_too_deep` failure so it is never misclassified as
+        # `contract_violation`. A mix of recursion_loop with other errors is a
+        # real shape violation that merely happens to also be deep, so require
+        # ALL errors to be recursion_loop before claiming depth as the cause.
+        if isinstance(exc, ValidationError) and _is_too_deep(exc):
+            return _failure(
+                "tree_too_deep",
+                "result tree nests too deep for gda to materialize "
+                f"(exceeds the recursion limit on {output_model.__name__})",
+                result.stderr,
+            )
         return _failure(
             "contract_violation",
             f"structured-output contract violated: {exc}",

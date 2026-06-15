@@ -120,6 +120,7 @@ operation, and parse codes the CLI assigns).
 | `already_connected` | `operation` | `operation` | `4` | A signal is already connected to the target node's method. |
 | `connection_not_found` | `operation` | `operation` | `4` | A requested signal-to-method connection does not exist on the source node. |
 | `contract_violation` | `parse` | `parser` | `5` | The process claimed success but violated the structured-output contract. |
+| `tree_too_deep` | `parse` | `classifier` | `6` | The engine emitted a valid result tree that nests past gda's recursion limit; the payload is contract-conformant, the limit is wrapper-side. |
 
 ## Considered options
 

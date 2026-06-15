@@ -13,6 +13,11 @@ glance and new codes cannot silently collide.
   failure, not mislabelled environment (issue #15).
 - ``EXIT_VERSION`` / ``EXIT_OPERATION`` / ``EXIT_PARSE`` are distinct small codes
   the CLI assigns to failures the engine signalled differently or not at all.
+- ``EXIT_TREE_TOO_DEEP`` is a wrapper-side limit, not a contract violation
+  (issue #37): the engine emitted a valid, contract-conformant result tree, but
+  it nests past pydantic-core's recursion ceiling so ``gda`` cannot materialize
+  it. A distinct exit code keeps a shell consumer from conflating it with the
+  ``EXIT_PARSE`` "the engine violated the contract" case.
 """
 
 EXIT_NOT_FOUND = 127
@@ -20,3 +25,4 @@ EXIT_TIMEOUT = 124
 EXIT_VERSION = 3
 EXIT_OPERATION = 4
 EXIT_PARSE = 5
+EXIT_TREE_TOO_DEEP = 6
