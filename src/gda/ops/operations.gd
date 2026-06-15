@@ -313,20 +313,12 @@ func _op_node_add(params: Dictionary) -> void:
 	parent.add_child(node)
 	node.owner = root
 
-	var repacked := PackedScene.new()
-	var pack_err := repacked.pack(root)
-	if pack_err != OK:
-		root.free()
-		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
-		return
+	# Capture the node's identity off the live tree before re-saving frees it.
 	var node_path := String(root.get_path_to(node))
 	var node_type := node.get_class()
 	var script_class: Variant = _script_class_of(node)
-	var save_err := ResourceSaver.save(repacked, path)
-	root.free()
-	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
-		return
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
 		"scene_path": path,
@@ -444,20 +436,12 @@ func _op_node_set(params: Dictionary) -> void:
 
 	node.set(prop_name, coerced)
 
-	var repacked := PackedScene.new()
-	var pack_err := repacked.pack(root)
-	if pack_err != OK:
-		root.free()
-		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
-		return
-	var save_err := ResourceSaver.save(repacked, path)
-	# Read the value back off the node — the node now holds the coerced value in
-	# its canonical form, the same projection node-get reports.
+	# Read the value back off the node before re-saving frees the tree — the node
+	# now holds the coerced value in its canonical form, the same projection
+	# node-get reports.
 	var stored_value: Variant = _jsonify(node.get(prop_name))
-	root.free()
-	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
-		return
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
 		"scene_path": path,
@@ -778,18 +762,10 @@ func _op_script_attach(params: Dictionary) -> void:
 					+ script_path + " — fix it, or check it with `gda script validate`")
 		return
 
-	var repacked := PackedScene.new()
-	var pack_err := repacked.pack(root)
-	if pack_err != OK:
-		root.free()
-		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
-		return
+	# Capture the attached class_name off the live node before re-saving frees it.
 	var class_name_value: Variant = _script_class_of(node)
-	var save_err := ResourceSaver.save(repacked, path)
-	root.free()
-	if save_err != OK:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
-		return
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
 
 	_succeed({
 		"scene_path": path,
@@ -1075,6 +1051,29 @@ func _load_for_mutation(params: Dictionary) -> Node:
 				+ ", ".join(unmaterialized) + " — re-saving would silently drop or downgrade them; check the scene's dependencies and --project")
 		return null
 	return root
+
+
+# The single mutate-exit paired with _load_for_mutation: re-pack the (mutated)
+# instantiated `root` and save it back to the .tscn at `path`, then free the
+# tree. Returns true on a clean save, or false after recording save_failed (the
+# caller must stop). root.free() runs on EVERY path — pack failure, save failure,
+# and success alike — so an instantiated scene (the most leak-prone object in the
+# mutating ops) is never leaked. Shared by node add / node set / script attach;
+# the caller captures any result fields it needs OFF THE TREE before calling, as
+# the tree is gone once this returns.
+func _repack_and_save(root: Node, path: String) -> bool:
+	var repacked := PackedScene.new()
+	var pack_err := repacked.pack(root)
+	if pack_err != OK:
+		root.free()
+		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
+		return false
+	var save_err := ResourceSaver.save(repacked, path)
+	root.free()
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
+		return false
+	return true
 
 
 # Node paths declared in the scene's state that did not materialize faithfully
