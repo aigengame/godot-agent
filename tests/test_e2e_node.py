@@ -110,6 +110,28 @@ def test_node_add_default_name_is_the_type_name(godot_project):
     assert data["path"] == "Sprite2D"
 
 
+@pytest.mark.e2e
+def test_node_add_builtin_type_reports_null_script_class(godot_project):
+    # script_class is the class_name of an attached script (issue #53); a plain
+    # built-in type carries no script, so it must be null. Asserted end-to-end
+    # here because every other success test ignores it — a broken
+    # _script_class_of returning garbage for a built-in Sprite2D would otherwise
+    # pass them all. Its counterpart is the by-class_name add, which asserts
+    # script_class == "Hero".
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Sprite2D", "--name", "Hero", "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    data = json.loads(added.stdout)
+    assert data["type"] == "Sprite2D"
+    assert data["script_class"] is None
+
+
 def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
     assert proc.returncode == 4, proc.stdout + proc.stderr
     err = json.loads(proc.stdout)["error"]
@@ -482,6 +504,35 @@ def test_node_set_refuses_scene_whose_sub_scene_cannot_resolve(godot_project):
     err = _assert_operation_error(was_set, "missing_dependency")
     assert "ChildInstance" in err["message"]
     assert parent.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_list_reports_all_siblings_at_one_level_in_tree_order(godot_project):
+    # node list's sibling enumeration and child ordering (issue #53): every other
+    # round-trip fixture has at most one child per parent, so a parent with >1
+    # child is the case that exercises reporting ALL siblings and preserving their
+    # order. Add three distinct-typed children under the root, then assert node
+    # list reports all three, in the order they were added, off the saved file.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    siblings = [("A", "Node2D"), ("B", "Sprite2D"), ("C", "Area2D")]
+    for name, node_type in siblings:
+        added = _gda(
+            "node", "add", str(scene_path),
+            "--type", node_type, "--name", name, "--json",
+        )
+        assert added.returncode == 0, added.stdout + added.stderr
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    children = json.loads(listed.stdout)["root"]["children"]
+    # All siblings are reported, in tree order — name, type and node path each.
+    assert [(c["name"], c["type"], c["path"]) for c in children] == [
+        ("A", "Node2D", "A"),
+        ("B", "Sprite2D", "B"),
+        ("C", "Area2D", "C"),
+    ]
 
 
 @pytest.mark.e2e

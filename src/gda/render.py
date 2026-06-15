@@ -23,7 +23,6 @@ from typing import Any, Protocol, runtime_checkable
 
 from gda.models import (
     EngineVersion,
-    ListedNode,
     NodeAddResult,
     NodeConnectSignalResult,
     NodeDisconnectSignalResult,
@@ -79,8 +78,14 @@ def format_value(value: Any) -> str:
     return json.dumps(value)
 
 
-def render_node_tree(node: "SceneNode | ListedNode", depth: int = 0) -> str:
-    """Render a node tree as an indented ``name (Type)`` outline for humans."""
+def render_node_tree(node: "SceneNode", depth: int = 0) -> str:
+    """Render a node tree as an indented ``name (Type)`` outline for humans.
+
+    Types against ``SceneNode`` alone: ``ListedNode`` is a ``SceneNode`` subclass
+    (one tree shape), so node list's tree flows through here without naming a
+    union — the renderer reads only ``name``/``type``/``children``, which every
+    node in the tree carries.
+    """
     lines = [f"{'  ' * depth}{node.name} ({node.type})"]
     lines += (render_node_tree(child, depth + 1) for child in node.children)
     return "\n".join(lines)
