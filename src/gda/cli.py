@@ -13,10 +13,13 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from pydantic import BaseModel
 
 from gda.errors import classify_info, classify_script_validate
 from gda.headless import (
     HeadlessCommand,
+    HumanRenderer,
+    M,
     godot_option,
     json_option,
     make_subprocess_runner,
@@ -118,6 +121,35 @@ def _make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
     A seam tests override (via monkeypatch) to inject a fake runner.
     """
     return make_subprocess_runner(binary, project)
+
+
+def _dispatch(
+    cmd: HeadlessCommand[M],
+    params: BaseModel,
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    project: Optional[str],
+    render: HumanRenderer[M],
+) -> None:
+    """Run a domain command through the shared CLI execution tail.
+
+    Owns the per-command-repeated wiring: project resolution
+    (``resolve_project_dir``, kept at the CLI layer per ADR-0006), the runner
+    seam (``_make_runner``, referenced here at call time so the test
+    monkeypatch on ``gda.cli._make_runner`` still binds), the ``json_output``
+    pass-through, and the JSON-vs-text branch. Each command keeps its own
+    Typer signature, params construction, ``render``, and pre-dispatch
+    validation; only this execution tail is shared.
+    """
+    cmd.emit(
+        params,
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=render,
+        make_runner=_make_runner,
+    )
 
 
 INFO_COMMAND: HeadlessCommand[EngineVersion] = HeadlessCommand(
@@ -296,13 +328,13 @@ def get(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a scene file and report its structured node tree."""
-    SCENE_GET_COMMAND.emit(
+    _dispatch(
+        SCENE_GET_COMMAND,
         SceneGetParams(path=_normalize_path(path)),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda scene: _render_tree(scene.root),
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=lambda scene: _render_tree(scene.root),
     )
 
 
