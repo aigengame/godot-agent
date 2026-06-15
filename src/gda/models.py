@@ -322,8 +322,13 @@ class ListedNode(SceneNode):
     # has one source of truth; ``children`` is re-declared as ``list[ListedNode]``
     # — not the inherited ``list[SceneNode]`` — so a listed node's children are
     # themselves listed nodes (carrying ``path``), keeping the tree self-recursive
-    # on ``ListedNode`` and the ``--json``/``--schema`` output byte-for-byte
-    # unchanged.
+    # on ``ListedNode``. The ``--json``/``--schema`` output stays SEMANTICALLY
+    # unchanged (same fields, same ``required``, same recursion) but is NOT byte-
+    # identical: inheriting name/type/children and appending ``path`` orders the
+    # properties name,type,children,path rather than the prior name,type,path,
+    # children. JSON property order is insignificant — consumers parse by key and
+    # the ``--schema`` → MCP generation is order-insensitive — so this is a safe
+    # trade for the single-source-of-truth tree shape.
     path: str = Field(
         description=(
             "The node's node path relative to the scene root: '.' for the root "
