@@ -550,16 +550,9 @@ func _op_script_get(params: Dictionary) -> void:
 		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
 		return
 
-	var source := FileAccess.get_file_as_string(path)
-	# get_file_as_string returns "" both for an empty file and on an open error;
-	# disambiguate via the open-error code so an unreadable file is not reported
-	# as empty source. An empty .gd is legal and reads back as empty.
-	if source.is_empty():
-		var open_err := FileAccess.get_open_error()
-		if open_err != OK:
-			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
-					+ ": " + error_string(open_err))
-			return
+	var source: Variant = _read_script_source(path)
+	if source == null:
+		return  # _read_script_source already recorded the failure
 
 	var meta := _script_metadata(source)
 	_succeed({
@@ -659,16 +652,9 @@ func _op_script_set(params: Dictionary) -> void:
 		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
 		return
 
-	var source := FileAccess.get_file_as_string(path)
-	# get_file_as_string returns "" both for an empty file and on an open error;
-	# disambiguate via the open-error code so an unreadable file is not edited as
-	# if it were empty (mirrors script-get). An empty .gd is legal source.
-	if source.is_empty():
-		var open_err := FileAccess.get_open_error()
-		if open_err != OK:
-			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
-					+ ": " + error_string(open_err))
-			return
+	var source: Variant = _read_script_source(path)
+	if source == null:
+		return  # _read_script_source already recorded the failure
 
 	# Infer the mode by presence, precedence search → line-range → full.
 	var new_source: Variant
@@ -877,16 +863,9 @@ func _op_script_validate(params: Dictionary) -> void:
 		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
 		return
 
-	var source := FileAccess.get_file_as_string(path)
-	# get_file_as_string returns "" both for an empty file and on an open error;
-	# disambiguate via the open-error code so an unreadable file is path_not_found
-	# rather than validated as empty (mirrors script-get). An empty .gd compiles.
-	if source.is_empty():
-		var open_err := FileAccess.get_open_error()
-		if open_err != OK:
-			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
-					+ ": " + error_string(open_err))
-			return
+	var source: Variant = _read_script_source(path)
+	if source == null:
+		return  # _read_script_source already recorded the failure
 
 	# Compile-check without instantiating: set the source on a fresh GDScript and
 	# reload() it. The reload error (and its diagnostics on stderr) is the verdict.
@@ -906,6 +885,24 @@ func _op_script_validate(params: Dictionary) -> void:
 # build of Godot (ADR-0003 targets the standard build) and a dedicated decision.
 func _is_script_path(path: String) -> bool:
 	return path.get_extension().to_lower() == "gd"
+
+
+# Read a .gd script's source back as RAW TEXT, disambiguating an empty file from
+# an unreadable one. get_file_as_string returns "" both for an empty file AND on
+# an open error; an empty .gd is legal source, so "" alone cannot be trusted as
+# the content. When the read returns "" but the open errored, the file is
+# unreadable, not empty — report path_not_found and return null (the caller must
+# stop). Otherwise return the source as-is ("" for a genuinely empty file).
+# Shared by script get / set / validate, which each only need the raw source.
+func _read_script_source(path: String) -> Variant:
+	var source := FileAccess.get_file_as_string(path)
+	if source.is_empty():
+		var open_err := FileAccess.get_open_error()
+		if open_err != OK:
+			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
+					+ ": " + error_string(open_err))
+			return null
+	return source
 
 
 # Extract a GDScript's declared class_name and extends from its raw source by
