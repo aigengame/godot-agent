@@ -209,3 +209,407 @@ def test_script_list_passes_resolved_project_to_the_runner(monkeypatch, tmp_path
 
     assert result.exit_code == 0
     assert seen["project"] == tmp_path
+
+
+SET_RESULT = {
+    "path": "/tmp/proj/hero.gd",
+    "class_name": "Hero",
+    "extends": "Node2D",
+}
+
+
+def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
+    # search-replace mode (issue #118): --search/--replace ride through as the
+    # search/replace params; the other mode params pass as null. The result
+    # re-parses the written source's class_name/extends, so set round-trips
+    # through get.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(SET_RESULT)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "/tmp/proj/hero.gd",
+            "--search",
+            "Node",
+            "--replace",
+            "Node2D",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["path"] == "/tmp/proj/hero.gd"
+    assert data["class_name"] == "Hero"
+    assert data["extends"] == "Node2D"
+    assert fake.calls == [
+        (
+            "script-set",
+            {
+                "path": "/tmp/proj/hero.gd",
+                "search": "Node",
+                "replace": "Node2D",
+                "start_line": None,
+                "end_line": None,
+                "content": None,
+            },
+        )
+    ]
+    assert "engine diagnostic" in result.stderr
+
+
+def test_script_set_line_range_dispatches_start_end_and_content(monkeypatch):
+    # line-range mode: --start-line/--end-line + --content ride through; the
+    # search-replace params pass as null.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "/tmp/proj/hero.gd",
+            "--start-line",
+            "2",
+            "--end-line",
+            "3",
+            "--content",
+            "extends Node2D",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls == [
+        (
+            "script-set",
+            {
+                "path": "/tmp/proj/hero.gd",
+                "search": None,
+                "replace": None,
+                "start_line": 2,
+                "end_line": 3,
+                "content": "extends Node2D",
+            },
+        )
+    ]
+
+
+def test_script_set_full_overwrite_dispatches_content_only(monkeypatch):
+    # full mode: --content with no --start-line overwrites the whole file; every
+    # other mode param passes as null.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "/tmp/proj/hero.gd",
+            "--content",
+            "extends Node\n",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls == [
+        (
+            "script-set",
+            {
+                "path": "/tmp/proj/hero.gd",
+                "search": None,
+                "replace": None,
+                "start_line": None,
+                "end_line": None,
+                "content": "extends Node\n",
+            },
+        )
+    ]
+
+
+def _assert_set_usage_error(fake, result):
+    # A mode-validation error is a usage error (exit 2) that fires before any
+    # dispatch — the engine is never reached.
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
+def test_script_set_no_flags_is_a_usage_error(monkeypatch):
+    # No edit mode at all is a usage error: set always needs exactly one mode.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(app, ["script", "set", "/tmp/proj/hero.gd", "--json"])
+
+    _assert_set_usage_error(fake, result)
+
+
+def test_script_set_search_without_replace_is_a_usage_error(monkeypatch):
+    # --search requires --replace (and vice versa) — a half-specified
+    # search-replace is a usage error, never a silent default.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "set", "/tmp/proj/hero.gd", "--search", "Node", "--json"]
+    )
+
+    _assert_set_usage_error(fake, result)
+
+
+def test_script_set_replace_without_search_is_a_usage_error(monkeypatch):
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "set", "/tmp/proj/hero.gd", "--replace", "Node2D", "--json"]
+    )
+
+    _assert_set_usage_error(fake, result)
+
+
+def test_script_set_search_replace_and_content_are_mutually_exclusive(monkeypatch):
+    # Mixing search-replace with a line-range/full param (--content) is a usage
+    # error: the modes are mutually exclusive.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "/tmp/proj/hero.gd",
+            "--search",
+            "Node",
+            "--replace",
+            "Node2D",
+            "--content",
+            "x",
+            "--json",
+        ],
+    )
+
+    _assert_set_usage_error(fake, result)
+
+
+ATTACH_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "node": "Hero",
+    "script": "/tmp/proj/hero.gd",
+    "class_name": "Hero",
+}
+
+
+def test_script_attach_dispatches_scene_node_and_script(monkeypatch):
+    # script attach (issue #118) binds a .gd to a node in a scene: the scene
+    # path, the node path, and the script path ride through as the typed params;
+    # the result echoes the attached script's class_name.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(ATTACH_RESULT)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "attach",
+            "/tmp/proj/main.tscn",
+            "--node",
+            "Hero",
+            "--script",
+            "/tmp/proj/hero.gd",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["scene_path"] == "/tmp/proj/main.tscn"
+    assert data["node"] == "Hero"
+    assert data["script"] == "/tmp/proj/hero.gd"
+    assert data["class_name"] == "Hero"
+    assert fake.calls == [
+        (
+            "script-attach",
+            {
+                "path": "/tmp/proj/main.tscn",
+                "node": "Hero",
+                "script": "/tmp/proj/hero.gd",
+            },
+        )
+    ]
+    assert "engine diagnostic" in result.stderr
+
+
+def test_script_validate_valid_script_reports_valid_true_no_diagnostics(monkeypatch):
+    # script validate (issue #118): a valid script is a successful op (exit 0)
+    # reporting valid=true, no error_string, and no diagnostics.
+    payload = {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None}
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(payload)
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/ok.gd", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["valid"] is True
+    assert data["error_string"] is None
+    assert data["diagnostics"] == []
+    assert fake.calls == [("script-validate", {"path": "/tmp/proj/ok.gd"})]
+
+
+def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(monkeypatch):
+    # Validating an INVALID script is a SUCCESSFUL op (exit 0): the sentinel says
+    # valid=false, and the per-command classifier parses the line/message
+    # diagnostics from stderr (the only place they live) into the result.
+    payload = {
+        "path": "/tmp/proj/broken.gd",
+        "valid": False,
+        "error_string": "Parse error.",
+    }
+    stderr = (
+        'SCRIPT ERROR: Parse Error: Expected expression for variable initial '
+        'value after "=".\n'
+        "          at: GDScript::reload (gdscript://-9223371888644840980.gd:3)\n"
+    )
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(payload)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=stdout, stderr=stderr, exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "validate", "/tmp/proj/broken.gd", "--json"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["valid"] is False
+    assert data["error_string"] == "Parse error."
+    # The advisory diagnostics were parsed from stderr (line + message, no column).
+    assert len(data["diagnostics"]) == 1
+    assert data["diagnostics"][0]["line"] == 3
+    assert data["diagnostics"][0]["column"] is None
+    assert "Expected expression" in data["diagnostics"][0]["message"]
+    assert fake.calls == [("script-validate", {"path": "/tmp/proj/broken.gd"})]
+
+
+def test_script_set_start_line_without_content_is_a_usage_error(monkeypatch):
+    # --start-line/--end-line require --content: a line range with no replacement
+    # text is a usage error.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["script", "set", "/tmp/proj/hero.gd", "--start-line", "2", "--json"]
+    )
+
+    _assert_set_usage_error(fake, result)
+
+
+def test_script_set_end_line_without_start_line_is_a_usage_error(monkeypatch):
+    # --end-line alone (with --content) is a usage error: end without a start has
+    # no anchor.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "set",
+            "/tmp/proj/hero.gd",
+            "--end-line",
+            "3",
+            "--content",
+            "x",
+            "--json",
+        ],
+    )
+
+    _assert_set_usage_error(fake, result)
+
+
+# --- human-readable output (no --json): the render_text paths (issue #118) ---
+
+
+def test_script_validate_human_output_valid(monkeypatch):
+    # Without --json, a valid result renders a one-line 'valid <path>'.
+    payload = {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None}
+    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0))
+
+    result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/ok.gd"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "valid /tmp/proj/ok.gd"
+
+
+def test_script_validate_human_output_invalid_lists_diagnostics(monkeypatch):
+    # An invalid result renders 'invalid <path>', the error_string, and each
+    # advisory diagnostic as 'line N: message' (parsed from stderr).
+    payload = {
+        "path": "/tmp/proj/broken.gd",
+        "valid": False,
+        "error_string": "Parse error.",
+    }
+    stderr = (
+        "SCRIPT ERROR: Parse Error: the message.\n"
+        "          at: GDScript::reload (gdscript://-1.gd:3)\n"
+    )
+    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr=stderr, exit_code=0))
+
+    result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/broken.gd"])
+
+    assert result.exit_code == 0
+    assert "invalid /tmp/proj/broken.gd" in result.stdout
+    assert "Parse error." in result.stdout
+    assert "line 3: Parse Error: the message." in result.stdout
+
+
+def test_script_attach_human_output(monkeypatch):
+    # Without --json, attach renders 'attached <script> to <node> in <scene>'.
+    payload = {
+        "scene_path": "/tmp/proj/main.tscn",
+        "node": "Hero",
+        "script": "/tmp/proj/hero.gd",
+        "class_name": "Hero",
+    }
+    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "attach", "/tmp/proj/main.tscn", "--node", "Hero", "--script", "/tmp/proj/hero.gd"],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "attached /tmp/proj/hero.gd to Hero in /tmp/proj/main.tscn"
+
+
+def test_script_set_human_output_renders_metadata(monkeypatch):
+    # Without --json, set reuses the shared script-metadata renderer.
+    payload = {"path": "/tmp/proj/hero.gd", "class_name": "Hero", "extends": "Node2D"}
+    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app, ["script", "set", "/tmp/proj/hero.gd", "--content", "x"]
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "set /tmp/proj/hero.gd (extends Node2D, class_name Hero)"

@@ -181,6 +181,61 @@ boundary as the rest of the group — only a `.gd` path is removed (a non-`.gd` 
 with `invalid_path`, never erasing an arbitrary file), and a missing target is `path_not_found`.
 The lifecycle round-trips: `create` → `list` shows it → `delete` → `list` no longer shows it.
 
+**Editing source** (established by #118): `gda script set PATH` edits an **existing** `.gd`
+script as **raw text** — it never compiles or loads the script, so editing one never runs
+project code (the read trust boundary of #30). It edits only a script that exists; a missing
+target is `path_not_found`, never a silent create. Exactly one of three mutually-exclusive
+modes is selected at the CLI (a missing or mixed mode is a usage error, exit 2):
+
+- **search-replace** — `--search <old> --replace <new>`: replace **every** literal (not regex)
+  occurrence of `<old>` with `<new>`. A search string the source does not contain is refused
+  with `no_search_match` (the edit landed nowhere; the file is left untouched). `--search` and
+  `--replace` are required together and cannot be combined with the other modes' flags.
+- **line-range** — `--start-line N [--end-line M] --content <text>`: replace lines `N..M`
+  (1-based, **inclusive**; `M` defaults to `N`) with `<text>`. **Lines are the parts of the
+  source split on `\n`**, so a trailing newline yields a final empty part — `"a\nb\n"` is **3**
+  lines (`["a", "b", ""]`). The valid range is `1..N` where `N` is that part count; a range
+  outside the bounds, or `end` before `start`, is refused with `invalid_line_range`.
+- **full** — `--content <text>` with no `--start-line`: overwrite the entire file.
+
+`script set` re-parses the **written** source's `class_name`/`extends` and returns them, so an
+edit round-trips through `script get` (the verifier).
+
+**Attaching to a node** (established by #118): `gda script attach SCENE --node <node-path>
+--script <gd-path>` binds a `.gd` script to a node inside a `.tscn`. It reuses the node group's
+**node-path addressing** (#53): `--node .` is the scene root, `--node A/B` a descendant — exactly
+the form `node list` reports. Unlike the other script-file ops, `attach` is a **scene mutation**:
+it loads and **instantiates** the scene (so it runs the `_init` of scripts already in the scene —
+the inherent trust boundary of `node set`, ADR-0009), attaches the script via `set_script` (which,
+for a script that compiles, constructs an instance of the newly-attached script, running *its*
+`_init` too), and re-packs and saves. The attached script **must compile**: the headless engine
+silently rejects a non-compiling script from `set_script` (the node's script stays null and a
+re-pack saves no script), so attach **refuses** one with `script_compile_failed` rather than report
+a phantom success over a scene with nothing attached — check a script with `script validate` first.
+Other failures reuse existing codes: a missing script is `path_not_found`, a non-`.gd` script is
+`invalid_path`, a node path that resolves to nothing is `node_not_found`, a missing or non-scene
+file is `path_not_found`/`not_a_scene`, and a scene whose instances vanish or degrade on load is
+`missing_dependency` (the mutation-integrity boundary, #64). The result echoes
+the scene, node, script, and the attached script's `class_name` (null when it declares none),
+verifiable by reading the saved `.tscn` back: the script now appears as an `ext_resource` the node
+references.
+
+**Validating** (established by #118): `gda script validate PATH` syntax/compile-checks a `.gd`
+script. **Mechanism**: it reads the file text, sets it on a fresh `GDScript`, and calls
+`reload()` — `OK` means the script compiles. It compiles the script (`reload` parses and
+compiles), but never **instantiates** it, so it does not run the script's instance code. Pass
+`--project` when the script `extends` a project `class_name` or preloads a project resource and so
+needs project context to compile; a self-contained `extends Node` script validates projectless.
+
+A **`valid=false` result is a successful operation** — `validate` exits `0` with
+`{valid: false, error_string, diagnostics}` for a script that does not compile. The op only
+*fails* (non-zero, `invalid_path`/`path_not_found`) for op errors (empty/non-`.gd` path, missing
+or unreadable file). `diagnostics` are **best-effort advisory** `{line, message}` pairs: the line
+and message are not available from any bound API — only from the engine's stderr — so they are
+parsed Python-side and may carry only the **first** error. **`column` is always null** on the
+standard Godot build (the engine exposes no column for a parse error). `validate` reuses existing
+codes only (no new ones).
+
 | Command | Description |
 | --- | --- |
 | `gda script create` | Create a `.gd` script (template or content) |

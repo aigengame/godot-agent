@@ -45,6 +45,9 @@ const OP_ERROR_UNINSTANTIABLE_SCRIPT := "uninstantiable_script"
 const OP_ERROR_NODE_NOT_FOUND := "node_not_found"
 const OP_ERROR_UNKNOWN_PROPERTY := "unknown_property"
 const OP_ERROR_UNCOERCIBLE_VALUE := "uncoercible_value"
+const OP_ERROR_NO_SEARCH_MATCH := "no_search_match"
+const OP_ERROR_INVALID_LINE_RANGE := "invalid_line_range"
+const OP_ERROR_SCRIPT_COMPILE_FAILED := "script_compile_failed"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -94,6 +97,12 @@ func _initialize() -> void:
 			_op_script_list(params)
 		"script-delete":
 			_op_script_delete(params)
+		"script-set":
+			_op_script_set(params)
+		"script-attach":
+			_op_script_attach(params)
+		"script-validate":
+			_op_script_validate(params)
 		_:
 			_fail(OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 
@@ -621,6 +630,259 @@ func _op_script_delete(params: Dictionary) -> void:
 		"path": path,
 		"class_name": meta["class_name"],
 		"extends": meta["extends"],
+	})
+
+
+# script-set: edit an EXISTING .gd script on disk as RAW TEXT (issue #118) — it
+# never compiles or loads the script, so editing it cannot run project code (the
+# read trust boundary of issue #30, the same one create/get/delete honor). Three
+# mutually-exclusive edit modes, inferred by param presence with precedence
+# search → line-range → full (the CLI guarantees exactly one is supplied):
+# - search-replace: replace EVERY literal (not regex) occurrence of `search`.
+# - line-range: replace the 1-based, inclusive line span [start_line, end_line]
+#   with `content`. Lines are the parts of the source split on "\n", so a
+#   trailing newline yields a final empty part ("a\nb\n" → ["a","b",""], 3 lines).
+# - full: overwrite the whole file with `content`.
+# set edits an existing script; it never creates — a missing target is
+# path_not_found, not a silent create.
+func _op_script_set(params: Dictionary) -> void:
+	_diag("running operation: script-set")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _is_script_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
+		return
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
+		return
+
+	var source := FileAccess.get_file_as_string(path)
+	# get_file_as_string returns "" both for an empty file and on an open error;
+	# disambiguate via the open-error code so an unreadable file is not edited as
+	# if it were empty (mirrors script-get). An empty .gd is legal source.
+	if source.is_empty():
+		var open_err := FileAccess.get_open_error()
+		if open_err != OK:
+			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
+					+ ": " + error_string(open_err))
+			return
+
+	# Infer the mode by presence, precedence search → line-range → full.
+	var new_source: Variant
+	if params.get("search", null) is String:
+		new_source = _apply_search_replace(source, params)
+	elif params.get("start_line", null) != null:
+		new_source = _apply_line_range(source, params)
+	else:
+		# full overwrite: content is guaranteed present by the CLI's mode check.
+		new_source = _string_param(params, "content")
+	if new_source == null:
+		return  # the apply helper already recorded the failure
+
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, FileAccess.get_open_error()))
+		return
+	file.store_string(new_source)
+	# A successful open does not guarantee a successful write (mirrors
+	# script-create): capture a disk-full/I/O error before close() invalidates
+	# the handle, so a failed write is save_failed, not a phantom success.
+	var write_err := file.get_error()
+	file.close()
+	if write_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
+		return
+
+	# Re-parse the written source so set round-trips through script get.
+	var meta := _script_metadata(new_source)
+	_succeed({
+		"path": path,
+		"class_name": meta["class_name"],
+		"extends": meta["extends"],
+	})
+
+
+# search-replace edit: replace every literal occurrence of `search` with
+# `replace`. An empty or absent search string can never be located, and a search
+# string the source does not contain is a no_search_match failure (so an agent
+# learns the edit landed nowhere rather than silently writing the file back
+# unchanged). Returns null after recording the failure.
+func _apply_search_replace(source: String, params: Dictionary) -> Variant:
+	var search := _string_param(params, "search")
+	var replace := _string_param(params, "replace")
+	if search.is_empty() or not source.contains(search):
+		_fail(OP_ERROR_NO_SEARCH_MATCH, "search string not found in script: " + search.c_escape())
+		return null
+	return source.replace(search, replace)
+
+
+# line-range edit: replace the 1-based, inclusive line span [start_line,
+# end_line] with `content`. Lines are the parts of the source split on its
+# newline, so a trailing newline yields a final empty part ("a\nb\n" →
+# ["a","b",""], N=3); the valid range is 1..N. end_line defaults to start_line
+# (a single-line edit). A range outside the bounds, or end before start, is
+# invalid_line_range. Returns null after recording the failure.
+#
+# The file's own newline (CRLF when the source uses it, else LF) is used to both
+# split and rejoin, and the replacement `content` is normalized onto it, so
+# editing a CRLF script preserves CRLF instead of corrupting the edited span to
+# mixed endings. A mixed-ending file is pathological and resolves to CRLF.
+func _apply_line_range(source: String, params: Dictionary) -> Variant:
+	var newline := "\r\n" if source.contains("\r\n") else "\n"
+	var lines := source.split(newline)
+	var line_count := lines.size()
+	var start_line := int(params.get("start_line", 0))
+	var end_line: int = int(params.get("end_line", start_line)) if params.get("end_line", null) != null else start_line
+	if start_line < 1 or start_line > line_count or end_line < start_line or end_line > line_count:
+		_fail(OP_ERROR_INVALID_LINE_RANGE, "line range " + str(start_line) + ".." + str(end_line)
+				+ " is outside the script's bounds (1.." + str(line_count) + ") or ends before it starts")
+		return null
+	var content := _string_param(params, "content")
+	var before := lines.slice(0, start_line - 1)
+	var after := lines.slice(end_line)
+	# Normalize the replacement's own newlines onto the file's so the whole edited
+	# file keeps one consistent ending.
+	var replacement := content.replace("\r\n", "\n").split("\n")
+	var rebuilt: Array = []
+	rebuilt.append_array(before)
+	rebuilt.append_array(replacement)
+	rebuilt.append_array(after)
+	return newline.join(PackedStringArray(rebuilt))
+
+
+# script-attach: bind a .gd script to a node in a .tscn (issue #118). Load the
+# scene → resolve the node by node path (the #53 addressing: '.' = root, 'A/B' =
+# descendant) → load the .gd as a Script resource → node.set_script(script) →
+# re-pack and save.
+#
+# As a scene MUTATION it goes through the shared mutate-entry (load → instantiate
+# → unmaterialized-node guard, the same as node set), so it honors the
+# mutation-integrity boundary (issue #64) and instantiates the scene — running
+# the _init of scripts already attached in the scene (the inherent trust
+# boundary of ADR-0009). For a script that compiles, set_script constructs an
+# instance of the attached .gd, which RUNS that script's _init too — attach's
+# project-code execution surface is both already-attached scripts and the
+# newly-attached one.
+#
+# attach requires the script to COMPILE. On the standard headless build,
+# set_script silently REJECTS a non-compiling script — the node's script stays
+# null and a re-pack saves no script at all — so attach cannot honor a request
+# to bind a broken script (verified: ResourceLoader.load returns a non-null
+# Script for a .gd with a parse error, but get_script() is null after
+# set_script). Rather than report a phantom success over a scene with no script
+# attached, attach verifies the bind took effect and refuses a non-compiling
+# script with script_compile_failed — fix it (or check with script validate).
+func _op_script_attach(params: Dictionary) -> void:
+	_diag("running operation: script-attach")
+	var path := _string_param(params, "path")
+
+	# Cheap script-path shape checks first, before the costlier scene load.
+	var script_path := _string_param(params, "script")
+	if not _is_script_path(script_path):
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + script_path)
+		return
+	if not FileAccess.file_exists(script_path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + script_path)
+		return
+
+	var root: Node = _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+	var node_path := _string_param(params, "node")
+	var node := _resolve_node(root, node_path)
+	if node == null:
+		root.free()
+		_fail_node_not_found(node_path)
+		return
+
+	# load returns a non-null Script even for a .gd that does not compile (compile
+	# errors go to stderr; the resource still loads), so a null here is a genuine
+	# resource-load failure (e.g. no format loader), not a compile verdict — guard
+	# it so set_script is never handed null (which would clear the node's script).
+	var script := ResourceLoader.load(script_path) as Script
+	if script == null:
+		root.free()
+		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a GDScript resource: " + script_path)
+		return
+
+	node.set_script(script)
+	# set_script silently rejects a non-compiling script: get_script() stays null
+	# and a re-pack would save no script. Verify the bind took effect rather than
+	# report a phantom success over a scene with nothing attached.
+	if node.get_script() == null:
+		root.free()
+		_fail(OP_ERROR_SCRIPT_COMPILE_FAILED, "script does not compile, so it cannot be attached: "
+				+ script_path + " — fix it, or check it with `gda script validate`")
+		return
+
+	var repacked := PackedScene.new()
+	var pack_err := repacked.pack(root)
+	if pack_err != OK:
+		root.free()
+		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
+		return
+	var class_name_value: Variant = _script_class_of(node)
+	var save_err := ResourceSaver.save(repacked, path)
+	root.free()
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
+		return
+
+	_succeed({
+		"scene_path": path,
+		"node": node_path,
+		"script": script_path,
+		"class_name": class_name_value,
+	})
+
+
+# script-validate: syntax/compile-check a .gd script (issue #118). Read the file
+# text, set it on a fresh GDScript, and reload() it: err == OK means it compiles.
+# Validating an INVALID script is a SUCCESSFUL operation — the op exits 0 with
+# valid=false; the op only FAILS (non-zero) for op errors (empty/non-.gd path →
+# invalid_path, missing/unreadable file → path_not_found).
+#
+# Unlike the other script-file ops, validate DOES compile the script (reload
+# parses and compiles it), but it never INSTANTIATES it, so it does not run the
+# script's instance code. The line/message of a compile error are not available
+# from any bound API (is_valid() is not even callable from GDScript) — only from
+# the engine's stderr — so the op emits just {path, valid, error_string} in the
+# sentinel and gda parses the advisory line/message diagnostics from stderr.
+func _op_script_validate(params: Dictionary) -> void:
+	_diag("running operation: script-validate")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _is_script_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "script path must end in .gd: " + path)
+		return
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "script file does not exist: " + path)
+		return
+
+	var source := FileAccess.get_file_as_string(path)
+	# get_file_as_string returns "" both for an empty file and on an open error;
+	# disambiguate via the open-error code so an unreadable file is path_not_found
+	# rather than validated as empty (mirrors script-get). An empty .gd compiles.
+	if source.is_empty():
+		var open_err := FileAccess.get_open_error()
+		if open_err != OK:
+			_fail(OP_ERROR_PATH_NOT_FOUND, "script file could not be read: " + path
+					+ ": " + error_string(open_err))
+			return
+
+	# Compile-check without instantiating: set the source on a fresh GDScript and
+	# reload() it. The reload error (and its diagnostics on stderr) is the verdict.
+	var script := GDScript.new()
+	script.source_code = source
+	var err := script.reload()
+	_succeed({
+		"path": path,
+		"valid": err == OK,
+		"error_string": null if err == OK else error_string(err),
 	})
 
 

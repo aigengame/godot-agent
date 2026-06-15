@@ -395,10 +395,71 @@ def test_script_delete_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_script_set_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for script set (issue #118): the bare --schema flag —
+    # no path, no edit mode — short-circuits into the self-description, derived
+    # from the same typed models that back --json. The line-range 1-based-over-
+    # split rule is documented in the contract itself.
+    from gda.models import ScriptSetParams, ScriptSetResult
+
+    result = CliRunner().invoke(app, ["script", "set", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ScriptSetParams.model_json_schema()
+    assert doc["output"] == ScriptSetResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "search" in doc["input"]["properties"]
+    assert "start_line" in doc["input"]["properties"]
+    assert "content" in doc["input"]["properties"]
+    # The line-range addressing rule (1-based over the '\n'-split parts) is in
+    # the contract, not just the prose.
+    assert "1-based" in doc["input"]["properties"]["start_line"]["description"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_script_attach_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for script attach (issue #118): the node param
+    # documents the root-relative node-path addressing agents must use.
+    from gda.models import ScriptAttachParams, ScriptAttachResult
+
+    result = CliRunner().invoke(app, ["script", "attach", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ScriptAttachParams.model_json_schema()
+    assert doc["output"] == ScriptAttachResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    node_description = doc["input"]["properties"]["node"]["description"]
+    assert "scene root" in node_description
+    assert "'.'" in node_description
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_script_validate_schema_emits_model_derived_contract_without_other_args():
+    from gda.models import ScriptValidateParams, ScriptValidateResult
+
+    result = CliRunner().invoke(app, ["script", "validate", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ScriptValidateParams.model_json_schema()
+    assert doc["output"] == ScriptValidateResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "valid" in doc["output"]["properties"]
+    assert "diagnostics" in doc["output"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_sample_script_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each script command satisfies the contract its
     # --schema emits (the other half of the ADR-0004 hard gate, issues #110, #117).
     from tests.test_script_commands import CREATE_RESULT, GET_RESULT, LIST_RESULT
+
+    from tests.test_script_commands import SET_RESULT
 
     create_doc = json.loads(
         CliRunner().invoke(app, ["script", "create", "--schema"]).stdout
@@ -410,6 +471,13 @@ def test_sample_script_results_validate_against_emitted_output_schemas():
     delete_doc = json.loads(
         CliRunner().invoke(app, ["script", "delete", "--schema"]).stdout
     )
+    set_doc = json.loads(CliRunner().invoke(app, ["script", "set", "--schema"]).stdout)
+    attach_doc = json.loads(
+        CliRunner().invoke(app, ["script", "attach", "--schema"]).stdout
+    )
+    validate_doc = json.loads(
+        CliRunner().invoke(app, ["script", "validate", "--schema"]).stdout
+    )
 
     jsonschema.validate(instance=CREATE_RESULT, schema=create_doc["output"])
     jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
@@ -418,6 +486,26 @@ def test_sample_script_results_validate_against_emitted_output_schemas():
     jsonschema.validate(
         instance={"path": "res://hero.gd", "class_name": "Hero", "extends": "Node2D"},
         schema=delete_doc["output"],
+    )
+    jsonschema.validate(instance=SET_RESULT, schema=set_doc["output"])
+    # Sample attach / validate payloads, shaped as the operations emit them.
+    jsonschema.validate(
+        instance={
+            "scene_path": "res://main.tscn",
+            "node": "Hero",
+            "script": "res://hero.gd",
+            "class_name": "Hero",
+        },
+        schema=attach_doc["output"],
+    )
+    jsonschema.validate(
+        instance={
+            "path": "res://broken.gd",
+            "valid": False,
+            "error_string": "Parse error.",
+            "diagnostics": [{"line": 3, "column": None, "message": "Parse Error: ..."}],
+        },
+        schema=validate_doc["output"],
     )
 
 
@@ -433,6 +521,9 @@ def test_script_schema_spawns_no_godot(monkeypatch):
         ["script", "get"],
         ["script", "list"],
         ["script", "delete"],
+        ["script", "set"],
+        ["script", "attach"],
+        ["script", "validate"],
     ):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0

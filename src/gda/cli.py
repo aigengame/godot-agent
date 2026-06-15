@@ -14,7 +14,7 @@ from typing import Optional
 
 import typer
 
-from gda.errors import classify_info
+from gda.errors import classify_info, classify_script_validate
 from gda.headless import (
     HeadlessCommand,
     godot_option,
@@ -44,6 +44,8 @@ from gda.models import (
     SceneListParams,
     SceneListResult,
     SceneNode,
+    ScriptAttachParams,
+    ScriptAttachResult,
     ScriptCreateParams,
     ScriptCreateResult,
     ScriptDeleteParams,
@@ -52,6 +54,10 @@ from gda.models import (
     ScriptGetResult,
     ScriptListParams,
     ScriptListResult,
+    ScriptSetParams,
+    ScriptSetResult,
+    ScriptValidateParams,
+    ScriptValidateResult,
 )
 from gda.project import resolve_project_dir
 from gda.runner import GodotRunner
@@ -191,6 +197,25 @@ SCRIPT_DELETE_COMMAND: HeadlessCommand[ScriptDeleteResult] = HeadlessCommand(
     operation="script-delete",
     input_model=ScriptDeleteParams,
     output_model=ScriptDeleteResult,
+)
+
+SCRIPT_SET_COMMAND: HeadlessCommand[ScriptSetResult] = HeadlessCommand(
+    operation="script-set",
+    input_model=ScriptSetParams,
+    output_model=ScriptSetResult,
+)
+
+SCRIPT_ATTACH_COMMAND: HeadlessCommand[ScriptAttachResult] = HeadlessCommand(
+    operation="script-attach",
+    input_model=ScriptAttachParams,
+    output_model=ScriptAttachResult,
+)
+
+SCRIPT_VALIDATE_COMMAND: HeadlessCommand[ScriptValidateResult] = HeadlessCommand(
+    operation="script-validate",
+    input_model=ScriptValidateParams,
+    output_model=ScriptValidateResult,
+    classify=classify_script_validate,
 )
 
 
@@ -480,7 +505,7 @@ def set_property(
 
 
 def _render_script_metadata(
-    script: "ScriptCreateResult | ScriptGetResult | ListedScript | ScriptDeleteResult",
+    script: "ScriptCreateResult | ScriptGetResult | ListedScript | ScriptDeleteResult | ScriptSetResult",
 ) -> str:
     """Render a script's path plus its class_name/extends for humans."""
     meta = []
@@ -595,6 +620,179 @@ def delete_script(
         project=resolve_project_dir(project),
         json_output=json_output,
         render_text=lambda removed: f"deleted {_render_script_metadata(removed)}",
+        make_runner=_make_runner,
+    )
+
+
+@script_app.command(name="set", cls=SCRIPT_SET_COMMAND.command_class())
+def set_script(
+    path: str = typer.Argument(..., help="The .gd script file to edit."),
+    search: Optional[str] = typer.Option(
+        None,
+        "--search",
+        help=(
+            "search-replace mode: literal substring to find (not regex); all "
+            "occurrences are replaced. Requires --replace."
+        ),
+    ),
+    replace: Optional[str] = typer.Option(
+        None,
+        "--replace",
+        help="search-replace mode: literal replacement text. Requires --search.",
+    ),
+    start_line: Optional[int] = typer.Option(
+        None,
+        "--start-line",
+        help=(
+            "line-range mode: first line to replace (1-based, inclusive). "
+            "Requires --content."
+        ),
+    ),
+    end_line: Optional[int] = typer.Option(
+        None,
+        "--end-line",
+        help=(
+            "line-range mode: last line to replace (1-based, inclusive); "
+            "defaults to --start-line. Requires --content and --start-line."
+        ),
+    ),
+    content: Optional[str] = typer.Option(
+        None,
+        "--content",
+        help=(
+            "Replacement text: the line span in line-range mode, or the whole "
+            "file (full mode) when --start-line is omitted."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_SET_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Edit a .gd script via search-replace, line-range, or full overwrite."""
+    _validate_set_mode(search, replace, start_line, end_line, content)
+    SCRIPT_SET_COMMAND.emit(
+        ScriptSetParams(
+            path=_normalize_path(path),
+            search=search,
+            replace=replace,
+            start_line=start_line,
+            end_line=end_line,
+            content=content,
+        ),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=lambda edited: f"set {_render_script_metadata(edited)}",
+        make_runner=_make_runner,
+    )
+
+
+def _validate_set_mode(
+    search: Optional[str],
+    replace: Optional[str],
+    start_line: Optional[int],
+    end_line: Optional[int],
+    content: Optional[str],
+) -> None:
+    """Enforce that ``script set`` selects exactly one edit mode (issue #118).
+
+    Validated at the CLI layer (before any dispatch, like ``script create``'s
+    mutual exclusion), so the operation is always handed exactly one well-formed
+    mode and never has to defend against "no mode" or a mixed-mode combination.
+    A violation is a usage error (exit 2).
+    """
+    has_search = search is not None or replace is not None
+    has_line_range = start_line is not None or end_line is not None
+
+    if has_search:
+        if search is None or replace is None:
+            raise typer.BadParameter("--search and --replace must be used together.")
+        if content is not None or has_line_range:
+            raise typer.BadParameter(
+                "--search/--replace cannot be combined with --content, "
+                "--start-line, or --end-line."
+            )
+        return
+
+    if has_line_range:
+        if content is None:
+            raise typer.BadParameter("--start-line/--end-line require --content.")
+        if start_line is None:
+            raise typer.BadParameter("--end-line requires --start-line.")
+        return
+
+    if content is None:
+        raise typer.BadParameter(
+            "script set needs an edit: --search/--replace, --start-line "
+            "(+ --content), or --content (full overwrite)."
+        )
+
+
+@script_app.command(name="attach", cls=SCRIPT_ATTACH_COMMAND.command_class())
+def attach_script(
+    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
+    node: str = typer.Option(
+        ...,
+        "--node",
+        help=(
+            "Node path, relative to the scene root: '.' addresses the root "
+            "itself, 'Player/Arm' a nested node."
+        ),
+    ),
+    script: str = typer.Option(
+        ..., "--script", help="The .gd script file to attach to the node."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_ATTACH_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Attach a .gd script to a node (by node path) in a scene and save."""
+    SCRIPT_ATTACH_COMMAND.emit(
+        ScriptAttachParams(
+            path=_normalize_path(path),
+            node=node,
+            script=_normalize_path(script),
+        ),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=lambda attached: (
+            f"attached {attached.script} to {attached.node} in {attached.scene_path}"
+        ),
+        make_runner=_make_runner,
+    )
+
+
+def _render_validate(validated: "ScriptValidateResult") -> str:
+    """Render a validate result: valid/invalid plus best-effort diagnostics."""
+    if validated.valid:
+        return f"valid {validated.path}"
+    lines = [f"invalid {validated.path}"]
+    if validated.error_string is not None:
+        lines.append(f"  {validated.error_string}")
+    for diag in validated.diagnostics:
+        location = f"line {diag.line}" if diag.line is not None else "unknown line"
+        lines.append(f"  {location}: {diag.message}")
+    return "\n".join(lines)
+
+
+@script_app.command(name="validate", cls=SCRIPT_VALIDATE_COMMAND.command_class())
+def validate_script(
+    path: str = typer.Argument(..., help="The .gd script file to validate."),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_VALIDATE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Syntax/compile-check a .gd script; an invalid script is a successful op."""
+    SCRIPT_VALIDATE_COMMAND.emit(
+        ScriptValidateParams(path=_normalize_path(path)),
+        godot=godot,
+        project=resolve_project_dir(project),
+        json_output=json_output,
+        render_text=_render_validate,
         make_runner=_make_runner,
     )
 

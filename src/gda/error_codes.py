@@ -193,6 +193,24 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A supplied value cannot be coerced to the property's declared Godot type.",
     ),
     ErrorCodeSpec(
+        "no_search_match",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A search-replace script edit found no occurrence of the search string.",
+    ),
+    ErrorCodeSpec(
+        "invalid_line_range",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A line-range script edit specified lines outside the script's bounds, or end before start.",
+    ),
+    ErrorCodeSpec(
+        "script_compile_failed",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A script could not be attached to a node because it does not compile.",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         ErrorCodeSource.PARSER,
