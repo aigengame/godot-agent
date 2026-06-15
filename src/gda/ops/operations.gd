@@ -54,6 +54,7 @@ const OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE := "incompatible_script_type"
 const OP_ERROR_SIGNAL_NOT_FOUND := "signal_not_found"
 const OP_ERROR_ALREADY_CONNECTED := "already_connected"
 const OP_ERROR_CONNECTION_NOT_FOUND := "connection_not_found"
+const OP_ERROR_INVALID_RESOURCE_TYPE := "invalid_resource_type"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -119,6 +120,10 @@ func _initialize() -> void:
 			_op_script_attach(params)
 		"script-validate":
 			_op_script_validate(params)
+		"resource-create":
+			_op_resource_create(params)
+		"resource-get":
+			_op_resource_get(params)
 		_:
 			_fail(OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 
@@ -1261,6 +1266,113 @@ func _op_script_validate(params: Dictionary) -> void:
 		"valid": err == OK,
 		"error_string": null if err == OK else error_string(err),
 	})
+
+
+# resource-create: instantiate a Resource of the requested type and save it as a
+# .tres at the requested path — the resource group's save tracer (issue #112).
+# Establishes the .tres load/save plumbing the rest of the group reuses.
+#
+# No-clobber: an existing target is refused with already_exists, leaving it
+# untouched (mirrors scene-create / script-create). The type must be an
+# instantiable Resource subclass — an unknown type or a non-Resource class (e.g.
+# a Node) is refused with invalid_resource_type, parallel to scene-create's
+# invalid_root_type check against Node. A plain Resource holds data, so creating
+# one runs no project code (it constructs an engine class, not a script).
+func _op_resource_create(params: Dictionary) -> void:
+	_diag("running operation: resource-create")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _is_resource_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "resource path must end in .tres: " + path)
+		return
+	var type := _string_param(params, "type")
+	if type.is_empty() or not ClassDB.can_instantiate(type) \
+			or not ClassDB.is_parent_class(type, "Resource"):
+		_fail(OP_ERROR_INVALID_RESOURCE_TYPE, "not an instantiable Resource class: " + type)
+		return
+	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
+		_fail(OP_ERROR_ALREADY_EXISTS, "resource target already exists: " + path)
+		return
+
+	var resource: Resource = ClassDB.instantiate(type)
+	var created_dirs: Variant = _ensure_parent_dirs(path)
+	if created_dirs == null:
+		return  # _ensure_parent_dirs already recorded the failure
+	var save_err := ResourceSaver.save(resource, path)
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("resource", path, save_err))
+		return
+
+	_succeed({
+		"path": path,
+		"type": type,
+		"created_dirs": created_dirs,
+	})
+
+
+# resource-get: load a .tres and emit its storage properties as typed JSON — the
+# resource group's verifier (issue #112), which makes a resource-create
+# verifiable end-to-end (create → get reports the resource). Reports the same
+# typed projection node-get uses (name / declared Godot type / JSON value), so
+# the two groups read property values through one shape.
+#
+# A .tres must exist and load as a Resource: a missing file is path_not_found, a
+# non-.tres path invalid_path (the resource group's addressing boundary), and a
+# file that does not load as a Resource is not a resource the group can report.
+func _op_resource_get(params: Dictionary) -> void:
+	_diag("running operation: resource-get")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _require_existing_resource(path):
+		return  # _require_existing_resource already recorded the failure
+
+	var resource := ResourceLoader.load(path) as Resource
+	if resource == null:
+		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a Resource: " + path)
+		return
+
+	var properties: Array = []
+	for prop in resource.get_property_list():
+		if not _is_storage_property(prop):
+			continue
+		var prop_name := String(prop.get("name", ""))
+		properties.append({
+			"name": prop_name,
+			"type": _type_name(int(prop.get("type", TYPE_NIL))),
+			"value": _jsonify(resource.get(prop_name)),
+		})
+
+	_succeed({
+		"path": path,
+		"type": resource.get_class(),
+		"properties": properties,
+	})
+
+
+# Whether a path names a resource file the resource group operates on: a .tres
+# (text resource) file. Resource-file addressing is by extension, the same way
+# scene addressing keys on .tscn and script addressing on .gd. The binary .res
+# form is out of scope for this slice — the group is a .tres tracer (issue #112).
+func _is_resource_path(path: String) -> bool:
+	return path.get_extension().to_lower() == "tres"
+
+
+# The resource group's addressing boundary for an EXISTING resource: the path
+# must be a .tres (invalid_path otherwise) and the file must exist on disk
+# (path_not_found otherwise). Returns true to proceed, or false after recording
+# the failure (the caller must stop). Mirrors _require_existing_script.
+func _require_existing_resource(path: String) -> bool:
+	if not _is_resource_path(path):
+		_fail(OP_ERROR_INVALID_PATH, "resource path must end in .tres: " + path)
+		return false
+	if not FileAccess.file_exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "resource file does not exist: " + path)
+		return false
+	return true
 
 
 # Whether a path names a script file the script group operates on: a .gd

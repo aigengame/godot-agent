@@ -32,6 +32,8 @@ from gda.models import (
     NodeMoveResult,
     NodeRemoveResult,
     NodeSetResult,
+    ResourceCreateResult,
+    ResourceGetResult,
     SceneCreateResult,
     SceneDeleteResult,
     SceneGetResult,
@@ -244,6 +246,26 @@ def render_script_validate(validated: "ScriptValidateResult") -> str:
     return "\n".join(lines)
 
 
+def render_resource_create(created: "ResourceCreateResult") -> str:
+    """Render a created resource as ``created <path> (<type>)``."""
+    return f"created {created.path} ({created.type})"
+
+
+def render_resource_properties(got: "ResourceGetResult") -> str:
+    """Render a resource's properties as ``name (Type) = value`` lines for humans.
+
+    Mirrors :func:`render_node_properties`: a header naming the resource and its
+    type, then one typed line per storage property — the same human surface a
+    node's properties get, since both read the shared :class:`NodeProperty`.
+    """
+    header = f"{got.path} ({got.type})"
+    lines = [
+        f"  {prop.name} ({prop.type}) = {format_value(prop.value)}"
+        for prop in got.properties
+    ]
+    return "\n".join([header, *lines])
+
+
 def render_engine_version(version: "EngineVersion") -> str:
     """Render the engine version as its one-line version string."""
     return version.string
@@ -275,6 +297,8 @@ _RENDERERS = {
     ScriptSetResult: render_script_set,
     ScriptAttachResult: render_script_attach,
     ScriptValidateResult: render_script_validate,
+    ResourceCreateResult: render_resource_create,
+    ResourceGetResult: render_resource_properties,
     EngineVersion: render_engine_version,
 }
 

@@ -17,6 +17,8 @@ from gda.models import (
     NodeMoveResult,
     NodeRemoveResult,
     NodeSetResult,
+    ResourceCreateResult,
+    ResourceGetResult,
     SceneCreateResult,
     SceneDeleteResult,
     SceneGetResult,
@@ -615,3 +617,48 @@ def test_node_disconnect_signal_result_round_trips_the_removed_connection():
     assert (disconnected.from_node, disconnected.signal) == ("Emitter", "timeout")
     assert (disconnected.to, disconnected.method) == ("Receiver", "on_timeout")
     assert json.loads(disconnected.model_dump_json(by_alias=True)) == payload
+
+
+def test_resource_create_result_round_trips_with_type_and_dirs():
+    # resource create echoes the saved path and the resource type it wrote
+    # (issue #112), plus any parent directories created before saving — so an
+    # agent verifies the effect (path + type) without a second call.
+    payload = {
+        "path": "res://palette.tres",
+        "type": "Gradient",
+        "created_dirs": ["res://art"],
+    }
+
+    created = ResourceCreateResult.model_validate(payload)
+
+    assert created.path == "res://palette.tres"
+    assert created.type == "Gradient"
+    assert created.created_dirs == ["res://art"]
+    assert json.loads(created.model_dump_json()) == payload
+
+
+def test_resource_get_result_round_trips_typed_properties():
+    # resource get reports a resource's storage properties as typed JSON (issue
+    # #112), reusing the same NodeProperty projection as node get: each property
+    # carries its name, declared Godot type, and value as arbitrary JSON, so the
+    # model carries every Godot type uniformly without a per-type field. A
+    # resource get round-trips a create (create → get reports the resource).
+    payload = {
+        "path": "res://palette.tres",
+        "type": "Gradient",
+        "properties": [
+            {"name": "resource_name", "type": "String", "value": "Sunset"},
+            {"name": "interpolation_mode", "type": "int", "value": 0},
+            {"name": "offsets", "type": "PackedFloat32Array", "value": "[0, 1]"},
+        ],
+    }
+
+    got = ResourceGetResult.model_validate(payload)
+
+    assert got.path == "res://palette.tres"
+    assert got.type == "Gradient"
+    assert got.properties[0].name == "resource_name"
+    assert got.properties[0].type == "String"
+    assert got.properties[0].value == "Sunset"
+    assert got.properties[1].value == 0
+    assert json.loads(got.model_dump_json()) == payload

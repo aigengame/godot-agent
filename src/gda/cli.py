@@ -45,6 +45,10 @@ from gda.models import (
     NodeRemoveResult,
     NodeSetParams,
     NodeSetResult,
+    ResourceCreateParams,
+    ResourceCreateResult,
+    ResourceGetParams,
+    ResourceGetResult,
     SceneCreateParams,
     SceneCreateResult,
     SceneDeleteParams,
@@ -99,6 +103,14 @@ script_app = typer.Typer(
     help="Act on script files (.gd).", no_args_is_help=True
 )
 app.add_typer(script_app, name="script")
+
+# The resource command group (issue #112): commands acting on .tres resource
+# files on disk (load/save plumbing), so they stay headless. The group is a
+# .tres tracer; the binary .res form is out of scope for this slice.
+resource_app = typer.Typer(
+    help="Act on resource files (.tres).", no_args_is_help=True
+)
+app.add_typer(resource_app, name="resource")
 
 
 def _version_callback(value: Optional[bool]) -> None:
@@ -337,6 +349,18 @@ SCRIPT_VALIDATE_COMMAND: HeadlessCommand[ScriptValidateResult] = HeadlessCommand
     input_model=ScriptValidateParams,
     output_model=ScriptValidateResult,
     classify=classify_script_validate,
+)
+
+RESOURCE_CREATE_COMMAND: HeadlessCommand[ResourceCreateResult] = HeadlessCommand(
+    operation="resource-create",
+    input_model=ResourceCreateParams,
+    output_model=ResourceCreateResult,
+)
+
+RESOURCE_GET_COMMAND: HeadlessCommand[ResourceGetResult] = HeadlessCommand(
+    operation="resource-get",
+    input_model=ResourceGetParams,
+    output_model=ResourceGetResult,
 )
 
 
@@ -1024,6 +1048,49 @@ def validate_script(
     _dispatch(
         SCRIPT_VALIDATE_COMMAND,
         ScriptValidateParams(path=_normalize_path(path)),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@resource_app.command(cls=RESOURCE_CREATE_COMMAND.command_class())
+def create(
+    path: str = typer.Argument(..., help="Target .tres resource path to write."),
+    resource_type: str = typer.Option(
+        ...,
+        "--type",
+        help="Godot resource class of the new .tres (e.g. Gradient, Curve).",
+    ),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_CREATE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Create a new .tres resource file of the given resource type."""
+    _dispatch(
+        RESOURCE_CREATE_COMMAND,
+        ResourceCreateParams(path=_normalize_path(path), type=resource_type),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@resource_app.command(name="get", cls=RESOURCE_GET_COMMAND.command_class())
+def get_resource(
+    path: str = typer.Argument(..., help="The .tres resource file to read."),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_GET_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read a .tres resource and report its properties as typed JSON."""
+    _dispatch(
+        RESOURCE_GET_COMMAND,
+        ResourceGetParams(path=_normalize_path(path)),
         json_output=json_output,
         godot=godot,
         project=project,

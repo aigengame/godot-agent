@@ -119,6 +119,7 @@ operation, and parse codes the CLI assigns).
 | `signal_not_found` | `operation` | `operation` | `4` | A requested signal does not exist on the source node. |
 | `already_connected` | `operation` | `operation` | `4` | A signal is already connected to the target node's method. |
 | `connection_not_found` | `operation` | `operation` | `4` | A requested signal-to-method connection does not exist on the source node. |
+| `invalid_resource_type` | `operation` | `operation` | `4` | A requested resource type cannot be instantiated as a `Resource`. |
 | `contract_violation` | `parse` | `parser` | `5` | The process claimed success but violated the structured-output contract. |
 
 ## Considered options
