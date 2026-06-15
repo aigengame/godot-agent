@@ -318,13 +318,11 @@ func _op_node_add(params: Dictionary) -> void:
 		root.free()
 		return  # _instantiate_node_type already recorded the failure
 
+	# A parentless node never has its name rewritten: _is_valid_node_name already
+	# rejected the chars Godot sanitizes, and the @-dedup suffix is only appended
+	# inside add_child (already guarded by the duplicate-name check above). So the
+	# assigned name is final; no post-assignment recheck is needed.
 	node.name = node_name
-	var actual_name := String(node.name)
-	if actual_name != node_name:
-		node.free()
-		root.free()
-		_fail(OP_ERROR_INVALID_NODE_NAME, "Godot rewrote name from " + node_name + " to " + actual_name)
-		return
 	parent.add_child(node)
 	node.owner = root
 
@@ -338,7 +336,7 @@ func _op_node_add(params: Dictionary) -> void:
 	_succeed({
 		"scene_path": path,
 		"path": node_path,
-		"name": actual_name,
+		"name": node_name,
 		"type": node_type,
 		"script_class": script_class,
 	})
