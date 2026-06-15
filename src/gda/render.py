@@ -25,6 +25,7 @@ from gda.models import (
     EngineVersion,
     ListedNode,
     NodeAddResult,
+    NodeDuplicateResult,
     NodeGetResult,
     NodeListResult,
     NodeRemoveResult,
@@ -143,6 +144,14 @@ def render_node_remove(removed: "NodeRemoveResult") -> str:
     return f"removed {removed.path} ({removed.type}) from {removed.scene_path}"
 
 
+def render_node_duplicate(duplicated: "NodeDuplicateResult") -> str:
+    """Render a duplicated node as ``duplicated <source> to <path> (<type>)``."""
+    return (
+        f"duplicated {duplicated.source_path} to {duplicated.path} "
+        f"({duplicated.type})"
+    )
+
+
 def render_script_metadata(script: ScriptMetadata) -> str:
     """Render a script's path plus its class_name/extends for humans.
 
@@ -226,6 +235,7 @@ _RENDERERS = {
     NodeGetResult: render_node_properties,
     NodeSetResult: render_node_set,
     NodeRemoveResult: render_node_remove,
+    NodeDuplicateResult: render_node_duplicate,
     ScriptCreateResult: render_script_create,
     ScriptGetResult: render_script_get,
     ScriptListResult: render_script_list,

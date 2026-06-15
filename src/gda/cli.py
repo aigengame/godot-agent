@@ -29,6 +29,8 @@ from gda.models import (
     InfoParams,
     NodeAddParams,
     NodeAddResult,
+    NodeDuplicateParams,
+    NodeDuplicateResult,
     NodeGetParams,
     NodeGetResult,
     NodeListParams,
@@ -260,6 +262,12 @@ NODE_REMOVE_COMMAND: HeadlessCommand[NodeRemoveResult] = HeadlessCommand(
     operation="node-remove",
     input_model=NodeRemoveParams,
     output_model=NodeRemoveResult,
+)
+
+NODE_DUPLICATE_COMMAND: HeadlessCommand[NodeDuplicateResult] = HeadlessCommand(
+    operation="node-duplicate",
+    input_model=NodeDuplicateParams,
+    output_model=NodeDuplicateResult,
 )
 
 SCRIPT_CREATE_COMMAND: HeadlessCommand[ScriptCreateResult] = HeadlessCommand(
@@ -572,6 +580,34 @@ def remove_node(
     _dispatch(
         NODE_REMOVE_COMMAND,
         NodeRemoveParams(path=_normalize_path(path), node=node),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@node_app.command(name="duplicate", cls=NODE_DUPLICATE_COMMAND.command_class())
+def duplicate_node(
+    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
+    node: str = typer.Option(
+        ...,
+        "--node",
+        help=(
+            "Node path of the node to copy, relative to the scene root: "
+            "'Player/Arm' a nested node. The copy lands under this node's own "
+            "parent with a fresh name. The root ('.') cannot be duplicated."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = NODE_DUPLICATE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Duplicate a node (and its subtree) under its parent with a fresh name."""
+    _dispatch(
+        NODE_DUPLICATE_COMMAND,
+        NodeDuplicateParams(path=_normalize_path(path), node=node),
         json_output=json_output,
         godot=godot,
         project=project,

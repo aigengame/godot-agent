@@ -237,6 +237,35 @@ def test_node_remove_json_echoes_the_removed_node_and_exit_zero(monkeypatch):
     ]
 
 
+DUPLICATE_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "source_path": "Hero",
+    "path": "Hero2",
+    "name": "Hero2",
+    "type": "Sprite2D",
+}
+
+
+def test_node_duplicate_json_echoes_the_new_copy_and_exit_zero(monkeypatch):
+    # node duplicate (issue #56) copies a node and its subtree under the source's
+    # own parent with a fresh name, echoing the source and the new copy's
+    # address/name/type — the result an agent feeds back into other node commands.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(DUPLICATE_RESULT)
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app, ["node", "duplicate", "/tmp/proj/main.tscn", "--node", "Hero", "--json"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["source_path"] == "Hero"
+    assert (data["path"], data["name"], data["type"]) == ("Hero2", "Hero2", "Sprite2D")
+    assert fake.calls == [
+        ("node-duplicate", {"path": "/tmp/proj/main.tscn", "node": "Hero"})
+    ]
+
+
 def test_node_add_defaults_parent_to_root_and_name_to_type(monkeypatch):
     # The two ergonomic defaults (issue #53): omitting --parent targets the
     # scene root ('.'), and omitting --name names the node after its type —

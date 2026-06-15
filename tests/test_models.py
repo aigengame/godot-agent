@@ -9,6 +9,7 @@ from gda.models import (
     GdaError,
     GdaErrorEnvelope,
     NodeAddResult,
+    NodeDuplicateResult,
     NodeGetResult,
     NodeListResult,
     NodeRemoveResult,
@@ -517,3 +518,25 @@ def test_node_remove_result_round_trips():
     assert removed.name == "Hero"
     assert removed.type == "Sprite2D"
     assert json.loads(removed.model_dump_json()) == payload
+
+
+def test_node_duplicate_result_round_trips():
+    # The node-duplicate operation reports the new copy's address (issue #56):
+    # its node path relative to the scene root, plus the source node it copied,
+    # so an agent can address the duplicate without re-listing. The copy lands
+    # under the source's own parent with a fresh, non-colliding name.
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "source_path": "Player/Hero",
+        "path": "Player/Hero2",
+        "name": "Hero2",
+        "type": "Sprite2D",
+    }
+
+    duplicated = NodeDuplicateResult.model_validate(payload)
+
+    assert duplicated.source_path == "Player/Hero"
+    assert duplicated.path == "Player/Hero2"
+    assert duplicated.name == "Hero2"
+    assert duplicated.type == "Sprite2D"
+    assert json.loads(duplicated.model_dump_json()) == payload

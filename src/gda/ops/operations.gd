@@ -93,6 +93,8 @@ func _initialize() -> void:
 			_op_node_set(params)
 		"node-remove":
 			_op_node_remove(params)
+		"node-duplicate":
+			_op_node_duplicate(params)
 		"script-create":
 			_op_script_create(params)
 		"script-get":
@@ -499,6 +501,85 @@ func _op_node_remove(params: Dictionary) -> void:
 		"name": removed_name,
 		"type": removed_type,
 	})
+
+
+# node-duplicate: load a .tscn, resolve a node by node path, duplicate it and
+# its whole subtree under the SAME parent with a fresh non-colliding name, then
+# re-pack and save (issue #56). Returns the copy's new node path so an agent can
+# address it without re-listing. As a mutating op it goes through the shared
+# mutate-entry, honoring the mutation-integrity boundary (issue #64).
+#
+# duplicate() copies the subtree (storage properties, script, children), but the
+# copy and its descendants are unowned, so a re-pack would not serialize them;
+# _reown_subtree claims the whole copied subtree under the scene root before
+# saving. The scene root has no parent to host a sibling copy, so duplicating
+# '.' is refused with cannot_target_root; a node path resolving to nothing is
+# node_not_found, the node group's shared code.
+func _op_node_duplicate(params: Dictionary) -> void:
+	_diag("running operation: node-duplicate")
+	var path := _string_param(params, "path")
+	var root: Node = _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+	var node_path := _string_param(params, "node")
+	var node := _resolve_node(root, node_path)
+	if node == null:
+		root.free()
+		_fail_node_not_found(node_path)
+		return
+	if node == root:
+		root.free()
+		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot duplicate the scene root: " + node_path
+				+ " — the root has no parent to host a sibling copy")
+		return
+
+	var parent := node.get_parent()
+	var fresh_name := _fresh_child_name(parent, String(node.name))
+	var copy := node.duplicate()
+	copy.name = fresh_name
+	parent.add_child(copy)
+	# The duplicated subtree is unowned; claim every node under the scene root so
+	# the re-pack serializes the whole copy, not just an empty placeholder.
+	_reown_subtree(copy, root)
+
+	# Capture the copy's identity off the live tree before re-saving frees it.
+	var new_path := String(root.get_path_to(copy))
+	var copy_name := String(copy.name)
+	var copy_type := copy.get_class()
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
+
+	_succeed({
+		"scene_path": path,
+		"source_path": node_path,
+		"path": new_path,
+		"name": copy_name,
+		"type": copy_type,
+	})
+
+
+# A fresh child name for `parent` derived from `base`, never colliding with an
+# existing child (including the engine's internal children, which
+# get_node_or_null resolves through). Mirrors the Godot editor's duplicate
+# naming: append an incrementing integer starting at 2 ("Hero" → "Hero2", then
+# "Hero3", …). A name Godot would itself rewrite can never be produced because
+# `base` is an already-valid node name and only digits are appended.
+func _fresh_child_name(parent: Node, base: String) -> String:
+	var index := 2
+	var candidate := base + str(index)
+	while parent.get_node_or_null(NodePath(candidate)) != null:
+		index += 1
+		candidate = base + str(index)
+	return candidate
+
+
+# Claim `node` and its whole subtree under `owner` so the re-pack serializes
+# every node (a node whose owner is not the scene root is dropped from the
+# packed scene). Used after duplicate(), which produces an unowned copy.
+func _reown_subtree(node: Node, owner: Node) -> void:
+	node.owner = owner
+	for child in node.get_children():
+		_reown_subtree(child, owner)
 
 
 # script-create: write a new .gd script at the requested path — from verbatim

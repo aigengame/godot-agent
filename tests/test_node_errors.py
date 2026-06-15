@@ -363,3 +363,47 @@ def test_node_remove_root_maps_to_stable_cannot_target_root_code(monkeypatch):
     assert err["category"] == "operation"
     assert err["code"] == "cannot_target_root"
     assert "root" in err["message"]
+
+
+def _invoke_node_duplicate(monkeypatch, code: str, message: str, node: str = "Hero"):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: node-duplicate\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(
+        app, ["node", "duplicate", "/x/main.tscn", "--node", node, "--json"]
+    )
+
+
+def test_node_duplicate_missing_node_maps_to_stable_node_not_found_code(monkeypatch):
+    # issue #56: duplicating a node path that resolves to nothing reuses the
+    # node-group's node_not_found code.
+    result = _invoke_node_duplicate(
+        monkeypatch, "node_not_found", "node not found in scene: Bogus", node="Bogus"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "node_not_found"
+    assert "Bogus" in err["message"]
+
+
+def test_node_duplicate_root_maps_to_stable_cannot_target_root_code(monkeypatch):
+    # issue #56: the scene root has no parent to host a sibling copy, so
+    # duplicating '.' reuses the shared cannot_target_root code.
+    result = _invoke_node_duplicate(
+        monkeypatch,
+        "cannot_target_root",
+        "cannot duplicate the scene root: . — the root has no parent to host a sibling copy",
+        node=".",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "cannot_target_root"
+    assert "root" in err["message"]

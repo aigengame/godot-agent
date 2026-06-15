@@ -478,6 +478,48 @@ class NodeRemoveResult(BaseModel):
     type: str = Field(description="The removed node's engine class (e.g. Sprite2D).")
 
 
+class NodeDuplicateParams(BaseModel):
+    """The operation params of ``gda node duplicate`` (issue #56).
+
+    ``path`` is the ``.tscn`` scene file to mutate; ``node`` addresses the node
+    to copy by its node path relative to the scene root. The copy (and its whole
+    subtree) lands under the source node's own parent with a fresh,
+    non-colliding name. The scene root ('.') has no parent to host a sibling
+    copy, so duplicating it is refused.
+    """
+
+    path: str
+    node: str = Field(
+        description=(
+            "Node path relative to the scene root: 'Player/Arm' a nested node. "
+            "The copy lands under this node's own parent; the root ('.') cannot "
+            "be duplicated."
+        )
+    )
+
+
+class NodeDuplicateResult(BaseModel):
+    """The result of ``gda node duplicate``: the new copy and where it landed (issue #56).
+
+    Echoes the ``source_path`` it copied and the new copy's ``path`` (its node
+    path relative to the scene root), ``name``, and ``type`` — the fresh,
+    non-colliding name the operation assigned — so an agent can address the
+    duplicate in follow-up node commands without re-listing.
+    """
+
+    scene_path: str
+    source_path: str = Field(
+        description="The copied node's node path, relative to the scene root."
+    )
+    path: str = Field(
+        description="The new copy's node path, relative to the scene root."
+    )
+    name: str = Field(
+        description="The fresh, non-colliding name assigned to the copy."
+    )
+    type: str = Field(description="The copy's engine class (e.g. Sprite2D).")
+
+
 class ScriptCreateParams(BaseModel):
     """The operation params of ``gda script create`` (issue #110).
 

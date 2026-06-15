@@ -309,11 +309,30 @@ def test_node_remove_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_node_duplicate_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for node duplicate (issue #56): the bare --schema
+    # flag — no path, no --node — short-circuits into the self-description.
+    from gda.models import NodeDuplicateParams, NodeDuplicateResult
+
+    result = CliRunner().invoke(app, ["node", "duplicate", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == NodeDuplicateParams.model_json_schema()
+    assert doc["output"] == NodeDuplicateResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    node_description = doc["input"]["properties"]["node"]["description"]
+    assert "scene root" in node_description
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_sample_node_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each node command satisfies the contract its
     # --schema emits (the other half of the ADR-0004 hard gate, issues #53/#55/#56).
     from tests.test_node_commands import (
         ADD_RESULT,
+        DUPLICATE_RESULT,
         GET_RESULT,
         LIST_RESULT,
         REMOVE_RESULT,
@@ -327,12 +346,16 @@ def test_sample_node_results_validate_against_emitted_output_schemas():
     remove_doc = json.loads(
         CliRunner().invoke(app, ["node", "remove", "--schema"]).stdout
     )
+    duplicate_doc = json.loads(
+        CliRunner().invoke(app, ["node", "duplicate", "--schema"]).stdout
+    )
 
     jsonschema.validate(instance=ADD_RESULT, schema=add_doc["output"])
     jsonschema.validate(instance=LIST_RESULT, schema=list_doc["output"])
     jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
     jsonschema.validate(instance=SET_RESULT, schema=set_doc["output"])
     jsonschema.validate(instance=REMOVE_RESULT, schema=remove_doc["output"])
+    jsonschema.validate(instance=DUPLICATE_RESULT, schema=duplicate_doc["output"])
 
 
 def test_node_schema_spawns_no_godot(monkeypatch):
@@ -348,6 +371,7 @@ def test_node_schema_spawns_no_godot(monkeypatch):
         ["node", "get"],
         ["node", "set"],
         ["node", "remove"],
+        ["node", "duplicate"],
     ):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0

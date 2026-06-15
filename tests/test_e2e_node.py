@@ -937,3 +937,104 @@ def test_node_remove_root_yields_cannot_target_root(godot_project):
 
     err = _assert_operation_error(removed, "cannot_target_root")
     assert scene_path.read_text(encoding="utf-8") == before
+
+
+# --- node duplicate (issue #56) ---
+
+
+@pytest.mark.e2e
+def test_node_duplicate_copies_node_under_same_parent_with_fresh_name(godot_project):
+    # node duplicate (issue #56): the copy lands under the source node's OWN
+    # parent (a sibling) with a fresh, non-colliding name, and the new node path
+    # is reported — verified through a fresh node list. The source survives.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    _gda("node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json")
+
+    duplicated = _gda("node", "duplicate", str(scene_path), "--node", "Hero", "--json")
+
+    assert duplicated.returncode == 0, duplicated.stdout + duplicated.stderr
+    data = json.loads(duplicated.stdout)
+    assert data["source_path"] == "Hero"
+    assert data["type"] == "Sprite2D"
+    # The fresh name is non-colliding and the new node path is a root-relative
+    # sibling of the source.
+    assert data["name"] != "Hero"
+    assert "/" not in data["path"]
+    assert data["path"] == data["name"]
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+    children = json.loads(listed.stdout)["root"]["children"]
+    names = sorted(child["name"] for child in children)
+    # Both the source and its fresh-named copy are present as siblings.
+    assert "Hero" in names
+    assert data["name"] in names
+    assert len(names) == 2
+
+
+@pytest.mark.e2e
+def test_node_duplicate_copies_the_whole_subtree(godot_project):
+    # Duplicate copies the node AND its subtree: the source has a child, and the
+    # copy must carry an equivalent child under the new node path.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "Hero", "--json")
+    _gda(
+        "node", "add", str(scene_path),
+        "--type", "Area2D", "--name", "Hitbox", "--parent", "Hero", "--json",
+    )
+
+    duplicated = _gda("node", "duplicate", str(scene_path), "--node", "Hero", "--json")
+    assert duplicated.returncode == 0, duplicated.stdout + duplicated.stderr
+    new_name = json.loads(duplicated.stdout)["name"]
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+    by_name = {c["name"]: c for c in json.loads(listed.stdout)["root"]["children"]}
+    copy = by_name[new_name]
+    # The copied subtree carries the child, re-pathed under the new parent.
+    assert copy["children"][0]["name"] == "Hitbox"
+    assert copy["children"][0]["type"] == "Area2D"
+    assert copy["children"][0]["path"] == f"{new_name}/Hitbox"
+
+
+@pytest.mark.e2e
+def test_node_duplicate_nested_node_lands_under_its_own_parent(godot_project):
+    # A nested source is duplicated under ITS parent, not the scene root: the new
+    # node path shares the source's parent prefix.
+    scene_path = _scene_with_nested_children(godot_project)  # root -> A -> B
+
+    duplicated = _gda("node", "duplicate", str(scene_path), "--node", "A/B", "--json")
+
+    assert duplicated.returncode == 0, duplicated.stdout + duplicated.stderr
+    data = json.loads(duplicated.stdout)
+    assert data["source_path"] == "A/B"
+    # The copy is a sibling of B, under A.
+    assert data["path"].startswith("A/")
+    assert data["path"] != "A/B"
+
+
+@pytest.mark.e2e
+def test_node_duplicate_missing_node_yields_node_not_found(godot_project):
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    duplicated = _gda("node", "duplicate", str(scene_path), "--node", "Bogus", "--json")
+
+    err = _assert_operation_error(duplicated, "node_not_found")
+    assert "Bogus" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_duplicate_root_yields_cannot_target_root(godot_project):
+    # The scene root has no parent to host a sibling copy, so duplicating '.' is
+    # refused with cannot_target_root and the file is left untouched.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    duplicated = _gda("node", "duplicate", str(scene_path), "--node", ".", "--json")
+
+    _assert_operation_error(duplicated, "cannot_target_root")
+    assert scene_path.read_text(encoding="utf-8") == before

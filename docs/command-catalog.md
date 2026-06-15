@@ -132,6 +132,12 @@ corrupting the scene.
   the removed node's path/name/type (captured before the re-save). A node path that resolves to
   nothing is `node_not_found`; removing the root (`--node .`) is `cannot_target_root` — delete
   the scene file instead.
+- `gda node duplicate SCENE --node <node-path>` copies a node **and its whole subtree** under the
+  source node's **own parent** (the copy is a sibling), assigning a **fresh, non-colliding name**:
+  the source name with an incrementing integer appended, starting at `2` (`Hero` → `Hero2`, then
+  `Hero3`, …), skipping any name already taken — including the engine's internal children. It
+  returns the copy's new node path. Duplicating the root (`--node .`) is `cannot_target_root` —
+  the root has no parent to host a sibling copy.
 
 | Command | Description |
 | --- | --- |
