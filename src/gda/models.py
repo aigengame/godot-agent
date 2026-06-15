@@ -310,7 +310,7 @@ class NodeAddResult(BaseModel):
     )
 
 
-class ListedNode(BaseModel):
+class ListedNode(SceneNode):
     """One node of ``gda node list``'s tree: name, type, node path, children.
 
     Like ``SceneNode`` but each node also carries its node path relative to the
@@ -318,8 +318,12 @@ class ListedNode(BaseModel):
     other node commands (e.g. ``node add --parent``).
     """
 
-    name: str
-    type: str
+    # Subclasses ``SceneNode`` so the recursive tree shape (name/type/children)
+    # has one source of truth; ``children`` is re-declared as ``list[ListedNode]``
+    # — not the inherited ``list[SceneNode]`` — so a listed node's children are
+    # themselves listed nodes (carrying ``path``), keeping the tree self-recursive
+    # on ``ListedNode`` and the ``--json``/``--schema`` output byte-for-byte
+    # unchanged.
     path: str = Field(
         description=(
             "The node's node path relative to the scene root: '.' for the root "
