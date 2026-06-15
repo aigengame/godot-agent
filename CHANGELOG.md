@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.13](https://github.com/aigengame/godot-agent/compare/v0.1.12...v0.1.13) (2026-06-15)
+
+
+### Features
+
+* **script:** attach overwrites-and-reports the displaced script ([#132](https://github.com/aigengame/godot-agent/issues/132)) ([#149](https://github.com/aigengame/godot-agent/issues/149)) ([1b81b46](https://github.com/aigengame/godot-agent/commit/1b81b461922c76c24a10676a8340ea7d09e50493))
+
 ## [0.1.12](https://github.com/aigengame/godot-agent/compare/v0.1.11...v0.1.12) (2026-06-15)
 
 
