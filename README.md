@@ -61,7 +61,8 @@ for the full picture.
   ([ADR-0005](docs/adr/0005-cli-command-taxonomy.md)).
 - ✅ The contract every shipped command carries: structured `--json` output, model-derived
   `--schema` self-description ([ADR-0004](docs/adr/0004-schema-flag-self-description.md)), and
-  structured `{"error": {category, code, …}}` failures with category-distinguishing exit codes.
+  structured `{"error": {category, code, …}}` failures with category-distinguishing
+  [exit codes](#exit-codes-the-cli-abi).
 - ✅ The engine plumbing underneath: Godot binary resolution (flag / env var / default) and the
   bounded one-shot `godot --headless` runner with its sentinel output contract
   ([ADR-0002](docs/adr/0002-headless-structured-output-contract.md)).
@@ -289,6 +290,27 @@ with a sentinel contract ([ADR-0002](docs/adr/0002-headless-structured-output-co
 This is what makes `gda`'s output safe to consume programmatically, and it generalizes to the
 per-message protocol the daemon will use in Phase 2.
 
+### Exit codes (the CLI ABI)
+
+A failed `gda` run exits with a small, stable code so a shell or agent can branch on the failure
+**category without parsing the JSON error**:
+
+| Exit code | Category      | When                                                                  |
+| --------- | ------------- | --------------------------------------------------------------------- |
+| `0`       | —             | Success.                                                              |
+| `127`     | `environment` | The Godot binary could not be launched (shell convention: not found). |
+| `124`     | `environment` | Godot launched but did not return before the runner timeout (shell convention: timed out). |
+| `3`       | `version`     | The detected Godot version is below the supported minimum.            |
+| `4`       | `operation`   | The engine ran but the operation failed — a registered operation error, an engine crash, or an unstructured non-zero exit. |
+| `5`       | `parse`       | The process claimed success but violated the structured-output contract. |
+
+These values are the public ABI; their authoritative source is
+[`src/gda/exit_codes.py`](src/gda/exit_codes.py) — that registry, not this table, defines them.
+The `{"error": {category, code, …}}` envelope carries a **finer `code`** within each category
+(e.g. `path_not_found`, `already_exists`, and `node_not_found` all sit under `operation` / exit `4`).
+The full code → category → exit-code registry, kept in sync with the code by tests, lives in
+[ADR-0002’s `GdaError.code` registry table](docs/adr/0002-headless-structured-output-contract.md#gdaerrorcode-registry).
+
 ---
 
 ## Development
@@ -316,6 +338,7 @@ src/gda/
   parser.py         # sentinel-contract result parser (ADR-0002)
   models.py         # typed I/O models (Pydantic) backing --json and --schema (ADR-0004)
   errors.py         # failure classification: shared classify_run + per-command layers
+  error_codes.py    # the registry of public GdaError.code values (ADR-0002 companion)
   exit_codes.py     # the single registry of process exit codes (the CLI ABI)
   ops/operations.gd # GDScript payload, dispatched by operation name
 tests/              # unit tests + e2e tests against a real engine (shared fixtures in conftest.py)
