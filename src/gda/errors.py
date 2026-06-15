@@ -204,10 +204,14 @@ def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | 
 # A `SCRIPT ERROR: <message>` line and the `GDScript::reload (...:<line>)` frame
 # that follows it carry, between them, the one advisory diagnostic the engine
 # emits for a failed validate (issue #118). The line number is the final `:`
-# part of the reload frame; there is NO column on the standard build. Backtrace
-# frames (`[n] _initialize (...)`) are operations.gd's own lines, not the
-# validated script's, so they are deliberately not matched.
-_SCRIPT_ERROR_LINE = re.compile(r"^\s*SCRIPT ERROR:\s*(?P<message>.*?)\s*$", re.MULTILINE)
+# part of the reload frame; there is NO column on the standard build.
+# `[ \t]` (not `\s`) bounds the message capture so it cannot span newlines — an
+# empty SCRIPT ERROR message must not swallow the following reload frame.
+# Backtrace frames (`[n] _initialize (...)`) are operations.gd's own lines, not
+# the validated script's, so they are deliberately not matched.
+_SCRIPT_ERROR_LINE = re.compile(
+    r"^[ \t]*SCRIPT ERROR:[ \t]*(?P<message>.*?)[ \t]*$", re.MULTILINE
+)
 _RELOAD_FRAME = re.compile(r"GDScript::reload \([^)]*:(?P<line>\d+)\)")
 
 
@@ -218,18 +222,35 @@ def parse_validate_diagnostics(stderr: str) -> list[ScriptDiagnostic]:
     ``GDScript.reload()`` are available only from stderr, not from any bound API
     (ADR-0002's stderr is advisory only — it is never parsed for the stable
     success/failure outcome or error codes, only surfaced here as best-effort
-    diagnostics). Each ``SCRIPT ERROR: <message>`` line is paired with the line
-    number from its following ``GDScript::reload (...:<line>)`` frame; ``column``
-    is always null (the engine exposes none). Returns ``[]`` when nothing parses.
+    diagnostics). ``column`` is always null (the engine exposes none).
+
+    The validate op does exactly ONE ``reload()``, so the only legitimate
+    ``GDScript::reload`` frame in stderr is the validated script's. Each
+    ``SCRIPT ERROR: <message>`` line is paired with a reload frame found ONLY in
+    the window up to the next ``SCRIPT ERROR`` line, and a ``SCRIPT ERROR`` with
+    no reload frame in that window is dropped: bounding the search keeps a later
+    error's frame from being mis-attributed to an earlier message, and the
+    frame requirement excludes unrelated engine ``SCRIPT ERROR`` noise — e.g. an
+    autoload's own startup error under ``--project``, whose frame is its
+    ``_init``/``_ready``, not ``GDScript::reload``. Returns ``[]`` when nothing
+    matches.
     """
+    matches = list(_SCRIPT_ERROR_LINE.finditer(stderr))
     diagnostics: list[ScriptDiagnostic] = []
-    for match in _SCRIPT_ERROR_LINE.finditer(stderr):
-        message = match.group("message")
-        # The reload frame, when present, follows the SCRIPT ERROR line; look
-        # for the next one after this match to read its line number.
-        frame = _RELOAD_FRAME.search(stderr, match.end())
-        line = int(frame.group("line")) if frame is not None else None
-        diagnostics.append(ScriptDiagnostic(line=line, column=None, message=message))
+    for index, match in enumerate(matches):
+        window_end = (
+            matches[index + 1].start() if index + 1 < len(matches) else len(stderr)
+        )
+        frame = _RELOAD_FRAME.search(stderr, match.end(), window_end)
+        if frame is None:
+            continue
+        diagnostics.append(
+            ScriptDiagnostic(
+                line=int(frame.group("line")),
+                column=None,
+                message=match.group("message"),
+            )
+        )
     return diagnostics
 
 

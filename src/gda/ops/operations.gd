@@ -47,6 +47,7 @@ const OP_ERROR_UNKNOWN_PROPERTY := "unknown_property"
 const OP_ERROR_UNCOERCIBLE_VALUE := "uncoercible_value"
 const OP_ERROR_NO_SEARCH_MATCH := "no_search_match"
 const OP_ERROR_INVALID_LINE_RANGE := "invalid_line_range"
+const OP_ERROR_SCRIPT_COMPILE_FAILED := "script_compile_failed"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -752,8 +753,19 @@ func _apply_line_range(source: String, params: Dictionary) -> Variant:
 # → unmaterialized-node guard, the same as node set), so it honors the
 # mutation-integrity boundary (issue #64) and instantiates the scene — running
 # the _init of scripts already attached in the scene (the inherent trust
-# boundary of ADR-0009). Loading the .gd to attach compiles it but never runs an
-# instance of it.
+# boundary of ADR-0009). For a script that compiles, set_script constructs an
+# instance of the attached .gd, which RUNS that script's _init too — attach's
+# project-code execution surface is both already-attached scripts and the
+# newly-attached one.
+#
+# attach requires the script to COMPILE. On the standard headless build,
+# set_script silently REJECTS a non-compiling script — the node's script stays
+# null and a re-pack saves no script at all — so attach cannot honor a request
+# to bind a broken script (verified: ResourceLoader.load returns a non-null
+# Script for a .gd with a parse error, but get_script() is null after
+# set_script). Rather than report a phantom success over a scene with no script
+# attached, attach verifies the bind took effect and refuses a non-compiling
+# script with script_compile_failed — fix it (or check with script validate).
 func _op_script_attach(params: Dictionary) -> void:
 	_diag("running operation: script-attach")
 	var path := _string_param(params, "path")
@@ -777,14 +789,25 @@ func _op_script_attach(params: Dictionary) -> void:
 		_fail_node_not_found(node_path)
 		return
 
+	# load returns a non-null Script even for a .gd that does not compile (compile
+	# errors go to stderr; the resource still loads), so a null here is a genuine
+	# resource-load failure (e.g. no format loader), not a compile verdict — guard
+	# it so set_script is never handed null (which would clear the node's script).
 	var script := ResourceLoader.load(script_path) as Script
 	if script == null:
 		root.free()
-		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a GDScript: " + script_path
-				+ " — it may not compile")
+		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a GDScript resource: " + script_path)
 		return
 
 	node.set_script(script)
+	# set_script silently rejects a non-compiling script: get_script() stays null
+	# and a re-pack would save no script. Verify the bind took effect rather than
+	# report a phantom success over a scene with nothing attached.
+	if node.get_script() == null:
+		root.free()
+		_fail(OP_ERROR_SCRIPT_COMPILE_FAILED, "script does not compile, so it cannot be attached: "
+				+ script_path + " — fix it, or check it with `gda script validate`")
+		return
 
 	var repacked := PackedScene.new()
 	var pack_err := repacked.pack(root)

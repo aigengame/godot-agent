@@ -206,12 +206,16 @@ edit round-trips through `script get` (the verifier).
 **node-path addressing** (#53): `--node .` is the scene root, `--node A/B` a descendant — exactly
 the form `node list` reports. Unlike the other script-file ops, `attach` is a **scene mutation**:
 it loads and **instantiates** the scene (so it runs the `_init` of scripts already in the scene —
-the inherent trust boundary of `node set`, ADR-0009), attaches the script via `set_script`, and
-re-packs and saves; loading the `.gd` to attach compiles it but never runs an instance of it. It
-reuses existing codes (no new ones): a missing/unloadable `.gd` is `path_not_found`/`invalid_path`,
-a non-`.gd` script is `invalid_path`, a node path that resolves to nothing is `node_not_found`, a
-missing or non-scene file is `path_not_found`/`not_a_scene`, and a scene whose instances vanish or
-degrade on load is `missing_dependency` (the mutation-integrity boundary, #64). The result echoes
+the inherent trust boundary of `node set`, ADR-0009), attaches the script via `set_script` (which,
+for a script that compiles, constructs an instance of the newly-attached script, running *its*
+`_init` too), and re-packs and saves. The attached script **must compile**: the headless engine
+silently rejects a non-compiling script from `set_script` (the node's script stays null and a
+re-pack saves no script), so attach **refuses** one with `script_compile_failed` rather than report
+a phantom success over a scene with nothing attached — check a script with `script validate` first.
+Other failures reuse existing codes: a missing script is `path_not_found`, a non-`.gd` script is
+`invalid_path`, a node path that resolves to nothing is `node_not_found`, a missing or non-scene
+file is `path_not_found`/`not_a_scene`, and a scene whose instances vanish or degrade on load is
+`missing_dependency` (the mutation-integrity boundary, #64). The result echoes
 the scene, node, script, and the attached script's `class_name` (null when it declares none),
 verifiable by reading the saved `.tscn` back: the script now appears as an `ext_resource` the node
 references.

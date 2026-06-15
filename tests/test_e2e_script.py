@@ -634,10 +634,12 @@ def test_script_validate_broken_script_is_success_with_a_real_diagnostic(godot_p
     data = json.loads(validated.stdout)
     assert data["valid"] is False
     assert data["error_string"] is not None
-    assert len(data["diagnostics"]) >= 1
+    # Exactly one diagnostic, at the error's real source line (3: `var x =`) —
+    # pinned (not just `len>=1`/`line>=1`) so a regression in the stderr pairing
+    # (a borrowed/duplicated frame line) fails this real-engine gate.
+    assert len(data["diagnostics"]) == 1
     diag = data["diagnostics"][0]
-    assert isinstance(diag["line"], int)
-    assert diag["line"] >= 1
+    assert diag["line"] == 3
     assert diag["message"]
     # Column is unavailable on the standard build.
     assert diag["column"] is None
@@ -762,6 +764,41 @@ def test_script_attach_no_class_name_echoes_null_class_name(godot_project):
 
     assert attached.returncode == 0, attached.stdout + attached.stderr
     assert json.loads(attached.stdout)["class_name"] is None
+
+
+@pytest.mark.e2e
+def test_script_attach_non_compiling_script_yields_script_compile_failed(godot_project):
+    # attach REQUIRES the script to compile: the headless engine silently rejects
+    # a non-compiling script from set_script (the bind never takes, a re-pack
+    # saves no script), so attach must refuse with script_compile_failed rather
+    # than report a phantom success over a scene with nothing attached. The scene
+    # is left untouched.
+    gda = _gda_project(godot_project)
+    assert (
+        gda("scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json")
+        .returncode
+        == 0
+    )
+    # `var x =` has no initializer — a genuine parse error; the script does not
+    # compile. script validate would report valid=false on it.
+    assert (
+        gda(
+            "script", "create", "res://broken.gd",
+            "--content", "extends Node2D\n\nvar x =\n", "--json",
+        ).returncode
+        == 0
+    )
+    before = (godot_project / "main.tscn").read_text(encoding="utf-8")
+
+    attached = gda(
+        "script", "attach", "res://main.tscn",
+        "--node", ".", "--script", "res://broken.gd", "--json",
+    )
+
+    err = _assert_operation_error(attached, "script_compile_failed")
+    assert "broken.gd" in err["message"]
+    # The refusal leaves the scene exactly as it was — no half-applied mutation.
+    assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
 
 
 @pytest.mark.e2e

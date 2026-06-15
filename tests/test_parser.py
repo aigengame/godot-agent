@@ -88,11 +88,13 @@ def test_parse_validate_diagnostics_ignores_operations_own_backtrace_frames():
     # A failed reload also prints a GDScript backtrace of operations.gd's OWN
     # frames ([n] _initialize (...)). Those are not the validated script's lines,
     # so they must not become diagnostics — only the SCRIPT ERROR + reload frame.
+    # This is the backtrace shape the standard build actually emits.
     stderr = (
         'SCRIPT ERROR: Parse Error: Unexpected "Identifier" in class body.\n'
         "          at: GDScript::reload (gdscript://-123.gd:5)\n"
-        "   0: [gdscript] operations.gd:_op_script_validate(...) at line 700\n"
-        "   1: [gdscript] operations.gd:_initialize(...) at line 60\n"
+        "          GDScript backtrace (most recent call first):\n"
+        "              [0] _op_script_validate (res://ops/operations.gd:864)\n"
+        "              [1] _initialize (res://ops/operations.gd:60)\n"
     )
 
     diagnostics = parse_validate_diagnostics(stderr)
@@ -100,3 +102,56 @@ def test_parse_validate_diagnostics_ignores_operations_own_backtrace_frames():
     assert len(diagnostics) == 1
     assert diagnostics[0].line == 5
     assert diagnostics[0].message == 'Parse Error: Unexpected "Identifier" in class body.'
+
+
+def test_parse_validate_diagnostics_does_not_borrow_a_later_errors_reload_line():
+    # Bounded pairing: a SCRIPT ERROR with NO reload frame in its own window must
+    # not steal the line of a later, unrelated error's reload frame. The first
+    # SCRIPT ERROR is dropped (no reload frame before the next one); only the
+    # second — which owns a reload frame — is reported, at ITS line.
+    stderr = (
+        "SCRIPT ERROR: Method failed. Returning: null\n"
+        "SCRIPT ERROR: Parse Error: the real parse error.\n"
+        "          at: GDScript::reload (gdscript://-1.gd:7)\n"
+    )
+
+    diagnostics = parse_validate_diagnostics(stderr)
+
+    assert len(diagnostics) == 1
+    assert diagnostics[0].line == 7
+    assert diagnostics[0].message == "Parse Error: the real parse error."
+
+
+def test_parse_validate_diagnostics_empty_message_keeps_line_and_does_not_spill():
+    # An empty SCRIPT ERROR message must not swallow the following reload frame
+    # (the `[ \t]` bound keeps the capture on its own line): the diagnostic still
+    # gets the frame's line, with an empty message rather than the frame text.
+    stderr = (
+        "SCRIPT ERROR: \n"
+        "          at: GDScript::reload (gdscript://-1.gd:4)\n"
+    )
+
+    diagnostics = parse_validate_diagnostics(stderr)
+
+    assert len(diagnostics) == 1
+    assert diagnostics[0].line == 4
+    assert diagnostics[0].message == ""
+
+
+def test_parse_validate_diagnostics_ignores_unrelated_autoload_script_errors():
+    # Under --project the engine may print an autoload's OWN startup error to the
+    # same stderr; its frame is the autoload's _ready/_init, not GDScript::reload.
+    # That error is not the validated script's, so it is dropped — only the
+    # reload-framed diagnostic survives.
+    stderr = (
+        "SCRIPT ERROR: Some autoload blew up at startup.\n"
+        "          at: GameState._ready (res://game_state.gd:12)\n"
+        "SCRIPT ERROR: Parse Error: the validated script error.\n"
+        "          at: GDScript::reload (gdscript://-1.gd:9)\n"
+    )
+
+    diagnostics = parse_validate_diagnostics(stderr)
+
+    assert len(diagnostics) == 1
+    assert diagnostics[0].line == 9
+    assert diagnostics[0].message == "Parse Error: the validated script error."

@@ -700,8 +700,13 @@ class ScriptAttachParams(BaseModel):
     resolve the node by node path, attach the script, then re-pack and save. As a
     scene mutation it instantiates the scene (the same inherent trust boundary as
     ``node set``, ADR-0009): instantiating runs the ``_init`` of scripts already
-    attached in the scene. ``path`` is the scene; ``script`` is the ``.gd`` to
-    attach (loading it compiles the script but never runs an instance of it).
+    attached in the scene, and for a script that compiles ``set_script``
+    constructs an instance of the newly-attached script, running its ``_init``
+    too. ``path`` is the scene; ``script`` is the ``.gd`` to attach. The script
+    must COMPILE: the headless engine silently rejects a non-compiling script
+    from ``set_script`` (it cannot be persisted into the scene), so attach
+    refuses one with ``script_compile_failed`` rather than report a phantom
+    success — check a script with ``script validate`` first.
     """
 
     path: str = Field(

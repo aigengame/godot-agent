@@ -380,20 +380,38 @@ def test_script_attach_missing_scene_reuses_stable_path_not_found_code(monkeypat
     assert "/x/main.tscn" in err["message"]
 
 
-def test_script_attach_unloadable_script_reuses_stable_invalid_path_code(monkeypatch):
-    # A .gd that exists but cannot be loaded as a Script (it does not compile) is
-    # refused with invalid_path naming the path; loading it compiles but never
-    # runs an instance of it.
+def test_script_attach_unloadable_resource_reuses_stable_invalid_path_code(monkeypatch):
+    # A .gd that cannot even be loaded AS A RESOURCE (a genuine load failure, not
+    # a compile error — load returns non-null for a non-compiling script) is the
+    # defensive invalid_path branch, naming the path.
     result = _invoke_script_attach(
         monkeypatch,
         "invalid_path",
-        "file could not be loaded as a GDScript: /x/hero.gd — it may not compile",
+        "file could not be loaded as a GDScript resource: /x/hero.gd",
     )
 
     assert result.exit_code == 4
     err = json.loads(result.stdout)["error"]
     assert err["category"] == "operation"
     assert err["code"] == "invalid_path"
+    assert "/x/hero.gd" in err["message"]
+
+
+def test_script_attach_non_compiling_script_uses_script_compile_failed_code(monkeypatch):
+    # A .gd that loads but does not COMPILE cannot be bound: the headless engine
+    # silently rejects it from set_script, so attach refuses with the focused
+    # script_compile_failed code rather than report a phantom success over a
+    # scene with nothing attached.
+    result = _invoke_script_attach(
+        monkeypatch,
+        "script_compile_failed",
+        "script does not compile, so it cannot be attached: /x/hero.gd",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "script_compile_failed"
     assert "/x/hero.gd" in err["message"]
 
 

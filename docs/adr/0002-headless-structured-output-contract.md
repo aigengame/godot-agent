@@ -106,6 +106,7 @@ source and is checked by tests. GDScript mirrors only the rows whose source is
 | `uncoercible_value` | `operation` | `operation` | A supplied value cannot be coerced to the property's declared Godot type. |
 | `no_search_match` | `operation` | `operation` | A search-replace script edit found no occurrence of the search string. |
 | `invalid_line_range` | `operation` | `operation` | A line-range script edit specified lines outside the script's bounds, or end before start. |
+| `script_compile_failed` | `operation` | `operation` | A script could not be attached to a node because it does not compile. |
 | `contract_violation` | `parse` | `parser` | The process claimed success but violated the structured-output contract. |
 
 ## Considered options
