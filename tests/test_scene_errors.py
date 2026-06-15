@@ -65,6 +65,54 @@ def test_scene_get_unloadable_file_maps_to_stable_not_a_scene_code(monkeypatch):
     assert err["code"] == "not_a_scene"
 
 
+def test_scene_get_exports_missing_file_maps_to_stable_path_not_found_code(monkeypatch):
+    # scene get-exports reuses the shared load-failure ladder (issue #58): a
+    # target that does not exist is the file-level path_not_found, exit 4, so an
+    # agent can tell "no such scene" apart from other get-exports failures.
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(
+                "path_not_found", "scene file does not exist: /x/missing.tscn"
+            ),
+            stderr="gda: running operation: scene-get-exports\n",
+            exit_code=1,
+        ),
+    )
+
+    result = CliRunner().invoke(app, ["scene", "get-exports", "/x/missing.tscn"])
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "path_not_found"
+    assert "/x/missing.tscn" in err["message"]
+
+
+def test_scene_get_exports_unloadable_file_maps_to_stable_not_a_scene_code(monkeypatch):
+    # The file exists but Godot cannot load it as a PackedScene — get-exports
+    # reuses the same stable not_a_scene code scene get / delete report, so a
+    # stray non-scene file is refused rather than mis-handled (issue #58).
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel(
+                "not_a_scene", "failed to load as a scene: /x/notes.txt"
+            ),
+            stderr="",
+            exit_code=1,
+        ),
+    )
+
+    result = CliRunner().invoke(app, ["scene", "get-exports", "/x/notes.txt"])
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "not_a_scene"
+
+
 def test_scene_create_unknown_root_type_maps_to_stable_invalid_root_type_code(
     monkeypatch,
 ):

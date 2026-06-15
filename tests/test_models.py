@@ -21,6 +21,7 @@ from gda.models import (
     ResourceGetResult,
     SceneCreateResult,
     SceneDeleteResult,
+    SceneGetExportsResult,
     SceneGetResult,
     SceneListResult,
     ScriptCreateResult,
@@ -661,4 +662,50 @@ def test_resource_get_result_round_trips_typed_properties():
     assert got.properties[0].type == "String"
     assert got.properties[0].value == "Sunset"
     assert got.properties[1].value == 0
+    assert json.loads(got.model_dump_json()) == payload
+
+
+def test_scene_get_exports_result_round_trips_per_node_exports():
+    # scene get-exports reports, per node (by node path), the @export properties
+    # the node's attached script declares (issue #58): each export carries its
+    # name, declared Godot type, hint/hint_string, and current value in the same
+    # JSON projection node get uses. A node carries the script that declares the
+    # exports, so an agent knows where they came from.
+    payload = {
+        "path": "/p/main.tscn",
+        "nodes": [
+            {
+                "path": ".",
+                "name": "main",
+                "type": "Node2D",
+                "script": "res://main.gd",
+                "exports": [
+                    {
+                        "name": "speed",
+                        "type": "float",
+                        "hint": 0,
+                        "hint_string": "",
+                        "value": 3.5,
+                    },
+                    {
+                        "name": "title",
+                        "type": "String",
+                        "hint": 0,
+                        "hint_string": "",
+                        "value": "Hello",
+                    },
+                ],
+            }
+        ],
+    }
+
+    got = SceneGetExportsResult.model_validate(payload)
+
+    assert got.path == "/p/main.tscn"
+    node = got.nodes[0]
+    assert (node.path, node.name, node.type) == (".", "main", "Node2D")
+    assert node.script == "res://main.gd"
+    assert node.exports[0].name == "speed"
+    assert node.exports[0].type == "float"
+    assert node.exports[0].value == 3.5
     assert json.loads(got.model_dump_json()) == payload

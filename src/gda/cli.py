@@ -53,6 +53,8 @@ from gda.models import (
     SceneCreateResult,
     SceneDeleteParams,
     SceneDeleteResult,
+    SceneGetExportsParams,
+    SceneGetExportsResult,
     SceneGetParams,
     SceneGetResult,
     SceneListParams,
@@ -238,6 +240,12 @@ SCENE_GET_COMMAND: HeadlessCommand[SceneGetResult] = HeadlessCommand(
     operation="scene-get",
     input_model=SceneGetParams,
     output_model=SceneGetResult,
+)
+
+SCENE_GET_EXPORTS_COMMAND: HeadlessCommand[SceneGetExportsResult] = HeadlessCommand(
+    operation="scene-get-exports",
+    input_model=SceneGetExportsParams,
+    output_model=SceneGetExportsResult,
 )
 
 SCENE_LIST_COMMAND: HeadlessCommand[SceneListResult] = HeadlessCommand(
@@ -435,6 +443,25 @@ def get(
     _dispatch(
         SCENE_GET_COMMAND,
         SceneGetParams(path=_normalize_path(path)),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@scene_app.command(name="get-exports", cls=SCENE_GET_EXPORTS_COMMAND.command_class())
+def get_exports(
+    path: str = typer.Argument(..., help="The .tscn scene file to read."),
+    json_output: bool = json_option(),
+    schema: bool = SCENE_GET_EXPORTS_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """List the @export properties a scene's nodes' scripts declare, per node path."""
+    _dispatch(
+        SCENE_GET_EXPORTS_COMMAND,
+        SceneGetExportsParams(path=_normalize_path(path)),
         json_output=json_output,
         godot=godot,
         project=project,

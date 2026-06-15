@@ -84,6 +84,8 @@ func _initialize() -> void:
 			_op_scene_create(params)
 		"scene-get":
 			_op_scene_get(params)
+		"scene-get-exports":
+			_op_scene_get_exports(params)
 		"scene-list":
 			_op_scene_list(params)
 		"scene-delete":
@@ -219,6 +221,120 @@ func _op_scene_get(params: Dictionary) -> void:
 		"path": _string_param(params, "path"),
 		"root": _tree_from_state(packed.get_state()),
 	})
+
+
+# scene-get-exports: load a .tscn, instantiate it, and emit — per node (by node
+# path) — the @export properties the node's attached script declares (issue #58).
+#
+# Unlike scene-get (which reads SceneState without instantiating, issue #30),
+# reporting an export's TYPE/HINT and current/default VALUE requires the real
+# script and the real node: a script's @export surface is read from
+# Script.get_script_property_list(), and the value off the live node — exactly
+# the introspection node-get reuses (_type_name, _jsonify). Instantiating runs
+# the _init of any attached script (the same trust boundary as node-get,
+# ADR-0009), but get-exports does not re-save, so it skips the unmaterialized-
+# node guard (that boundary protects a re-save from silently dropping data,
+# issue #64 — there is no save here). It reuses _load_scene's failure ladder, so
+# a missing file is path_not_found and a non-scene file not_a_scene.
+#
+# An @export property is a SCRIPT VARIABLE the script exposes to the editor: in
+# the property's usage flags both PROPERTY_USAGE_SCRIPT_VARIABLE (declared in
+# the script, not inherited from the engine class) and PROPERTY_USAGE_EDITOR
+# (exported) are set. Reading the script's own get_script_property_list() — not
+# the node's whole get_property_list() — keeps the listing to the script's
+# declared surface, so an inherited engine property never leaks in.
+func _op_scene_get_exports(params: Dictionary) -> void:
+	_diag("running operation: scene-get-exports")
+	var packed: PackedScene = _load_scene(params)
+	if packed == null:
+		return  # _load_scene already recorded the failure
+	var root: Node = packed.instantiate()
+	if root == null:
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: "
+				+ _string_param(params, "path")
+				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
+		return
+
+	var nodes: Array = []
+	_collect_node_exports(root, root, nodes)
+	# Capture the path before freeing the tree (reading off a freed node errors).
+	var scene_path := _string_param(params, "path")
+	root.free()
+
+	_succeed({
+		"path": scene_path,
+		"nodes": nodes,
+	})
+
+
+# Walk the instantiated subtree rooted at `node`, appending one entry per node
+# whose attached script declares at least one @export property (issue #58). A
+# node with no script, or a script declaring no exports, is omitted — the
+# listing names only nodes that actually export. The node path is the canonical
+# root-relative form node get / node set address by ('.' for the root), so an
+# agent can read or set any reported export afterwards.
+func _collect_node_exports(node: Node, root: Node, out: Array) -> void:
+	var exports := _script_exports_of(node)
+	if not exports.is_empty():
+		var node_path := "." if node == root else String(root.get_path_to(node))
+		out.append({
+			"path": node_path,
+			"name": String(node.name),
+			"type": node.get_class(),
+			"script": _script_resource_path_of(node),
+			"exports": exports,
+		})
+	for child in node.get_children():
+		_collect_node_exports(child, root, out)
+
+
+# The @export properties a node's attached script declares, in declaration
+# order (issue #58). Empty for a scriptless node or a script that exports
+# nothing. Each export reuses node get's introspection: _type_name for the
+# declared Godot type, _jsonify for the value projection (its default on a
+# freshly-instantiated node). hint is the PropertyHint enum value the @export
+# annotation produced, hint_string its companion string.
+func _script_exports_of(node: Node) -> Array:
+	var script := node.get_script() as Script
+	if script == null:
+		return []
+	var exports: Array = []
+	for prop in script.get_script_property_list():
+		if not _is_export_property(prop):
+			continue
+		var prop_name := String(prop.get("name", ""))
+		exports.append({
+			"name": prop_name,
+			"type": _type_name(int(prop.get("type", TYPE_NIL))),
+			"hint": int(prop.get("hint", 0)),
+			"hint_string": String(prop.get("hint_string", "")),
+			"value": _jsonify(node.get(prop_name)),
+		})
+	return exports
+
+
+# Whether a script property-list entry is an @export: a script-declared variable
+# (PROPERTY_USAGE_SCRIPT_VARIABLE) exposed to the editor (PROPERTY_USAGE_EDITOR).
+# Both flags together are exactly what the @export annotation sets — the engine's
+# category/group separators and non-exported script vars (a plain `var`, which
+# carries SCRIPT_VARIABLE but not EDITOR) are excluded.
+func _is_export_property(prop: Dictionary) -> bool:
+	var usage := int(prop.get("usage", 0))
+	return (usage & PROPERTY_USAGE_SCRIPT_VARIABLE) != 0 \
+			and (usage & PROPERTY_USAGE_EDITOR) != 0
+
+
+# The res:// path of the script attached to `node`, naming where its exports
+# came from, or null for a scriptless node or a script with no resource path
+# (an embedded/built-in script). Mirrors _displaced_script_path's null handling.
+func _script_resource_path_of(node: Node) -> Variant:
+	var script := node.get_script() as Script
+	if script == null:
+		return null
+	var resource_path := script.resource_path
+	if resource_path.is_empty():
+		return null
+	return resource_path
 
 
 # scene-list: enumerate the project's .tscn scenes (issue #54). Walks the

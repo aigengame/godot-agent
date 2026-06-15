@@ -139,6 +139,23 @@ def test_scene_get_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_scene_get_exports_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for scene get-exports (issue #58): the bare --schema
+    # flag — no path — short-circuits into the self-description, derived from the
+    # same typed models that back --json.
+    from gda.models import SceneGetExportsParams, SceneGetExportsResult
+
+    result = CliRunner().invoke(app, ["scene", "get-exports", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == SceneGetExportsParams.model_json_schema()
+    assert doc["output"] == SceneGetExportsResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_scene_list_schema_emits_model_derived_contract_without_a_project():
     # The ADR-0004 hard gate for scene list (issue #54): the bare --schema flag
     # — no --project — short-circuits into the self-description, derived from the
@@ -211,6 +228,7 @@ def test_scene_schema_spawns_no_godot(monkeypatch):
     for command in (
         ["scene", "create"],
         ["scene", "get"],
+        ["scene", "get-exports"],
         ["scene", "list"],
         ["scene", "delete"],
     ):

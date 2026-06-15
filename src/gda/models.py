@@ -193,6 +193,92 @@ class SceneGetResult(BaseModel):
     root: SceneNode
 
 
+class SceneExport(BaseModel):
+    """One ``@export`` property a node's attached script declares (issue #58).
+
+    ``type`` is the property's declared Godot type name (``float``, ``String``,
+    ``Vector2``, …), the same spelling :class:`NodeProperty` uses. ``hint`` is the
+    Godot ``PropertyHint`` enum value the ``@export`` annotation produced (e.g. a
+    ``@export_range`` yields ``PROPERTY_HINT_RANGE``); ``hint_string`` is its
+    companion string (the range bounds, the enum members, the file filter, …) —
+    together they capture HOW the export is meant to be edited. ``value`` is the
+    property's current value in the same JSON projection ``node get`` reports — a
+    scalar for a scalar type, a list for a packed type (Vector2 → ``[x, y]``) —
+    which on a freshly-instantiated node is the export's default.
+    """
+
+    name: str
+    type: str = Field(
+        description="The export's declared Godot type name (e.g. float, String, Vector2)."
+    )
+    hint: int = Field(
+        description=(
+            "The Godot PropertyHint enum value the @export annotation produced "
+            "(0 = PROPERTY_HINT_NONE)."
+        )
+    )
+    hint_string: str = Field(
+        description="The PropertyHint's companion string (range bounds, enum members, …); empty when none."
+    )
+    value: Any = Field(
+        description=(
+            "The export's current value as JSON (its default on a freshly-loaded "
+            "node): a scalar for a scalar type, a list for a packed type "
+            "(Vector2 → [x, y], Color → [r, g, b, a])."
+        )
+    )
+
+
+class ExportingNode(BaseModel):
+    """One node of ``gda scene get-exports``: the exports its script declares (issue #58).
+
+    A node appears only when its attached script declares at least one ``@export``
+    property. ``path`` is the node's node path relative to the scene root ('.' for
+    the root), the same addressing ``node get`` uses, so an agent can read or set
+    any export with ``node get``/``node set``. ``script`` is the attached script's
+    ``res://`` path, naming where the exports came from. ``exports`` lists them in
+    declaration order.
+    """
+
+    path: str = Field(
+        description=(
+            "The node's node path relative to the scene root: '.' for the root "
+            "itself, 'Player/Arm' for a nested node."
+        )
+    )
+    name: str
+    type: str = Field(description="The node's engine class (e.g. Node2D).")
+    script: str | None = Field(
+        default=None,
+        description=(
+            "The res:// path of the script that declares these exports, or null "
+            "when the attached script has no resource path (an embedded script)."
+        ),
+    )
+    exports: list[SceneExport]
+
+
+class SceneGetExportsParams(BaseModel):
+    """The operation params of ``gda scene get-exports``: the ``.tscn`` file to read (issue #58)."""
+
+    path: str
+
+
+class SceneGetExportsResult(BaseModel):
+    """The result of ``gda scene get-exports``: each node's declared ``@export``s (issue #58).
+
+    Echoes the scene ``path`` and, per node that declares them, the ``@export``
+    properties its attached script exposes — name, type, hint/hint_string, and
+    current value — as typed JSON. Reuses ``node get``'s property-value
+    projection, so an export's ``value`` reads exactly as ``node get`` would
+    report it. Nodes without an export-declaring script are omitted; a scene with
+    no exported variables anywhere is a valid, empty listing (``nodes == []``).
+    """
+
+    path: str
+    nodes: list[ExportingNode]
+
+
 class SceneListParams(BaseModel):
     """The operation params of ``gda scene list`` — none (ADR-0004).
 

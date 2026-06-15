@@ -36,6 +36,7 @@ from gda.models import (
     ResourceGetResult,
     SceneCreateResult,
     SceneDeleteResult,
+    SceneGetExportsResult,
     SceneGetResult,
     SceneListResult,
     SceneNode,
@@ -114,6 +115,26 @@ def render_scene_metadata(scene: "SceneCreateResult") -> str:
 def render_scene_tree(scene: "SceneGetResult") -> str:
     """Render a read scene's node tree."""
     return render_node_tree(scene.root)
+
+
+def render_scene_exports(scene: "SceneGetExportsResult") -> str:
+    """Render a scene's per-node @export properties for humans.
+
+    One ``path (Type)`` header per node that declares exports, then a
+    ``name (Type) = value`` line per export — reusing :func:`format_value` for
+    the value, the same projection ``node get`` renders. An empty listing (no
+    exported variables anywhere) reads as ``(no exports)``.
+    """
+    if not scene.nodes:
+        return "(no exports)"
+    lines = []
+    for node in scene.nodes:
+        lines.append(f"{node.path} ({node.type})")
+        for export in node.exports:
+            lines.append(
+                f"  {export.name} ({export.type}) = {format_value(export.value)}"
+            )
+    return "\n".join(lines)
 
 
 def render_scene_list(listed: "SceneListResult") -> str:
@@ -292,6 +313,7 @@ def render_engine_version(version: "EngineVersion") -> str:
 _RENDERERS = {
     SceneCreateResult: render_scene_metadata,
     SceneGetResult: render_scene_tree,
+    SceneGetExportsResult: render_scene_exports,
     SceneListResult: render_scene_list,
     SceneDeleteResult: render_scene_delete,
     NodeAddResult: render_node_add,
