@@ -350,11 +350,46 @@ codes only (no new ones).
 
 ### `project`
 
+Reads and writes the resolved project's `project.godot` / `ProjectSettings` headlessly. Every
+project command runs against an **explicit project context** (`--project`/`$GDA_PROJECT`/cwd,
+ADR-0006): `ProjectSettings` without a resolved project reports only the engine's bare defaults,
+not the agent's project, so a projectless run is refused with `project_not_found` (exit 4) rather
+than returning a misleading result.
+
+> **Autoloads run on every `project` command (#61, ADR-0009).** A `project` op is a **state-read**
+> at the operation level — it reads/writes `ProjectSettings` and never instantiates a scene — but it
+> still runs under `--project`, and the engine constructs the project's **autoload singletons**
+> (running their `_init`/`_ready`) at startup, *before* the operation gets control, on `project get`
+> / `info` included. This is the documented **process-startup execution surface** of the trusted-
+> project model (ADR-0009), not re-introduced silently: a `project` read is not zero-execution.
+
+**Project metadata** (established by #111): `gda project info` reports the project's `name` and
+`main_scene` (from `ProjectSettings`), its configured `viewport_width`/`viewport_height`, and the
+`engine_version` the project runs on (the same shape `gda info` reports). `main_scene` is the empty
+string for a project with no main scene set, and the viewport fields fall back to the engine's
+built-in defaults when the project never set them — so a brand-new project still reports a complete,
+valid result.
+
+**Reading and writing settings** (established by #111): `gda project get SECTION/KEY` reads one
+setting by its full `section/key` name (e.g. `application/config/name`) and reports it as a
+`{setting, type, value}` triple — `type` is the setting's declared Godot type name and `value` its
+JSON projection, the **same projection** `node get` reports for a node property. A setting that does
+not exist is a clean `unknown_setting` error (exit 4), distinguishing a typo'd key from a setting
+genuinely holding null. `gda project set SECTION/KEY --value <string>` writes a setting, **coercing**
+the CLI value to the setting's **declared type** — read off the setting's current value, exactly as
+`node set` reads it off the node's property list — using the **same coercion rules** the node group
+established (#55; see "Property value coercion" under [`node`](#node)). It then persists
+`project.godot` (`ProjectSettings.save()`) and reports the coerced value in the same JSON projection
+`project get` uses, so a **`set` round-trips through a `get`**. `set` edits an **existing** setting —
+an unknown key is `unknown_setting`, never a silent create, so the type to coerce to is always known.
+A value that cannot be coerced to the setting's type is `uncoercible_value` (exit 4, the #55 code,
+`project.godot` left untouched); a failed save is `save_failed`.
+
 | Command | Description |
 | --- | --- |
-| `gda project info` | Project metadata (name, viewport, Godot version) |
-| `gda project get` | Read a project setting by section/key |
-| `gda project set` | Modify a project setting (type-aware) |
+| `gda project info` | Project metadata (name, main scene, viewport, engine version) |
+| `gda project get` | Read a project setting by section/key (typed JSON) |
+| `gda project set` | Modify a project setting (value coerced to its declared type) |
 | `gda project add-autoload` / `remove-autoload` | Register / unregister an autoload singleton |
 
 ### `resource`
