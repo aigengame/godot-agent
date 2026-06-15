@@ -123,6 +123,33 @@ def _make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
     return make_subprocess_runner(binary, project)
 
 
+def _emit(
+    cmd: HeadlessCommand[M],
+    params: BaseModel,
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    project: Optional[Path],
+    render: HumanRenderer[M],
+) -> None:
+    """Drive ``cmd.emit`` with the shared CLI execution tail.
+
+    The sole reference to the runner seam ``_make_runner`` — held here, at call
+    time, so the test monkeypatch on ``gda.cli._make_runner`` still binds rather
+    than being frozen as a def-time default. Both the domain dispatch
+    (:func:`_dispatch`) and the meta dispatch (:func:`_dispatch_meta`) funnel
+    through here; they differ only in how ``project`` is obtained.
+    """
+    cmd.emit(
+        params,
+        godot=godot,
+        project=project,
+        json_output=json_output,
+        render_text=render,
+        make_runner=_make_runner,
+    )
+
+
 def _dispatch(
     cmd: HeadlessCommand[M],
     params: BaseModel,
@@ -136,19 +163,41 @@ def _dispatch(
 
     Owns the per-command-repeated wiring: project resolution
     (``resolve_project_dir``, kept at the CLI layer per ADR-0006), the runner
-    seam (``_make_runner``, referenced here at call time so the test
-    monkeypatch on ``gda.cli._make_runner`` still binds), the ``json_output``
-    pass-through, and the JSON-vs-text branch. Each command keeps its own
-    Typer signature, params construction, ``render``, and pre-dispatch
-    validation; only this execution tail is shared.
+    seam, the ``json_output`` pass-through, and the JSON-vs-text branch. Each
+    command keeps its own Typer signature, params construction, ``render``, and
+    pre-dispatch validation; only this execution tail is shared.
     """
-    cmd.emit(
+    _emit(
+        cmd,
         params,
+        json_output=json_output,
         godot=godot,
         project=resolve_project_dir(project),
+        render=render,
+    )
+
+
+def _dispatch_meta(
+    cmd: HeadlessCommand[M],
+    params: BaseModel,
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    render: HumanRenderer[M],
+) -> None:
+    """Run a meta command (no ``--project``, ADR-0005) through the shared tail.
+
+    Unlike :func:`_dispatch`, this never calls ``resolve_project_dir``: a meta
+    command (``gda info``) is about ``gda``/the engine itself, so it runs
+    projectless rather than resolving a project context.
+    """
+    _emit(
+        cmd,
+        params,
         json_output=json_output,
-        render_text=render,
-        make_runner=_make_runner,
+        godot=godot,
+        project=None,
+        render=render,
     )
 
 
@@ -836,10 +885,10 @@ def info(
     godot: Optional[str] = godot_option(),
 ) -> None:
     """Report the Godot engine version info."""
-    INFO_COMMAND.emit(
+    _dispatch_meta(
+        INFO_COMMAND,
         InfoParams(),
-        godot=godot,
         json_output=json_output,
-        render_text=lambda version: version.string,
-        make_runner=_make_runner,
+        godot=godot,
+        render=lambda version: version.string,
     )
