@@ -11,6 +11,7 @@ import json
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.models import ScriptSetMode
 from gda.runner import RunResult
 from tests.support import FakeRunner, inject_runner, sentinel
 
@@ -220,9 +221,10 @@ SET_RESULT = {
 
 def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
     # search-replace mode (issue #118): --search/--replace ride through as the
-    # search/replace params; the other mode params pass as null. The result
-    # re-parses the written source's class_name/extends, so set round-trips
-    # through get.
+    # search/replace params; the other mode params pass as null. The CLI resolves
+    # the edit mode once and stamps the explicit `mode` discriminator the op
+    # dispatches on (issue #133). The result re-parses the written source's
+    # class_name/extends, so set round-trips through get.
     stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(SET_RESULT)
     fake = inject_runner(
         monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
@@ -252,6 +254,7 @@ def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
             "script-set",
             {
                 "path": "/tmp/proj/hero.gd",
+                "mode": ScriptSetMode.SEARCH_REPLACE,
                 "search": "Node",
                 "replace": "Node2D",
                 "start_line": None,
@@ -265,7 +268,8 @@ def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
 
 def test_script_set_line_range_dispatches_start_end_and_content(monkeypatch):
     # line-range mode: --start-line/--end-line + --content ride through; the
-    # search-replace params pass as null.
+    # search-replace params pass as null. The CLI stamps the explicit `mode`
+    # discriminator the op dispatches on (issue #133).
     fake = inject_runner(
         monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
     )
@@ -292,6 +296,7 @@ def test_script_set_line_range_dispatches_start_end_and_content(monkeypatch):
             "script-set",
             {
                 "path": "/tmp/proj/hero.gd",
+                "mode": ScriptSetMode.LINE_RANGE,
                 "search": None,
                 "replace": None,
                 "start_line": 2,
@@ -304,7 +309,8 @@ def test_script_set_line_range_dispatches_start_end_and_content(monkeypatch):
 
 def test_script_set_full_overwrite_dispatches_content_only(monkeypatch):
     # full mode: --content with no --start-line overwrites the whole file; every
-    # other mode param passes as null.
+    # other mode param passes as null. The CLI stamps the explicit `mode`
+    # discriminator the op dispatches on (issue #133).
     fake = inject_runner(
         monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
     )
@@ -327,6 +333,7 @@ def test_script_set_full_overwrite_dispatches_content_only(monkeypatch):
             "script-set",
             {
                 "path": "/tmp/proj/hero.gd",
+                "mode": ScriptSetMode.FULL,
                 "search": None,
                 "replace": None,
                 "start_line": None,

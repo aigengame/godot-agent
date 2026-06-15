@@ -616,15 +616,25 @@ func _op_script_set(params: Dictionary) -> void:
 	if source == null:
 		return  # _read_script_source already recorded the failure
 
-	# Infer the mode by presence, precedence search → line-range → full.
+	# Dispatch on the explicit mode discriminator the CLI resolved (issue #133):
+	# the edit mode is decided once, at the CLI's mutual-exclusion check, and rides
+	# through on `mode` — the op never re-infers it from which params are present,
+	# so the op's dispatch can no longer drift from the CLI's exclusivity rule.
+	var mode := _string_param(params, "mode")
 	var new_source: Variant
-	if params.get("search", null) is String:
-		new_source = _apply_search_replace(source, params)
-	elif params.get("start_line", null) != null:
-		new_source = _apply_line_range(source, params)
-	else:
-		# full overwrite: content is guaranteed present by the CLI's mode check.
-		new_source = _string_param(params, "content")
+	match mode:
+		"search_replace":
+			new_source = _apply_search_replace(source, params)
+		"line_range":
+			new_source = _apply_line_range(source, params)
+		"full":
+			# full overwrite: content is guaranteed present by the CLI's mode check.
+			new_source = _string_param(params, "content")
+		_:
+			# The CLI always supplies one of the three modes; a missing/unknown mode
+			# means a malformed direct op invocation, not a reachable CLI path.
+			_fail(OP_ERROR_INVALID_PARAMS, "unknown script-set mode: " + mode)
+			return
 	if new_source == null:
 		return  # the apply helper already recorded the failure
 
