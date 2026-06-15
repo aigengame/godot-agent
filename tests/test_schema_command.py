@@ -712,6 +712,26 @@ def test_resource_create_schema_emits_model_derived_contract_without_other_args(
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_export_list_schema_emits_model_derived_contract_without_a_project():
+    # The ADR-0004 hard gate for export list (issue #114): the bare --schema flag
+    # — no --project — short-circuits into the self-description, derived from the
+    # same typed models that back --json. export list takes no operation params,
+    # so its input schema is trivially empty (the project is process context,
+    # ADR-0006), exactly like scene list / script list.
+    from gda.models import ExportListParams, ExportListResult
+
+    result = CliRunner().invoke(app, ["export", "list", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ExportListParams.model_json_schema()
+    assert doc["output"] == ExportListResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert doc["input"].get("properties", {}) == {}
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_resource_get_schema_emits_model_derived_contract_without_other_args():
     from gda.models import ResourceGetParams, ResourceGetResult
 
@@ -723,6 +743,27 @@ def test_resource_get_schema_emits_model_derived_contract_without_other_args():
     assert doc["output"] == ResourceGetResult.model_json_schema()
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     assert "properties" in doc["output"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_export_get_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for export get (issue #114): the bare --schema flag —
+    # no --preset — short-circuits into the self-description. The preset param
+    # documents name-based addressing, and the output advertises the
+    # template-readiness fields agents check before an export run.
+    from gda.models import ExportGetParams, ExportGetResult
+
+    result = CliRunner().invoke(app, ["export", "get", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ExportGetParams.model_json_schema()
+    assert doc["output"] == ExportGetResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "preset" in doc["input"]["properties"]
+    assert "templates_installed" in doc["output"]["properties"]
+    assert "templates_version" in doc["output"]["properties"]
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -743,7 +784,21 @@ def test_sample_resource_results_validate_against_emitted_output_schemas():
     jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
 
 
-def test_resource_schema_spawns_no_godot(monkeypatch):
+def test_sample_export_results_validate_against_emitted_output_schemas():
+    # A sample --json payload of each export command satisfies the contract its
+    # --schema emits (the other half of the ADR-0004 hard gate, issue #114).
+    from tests.test_export_commands import GET_RESULT, LIST_RESULT
+
+    list_doc = json.loads(
+        CliRunner().invoke(app, ["export", "list", "--schema"]).stdout
+    )
+    get_doc = json.loads(CliRunner().invoke(app, ["export", "get", "--schema"]).stdout)
+
+    jsonschema.validate(instance=LIST_RESULT, schema=list_doc["output"])
+    jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
+
+
+def test_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
@@ -753,6 +808,8 @@ def test_resource_schema_spawns_no_godot(monkeypatch):
     for command in (
         ["resource", "create"],
         ["resource", "get"],
+        ["export", "list"],
+        ["export", "get"],
     ):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0

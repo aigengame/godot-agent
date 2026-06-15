@@ -120,6 +120,8 @@ operation, and parse codes the CLI assigns).
 | `already_connected` | `operation` | `operation` | `4` | A signal is already connected to the target node's method. |
 | `connection_not_found` | `operation` | `operation` | `4` | A requested signal-to-method connection does not exist on the source node. |
 | `invalid_resource_type` | `operation` | `operation` | `4` | A requested resource type cannot be instantiated as a `Resource`. |
+| `export_presets_not_found` | `operation` | `operation` | `4` | The project has no export_presets.cfg, so it defines no export presets. |
+| `export_preset_not_found` | `operation` | `operation` | `4` | No export preset with the requested name exists in export_presets.cfg. |
 | `contract_violation` | `parse` | `parser` | `5` | The process claimed success but violated the structured-output contract. |
 | `tree_too_deep` | `parse` | `classifier` | `5` | The engine emitted a valid result tree that nests past gda's recursion limit; the payload is contract-conformant, the limit is wrapper-side (shares the `parse` exit code; the `code` distinguishes it from `contract_violation`). |
 

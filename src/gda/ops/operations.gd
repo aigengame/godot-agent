@@ -55,6 +55,8 @@ const OP_ERROR_SIGNAL_NOT_FOUND := "signal_not_found"
 const OP_ERROR_ALREADY_CONNECTED := "already_connected"
 const OP_ERROR_CONNECTION_NOT_FOUND := "connection_not_found"
 const OP_ERROR_INVALID_RESOURCE_TYPE := "invalid_resource_type"
+const OP_ERROR_EXPORT_PRESETS_NOT_FOUND := "export_presets_not_found"
+const OP_ERROR_EXPORT_PRESET_NOT_FOUND := "export_preset_not_found"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -126,6 +128,10 @@ func _initialize() -> void:
 			_op_resource_create(params)
 		"resource-get":
 			_op_resource_get(params)
+		"export-list":
+			_op_export_list(params)
+		"export-get":
+			_op_export_get(params)
 		_:
 			_fail(OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 
@@ -1489,6 +1495,133 @@ func _require_existing_resource(path: String) -> bool:
 		_fail(OP_ERROR_PATH_NOT_FOUND, "resource file does not exist: " + path)
 		return false
 	return true
+
+
+# export-list: enumerate the project's export presets (issue #114). Reads the
+# project's res://export_presets.cfg with ConfigFile — a cheap config parse, not
+# an export run (issue #121 owns running an export) — and reports each preset's
+# index/name/platform/runnable. Like scene-list / script-list this needs a
+# project (project_not_found otherwise); a project that has never configured an
+# export has no export_presets.cfg, which is the distinct export_presets_not_found
+# failure rather than a misleading empty listing.
+func _op_export_list(_params: Dictionary) -> void:
+	_diag("running operation: export-list")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "export list requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+
+	var config := _load_export_presets()
+	if config == null:
+		return  # _load_export_presets already recorded the failure
+
+	var presets: Array = []
+	for entry in _export_preset_sections(config):
+		presets.append(_export_preset_summary(config, entry["section"], entry["index"]))
+
+	_succeed({"presets": presets})
+
+
+# export-get: report one export preset's details plus export-template install
+# status (issue #114). Addresses the preset by its display NAME (as export-list
+# reports it); an unknown name is the export_preset_not_found failure. Beyond the
+# preset's own fields it reports whether the export templates for the running
+# engine version are installed — the readiness check an agent makes before a
+# future export run (issue #121) — and the version directory it checked.
+func _op_export_get(params: Dictionary) -> void:
+	_diag("running operation: export-get")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "export get requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+
+	var preset_name := _string_param(params, "preset")
+	if preset_name.is_empty():
+		_fail(OP_ERROR_INVALID_PARAMS, "missing required param: preset")
+		return
+
+	var config := _load_export_presets()
+	if config == null:
+		return  # _load_export_presets already recorded the failure
+
+	for entry in _export_preset_sections(config):
+		var section: String = entry["section"]
+		if String(config.get_value(section, "name", "")) == preset_name:
+			var summary := _export_preset_summary(config, section, entry["index"])
+			summary["export_path"] = String(config.get_value(section, "export_path", ""))
+			var version_dir := _export_templates_version_dir()
+			summary["templates_version"] = version_dir
+			summary["templates_installed"] = _export_templates_installed(version_dir)
+			_succeed(summary)
+			return
+
+	_fail(OP_ERROR_EXPORT_PRESET_NOT_FOUND, "no export preset named: " + preset_name)
+
+
+# Load the project's export_presets.cfg as a ConfigFile, or record a failure and
+# return null (the caller must stop). A project with no export_presets.cfg has
+# never configured an export, so it is the distinct export_presets_not_found
+# failure; a present-but-unparseable file is a save_failed-style read error.
+func _load_export_presets() -> ConfigFile:
+	var presets_path := "res://export_presets.cfg"
+	if not FileAccess.file_exists(presets_path):
+		_fail(OP_ERROR_EXPORT_PRESETS_NOT_FOUND, "project has no export_presets.cfg; no export presets are defined")
+		return null
+	var config := ConfigFile.new()
+	var err := config.load(presets_path)
+	if err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, "failed to read export_presets.cfg: " + error_string(err))
+		return null
+	return config
+
+
+# The export-preset sections of an export_presets.cfg, in file order, each as
+# {"section": "preset.N", "index": N}. A preset is stored as a "preset.N" section
+# with a sibling "preset.N.options" section; only the bare "preset.N" is a preset,
+# so the ".options" companions are filtered out. The index is the preset's N, the
+# stable 0-based position the file assigns it.
+func _export_preset_sections(config: ConfigFile) -> Array:
+	var sections: Array = []
+	for section in config.get_sections():
+		if not section.begins_with("preset."):
+			continue
+		var rest := section.substr("preset.".length())
+		if not rest.is_valid_int():
+			continue  # skip "preset.N.options" and any non-numeric suffix
+		sections.append({"section": section, "index": int(rest)})
+	return sections
+
+
+# Summarize one export preset for the listing: its index/name/platform plus
+# whether it is marked runnable. Read straight from the ConfigFile, never running
+# an export. Missing keys degrade to safe defaults so a hand-edited file still
+# lists rather than crashing.
+func _export_preset_summary(config: ConfigFile, section: String, index: int) -> Dictionary:
+	return {
+		"index": index,
+		"name": String(config.get_value(section, "name", "")),
+		"platform": String(config.get_value(section, "platform", "")),
+		"runnable": bool(config.get_value(section, "runnable", false)),
+	}
+
+
+# The export-templates version directory name for the running engine, e.g.
+# "4.6.3.stable" — major.minor.patch.status, matching how the editor names the
+# per-version templates folder under <data_dir>/Godot/export_templates/.
+func _export_templates_version_dir() -> String:
+	var v := Engine.get_version_info()
+	return "%d.%d.%d.%s" % [v.major, v.minor, v.patch, v.status]
+
+
+# Whether the export templates for the running engine version are installed:
+# their per-version directory exists under the user data dir's
+# Godot/export_templates/. Headless --script runs have no EditorPaths singleton,
+# so the path is derived from OS.get_data_dir() (the same root the editor uses)
+# plus the fixed "Godot/export_templates/<version>" layout. This is the readiness
+# signal an agent checks before a future export run (issue #121); it does not
+# verify per-platform template files, only that the version's templates are
+# present at all.
+func _export_templates_installed(version_dir: String) -> bool:
+	var templates_root := OS.get_data_dir().path_join("Godot").path_join("export_templates")
+	return DirAccess.dir_exists_absolute(templates_root.path_join(version_dir))
 
 
 # Whether a path names a script file the script group operates on: a .gd

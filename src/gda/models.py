@@ -1205,6 +1205,104 @@ class ResourceCreateParams(BaseModel):
     )
 
 
+class ExportListParams(BaseModel):
+    """The operation params of ``gda export list`` — none (ADR-0004).
+
+    ``export list`` enumerates the export presets defined in the resolved
+    project's ``export_presets.cfg``; the project is process context
+    (``--project``), not an operation param (ADR-0006), so the ``input`` schema
+    is trivially empty, exactly like ``scene list`` / ``script list``.
+    """
+
+
+class ListedPreset(BaseModel):
+    """One enumerated export preset of ``gda export list`` (issue #114).
+
+    Read cheaply from ``export_presets.cfg`` (a ``ConfigFile`` parse, no engine
+    export run): ``name`` is the preset's display name — the address an agent
+    feeds back into ``gda export get`` — ``platform`` the target platform (e.g.
+    ``Linux/X11``, ``Web``), and ``runnable`` whether the preset is marked
+    runnable (one-click deploy). ``index`` is the preset's 0-based position in
+    the file (its ``preset.N`` section number), stable across a single read.
+    """
+
+    index: int = Field(
+        description="The preset's 0-based position in export_presets.cfg (its preset.N section number)."
+    )
+    name: str = Field(description="The preset's display name.")
+    platform: str = Field(
+        description="The preset's target platform (e.g. Linux/X11, Web, macOS)."
+    )
+    runnable: bool = Field(
+        description="Whether the preset is marked runnable (one-click deploy)."
+    )
+
+
+class ExportListResult(BaseModel):
+    """The result of ``gda export list``: the project's enumerated export presets.
+
+    A project whose ``export_presets.cfg`` exists but defines no presets is a
+    valid, empty listing — ``presets == []`` — not a failure. A project with no
+    ``export_presets.cfg`` at all is the ``export_presets_not_found`` failure
+    (it has no export configuration), distinct from an empty one.
+    """
+
+    presets: list[ListedPreset]
+
+
+class ExportGetParams(BaseModel):
+    """The operation params of ``gda export get`` (issue #114).
+
+    ``preset`` addresses an export preset by its display name (as ``export
+    list`` reports it). An unknown name is the ``export_preset_not_found``
+    failure. The project is process context (``--project``, ADR-0006).
+    """
+
+    preset: str = Field(
+        description="The export preset's display name, as 'gda export list' reports it."
+    )
+
+
+class ExportGetResult(BaseModel):
+    """The result of ``gda export get``: one preset's details + template readiness (issue #114).
+
+    Echoes the addressed preset's ``index``/``name``/``platform``/``runnable``
+    (read from ``export_presets.cfg``) plus its ``export_path`` (the output path
+    the preset writes to, empty when unset). ``templates_installed`` reports
+    whether the export templates for the running engine version are installed —
+    the readiness check an agent makes before a future ``export run`` (issue
+    #121); ``templates_version`` names the version directory that was checked
+    (e.g. ``4.6.3.stable``), so the agent knows which templates to install when
+    they are missing.
+    """
+
+    index: int = Field(
+        description="The preset's 0-based position in export_presets.cfg (its preset.N section number)."
+    )
+    name: str = Field(description="The preset's display name.")
+    platform: str = Field(
+        description="The preset's target platform (e.g. Linux/X11, Web, macOS)."
+    )
+    runnable: bool = Field(
+        description="Whether the preset is marked runnable (one-click deploy)."
+    )
+    export_path: str = Field(
+        description="The output path the preset exports to, or empty when unset."
+    )
+    templates_installed: bool = Field(
+        description=(
+            "Whether the export templates for the running engine version are "
+            "installed — the readiness check before an export run."
+        )
+    )
+    templates_version: str = Field(
+        description=(
+            "The export-templates version directory checked for installation "
+            "(e.g. 4.6.3.stable), matching the running engine version."
+        )
+    )
+
+
 class ResourceCreateResult(BaseModel):
     """The result of ``gda resource create``: what was written where (issue #112).
 
