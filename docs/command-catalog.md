@@ -121,6 +121,18 @@ Whitespace around a value or a component is tolerated. A property of any other t
 reported by `node get` (its value degrades to a string projection), but `node set` cannot coerce
 to it yet and refuses with `uncoercible_value` — the coercible set grows as later slices need it.
 
+**Structural edits** (established by #56): three commands restructure the node tree within a
+scene file, each a `load → locate → restructure → pack → save` round-trip that reuses the
+node-path addressing and the mutation-integrity boundary above. They share one rule for the
+**scene root**: the root has no parent, so an edit that needs one is refused with the registered
+`cannot_target_root` error (exit 4), leaving the file untouched, rather than emptying or
+corrupting the scene.
+
+- `gda node remove SCENE --node <node-path>` deletes a node **and its whole subtree**, echoing
+  the removed node's path/name/type (captured before the re-save). A node path that resolves to
+  nothing is `node_not_found`; removing the root (`--node .`) is `cannot_target_root` — delete
+  the scene file instead.
+
 | Command | Description |
 | --- | --- |
 | `gda node add` | Add a node (by type or `class_name` script) into a scene |

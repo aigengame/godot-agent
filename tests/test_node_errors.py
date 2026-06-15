@@ -315,3 +315,51 @@ def test_node_get_missing_scene_reuses_stable_path_not_found_code(monkeypatch):
     err = json.loads(result.stdout)["error"]
     assert err["code"] == "path_not_found"
     assert "/x/main.tscn" in err["message"]
+
+
+def _invoke_node_remove(monkeypatch, code: str, message: str, node: str = "Hero"):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: node-remove\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(
+        app, ["node", "remove", "/x/main.tscn", "--node", node, "--json"]
+    )
+
+
+def test_node_remove_missing_node_maps_to_stable_node_not_found_code(monkeypatch):
+    # issue #56: removing a node path that resolves to nothing reuses the
+    # node-group's node_not_found code — the same mode node get / node set
+    # report, so an agent branches on a missing node without a parallel code.
+    result = _invoke_node_remove(
+        monkeypatch, "node_not_found", "node not found in scene: Bogus", node="Bogus"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "node_not_found"
+    assert "Bogus" in err["message"]
+
+
+def test_node_remove_root_maps_to_stable_cannot_target_root_code(monkeypatch):
+    # issue #56: removing the scene root is refused with the new structural-edit
+    # code cannot_target_root — the root has no parent to be removed from, so
+    # the agent learns to delete the scene file rather than retry the removal.
+    result = _invoke_node_remove(
+        monkeypatch,
+        "cannot_target_root",
+        "cannot remove the scene root: . — the root has no parent to be removed from",
+        node=".",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "cannot_target_root"
+    assert "root" in err["message"]

@@ -11,6 +11,7 @@ from gda.models import (
     NodeAddResult,
     NodeGetResult,
     NodeListResult,
+    NodeRemoveResult,
     NodeSetResult,
     SceneCreateResult,
     SceneDeleteResult,
@@ -496,3 +497,23 @@ def test_node_set_result_round_trips_the_coerced_property():
     assert was_set.type == "Vector2"
     assert was_set.value == [3.0, 4.0]
     assert json.loads(was_set.model_dump_json()) == payload
+
+
+def test_node_remove_result_round_trips():
+    # The node-remove operation reports what it removed (issue #56): the removed
+    # node's address (its node path relative to the scene root) alongside its
+    # name and type, captured off the tree before the re-save — so the result
+    # names the content removed, not just the path.
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "path": "Player/Hero",
+        "name": "Hero",
+        "type": "Sprite2D",
+    }
+
+    removed = NodeRemoveResult.model_validate(payload)
+
+    assert removed.path == "Player/Hero"
+    assert removed.name == "Hero"
+    assert removed.type == "Sprite2D"
+    assert json.loads(removed.model_dump_json()) == payload

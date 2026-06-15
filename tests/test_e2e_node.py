@@ -867,3 +867,73 @@ def test_node_add_by_class_name_whose_init_requires_args_names_the_constructor(
     assert "hero.gd" in err["message"]
     assert "_init" in err["message"]
     assert scene_path.read_text(encoding="utf-8") == before
+
+
+# --- node remove (issue #56) ---
+
+
+@pytest.mark.e2e
+def test_node_remove_deletes_node_and_subtree_round_trip(godot_project):
+    # node remove is the first structural edit (issue #56): it deletes a node
+    # and its whole subtree, verified through a fresh node list — the deletion
+    # is on disk, not just in the reporting process. A sibling is untouched.
+    scene_path = _scene_with_nested_children(godot_project)  # root -> A -> B
+    _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "C", "--json")
+
+    removed = _gda("node", "remove", str(scene_path), "--node", "A", "--json")
+
+    assert removed.returncode == 0, removed.stdout + removed.stderr
+    data = json.loads(removed.stdout)
+    assert (data["path"], data["name"], data["type"]) == ("A", "A", "Node2D")
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    children = json.loads(listed.stdout)["root"]["children"]
+    names = {child["name"] for child in children}
+    # A (and its child B) are gone; the sibling C survives.
+    assert names == {"C"}
+
+
+@pytest.mark.e2e
+def test_node_remove_nested_node_leaves_ancestors(godot_project):
+    # Removing a descendant deletes only its subtree; its parent survives.
+    scene_path = _scene_with_nested_children(godot_project)  # root -> A -> B
+
+    removed = _gda("node", "remove", str(scene_path), "--node", "A/B", "--json")
+
+    assert removed.returncode == 0, removed.stdout + removed.stderr
+    assert json.loads(removed.stdout)["path"] == "A/B"
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+    a = json.loads(listed.stdout)["root"]["children"][0]
+    assert a["name"] == "A"
+    assert a["children"] == []
+
+
+@pytest.mark.e2e
+def test_node_remove_missing_node_yields_node_not_found(godot_project):
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    removed = _gda("node", "remove", str(scene_path), "--node", "Bogus", "--json")
+
+    err = _assert_operation_error(removed, "node_not_found")
+    assert "Bogus" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_remove_root_yields_cannot_target_root(godot_project):
+    # Removing the scene root has no defined meaning — the root has no parent to
+    # be detached from, and a re-pack needs a root. node remove refuses with the
+    # registered cannot_target_root code and leaves the file untouched, rather
+    # than emptying the scene.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    removed = _gda("node", "remove", str(scene_path), "--node", ".", "--json")
+
+    err = _assert_operation_error(removed, "cannot_target_root")
+    assert scene_path.read_text(encoding="utf-8") == before

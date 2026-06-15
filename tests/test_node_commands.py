@@ -209,6 +209,34 @@ def test_node_set_json_echoes_the_coerced_property_and_exit_zero(monkeypatch):
     ]
 
 
+REMOVE_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "path": "Hero",
+    "name": "Hero",
+    "type": "Sprite2D",
+}
+
+
+def test_node_remove_json_echoes_the_removed_node_and_exit_zero(monkeypatch):
+    # node remove is the first structural edit (issue #56): it deletes a node
+    # and its subtree, echoing the removed node's address/name/type — the result
+    # an agent asserts. The node is addressed by node path, dispatched by name.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(REMOVE_RESULT)
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app, ["node", "remove", "/tmp/proj/main.tscn", "--node", "Hero", "--json"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["scene_path"] == "/tmp/proj/main.tscn"
+    assert (data["path"], data["name"], data["type"]) == ("Hero", "Hero", "Sprite2D")
+    assert fake.calls == [
+        ("node-remove", {"path": "/tmp/proj/main.tscn", "node": "Hero"})
+    ]
+
+
 def test_node_add_defaults_parent_to_root_and_name_to_type(monkeypatch):
     # The two ergonomic defaults (issue #53): omitting --parent targets the
     # scene root ('.'), and omitting --name names the node after its type —

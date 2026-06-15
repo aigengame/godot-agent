@@ -222,6 +222,14 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A requested node path does not resolve to a node in the scene.",
     ),
     ErrorCodeSpec(
+        "cannot_target_root",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A structural edit targeted the scene root, which has no parent to be"
+        " removed from, duplicated alongside, or reparented out of.",
+    ),
+    ErrorCodeSpec(
         "unknown_property",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,

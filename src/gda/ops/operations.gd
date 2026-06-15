@@ -43,6 +43,7 @@ const OP_ERROR_DUPLICATE_NODE_NAME := "duplicate_node_name"
 const OP_ERROR_MISSING_DEPENDENCY := "missing_dependency"
 const OP_ERROR_UNINSTANTIABLE_SCRIPT := "uninstantiable_script"
 const OP_ERROR_NODE_NOT_FOUND := "node_not_found"
+const OP_ERROR_CANNOT_TARGET_ROOT := "cannot_target_root"
 const OP_ERROR_UNKNOWN_PROPERTY := "unknown_property"
 const OP_ERROR_UNCOERCIBLE_VALUE := "uncoercible_value"
 const OP_ERROR_NO_SEARCH_MATCH := "no_search_match"
@@ -90,6 +91,8 @@ func _initialize() -> void:
 			_op_node_get(params)
 		"node-set":
 			_op_node_set(params)
+		"node-remove":
+			_op_node_remove(params)
 		"script-create":
 			_op_script_create(params)
 		"script-get":
@@ -449,6 +452,52 @@ func _op_node_set(params: Dictionary) -> void:
 		"property": prop_name,
 		"type": _type_name(declared_type),
 		"value": stored_value,
+	})
+
+
+# node-remove: load a .tscn, resolve a node by node path, delete it and its
+# whole subtree, then re-pack and save — the first structural edit of issue #56.
+# As a mutating op it goes through the shared mutate-entry (load → instantiate →
+# unmaterialized-node guard), so it honors the mutation-integrity boundary
+# (issue #64): a re-save never silently drops an unresolvable instance.
+#
+# The scene root has no parent to be detached from, and the re-pack needs a
+# root, so removing '.' is refused with cannot_target_root rather than emptying
+# the scene. A node path that resolves to nothing is node_not_found, the same
+# code (and resolver) node get / node set use.
+func _op_node_remove(params: Dictionary) -> void:
+	_diag("running operation: node-remove")
+	var path := _string_param(params, "path")
+	var root: Node = _load_for_mutation(params)
+	if root == null:
+		return  # _load_for_mutation already recorded the failure
+	var node_path := _string_param(params, "node")
+	var node := _resolve_node(root, node_path)
+	if node == null:
+		root.free()
+		_fail_node_not_found(node_path)
+		return
+	if node == root:
+		root.free()
+		_fail(OP_ERROR_CANNOT_TARGET_ROOT, "cannot remove the scene root: " + node_path
+				+ " — the root has no parent to be removed from; delete the scene file instead")
+		return
+
+	# Capture the removed node's identity off the live tree before detaching and
+	# re-saving free it.
+	var removed_name := String(node.name)
+	var removed_type := node.get_class()
+	node.get_parent().remove_child(node)
+	node.free()
+
+	if not _repack_and_save(root, path):
+		return  # _repack_and_save already recorded the failure (and freed root)
+
+	_succeed({
+		"scene_path": path,
+		"path": node_path,
+		"name": removed_name,
+		"type": removed_type,
 	})
 
 

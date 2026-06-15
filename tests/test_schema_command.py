@@ -291,13 +291,32 @@ def test_node_set_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_node_remove_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for node remove (issue #56): the bare --schema flag
+    # — no path, no --node — short-circuits into the self-description.
+    from gda.models import NodeRemoveParams, NodeRemoveResult
+
+    result = CliRunner().invoke(app, ["node", "remove", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == NodeRemoveParams.model_json_schema()
+    assert doc["output"] == NodeRemoveResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    node_description = doc["input"]["properties"]["node"]["description"]
+    assert "scene root" in node_description
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_sample_node_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each node command satisfies the contract its
-    # --schema emits (the other half of the ADR-0004 hard gate, issues #53/#55).
+    # --schema emits (the other half of the ADR-0004 hard gate, issues #53/#55/#56).
     from tests.test_node_commands import (
         ADD_RESULT,
         GET_RESULT,
         LIST_RESULT,
+        REMOVE_RESULT,
         SET_RESULT,
     )
 
@@ -305,11 +324,15 @@ def test_sample_node_results_validate_against_emitted_output_schemas():
     list_doc = json.loads(CliRunner().invoke(app, ["node", "list", "--schema"]).stdout)
     get_doc = json.loads(CliRunner().invoke(app, ["node", "get", "--schema"]).stdout)
     set_doc = json.loads(CliRunner().invoke(app, ["node", "set", "--schema"]).stdout)
+    remove_doc = json.loads(
+        CliRunner().invoke(app, ["node", "remove", "--schema"]).stdout
+    )
 
     jsonschema.validate(instance=ADD_RESULT, schema=add_doc["output"])
     jsonschema.validate(instance=LIST_RESULT, schema=list_doc["output"])
     jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
     jsonschema.validate(instance=SET_RESULT, schema=set_doc["output"])
+    jsonschema.validate(instance=REMOVE_RESULT, schema=remove_doc["output"])
 
 
 def test_node_schema_spawns_no_godot(monkeypatch):
@@ -319,7 +342,13 @@ def test_node_schema_spawns_no_godot(monkeypatch):
     monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
     monkeypatch.setattr("gda.cli._make_runner", boom)
 
-    for command in (["node", "add"], ["node", "list"], ["node", "get"], ["node", "set"]):
+    for command in (
+        ["node", "add"],
+        ["node", "list"],
+        ["node", "get"],
+        ["node", "set"],
+        ["node", "remove"],
+    ):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0
         assert set(json.loads(result.stdout)) >= {"input", "output", "error"}

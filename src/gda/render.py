@@ -27,6 +27,7 @@ from gda.models import (
     NodeAddResult,
     NodeGetResult,
     NodeListResult,
+    NodeRemoveResult,
     NodeSetResult,
     SceneCreateResult,
     SceneDeleteResult,
@@ -137,6 +138,11 @@ def render_node_set(was_set: "NodeSetResult") -> str:
     )
 
 
+def render_node_remove(removed: "NodeRemoveResult") -> str:
+    """Render a removed node as ``removed <path> (<type>) from <scene>``."""
+    return f"removed {removed.path} ({removed.type}) from {removed.scene_path}"
+
+
 def render_script_metadata(script: ScriptMetadata) -> str:
     """Render a script's path plus its class_name/extends for humans.
 
@@ -219,6 +225,7 @@ _RENDERERS = {
     NodeListResult: render_node_list,
     NodeGetResult: render_node_properties,
     NodeSetResult: render_node_set,
+    NodeRemoveResult: render_node_remove,
     ScriptCreateResult: render_script_create,
     ScriptGetResult: render_script_get,
     ScriptListResult: render_script_list,

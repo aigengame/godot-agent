@@ -444,6 +444,40 @@ class NodeSetResult(BaseModel):
     )
 
 
+class NodeRemoveParams(BaseModel):
+    """The operation params of ``gda node remove`` (issue #56).
+
+    ``path`` is the ``.tscn`` scene file to mutate; ``node`` addresses the node
+    to delete by its node path relative to the scene root. The scene root ('.')
+    has no parent to be removed from, so removing it is refused rather than
+    emptying the scene.
+    """
+
+    path: str
+    node: str = Field(
+        description=(
+            "Node path relative to the scene root: 'Player/Arm' a nested node. "
+            "The root ('.') cannot be removed."
+        )
+    )
+
+
+class NodeRemoveResult(BaseModel):
+    """The result of ``gda node remove``: the node and subtree it deleted (issue #56).
+
+    Echoes the removed node's ``path`` (its node path relative to the scene
+    root), ``name``, and ``type``, captured off the tree before the re-save —
+    so the result names the content removed, not just the path.
+    """
+
+    scene_path: str
+    path: str = Field(
+        description="The removed node's node path, relative to the scene root."
+    )
+    name: str
+    type: str = Field(description="The removed node's engine class (e.g. Sprite2D).")
+
+
 class ScriptCreateParams(BaseModel):
     """The operation params of ``gda script create`` (issue #110).
 

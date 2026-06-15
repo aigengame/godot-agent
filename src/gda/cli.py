@@ -33,6 +33,8 @@ from gda.models import (
     NodeGetResult,
     NodeListParams,
     NodeListResult,
+    NodeRemoveParams,
+    NodeRemoveResult,
     NodeSetParams,
     NodeSetResult,
     SceneCreateParams,
@@ -252,6 +254,12 @@ NODE_SET_COMMAND: HeadlessCommand[NodeSetResult] = HeadlessCommand(
     operation="node-set",
     input_model=NodeSetParams,
     output_model=NodeSetResult,
+)
+
+NODE_REMOVE_COMMAND: HeadlessCommand[NodeRemoveResult] = HeadlessCommand(
+    operation="node-remove",
+    input_model=NodeRemoveParams,
+    output_model=NodeRemoveResult,
 )
 
 SCRIPT_CREATE_COMMAND: HeadlessCommand[ScriptCreateResult] = HeadlessCommand(
@@ -537,6 +545,33 @@ def set_property(
         NodeSetParams(
             path=_normalize_path(path), node=node, property=property, value=value
         ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@node_app.command(name="remove", cls=NODE_REMOVE_COMMAND.command_class())
+def remove_node(
+    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
+    node: str = typer.Option(
+        ...,
+        "--node",
+        help=(
+            "Node path of the node to delete, relative to the scene root: "
+            "'Player/Arm' a nested node. The root ('.') cannot be removed."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = NODE_REMOVE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Remove a node (and its subtree) from a scene file by node path."""
+    _dispatch(
+        NODE_REMOVE_COMMAND,
+        NodeRemoveParams(path=_normalize_path(path), node=node),
         json_output=json_output,
         godot=godot,
         project=project,
