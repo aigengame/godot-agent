@@ -577,17 +577,17 @@ def create(
     """Create a new .gd script from a template or verbatim --content."""
     if content is not None and extends_type is not None:
         raise typer.BadParameter("--content and --extends are mutually exclusive.")
-    SCRIPT_CREATE_COMMAND.emit(
+    _dispatch(
+        SCRIPT_CREATE_COMMAND,
         ScriptCreateParams(
             path=_normalize_path(path),
             content=content,
             extends_type=extends_type,
         ),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda created: f"created {_render_script_metadata(created)}",
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=lambda created: f"created {_render_script_metadata(created)}",
     )
 
 
@@ -600,15 +600,15 @@ def get_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a script's source and report its class_name/extends metadata."""
-    SCRIPT_GET_COMMAND.emit(
+    _dispatch(
+        SCRIPT_GET_COMMAND,
         ScriptGetParams(path=_normalize_path(path)),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda got: "\n".join(
+        godot=godot,
+        project=project,
+        render=lambda got: "\n".join(
             [_render_script_metadata(got), got.source]
         ),
-        make_runner=_make_runner,
     )
 
 
@@ -627,13 +627,13 @@ def list_scripts(
     project: Optional[str] = project_option(),
 ) -> None:
     """Enumerate the .gd scripts in the resolved project."""
-    SCRIPT_LIST_COMMAND.emit(
+    _dispatch(
+        SCRIPT_LIST_COMMAND,
         ScriptListParams(),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=_render_script_list,
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=_render_script_list,
     )
 
 
@@ -646,13 +646,13 @@ def delete_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Delete a script file and report what was removed."""
-    SCRIPT_DELETE_COMMAND.emit(
+    _dispatch(
+        SCRIPT_DELETE_COMMAND,
         ScriptDeleteParams(path=_normalize_path(path)),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda removed: f"deleted {_render_script_metadata(removed)}",
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=lambda removed: f"deleted {_render_script_metadata(removed)}",
     )
 
 
@@ -703,7 +703,8 @@ def set_script(
 ) -> None:
     """Edit a .gd script via search-replace, line-range, or full overwrite."""
     _validate_set_mode(search, replace, start_line, end_line, content)
-    SCRIPT_SET_COMMAND.emit(
+    _dispatch(
+        SCRIPT_SET_COMMAND,
         ScriptSetParams(
             path=_normalize_path(path),
             search=search,
@@ -712,11 +713,10 @@ def set_script(
             end_line=end_line,
             content=content,
         ),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda edited: f"set {_render_script_metadata(edited)}",
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=lambda edited: f"set {_render_script_metadata(edited)}",
     )
 
 
@@ -781,19 +781,19 @@ def attach_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Attach a .gd script to a node (by node path) in a scene and save."""
-    SCRIPT_ATTACH_COMMAND.emit(
+    _dispatch(
+        SCRIPT_ATTACH_COMMAND,
         ScriptAttachParams(
             path=_normalize_path(path),
             node=node,
             script=_normalize_path(script),
         ),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda attached: (
+        godot=godot,
+        project=project,
+        render=lambda attached: (
             f"attached {attached.script} to {attached.node} in {attached.scene_path}"
         ),
-        make_runner=_make_runner,
     )
 
 
@@ -819,13 +819,13 @@ def validate_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Syntax/compile-check a .gd script; an invalid script is a successful op."""
-    SCRIPT_VALIDATE_COMMAND.emit(
+    _dispatch(
+        SCRIPT_VALIDATE_COMMAND,
         ScriptValidateParams(path=_normalize_path(path)),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=_render_validate,
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=_render_validate,
     )
 
 
