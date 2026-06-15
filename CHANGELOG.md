@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/aigengame/godot-agent/compare/v0.1.11...v0.1.12) (2026-06-15)
+
+
+### Bug Fixes
+
+* **script:** validate at the script's real res:// path ([#131](https://github.com/aigengame/godot-agent/issues/131)) ([#146](https://github.com/aigengame/godot-agent/issues/146)) ([037ba3d](https://github.com/aigengame/godot-agent/commit/037ba3d57a1fda1196b35e4ffc63139cf3a4ccc3))
+
 ## [0.1.11](https://github.com/aigengame/godot-agent/compare/v0.1.10...v0.1.11) (2026-06-15)
 
 
