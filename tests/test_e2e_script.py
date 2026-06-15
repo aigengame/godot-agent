@@ -8,6 +8,7 @@ returns the source).
 """
 
 import json
+import os
 import shutil
 import subprocess
 
@@ -208,6 +209,28 @@ def test_script_get_missing_file_yields_path_not_found(godot_project):
 
     err = _assert_operation_error(got, "path_not_found")
     assert str(missing) in err["message"]
+
+
+@pytest.mark.e2e
+def test_script_get_unreadable_file_is_path_not_found_not_empty_source(godot_project):
+    # The empty-vs-unreadable disambiguation: get_file_as_string returns "" both
+    # for an empty file AND on an open error, so an unreadable .gd must be reported
+    # as path_not_found ("could not be read"), never mistaken for a (legal) empty
+    # source. This pins the open-error half of the guard the empty-source
+    # round-trip test (above) leaves uncovered.
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("file read permissions do not bind as root")
+    locked = godot_project / "locked.gd"
+    locked.write_text("extends Node\n", encoding="utf-8")
+    locked.chmod(0o000)
+    try:
+        got = _gda("script", "get", str(locked), "--json")
+    finally:
+        locked.chmod(0o600)
+
+    err = _assert_operation_error(got, "path_not_found")
+    assert str(locked) in err["message"]
+    assert "could not be read" in err["message"]
 
 
 @pytest.mark.e2e
