@@ -420,20 +420,20 @@ def add(
     project: Optional[str] = project_option(),
 ) -> None:
     """Add a node to a scene file under the given parent node path."""
-    NODE_ADD_COMMAND.emit(
+    _dispatch(
+        NODE_ADD_COMMAND,
         NodeAddParams(
             path=_normalize_path(path),
             parent=parent,
             type=node_type,
             name=name if name is not None else node_type,
         ),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda added: (
+        godot=godot,
+        project=project,
+        render=lambda added: (
             f"added {added.path} ({added.type}) to {added.scene_path}"
         ),
-        make_runner=_make_runner,
     )
 
 
@@ -446,13 +446,13 @@ def list_nodes(
     project: Optional[str] = project_option(),
 ) -> None:
     """List a scene's node tree with each node's path relative to the root."""
-    NODE_LIST_COMMAND.emit(
+    _dispatch(
+        NODE_LIST_COMMAND,
         NodeListParams(path=_normalize_path(path)),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda listed: _render_tree(listed.root),
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=lambda listed: _render_tree(listed.root),
     )
 
 
@@ -483,13 +483,13 @@ def get(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a node's properties (by node path) as typed JSON."""
-    NODE_GET_COMMAND.emit(
+    _dispatch(
+        NODE_GET_COMMAND,
         NodeGetParams(path=_normalize_path(path), node=node),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=_render_node_properties,
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=_render_node_properties,
     )
 
 
@@ -521,18 +521,18 @@ def set_property(
     project: Optional[str] = project_option(),
 ) -> None:
     """Set a node property, coercing the value to its declared Godot type."""
-    NODE_SET_COMMAND.emit(
+    _dispatch(
+        NODE_SET_COMMAND,
         NodeSetParams(
             path=_normalize_path(path), node=node, property=property, value=value
         ),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda was_set: (
+        godot=godot,
+        project=project,
+        render=lambda was_set: (
             f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
             f"{json.dumps(was_set.value)}"
         ),
-        make_runner=_make_runner,
     )
 
 
