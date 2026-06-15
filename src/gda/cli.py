@@ -29,6 +29,10 @@ from gda.models import (
     InfoParams,
     NodeAddParams,
     NodeAddResult,
+    NodeConnectSignalParams,
+    NodeConnectSignalResult,
+    NodeDisconnectSignalParams,
+    NodeDisconnectSignalResult,
     NodeGetParams,
     NodeGetResult,
     NodeListParams,
@@ -252,6 +256,20 @@ NODE_SET_COMMAND: HeadlessCommand[NodeSetResult] = HeadlessCommand(
     operation="node-set",
     input_model=NodeSetParams,
     output_model=NodeSetResult,
+)
+
+NODE_CONNECT_SIGNAL_COMMAND: HeadlessCommand[NodeConnectSignalResult] = HeadlessCommand(
+    operation="node-connect-signal",
+    input_model=NodeConnectSignalParams,
+    output_model=NodeConnectSignalResult,
+)
+
+NODE_DISCONNECT_SIGNAL_COMMAND: HeadlessCommand[NodeDisconnectSignalResult] = (
+    HeadlessCommand(
+        operation="node-disconnect-signal",
+        input_model=NodeDisconnectSignalParams,
+        output_model=NodeDisconnectSignalResult,
+    )
 )
 
 SCRIPT_CREATE_COMMAND: HeadlessCommand[ScriptCreateResult] = HeadlessCommand(
@@ -536,6 +554,101 @@ def set_property(
         NODE_SET_COMMAND,
         NodeSetParams(
             path=_normalize_path(path), node=node, property=property, value=value
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+# The four connection flags reused by both connect-signal and disconnect-signal.
+# Defined once so the source/target node-path addressing and the signal/method
+# naming stay identical across the wire and unwire commands.
+def _from_option() -> str:
+    return typer.Option(
+        ...,
+        "--from",
+        help=(
+            "Source node path, relative to the scene root: '.' addresses the "
+            "root itself, 'Player/Arm' a nested node."
+        ),
+    )
+
+
+def _signal_option() -> str:
+    return typer.Option(..., "--signal", help="The signal name on the source node.")
+
+
+def _to_option() -> str:
+    return typer.Option(
+        ...,
+        "--to",
+        help=(
+            "Target node path, relative to the scene root: '.' addresses the "
+            "root itself, 'Player/Arm' a nested node."
+        ),
+    )
+
+
+def _method_option() -> str:
+    return typer.Option(..., "--method", help="The method name on the target node.")
+
+
+@node_app.command(
+    name="connect-signal", cls=NODE_CONNECT_SIGNAL_COMMAND.command_class()
+)
+def connect_signal(
+    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
+    from_node: str = _from_option(),
+    signal: str = _signal_option(),
+    to: str = _to_option(),
+    method: str = _method_option(),
+    json_output: bool = json_option(),
+    schema: bool = NODE_CONNECT_SIGNAL_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Wire a source node's signal to a target node's method, persisted in the scene."""
+    _dispatch(
+        NODE_CONNECT_SIGNAL_COMMAND,
+        NodeConnectSignalParams(
+            path=_normalize_path(path),
+            from_node=from_node,
+            signal=signal,
+            to=to,
+            method=method,
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@node_app.command(
+    name="disconnect-signal", cls=NODE_DISCONNECT_SIGNAL_COMMAND.command_class()
+)
+def disconnect_signal(
+    path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
+    from_node: str = _from_option(),
+    signal: str = _signal_option(),
+    to: str = _to_option(),
+    method: str = _method_option(),
+    json_output: bool = json_option(),
+    schema: bool = NODE_DISCONNECT_SIGNAL_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Unwire an existing signal→method connection; errors if it is absent."""
+    _dispatch(
+        NODE_DISCONNECT_SIGNAL_COMMAND,
+        NodeDisconnectSignalParams(
+            path=_normalize_path(path),
+            from_node=from_node,
+            signal=signal,
+            to=to,
+            method=method,
         ),
         json_output=json_output,
         godot=godot,

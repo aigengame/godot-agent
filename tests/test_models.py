@@ -9,6 +9,8 @@ from gda.models import (
     GdaError,
     GdaErrorEnvelope,
     NodeAddResult,
+    NodeConnectSignalResult,
+    NodeDisconnectSignalResult,
     NodeGetResult,
     NodeListResult,
     NodeSetResult,
@@ -502,3 +504,46 @@ def test_node_set_result_round_trips_the_coerced_property():
     assert was_set.type == "Vector2"
     assert was_set.value == [3.0, 4.0]
     assert json.loads(was_set.model_dump_json()) == payload
+
+
+def test_node_connect_signal_result_round_trips_the_four_part_connection():
+    # node connect-signal echoes the connection it recorded (issue #57): the
+    # source node and its signal, the target node and its method — the four
+    # parts of a .tscn [connection], so an agent asserts the wiring without
+    # re-reading the scene file.
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "from": "Emitter",
+        "signal": "timeout",
+        "to": "Receiver",
+        "method": "on_timeout",
+    }
+
+    connected = NodeConnectSignalResult.model_validate(payload)
+
+    assert connected.scene_path == "/p/main.tscn"
+    assert (connected.from_node, connected.signal) == ("Emitter", "timeout")
+    assert (connected.to, connected.method) == ("Receiver", "on_timeout")
+    # `from` is a Python keyword, so the field is aliased; the JSON projection
+    # still serializes the wire key as `from`.
+    assert json.loads(connected.model_dump_json(by_alias=True)) == payload
+
+
+def test_node_disconnect_signal_result_round_trips_the_removed_connection():
+    # node disconnect-signal echoes the connection it removed (issue #57), the
+    # same four-part shape as connect — the result an agent asserts to confirm
+    # the unwiring took effect.
+    payload = {
+        "scene_path": "/p/main.tscn",
+        "from": "Emitter",
+        "signal": "timeout",
+        "to": "Receiver",
+        "method": "on_timeout",
+    }
+
+    disconnected = NodeDisconnectSignalResult.model_validate(payload)
+
+    assert disconnected.scene_path == "/p/main.tscn"
+    assert (disconnected.from_node, disconnected.signal) == ("Emitter", "timeout")
+    assert (disconnected.to, disconnected.method) == ("Receiver", "on_timeout")
+    assert json.loads(disconnected.model_dump_json(by_alias=True)) == payload
