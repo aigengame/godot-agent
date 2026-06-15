@@ -7,7 +7,6 @@ domain group (issue #18). Every command drives the same headless pipeline:
 binary resolution → runner → sentinel parse → typed model → JSON.
 """
 
-import json
 from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Optional
@@ -28,8 +27,6 @@ from gda.headless import (
 from gda.models import (
     EngineVersion,
     InfoParams,
-    ListedNode,
-    ListedScript,
     NodeAddParams,
     NodeAddResult,
     NodeGetParams,
@@ -46,7 +43,6 @@ from gda.models import (
     SceneGetResult,
     SceneListParams,
     SceneListResult,
-    SceneNode,
     ScriptAttachParams,
     ScriptAttachResult,
     ScriptCreateParams,
@@ -63,6 +59,7 @@ from gda.models import (
     ScriptValidateResult,
 )
 from gda.project import resolve_project_dir
+from gda.render import render
 from gda.runner import GodotRunner
 
 app = typer.Typer(
@@ -320,13 +317,6 @@ def _derive_scene_root_name(path: str) -> str:
     return filename
 
 
-def _render_tree(node: "SceneNode | ListedNode", depth: int = 0) -> str:
-    """Render a node tree as an indented ``name (Type)`` outline for humans."""
-    lines = [f"{'  ' * depth}{node.name} ({node.type})"]
-    lines += (_render_tree(child, depth + 1) for child in node.children)
-    return "\n".join(lines)
-
-
 @scene_app.command(cls=SCENE_CREATE_COMMAND.command_class())
 def create(
     path: str = typer.Argument(..., help="Target .tscn path to write."),
@@ -362,9 +352,7 @@ def create(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=lambda created: (
-            f"created {created.path} (root {created.root_type})"
-        ),
+        render=render,
     )
 
 
@@ -383,21 +371,8 @@ def get(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=lambda scene: _render_tree(scene.root),
+        render=render,
     )
-
-
-def _render_scene_list(listed: "SceneListResult") -> str:
-    """Render the enumerated scenes as ``path (root_name: root_type)`` lines."""
-    if not listed.scenes:
-        return "(no scenes)"
-    lines = []
-    for scene in listed.scenes:
-        if scene.root_name is not None and scene.root_type is not None:
-            lines.append(f"{scene.path} ({scene.root_name}: {scene.root_type})")
-        else:
-            lines.append(f"{scene.path} (unreadable)")
-    return "\n".join(lines)
 
 
 @scene_app.command(name="list", cls=SCENE_LIST_COMMAND.command_class())
@@ -414,7 +389,7 @@ def list_scenes(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=_render_scene_list,
+        render=render,
     )
 
 
@@ -433,9 +408,7 @@ def delete(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=lambda removed: (
-            f"deleted {removed.path} (root {removed.root_name}: {removed.root_type})"
-        ),
+        render=render,
     )
 
 
@@ -480,9 +453,7 @@ def add(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=lambda added: (
-            f"added {added.path} ({added.type}) to {added.scene_path}"
-        ),
+        render=render,
     )
 
 
@@ -501,18 +472,8 @@ def list_nodes(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=lambda listed: _render_tree(listed.root),
+        render=render,
     )
-
-
-def _render_node_properties(got: "NodeGetResult") -> str:
-    """Render a node's properties as ``name (Type) = value`` lines for humans."""
-    header = f"{got.path} ({got.type})"
-    lines = [
-        f"  {prop.name} ({prop.type}) = {json.dumps(prop.value)}"
-        for prop in got.properties
-    ]
-    return "\n".join([header, *lines])
 
 
 @node_app.command(cls=NODE_GET_COMMAND.command_class())
@@ -538,7 +499,7 @@ def get(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=_render_node_properties,
+        render=render,
     )
 
 
@@ -578,25 +539,8 @@ def set_property(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=lambda was_set: (
-            f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
-            f"{json.dumps(was_set.value)}"
-        ),
+        render=render,
     )
-
-
-def _render_script_metadata(
-    script: "ScriptCreateResult | ScriptGetResult | ListedScript | ScriptDeleteResult | ScriptSetResult",
-) -> str:
-    """Render a script's path plus its class_name/extends for humans."""
-    meta = []
-    if script.extends is not None:
-        meta.append(f"extends {script.extends}")
-    if script.class_name is not None:
-        meta.append(f"class_name {script.class_name}")
-    if not meta:
-        return script.path
-    return f"{script.path} ({', '.join(meta)})"
 
 
 @script_app.command(cls=SCRIPT_CREATE_COMMAND.command_class())
@@ -636,7 +580,7 @@ def create(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=lambda created: f"created {_render_script_metadata(created)}",
+        render=render,
     )
 
 
@@ -655,17 +599,8 @@ def get_script(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=lambda got: "\n".join(
-            [_render_script_metadata(got), got.source]
-        ),
+        render=render,
     )
-
-
-def _render_script_list(listed: "ScriptListResult") -> str:
-    """Render the enumerated scripts as ``path (extends X, class_name Y)`` lines."""
-    if not listed.scripts:
-        return "(no scripts)"
-    return "\n".join(_render_script_metadata(script) for script in listed.scripts)
 
 
 @script_app.command(name="list", cls=SCRIPT_LIST_COMMAND.command_class())
@@ -682,7 +617,7 @@ def list_scripts(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=_render_script_list,
+        render=render,
     )
 
 
@@ -701,7 +636,7 @@ def delete_script(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=lambda removed: f"deleted {_render_script_metadata(removed)}",
+        render=render,
     )
 
 
@@ -765,7 +700,7 @@ def set_script(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=lambda edited: f"set {_render_script_metadata(edited)}",
+        render=render,
     )
 
 
@@ -840,23 +775,8 @@ def attach_script(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=lambda attached: (
-            f"attached {attached.script} to {attached.node} in {attached.scene_path}"
-        ),
+        render=render,
     )
-
-
-def _render_validate(validated: "ScriptValidateResult") -> str:
-    """Render a validate result: valid/invalid plus best-effort diagnostics."""
-    if validated.valid:
-        return f"valid {validated.path}"
-    lines = [f"invalid {validated.path}"]
-    if validated.error_string is not None:
-        lines.append(f"  {validated.error_string}")
-    for diag in validated.diagnostics:
-        location = f"line {diag.line}" if diag.line is not None else "unknown line"
-        lines.append(f"  {location}: {diag.message}")
-    return "\n".join(lines)
 
 
 @script_app.command(name="validate", cls=SCRIPT_VALIDATE_COMMAND.command_class())
@@ -874,7 +794,7 @@ def validate_script(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=_render_validate,
+        render=render,
     )
 
 
@@ -890,5 +810,5 @@ def info(
         InfoParams(),
         json_output=json_output,
         godot=godot,
-        render=lambda version: version.string,
+        render=render,
     )
