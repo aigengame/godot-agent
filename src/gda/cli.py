@@ -13,10 +13,13 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from pydantic import BaseModel
 
 from gda.errors import classify_info, classify_script_validate
 from gda.headless import (
     HeadlessCommand,
+    HumanRenderer,
+    M,
     godot_option,
     json_option,
     make_subprocess_runner,
@@ -118,6 +121,84 @@ def _make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
     A seam tests override (via monkeypatch) to inject a fake runner.
     """
     return make_subprocess_runner(binary, project)
+
+
+def _emit(
+    cmd: HeadlessCommand[M],
+    params: BaseModel,
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    project: Optional[Path],
+    render: HumanRenderer[M],
+) -> None:
+    """Drive ``cmd.emit`` with the shared CLI execution tail.
+
+    The sole reference to the runner seam ``_make_runner`` — held here, at call
+    time, so the test monkeypatch on ``gda.cli._make_runner`` still binds rather
+    than being frozen as a def-time default. Both the domain dispatch
+    (:func:`_dispatch`) and the meta dispatch (:func:`_dispatch_meta`) funnel
+    through here; they differ only in how ``project`` is obtained.
+    """
+    cmd.emit(
+        params,
+        godot=godot,
+        project=project,
+        json_output=json_output,
+        render_text=render,
+        make_runner=_make_runner,
+    )
+
+
+def _dispatch(
+    cmd: HeadlessCommand[M],
+    params: BaseModel,
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    project: Optional[str],
+    render: HumanRenderer[M],
+) -> None:
+    """Run a domain command through the shared CLI execution tail.
+
+    Owns the per-command-repeated wiring: project resolution
+    (``resolve_project_dir``, kept at the CLI layer per ADR-0006), the runner
+    seam, the ``json_output`` pass-through, and the JSON-vs-text branch. Each
+    command keeps its own Typer signature, params construction, ``render``, and
+    pre-dispatch validation; only this execution tail is shared.
+    """
+    _emit(
+        cmd,
+        params,
+        json_output=json_output,
+        godot=godot,
+        project=resolve_project_dir(project),
+        render=render,
+    )
+
+
+def _dispatch_meta(
+    cmd: HeadlessCommand[M],
+    params: BaseModel,
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    render: HumanRenderer[M],
+) -> None:
+    """Run a meta command (no ``--project``, ADR-0005) through the shared tail.
+
+    Unlike :func:`_dispatch`, this never calls ``resolve_project_dir``: a meta
+    command (``gda info``) is about ``gda``/the engine itself, so it runs
+    projectless rather than resolving a project context.
+    """
+    _emit(
+        cmd,
+        params,
+        json_output=json_output,
+        godot=godot,
+        project=None,
+        render=render,
+    )
 
 
 INFO_COMMAND: HeadlessCommand[EngineVersion] = HeadlessCommand(
@@ -269,7 +350,8 @@ def create(
 ) -> None:
     """Create a new .tscn scene file with the given root node type."""
     normalized_path = _normalize_path(path)
-    SCENE_CREATE_COMMAND.emit(
+    _dispatch(
+        SCENE_CREATE_COMMAND,
         SceneCreateParams(
             path=normalized_path,
             root_type=root_type,
@@ -277,13 +359,12 @@ def create(
             if root_name is not None
             else _derive_scene_root_name(normalized_path),
         ),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda created: (
+        godot=godot,
+        project=project,
+        render=lambda created: (
             f"created {created.path} (root {created.root_type})"
         ),
-        make_runner=_make_runner,
     )
 
 
@@ -296,13 +377,13 @@ def get(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a scene file and report its structured node tree."""
-    SCENE_GET_COMMAND.emit(
+    _dispatch(
+        SCENE_GET_COMMAND,
         SceneGetParams(path=_normalize_path(path)),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda scene: _render_tree(scene.root),
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=lambda scene: _render_tree(scene.root),
     )
 
 
@@ -327,13 +408,13 @@ def list_scenes(
     project: Optional[str] = project_option(),
 ) -> None:
     """Enumerate the .tscn scenes in the resolved project."""
-    SCENE_LIST_COMMAND.emit(
+    _dispatch(
+        SCENE_LIST_COMMAND,
         SceneListParams(),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=_render_scene_list,
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=_render_scene_list,
     )
 
 
@@ -346,15 +427,15 @@ def delete(
     project: Optional[str] = project_option(),
 ) -> None:
     """Delete a scene file and report what was removed."""
-    SCENE_DELETE_COMMAND.emit(
+    _dispatch(
+        SCENE_DELETE_COMMAND,
         SceneDeleteParams(path=_normalize_path(path)),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda removed: (
+        godot=godot,
+        project=project,
+        render=lambda removed: (
             f"deleted {removed.path} (root {removed.root_name}: {removed.root_type})"
         ),
-        make_runner=_make_runner,
     )
 
 
@@ -388,20 +469,20 @@ def add(
     project: Optional[str] = project_option(),
 ) -> None:
     """Add a node to a scene file under the given parent node path."""
-    NODE_ADD_COMMAND.emit(
+    _dispatch(
+        NODE_ADD_COMMAND,
         NodeAddParams(
             path=_normalize_path(path),
             parent=parent,
             type=node_type,
             name=name if name is not None else node_type,
         ),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda added: (
+        godot=godot,
+        project=project,
+        render=lambda added: (
             f"added {added.path} ({added.type}) to {added.scene_path}"
         ),
-        make_runner=_make_runner,
     )
 
 
@@ -414,13 +495,13 @@ def list_nodes(
     project: Optional[str] = project_option(),
 ) -> None:
     """List a scene's node tree with each node's path relative to the root."""
-    NODE_LIST_COMMAND.emit(
+    _dispatch(
+        NODE_LIST_COMMAND,
         NodeListParams(path=_normalize_path(path)),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda listed: _render_tree(listed.root),
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=lambda listed: _render_tree(listed.root),
     )
 
 
@@ -451,13 +532,13 @@ def get(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a node's properties (by node path) as typed JSON."""
-    NODE_GET_COMMAND.emit(
+    _dispatch(
+        NODE_GET_COMMAND,
         NodeGetParams(path=_normalize_path(path), node=node),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=_render_node_properties,
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=_render_node_properties,
     )
 
 
@@ -489,18 +570,18 @@ def set_property(
     project: Optional[str] = project_option(),
 ) -> None:
     """Set a node property, coercing the value to its declared Godot type."""
-    NODE_SET_COMMAND.emit(
+    _dispatch(
+        NODE_SET_COMMAND,
         NodeSetParams(
             path=_normalize_path(path), node=node, property=property, value=value
         ),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda was_set: (
+        godot=godot,
+        project=project,
+        render=lambda was_set: (
             f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
             f"{json.dumps(was_set.value)}"
         ),
-        make_runner=_make_runner,
     )
 
 
@@ -545,17 +626,17 @@ def create(
     """Create a new .gd script from a template or verbatim --content."""
     if content is not None and extends_type is not None:
         raise typer.BadParameter("--content and --extends are mutually exclusive.")
-    SCRIPT_CREATE_COMMAND.emit(
+    _dispatch(
+        SCRIPT_CREATE_COMMAND,
         ScriptCreateParams(
             path=_normalize_path(path),
             content=content,
             extends_type=extends_type,
         ),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda created: f"created {_render_script_metadata(created)}",
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=lambda created: f"created {_render_script_metadata(created)}",
     )
 
 
@@ -568,15 +649,15 @@ def get_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a script's source and report its class_name/extends metadata."""
-    SCRIPT_GET_COMMAND.emit(
+    _dispatch(
+        SCRIPT_GET_COMMAND,
         ScriptGetParams(path=_normalize_path(path)),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda got: "\n".join(
+        godot=godot,
+        project=project,
+        render=lambda got: "\n".join(
             [_render_script_metadata(got), got.source]
         ),
-        make_runner=_make_runner,
     )
 
 
@@ -595,13 +676,13 @@ def list_scripts(
     project: Optional[str] = project_option(),
 ) -> None:
     """Enumerate the .gd scripts in the resolved project."""
-    SCRIPT_LIST_COMMAND.emit(
+    _dispatch(
+        SCRIPT_LIST_COMMAND,
         ScriptListParams(),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=_render_script_list,
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=_render_script_list,
     )
 
 
@@ -614,13 +695,13 @@ def delete_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Delete a script file and report what was removed."""
-    SCRIPT_DELETE_COMMAND.emit(
+    _dispatch(
+        SCRIPT_DELETE_COMMAND,
         ScriptDeleteParams(path=_normalize_path(path)),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda removed: f"deleted {_render_script_metadata(removed)}",
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=lambda removed: f"deleted {_render_script_metadata(removed)}",
     )
 
 
@@ -671,7 +752,8 @@ def set_script(
 ) -> None:
     """Edit a .gd script via search-replace, line-range, or full overwrite."""
     _validate_set_mode(search, replace, start_line, end_line, content)
-    SCRIPT_SET_COMMAND.emit(
+    _dispatch(
+        SCRIPT_SET_COMMAND,
         ScriptSetParams(
             path=_normalize_path(path),
             search=search,
@@ -680,11 +762,10 @@ def set_script(
             end_line=end_line,
             content=content,
         ),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda edited: f"set {_render_script_metadata(edited)}",
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=lambda edited: f"set {_render_script_metadata(edited)}",
     )
 
 
@@ -749,19 +830,19 @@ def attach_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Attach a .gd script to a node (by node path) in a scene and save."""
-    SCRIPT_ATTACH_COMMAND.emit(
+    _dispatch(
+        SCRIPT_ATTACH_COMMAND,
         ScriptAttachParams(
             path=_normalize_path(path),
             node=node,
             script=_normalize_path(script),
         ),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=lambda attached: (
+        godot=godot,
+        project=project,
+        render=lambda attached: (
             f"attached {attached.script} to {attached.node} in {attached.scene_path}"
         ),
-        make_runner=_make_runner,
     )
 
 
@@ -787,13 +868,13 @@ def validate_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Syntax/compile-check a .gd script; an invalid script is a successful op."""
-    SCRIPT_VALIDATE_COMMAND.emit(
+    _dispatch(
+        SCRIPT_VALIDATE_COMMAND,
         ScriptValidateParams(path=_normalize_path(path)),
-        godot=godot,
-        project=resolve_project_dir(project),
         json_output=json_output,
-        render_text=_render_validate,
-        make_runner=_make_runner,
+        godot=godot,
+        project=project,
+        render=_render_validate,
     )
 
 
@@ -804,10 +885,10 @@ def info(
     godot: Optional[str] = godot_option(),
 ) -> None:
     """Report the Godot engine version info."""
-    INFO_COMMAND.emit(
+    _dispatch_meta(
+        INFO_COMMAND,
         InfoParams(),
-        godot=godot,
         json_output=json_output,
-        render_text=lambda version: version.string,
-        make_runner=_make_runner,
+        godot=godot,
+        render=lambda version: version.string,
     )
