@@ -594,8 +594,9 @@ func _op_script_delete(params: Dictionary) -> void:
 # script-set: edit an EXISTING .gd script on disk as RAW TEXT (issue #118) — it
 # never compiles or loads the script, so editing it cannot run project code (the
 # read trust boundary of issue #30, the same one create/get/delete honor). Three
-# mutually-exclusive edit modes, inferred by param presence with precedence
-# search → line-range → full (the CLI guarantees exactly one is supplied):
+# mutually-exclusive edit modes; the CLI resolves exactly one and stamps it on the
+# explicit `mode` discriminator the op dispatches on (issue #133), never re-inferred
+# here from which params are present:
 # - search-replace: replace EVERY literal (not regex) occurrence of `search`.
 # - line-range: replace the 1-based, inclusive line span [start_line, end_line]
 #   with `content`. Lines are the parts of the source split on "\n", so a
@@ -616,15 +617,25 @@ func _op_script_set(params: Dictionary) -> void:
 	if source == null:
 		return  # _read_script_source already recorded the failure
 
-	# Infer the mode by presence, precedence search → line-range → full.
+	# Dispatch on the explicit mode discriminator the CLI resolved (issue #133):
+	# the edit mode is decided once, at the CLI's mutual-exclusion check, and rides
+	# through on `mode` — the op never re-infers it from which params are present,
+	# so the op's dispatch can no longer drift from the CLI's exclusivity rule.
+	var mode := _string_param(params, "mode")
 	var new_source: Variant
-	if params.get("search", null) is String:
-		new_source = _apply_search_replace(source, params)
-	elif params.get("start_line", null) != null:
-		new_source = _apply_line_range(source, params)
-	else:
-		# full overwrite: content is guaranteed present by the CLI's mode check.
-		new_source = _string_param(params, "content")
+	match mode:
+		"search_replace":
+			new_source = _apply_search_replace(source, params)
+		"line_range":
+			new_source = _apply_line_range(source, params)
+		"full":
+			# full overwrite: content is guaranteed present by the CLI's mode check.
+			new_source = _string_param(params, "content")
+		_:
+			# The CLI always supplies one of the three modes; a missing/unknown mode
+			# means a malformed direct op invocation, not a reachable CLI path.
+			_fail(OP_ERROR_INVALID_PARAMS, "unknown script-set mode: " + mode)
+			return
 	if new_source == null:
 		return  # the apply helper already recorded the failure
 

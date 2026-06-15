@@ -17,6 +17,7 @@ import pytest
 from gda.binary import resolve_godot_binary
 from gda.errors import Failure, classify_run
 from gda.models import EngineVersion
+from gda.parser import parse_result
 from gda.runner import OPERATIONS_GD, RunResult, SubprocessGodotRunner
 
 GODOT = resolve_godot_binary()
@@ -67,3 +68,37 @@ def test_non_json_params_yield_stable_code():
     assert isinstance(outcome, Failure)
     assert outcome.error.category.value == "operation"
     assert outcome.error.code == "invalid_params"
+
+
+@pytest.mark.e2e
+def test_script_set_dispatches_on_the_explicit_mode_not_param_presence(tmp_path):
+    # script-set is decided once at the CLI and the op dispatches on the explicit
+    # `mode` discriminator, NOT by re-inferring from which params are present
+    # (issue #133). Hand the op a params dict the CLI's mutual exclusion would
+    # never produce: mode=full but with start_line ALSO set. Honoring `mode`
+    # overwrites the whole file with `content`; the obsolete presence-inference
+    # (search → line-range → full) would instead apply a line-range edit. The two
+    # produce observably different files, so this pins the dispatch on `mode`.
+    script = tmp_path / "hero.gd"
+    script.write_text("extends Node\nvar a := 1\nvar b := 2\n", encoding="utf-8")
+
+    runner = SubprocessGodotRunner(GODOT)
+    result = runner.run(
+        "script-set",
+        {
+            "path": str(script),
+            "mode": "full",
+            "search": None,
+            "replace": None,
+            "start_line": 1,  # presence-inference would mis-select line_range
+            "end_line": None,
+            "content": "class_name Hero\nextends Node2D\n",
+        },
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    payload = parse_result(result.stdout)
+    assert payload["class_name"] == "Hero"
+    assert payload["extends"] == "Node2D"
+    # The file was fully overwritten (full mode honored), not line-range edited.
+    assert script.read_text(encoding="utf-8") == "class_name Hero\nextends Node2D\n"

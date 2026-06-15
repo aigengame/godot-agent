@@ -607,24 +607,55 @@ class ScriptDeleteResult(BaseModel):
     )
 
 
+class ScriptSetMode(str, Enum):
+    """The edit mode of ``gda script set``, the single source of truth (issue #133).
+
+    The CLI resolves exactly one mode from the supplied flags (its mutual-exclusion
+    check) and stamps it here, so the operation dispatches on this explicit
+    discriminator instead of re-inferring the mode from which params are present —
+    the inference precedence can no longer drift from the CLI's exclusivity rule.
+
+    - ``SEARCH_REPLACE`` — ``search``/``replace``: every literal (not regex)
+      occurrence of ``search`` is replaced with ``replace``.
+    - ``LINE_RANGE`` — ``start_line`` (+ optional ``end_line``) with ``content``:
+      the given 1-based, inclusive line span is replaced with ``content``.
+    - ``FULL`` — ``content`` only: the whole file is overwritten.
+    """
+
+    SEARCH_REPLACE = "search_replace"
+    LINE_RANGE = "line_range"
+    FULL = "full"
+
+
 class ScriptSetParams(BaseModel):
     """The operation params of ``gda script set`` (issue #118).
 
     Edits an existing ``.gd`` script on disk as RAW TEXT — it never compiles or
     loads the script, so editing one can never run project code (the read trust
     boundary of issue #30). ``path`` addresses the script by its ``res://`` or
-    filesystem path. The remaining params select one of three mutually-exclusive
-    edit modes (the CLI guarantees exactly one is supplied); the operation infers
-    the mode by presence, with precedence search → line-range → full:
+    filesystem path. The remaining params carry one of three mutually-exclusive
+    edit modes; the CLI resolves which one and stamps it on ``mode`` (issue #133),
+    so the operation dispatches on that explicit discriminator rather than
+    re-inferring it from which params are present:
 
-    - **search-replace** — ``search``/``replace`` both present: every literal
-      (not regex) occurrence of ``search`` is replaced with ``replace``.
-    - **line-range** — ``start_line`` (+ optional ``end_line``) with ``content``:
-      the given 1-based, inclusive line span is replaced with ``content``.
-    - **full** — only ``content`` present: the whole file is overwritten.
+    - **search-replace** (``mode = search_replace``) — ``search``/``replace`` both
+      present: every literal (not regex) occurrence of ``search`` is replaced with
+      ``replace``.
+    - **line-range** (``mode = line_range``) — ``start_line`` (+ optional
+      ``end_line``) with ``content``: the given 1-based, inclusive line span is
+      replaced with ``content``.
+    - **full** (``mode = full``) — only ``content`` present: the whole file is
+      overwritten.
     """
 
     path: str
+    mode: ScriptSetMode = Field(
+        description=(
+            "The resolved edit mode, the single source of truth the operation "
+            "dispatches on (issue #133). Set by the CLI from the supplied flags, "
+            "not inferred by the operation from param presence."
+        ),
+    )
     search: str | None = Field(
         default=None,
         description=(

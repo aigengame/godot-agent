@@ -53,6 +53,7 @@ from gda.models import (
     ScriptGetResult,
     ScriptListParams,
     ScriptListResult,
+    ScriptSetMode,
     ScriptSetParams,
     ScriptSetResult,
     ScriptValidateParams,
@@ -686,11 +687,12 @@ def set_script(
     project: Optional[str] = project_option(),
 ) -> None:
     """Edit a .gd script via search-replace, line-range, or full overwrite."""
-    _validate_set_mode(search, replace, start_line, end_line, content)
+    mode = _resolve_set_mode(search, replace, start_line, end_line, content)
     _dispatch(
         SCRIPT_SET_COMMAND,
         ScriptSetParams(
             path=_normalize_path(path),
+            mode=mode,
             search=search,
             replace=replace,
             start_line=start_line,
@@ -704,19 +706,21 @@ def set_script(
     )
 
 
-def _validate_set_mode(
+def _resolve_set_mode(
     search: Optional[str],
     replace: Optional[str],
     start_line: Optional[int],
     end_line: Optional[int],
     content: Optional[str],
-) -> None:
-    """Enforce that ``script set`` selects exactly one edit mode (issue #118).
+) -> ScriptSetMode:
+    """Resolve ``script set``'s edit mode, the single source of truth (issue #133).
 
-    Validated at the CLI layer (before any dispatch, like ``script create``'s
-    mutual exclusion), so the operation is always handed exactly one well-formed
-    mode and never has to defend against "no mode" or a mixed-mode combination.
-    A violation is a usage error (exit 2).
+    This is the one place the edit mode is decided: it enforces that exactly one
+    of the three mutually-exclusive modes is supplied (a violation is a usage
+    error, exit 2, like ``script create``'s mutual exclusion) and returns the
+    resolved :class:`ScriptSetMode`. The CLI stamps it onto the op params so the
+    operation dispatches on this explicit discriminator instead of re-inferring
+    the mode from which params are present — the two can no longer drift.
     """
     has_search = search is not None or replace is not None
     has_line_range = start_line is not None or end_line is not None
@@ -729,20 +733,21 @@ def _validate_set_mode(
                 "--search/--replace cannot be combined with --content, "
                 "--start-line, or --end-line."
             )
-        return
+        return ScriptSetMode.SEARCH_REPLACE
 
     if has_line_range:
         if content is None:
             raise typer.BadParameter("--start-line/--end-line require --content.")
         if start_line is None:
             raise typer.BadParameter("--end-line requires --start-line.")
-        return
+        return ScriptSetMode.LINE_RANGE
 
     if content is None:
         raise typer.BadParameter(
             "script set needs an edit: --search/--replace, --start-line "
             "(+ --content), or --content (full overwrite)."
         )
+    return ScriptSetMode.FULL
 
 
 @script_app.command(name="attach", cls=SCRIPT_ATTACH_COMMAND.command_class())
