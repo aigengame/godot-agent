@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.14](https://github.com/aigengame/godot-agent/compare/v0.1.13...v0.1.14) (2026-06-15)
+
+
+### Features
+
+* **node:** connect-signal + disconnect-signal — wire signals to methods ([#57](https://github.com/aigengame/godot-agent/issues/57)) ([#150](https://github.com/aigengame/godot-agent/issues/150)) ([32b8504](https://github.com/aigengame/godot-agent/commit/32b8504b5d8534ed5041b6fdd1bec92718065a60))
+
 ## [0.1.13](https://github.com/aigengame/godot-agent/compare/v0.1.12...v0.1.13) (2026-06-15)
 
 
