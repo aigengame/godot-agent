@@ -211,6 +211,12 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A script could not be attached to a node because it does not compile.",
     ),
     ErrorCodeSpec(
+        "incompatible_script_type",
+        ErrorCategory.OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A script compiles but its native base type is incompatible with the target node's type.",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         ErrorCodeSource.PARSER,

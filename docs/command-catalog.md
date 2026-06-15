@@ -208,11 +208,14 @@ the form `node list` reports. Unlike the other script-file ops, `attach` is a **
 it loads and **instantiates** the scene (so it runs the `_init` of scripts already in the scene —
 the inherent trust boundary of `node set`, ADR-0009), attaches the script via `set_script` (which,
 for a script that compiles, constructs an instance of the newly-attached script, running *its*
-`_init` too), and re-packs and saves. The attached script **must compile**: the headless engine
-silently rejects a non-compiling script from `set_script` (the node's script stays null and a
-re-pack saves no script), so attach **refuses** one with `script_compile_failed` rather than report
-a phantom success over a scene with nothing attached — check a script with `script validate` first.
-Other failures reuse existing codes: a missing script is `path_not_found`, a non-`.gd` script is
+`_init` too), and re-packs and saves. The attached script **must bind**: the headless engine
+silently rejects a script `set_script` cannot bind (the node's script stays null and a re-pack saves
+no script), so attach **refuses** rather than report a phantom success, distinguishing the two
+rejection modes so an agent gets the right remediation — a script that does **not compile** is
+`script_compile_failed` (fix the syntax; check it with `script validate`), while one that compiles
+but whose native base is **incompatible** with the node (e.g. an `extends Node3D` script on a
+`Node2D`) is `incompatible_script_type` (attach it to a compatible node, or change the script's
+`extends`). Other failures reuse existing codes: a missing script is `path_not_found`, a non-`.gd` script is
 `invalid_path`, a node path that resolves to nothing is `node_not_found`, a missing or non-scene
 file is `path_not_found`/`not_a_scene`, and a scene whose instances vanish or degrade on load is
 `missing_dependency` (the mutation-integrity boundary, #64). The result echoes

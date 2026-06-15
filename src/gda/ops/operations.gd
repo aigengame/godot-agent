@@ -48,6 +48,7 @@ const OP_ERROR_UNCOERCIBLE_VALUE := "uncoercible_value"
 const OP_ERROR_NO_SEARCH_MATCH := "no_search_match"
 const OP_ERROR_INVALID_LINE_RANGE := "invalid_line_range"
 const OP_ERROR_SCRIPT_COMPILE_FAILED := "script_compile_failed"
+const OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE := "incompatible_script_type"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -808,13 +809,26 @@ func _op_script_attach(params: Dictionary) -> void:
 		return
 
 	node.set_script(script)
-	# set_script silently rejects a non-compiling script: get_script() stays null
+	# set_script silently rejects a script it cannot bind: get_script() stays null
 	# and a re-pack would save no script. Verify the bind took effect rather than
-	# report a phantom success over a scene with nothing attached.
+	# report a phantom success — and tell the two rejection modes apart so the
+	# agent gets the right remediation: a script that does NOT compile is
+	# script_compile_failed (fix the syntax), while one that compiles but whose
+	# native base is incompatible with the node (e.g. an `extends Node3D` script
+	# on a Node2D — the engine refuses the assignment) is incompatible_script_type
+	# (attach it to a compatible node, or change the script's extends).
 	if node.get_script() == null:
+		var node_class := node.get_class()
+		var script_base := script.get_instance_base_type()
+		var compiles := script.reload() == OK
 		root.free()
-		_fail(OP_ERROR_SCRIPT_COMPILE_FAILED, "script does not compile, so it cannot be attached: "
-				+ script_path + " — fix it, or check it with `gda script validate`")
+		if compiles:
+			_fail(OP_ERROR_INCOMPATIBLE_SCRIPT_TYPE, "script extends " + script_base
+					+ ", which is incompatible with node " + node_path + " of type " + node_class
+					+ " — attach it to a " + script_base + " node, or change the script's extends")
+		else:
+			_fail(OP_ERROR_SCRIPT_COMPILE_FAILED, "script does not compile, so it cannot be attached: "
+					+ script_path + " — fix it, or check it with `gda script validate`")
 		return
 
 	var repacked := PackedScene.new()
