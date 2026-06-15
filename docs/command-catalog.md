@@ -145,7 +145,13 @@ corrupting the scene.
   `duplicate_node_name` — both the same codes `node add` reports. A **cyclic** target — the moved
   node itself or one of its **own descendants** — would detach the subtree from the scene and is
   refused with the registered `cyclic_target` code. Moving the root (`--node .`) is
-  `cannot_target_root` — the root has no parent to be reparented out of.
+  `cannot_target_root` — the root has no parent to be reparented out of. Moving a node to the
+  parent it **already sits under** is a successful **no-op** that leaves the file untouched —
+  re-homing it under the same parent would reorder siblings, which is meaningful in Godot. The
+  reparent preserves the moved node's own **local transform** (a purely structural move, no
+  transform churn) and the instance state of any instanced sub-scene it carries — its
+  `instance=ExtResource(...)`, its `[editable ...]` marker, and its inherited/override children are
+  not rewritten into local nodes (the #64 mutation-integrity boundary).
 
 **Signal wiring** (established by #57): `gda node connect-signal SCENE --from <source-path> --signal
 <name> --to <target-path> --method <name>` records a connection from a **source node's signal** to a

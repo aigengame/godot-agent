@@ -1416,6 +1416,78 @@ def test_node_move_root_yields_cannot_target_root(godot_project):
 
 
 @pytest.mark.e2e
+def test_node_move_to_current_parent_is_a_noop_preserving_sibling_order(godot_project):
+    # Moving a node to the parent it already sits under is a no-op (issue #56
+    # review): sibling order is meaningful in Godot, so re-homing the node under
+    # the same parent must not detach-and-reappend it (which would shuffle it to
+    # the end, [A, B, C] -> [B, C, A]). The order is read back off a fresh node
+    # list, so it reflects what was saved to disk, not just the reporting process.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    for name in ("A", "B", "C"):
+        added = _gda(
+            "node", "add", str(scene_path), "--type", "Node2D", "--name", name, "--json"
+        )
+        assert added.returncode == 0, added.stdout + added.stderr
+
+    moved = _gda("node", "move", str(scene_path), "--node", "A", "--to", ".", "--json")
+
+    assert moved.returncode == 0, moved.stdout + moved.stderr
+    data = json.loads(moved.stdout)
+    # The node is reported at its (unchanged) home.
+    assert data["new_parent"] == "."
+    assert data["path"] == "A"
+
+    listed = _gda("node", "list", str(scene_path), "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    order = [c["name"] for c in json.loads(listed.stdout)["root"]["children"]]
+    # Sibling order is preserved: A was not shuffled to the end.
+    assert order == ["A", "B", "C"]
+
+
+@pytest.mark.e2e
+def test_node_move_preserves_editable_instance_overrides(godot_project):
+    # Moving an instanced sub-scene must keep its instance inheritance intact
+    # (issue #56 review, the #64 mutation-integrity boundary): the reparent must
+    # not rewrite the editable instance's inherited/override children into
+    # locally-owned `type=` nodes, which would break instance inheritance. The
+    # whole sub-scene — its `instance=ExtResource(...)`, its `[editable ...]`
+    # marker, and its override nodes (Inner/Deep) — survives the move as-is.
+    # Verified empirically against Godot 4.6.3.
+    parent = _write_instance_fixture(godot_project)
+    # A destination parent to reparent the instance under.
+    added = _gda(
+        "node", "add", str(parent),
+        "--type", "Node2D", "--name", "Dest",
+        "--project", str(godot_project), "--json",
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+
+    moved = _gda(
+        "node", "move", str(parent),
+        "--node", "ChildInstance", "--to", "Dest",
+        "--project", str(godot_project), "--json",
+    )
+
+    assert moved.returncode == 0, moved.stdout + moved.stderr
+    assert json.loads(moved.stdout)["path"] == "Dest/ChildInstance"
+    saved = parent.read_text(encoding="utf-8")
+    # The sub-scene is still an instance under its new parent, not a flattened copy.
+    assert 'instance=ExtResource(' in saved
+    assert '[editable path="Dest/ChildInstance"]' in saved
+    # The override nodes inside the instance keep their override form (parent +
+    # index, NO type=) rather than being rewritten as local typed nodes.
+    assert '[node name="Inner" parent="Dest/ChildInstance" index=' in saved
+    assert '[node name="Deep" parent="Dest/ChildInstance/Inner" index=' in saved
+    assert 'name="Inner" type=' not in saved
+    assert 'name="Deep" type=' not in saved
+    # The property overrides survive the move.
+    assert "position = Vector2(10, 20)" in saved
+    assert "modulate = Color(1, 0, 0, 1)" in saved
+    assert "position = Vector2(3, 4)" in saved
+
+
+@pytest.mark.e2e
 def test_node_connect_signal_to_missing_scene_yields_path_not_found(godot_project):
     missing = godot_project / "missing.tscn"
 

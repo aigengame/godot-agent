@@ -607,9 +607,23 @@ func _reown_subtree(node: Node, owner: Node) -> void:
 #   reparenting there would detach the whole subtree from the scene.
 # - the target already has a different child with the moved node's name →
 #   duplicate_node_name (the same code node add reports).
-# Reparenting is a manual remove_child → add_child rather than reparent(), which
-# is a SceneTree/global-transform helper; the moved subtree keeps its owner so it
-# re-serializes, and _reown_subtree re-claims it under the root defensively.
+#
+# Moving a node to the parent it ALREADY sits under is a successful no-op: the
+# node is already where the request wants it, so move returns success without
+# touching the tree or re-saving the file — a detach-and-reappend would shuffle
+# the node to the end of its (unchanged) parent and silently reorder siblings,
+# which is meaningful in Godot (issue #56 review).
+#
+# Reparenting uses Node.reparent(target, false) rather than a manual
+# remove_child → add_child + _reown_subtree. reparent() preserves the moved
+# node's owner AND its descendants' owners, so an instanced sub-scene under the
+# node keeps its instance= reference, its [editable ...] marker, and its
+# inherited/override children — a manual reown would rewrite those overrides into
+# locally-owned type= nodes, breaking instance inheritance and violating the #64
+# mutation-integrity boundary (verified empirically on Godot 4.6.3). The false
+# (keep_global_transform=false) argument keeps the move purely structural: the
+# node retains its LOCAL transform instead of having it rewritten to preserve a
+# global position the headless edit never cared about.
 func _op_node_move(params: Dictionary) -> void:
 	_diag("running operation: node-move")
 	var path := _string_param(params, "path")
@@ -649,22 +663,39 @@ func _op_node_move(params: Dictionary) -> void:
 				+ " — a node cannot become a child of its own subtree")
 		return
 
-	# Name collision at the destination: the target already has a different child
-	# with this name. A node already under the target (a no-op move) is not a
-	# collision — that match IS the node itself.
+	# Same-parent move: the node is already under the requested parent, so this is
+	# a successful no-op. Report its current identity and return WITHOUT reparenting
+	# or re-saving — re-homing it under the same parent would append it to the end
+	# and silently reorder siblings (issue #56 review), and there is nothing to
+	# persist that is not already on disk.
+	if node.get_parent() == target:
+		var here_name := String(node.name)
+		var here_type := node.get_class()
+		root.free()
+		_succeed({
+			"scene_path": path,
+			"source_path": node_path,
+			"new_parent": target_path,
+			"path": node_path,
+			"name": here_name,
+			"type": here_type,
+		})
+		return
+
+	# Name collision at the destination: the target already has a child with this
+	# name. (The same-parent no-op above already returned for a node already under
+	# the target, so any match here is a genuine different node.)
 	var node_name := String(node.name)
-	var existing := target.get_node_or_null(NodePath(node_name))
-	if existing != null and existing != node:
+	if target.get_node_or_null(NodePath(node_name)) != null:
 		root.free()
 		_fail(OP_ERROR_DUPLICATE_NODE_NAME, "target " + target_path
 				+ " already has a child named: " + node_name)
 		return
 
-	node.get_parent().remove_child(node)
-	target.add_child(node)
-	# Re-claim the moved subtree under the scene root so the re-pack serializes
-	# every node at its new location.
-	_reown_subtree(node, root)
+	# reparent(target, false) preserves the moved node's and its descendants'
+	# owners (so an instanced sub-scene keeps its overrides and editable marker)
+	# and keeps the node's LOCAL transform (a purely structural move, no churn).
+	node.reparent(target, false)
 
 	# Capture the moved node's new identity off the live tree before re-saving.
 	var new_path := String(root.get_path_to(node))
