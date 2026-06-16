@@ -53,6 +53,10 @@ from gda.models import (
     ScriptListResult,
     ScriptSetResult,
     ScriptValidateResult,
+    ShaderCreateResult,
+    ShaderGetResult,
+    ShaderSetResult,
+    ThemeCreateResult,
 )
 
 
@@ -357,6 +361,52 @@ def render_project_set(was_set: "ProjectSetResult") -> str:
     return f"set {was_set.setting} ({was_set.type}) = {format_value(was_set.value)}"
 
 
+@runtime_checkable
+class ShaderMetadata(Protocol):
+    """The shared human-facing surface of every shader result type.
+
+    A structural (typing-only) interface over the ``path``/``shader_type`` that
+    :class:`~gda.models.ShaderCreateResult`, :class:`~gda.models.ShaderGetResult`
+    and :class:`~gda.models.ShaderSetResult` all carry, so the shader-metadata
+    renderer types against one surface rather than a three-way union (mirrors
+    :class:`ScriptMetadata`).
+    """
+
+    path: str
+    shader_type: str | None
+
+
+def render_shader_metadata(shader: ShaderMetadata) -> str:
+    """Render a shader's path plus its shader_type for humans.
+
+    Reads the shared :class:`ShaderMetadata` surface, so it serves every shader
+    result type without naming the union.
+    """
+    if shader.shader_type is not None:
+        return f"{shader.path} (shader_type {shader.shader_type})"
+    return shader.path
+
+
+def render_shader_create(created: "ShaderCreateResult") -> str:
+    """Render a created shader as ``created <metadata>``."""
+    return f"created {render_shader_metadata(created)}"
+
+
+def render_shader_get(got: "ShaderGetResult") -> str:
+    """Render a read shader as its metadata line followed by its source."""
+    return "\n".join([render_shader_metadata(got), got.source])
+
+
+def render_shader_set(edited: "ShaderSetResult") -> str:
+    """Render an edited shader as ``set <metadata>``."""
+    return f"set {render_shader_metadata(edited)}"
+
+
+def render_theme_create(created: "ThemeCreateResult") -> str:
+    """Render a created theme as ``created <path> (<type>)``."""
+    return f"created {created.path} ({created.type})"
+
+
 def render_engine_version(version: "EngineVersion") -> str:
     """Render the engine version as its one-line version string."""
     return version.string
@@ -397,6 +447,10 @@ _RENDERERS = {
     ProjectInfoResult: render_project_info,
     ProjectGetResult: render_project_get,
     ProjectSetResult: render_project_set,
+    ShaderCreateResult: render_shader_create,
+    ShaderGetResult: render_shader_get,
+    ShaderSetResult: render_shader_set,
+    ThemeCreateResult: render_theme_create,
     EngineVersion: render_engine_version,
 }
 

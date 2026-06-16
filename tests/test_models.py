@@ -891,3 +891,89 @@ def test_project_set_result_round_trips_the_coerced_setting():
     assert was_set.type == "String"
     assert was_set.value == "Renamed Game"
     assert json.loads(was_set.model_dump_json()) == payload
+
+
+def test_shader_create_result_round_trips_path_and_metadata():
+    # shader create echoes what it wrote (issue #115): the saved path, the
+    # shader_type parsed from the written source, and the parent dirs created —
+    # so an agent asserts the effect without a second call.
+    from gda.models import ShaderCreateResult
+
+    payload = {
+        "path": "/p/wave.gdshader",
+        "shader_type": "canvas_item",
+        "created_dirs": ["/p/shaders"],
+    }
+
+    created = ShaderCreateResult.model_validate(payload)
+
+    assert created.path == "/p/wave.gdshader"
+    assert created.shader_type == "canvas_item"
+    assert created.created_dirs == ["/p/shaders"]
+    assert json.loads(created.model_dump_json()) == payload
+
+
+def test_shader_get_result_carries_source_verbatim():
+    # shader get is the verifier (issue #115): it echoes the source byte-for-byte
+    # plus the shader_type the source declares, so a create round-trips.
+    from gda.models import ShaderGetResult
+
+    payload = {
+        "path": "/p/wave.gdshader",
+        "source": "shader_type canvas_item;\n",
+        "shader_type": "canvas_item",
+    }
+
+    got = ShaderGetResult.model_validate(payload)
+
+    assert got.source == "shader_type canvas_item;\n"
+    assert got.shader_type == "canvas_item"
+    assert json.loads(got.model_dump_json()) == payload
+
+
+def test_shader_set_params_reuse_the_script_set_edit_mode_enum():
+    # shader set reuses the script set edit-mode interface (issue #115): the mode
+    # discriminator is the SAME ScriptSetMode enum, not a parallel one.
+    from gda.models import ScriptSetMode, ShaderSetParams
+
+    params = ShaderSetParams(
+        path="/p/wave.gdshader",
+        mode=ScriptSetMode.SEARCH_REPLACE,
+        search="0.5",
+        replace="1.0",
+    )
+
+    assert params.mode is ScriptSetMode.SEARCH_REPLACE
+    assert params.search == "0.5"
+    assert params.replace == "1.0"
+
+
+def test_shader_set_result_round_trips_path_and_metadata():
+    from gda.models import ShaderSetResult
+
+    payload = {"path": "/p/wave.gdshader", "shader_type": "spatial"}
+
+    edited = ShaderSetResult.model_validate(payload)
+
+    assert edited.path == "/p/wave.gdshader"
+    assert edited.shader_type == "spatial"
+    assert json.loads(edited.model_dump_json()) == payload
+
+
+def test_theme_create_result_round_trips_path_type_and_dirs():
+    # theme create echoes the saved .tres path, the resource type written
+    # (Theme), and the parent dirs created (issue #115).
+    from gda.models import ThemeCreateResult
+
+    payload = {
+        "path": "/p/ui.tres",
+        "type": "Theme",
+        "created_dirs": [],
+    }
+
+    created = ThemeCreateResult.model_validate(payload)
+
+    assert created.path == "/p/ui.tres"
+    assert created.type == "Theme"
+    assert created.created_dirs == []
+    assert json.loads(created.model_dump_json()) == payload
