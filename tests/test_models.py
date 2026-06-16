@@ -19,8 +19,10 @@ from gda.models import (
     NodeMoveResult,
     NodeRemoveResult,
     NodeSetResult,
+    ProjectAddAutoloadResult,
     ProjectGetResult,
     ProjectInfoResult,
+    ProjectRemoveAutoloadResult,
     ProjectSetResult,
     ResourceCreateResult,
     ResourceGetResult,
@@ -891,6 +893,33 @@ def test_project_set_result_round_trips_the_coerced_setting():
     assert was_set.type == "String"
     assert was_set.value == "Renamed Game"
     assert json.loads(was_set.model_dump_json()) == payload
+
+
+def test_project_add_autoload_result_round_trips_the_registered_autoload():
+    # project add-autoload echoes the autoload it registered (issue #119): the
+    # global name and the path AS PERSISTED — the enabled-singleton form with the
+    # leading * prefix, the same value a project get of autoload/<name> reads back.
+    payload = {
+        "name": "Global",
+        "path": "*res://global.gd",
+    }
+
+    added = ProjectAddAutoloadResult.model_validate(payload)
+
+    assert added.name == "Global"
+    assert added.path == "*res://global.gd"
+    assert json.loads(added.model_dump_json()) == payload
+
+
+def test_project_remove_autoload_result_round_trips_the_unregistered_name():
+    # project remove-autoload echoes the name it unregistered (issue #119), so an
+    # agent can confirm which singleton was removed.
+    payload = {"name": "Global"}
+
+    removed = ProjectRemoveAutoloadResult.model_validate(payload)
+
+    assert removed.name == "Global"
+    assert json.loads(removed.model_dump_json()) == payload
 
 
 def test_shader_create_result_round_trips_path_and_metadata():
