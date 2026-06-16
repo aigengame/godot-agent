@@ -31,6 +31,14 @@ from gda.models import (
     ExportListParams,
     ExportListResult,
     InfoParams,
+    ProjectDependenciesParams,
+    ProjectDependenciesResult,
+    ProjectFindReferencesParams,
+    ProjectFindReferencesResult,
+    ProjectFindUnusedResourcesParams,
+    ProjectFindUnusedResourcesResult,
+    ProjectStatisticsParams,
+    ProjectStatisticsResult,
     NodeAddParams,
     NodeAddResult,
     NodeConnectSignalParams,
@@ -143,14 +151,17 @@ export_app = typer.Typer(
 )
 app.add_typer(export_app, name="export")
 
-# The project command group (issue #111): commands that read and write the
-# resolved project's project.godot / ProjectSettings headlessly. Every project
-# command runs against an explicit project context (--project), so — like any
-# --project op — it runs the project's autoloads at engine startup (#61,
-# ADR-0009); reading/writing settings never instantiates a scene, so it is a
-# state-read at the operation level.
+# The project command group: commands acting on the Godot project as a whole.
+# The project-settings read/write commands (info/get/set, issue #111) read and
+# write the resolved project's project.godot / ProjectSettings headlessly. Issue
+# #116 adds the read-only, project-wide static-analysis reads (find-references,
+# dependencies, find-unused-resources, statistics), all backed by a single static
+# project scan that parses files as text — never instantiating a scene or loading
+# a script (issue #30). Every project command runs against an explicit project
+# context (--project), so — like any --project op — it runs the project's
+# autoloads at engine startup (#61, ADR-0009).
 project_app = typer.Typer(
-    help="Read and write the project's project.godot settings.", no_args_is_help=True
+    help="Act on the Godot project as a whole.", no_args_is_help=True
 )
 app.add_typer(project_app, name="project")
 
@@ -487,6 +498,36 @@ THEME_CREATE_COMMAND: HeadlessCommand[ThemeCreateResult] = HeadlessCommand(
     operation="theme-create",
     input_model=ThemeCreateParams,
     output_model=ThemeCreateResult,
+)
+
+PROJECT_FIND_REFERENCES_COMMAND: HeadlessCommand[ProjectFindReferencesResult] = (
+    HeadlessCommand(
+        operation="project-find-references",
+        input_model=ProjectFindReferencesParams,
+        output_model=ProjectFindReferencesResult,
+    )
+)
+
+PROJECT_DEPENDENCIES_COMMAND: HeadlessCommand[ProjectDependenciesResult] = (
+    HeadlessCommand(
+        operation="project-dependencies",
+        input_model=ProjectDependenciesParams,
+        output_model=ProjectDependenciesResult,
+    )
+)
+
+PROJECT_FIND_UNUSED_RESOURCES_COMMAND: HeadlessCommand[
+    ProjectFindUnusedResourcesResult
+] = HeadlessCommand(
+    operation="project-find-unused-resources",
+    input_model=ProjectFindUnusedResourcesParams,
+    output_model=ProjectFindUnusedResourcesResult,
+)
+
+PROJECT_STATISTICS_COMMAND: HeadlessCommand[ProjectStatisticsResult] = HeadlessCommand(
+    operation="project-statistics",
+    input_model=ProjectStatisticsParams,
+    output_model=ProjectStatisticsResult,
 )
 
 
@@ -1263,6 +1304,33 @@ def project_get(
     )
 
 
+@project_app.command(
+    name="find-references", cls=PROJECT_FIND_REFERENCES_COMMAND.command_class()
+)
+def find_references(
+    target: str = typer.Argument(
+        ...,
+        help=(
+            "What to find references to: a resource's res:// path (scene, "
+            "script, image, .tres, …) or a script class_name."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_FIND_REFERENCES_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Find every project file that references a given resource path or class_name."""
+    _dispatch(
+        PROJECT_FIND_REFERENCES_COMMAND,
+        ProjectFindReferencesParams(target=_normalize_path(target)),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
 @shader_app.command(cls=SHADER_CREATE_COMMAND.command_class())
 def create(
     path: str = typer.Argument(..., help="Target .gdshader path to write."),
@@ -1346,6 +1414,26 @@ def get_shader(
     )
 
 
+@project_app.command(
+    name="dependencies", cls=PROJECT_DEPENDENCIES_COMMAND.command_class()
+)
+def dependencies(
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_DEPENDENCIES_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Map each scene/resource in the project to the resources it references."""
+    _dispatch(
+        PROJECT_DEPENDENCIES_COMMAND,
+        ProjectDependenciesParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
 @export_app.command(name="list", cls=EXPORT_LIST_COMMAND.command_class())
 def list_presets(
     json_output: bool = json_option(),
@@ -1357,6 +1445,27 @@ def list_presets(
     _dispatch(
         EXPORT_LIST_COMMAND,
         ExportListParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@project_app.command(
+    name="find-unused-resources",
+    cls=PROJECT_FIND_UNUSED_RESOURCES_COMMAND.command_class(),
+)
+def find_unused_resources(
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_FIND_UNUSED_RESOURCES_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Find resource files that nothing references (built on the reference graph)."""
+    _dispatch(
+        PROJECT_FIND_UNUSED_RESOURCES_COMMAND,
+        ProjectFindUnusedResourcesParams(),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1521,6 +1630,24 @@ def create_theme(
     _dispatch(
         THEME_CREATE_COMMAND,
         ThemeCreateParams(path=_normalize_path(path)),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@project_app.command(name="statistics", cls=PROJECT_STATISTICS_COMMAND.command_class())
+def statistics(
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_STATISTICS_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Report the project's file/line counts, autoloads and plugins."""
+    _dispatch(
+        PROJECT_STATISTICS_COMMAND,
+        ProjectStatisticsParams(),
         json_output=json_output,
         godot=godot,
         project=project,

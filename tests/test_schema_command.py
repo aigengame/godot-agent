@@ -758,6 +758,31 @@ def test_resource_create_schema_emits_model_derived_contract_without_other_args(
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_project_find_references_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for project find-references (issue #116): the bare
+    # --schema flag — no target — short-circuits into the self-description,
+    # derived from the same typed models that back --json. The target param
+    # documents the res://-path-or-class_name addressing agents must use.
+    from gda.models import (
+        ProjectFindReferencesParams,
+        ProjectFindReferencesResult,
+    )
+
+    result = CliRunner().invoke(app, ["project", "find-references", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ProjectFindReferencesParams.model_json_schema()
+    assert doc["output"] == ProjectFindReferencesResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "target" in doc["input"]["properties"]
+    assert "references" in doc["output"]["properties"]
+    target_description = doc["input"]["properties"]["target"]["description"]
+    assert "class_name" in target_description
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_export_list_schema_emits_model_derived_contract_without_a_project():
     # The ADR-0004 hard gate for export list (issue #114): the bare --schema flag
     # — no --project — short-circuits into the self-description, derived from the
@@ -772,6 +797,23 @@ def test_export_list_schema_emits_model_derived_contract_without_a_project():
     doc = json.loads(result.stdout)
     assert doc["input"] == ExportListParams.model_json_schema()
     assert doc["output"] == ExportListResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert doc["input"].get("properties", {}) == {}
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_project_dependencies_schema_emits_model_derived_contract_without_a_project():
+    # dependencies takes no operation params — the project is process context
+    # (ADR-0006) — so its input schema is trivially empty, exactly like scene list.
+    from gda.models import ProjectDependenciesParams, ProjectDependenciesResult
+
+    result = CliRunner().invoke(app, ["project", "dependencies", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ProjectDependenciesParams.model_json_schema()
+    assert doc["output"] == ProjectDependenciesResult.model_json_schema()
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     assert doc["input"].get("properties", {}) == {}
     jsonschema.Draft202012Validator.check_schema(doc["input"])
@@ -793,6 +835,27 @@ def test_resource_get_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_project_find_unused_resources_schema_emits_model_derived_contract():
+    from gda.models import (
+        ProjectFindUnusedResourcesParams,
+        ProjectFindUnusedResourcesResult,
+    )
+
+    result = CliRunner().invoke(
+        app, ["project", "find-unused-resources", "--schema"]
+    )
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ProjectFindUnusedResourcesParams.model_json_schema()
+    assert doc["output"] == ProjectFindUnusedResourcesResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert doc["input"].get("properties", {}) == {}
+    assert "unused" in doc["output"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_export_get_schema_emits_model_derived_contract_without_other_args():
     # The ADR-0004 hard gate for export get (issue #114): the bare --schema flag —
     # no --preset — short-circuits into the self-description. The preset param
@@ -810,6 +873,23 @@ def test_export_get_schema_emits_model_derived_contract_without_other_args():
     assert "preset" in doc["input"]["properties"]
     assert "templates_installed" in doc["output"]["properties"]
     assert "templates_version" in doc["output"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_project_statistics_schema_emits_model_derived_contract():
+    from gda.models import ProjectStatisticsParams, ProjectStatisticsResult
+
+    result = CliRunner().invoke(app, ["project", "statistics", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ProjectStatisticsParams.model_json_schema()
+    assert doc["output"] == ProjectStatisticsResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert doc["input"].get("properties", {}) == {}
+    for key in ("total_files", "total_lines", "autoloads", "plugins"):
+        assert key in doc["output"]["properties"]
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -844,7 +924,38 @@ def test_sample_export_results_validate_against_emitted_output_schemas():
     jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
 
 
-def test_schema_spawns_no_godot(monkeypatch):
+def test_sample_project_results_validate_against_emitted_output_schemas():
+    # A sample --json payload of each project analysis command satisfies the
+    # contract its --schema emits (the other half of the ADR-0004 hard gate).
+    from tests.test_project_analysis_commands import (
+        DEPENDENCIES_RESULT,
+        FIND_REFERENCES_RESULT,
+        STATISTICS_RESULT,
+        UNUSED_RESULT,
+    )
+
+    refs_doc = json.loads(
+        CliRunner().invoke(app, ["project", "find-references", "--schema"]).stdout
+    )
+    deps_doc = json.loads(
+        CliRunner().invoke(app, ["project", "dependencies", "--schema"]).stdout
+    )
+    unused_doc = json.loads(
+        CliRunner()
+        .invoke(app, ["project", "find-unused-resources", "--schema"])
+        .stdout
+    )
+    stats_doc = json.loads(
+        CliRunner().invoke(app, ["project", "statistics", "--schema"]).stdout
+    )
+
+    jsonschema.validate(instance=FIND_REFERENCES_RESULT, schema=refs_doc["output"])
+    jsonschema.validate(instance=DEPENDENCIES_RESULT, schema=deps_doc["output"])
+    jsonschema.validate(instance=UNUSED_RESULT, schema=unused_doc["output"])
+    jsonschema.validate(instance=STATISTICS_RESULT, schema=stats_doc["output"])
+
+
+def test_grouped_command_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")
 
@@ -856,6 +967,10 @@ def test_schema_spawns_no_godot(monkeypatch):
         ["resource", "get"],
         ["export", "list"],
         ["export", "get"],
+        ["project", "find-references"],
+        ["project", "dependencies"],
+        ["project", "find-unused-resources"],
+        ["project", "statistics"],
     ):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0
