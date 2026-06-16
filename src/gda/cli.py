@@ -1676,9 +1676,12 @@ def run_export(
     if not output_path:
         emit_failure(export_path_unset_failure(got.name))
 
-    # Phase 3: run the native export and classify its raw outcome.
+    # Phase 3: run the native export and classify its raw outcome. The export-get
+    # resolved name (got.name) is authoritative throughout — it is what the engine
+    # exports and what the result echoes — so the native invocation, not the raw
+    # --preset string, is keyed on it.
     export_runner = _make_export_runner(binary, resolved_project)
-    export_output = export_runner.run(preset, mode.value, output_path)
+    export_output = export_runner.run(got.name, mode.value, output_path)
     outcome = classify_export_run(
         export_output,
         binary,
