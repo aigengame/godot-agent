@@ -3158,6 +3158,16 @@ func _repack_and_save(root: Node, path: String) -> bool:
 	# dropping the sibling's `script = ExtResource(...)` line (or re-embedding it as
 	# a sub_resource). Re-anchoring repoints every node at the single cache owner
 	# for its path, so the saver sees one consistent ext_resource per path.
+	#
+	# This is the CENTRAL shared-mutation hardening point. Because it runs from the
+	# shared pack-and-save tail, it hardens every mutating re-pack op (node
+	# add/set/remove/duplicate/move, signal connect/disconnect) — not only `script
+	# attach` (issue #164's reported path). That broader reach is correct, not
+	# overreach: _reanchor_external_scripts only repoints a node that STILL carries
+	# its captured script (siblings preserved); it leaves a node the op
+	# intentionally re-scripted to a different non-empty path alone; and it skips
+	# nodes that vanished since capture (remove/move). `node add` is covered by
+	# test_node_add_preserves_sibling_script_on_repack_when_unimported.
 	_reanchor_external_scripts(root)
 	var repacked := PackedScene.new()
 	var pack_err := repacked.pack(root)

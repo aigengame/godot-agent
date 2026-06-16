@@ -1151,9 +1151,15 @@ def test_script_create_empty_content_round_trips_as_empty_source(godot_project):
 # --- script attach: sibling-script drop on re-pack (issue #164) ---
 
 # A deterministic harness for the issue #164 corruption, run against the real
-# engine. It drives gda's OWN operations.gd payload (loaded as an object, its real
-# _load_scene / _capture_external_scripts / _reanchor_external_scripts / pack /
-# save methods) so the test exercises the product re-pack path — not a re-implementation.
+# engine. It drives gda's OWN operations.gd payload through the SAME product entry
+# points a mutating op uses — `_load_for_mutation` (which internally captures the
+# external-script snapshot) and `_repack_and_save` (which internally re-anchors
+# before pack/save). The harness only supplies the deterministic engine
+# precondition and the mutation in between; capture and re-anchor are NOT called by
+# the harness. That is deliberate: it makes the test guard the actual production
+# WIRING, so deleting the `_capture_external_scripts(root)` call in
+# `_load_for_mutation` OR the `_reanchor_external_scripts(root)` call in
+# `_repack_and_save` makes this go red (verified red→green).
 #
 # Why a harness and not a plain `gda script attach` call: the corruption needs two
 # distinct in-memory Script objects sharing one res:// path. The engine creates
@@ -1165,10 +1171,11 @@ def test_script_create_empty_content_round_trips_as_empty_source(godot_project):
 # scratch), so a CLI-only test would be as intermittent as the original bug. The
 # harness reproduces the EXACT engine mechanism (take_over_path, i.e.
 # set_path(take_over=true)) deterministically, in an unimported-project fixture
-# (no .godot import metadata, no .uid sidecar -> scripts carry no uid://), then
-# runs the real product re-pack. Pre-fix the sibling's `script = ExtResource(...)`
-# is dropped; post-fix the capture+reanchor preserves it. has_method guards keep
-# the harness loadable against the pre-fix payload so red→green is on behavior.
+# (no .godot import metadata, no .uid sidecar -> scripts carry no uid://), AFTER
+# `_load_for_mutation` has already taken its snapshot — matching the real ordering
+# where the eviction happens while the op runs. Then it calls `_repack_and_save`,
+# the real product tail. Pre-fix the sibling's `script = ExtResource(...)` is
+# dropped; post-fix the wired capture+reanchor preserves it.
 _ATTACH_DROP_HARNESS = r"""
 extends SceneTree
 
@@ -1188,24 +1195,25 @@ func _init() -> void:
 	var seed := PackedScene.new(); seed.pack(build_root); ResourceSaver.save(seed, "res://main.tscn")
 	build_root.free()
 
-	# Drive gda's REAL operations payload.
+	# Drive gda's REAL operations payload through its REAL mutate entry points.
 	var ops_script: GDScript = load("res://operations.gd")
 	var ops: Object = ops_script.new()
 	var params := {"path": "res://main.tscn", "project": "res://"}
 
-	# Load + instantiate exactly as a mutating op does (_load_for_mutation).
-	var packed: PackedScene = ops.call("_load_scene", params)
-	var live: Node = packed.instantiate()
+	# Load + instantiate via the product's single mutate-entry. _load_for_mutation
+	# is what (post-fix) captures the external-script snapshot the instant after
+	# instantiate — the harness does NOT call _capture_external_scripts, so if that
+	# wiring is removed the snapshot is empty and the drop is left to occur.
+	var live: Node = ops.call("_load_for_mutation", params)
+	if live == null:
+		_emit(false, "_load_for_mutation returned null")
+		ops.free(); quit(); return
 
-	# Capture script paths the instant after instantiate, as _load_for_mutation does
-	# post-fix (the product wires this in; the test mirrors the call site). Pre-fix
-	# the method is absent, so capture is skipped and the drop is left to occur.
-	if ops.has_method("_capture_external_scripts"):
-		ops.call("_capture_external_scripts", live)
-
-	# Reproduce the engine's shallow->full eviction deterministically: a second
-	# in-memory object for res://a.gd that take_over_path()s the cache slot, leaving
-	# node A holding the evicted orphan. This is the #164 precondition verbatim.
+	# Reproduce the engine's shallow->full eviction deterministically, AFTER the
+	# snapshot was taken (matching the real ordering where attach's own --script load
+	# triggers it mid-op): a second in-memory object for res://a.gd that
+	# take_over_path()s the cache slot, leaving node A holding the evicted orphan
+	# whose resource_path is now empty. This is the #164 precondition verbatim.
 	var orphan_maker := GDScript.new()
 	orphan_maker.source_code = "extends Sprite2D\n"
 	orphan_maker.take_over_path("res://a.gd")
@@ -1214,19 +1222,75 @@ func _init() -> void:
 	# Attach b.gd to the sibling node B (the second-node attach the bug needs).
 	live.get_node("B").set_script(ResourceLoader.load("res://b.gd"))
 
-	# Re-anchor before pack, as the product's _repack_and_save now does.
-	if ops.has_method("_reanchor_external_scripts"):
-		ops.call("_reanchor_external_scripts", live)
+	# Re-pack + save via the product's single pack-and-save tail. _repack_and_save
+	# is what (post-fix) re-anchors from the snapshot before packing — the harness
+	# does NOT call _reanchor_external_scripts, so if that wiring is removed the
+	# evicted orphan is serialized and the sibling's ext_resource is dropped.
+	var ok: bool = ops.call("_repack_and_save", live, "res://main.tscn")
+	ops.free()
+	if not ok:
+		_emit(false, "_repack_and_save reported failure")
+		quit(); return
 
-	var repacked := PackedScene.new()
-	var pack_err := repacked.pack(live)
-	if pack_err != OK:
-		_emit(false, "pack failed: %d" % pack_err)
-		live.free(); ops.free(); quit(); return
-	var save_err := ResourceSaver.save(repacked, "res://main.tscn")
-	live.free(); ops.free()
-	if save_err != OK:
-		_emit(false, "save failed: %d" % save_err)
+	var saved := FileAccess.get_file_as_string("res://main.tscn")
+	_emit(true, saved)
+	quit()
+"""
+
+# A broader-surface coverage harness (review finding 2): the fix hooks into the
+# SHARED `_repack_and_save`, so it hardens every mutating re-pack op, not just
+# `script attach`. This drives a representative non-attach mutation — adding a child
+# node via _build_added_node + _repack_and_save — over the same unimported
+# two-node scene with the same take_over_path eviction on the scripted sibling, and
+# asserts the sibling's `script = ExtResource(...)` binding survives the re-pack.
+# It proves the central hardening point holds for the broader surface, not only the
+# attach path. (See the matching code comment at the _reanchor_external_scripts
+# call site in operations.gd.)
+_NODE_ADD_PRESERVES_SIBLING_HARNESS = r"""
+extends SceneTree
+
+func _emit(ok: bool, detail: String) -> void:
+	print("<<<HARNESS>>>", JSON.stringify({"ok": ok, "detail": detail}), "<<<END>>>")
+
+func _init() -> void:
+	# Same unimported sibling-scripted fixture: node A carries a.gd, node B is bare.
+	FileAccess.open("res://a.gd", FileAccess.WRITE).store_string("extends Sprite2D\n")
+	var build_root := Node2D.new()
+	build_root.name = "main"
+	var build_a := Sprite2D.new(); build_a.name = "A"; build_root.add_child(build_a); build_a.owner = build_root
+	var build_b := Sprite2D.new(); build_b.name = "B"; build_root.add_child(build_b); build_b.owner = build_root
+	build_a.set_script(ResourceLoader.load("res://a.gd"))
+	var seed := PackedScene.new(); seed.pack(build_root); ResourceSaver.save(seed, "res://main.tscn")
+	build_root.free()
+
+	var ops_script: GDScript = load("res://operations.gd")
+	var ops: Object = ops_script.new()
+	var params := {"path": "res://main.tscn", "project": "res://"}
+
+	# Same shared mutate entry — captures the snapshot.
+	var live: Node = ops.call("_load_for_mutation", params)
+	if live == null:
+		_emit(false, "_load_for_mutation returned null")
+		ops.free(); quit(); return
+
+	# Same deterministic eviction of the scripted sibling A's cache slot.
+	var orphan_maker := GDScript.new()
+	orphan_maker.source_code = "extends Sprite2D\n"
+	orphan_maker.take_over_path("res://a.gd")
+	orphan_maker.reload()
+
+	# A NON-attach mutation: add a fresh child node (no script). This is the
+	# `node add` shared tail — it touches the same _repack_and_save as attach.
+	var added := Node2D.new()
+	added.name = "C"
+	live.add_child(added)
+	added.owner = live
+
+	# Same shared pack-and-save tail — re-anchors the sibling before packing.
+	var ok: bool = ops.call("_repack_and_save", live, "res://main.tscn")
+	ops.free()
+	if not ok:
+		_emit(false, "_repack_and_save reported failure")
 		quit(); return
 
 	var saved := FileAccess.get_file_as_string("res://main.tscn")
@@ -1235,13 +1299,11 @@ func _init() -> void:
 """
 
 
-def _run_harness(project) -> str:
-    """Run the #164 harness in `project` against the real engine; return saved .tscn."""
+def _run_harness(project, harness: str = _ATTACH_DROP_HARNESS) -> str:
+    """Run a #164 harness in `project` against the real engine; return saved .tscn."""
     # The harness drives gda's own operations.gd, so ship a copy into the fixture.
     shutil.copy(OPERATIONS_GD, project / "operations.gd")
-    (project / "attach_drop_harness.gd").write_text(
-        _ATTACH_DROP_HARNESS, encoding="utf-8"
-    )
+    (project / "attach_drop_harness.gd").write_text(harness, encoding="utf-8")
     proc = subprocess.run(
         [
             str(GODOT),
@@ -1280,9 +1342,12 @@ def test_script_attach_preserves_sibling_script_on_repack_when_unimported(
     # the script is unimported (path is the only identity), the dedup collapses
     # them and the sibling's ext_resource is dropped / re-embedded as a sub_resource.
     #
-    # This drives gda's real operations.gd re-pack path and reproduces the engine
-    # precondition deterministically (see _ATTACH_DROP_HARNESS). It fails pre-fix
-    # (node A's a.gd reference is gone) and passes once _repack_and_save re-anchors.
+    # This drives gda's real operations.gd entry points — `_load_for_mutation`
+    # (captures the snapshot) then `_repack_and_save` (re-anchors before pack) — and
+    # reproduces the engine precondition deterministically in between (see
+    # _ATTACH_DROP_HARNESS). The harness does NOT call _capture_external_scripts or
+    # _reanchor_external_scripts itself, so this guards the production WIRING: it
+    # fails pre-fix and fails if EITHER wiring call is later removed.
     saved = _run_harness(godot_project)
 
     # Node A's sibling script survives as a clean external reference — not dropped,
@@ -1297,4 +1362,27 @@ def test_script_attach_preserves_sibling_script_on_repack_when_unimported(
     assert 'path="res://b.gd"' in saved, "the attached b.gd reference is missing:\n" + saved
     assert saved.count("script = ExtResource(") == 2, (
         "expected exactly two external script bindings to survive:\n" + saved
+    )
+
+
+@pytest.mark.e2e
+def test_node_add_preserves_sibling_script_on_repack_when_unimported(godot_project):
+    # Broader-surface coverage (issue #164, review finding 2): the fix re-anchors
+    # from the SHARED `_repack_and_save` tail, so it hardens every mutating re-pack
+    # op — not only `script attach`. A representative NON-attach mutation (`node
+    # add`) over the same unimported two-node scene, with the same take_over_path
+    # eviction on the scripted sibling A, must likewise preserve A's external script
+    # binding through the shared re-pack. This proves the central hardening point
+    # holds for the broader mutation surface, not just the path #164 reported.
+    saved = _run_harness(godot_project, _NODE_ADD_PRESERVES_SIBLING_HARNESS)
+
+    # The scripted sibling A survives the re-pack as a clean external reference.
+    assert 'path="res://a.gd"' in saved, (
+        "sibling node A's a.gd ext_resource was DROPPED on node-add re-pack:\n" + saved
+    )
+    assert 'sub_resource type="GDScript"' not in saved, (
+        "sibling node A's script was silently re-embedded as a sub_resource:\n" + saved
+    )
+    assert saved.count("script = ExtResource(") == 1, (
+        "expected sibling A's single external script binding to survive:\n" + saved
     )
