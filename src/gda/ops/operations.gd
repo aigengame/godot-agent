@@ -3126,6 +3126,10 @@ func _load_for_mutation(params: Dictionary) -> Node:
 		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene nodes vanished or degraded on load: "
 				+ ", ".join(unmaterialized) + " — re-saving would silently drop or downgrade them; check the scene's dependencies and --project")
 		return null
+	# Snapshot every node's external script path NOW — the instant after
+	# instantiate, before any op-specific load can evict a sibling's script object
+	# (issue #164). _repack_and_save re-anchors from this snapshot on the way out.
+	_capture_external_scripts(root)
 	return root
 
 
@@ -3141,6 +3145,20 @@ func _load_for_mutation(params: Dictionary) -> Node:
 # before calling, as the tree is gone once this returns; for scene create the caller
 # also creates any missing parent dirs first, since this tail only packs and saves.
 func _repack_and_save(root: Node, path: String) -> bool:
+	# Re-anchor every external script captured at load time to the one canonical
+	# cached resource for its res:// path BEFORE packing (issue #164). On the
+	# editor build gda drives, the text scene saver dedups ext_resources through a
+	# PATH-keyed cache (ResourceCache::resource_path_cache), not object identity. A
+	# re-attach can leave two distinct in-memory Script objects sharing one res://
+	# path: the engine's GDScriptCache upgrades a shallow script to a full one via
+	# set_path(take_over=true), which evicts the previously cached object WITHOUT
+	# freeing it, so a sibling node still holds the evicted orphan. With an
+	# UNIMPORTED script the path string is the only identity (no uid://), so the
+	# path-keyed dedup collapses the two same-path objects on save — silently
+	# dropping the sibling's `script = ExtResource(...)` line (or re-embedding it as
+	# a sub_resource). Re-anchoring repoints every node at the single cache owner
+	# for its path, so the saver sees one consistent ext_resource per path.
+	_reanchor_external_scripts(root)
 	var repacked := PackedScene.new()
 	var pack_err := repacked.pack(root)
 	if pack_err != OK:
@@ -3153,6 +3171,79 @@ func _repack_and_save(root: Node, path: String) -> bool:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
 		return false
 	return true
+
+
+# {NodePath (root-relative) -> script res:// path} for every node that carried a
+# file-backed script when the tree was first instantiated (issue #164). Captured
+# by _capture_external_scripts the instant _load_for_mutation finishes
+# instantiating — BEFORE any subsequent load (e.g. attach's --script) can run the
+# GDScriptCache shallow→full upgrade that evicts a sibling's script object and
+# clears its resource_path. Consumed by _reanchor_external_scripts at re-pack
+# time, where the orphan's own resource_path is already empty and useless: the
+# captured path is the only surviving anchor back to the script the node should
+# carry. A single member is safe here — operations.gd is a one-shot process that
+# runs exactly one operation, so there is no cross-operation state to leak.
+var _captured_external_scripts: Dictionary = {}
+
+
+# Record {NodePath -> script res:// path} for every node in the freshly
+# instantiated tree that carries a file-backed script, so a later load that
+# evicts one of those scripts can be undone before re-pack (issue #164). Read off
+# the LIVE script object while its resource_path is still intact; a script with
+# no resource_path (an embedded/sub-resource script) has no external identity to
+# anchor and is skipped. Paths are root-relative (get_path_to) so they survive
+# the round-trip to _reanchor_external_scripts regardless of the root's own name.
+func _capture_external_scripts(root: Node) -> void:
+	_captured_external_scripts = {}
+	_capture_external_scripts_into(root, root)
+
+
+func _capture_external_scripts_into(node: Node, root: Node) -> void:
+	var script: Variant = node.get_script()
+	if script is Script:
+		var script_path: String = (script as Script).resource_path
+		if not script_path.is_empty():
+			_captured_external_scripts[root.get_path_to(node)] = script_path
+	for child in node.get_children():
+		_capture_external_scripts_into(child, root)
+
+
+# Repoint every captured node that STILL carries its captured script at the
+# SINGLE canonical cached resource for that script's res:// path, so a re-pack/save
+# never serializes two distinct in-memory objects under one path (issue #164 root
+# cause). For each captured {NodePath -> script_path}: re-load that path with
+# CACHE_MODE_REPLACE — which installs one object as the sole ResourceCache owner of
+# the path — and set_script it back onto the node, collapsing any evicted-but-alive
+# orphan (the second same-path object the GDScriptCache shallow→full upgrade leaves
+# behind) onto the canonical one.
+#
+# Re-anchor ONLY when the node was NOT intentionally re-scripted by the op in
+# between. The discriminator is the node's CURRENT script resource_path:
+#   - equals the captured path -> still the same script (possibly the corrupted
+#     orphan instance); re-anchor to canonicalize.
+#   - empty -> the orphan whose set_path(take_over) eviction cleared its path (the
+#     exact #164 corruption signature); re-anchor to restore the captured binding.
+#   - a DIFFERENT non-empty path -> the op deliberately overwrote this node's
+#     script (e.g. script attach replacing one binding with another, issue #132);
+#     leave it, or the re-anchor would silently undo the requested change.
+# Idempotent: when a node already holds the canonical object, set_script re-binds
+# the same resource, a no-op. A node that vanished since capture (a remove/move op
+# may have detached or freed it) is skipped — its capture entry is stale.
+func _reanchor_external_scripts(root: Node) -> void:
+	for node_path: NodePath in _captured_external_scripts:
+		var node := root.get_node_or_null(node_path)
+		if node == null:
+			continue
+		var captured_path: String = _captured_external_scripts[node_path]
+		var current: Variant = node.get_script()
+		if current is Script:
+			var current_path: String = (current as Script).resource_path
+			if not current_path.is_empty() and current_path != captured_path:
+				continue  # op intentionally replaced this node's script — leave it
+		var canonical: Resource = ResourceLoader.load(
+				captured_path, "Script", ResourceLoader.CACHE_MODE_REPLACE)
+		if canonical is Script:
+			node.set_script(canonical)
 
 
 # Node paths declared in the scene's state that did not materialize faithfully

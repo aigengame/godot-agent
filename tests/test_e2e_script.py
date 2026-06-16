@@ -15,6 +15,7 @@ import subprocess
 import pytest
 
 from gda.binary import resolve_godot_binary
+from gda.runner import OPERATIONS_GD
 
 GODOT = resolve_godot_binary()
 
@@ -1145,3 +1146,155 @@ def test_script_create_empty_content_round_trips_as_empty_source(godot_project):
     assert got_data["source"] == ""
     assert got_data["class_name"] is None
     assert got_data["extends"] is None
+
+
+# --- script attach: sibling-script drop on re-pack (issue #164) ---
+
+# A deterministic harness for the issue #164 corruption, run against the real
+# engine. It drives gda's OWN operations.gd payload (loaded as an object, its real
+# _load_scene / _capture_external_scripts / _reanchor_external_scripts / pack /
+# save methods) so the test exercises the product re-pack path — not a re-implementation.
+#
+# Why a harness and not a plain `gda script attach` call: the corruption needs two
+# distinct in-memory Script objects sharing one res:// path. The engine creates
+# that state itself when GDScriptCache upgrades a shallow script to a full one via
+# Resource.set_path(take_over=true) — which evicts the previously cached object
+# WITHOUT freeing it, so a sibling node still references the evicted orphan. That
+# shallow→full eviction is engine-internal and does not fire deterministically
+# from a fresh one-shot `gda` process (each call reuses the resource cache from
+# scratch), so a CLI-only test would be as intermittent as the original bug. The
+# harness reproduces the EXACT engine mechanism (take_over_path, i.e.
+# set_path(take_over=true)) deterministically, in an unimported-project fixture
+# (no .godot import metadata, no .uid sidecar -> scripts carry no uid://), then
+# runs the real product re-pack. Pre-fix the sibling's `script = ExtResource(...)`
+# is dropped; post-fix the capture+reanchor preserves it. has_method guards keep
+# the harness loadable against the pre-fix payload so red→green is on behavior.
+_ATTACH_DROP_HARNESS = r"""
+extends SceneTree
+
+func _emit(ok: bool, detail: String) -> void:
+	print("<<<HARNESS>>>", JSON.stringify({"ok": ok, "detail": detail}), "<<<END>>>")
+
+func _init() -> void:
+	# Sibling-scripted scene on disk: node A carries a.gd, node B is bare. The
+	# scripts are unimported (fresh project, no import pass) -> no uid://.
+	FileAccess.open("res://a.gd", FileAccess.WRITE).store_string("extends Sprite2D\n")
+	FileAccess.open("res://b.gd", FileAccess.WRITE).store_string("extends Sprite2D\n")
+	var build_root := Node2D.new()
+	build_root.name = "main"
+	var build_a := Sprite2D.new(); build_a.name = "A"; build_root.add_child(build_a); build_a.owner = build_root
+	var build_b := Sprite2D.new(); build_b.name = "B"; build_root.add_child(build_b); build_b.owner = build_root
+	build_a.set_script(ResourceLoader.load("res://a.gd"))
+	var seed := PackedScene.new(); seed.pack(build_root); ResourceSaver.save(seed, "res://main.tscn")
+	build_root.free()
+
+	# Drive gda's REAL operations payload.
+	var ops_script: GDScript = load("res://operations.gd")
+	var ops: Object = ops_script.new()
+	var params := {"path": "res://main.tscn", "project": "res://"}
+
+	# Load + instantiate exactly as a mutating op does (_load_for_mutation).
+	var packed: PackedScene = ops.call("_load_scene", params)
+	var live: Node = packed.instantiate()
+
+	# Capture script paths the instant after instantiate, as _load_for_mutation does
+	# post-fix (the product wires this in; the test mirrors the call site). Pre-fix
+	# the method is absent, so capture is skipped and the drop is left to occur.
+	if ops.has_method("_capture_external_scripts"):
+		ops.call("_capture_external_scripts", live)
+
+	# Reproduce the engine's shallow->full eviction deterministically: a second
+	# in-memory object for res://a.gd that take_over_path()s the cache slot, leaving
+	# node A holding the evicted orphan. This is the #164 precondition verbatim.
+	var orphan_maker := GDScript.new()
+	orphan_maker.source_code = "extends Sprite2D\n"
+	orphan_maker.take_over_path("res://a.gd")
+	orphan_maker.reload()
+
+	# Attach b.gd to the sibling node B (the second-node attach the bug needs).
+	live.get_node("B").set_script(ResourceLoader.load("res://b.gd"))
+
+	# Re-anchor before pack, as the product's _repack_and_save now does.
+	if ops.has_method("_reanchor_external_scripts"):
+		ops.call("_reanchor_external_scripts", live)
+
+	var repacked := PackedScene.new()
+	var pack_err := repacked.pack(live)
+	if pack_err != OK:
+		_emit(false, "pack failed: %d" % pack_err)
+		live.free(); ops.free(); quit(); return
+	var save_err := ResourceSaver.save(repacked, "res://main.tscn")
+	live.free(); ops.free()
+	if save_err != OK:
+		_emit(false, "save failed: %d" % save_err)
+		quit(); return
+
+	var saved := FileAccess.get_file_as_string("res://main.tscn")
+	_emit(true, saved)
+	quit()
+"""
+
+
+def _run_harness(project) -> str:
+    """Run the #164 harness in `project` against the real engine; return saved .tscn."""
+    # The harness drives gda's own operations.gd, so ship a copy into the fixture.
+    shutil.copy(OPERATIONS_GD, project / "operations.gd")
+    (project / "attach_drop_harness.gd").write_text(
+        _ATTACH_DROP_HARNESS, encoding="utf-8"
+    )
+    proc = subprocess.run(
+        [
+            str(GODOT),
+            "--headless",
+            "--path",
+            str(project),
+            "--script",
+            "res://attach_drop_harness.gd",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    marker_begin, marker_end = "<<<HARNESS>>>", "<<<END>>>"
+    out = proc.stdout
+    assert marker_begin in out and marker_end in out, (
+        "harness did not emit a result:\n" + proc.stdout + proc.stderr
+    )
+    payload = out.split(marker_begin, 1)[1].split(marker_end, 1)[0].strip()
+    result = json.loads(payload)
+    assert result["ok"], "harness failed: " + result["detail"] + proc.stderr
+    return result["detail"]
+
+
+@pytest.mark.e2e
+def test_script_attach_preserves_sibling_script_on_repack_when_unimported(
+    godot_project,
+):
+    # Issue #164 regression: attaching a script to one node must never drop a
+    # SIBLING node's existing `script =` binding on the re-pack/save — including in
+    # a freshly-created project whose scripts have not been imported (no uid://).
+    #
+    # Root cause: the editor build's text scene saver dedups ext_resources through
+    # a PATH-keyed cache, not object identity. When two distinct in-memory Script
+    # objects share one res:// path (the engine's shallow→full GDScriptCache
+    # upgrade evicts-but-does-not-free the cached object a sibling still holds) and
+    # the script is unimported (path is the only identity), the dedup collapses
+    # them and the sibling's ext_resource is dropped / re-embedded as a sub_resource.
+    #
+    # This drives gda's real operations.gd re-pack path and reproduces the engine
+    # precondition deterministically (see _ATTACH_DROP_HARNESS). It fails pre-fix
+    # (node A's a.gd reference is gone) and passes once _repack_and_save re-anchors.
+    saved = _run_harness(godot_project)
+
+    # Node A's sibling script survives as a clean external reference — not dropped,
+    # not silently re-embedded as an inline sub_resource.
+    assert 'path="res://a.gd"' in saved, (
+        "sibling node A's a.gd ext_resource was DROPPED on re-pack:\n" + saved
+    )
+    assert 'sub_resource type="GDScript"' not in saved, (
+        "sibling node A's script was silently re-embedded as a sub_resource:\n" + saved
+    )
+    # Both nodes keep their script bindings, each referencing its own external script.
+    assert 'path="res://b.gd"' in saved, "the attached b.gd reference is missing:\n" + saved
+    assert saved.count("script = ExtResource(") == 2, (
+        "expected exactly two external script bindings to survive:\n" + saved
+    )
