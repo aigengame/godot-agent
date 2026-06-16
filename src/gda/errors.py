@@ -401,3 +401,21 @@ def classify_export_run(
         output_path=output_path,
         warnings=parse_export_warnings(output.stderr),
     )
+
+
+def export_path_unset_failure(preset: str) -> Failure:
+    """The ``export_path_unset`` failure for an export with no resolvable path (issue #121).
+
+    ``export run`` writes the artifact to ``--output`` when given, else the
+    preset's own configured ``export_path``. When neither is set there is nowhere
+    to write, so gda fails *before* spawning the export rather than letting the
+    engine error obscurely. A pre-run classifier decision (the path is resolved
+    at the CLI from ``export get``'s ``export_path``), kept here beside the other
+    export failures so the whole taxonomy reads from one place.
+    """
+    return _failure(
+        "export_path_unset",
+        f'export preset "{preset}" has no configured export_path; '
+        "pass --output to choose where the artifact lands",
+        "",
+    )

@@ -14,11 +14,13 @@ from typing import Optional
 import typer
 from pydantic import BaseModel
 
+from gda.binary import resolve_godot_binary
 from gda.errors import (
     Failure,
     classify_export_run,
     classify_info,
     classify_script_validate,
+    export_path_unset_failure,
 )
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.headless import (
@@ -490,6 +492,20 @@ EXPORT_GET_COMMAND: HeadlessCommand[ExportGetResult] = HeadlessCommand(
     operation="export-get",
     input_model=ExportGetParams,
     output_model=ExportGetResult,
+)
+
+# export run is the one command that does NOT route through operations.gd: the
+# Godot export subsystem is editor-only C++, unreachable from a --script
+# SceneTree run, so the export itself is a native --export-<mode> invocation
+# (gda.export_runner). This HeadlessCommand is used only for its --schema /
+# --json model plumbing; the command body (run_export) drives the two phases by
+# hand — export-get resolves the preset + path, the native ExportRunner exports,
+# classify_export_run turns the subprocess outcome into the typed result — rather
+# than the shared sentinel pipeline.
+EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
+    operation="export-run",
+    input_model=ExportRunParams,
+    output_model=ExportRunResult,
 )
 
 RESOURCE_UID_COMMAND: HeadlessCommand[ResourceUidResult] = HeadlessCommand(
@@ -1599,6 +1615,85 @@ def get_preset(
         project=project,
         render=render,
     )
+
+
+@export_app.command(name="run", cls=EXPORT_RUN_COMMAND.command_class())
+def run_export(
+    preset: str = typer.Option(
+        ...,
+        "--preset",
+        help="The export preset's display name, as 'gda export list' reports it.",
+    ),
+    mode: ExportRunMode = typer.Option(
+        ExportRunMode.RELEASE,
+        "--mode",
+        help=(
+            "The export flavor: release/debug (full binary, needs templates) or "
+            "pack (data-only PCK/ZIP, no templates)."
+        ),
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help=(
+            "Where the artifact lands. Defaults to the preset's configured "
+            "export_path; an unset path with no --output is an error."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = EXPORT_RUN_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Export a named preset to its output path and report the artifact produced.
+
+    Unlike every other command, the export itself is a native ``--export-<mode>``
+    invocation (the export subsystem is editor-only, so it cannot run through
+    operations.gd). The command orchestrates two phases by hand: ``export get``
+    resolves the preset's platform + configured ``export_path`` (reusing #114's
+    clean preset/project errors), then the native ``ExportRunner`` performs the
+    export and ``classify_export_run`` synthesizes the typed result from the
+    subprocess's exit code + stderr.
+    """
+    resolved_project = resolve_project_dir(project)
+    binary = resolve_godot_binary(godot)
+
+    # Phase 1: resolve the preset via the existing export-get sentinel op. This
+    # reuses #114's clean structured errors — an unknown preset is
+    # export_preset_not_found, a project with no export_presets.cfg is
+    # export_presets_not_found — and emits + exits on any of them via the shared
+    # failure channel, before any native export is attempted.
+    got = EXPORT_GET_COMMAND.run(
+        ExportGetParams(preset=preset),
+        godot=godot,
+        project=resolved_project,
+        make_runner=_make_runner,
+    )
+
+    # Phase 2: resolve where the artifact lands — --output overrides, else the
+    # preset's configured export_path. Neither set is export_path_unset.
+    output_path = output if output else got.export_path
+    if not output_path:
+        emit_failure(export_path_unset_failure(got.name))
+
+    # Phase 3: run the native export and classify its raw outcome.
+    export_runner = _make_export_runner(binary, resolved_project)
+    export_output = export_runner.run(preset, mode.value, output_path)
+    outcome = classify_export_run(
+        export_output,
+        binary,
+        preset=got.name,
+        platform=got.platform,
+        mode=mode,
+        output_path=output_path,
+    )
+    if isinstance(outcome, Failure):
+        emit_failure(outcome)
+
+    if json_output:
+        typer.echo(outcome.model_dump_json())
+    else:
+        typer.echo(render(outcome))
 
 
 @resource_app.command(name="uid", cls=RESOURCE_UID_COMMAND.command_class())
