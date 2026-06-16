@@ -26,6 +26,10 @@ from gda.headless import (
 )
 from gda.models import (
     EngineVersion,
+    ExportGetParams,
+    ExportGetResult,
+    ExportListParams,
+    ExportListResult,
     InfoParams,
     NodeAddParams,
     NodeAddResult,
@@ -113,6 +117,15 @@ resource_app = typer.Typer(
     help="Act on resource files (.tres).", no_args_is_help=True
 )
 app.add_typer(resource_app, name="resource")
+
+# The export command group (issue #114): read-only discovery of the project's
+# export presets (from export_presets.cfg) and export-template readiness. These
+# stay headless — they parse a config file and check the filesystem, never
+# running an actual export (that is a later slice, issue #121).
+export_app = typer.Typer(
+    help="Discover export presets and export-template status.", no_args_is_help=True
+)
+app.add_typer(export_app, name="export")
 
 
 def _version_callback(value: Optional[bool]) -> None:
@@ -369,6 +382,18 @@ RESOURCE_GET_COMMAND: HeadlessCommand[ResourceGetResult] = HeadlessCommand(
     operation="resource-get",
     input_model=ResourceGetParams,
     output_model=ResourceGetResult,
+)
+
+EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
+    operation="export-list",
+    input_model=ExportListParams,
+    output_model=ExportListResult,
+)
+
+EXPORT_GET_COMMAND: HeadlessCommand[ExportGetResult] = HeadlessCommand(
+    operation="export-get",
+    input_model=ExportGetParams,
+    output_model=ExportGetResult,
 )
 
 
@@ -1118,6 +1143,47 @@ def get_resource(
     _dispatch(
         RESOURCE_GET_COMMAND,
         ResourceGetParams(path=_normalize_path(path)),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@export_app.command(name="list", cls=EXPORT_LIST_COMMAND.command_class())
+def list_presets(
+    json_output: bool = json_option(),
+    schema: bool = EXPORT_LIST_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Enumerate the resolved project's export presets (name, platform, runnable)."""
+    _dispatch(
+        EXPORT_LIST_COMMAND,
+        ExportListParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@export_app.command(name="get", cls=EXPORT_GET_COMMAND.command_class())
+def get_preset(
+    preset: str = typer.Option(
+        ...,
+        "--preset",
+        help="The export preset's display name, as 'gda export list' reports it.",
+    ),
+    json_output: bool = json_option(),
+    schema: bool = EXPORT_GET_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Report one preset's details plus export-template install status."""
+    _dispatch(
+        EXPORT_GET_COMMAND,
+        ExportGetParams(preset=preset),
         json_output=json_output,
         godot=godot,
         project=project,

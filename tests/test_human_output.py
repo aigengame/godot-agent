@@ -381,6 +381,63 @@ HUMAN_CASES = [
         {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None},
         "valid /tmp/proj/ok.gd",
     ),
+    # --- export group -------------------------------------------------------
+    (
+        "export-list",
+        ["export", "list"],
+        {
+            "presets": [
+                {
+                    "index": 0,
+                    "name": "Linux/X11",
+                    "platform": "Linux/X11",
+                    "runnable": True,
+                },
+                # not runnable -> no [runnable] suffix.
+                {"index": 1, "name": "Web", "platform": "Web", "runnable": False},
+            ]
+        },
+        "Linux/X11 (Linux/X11) [runnable]\nWeb (Web)",
+    ),
+    (
+        "export-list-empty",
+        ["export", "list"],
+        {"presets": []},
+        "(no presets)",
+    ),
+    (
+        "export-get",
+        ["export", "get", "--preset", "Web"],
+        {
+            "index": 1,
+            "name": "Web",
+            "platform": "Web",
+            "runnable": False,
+            "export_path": "build/index.html",
+            "templates_installed": True,
+            "templates_version": "4.6.3.stable",
+        },
+        "Web (Web)\n"
+        "  export_path: build/index.html\n"
+        "  templates installed (4.6.3.stable)",
+    ),
+    (
+        # templates missing branch + runnable suffix.
+        "export-get-missing-templates",
+        ["export", "get", "--preset", "Linux/X11"],
+        {
+            "index": 0,
+            "name": "Linux/X11",
+            "platform": "Linux/X11",
+            "runnable": True,
+            "export_path": "",
+            "templates_installed": False,
+            "templates_version": "4.6.3.stable",
+        },
+        "Linux/X11 (Linux/X11) [runnable]\n"
+        "  export_path: \n"
+        "  templates missing (4.6.3.stable)",
+    ),
     # --- meta ---------------------------------------------------------------
     (
         "info",

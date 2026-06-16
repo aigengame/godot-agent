@@ -308,6 +308,20 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A requested resource type cannot be instantiated as a Resource.",
     ),
     ErrorCodeSpec(
+        "export_presets_not_found",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "The project has no export_presets.cfg, so it defines no export presets.",
+    ),
+    ErrorCodeSpec(
+        "export_preset_not_found",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "No export preset with the requested name exists in export_presets.cfg.",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         EXIT_PARSE,

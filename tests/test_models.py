@@ -6,6 +6,8 @@ import jsonschema
 
 from gda.models import (
     EngineVersion,
+    ExportGetResult,
+    ExportListResult,
     GdaError,
     GdaErrorEnvelope,
     NodeAddResult,
@@ -489,6 +491,86 @@ def test_script_validate_result_round_trips_an_invalid_script_with_diagnostics()
     assert validated.diagnostics[0].column is None
     assert validated.diagnostics[0].message == "Parse Error: bad token."
     assert json.loads(validated.model_dump_json()) == payload
+
+
+def test_export_list_result_round_trips_enumerated_presets():
+    # The export-list operation enumerates the project's export presets (issue
+    # #114) read from export_presets.cfg: each entry carries its 0-based index,
+    # display name, target platform, and runnable flag. A non-runnable preset
+    # carries runnable=false, so the listing names every preset the file defines.
+    payload = {
+        "presets": [
+            {"index": 0, "name": "Linux/X11", "platform": "Linux/X11", "runnable": True},
+            {"index": 1, "name": "Web", "platform": "Web", "runnable": False},
+        ]
+    }
+
+    listed = ExportListResult.model_validate(payload)
+
+    assert listed.presets[0].index == 0
+    assert listed.presets[0].name == "Linux/X11"
+    assert listed.presets[0].runnable is True
+    assert listed.presets[1].platform == "Web"
+    assert listed.presets[1].runnable is False
+    assert json.loads(listed.model_dump_json()) == payload
+
+
+def test_export_list_result_round_trips_a_project_with_no_presets():
+    # A project whose export_presets.cfg defines no presets is a valid, empty
+    # listing — not an error (distinct from a project with no cfg at all, which
+    # is the export_presets_not_found failure).
+    payload = {"presets": []}
+
+    listed = ExportListResult.model_validate(payload)
+
+    assert listed.presets == []
+    assert json.loads(listed.model_dump_json()) == payload
+
+
+def test_export_get_result_round_trips_preset_details_and_template_status():
+    # export get reports one preset's details plus export-template readiness
+    # (issue #114): the preset's index/name/platform/runnable and export_path,
+    # then whether the running engine version's templates are installed and which
+    # version directory was checked — the readiness an agent asserts before an
+    # export run.
+    payload = {
+        "index": 1,
+        "name": "Web",
+        "platform": "Web",
+        "runnable": False,
+        "export_path": "build/index.html",
+        "templates_installed": True,
+        "templates_version": "4.6.3.stable",
+    }
+
+    got = ExportGetResult.model_validate(payload)
+
+    assert got.index == 1
+    assert got.name == "Web"
+    assert got.export_path == "build/index.html"
+    assert got.templates_installed is True
+    assert got.templates_version == "4.6.3.stable"
+    assert json.loads(got.model_dump_json()) == payload
+
+
+def test_export_get_result_round_trips_missing_templates():
+    # Templates not installed: templates_installed=false carries the version
+    # directory the agent should install, and export_path may be empty (unset).
+    payload = {
+        "index": 0,
+        "name": "Linux/X11",
+        "platform": "Linux/X11",
+        "runnable": True,
+        "export_path": "",
+        "templates_installed": False,
+        "templates_version": "4.6.3.stable",
+    }
+
+    got = ExportGetResult.model_validate(payload)
+
+    assert got.templates_installed is False
+    assert got.export_path == ""
+    assert json.loads(got.model_dump_json()) == payload
 
 
 def test_node_set_result_round_trips_the_coerced_property():

@@ -23,6 +23,8 @@ from typing import Any, Protocol, runtime_checkable
 
 from gda.models import (
     EngineVersion,
+    ExportGetResult,
+    ExportListResult,
     NodeAddResult,
     NodeConnectSignalResult,
     NodeDisconnectSignalResult,
@@ -300,6 +302,29 @@ def render_resource_properties(got: "ResourceGetResult") -> str:
     return "\n".join([header, *lines])
 
 
+def render_export_list(listed: "ExportListResult") -> str:
+    """Render the enumerated presets as ``name (platform) [runnable]`` lines."""
+    if not listed.presets:
+        return "(no presets)"
+    lines = []
+    for preset in listed.presets:
+        runnable = " [runnable]" if preset.runnable else ""
+        lines.append(f"{preset.name} ({preset.platform}){runnable}")
+    return "\n".join(lines)
+
+
+def render_export_get(got: "ExportGetResult") -> str:
+    """Render one preset's details plus its export-template readiness."""
+    runnable = " [runnable]" if got.runnable else ""
+    header = f"{got.name} ({got.platform}){runnable}"
+    templates = (
+        f"templates installed ({got.templates_version})"
+        if got.templates_installed
+        else f"templates missing ({got.templates_version})"
+    )
+    return "\n".join([header, f"  export_path: {got.export_path}", f"  {templates}"])
+
+
 def render_engine_version(version: "EngineVersion") -> str:
     """Render the engine version as its one-line version string."""
     return version.string
@@ -334,6 +359,8 @@ _RENDERERS = {
     ScriptValidateResult: render_script_validate,
     ResourceCreateResult: render_resource_create,
     ResourceGetResult: render_resource_properties,
+    ExportListResult: render_export_list,
+    ExportGetResult: render_export_get,
     EngineVersion: render_engine_version,
 }
 
