@@ -343,3 +343,18 @@ def test_tree_too_deep_carries_an_accurate_wrapper_side_message():
     message = outcome.error.message.lower()
     assert "deep" in message or "depth" in message
     assert "contract" not in message
+
+
+def test_tree_too_deep_shares_the_parse_exit_code():
+    # tree_too_deep is a `parse`-category failure and rides the shared `parse`
+    # exit code (5), NOT a code of its own: exit codes stay at category
+    # granularity and the envelope `code` carries the finer distinction from
+    # `contract_violation` (issue #37 review — ADR-0002 / ADR-0004 model).
+    from gda.error_codes import ERROR_CODE_BY_CODE
+    from gda.exit_codes import EXIT_PARSE
+
+    assert ERROR_CODE_BY_CODE["tree_too_deep"].exit_code == EXIT_PARSE
+    assert (
+        ERROR_CODE_BY_CODE["tree_too_deep"].exit_code
+        == ERROR_CODE_BY_CODE["contract_violation"].exit_code
+    )
