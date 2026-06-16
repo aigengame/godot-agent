@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.18](https://github.com/aigengame/godot-agent/compare/v0.1.17...v0.1.18) (2026-06-16)
+
+
+### Bug Fixes
+
+* **runner:** map launch failures + non-UTF-8 output to structured errors ([#33](https://github.com/aigengame/godot-agent/issues/33)) ([#172](https://github.com/aigengame/godot-agent/issues/172)) ([537d451](https://github.com/aigengame/godot-agent/commit/537d451786cb33e8ef5ff9f4574f8ea21312ea99))
+
 ## [0.1.17](https://github.com/aigengame/godot-agent/compare/v0.1.16...v0.1.17) (2026-06-16)
 
 
