@@ -1663,19 +1663,26 @@ def run_export(
         make_runner=_make_runner,
     )
 
-    # Phase 2: structured preflight, BEFORE any native run (ADR-0010). export get
-    # already reports template readiness structurally (templates_installed) — the
-    # readiness check built for exactly this — so an export against an uninstalled
-    # template version is the distinct export_templates_missing, decided here
-    # rather than by string-matching the engine's stderr (which ADR-0002 forbids
-    # and which also fires for a misconfigured preset). The configured export_path
-    # must also be set (a --output override is deferred to #170); an empty path is
-    # export_path_unset. Both fail fast without spawning the export.
-    if not got.templates_installed:
-        emit_failure(export_templates_missing_failure(got.name, got.templates_version))
+    # Phase 2: structured preflight, BEFORE any native run (ADR-0010). Two
+    # fail-fast checks, both decided from export get's structured fields rather
+    # than from the engine's stderr (which ADR-0002 forbids parsing for codes):
+    #
+    #  - The configured export_path must be set. A --output override is deferred
+    #    to #170, so an empty configured path means there is nowhere to write —
+    #    export_path_unset. Checked first because it is a per-preset config error
+    #    independent of the engine's template state, so it stays deterministic
+    #    whether or not templates happen to be installed.
+    #  - Templates for the running engine version must be installed. export get
+    #    reports that structurally (templates_installed) — the readiness check
+    #    built for exactly this — so an export against an uninstalled template
+    #    version is the distinct export_templates_missing, decided here rather
+    #    than by string-matching the engine's "due to configuration errors"
+    #    stderr (which also fires for a merely-misconfigured preset).
     output_path = got.export_path
     if not output_path:
         emit_failure(export_path_unset_failure(got.name))
+    if not got.templates_installed:
+        emit_failure(export_templates_missing_failure(got.name, got.templates_version))
 
     # Phase 3: run the native export and classify its raw outcome. The export-get
     # resolved name (got.name) is authoritative throughout — it is what the engine
