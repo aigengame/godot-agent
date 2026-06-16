@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.15](https://github.com/aigengame/godot-agent/compare/v0.1.14...v0.1.15) (2026-06-16)
+
+
+### Features
+
+* **export:** list + get — read-only export-preset discovery ([#114](https://github.com/aigengame/godot-agent/issues/114)) ([#159](https://github.com/aigengame/godot-agent/issues/159)) ([5dbcfd5](https://github.com/aigengame/godot-agent/commit/5dbcfd5e3baaacc1b36390d8032d0ad34848c9af))
+* **resource:** create + get — establish the .tres resource tracer ([#112](https://github.com/aigengame/godot-agent/issues/112)) ([#157](https://github.com/aigengame/godot-agent/issues/157)) ([d3a6057](https://github.com/aigengame/godot-agent/commit/d3a6057ddbb636fc7637290c17a694c3cf53dd99))
+* **resource:** uid — resolve UID ↔ resource path (both directions) ([#113](https://github.com/aigengame/godot-agent/issues/113)) ([#162](https://github.com/aigengame/godot-agent/issues/162)) ([772fc0c](https://github.com/aigengame/godot-agent/commit/772fc0c7af574d29a77634d03925aa411af7c173))
+* **scene:** get-exports — list a scene's nodes' [@export](https://github.com/export) properties ([#58](https://github.com/aigengame/godot-agent/issues/58)) ([#158](https://github.com/aigengame/godot-agent/issues/158)) ([f0bcf57](https://github.com/aigengame/godot-agent/commit/f0bcf5752b459f62f70da05d2f4197d3ee2672da))
+
+
+### Bug Fixes
+
+* **classify:** distinguish deep scene trees from contract violations ([#156](https://github.com/aigengame/godot-agent/issues/156)) ([fea7d72](https://github.com/aigengame/godot-agent/commit/fea7d7213c44f02b3b2473eacba08e40e6ea2669))
+
 ## [0.1.14](https://github.com/aigengame/godot-agent/compare/v0.1.13...v0.1.14) (2026-06-15)
 
 
