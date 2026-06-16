@@ -174,27 +174,27 @@ def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | 
         # The engine ran but the operation itself reported an error and quit
         # non-zero (its own exit, not the runner's synthetic 124/127). When the
         # operation reported the failure structurally via the ADR-0002 sentinel
-        # error envelope, surface its registered finer code; otherwise fall
-        # back to the generic operation_failed.
+        # error envelope with a REGISTERED code, surface its registered finer
+        # code. Every other non-zero exit — no structured envelope, or one
+        # carrying an unregistered code — is the single generic operation_failed
+        # fallback; the two only differ in the message they explain it with.
         payload_error = _operation_error_from_payload(result)
         if payload_error is not None:
             code, message = payload_error
-            if code not in OPERATION_ERROR_CODES:
+            if code in OPERATION_ERROR_CODES:
                 return _failure(
-                    "operation_failed",
-                    f"headless operation reported unregistered error code: {code}",
+                    code,
+                    message or "the headless operation reported an error",
                     result.stderr,
                 )
-            return _failure(
-                code,
-                message or "the headless operation reported an error",
-                result.stderr,
+            fallback_message = (
+                f"headless operation reported unregistered error code: {code}"
             )
-        return _failure(
-            "operation_failed",
-            "the headless operation exited non-zero without a structured error",
-            result.stderr,
-        )
+        else:
+            fallback_message = (
+                "the headless operation exited non-zero without a structured error"
+            )
+        return _failure("operation_failed", fallback_message, result.stderr)
     try:
         # The sentinel block must be present, hold valid JSON, AND match the
         # command's result shape. A missing/empty sentinel or malformed JSON
