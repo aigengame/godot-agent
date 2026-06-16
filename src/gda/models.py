@@ -1953,3 +1953,71 @@ class ProjectSetResult(BaseModel):
     value: Any = Field(
         description="The coerced value as JSON, as ProjectSettings now holds it."
     )
+
+
+class ProjectAddAutoloadParams(BaseModel):
+    """The operation params of ``gda project add-autoload`` (issue #119).
+
+    Registers an autoload singleton: ``name`` is the global accessor name (the key
+    under the ``autoload/`` section of ``project.godot``); ``path`` is the res://
+    path to the script or scene to autoload. The operation stores it in the
+    enabled-singleton form (a leading ``*`` prefix) and saves ``project.godot``.
+    The project is process context (``--project``), not an operation param
+    (ADR-0006), so only ``name`` and ``path`` are inputs.
+    """
+
+    name: str = Field(
+        description=(
+            "The autoload singleton's global name — the accessor it is reached by "
+            "and the key under the project's autoload/ section."
+        )
+    )
+    path: str = Field(
+        description=(
+            "The res:// path to the script or scene to autoload, e.g. "
+            "res://global.gd."
+        )
+    )
+
+
+class ProjectAddAutoloadResult(BaseModel):
+    """The result of ``gda project add-autoload``: the autoload it registered.
+
+    Echoes the autoload's ``name`` and the ``path`` exactly as it was persisted to
+    ``project.godot`` — the enabled-singleton form with the leading ``*`` prefix
+    (e.g. ``*res://global.gd``), the same value a ``project get`` of
+    ``autoload/<name>`` reads back, so an add round-trips through a get.
+    """
+
+    name: str = Field(description="The registered autoload's global name.")
+    path: str = Field(
+        description=(
+            "The autoload value as persisted to project.godot, in enabled-singleton "
+            "form with the leading * prefix (e.g. *res://global.gd)."
+        )
+    )
+
+
+class ProjectRemoveAutoloadParams(BaseModel):
+    """The operation params of ``gda project remove-autoload`` (issue #119).
+
+    Unregisters an autoload singleton by its global ``name`` (the key under the
+    ``autoload/`` section), then saves ``project.godot``. The project is process
+    context (``--project``), not an operation param (ADR-0006), so only ``name``
+    is an input.
+    """
+
+    name: str = Field(
+        description="The global name of the autoload singleton to unregister."
+    )
+
+
+class ProjectRemoveAutoloadResult(BaseModel):
+    """The result of ``gda project remove-autoload``: the autoload it removed.
+
+    Echoes the ``name`` of the autoload that was unregistered, so an agent can
+    confirm which singleton was removed; a subsequent ``project get`` of
+    ``autoload/<name>`` reports ``unknown_setting``.
+    """
+
+    name: str = Field(description="The unregistered autoload's global name.")
