@@ -58,11 +58,15 @@ native run:
 - **Structured preflight (classifier, no native run).** `export-get` already reports
   the preset's configured `export_path` and, structurally, its template readiness
   (`templates_installed` — the readiness field built for exactly this check). From
-  those: an empty configured `export_path` is `export_path_unset`, and uninstalled
-  templates for the running engine version are `export_templates_missing`. Both are
-  decided here, from structured fields, with **no** native export spawned — in
-  particular `export_templates_missing` is *not* inferred from the engine's "due to
-  configuration errors" stderr (which would violate ADR-0002 and also misfires for a
+  those: no **effective destination** — neither a `--output` override (#170) nor a
+  configured `export_path` — is `export_path_unset`; and uninstalled templates for the
+  running engine version are `export_templates_missing`. The destination check applies
+  to **every** mode, but the template check is for **release/debug only** — `pack`
+  produces project data (a PCK/ZIP via Godot's native `--export-pack`) and needs no
+  platform templates, so it is exempt (#170). Both checks are decided here, from
+  structured fields, with **no** native export spawned — in particular
+  `export_templates_missing` is *not* inferred from the engine's "due to configuration
+  errors" stderr (which would violate ADR-0002 and also misfires for a
   merely-misconfigured preset).
 - **Native run (classifier on exit code).** Only the export execution itself uses the
   native CLI mode. A clean exit is the typed success result (with any advisory

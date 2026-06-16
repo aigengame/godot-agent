@@ -142,13 +142,18 @@ def test_other_nonzero_maps_to_generic_export_failed():
 
 
 def test_export_path_unset_failure_builder():
-    # The pre-run path-unset failure names the preset and the registered code.
+    # The pre-run path-unset failure names the preset and the registered code, and
+    # points at the two ways to supply a destination (#170): --output or the
+    # preset's export_path — no longer claiming "no configured export_path", since
+    # --output can now supply one.
     failure = export_path_unset_failure("Linux/X11")
 
     assert isinstance(failure, Failure)
     assert failure.error.code == "export_path_unset"
     assert failure.exit_code == EXIT_OPERATION
     assert "Linux/X11" in failure.error.message
+    assert "--output" in failure.error.message
+    assert "export_path" in failure.error.message
 
 
 def test_parse_export_warnings_is_empty_when_clean():
