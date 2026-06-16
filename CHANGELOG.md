@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.17](https://github.com/aigengame/godot-agent/compare/v0.1.16...v0.1.17) (2026-06-16)
+
+
+### Features
+
+* **export:** run — export a preset via the headless CLI ([#121](https://github.com/aigengame/godot-agent/issues/121)) ([#169](https://github.com/aigengame/godot-agent/issues/169)) ([9a73c73](https://github.com/aigengame/godot-agent/commit/9a73c737b98951d5ba484daa5721248ddd2c6718))
+* **project:** add-autoload + remove-autoload — manage singleton autoloads ([#119](https://github.com/aigengame/godot-agent/issues/119)) ([#167](https://github.com/aigengame/godot-agent/issues/167)) ([0e257b0](https://github.com/aigengame/godot-agent/commit/0e257b006a168f25f54c40014efa3c4bc43ccae2))
+* **resource:** set + delete — round out resource-file CRUD ([#120](https://github.com/aigengame/godot-agent/issues/120)) ([#168](https://github.com/aigengame/godot-agent/issues/168)) ([5a506ff](https://github.com/aigengame/godot-agent/commit/5a506ff752f3b7bf8b6c6fac50e5996583c221d7))
+
 ## [0.1.16](https://github.com/aigengame/godot-agent/compare/v0.1.15...v0.1.16) (2026-06-16)
 
 
