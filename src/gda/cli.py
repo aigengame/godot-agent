@@ -155,10 +155,13 @@ project_app = typer.Typer(
 app.add_typer(project_app, name="project")
 
 # The asset-file groups (issue #115): headless authoring of the asset-file types.
-# A .gdshader is plain shader source authored as text (create / get / set are
-# pure file authoring, no engine needed), while theme create produces a loadable
-# .tres Theme resource (engine-backed) — the same file-level vs engine-backed
-# split the script group draws between create/get/set and attach/validate.
+# A .gdshader is plain shader source authored as text (create / get / set author
+# the file directly and never load or compile the shader at the operation level),
+# while theme create produces a loadable .tres Theme resource (engine-backed) —
+# the same file-level vs engine-backed split the script group draws between
+# create/get/set and attach/validate. This bounds the operation, not the run:
+# every command still goes through the headless runner, so resolving --project
+# still constructs the project's autoloads at engine startup (ADR-0009).
 shader_app = typer.Typer(
     help="Act on shader files (.gdshader).", no_args_is_help=True
 )

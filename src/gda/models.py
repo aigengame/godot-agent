@@ -1352,11 +1352,13 @@ class ShaderCreateParams(BaseModel):
 
     ``path`` is the target ``.gdshader`` file, addressed by its ``res://`` or
     filesystem path. A ``.gdshader`` is plain shader source authored as RAW
-    TEXT — no engine compilation is needed to create, read or edit it, so the
-    create/get/set trio is pure file authoring (the same file-level boundary the
-    script group's create/get/set honor, issue #30). ``content`` supplies
-    verbatim shader source; when omitted, the operation writes a minimal
-    ``shader_type`` template.
+    TEXT — the create/get/set trio authors the file directly and never loads or
+    compiles the shader AT THE OPERATION LEVEL (the same file-level boundary the
+    script group's create/get/set honor, issue #30). This bounds the operation,
+    not the run: like every command, a ``shader`` op still goes through the
+    headless runner, so resolving ``--project`` still constructs the project's
+    autoloads at engine startup (ADR-0009). ``content`` supplies verbatim shader
+    source; when omitted, the operation writes a minimal ``shader_type`` template.
     """
 
     path: str
@@ -1372,8 +1374,9 @@ class ShaderCreateParams(BaseModel):
         default=None,
         description=(
             "Shader type for the built-in template's 'shader_type' line (e.g. "
-            "canvas_item, spatial, particles). Ignored when 'content' is "
-            "supplied; defaults to 'canvas_item' when neither is given."
+            "canvas_item, spatial, particles). Mutually exclusive with 'content' "
+            "(supplying both is rejected); defaults to 'canvas_item' when neither "
+            "is given."
         ),
     )
 
@@ -1419,8 +1422,11 @@ class ShaderGetParams(BaseModel):
     """The operation params of ``gda shader get``: the shader file to read (issue #115).
 
     ``path`` addresses the ``.gdshader`` by its ``res://`` or filesystem path.
-    The source is read as raw text — the shader is never loaded or compiled, so
-    reading it can never run project code (the read boundary of issue #30).
+    The source is read as raw text — the operation itself never loads or compiles
+    the shader (the read boundary of issue #30). That bounds the operation, not
+    the run: like every command it goes through the headless runner, so resolving
+    ``--project`` still constructs the project's autoloads at engine startup
+    (ADR-0009).
     """
 
     path: str
@@ -1485,14 +1491,17 @@ class ShaderGetResult(BaseModel):
 class ShaderSetParams(BaseModel):
     """The operation params of ``gda shader set`` (issue #115).
 
-    Edits an existing ``.gdshader`` on disk as RAW TEXT — it never compiles or
-    loads the shader, so editing one can never run project code (the read
-    boundary of issue #30). ``path`` addresses the shader by its ``res://`` or
-    filesystem path. The remaining params carry the SAME three mutually-exclusive
-    edit modes as ``script set`` (issue #118) — the shader group reuses that edit
-    interface rather than re-deriving it. The CLI resolves which mode and stamps
-    it on ``mode`` (issue #133), so the operation dispatches on that explicit
-    discriminator rather than re-inferring it from which params are present:
+    Edits an existing ``.gdshader`` on disk as RAW TEXT — the operation itself
+    never compiles or loads the shader (the edit boundary of issue #30). That
+    bounds the operation, not the run: like every command it goes through the
+    headless runner, so resolving ``--project`` still constructs the project's
+    autoloads at engine startup (ADR-0009). ``path`` addresses the shader by its
+    ``res://`` or filesystem path. The remaining params carry the SAME three
+    mutually-exclusive edit modes as ``script set`` (issue #118) — the shader
+    group reuses that edit interface rather than re-deriving it. The CLI resolves
+    which mode and stamps it on ``mode`` (issue #133), so the operation dispatches
+    on that explicit discriminator rather than re-inferring it from which params
+    are present:
 
     - **search-replace** (``mode = search_replace``) — ``search``/``replace`` both
       present: every literal (not regex) occurrence of ``search`` is replaced with
