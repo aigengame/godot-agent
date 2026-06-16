@@ -113,6 +113,127 @@ def test_resource_get_missing_yields_path_not_found(monkeypatch):
     assert "/x/palette.tres" in err["message"]
 
 
+def _invoke_resource_set(monkeypatch, code: str, message: str):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: resource-set\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(
+        app,
+        [
+            "resource",
+            "set",
+            "/x/palette.tres",
+            "--property",
+            "interpolation_mode",
+            "--value",
+            "1",
+            "--json",
+        ],
+    )
+
+
+def _invoke_resource_delete(monkeypatch, code: str, message: str):
+    inject_runner(
+        monkeypatch,
+        RunResult(
+            stdout="Godot Engine v4.6.3.stable.official\n"
+            + error_sentinel(code, message),
+            stderr="gda: running operation: resource-delete\n",
+            exit_code=1,
+        ),
+    )
+    return CliRunner().invoke(
+        app, ["resource", "delete", "/x/palette.tres", "--json"]
+    )
+
+
+def test_resource_set_unknown_property_yields_unknown_property(monkeypatch):
+    # set edits an existing property; an unknown property is unknown_property
+    # (the same #55 code node set uses), never a silent create.
+    result = _invoke_resource_set(
+        monkeypatch,
+        "unknown_property",
+        "resource /x/palette.tres has no settable property: bogus",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "unknown_property"
+    assert "bogus" in err["message"]
+    assert err["diagnostics"] == "gda: running operation: resource-set\n"
+
+
+def test_resource_set_uncoercible_value_yields_uncoercible_value(monkeypatch):
+    # A value that cannot be coerced to the property's declared type reuses the
+    # node-set #55 code: uncoercible_value (exit 4, the .tres untouched).
+    result = _invoke_resource_set(
+        monkeypatch,
+        "uncoercible_value",
+        "cannot coerce value not-a-number to int for property "
+        "interpolation_mode on resource /x/palette.tres",
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "uncoercible_value"
+    assert "not-a-number" in err["message"]
+
+
+def test_resource_set_missing_yields_path_not_found(monkeypatch):
+    # A set on a path with no resource file reuses the registered path_not_found
+    # code (the same one resource get uses for a missing file).
+    result = _invoke_resource_set(
+        monkeypatch, "path_not_found", "resource file does not exist: /x/palette.tres"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "path_not_found"
+    assert "/x/palette.tres" in err["message"]
+
+
+def test_resource_set_non_tres_path_yields_invalid_path(monkeypatch):
+    result = _invoke_resource_set(
+        monkeypatch, "invalid_path", "resource path must end in .tres: /x/palette.txt"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "invalid_path"
+
+
+def test_resource_delete_missing_yields_path_not_found(monkeypatch):
+    # A delete on a path with no resource file reuses path_not_found, so the
+    # lifecycle's now-not-found is the same code a fresh get would report.
+    result = _invoke_resource_delete(
+        monkeypatch, "path_not_found", "resource file does not exist: /x/palette.tres"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "path_not_found"
+    assert "/x/palette.tres" in err["message"]
+
+
+def test_resource_delete_non_tres_path_yields_invalid_path(monkeypatch):
+    result = _invoke_resource_delete(
+        monkeypatch, "invalid_path", "resource path must end in .tres: /x/palette.txt"
+    )
+
+    assert result.exit_code == 4
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "invalid_path"
+
+
 def _invoke_resource_uid(monkeypatch, code: str, message: str, target: str):
     inject_runner(
         monkeypatch,

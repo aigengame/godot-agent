@@ -1477,6 +1477,70 @@ class ResourceGetResult(BaseModel):
     properties: list[NodeProperty]
 
 
+class ResourceSetParams(BaseModel):
+    """The operation params of ``gda resource set`` (issue #120).
+
+    ``path`` is the ``.tres`` resource file to mutate, addressed by its ``res://``
+    or filesystem path; ``property`` is the resource property to set; ``value`` is
+    the CLI string value, coerced to the property's declared Godot type by the
+    operation (the same coercion rules as ``node set`` / ``project set``, #55)
+    before the ``.tres`` is re-saved. ``set`` edits an EXISTING property — an
+    unknown property is a clean error, never a silent create — so the declared
+    type to coerce to is always known (read off the resource's property list).
+    Mirrors ``project set`` closely: load → coerce to the declared type → save →
+    round-trip via ``resource get``.
+    """
+
+    path: str
+    property: str = Field(
+        description="The resource property to set (e.g. interpolation_mode)."
+    )
+    value: str = Field(
+        description=(
+            "The value to set, as a string. The operation coerces it to the "
+            "property's declared Godot type (see the command catalog's 'Property "
+            "value coercion'); an uncoercible value is a clean error."
+        )
+    )
+
+
+class ResourceSetResult(BaseModel):
+    """The result of ``gda resource set``: the one property it set (issue #120).
+
+    Echoes the ``path``, the ``property`` set, the declared ``type`` the CLI value
+    was coerced to, and the coerced ``value`` as JSON — the same projection
+    ``resource get`` reports for a storage property, so a ``set`` round-trips
+    through a ``get`` without re-reading the ``.tres``.
+    """
+
+    path: str
+    property: str
+    type: str = Field(
+        description="The property's declared Godot type the value was coerced to."
+    )
+    value: Any = Field(
+        description="The coerced value as JSON, as the resource now holds it."
+    )
+
+
+class ResourceDeleteParams(BaseModel):
+    """The operation params of ``gda resource delete``: the ``.tres`` file to remove (issue #120)."""
+
+    path: str
+
+
+class ResourceDeleteResult(BaseModel):
+    """The result of ``gda resource delete``: what was removed (issue #120).
+
+    Echoes the deleted resource's ``path`` and its ``type`` (the engine class,
+    read from the resource before deletion), so the result names the content
+    removed, not just the file path — mirroring ``scene``/``script delete``.
+    """
+
+    path: str
+    type: str = Field(description="The deleted resource's engine class (e.g. Gradient).")
+
+
 class ResourceUidResult(BaseModel):
     """The result of ``gda resource uid``: the resolved UID↔path pair (issue #113).
 

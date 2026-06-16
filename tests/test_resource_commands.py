@@ -36,11 +36,175 @@ GET_RESULT = {
 }
 
 
+SET_RESULT = {
+    "path": "/tmp/proj/palette.tres",
+    "property": "interpolation_mode",
+    "type": "int",
+    "value": 1,
+}
+
+DELETE_RESULT = {
+    "path": "/tmp/proj/palette.tres",
+    "type": "Gradient",
+}
+
+
 UID = "uid://caax1gby1api1"
 PATH = "res://data.tres"
 
 UID_TO_PATH_RESULT = {"queried": "uid", "uid": UID, "path": PATH}
 PATH_TO_UID_RESULT = {"queried": "path", "uid": UID, "path": PATH}
+
+
+# --- resource set (issue #120) -------------------------------------------
+
+
+def test_resource_set_dispatches_path_property_value_and_round_trips(monkeypatch):
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(SET_RESULT)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "resource",
+            "set",
+            "/tmp/proj/palette.tres",
+            "--property",
+            "interpolation_mode",
+            "--value",
+            "1",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    # The result reports the coerced value in the JSON projection get reports, so
+    # a set round-trips through a get (the declared int type, not the string).
+    assert data["path"] == "/tmp/proj/palette.tres"
+    assert data["property"] == "interpolation_mode"
+    assert data["type"] == "int"
+    assert data["value"] == 1
+    # The CLI value rides through as a string; the operation owns the coercion.
+    assert fake.calls == [
+        (
+            "resource-set",
+            {
+                "path": "/tmp/proj/palette.tres",
+                "property": "interpolation_mode",
+                "value": "1",
+            },
+        )
+    ]
+    assert "engine diagnostic" in result.stderr
+
+
+def test_resource_set_human_output_is_set_path_property_type_value(monkeypatch):
+    inject_runner(monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "resource",
+            "set",
+            "/tmp/proj/palette.tres",
+            "--property",
+            "interpolation_mode",
+            "--value",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert (
+        result.stdout.strip()
+        == "set /tmp/proj/palette.tres.interpolation_mode (int) = 1"
+    )
+
+
+def test_resource_set_requires_value(monkeypatch):
+    # --value is required: a set with no value is a usage error (exit 2), not a
+    # silent no-op or an empty write.
+    fake = FakeRunner(RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
+    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
+
+    result = CliRunner().invoke(
+        app, ["resource", "set", "/tmp/proj/palette.tres", "--property", "x"]
+    )
+
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
+def test_resource_set_expands_user_home_in_filesystem_path(monkeypatch):
+    fake = FakeRunner(RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
+    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "resource",
+            "set",
+            "~/palette.tres",
+            "--property",
+            "interpolation_mode",
+            "--value",
+            "1",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    sent_path = fake.calls[0][1]["path"]
+    assert "~" not in sent_path
+    assert sent_path.endswith("/palette.tres")
+
+
+# --- resource delete (issue #120) ----------------------------------------
+
+
+def test_resource_delete_dispatches_path_and_reports_removed(monkeypatch):
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(DELETE_RESULT)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["resource", "delete", "/tmp/proj/palette.tres", "--json"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    # The result names the content removed (path + type), not just the path.
+    assert data["path"] == "/tmp/proj/palette.tres"
+    assert data["type"] == "Gradient"
+    assert fake.calls == [("resource-delete", {"path": "/tmp/proj/palette.tres"})]
+    assert "engine diagnostic" in result.stderr
+
+
+def test_resource_delete_human_output_names_path_and_type(monkeypatch):
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(DELETE_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(app, ["resource", "delete", "/tmp/proj/palette.tres"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "deleted /tmp/proj/palette.tres (Gradient)"
+
+
+def test_resource_delete_res_path_passes_through_untouched(monkeypatch):
+    fake = FakeRunner(RunResult(stdout=sentinel(DELETE_RESULT), stderr="", exit_code=0))
+    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
+
+    result = CliRunner().invoke(
+        app, ["resource", "delete", "res://palette.tres", "--json"]
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls == [("resource-delete", {"path": "res://palette.tres"})]
 
 
 def test_resource_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):

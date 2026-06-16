@@ -222,6 +222,174 @@ def test_resource_get_non_tres_path_yields_invalid_path(godot_project):
     assert ".tres" in err["message"]
 
 
+# --- resource set / delete: round out .tres CRUD (issue #120) ------------
+
+
+@pytest.mark.e2e
+def test_resource_set_coerces_persists_and_round_trips_via_get(godot_project):
+    # create → set → get: set coerces the CLI string to the property's declared
+    # type, saves the .tres, and get reports the coerced value — resource get IS
+    # the structured-level verification that set persisted.
+    resource_path = godot_project / "palette.tres"
+    created = _gda("resource", "create", str(resource_path), "--type", "Gradient", "--json")
+    assert created.returncode == 0, created.stdout + created.stderr
+
+    was_set = _gda(
+        "resource",
+        "set",
+        str(resource_path),
+        "--property",
+        "interpolation_mode",
+        "--value",
+        "1",
+        "--json",
+    )
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    set_data = json.loads(was_set.stdout)
+    # The result reports the coerced value (the declared int, not the string).
+    assert set_data["path"] == str(resource_path)
+    assert set_data["property"] == "interpolation_mode"
+    assert set_data["type"] == "int"
+    assert set_data["value"] == 1
+
+    got = _gda("resource", "get", str(resource_path), "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    by_name = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+    # Round-trip: get reports the value set persisted to the .tres.
+    assert by_name["interpolation_mode"]["value"] == 1
+
+
+@pytest.mark.e2e
+def test_resource_set_string_property_round_trips(godot_project):
+    # A String property coerces trivially and round-trips through get.
+    resource_path = godot_project / "palette.tres"
+    _gda("resource", "create", str(resource_path), "--type", "Gradient", "--json")
+
+    was_set = _gda(
+        "resource",
+        "set",
+        str(resource_path),
+        "--property",
+        "resource_name",
+        "--value",
+        "Sunset",
+        "--json",
+    )
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    assert json.loads(was_set.stdout)["type"] == "String"
+
+    got = _gda("resource", "get", str(resource_path), "--json")
+    by_name = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+    assert by_name["resource_name"]["value"] == "Sunset"
+
+
+@pytest.mark.e2e
+def test_resource_set_unknown_property_is_a_clean_error(godot_project):
+    # set edits an existing property; an unknown property is unknown_property,
+    # never a silent create — the agent fixes the property name.
+    resource_path = godot_project / "palette.tres"
+    _gda("resource", "create", str(resource_path), "--type", "Gradient", "--json")
+
+    was_set = _gda(
+        "resource",
+        "set",
+        str(resource_path),
+        "--property",
+        "bogus_property",
+        "--value",
+        "1",
+        "--json",
+    )
+
+    err = _assert_operation_error(was_set, "unknown_property")
+    assert "bogus_property" in err["message"]
+
+
+@pytest.mark.e2e
+def test_resource_set_uncoercible_value_is_a_clean_error(godot_project):
+    # An int property cannot take a non-numeric string — uncoercible_value (#55),
+    # the .tres left untouched.
+    resource_path = godot_project / "palette.tres"
+    _gda("resource", "create", str(resource_path), "--type", "Gradient", "--json")
+    before = resource_path.read_text(encoding="utf-8")
+
+    was_set = _gda(
+        "resource",
+        "set",
+        str(resource_path),
+        "--property",
+        "interpolation_mode",
+        "--value",
+        "not-a-number",
+        "--json",
+    )
+
+    err = _assert_operation_error(was_set, "uncoercible_value")
+    assert "not-a-number" in err["message"]
+    # The file is untouched — the rejected coercion never wrote.
+    assert resource_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_resource_set_missing_yields_path_not_found(godot_project):
+    missing = godot_project / "nope.tres"
+
+    was_set = _gda(
+        "resource", "set", str(missing), "--property", "x", "--value", "1", "--json"
+    )
+
+    err = _assert_operation_error(was_set, "path_not_found")
+    assert str(missing) in err["message"]
+
+
+@pytest.mark.e2e
+def test_resource_delete_removes_file_and_round_trips_against_get(godot_project):
+    # create → delete → get: delete removes the .tres and reports what was removed
+    # (path + type); a subsequent get is now path_not_found, closing the lifecycle.
+    resource_path = godot_project / "palette.tres"
+    created = _gda("resource", "create", str(resource_path), "--type", "Gradient", "--json")
+    assert created.returncode == 0, created.stdout + created.stderr
+    assert resource_path.exists()
+
+    deleted = _gda("resource", "delete", str(resource_path), "--json")
+
+    assert deleted.returncode == 0, deleted.stdout + deleted.stderr
+    del_data = json.loads(deleted.stdout)
+    assert del_data["path"] == str(resource_path)
+    assert del_data["type"] == "Gradient"
+    # The file is gone from disk.
+    assert not resource_path.exists()
+
+    # Round-trip: get now reports path_not_found — the lifecycle's now-not-found.
+    got = _gda("resource", "get", str(resource_path), "--json")
+    _assert_operation_error(got, "path_not_found")
+
+
+@pytest.mark.e2e
+def test_resource_delete_missing_yields_path_not_found(godot_project):
+    missing = godot_project / "nope.tres"
+
+    deleted = _gda("resource", "delete", str(missing), "--json")
+
+    err = _assert_operation_error(deleted, "path_not_found")
+    assert str(missing) in err["message"]
+
+
+@pytest.mark.e2e
+def test_resource_delete_non_tres_path_yields_invalid_path(godot_project):
+    bad_path = godot_project / "palette.txt"
+    bad_path.write_text("not a resource", encoding="utf-8")
+
+    deleted = _gda("resource", "delete", str(bad_path), "--json")
+
+    err = _assert_operation_error(deleted, "invalid_path")
+    assert ".tres" in err["message"]
+    # The non-.tres file is untouched — the rejected addressing never deleted.
+    assert bad_path.exists()
+
+
 @pytest.mark.e2e
 def test_resource_uid_resolves_both_directions_round_trip(imported_project):
     # path -> uid -> path: the script's import-assigned UID resolves back to the

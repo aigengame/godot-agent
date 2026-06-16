@@ -147,6 +147,10 @@ func _initialize() -> void:
 			_op_resource_create(params)
 		"resource-get":
 			_op_resource_get(params)
+		"resource-set":
+			_op_resource_set(params)
+		"resource-delete":
+			_op_resource_delete(params)
 		"export-list":
 			_op_export_list(params)
 		"export-get":
@@ -1564,6 +1568,103 @@ func _op_resource_get(params: Dictionary) -> void:
 		"type": resource.get_class(),
 		"properties": properties,
 	})
+
+
+# resource-set: load a .tres, coerce a CLI string value to a property's declared
+# Godot type and set it, then re-save the resource (issue #120). Mirrors node-set
+# / project-set: the declared type comes from the property the resource actually
+# declares, never from guessing, and the coerced value is read back off the
+# resource before reporting, so a set round-trips through resource get. set edits
+# an EXISTING property — an unknown property is unknown_property, never a silent
+# create — reusing the #55 codes (unknown_property / uncoercible_value).
+func _op_resource_set(params: Dictionary) -> void:
+	_diag("running operation: resource-set")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _require_existing_resource(path):
+		return  # _require_existing_resource already recorded the failure
+
+	var resource := ResourceLoader.load(path) as Resource
+	if resource == null:
+		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a Resource: " + path)
+		return
+
+	var prop_name := _string_param(params, "property")
+	var declared_type := _resource_property_type(resource, prop_name)
+	if declared_type == TYPE_NIL:
+		_fail(OP_ERROR_UNKNOWN_PROPERTY, "resource " + path
+				+ " has no settable property: " + prop_name)
+		return
+
+	var raw_value := _string_param(params, "value")
+	var coerced: Variant = _coerce_value(raw_value, declared_type)
+	if coerced == null:
+		_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
+				+ " to " + _type_name(declared_type) + " for property " + prop_name
+				+ " on resource " + path)
+		return
+
+	resource.set(prop_name, coerced)
+	var save_err := ResourceSaver.save(resource, path)
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("resource", path, save_err))
+		return
+
+	# Read the value back off the resource before reporting — it now holds the
+	# coerced value in its canonical form, the same projection resource get
+	# reports, so a set round-trips through a get.
+	var stored_value: Variant = _jsonify(resource.get(prop_name))
+	_succeed({
+		"path": path,
+		"property": prop_name,
+		"type": _type_name(declared_type),
+		"value": stored_value,
+	})
+
+
+# resource-delete: remove a .tres file from disk, reporting what was removed
+# (path + the resource's engine class, read before deletion), completing the
+# create → get → set → delete lifecycle (issue #120). Mirrors script-delete:
+# validate addressing/existence with _require_existing_resource, capture the
+# identity before delete, then DirAccess.remove_absolute (delete_failed on error).
+func _op_resource_delete(params: Dictionary) -> void:
+	_diag("running operation: resource-delete")
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+	if not _require_existing_resource(path):
+		return  # _require_existing_resource already recorded the failure
+
+	# Read the type before deletion so the result names the content removed. A
+	# load failure here is non-fatal: the file exists and is about to be deleted,
+	# so fall back to a generic Resource class rather than failing the delete.
+	var resource := ResourceLoader.load(path) as Resource
+	var type := resource.get_class() if resource != null else "Resource"
+
+	var err := DirAccess.remove_absolute(path)
+	if err != OK:
+		_fail(OP_ERROR_DELETE_FAILED, "failed to delete resource " + path + ": " + error_string(err))
+		return
+
+	_succeed({
+		"path": path,
+		"type": type,
+	})
+
+
+# The declared Godot type of a settable storage property on a resource, or
+# TYPE_NIL if the resource has no storage property by that name. resource set
+# keys coercion off this: the value's target type comes from the property the
+# resource actually declares, never from guessing — the resource counterpart of
+# _property_type (which is typed to Node).
+func _resource_property_type(resource: Resource, prop_name: String) -> int:
+	for prop in resource.get_property_list():
+		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
+			return int(prop.get("type", TYPE_NIL))
+	return TYPE_NIL
 
 
 # Whether a path names a resource file the resource group operates on: a .tres
