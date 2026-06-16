@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.16](https://github.com/aigengame/godot-agent/compare/v0.1.15...v0.1.16) (2026-06-16)
+
+
+### Features
+
+* **asset-file:** shader create/get/set + theme create — headless asset-file authoring ([#115](https://github.com/aigengame/godot-agent/issues/115)) ([#161](https://github.com/aigengame/godot-agent/issues/161)) ([a5e7a57](https://github.com/aigengame/godot-agent/commit/a5e7a57df223da27be59063701f6bc1f4e997050))
+* **project:** info + get + set — read/write project.godot headlessly ([#111](https://github.com/aigengame/godot-agent/issues/111)) ([#160](https://github.com/aigengame/godot-agent/issues/160)) ([e528d19](https://github.com/aigengame/godot-agent/commit/e528d193dd3a9cd11a2d88dd01b21d8f4433c5e3))
+* **project:** static-analysis reads — find-references, dependencies, find-unused-resources, statistics ([#116](https://github.com/aigengame/godot-agent/issues/116)) ([#163](https://github.com/aigengame/godot-agent/issues/163)) ([0fa395f](https://github.com/aigengame/godot-agent/commit/0fa395fccbaff8a5dd3ae22e69988106d96dee56))
+
 ## [0.1.15](https://github.com/aigengame/godot-agent/compare/v0.1.14...v0.1.15) (2026-06-16)
 
 
