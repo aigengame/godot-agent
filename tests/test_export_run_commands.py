@@ -24,6 +24,7 @@ Typer → resolve → preflight → export → classify → JSON pipeline runs e
 """
 
 import json
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -92,24 +93,139 @@ def test_export_run_json_reports_configured_path_and_exit_zero(monkeypatch, tmp_
     assert export_runner.calls == [("Linux/X11", "release", "build/game.x86_64")]
 
 
-def test_export_run_has_no_mode_or_output_flags(monkeypatch, tmp_path):
-    # #121 trims the surface to the issue's ask: --mode and --output are deferred
-    # to #170, so passing either is an unknown-option usage error (Typer exits 2),
-    # and no engine is ever spawned.
+def test_export_run_default_mode_is_release(monkeypatch, tmp_path):
+    # #170 adds --mode but keeps release the default: omitting --mode runs the
+    # native --export-release invocation and reports mode == "release", the #121
+    # behavior preserved.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    _, export_runner = _inject(monkeypatch)
+
+    result = CliRunner().invoke(
+        app,
+        ["export", "run", "--preset", "Linux/X11", "--project", str(tmp_path), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["mode"] == "release"
+    assert export_runner.calls == [("Linux/X11", "release", "build/game.x86_64")]
+
+
+def test_export_run_mode_selects_export_flavor(monkeypatch, tmp_path):
+    # --mode (issue #170) selects the export flavor, reflected in BOTH the native
+    # invocation (the mode string the runner is asked to export) and the result's
+    # `mode` field. Each of debug/pack flows end-to-end through the pipeline.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    for mode in ("debug", "pack"):
+        _, export_runner = _inject(monkeypatch)
+
+        result = CliRunner().invoke(
+            app,
+            [
+                "export", "run", "--preset", "Linux/X11",
+                "--mode", mode,
+                "--project", str(tmp_path), "--json",
+            ],
+        )
+
+        assert result.exit_code == 0, f"{mode}: {result.stdout + result.stderr}"
+        data = json.loads(result.stdout)
+        assert data["mode"] == mode
+        # The native export was driven with the selected mode, to the configured path.
+        assert export_runner.calls == [("Linux/X11", mode, "build/game.x86_64")]
+
+
+def test_export_run_rejects_unknown_mode(monkeypatch, tmp_path):
+    # --mode is a closed set (release/debug/pack); an unrecognized value is a
+    # Typer usage error (exit 2) and spawns no engine.
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
 
     def _boom(*args, **kwargs):
-        raise AssertionError("a rejected flag must not spawn any engine")
+        raise AssertionError("a rejected --mode must not spawn any engine")
 
     monkeypatch.setattr("gda.cli._make_runner", _boom)
     monkeypatch.setattr("gda.cli._make_export_runner", _boom)
 
-    for bad in (["--mode", "debug"], ["--output", "dist/game.x86_64"]):
-        result = CliRunner().invoke(
-            app,
-            ["export", "run", "--preset", "Linux/X11", *bad, "--project", str(tmp_path)],
-        )
-        assert result.exit_code == 2, f"{bad}: {result.stdout + result.stderr}"
+    result = CliRunner().invoke(
+        app,
+        [
+            "export", "run", "--preset", "Linux/X11",
+            "--mode", "nonsense",
+            "--project", str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+
+
+def test_export_run_output_overrides_configured_path(monkeypatch, tmp_path):
+    # --output (issue #170) overrides the preset's configured export_path: the
+    # native export is driven to the override, NOT the configured "build/game.x86_64",
+    # and the result's output_path reports the effective destination.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    _, export_runner = _inject(monkeypatch)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "export", "run", "--preset", "Linux/X11",
+            "--output", "dist/custom.x86_64",
+            "--project", str(tmp_path), "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    # The reported output_path is the override (the effective destination).
+    assert data["output_path"] == "dist/custom.x86_64"
+    assert data["mode"] == "release"
+    assert export_runner.calls == [("Linux/X11", "release", "dist/custom.x86_64")]
+
+
+def test_export_run_output_expands_leading_tilde(monkeypatch, tmp_path):
+    # ADR-0006: --output is a filesystem path normalized ONCE at the CLI layer, so
+    # a literal `~` is expanded to the user's home before it reaches the runner —
+    # the artifact lands in $HOME, not a literal "~" directory.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    _, export_runner = _inject(monkeypatch)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "export", "run", "--preset", "Linux/X11",
+            "--output", "~/builds/game.x86_64",
+            "--project", str(tmp_path), "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    expanded = str((Path.home() / "builds/game.x86_64"))
+    data = json.loads(result.stdout)
+    # Both the native invocation and the reported destination carry the expanded path.
+    assert data["output_path"] == expanded
+    assert export_runner.calls == [("Linux/X11", "release", expanded)]
+
+
+def test_export_run_output_overrides_unset_configured_path(monkeypatch, tmp_path):
+    # --output supplies a destination even when the preset's configured export_path
+    # is empty: the export_path_unset preflight no longer fires (there IS a place to
+    # write), and the export runs to the override.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    get = {**GET_RESULT, "export_path": ""}
+    _, export_runner = _inject(monkeypatch, get=get)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "export", "run", "--preset", "Linux/X11",
+            "--output", "dist/custom.x86_64",
+            "--project", str(tmp_path), "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["output_path"] == "dist/custom.x86_64"
+    assert export_runner.calls == [("Linux/X11", "release", "dist/custom.x86_64")]
 
 
 def test_export_run_surfaces_advisory_warnings(monkeypatch, tmp_path):
@@ -258,11 +374,11 @@ def test_export_run_schema_emits_contract_without_engine(monkeypatch):
     assert result.exit_code == 0, result.stdout + result.stderr
     schema = json.loads(result.stdout)
     assert set(schema) == {"input", "output", "error"}
-    # The input schema carries only the command's single param (--mode / --output
-    # are deferred to #170); the output schema carries the result.
+    # The input schema carries the command's params, now including the #170
+    # --mode and --output overrides; the output schema carries the result.
     assert "preset" in schema["input"]["properties"]
-    assert "mode" not in schema["input"]["properties"]
-    assert "output_path" not in schema["input"]["properties"]
+    assert "mode" in schema["input"]["properties"]
+    assert "output" in schema["input"]["properties"]
     assert "output_path" in schema["output"]["properties"]
     assert "warnings" in schema["output"]["properties"]
 

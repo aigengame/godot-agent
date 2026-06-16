@@ -8,6 +8,8 @@ from gda.models import (
     EngineVersion,
     ExportGetResult,
     ExportListResult,
+    ExportRunMode,
+    ExportRunResult,
     GdaError,
     GdaErrorEnvelope,
     NodeAddResult,
@@ -576,6 +578,46 @@ def test_export_get_result_round_trips_missing_templates():
     assert got.templates_installed is False
     assert got.export_path == ""
     assert json.loads(got.model_dump_json()) == payload
+
+
+def test_export_run_result_round_trips_each_mode():
+    # The result's `mode` reflects the selected export flavor (issue #170): each
+    # of release/debug/pack round-trips to its native-flag string, so a result
+    # serialized for any --mode reports the mode that ran.
+    for mode in (ExportRunMode.RELEASE, ExportRunMode.DEBUG, ExportRunMode.PACK):
+        payload = {
+            "preset": "Linux/X11",
+            "platform": "Linux/X11",
+            "mode": mode.value,
+            "output_path": "build/game.x86_64",
+            "warnings": [],
+        }
+
+        ran = ExportRunResult.model_validate(payload)
+
+        assert ran.mode is mode
+        assert ran.output_path == "build/game.x86_64"
+        assert json.loads(ran.model_dump_json()) == payload
+
+
+def test_export_run_result_reports_overridden_output_path():
+    # With --output (issue #170) the result's output_path is the EFFECTIVE
+    # destination — the override, not the preset's configured export_path — so an
+    # agent reads back where the artifact actually landed.
+    payload = {
+        "preset": "Linux/X11",
+        "platform": "Linux/X11",
+        "mode": "pack",
+        "output_path": "/tmp/dist/game.pck",
+        "warnings": ["No export template found at the expected icon path."],
+    }
+
+    ran = ExportRunResult.model_validate(payload)
+
+    assert ran.mode is ExportRunMode.PACK
+    assert ran.output_path == "/tmp/dist/game.pck"
+    assert ran.warnings == ["No export template found at the expected icon path."]
+    assert json.loads(ran.model_dump_json()) == payload
 
 
 def test_node_set_result_round_trips_the_coerced_property():
