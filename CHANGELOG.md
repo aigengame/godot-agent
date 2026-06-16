@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.19](https://github.com/aigengame/godot-agent/compare/v0.1.18...v0.1.19) (2026-06-16)
+
+
+### Features
+
+* **export:** run — add --mode + --output overrides ([#170](https://github.com/aigengame/godot-agent/issues/170)) ([#174](https://github.com/aigengame/godot-agent/issues/174)) ([ad3b2b5](https://github.com/aigengame/godot-agent/commit/ad3b2b5fbf8a2dcc07e2a5f69406442b3c283882))
+
+
+### Bug Fixes
+
+* **script:** preserve sibling scripts on re-pack in unimported projects ([#164](https://github.com/aigengame/godot-agent/issues/164)) ([#176](https://github.com/aigengame/godot-agent/issues/176)) ([677bf43](https://github.com/aigengame/godot-agent/commit/677bf438f22a9929e8ec6391d80df7d17309b285))
+
 ## [0.1.18](https://github.com/aigengame/godot-agent/compare/v0.1.17...v0.1.18) (2026-06-16)
 
 
