@@ -671,6 +671,52 @@ def test_sample_script_results_validate_against_emitted_output_schemas():
     )
 
 
+def test_resource_uid_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for resource uid (issue #113): the bare --schema
+    # flag — no target, no --project — short-circuits into the self-description,
+    # derived from the same typed models that back --json.
+    from gda.models import ResourceUidParams, ResourceUidResult
+
+    result = CliRunner().invoke(app, ["resource", "uid", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ResourceUidParams.model_json_schema()
+    assert doc["output"] == ResourceUidResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "target" in doc["input"]["properties"]
+    assert {"queried", "uid", "path"} <= set(doc["output"]["properties"])
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_sample_resource_uid_results_validate_against_emitted_output_schema():
+    # A sample --json payload of resource uid satisfies the contract its --schema
+    # emits — the other half of the ADR-0004 hard gate (issue #113). Both
+    # directions share one result shape, so one sample covers them.
+    from tests.test_resource_commands import PATH_TO_UID_RESULT, UID_TO_PATH_RESULT
+
+    doc = json.loads(CliRunner().invoke(app, ["resource", "uid", "--schema"]).stdout)
+
+    jsonschema.validate(instance=UID_TO_PATH_RESULT, schema=doc["output"])
+    jsonschema.validate(instance=PATH_TO_UID_RESULT, schema=doc["output"])
+
+
+def test_resource_uid_schema_spawns_no_godot(monkeypatch):
+    # --schema is local introspection: resource uid must short-circuit before any
+    # engine path, exactly like the other groups' schema gate.
+    def boom(*args, **kwargs):
+        raise AssertionError("--schema must not touch the engine")
+
+    monkeypatch.setattr("gda.headless.resolve_godot_binary", boom)
+    monkeypatch.setattr("gda.cli._make_runner", boom)
+
+    result = CliRunner().invoke(app, ["resource", "uid", "--schema"])
+
+    assert result.exit_code == 0
+    assert set(json.loads(result.stdout)) >= {"input", "output", "error"}
+
+
 def test_script_schema_spawns_no_godot(monkeypatch):
     def boom(*args, **kwargs):
         raise AssertionError("--schema must not touch the engine")

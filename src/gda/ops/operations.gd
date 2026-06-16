@@ -57,6 +57,9 @@ const OP_ERROR_CONNECTION_NOT_FOUND := "connection_not_found"
 const OP_ERROR_INVALID_RESOURCE_TYPE := "invalid_resource_type"
 const OP_ERROR_EXPORT_PRESETS_NOT_FOUND := "export_presets_not_found"
 const OP_ERROR_EXPORT_PRESET_NOT_FOUND := "export_preset_not_found"
+const OP_ERROR_INVALID_UID := "invalid_uid"
+const OP_ERROR_UNKNOWN_UID := "unknown_uid"
+const OP_ERROR_NO_UID_ASSIGNED := "no_uid_assigned"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -132,6 +135,8 @@ func _initialize() -> void:
 			_op_export_list(params)
 		"export-get":
 			_op_export_get(params)
+		"resource-uid":
+			_op_resource_uid(params)
 		_:
 			_fail(OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 
@@ -1622,6 +1627,80 @@ func _export_templates_version_dir() -> String:
 func _export_templates_installed(version_dir: String) -> bool:
 	var templates_root := OS.get_data_dir().path_join("Godot").path_join("export_templates")
 	return DirAccess.dir_exists_absolute(templates_root.path_join(version_dir))
+
+
+# resource-uid: resolve a Godot resource UID to/from its resource path in BOTH
+# directions against the engine's UID cache (issue #113). Read-only — it only
+# queries ResourceUID / ResourceLoader, never mutating the cache or any file.
+#
+# The cache is the engine's own res://.godot/uid_cache.bin, loaded at startup
+# (Main loads it via ResourceUID.load_from_cache for every run, and a non-editor
+# run also enables the reverse cache that path->uid resolution reads). So
+# resolution needs a project: a projectless headless run has no cache to query,
+# refused with project_not_found rather than a misleading "no UID" answer.
+#
+# Direction is chosen by the target's form:
+# - target begins with "uid://" -> resolve uid -> path:
+#     text_to_id == INVALID_ID    -> invalid_uid    (malformed uid:// syntax)
+#     not has_id                   -> unknown_uid    (valid syntax, not in cache)
+#     else get_id_path(id)         -> the res:// path
+# - otherwise target is a path -> resolve path -> uid:
+#     not ResourceLoader.exists    -> path_not_found (no such resource)
+#     get_resource_uid == INVALID  -> no_uid_assigned (exists, but no UID)
+#     else id_to_text(id)          -> the uid:// value
+# Both directions converge on the same {queried, uid, path} result, so an agent
+# always gets both sides of the mapping regardless of which it queried.
+func _op_resource_uid(params: Dictionary) -> void:
+	_diag("running operation: resource-uid")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "resource uid requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+
+	var target := _string_param(params, "target")
+	if target.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: target")
+		return
+
+	if target.begins_with("uid://"):
+		_resolve_uid_to_path(target)
+	else:
+		_resolve_path_to_uid(target)
+
+
+# uid -> path: extract the UID value, confirm it is in the cache, and report the
+# path it maps to. A malformed uid:// is invalid_uid (text_to_id == INVALID_ID);
+# a well-formed UID absent from the cache is unknown_uid (has_id false).
+func _resolve_uid_to_path(uid_text: String) -> void:
+	var id := ResourceUID.text_to_id(uid_text)
+	if id == ResourceUID.INVALID_ID:
+		_fail(OP_ERROR_INVALID_UID, "not a valid resource UID: " + uid_text)
+		return
+	if not ResourceUID.has_id(id):
+		_fail(OP_ERROR_UNKNOWN_UID, "UID is not registered in the project's UID cache: " + uid_text)
+		return
+	_succeed({
+		"queried": "uid",
+		"uid": uid_text,
+		"path": ResourceUID.get_id_path(id),
+	})
+
+
+# path -> uid: confirm the resource exists, then report its assigned UID. A path
+# that names no resource is path_not_found; a resource with no UID in the cache
+# is no_uid_assigned (get_resource_uid == INVALID_ID).
+func _resolve_path_to_uid(path: String) -> void:
+	if not ResourceLoader.exists(path):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "no resource at path: " + path)
+		return
+	var id := ResourceLoader.get_resource_uid(path)
+	if id == ResourceUID.INVALID_ID:
+		_fail(OP_ERROR_NO_UID_ASSIGNED, "resource has no UID assigned in the project's UID cache: " + path)
+		return
+	_succeed({
+		"queried": "path",
+		"uid": ResourceUID.id_to_text(id),
+		"path": path,
+	})
 
 
 # Whether a path names a script file the script group operates on: a .gd

@@ -1205,6 +1205,32 @@ class ResourceCreateParams(BaseModel):
     )
 
 
+class ResourceUidParams(BaseModel):
+    """The operation params of ``gda resource uid`` (issue #113).
+
+    Resolves a Godot resource UID to/from its resource path in BOTH directions
+    against the engine's UID cache — read-only, it never mutates the cache or any
+    file. ``target`` is the single addressing argument and selects the direction
+    by its form:
+
+    - a ``uid://…`` value: report the ``res://…`` path it resolves to.
+    - a ``res://…`` (or filesystem) path: report its assigned ``uid://…``.
+
+    The UID cache is the engine's own ``res://.godot/uid_cache.bin``, loaded at
+    startup, so resolution needs project context (``--project``); a projectless
+    run has no cache to query. This is distinct from ``.tres`` file CRUD: it
+    queries the cache, not a file's contents.
+    """
+
+    target: str = Field(
+        description=(
+            "The resolution target: a 'uid://…' value to resolve to its res:// "
+            "path, or a 'res://…' / filesystem path to resolve to its 'uid://…'. "
+            "The direction is chosen by whether 'target' begins with 'uid://'."
+        )
+    )
+
+
 class ExportListParams(BaseModel):
     """The operation params of ``gda export list`` — none (ADR-0004).
 
@@ -1346,6 +1372,28 @@ class ResourceGetResult(BaseModel):
     path: str
     type: str = Field(description="The resource's engine class (e.g. Gradient).")
     properties: list[NodeProperty]
+
+
+class ResourceUidResult(BaseModel):
+    """The result of ``gda resource uid``: the resolved UID↔path pair (issue #113).
+
+    Both directions converge on the same shape — the resolved ``uid`` and the
+    ``path`` it maps to — so an agent always gets both sides of the mapping
+    regardless of which it queried. ``queried`` echoes which direction was
+    resolved, so the result is self-describing: ``uid`` means the target was a
+    ``uid://`` resolved to its path, ``path`` means the target was a path
+    resolved to its UID.
+    """
+
+    queried: str = Field(
+        description=(
+            "Which direction was resolved: 'uid' when the target was a 'uid://' "
+            "value (resolved to its path), 'path' when the target was a path "
+            "(resolved to its UID)."
+        )
+    )
+    uid: str = Field(description="The resource's 'uid://…' value.")
+    path: str = Field(description="The resource's 'res://…' path the UID maps to.")
 
 
 class EngineVersion(BaseModel):

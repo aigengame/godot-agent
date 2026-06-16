@@ -53,6 +53,8 @@ from gda.models import (
     ResourceCreateResult,
     ResourceGetParams,
     ResourceGetResult,
+    ResourceUidParams,
+    ResourceUidResult,
     SceneCreateParams,
     SceneCreateResult,
     SceneDeleteParams,
@@ -394,6 +396,12 @@ EXPORT_GET_COMMAND: HeadlessCommand[ExportGetResult] = HeadlessCommand(
     operation="export-get",
     input_model=ExportGetParams,
     output_model=ExportGetResult,
+)
+
+RESOURCE_UID_COMMAND: HeadlessCommand[ResourceUidResult] = HeadlessCommand(
+    operation="resource-uid",
+    input_model=ResourceUidParams,
+    output_model=ResourceUidResult,
 )
 
 
@@ -1184,6 +1192,32 @@ def get_preset(
     _dispatch(
         EXPORT_GET_COMMAND,
         ExportGetParams(preset=preset),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@resource_app.command(name="uid", cls=RESOURCE_UID_COMMAND.command_class())
+def resolve_uid(
+    target: str = typer.Argument(
+        ...,
+        help=(
+            "A 'uid://…' value to resolve to its res:// path, or a 'res://…' / "
+            "filesystem path to resolve to its 'uid://…'. The direction is chosen "
+            "by whether the target begins with 'uid://'."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_UID_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Resolve a resource UID to/from its res:// path via the engine's UID cache."""
+    _dispatch(
+        RESOURCE_UID_COMMAND,
+        ResourceUidParams(target=_normalize_path(target)),
         json_output=json_output,
         godot=godot,
         project=project,
