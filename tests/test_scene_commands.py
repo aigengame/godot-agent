@@ -11,14 +11,15 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import RunResult
-from tests.support import FakeRunner, inject_runner, sentinel
-
-CREATE_RESULT = {
-    "path": "/tmp/proj/main.tscn",
-    "root_name": "main",
-    "root_type": "Node2D",
-    "created_dirs": [],
-}
+from tests.support import (
+    SCENE_CREATE_RESULT as CREATE_RESULT,
+    SCENE_DELETE_RESULT as DELETE_RESULT,
+    SCENE_GET_RESULT as GET_RESULT,
+    SCENE_LIST_RESULT as LIST_RESULT,
+    FakeRunner,
+    inject_runner,
+    sentinel,
+)
 
 
 def test_scene_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
@@ -86,22 +87,6 @@ def test_scene_create_accepts_explicit_root_name(monkeypatch):
             },
         )
     ]
-
-
-GET_RESULT = {
-    "path": "/tmp/proj/main.tscn",
-    "root": {
-        "name": "main",
-        "type": "Node2D",
-        "children": [
-            {
-                "name": "Hero",
-                "type": "Sprite2D",
-                "children": [{"name": "Hitbox", "type": "Area2D", "children": []}],
-            }
-        ],
-    },
-}
 
 
 def test_scene_get_json_emits_structured_node_tree_and_exit_zero(monkeypatch):
@@ -265,15 +250,6 @@ def test_scene_get_exports_empty_scene_is_a_valid_empty_listing(monkeypatch):
     assert json.loads(result.stdout)["nodes"] == []
 
 
-LIST_RESULT = {
-    "scenes": [
-        {"path": "res://main.tscn", "root_name": "main", "root_type": "Node2D"},
-        {"path": "res://ui/menu.tscn", "root_name": "Menu", "root_type": "Control"},
-        {"path": "res://broken.tscn", "root_name": None, "root_type": None},
-    ]
-}
-
-
 def test_scene_list_json_enumerates_project_scenes_and_exit_zero(monkeypatch, tmp_path):
     # scene list enumerates the resolved project's .tscn files (issue #54):
     # each entry carries its res:// path plus the root name/type read cheaply
@@ -319,13 +295,6 @@ def test_scene_list_passes_resolved_project_to_the_runner(monkeypatch, tmp_path)
 
     assert result.exit_code == 0
     assert seen["project"] == tmp_path
-
-
-DELETE_RESULT = {
-    "path": "/tmp/proj/old.tscn",
-    "root_name": "old",
-    "root_type": "Node2D",
-}
 
 
 def test_scene_delete_json_reports_what_was_removed_and_exit_zero(monkeypatch):

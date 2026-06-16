@@ -10,7 +10,6 @@ issue's acceptance bar: a new command must classify without copying any branch
 of the decision tree.
 """
 
-import json
 from pathlib import Path
 
 import pytest
@@ -20,6 +19,7 @@ from gda.errors import Failure, classify_run
 from gda.exit_codes import EXIT_OPERATION
 from gda.models import ErrorCategory
 from gda.runner import LaunchFailure, RunResult
+from tests.support import error_sentinel, sentinel
 
 BINARY = Path("/x/Godot")
 
@@ -31,21 +31,13 @@ class SceneSummary(BaseModel):
     root_type: str
 
 
-def _sentinel(payload: dict) -> str:
-    return f"<<<GDA:RESULT>>>{json.dumps(payload)}<<<GDA:END>>>\n"
-
-
-def _error_sentinel(code: str, message: str) -> str:
-    return _sentinel({"error": {"code": code, "message": message}})
-
-
 def test_clean_run_parses_payload_into_the_commands_typed_model():
     # The engine exited 0 and stdout carries a sentinel payload matching the
     # command's model: classify_run returns the validated model instance, with
     # engine banner noise around the sentinel ignored (ADR-0002).
     result = RunResult(
         stdout="Godot Engine v4.6.stable\n"
-        + _sentinel({"name": "Main", "root_type": "Node2D"}),
+        + sentinel({"name": "Main", "root_type": "Node2D"}),
         stderr="",
         exit_code=0,
     )
@@ -155,7 +147,7 @@ def test_engine_nonzero_exit_maps_to_operation_failure():
 def test_structured_op_failure_envelope_refines_the_operation_code():
     result = RunResult(
         stdout="Godot Engine v4.6.stable\n"
-        + _error_sentinel("path_not_found", "scene file does not exist: /x/a.tscn"),
+        + error_sentinel("path_not_found", "scene file does not exist: /x/a.tscn"),
         stderr="gda: running operation: scene-get\n",
         exit_code=1,
     )
@@ -173,7 +165,7 @@ def test_structured_op_failure_envelope_refines_the_operation_code():
 def test_structured_op_failure_message_can_contain_newlines():
     message = "scene file does not exist: /x/path\nwith-newline.tscn"
     result = RunResult(
-        stdout=_error_sentinel("path_not_found", message),
+        stdout=error_sentinel("path_not_found", message),
         stderr="",
         exit_code=1,
     )
@@ -202,7 +194,7 @@ def test_stderr_marker_spoof_does_not_forge_an_operation_code():
 
 def test_unregistered_operation_error_code_falls_back_to_operation_failed():
     result = RunResult(
-        stdout=_error_sentinel("forged_code", "forged message"),
+        stdout=error_sentinel("forged_code", "forged message"),
         stderr="",
         exit_code=1,
     )
@@ -217,7 +209,7 @@ def test_unregistered_operation_error_code_falls_back_to_operation_failed():
 
 def test_operation_error_envelope_rejects_public_error_extra_fields():
     result = RunResult(
-        stdout=_sentinel(
+        stdout=sentinel(
             {
                 "error": {
                     "category": "operation",
@@ -240,7 +232,7 @@ def test_operation_error_envelope_rejects_public_error_extra_fields():
 
 def test_error_envelope_with_zero_exit_maps_to_parse_failure():
     result = RunResult(
-        stdout=_error_sentinel("path_not_found", "scene file does not exist"),
+        stdout=error_sentinel("path_not_found", "scene file does not exist"),
         stderr="",
         exit_code=0,
     )
@@ -280,7 +272,7 @@ def test_wrong_shape_payload_maps_to_parse_failure():
     # command's model — still a contract violation, surfaced as a structured
     # parse failure, NOT an unhandled pydantic ValidationError.
     result = RunResult(
-        stdout=_sentinel({"name": "Main"}),  # root_type missing
+        stdout=sentinel({"name": "Main"}),  # root_type missing
         stderr="",
         exit_code=0,
     )
@@ -314,7 +306,7 @@ def test_deep_but_valid_tree_is_not_a_contract_violation():
     from gda.models import SceneGetResult
 
     result = RunResult(
-        stdout=_sentinel(_deep_tree_payload(1000)),
+        stdout=sentinel(_deep_tree_payload(1000)),
         stderr="",
         exit_code=0,
     )
@@ -332,7 +324,7 @@ def test_tree_too_deep_carries_an_accurate_wrapper_side_message():
     from gda.models import SceneGetResult
 
     result = RunResult(
-        stdout=_sentinel(_deep_tree_payload(1000)),
+        stdout=sentinel(_deep_tree_payload(1000)),
         stderr="",
         exit_code=0,
     )
