@@ -158,6 +158,113 @@ def test_scene_get_expands_user_home_in_filesystem_path_but_not_res(monkeypatch)
     assert fake.calls[0][1]["path"] == "res://main.tscn"
 
 
+GET_EXPORTS_RESULT = {
+    "path": "/tmp/proj/main.tscn",
+    "nodes": [
+        {
+            "path": ".",
+            "name": "main",
+            "type": "Node2D",
+            "script": "res://main.gd",
+            "exports": [
+                {
+                    "name": "speed",
+                    "type": "float",
+                    "hint": 0,
+                    "hint_string": "",
+                    "value": 3.5,
+                },
+                {
+                    "name": "title",
+                    "type": "String",
+                    "hint": 0,
+                    "hint_string": "",
+                    "value": "Hello",
+                },
+            ],
+        },
+        {
+            "path": "Hero",
+            "name": "Hero",
+            "type": "Sprite2D",
+            "script": "res://hero.gd",
+            "exports": [
+                {
+                    "name": "max_hp",
+                    "type": "int",
+                    "hint": 1,
+                    "hint_string": "0,100",
+                    "value": 100,
+                }
+            ],
+        },
+    ],
+}
+
+
+def test_scene_get_exports_json_emits_per_node_exports_and_exit_zero(monkeypatch):
+    # scene get-exports loads a scene and reports, per node (by node path), the
+    # @export properties its attached script declares (issue #58): each export's
+    # name, declared type, hint/hint_string, and value as typed JSON.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(GET_EXPORTS_RESULT)
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["scene", "get-exports", "/tmp/proj/main.tscn", "--json"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["path"] == "/tmp/proj/main.tscn"
+    # The root node, addressed as '.', carries the exports its script declares.
+    root = data["nodes"][0]
+    assert (root["path"], root["name"], root["type"]) == (".", "main", "Node2D")
+    assert root["script"] == "res://main.gd"
+    speed = root["exports"][0]
+    assert (speed["name"], speed["type"], speed["value"]) == ("speed", "float", 3.5)
+    # A descendant node carries its own exports with hint/hint_string.
+    hero = data["nodes"][1]
+    assert hero["path"] == "Hero"
+    assert hero["exports"][0]["hint_string"] == "0,100"
+    # The operation is dispatched by name with the command's typed params.
+    assert fake.calls == [("scene-get-exports", {"path": "/tmp/proj/main.tscn"})]
+    # Engine/script diagnostics are surfaced on stderr, not stdout.
+    assert "engine diagnostic" in result.stderr
+
+
+def test_scene_get_exports_expands_user_home_in_filesystem_path_but_not_res(monkeypatch):
+    # Path normalization at the CLI layer (issue #32) applies to get-exports too:
+    # a filesystem path gets ~ expanded; a res:// path passes through untouched.
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GET_EXPORTS_RESULT), stderr="", exit_code=0),
+    )
+
+    CliRunner().invoke(app, ["scene", "get-exports", "~/game/main.tscn", "--json"])
+    assert "~" not in fake.calls[0][1]["path"]
+    assert fake.calls[0][1]["path"].endswith("/game/main.tscn")
+
+    fake.calls.clear()
+    CliRunner().invoke(app, ["scene", "get-exports", "res://main.tscn", "--json"])
+    assert fake.calls[0][1]["path"] == "res://main.tscn"
+
+
+def test_scene_get_exports_empty_scene_is_a_valid_empty_listing(monkeypatch):
+    # A scene with no exported variables anywhere is a successful, empty listing
+    # (nodes == []), not a failure.
+    stdout = sentinel({"path": "/tmp/proj/bare.tscn", "nodes": []})
+    inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app, ["scene", "get-exports", "/tmp/proj/bare.tscn", "--json"]
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["nodes"] == []
+
+
 LIST_RESULT = {
     "scenes": [
         {"path": "res://main.tscn", "root_name": "main", "root_type": "Node2D"},

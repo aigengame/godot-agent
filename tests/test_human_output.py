@@ -101,6 +101,49 @@ HUMAN_CASES = [
         {"path": "/tmp/proj/old.tscn", "root_name": "old", "root_type": "Node2D"},
         "deleted /tmp/proj/old.tscn (root old: Node2D)",
     ),
+    (
+        # scene get-exports: a `path (Type)` header per node, then each export as
+        # `name (Type) = value` — the value via format_value (float scalar, and
+        # a Vector2 -> [x, y]).
+        "scene-get-exports",
+        ["scene", "get-exports", "/tmp/proj/main.tscn"],
+        {
+            "path": "/tmp/proj/main.tscn",
+            "nodes": [
+                {
+                    "path": ".",
+                    "name": "main",
+                    "type": "Node2D",
+                    "script": "res://main.gd",
+                    "exports": [
+                        {
+                            "name": "speed",
+                            "type": "float",
+                            "hint": 0,
+                            "hint_string": "",
+                            "value": 3.5,
+                        },
+                        {
+                            "name": "start",
+                            "type": "Vector2",
+                            "hint": 0,
+                            "hint_string": "",
+                            "value": [1.0, 2.0],
+                        },
+                    ],
+                }
+            ],
+        },
+        ". (Node2D)\n"
+        "  speed (float) = 3.5\n"
+        "  start (Vector2) = [1.0, 2.0]",
+    ),
+    (
+        "scene-get-exports-empty",
+        ["scene", "get-exports", "/tmp/proj/bare.tscn"],
+        {"path": "/tmp/proj/bare.tscn", "nodes": []},
+        "(no exports)",
+    ),
     # --- node group ---------------------------------------------------------
     (
         "node-add",

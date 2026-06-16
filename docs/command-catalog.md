@@ -57,6 +57,23 @@ they are provenance, not status markers.
 | `gda scene list` | Enumerate scenes in the project |
 | `gda scene get-exports` | List `@export` properties declared by a scene's nodes |
 
+**Export reporting** (established by #58): `gda scene get-exports` loads a scene, instantiates
+it, and reports — per node, keyed by the same canonical node path `node get`/`node set`
+address by (`.` for the root) — the `@export` properties the node's attached script declares:
+each a `{name, type, hint, hint_string, value}` entry, where `type` is the export's declared
+Godot type name, `hint`/`hint_string` are the Godot `PropertyHint` enum value and its companion
+string the `@export` annotation produced, and `value` is the export's current value in the same
+JSON projection `node get` uses (its default on a freshly-loaded node) — the property-value
+introspection is reused from `node get` (#55), not re-implemented. An export is detected by its
+usage flags (`PROPERTY_USAGE_SCRIPT_VARIABLE` + `PROPERTY_USAGE_EDITOR`) on the script's own
+property list, so a node's inherited engine properties and a script's plain (non-`@export`)
+variables are excluded. A node with no script, or whose script declares no exports, is omitted;
+a scene with no exported variables anywhere is a valid, empty listing (`nodes == []`). Like
+`scene get`, get-exports reuses the shared load-failure ladder — a missing file is
+`path_not_found`, a non-scene file `not_a_scene` (both exit 4). It reads but does not save, so
+it skips the re-save mutation-integrity guard; instantiating still runs attached scripts'
+`_init` (the trust boundary of ADR-0009).
+
 ### `node`
 
 Operates on nodes **within a scene file** (load → mutate → pack → save), so headless.
