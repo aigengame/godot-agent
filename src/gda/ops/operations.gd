@@ -2352,9 +2352,9 @@ func _collect_all_file_paths(dir_path: String, out: Array[String]) -> void:
 # resource: a scene, a resource, a script, or a leaf asset — anything except the
 # import sidecars and the project file the .godot cache and the engine own. Kept
 # deliberately inclusive so an asset (an image, a font) referenced by a scene is
-# itself a node in the graph and a candidate for find-unused. Named distinctly
-# from the resource group's .tres-only _is_resource_path (issue #112): the two
-# answer different questions and must not collide.
+# itself a node in the graph and a candidate for find-unused. Distinct from the
+# resource group's _is_resource_path (a strict .tres check): this is the project
+# scan's graph-eligibility test, hence the separate name.
 func _is_graph_resource_path(path: String) -> bool:
 	var ext := path.get_extension().to_lower()
 	if ext == "import" or ext == "godot" or ext == "cfg" or ext == "uid":
@@ -2479,7 +2479,14 @@ func _collect_references_from(path: String, target_paths: Dictionary, target_cla
 			# A class_name target used as a bare identifier token (extends Name,
 			# `var x: Name`, `Name.new()`, …). Best-effort: a whole-word token
 			# match, so a substring of a longer identifier is not a false hit.
-			if not target_class.is_empty() and _line_uses_token(stripped, target_class):
+			# Skip the target's OWN `class_name <target>` declaration line: that is
+			# the definition site, not a reference (issue #116 review). Without this
+			# guard the class's defining file reports itself as a class_reference.
+			if (
+				not target_class.is_empty()
+				and not _is_class_name_declaration_of(stripped, target_class)
+				and _line_uses_token(stripped, target_class)
+			):
 				references.append({"path": path, "kind": "class_reference", "context": stripped})
 
 
@@ -2581,8 +2588,16 @@ func _project_plugins() -> Array[String]:
 # Count the lines of a TEXT file (issue #116): the number of newline-separated
 # parts of its content, treating a binary/unreadable file as 0 lines. A trailing
 # newline does not add a phantom empty final line, so "a\nb\n" is 2 lines. Only
-# called on files statistics counts; a file that fails to read contributes 0.
+# called on files statistics counts.
+#
+# Line-count ONLY known text extensions (issue #116 review): a binary asset (an
+# image, a font, audio) must contribute to the file count but NOT the line count
+# — statistics' documented contract. Reading every file as text counted a binary
+# asset's stray newline bytes as lines, inflating total_lines. An unknown
+# extension is treated as binary (0 lines) rather than read as text.
 func _count_lines(path: String) -> int:
+	if not _is_text_extension(path.get_extension().to_lower()):
+		return 0
 	var text := FileAccess.get_file_as_string(path)
 	if text.is_empty():
 		return 0
@@ -2593,6 +2608,18 @@ func _count_lines(path: String) -> int:
 	if count > 0 and parts[count - 1].is_empty():
 		count -= 1
 	return count
+
+
+# The file extensions statistics treats as text for line counting (issue #116
+# review). Covers Godot's text formats (.gd/.tscn/.tres scenes & resources, the
+# .godot/.cfg/.import config files, .gdshader) plus common plain-text companions
+# (docs, data, the C# source). Anything else — images, audio, fonts, .res binary
+# resources — is binary: it counts as a file but contributes 0 lines.
+func _is_text_extension(ext: String) -> bool:
+	return ext in [
+		"gd", "tscn", "tres", "godot", "cfg", "import", "gdshader", "gdshaderinc",
+		"cs", "json", "txt", "md", "xml", "csv", "ini", "po", "pot", "gdextension",
+	]
 
 
 # The value of a quoted attribute (e.g. path="res://x") in a line, or "" when the
@@ -2649,6 +2676,18 @@ func _line_uses_token(line: String, token: String) -> bool:
 
 func _is_identifier_char(ch: String) -> bool:
 	return ch == "_" or (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or (ch >= "0" and ch <= "9")
+
+
+# Whether an already-stripped .gd line is the `class_name <target>` declaration
+# of the find-references target — the definition site, not a reference. Matches
+# the same `class_name ` prefix _parse_script_meta keys on, with the first token
+# of the remainder equal to the target class (so `class_name HeroSpawner` is not
+# treated as Hero's declaration). Lets find-references exclude a class's own
+# defining line from its class_reference hits (issue #116 review).
+func _is_class_name_declaration_of(line: String, target_class: String) -> bool:
+	if not line.begins_with("class_name "):
+		return false
+	return _first_token(line.substr("class_name ".length())) == target_class
 
 
 # Whether a path names a script file the script group operates on: a .gd

@@ -276,6 +276,162 @@ def test_find_references_bad_target_is_invalid_target(refgraph_project):
     assert err["code"] == "invalid_target"
 
 
+# --- class_name find-references fixture (issue #116 review) -----------------
+#
+# A project whose only references to a class are by its class_name token: a
+# defining script (`class_name Hero`, no other use of the token), genuine
+# consumers (`extends Hero`, a `var x: Hero` annotation, `Hero.new()`), and an
+# UNREFERENCED class (`class_name Lonely`) nothing names. find-references for
+# Hero must report the consumers but NOT Hero's own `class_name Hero` declaration
+# line (the definition site, not a reference); find-references for Lonely must be
+# empty.
+CLASSNAME_PROJECT_GODOT = """\
+config_version=5
+
+[application]
+
+config/name="gda-classname-fixture"
+"""
+
+HERO_GD = """\
+extends Node
+
+class_name Hero
+
+func greet() -> void:
+	print("hero")
+"""
+
+VILLAIN_GD = """\
+extends Hero
+
+func taunt() -> void:
+	print("villain")
+"""
+
+SPAWNER_GD = """\
+extends Node
+
+func make() -> void:
+	var h: Hero = Hero.new()
+	h.greet()
+"""
+
+LONELY_GD = """\
+extends Node
+
+class_name Lonely
+
+func sigh() -> void:
+	print("nobody references me")
+"""
+
+
+def _import_project(project) -> None:
+    # class_name registration lives in the project's global class list, which only
+    # a project scan produces — run the engine's headless import step the way a CI
+    # pipeline would before resolving a find-references target by class_name.
+    imported = subprocess.run(
+        [str(GODOT), "--headless", "--path", str(project), "--import"],
+        capture_output=True,
+        text=True,
+    )
+    assert imported.returncode == 0, imported.stdout + imported.stderr
+
+
+@pytest.fixture
+def classname_project(tmp_path):
+    """A project where a class is referenced only by its class_name token."""
+    (tmp_path / "project.godot").write_text(CLASSNAME_PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "hero.gd").write_text(HERO_GD, encoding="utf-8")
+    (tmp_path / "villain.gd").write_text(VILLAIN_GD, encoding="utf-8")
+    (tmp_path / "spawner.gd").write_text(SPAWNER_GD, encoding="utf-8")
+    (tmp_path / "lonely.gd").write_text(LONELY_GD, encoding="utf-8")
+    _import_project(tmp_path)
+    return tmp_path
+
+
+@pytest.mark.e2e
+def test_find_references_to_a_class_name_excludes_its_own_declaration(
+    classname_project,
+):
+    # find-references Hero must report the genuine consumers (extends Hero, a
+    # `var x: Hero` annotation, Hero.new()) but NEVER hero.gd's own
+    # `class_name Hero` declaration line — that is the definition site, not a
+    # reference (issue #116 review: false positive).
+    proc = _gda(
+        classname_project, "project", "find-references", "Hero", "--json"
+    )
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    data = json.loads(proc.stdout)
+    assert data["target"] == "Hero"
+    referencing = {(r["path"], r["kind"]) for r in data["references"]}
+    # Genuine consumers are reported as class_reference hits.
+    assert ("res://villain.gd", "class_reference") in referencing
+    assert ("res://spawner.gd", "class_reference") in referencing
+    # The defining file's `class_name Hero` line is NOT reported as a reference.
+    hero_class_refs = [
+        r
+        for r in data["references"]
+        if r["path"] == "res://hero.gd"
+        and r["kind"] == "class_reference"
+        and r["context"].strip().startswith("class_name ")
+    ]
+    assert hero_class_refs == [], (
+        f"the class_name declaration is reported as a self-reference: {hero_class_refs}"
+    )
+
+
+@pytest.mark.e2e
+def test_find_references_to_an_unreferenced_class_name_is_empty(classname_project):
+    # A class declared via class_name that NOTHING consumes returns an empty
+    # reference set — its own declaration line must not count as a reference.
+    proc = _gda(
+        classname_project, "project", "find-references", "Lonely", "--json"
+    )
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["references"] == []
+
+
+@pytest.mark.e2e
+def test_statistics_counts_binary_assets_as_files_but_not_lines(tmp_path):
+    # A binary asset whose bytes happen to contain newlines must contribute to
+    # the file count but NOT the line count — statistics' documented contract
+    # ("binary assets contribute to file counts but not line counts"). Issue #116
+    # review: _count_lines previously read every file as text, so a binary asset's
+    # newline bytes inflated total_lines.
+    (tmp_path / "project.godot").write_text(
+        'config_version=5\n\n[application]\n\nconfig/name="gda-binary-fixture"\n',
+        encoding="utf-8",
+    )
+    # A two-line .gd: a real text file contributing 2 lines.
+    (tmp_path / "code.gd").write_text("extends Node\n\n", encoding="utf-8")
+    # A binary .png with many newline (0x0A) bytes — text-decoded it would look
+    # like dozens of lines, but as a binary asset it must contribute 0 lines.
+    (tmp_path / "blob.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n" + (b"\n" * 50) + b"\x00\xff\x10binary\n"
+    )
+
+    proc = _gda(tmp_path, "project", "statistics", "--json")
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    data = json.loads(proc.stdout)
+    by_ext = {e["extension"]: e for e in data["by_extension"]}
+
+    # The binary asset is counted as a file...
+    assert by_ext["png"]["files"] == 1
+    # ...but contributes 0 lines despite its ~52 newline bytes.
+    assert by_ext["png"]["lines"] == 0
+    # The text .gd contributes its 2 lines.
+    assert by_ext["gd"]["lines"] == 2
+    # total_lines is exactly the sum of the per-extension (text-only) line counts;
+    # the binary png's newline bytes are not in it (far below the 52 it carries).
+    assert data["total_lines"] == sum(e["lines"] for e in data["by_extension"])
+    assert data["total_lines"] < 50
+
+
 @pytest.mark.e2e
 def test_dependencies_without_project_is_project_not_found(tmp_path):
     # Run projectless (no --project, cwd is not a project): the res:// scan has no
