@@ -73,6 +73,12 @@ const PROJECT_MAIN_SCENE_SETTING := "application/run/main_scene"
 const PROJECT_VIEWPORT_WIDTH_SETTING := "display/window/size/viewport_width"
 const PROJECT_VIEWPORT_HEIGHT_SETTING := "display/window/size/viewport_height"
 
+# Autoload singletons live under the "autoload/<name>" section of project.godot
+# (issue #119). The value is the res:// path optionally prefixed with "*" to mean
+# "enabled as a singleton" — the normal, accessible form gda writes.
+const AUTOLOAD_SETTING_PREFIX := "autoload/"
+const AUTOLOAD_ENABLED_PREFIX := "*"
+
 # The exit code the process will use. Defaults to failure, so an operation that
 # aborts before recording an outcome (e.g. an uncaught runtime error) still
 # exits non-zero rather than reporting a phantom success.
@@ -153,6 +159,10 @@ func _initialize() -> void:
 			_op_project_get(params)
 		"project-set":
 			_op_project_set(params)
+		"project-add-autoload":
+			_op_project_add_autoload(params)
+		"project-remove-autoload":
+			_op_project_remove_autoload(params)
 		"shader-create":
 			_op_shader_create(params)
 		"shader-get":
@@ -2030,6 +2040,93 @@ func _op_project_set(params: Dictionary) -> void:
 		"type": _type_name(declared_type),
 		"value": stored_value,
 	})
+
+
+# project-add-autoload: register an autoload singleton (name -> script/scene path)
+# under the autoload/<name> section of project.godot, then persist (issue #119).
+# The value is stored in the ENABLED-singleton form — the res:// path with a
+# leading "*" — which is the normal, globally-accessible autoload gda writes, the
+# same value a `project get autoload/<name>` reads back so an add round-trips
+# through a get.
+#
+# Failure modes use existing registered codes: an empty name or path is
+# invalid_path; a name already registered is already_exists (add never silently
+# overwrites — use remove + add to replace); a target file that does not exist is
+# path_not_found; a failed save is save_failed. Like every --project op it runs
+# the project's autoloads at startup (#61, ADR-0009); the registration itself
+# never instantiates the autoload.
+func _op_project_add_autoload(params: Dictionary) -> void:
+	_diag("running operation: project-add-autoload")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project add-autoload requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+	var autoload_name := _string_param(params, "name")
+	if autoload_name.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: name")
+		return
+	var path := _string_param(params, "path")
+	if path.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
+		return
+
+	var setting := AUTOLOAD_SETTING_PREFIX + autoload_name
+	if ProjectSettings.has_setting(setting):
+		_fail(OP_ERROR_ALREADY_EXISTS, "autoload already registered: " + autoload_name
+				+ " — add-autoload never overwrites; remove it first to replace it")
+		return
+	if not (FileAccess.file_exists(path) or ResourceLoader.exists(path)):
+		_fail(OP_ERROR_PATH_NOT_FOUND, "autoload target does not exist: " + path)
+		return
+
+	var stored_path := AUTOLOAD_ENABLED_PREFIX + path
+	ProjectSettings.set_setting(setting, stored_path)
+	var save_err := ProjectSettings.save()
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, "failed to save project settings after registering autoload "
+				+ autoload_name + ": " + error_string(save_err))
+		return
+
+	_succeed({
+		"name": autoload_name,
+		"path": stored_path,
+	})
+
+
+# project-remove-autoload: unregister an autoload singleton by name (clearing the
+# autoload/<name> section), then persist project.godot (issue #119). An autoload
+# that is not registered is a clean unknown_setting error — the same code
+# `project get` of a missing setting reports, since an autoload IS a project
+# setting — not a silent no-op, so a typo'd name is distinguished from a genuine
+# removal. A failed save is save_failed.
+func _op_project_remove_autoload(params: Dictionary) -> void:
+	_diag("running operation: project-remove-autoload")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project remove-autoload requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+	var autoload_name := _string_param(params, "name")
+	if autoload_name.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: name")
+		return
+
+	var setting := AUTOLOAD_SETTING_PREFIX + autoload_name
+	if not ProjectSettings.has_setting(setting):
+		_fail(OP_ERROR_UNKNOWN_SETTING, "autoload not registered: " + autoload_name)
+		return
+
+	# Clearing the setting (assigning null) removes it from ProjectSettings, so it
+	# is dropped from project.godot on save rather than persisted as an empty key.
+	ProjectSettings.set_setting(setting, null)
+	var save_err := ProjectSettings.save()
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, "failed to save project settings after removing autoload "
+				+ autoload_name + ": " + error_string(save_err))
+		return
+
+	_succeed({
+		"name": autoload_name,
+	})
+
+
 # Extract a .gdshader's declared shader_type from its raw source by lightweight
 # line-by-line parsing — never compiling the shader (issue #30). Null when absent.
 # A .gdshader leads with `shader_type <type>;`, after optional blank/comment

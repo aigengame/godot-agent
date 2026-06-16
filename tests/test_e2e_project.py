@@ -154,6 +154,111 @@ def test_project_set_uncoercible_value_is_a_clean_error(godot_project):
 
 
 @pytest.mark.e2e
+def test_project_add_autoload_registers_persists_and_round_trips(godot_project):
+    # A real script to autoload must exist in the project (path_not_found otherwise).
+    (godot_project / "global.gd").write_text(
+        "extends Node\n", encoding="utf-8"
+    )
+
+    added = _gda(
+        godot_project,
+        "project",
+        "add-autoload",
+        "Global",
+        "res://global.gd",
+        "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    add_data = json.loads(added.stdout)
+    assert add_data["name"] == "Global"
+    # Persisted in the enabled-singleton form, with the leading * prefix.
+    assert add_data["path"] == "*res://global.gd"
+
+    # Round-trip: a fresh process reads the autoload back from project.godot via get.
+    got = _gda(godot_project, "project", "get", "autoload/Global", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    got_data = json.loads(got.stdout)
+    assert got_data["setting"] == "autoload/Global"
+    assert got_data["value"] == "*res://global.gd"
+
+
+@pytest.mark.e2e
+def test_project_remove_autoload_unregisters_and_round_trips(godot_project):
+    (godot_project / "global.gd").write_text("extends Node\n", encoding="utf-8")
+    added = _gda(
+        godot_project, "project", "add-autoload", "Global", "res://global.gd", "--json"
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+
+    removed = _gda(godot_project, "project", "remove-autoload", "Global", "--json")
+    assert removed.returncode == 0, removed.stdout + removed.stderr
+    assert json.loads(removed.stdout) == {"name": "Global"}
+
+    # Round-trip: the autoload is gone from project.godot — a fresh get reports it
+    # as an unknown setting, exit 4.
+    got = _gda(godot_project, "project", "get", "autoload/Global", "--json")
+    assert got.returncode == 4, got.stdout + got.stderr
+    assert json.loads(got.stdout)["error"]["code"] == "unknown_setting"
+
+
+@pytest.mark.e2e
+def test_project_add_autoload_duplicate_name_is_a_clean_error(godot_project):
+    (godot_project / "global.gd").write_text("extends Node\n", encoding="utf-8")
+    first = _gda(
+        godot_project, "project", "add-autoload", "Global", "res://global.gd", "--json"
+    )
+    assert first.returncode == 0, first.stdout + first.stderr
+
+    dup = _gda(
+        godot_project, "project", "add-autoload", "Global", "res://global.gd", "--json"
+    )
+    assert dup.returncode == 4
+    err = json.loads(dup.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "already_exists"
+
+    # The original registration is untouched: a get still reads it back.
+    got = _gda(godot_project, "project", "get", "autoload/Global", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    assert json.loads(got.stdout)["value"] == "*res://global.gd"
+
+
+@pytest.mark.e2e
+def test_project_add_autoload_missing_target_is_a_clean_error(godot_project):
+    # The target script/scene does not exist — path_not_found, exit 4, nothing saved.
+    bad = _gda(
+        godot_project,
+        "project",
+        "add-autoload",
+        "Global",
+        "res://nope.gd",
+        "--json",
+    )
+
+    assert bad.returncode == 4
+    err = json.loads(bad.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "path_not_found"
+
+    # Nothing was registered: a get reports the autoload as unknown.
+    got = _gda(godot_project, "project", "get", "autoload/Global", "--json")
+    assert got.returncode == 4
+    assert json.loads(got.stdout)["error"]["code"] == "unknown_setting"
+
+
+@pytest.mark.e2e
+def test_project_remove_autoload_unknown_name_is_a_clean_error(godot_project):
+    bad = _gda(godot_project, "project", "remove-autoload", "Nonexistent", "--json")
+
+    assert bad.returncode == 4
+    err = json.loads(bad.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "unknown_setting"
+    assert "Nonexistent" in err["message"]
+
+
+@pytest.mark.e2e
 def test_project_info_without_project_is_a_clean_error():
     # Projectless: ProjectSettings would report only the engine's bare defaults,
     # not the agent's project, so it is refused with project_not_found.

@@ -15,10 +15,14 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.models import (
     GdaErrorEnvelope,
+    ProjectAddAutoloadParams,
+    ProjectAddAutoloadResult,
     ProjectGetParams,
     ProjectGetResult,
     ProjectInfoParams,
     ProjectInfoResult,
+    ProjectRemoveAutoloadParams,
+    ProjectRemoveAutoloadResult,
     ProjectSetParams,
     ProjectSetResult,
 )
@@ -210,6 +214,85 @@ def test_project_set_requires_value(monkeypatch):
     assert fake.calls == []
 
 
+# --- project add-autoload -------------------------------------------------
+
+
+ADD_AUTOLOAD_RESULT = {
+    "name": "Global",
+    "path": "*res://global.gd",
+}
+
+REMOVE_AUTOLOAD_RESULT = {
+    "name": "Global",
+}
+
+
+def test_project_add_autoload_dispatches_name_and_path_and_reports_result(monkeypatch):
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(ADD_AUTOLOAD_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["project", "add-autoload", "Global", "res://global.gd", "--json"],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["name"] == "Global"
+    # The persisted value is the enabled-singleton form (the leading * prefix).
+    assert data["path"] == "*res://global.gd"
+    # name and the res:// path ride through as the two operation params; the CLI
+    # passes the bare path and the operation owns the autoload/ section + * prefix.
+    assert fake.calls == [
+        ("project-add-autoload", {"name": "Global", "path": "res://global.gd"})
+    ]
+
+
+def test_project_add_autoload_human_output_names_the_registered_autoload(monkeypatch):
+    inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(ADD_AUTOLOAD_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(app, ["project", "add-autoload", "Global", "res://global.gd"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "added autoload Global = *res://global.gd"
+
+
+# --- project remove-autoload ----------------------------------------------
+
+
+def test_project_remove_autoload_dispatches_name_and_reports_result(monkeypatch):
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(REMOVE_AUTOLOAD_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app, ["project", "remove-autoload", "Global", "--json"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data == REMOVE_AUTOLOAD_RESULT
+    assert fake.calls == [("project-remove-autoload", {"name": "Global"})]
+
+
+def test_project_remove_autoload_human_output_names_the_unregistered_autoload(monkeypatch):
+    inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(REMOVE_AUTOLOAD_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(app, ["project", "remove-autoload", "Global"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "removed autoload Global"
+
+
 # --- ADR-0004 --schema hard gate -----------------------------------------
 
 
@@ -259,16 +342,51 @@ def test_project_set_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_project_add_autoload_schema_emits_model_derived_contract_without_other_args():
+    result = CliRunner().invoke(app, ["project", "add-autoload", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ProjectAddAutoloadParams.model_json_schema()
+    assert doc["output"] == ProjectAddAutoloadResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "name" in doc["input"]["properties"]
+    assert "path" in doc["input"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_project_remove_autoload_schema_emits_model_derived_contract_without_other_args():
+    result = CliRunner().invoke(app, ["project", "remove-autoload", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ProjectRemoveAutoloadParams.model_json_schema()
+    assert doc["output"] == ProjectRemoveAutoloadResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "name" in doc["input"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_sample_project_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each project command satisfies the contract its
     # --schema emits (the other half of the ADR-0004 hard gate, issue #111).
     info_doc = json.loads(CliRunner().invoke(app, ["project", "info", "--schema"]).stdout)
     get_doc = json.loads(CliRunner().invoke(app, ["project", "get", "--schema"]).stdout)
     set_doc = json.loads(CliRunner().invoke(app, ["project", "set", "--schema"]).stdout)
+    add_doc = json.loads(
+        CliRunner().invoke(app, ["project", "add-autoload", "--schema"]).stdout
+    )
+    remove_doc = json.loads(
+        CliRunner().invoke(app, ["project", "remove-autoload", "--schema"]).stdout
+    )
 
     jsonschema.validate(instance=INFO_RESULT, schema=info_doc["output"])
     jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
     jsonschema.validate(instance=SET_RESULT, schema=set_doc["output"])
+    jsonschema.validate(instance=ADD_AUTOLOAD_RESULT, schema=add_doc["output"])
+    jsonschema.validate(instance=REMOVE_AUTOLOAD_RESULT, schema=remove_doc["output"])
 
 
 def test_project_schema_spawns_no_godot(monkeypatch):
@@ -282,6 +400,8 @@ def test_project_schema_spawns_no_godot(monkeypatch):
         ["project", "info"],
         ["project", "get"],
         ["project", "set"],
+        ["project", "add-autoload"],
+        ["project", "remove-autoload"],
     ):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0

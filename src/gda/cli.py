@@ -57,10 +57,14 @@ from gda.models import (
     NodeRemoveResult,
     NodeSetParams,
     NodeSetResult,
+    ProjectAddAutoloadParams,
+    ProjectAddAutoloadResult,
     ProjectGetParams,
     ProjectGetResult,
     ProjectInfoParams,
     ProjectInfoResult,
+    ProjectRemoveAutoloadParams,
+    ProjectRemoveAutoloadResult,
     ProjectSetParams,
     ProjectSetResult,
     ResourceCreateParams,
@@ -474,6 +478,20 @@ PROJECT_SET_COMMAND: HeadlessCommand[ProjectSetResult] = HeadlessCommand(
     operation="project-set",
     input_model=ProjectSetParams,
     output_model=ProjectSetResult,
+)
+
+PROJECT_ADD_AUTOLOAD_COMMAND: HeadlessCommand[ProjectAddAutoloadResult] = HeadlessCommand(
+    operation="project-add-autoload",
+    input_model=ProjectAddAutoloadParams,
+    output_model=ProjectAddAutoloadResult,
+)
+
+PROJECT_REMOVE_AUTOLOAD_COMMAND: HeadlessCommand[ProjectRemoveAutoloadResult] = (
+    HeadlessCommand(
+        operation="project-remove-autoload",
+        input_model=ProjectRemoveAutoloadParams,
+        output_model=ProjectRemoveAutoloadResult,
+    )
 )
 
 SHADER_CREATE_COMMAND: HeadlessCommand[ShaderCreateResult] = HeadlessCommand(
@@ -1611,6 +1629,55 @@ def project_set(
     _dispatch(
         PROJECT_SET_COMMAND,
         ProjectSetParams(setting=setting, value=value),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@project_app.command(
+    name="add-autoload", cls=PROJECT_ADD_AUTOLOAD_COMMAND.command_class()
+)
+def project_add_autoload(
+    name: str = typer.Argument(
+        ..., help="The autoload singleton's global name (the autoload/<name> key)."
+    ),
+    path: str = typer.Argument(
+        ..., help="The res:// path to the script or scene to autoload (e.g. res://global.gd)."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_ADD_AUTOLOAD_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Register an autoload singleton (name → script/scene path), then save project.godot."""
+    _dispatch(
+        PROJECT_ADD_AUTOLOAD_COMMAND,
+        ProjectAddAutoloadParams(name=name, path=_normalize_path(path)),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@project_app.command(
+    name="remove-autoload", cls=PROJECT_REMOVE_AUTOLOAD_COMMAND.command_class()
+)
+def project_remove_autoload(
+    name: str = typer.Argument(
+        ..., help="The global name of the autoload singleton to unregister."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_REMOVE_AUTOLOAD_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Unregister an autoload singleton by name, then save project.godot."""
+    _dispatch(
+        PROJECT_REMOVE_AUTOLOAD_COMMAND,
+        ProjectRemoveAutoloadParams(name=name),
         json_output=json_output,
         godot=godot,
         project=project,

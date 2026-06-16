@@ -34,8 +34,10 @@ from gda.models import (
     NodeMoveResult,
     NodeRemoveResult,
     NodeSetResult,
+    ProjectAddAutoloadResult,
     ProjectGetResult,
     ProjectInfoResult,
+    ProjectRemoveAutoloadResult,
     ProjectSetResult,
     ResourceCreateResult,
     ResourceGetResult,
@@ -365,6 +367,16 @@ def render_project_set(was_set: "ProjectSetResult") -> str:
     return f"set {was_set.setting} ({was_set.type}) = {format_value(was_set.value)}"
 
 
+def render_project_add_autoload(added: "ProjectAddAutoloadResult") -> str:
+    """Render a registered autoload as ``added autoload <name> = <path>``."""
+    return f"added autoload {added.name} = {added.path}"
+
+
+def render_project_remove_autoload(removed: "ProjectRemoveAutoloadResult") -> str:
+    """Render an unregistered autoload as ``removed autoload <name>``."""
+    return f"removed autoload {removed.name}"
+
+
 @runtime_checkable
 class ShaderMetadata(Protocol):
     """The shared human-facing surface of every shader result type.
@@ -500,6 +512,8 @@ _RENDERERS = {
     ProjectInfoResult: render_project_info,
     ProjectGetResult: render_project_get,
     ProjectSetResult: render_project_set,
+    ProjectAddAutoloadResult: render_project_add_autoload,
+    ProjectRemoveAutoloadResult: render_project_remove_autoload,
     ShaderCreateResult: render_shader_create,
     ShaderGetResult: render_shader_get,
     ShaderSetResult: render_shader_set,
