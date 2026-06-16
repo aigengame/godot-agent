@@ -356,12 +356,14 @@ ADR-0006): `ProjectSettings` without a resolved project reports only the engine'
 not the agent's project, so a projectless run is refused with `project_not_found` (exit 4) rather
 than returning a misleading result.
 
-> **Autoloads run on every `project` command (#61, ADR-0009).** A `project` op is a **state-read**
-> at the operation level — it reads/writes `ProjectSettings` and never instantiates a scene — but it
-> still runs under `--project`, and the engine constructs the project's **autoload singletons**
-> (running their `_init`/`_ready`) at startup, *before* the operation gets control, on `project get`
-> / `info` included. This is the documented **process-startup execution surface** of the trusted-
-> project model (ADR-0009), not re-introduced silently: a `project` read is not zero-execution.
+> **Autoloads run on every `project` command (#61, ADR-0009).** `project info` and `project get` are
+> **state-reads** at the operation level — they read `ProjectSettings` and never instantiate a scene;
+> `project set` is a **`ProjectSettings` write** that persists to `project.godot`
+> (`ProjectSettings.save()`) but still never instantiates a scene. Either way, every `project` command
+> runs under `--project`, and the engine constructs the project's **autoload singletons** (running
+> their `_init`/`_ready`) at startup, *before* the operation gets control, on `project info` / `get` /
+> `set` alike. This is the documented **process-startup execution surface** of the trusted-project
+> model (ADR-0009), not re-introduced silently: a `project` op is not zero-execution.
 
 **Project metadata** (established by #111): `gda project info` reports the project's `name` and
 `main_scene` (from `ProjectSettings`), its configured `viewport_width`/`viewport_height`, and the

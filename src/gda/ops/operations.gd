@@ -1791,7 +1791,7 @@ func _op_project_get(params: Dictionary) -> void:
 #
 # Persistence: ProjectSettings.set_setting mutates the in-memory settings, and
 # ProjectSettings.save() writes them back to res://project.godot. A failed save is
-# setting_save_failed. Like every --project op it runs the project's autoloads at
+# save_failed. Like every --project op it runs the project's autoloads at
 # startup (#61, ADR-0009); the set itself never instantiates a scene.
 func _op_project_set(params: Dictionary) -> void:
 	_diag("running operation: project-set")
