@@ -44,8 +44,11 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from gda.error_codes import ERROR_CODE_BY_CODE, OPERATION_ERROR_CODES
+from gda.export_runner import ExportRunOutput
 from gda.models import (
     EngineVersion,
+    ExportRunMode,
+    ExportRunResult,
     GdaError,
     OperationErrorEnvelope,
     ScriptDiagnostic,
@@ -304,3 +307,97 @@ def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
         )
 
     return version
+
+
+# The engine reports a missing-template / misconfiguration export failure with
+# this stable stderr prefix (editor/editor_node.cpp). A release/debug export to
+# an uninstalled-template version trips it; gda surfaces it as the distinct
+# export_templates_missing code so an agent installs templates (export get names
+# the version) rather than re-parsing prose.
+_EXPORT_CONFIG_ERROR = "due to configuration errors"
+
+# A non-fatal export warning the engine prints to stderr. WARNING is Godot's
+# WARN_PRINT prefix; these never fail the export (it still exits 0) but are
+# surfaced advisorily on the success result (ADR-0002: stderr is advisory for
+# success diagnostics), so an agent sees e.g. a missing optional icon.
+_EXPORT_WARNING_LINE = re.compile(
+    r"^[ \t]*WARNING:[ \t]*(?P<message>.+?)[ \t]*$", re.MULTILINE
+)
+
+
+def parse_export_warnings(stderr: str) -> list[str]:
+    """Parse advisory export warnings from a native export's stderr (issue #121).
+
+    A pure function: the engine's ``WARN_PRINT`` lines are advisory-only (they
+    never determine the success/failure outcome — a warned export still exits 0),
+    so they are surfaced as best-effort diagnostics on the success result.
+    Returns ``[]`` when the export was clean.
+    """
+    return [m.group("message") for m in _EXPORT_WARNING_LINE.finditer(stderr)]
+
+
+def classify_export_run(
+    output: ExportRunOutput,
+    binary: Path,
+    *,
+    preset: str,
+    platform: str,
+    mode: ExportRunMode,
+    output_path: str,
+) -> ExportRunResult | Failure:
+    """Classify a native Godot export into a typed result or a ``Failure`` (issue #121).
+
+    ``export run`` is the one command that does NOT emit an ADR-0002 sentinel —
+    the export subsystem is editor-only, so the artifact is produced by a native
+    ``--export-<mode>`` invocation. gda synthesizes the structured outcome from
+    the subprocess's exit code + stderr instead: a clean exit is success (with
+    any advisory warnings parsed off stderr); a non-zero exit is a classifier
+    failure, finer-grained when the stderr names a known mode (missing
+    templates / misconfiguration) and the generic ``export_failed`` otherwise.
+
+    The decision tree mirrors :func:`classify_run`'s env/crash prefix so a
+    missing binary or hung export is reported identically across both channels.
+    """
+    if output.launch_failure is LaunchFailure.NOT_FOUND:
+        return _failure(
+            "binary_not_found",
+            f"Godot binary could not be launched: {binary}",
+            output.stderr,
+        )
+    if output.launch_failure is LaunchFailure.TIMEOUT:
+        return _failure(
+            "launch_timeout",
+            "Godot launched but did not return before the timeout",
+            output.stderr,
+        )
+    if output.exit_code < 0:
+        return _failure(
+            "engine_crashed",
+            f"Godot terminated abnormally (signal {-output.exit_code})",
+            output.stderr,
+        )
+    if output.exit_code != 0:
+        # A release/debug export against an uninstalled template version, or any
+        # preset whose configuration the engine rejects, prints the stable
+        # "due to configuration errors" prefix. Surface the missing-templates
+        # mode distinctly; every other non-zero export is the generic failure.
+        if _EXPORT_CONFIG_ERROR in output.stderr:
+            return _failure(
+                "export_templates_missing",
+                f'export preset "{preset}" cannot be exported: the export'
+                " templates for the running engine version are not installed or"
+                " the preset is misconfigured",
+                output.stderr,
+            )
+        return _failure(
+            "export_failed",
+            f'export of preset "{preset}" failed',
+            output.stderr,
+        )
+    return ExportRunResult(
+        preset=preset,
+        platform=platform,
+        mode=mode,
+        output_path=output_path,
+        warnings=parse_export_warnings(output.stderr),
+    )

@@ -108,10 +108,21 @@ def schema_command_class(
     return _SchemaCommand
 
 
-def _fail(failure: Failure) -> NoReturn:
-    """Emit a structured error to stdout and exit non-zero."""
+def emit_failure(failure: Failure) -> NoReturn:
+    """Emit a structured error envelope to stdout and exit non-zero.
+
+    The single home for the public failure channel (ADR-0002): a ``Failure``
+    becomes the ``{"error": {...}}`` envelope on stdout and selects the process
+    exit code. Shared by the sentinel-pipeline commands (via :meth:`HeadlessCommand.run`)
+    and the native-export command (``export run``), which classifies its own
+    subprocess outcome but emits failures through this same channel.
+    """
     typer.echo(GdaErrorEnvelope(error=failure.error).model_dump_json())
     raise typer.Exit(code=failure.exit_code)
+
+
+# Backwards-compatible private alias for in-module call sites.
+_fail = emit_failure
 
 
 @dataclass(frozen=True)

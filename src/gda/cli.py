@@ -14,11 +14,18 @@ from typing import Optional
 import typer
 from pydantic import BaseModel
 
-from gda.errors import classify_info, classify_script_validate
+from gda.errors import (
+    Failure,
+    classify_export_run,
+    classify_info,
+    classify_script_validate,
+)
+from gda.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.headless import (
     HeadlessCommand,
     HumanRenderer,
     M,
+    emit_failure,
     godot_option,
     json_option,
     make_subprocess_runner,
@@ -30,6 +37,9 @@ from gda.models import (
     ExportGetResult,
     ExportListParams,
     ExportListResult,
+    ExportRunMode,
+    ExportRunParams,
+    ExportRunResult,
     InfoParams,
     ProjectDependenciesParams,
     ProjectDependenciesResult,
@@ -220,6 +230,16 @@ def _make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
     A seam tests override (via monkeypatch) to inject a fake runner.
     """
     return make_subprocess_runner(binary, project)
+
+
+def _make_export_runner(binary: Path, project: Optional[Path]) -> ExportRunner:
+    """Build the default (real) native-export runner for ``binary`` and ``project``.
+
+    The ``export run``-only twin of :func:`_make_runner`: a seam tests override
+    to inject a fake export runner, since ``export run`` spawns Godot with native
+    ``--export-<mode>`` flags rather than the ``operations.gd`` payload.
+    """
+    return make_subprocess_export_runner(binary, project)
 
 
 def _emit(

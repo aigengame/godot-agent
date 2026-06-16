@@ -322,6 +322,27 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "No export preset with the requested name exists in export_presets.cfg.",
     ),
     ErrorCodeSpec(
+        "export_path_unset",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "An export run was asked to use the preset's configured export_path, but the preset has none and no output path was given.",
+    ),
+    ErrorCodeSpec(
+        "export_templates_missing",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "An export run needs the export templates for the running engine version, which are not installed.",
+    ),
+    ErrorCodeSpec(
+        "export_failed",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "A native Godot export run failed (the engine reported the export did not complete).",
+    ),
+    ErrorCodeSpec(
         "invalid_uid",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
