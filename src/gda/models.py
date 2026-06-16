@@ -1100,6 +1100,70 @@ class ScriptValidateResult(BaseModel):
     )
 
 
+class ResourceCreateParams(BaseModel):
+    """The operation params of ``gda resource create`` (issue #112).
+
+    ``path`` is the target ``.tres`` resource file, addressed by its ``res://``
+    or filesystem path (resource-file addressing — by file path). ``type`` is
+    the Godot resource class to instantiate and save (e.g. ``Gradient``,
+    ``Curve``); it must be an instantiable ``Resource`` subclass, mirroring
+    ``scene create``'s ``root_type`` check against ``Node``.
+    """
+
+    path: str
+    type: str = Field(
+        description=(
+            "The Godot resource class to create (e.g. Gradient, Curve). Must be "
+            "an instantiable Resource subclass."
+        )
+    )
+
+
+class ResourceCreateResult(BaseModel):
+    """The result of ``gda resource create``: what was written where (issue #112).
+
+    Echoes the saved ``path`` and the ``type`` of the resource it created, so an
+    agent can assert the effect (path + type) without a second call.
+    ``created_dirs`` lists parent directories the operation created before
+    saving, from outermost to innermost (mirrors ``scene``/``script`` create).
+    """
+
+    path: str
+    type: str = Field(description="The Godot resource class that was created.")
+    created_dirs: list[str] = Field(
+        description=(
+            "Parent directories created before saving, from outermost to innermost."
+        )
+    )
+
+
+class ResourceGetParams(BaseModel):
+    """The operation params of ``gda resource get``: the ``.tres`` to read (issue #112).
+
+    ``path`` addresses the resource by its ``res://`` or filesystem path. Loading
+    a ``.tres`` instantiates the resource (the same trust boundary every load
+    carries, ADR-0009), but a plain resource file holds data, not a script that
+    runs on load.
+    """
+
+    path: str
+
+
+class ResourceGetResult(BaseModel):
+    """The result of ``gda resource get``: a resource's properties as typed JSON (issue #112).
+
+    Echoes the ``path``, the resource's ``type`` (its engine class), and its
+    storage properties — the ones that serialize into the ``.tres`` — each as a
+    typed :class:`NodeProperty` (the same projection ``node get`` reports), so a
+    ``resource create`` round-trips: ``create`` then ``get`` reports the
+    resource it wrote.
+    """
+
+    path: str
+    type: str = Field(description="The resource's engine class (e.g. Gradient).")
+    properties: list[NodeProperty]
+
+
 class EngineVersion(BaseModel):
     """The Godot engine version, as reported by ``Engine.get_version_info()``.
 

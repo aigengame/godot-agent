@@ -301,6 +301,13 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A requested signal-to-method connection does not exist on the source node.",
     ),
     ErrorCodeSpec(
+        "invalid_resource_type",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested resource type cannot be instantiated as a Resource.",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         EXIT_PARSE,
