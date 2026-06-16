@@ -28,9 +28,11 @@ from gda.runner import LaunchFailure
 # from the operation runner's tighter bound.
 DEFAULT_EXPORT_TIMEOUT_SECONDS = 600.0
 
-# The native flag for each export mode (ADR-0001 maps the public --mode to the
-# Godot CLI). release/debug produce a full platform binary (need templates);
-# pack produces project data only (PCK/ZIP by output extension).
+# The native flag for each export mode (ADR-0001 maps a mode to the Godot CLI).
+# release/debug produce a full platform binary (need templates); pack produces
+# project data only (PCK/ZIP by output extension). Issue #121 only ever runs
+# "release"; "debug"/"pack" stay mapped here so follow-up #170 can expose --mode
+# without reshaping the runner seam.
 EXPORT_MODE_FLAGS: dict[str, str] = {
     "release": "--export-release",
     "debug": "--export-debug",

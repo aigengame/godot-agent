@@ -108,20 +108,25 @@ def test_signal_death_maps_to_engine_crashed():
     assert outcome.error.code == "engine_crashed"
 
 
-def test_config_error_stderr_maps_to_templates_missing():
-    # The engine's stable "due to configuration errors" prefix (missing templates
-    # / misconfigured preset) surfaces as the distinct export_templates_missing.
+def test_config_error_stderr_still_maps_to_generic_export_failed():
+    # Template readiness is now a STRUCTURED preflight (export get's
+    # templates_installed, decided BEFORE the native run), so classify_export_run
+    # no longer string-matches stderr for a stable code (ADR-0002 forbids it). Any
+    # non-zero native export — even the engine's old "due to configuration errors"
+    # text — is the generic export_failed; the stderr is advisory diagnostics only.
     outcome = _classify(
         ExportRunOutput(
             stdout="",
-            stderr='ERROR: export failed due to configuration errors.\n',
+            stderr="ERROR: export failed due to configuration errors.\n",
             exit_code=1,
         )
     )
 
     assert isinstance(outcome, Failure)
-    assert outcome.error.code == "export_templates_missing"
+    assert outcome.error.code == "export_failed"
     assert outcome.exit_code == EXIT_OPERATION
+    # The engine text is preserved advisorily, not parsed for the code.
+    assert "configuration errors" in outcome.error.diagnostics
 
 
 def test_other_nonzero_maps_to_generic_export_failed():

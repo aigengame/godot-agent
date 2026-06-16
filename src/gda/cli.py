@@ -21,6 +21,7 @@ from gda.errors import (
     classify_info,
     classify_script_validate,
     export_path_unset_failure,
+    export_templates_missing_failure,
 )
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.headless import (
@@ -1624,39 +1625,31 @@ def run_export(
         "--preset",
         help="The export preset's display name, as 'gda export list' reports it.",
     ),
-    mode: ExportRunMode = typer.Option(
-        ExportRunMode.RELEASE,
-        "--mode",
-        help=(
-            "The export flavor: release/debug (full binary, needs templates) or "
-            "pack (data-only PCK/ZIP, no templates)."
-        ),
-    ),
-    output: Optional[str] = typer.Option(
-        None,
-        "--output",
-        help=(
-            "Where the artifact lands. Defaults to the preset's configured "
-            "export_path; an unset path with no --output is an error."
-        ),
-    ),
+    # NOTE: --mode (release/debug/pack) and --output (path override) are
+    # deferred to follow-up issue #170. Issue #121 asks only to export a named
+    # preset in RELEASE mode to its CONFIGURED export_path, so this command
+    # exposes neither flag; the result still carries `mode` (always "release")
+    # to document the mode that ran.
     json_output: bool = json_option(),
     schema: bool = EXPORT_RUN_COMMAND.schema_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Export a named preset to its output path and report the artifact produced.
+    """Export a named preset (release mode) to its configured path and report the artifact.
 
-    Unlike every other command, the export itself is a native ``--export-<mode>``
+    Unlike every other command, the export itself is a native ``--export-release``
     invocation (the export subsystem is editor-only, so it cannot run through
-    operations.gd). The command orchestrates two phases by hand: ``export get``
-    resolves the preset's platform + configured ``export_path`` (reusing #114's
-    clean preset/project errors), then the native ``ExportRunner`` performs the
-    export and ``classify_export_run`` synthesizes the typed result from the
-    subprocess's exit code + stderr.
+    operations.gd). The command orchestrates three phases by hand: ``export get``
+    resolves the preset's platform + configured ``export_path`` + template
+    readiness (reusing #114's clean preset/project errors), a structured preflight
+    fails fast when templates are missing or the path is unset, then the native
+    ``ExportRunner`` performs the export and ``classify_export_run`` synthesizes
+    the typed result from the subprocess's exit code.
     """
     resolved_project = resolve_project_dir(project)
     binary = resolve_godot_binary(godot)
+    # #121 fixes the export flavor to release; --mode is deferred to #170.
+    mode = ExportRunMode.RELEASE
 
     # Phase 1: resolve the preset via the existing export-get sentinel op. This
     # reuses #114's clean structured errors — an unknown preset is
@@ -1670,9 +1663,17 @@ def run_export(
         make_runner=_make_runner,
     )
 
-    # Phase 2: resolve where the artifact lands — --output overrides, else the
-    # preset's configured export_path. Neither set is export_path_unset.
-    output_path = output if output else got.export_path
+    # Phase 2: structured preflight, BEFORE any native run (ADR-0010). export get
+    # already reports template readiness structurally (templates_installed) — the
+    # readiness check built for exactly this — so an export against an uninstalled
+    # template version is the distinct export_templates_missing, decided here
+    # rather than by string-matching the engine's stderr (which ADR-0002 forbids
+    # and which also fires for a misconfigured preset). The configured export_path
+    # must also be set (a --output override is deferred to #170); an empty path is
+    # export_path_unset. Both fail fast without spawning the export.
+    if not got.templates_installed:
+        emit_failure(export_templates_missing_failure(got.name, got.templates_version))
+    output_path = got.export_path
     if not output_path:
         emit_failure(export_path_unset_failure(got.name))
 

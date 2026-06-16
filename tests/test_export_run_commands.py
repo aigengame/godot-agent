@@ -2,20 +2,25 @@
 
 ``export run`` is the first command that does NOT route through operations.gd:
 the Godot export subsystem is editor-only C++, unreachable from a ``--script``
-SceneTree run, so the actual export is a native ``--export-release`` /
-``--export-debug`` / ``--export-pack`` invocation. ``gda`` synthesizes the typed
-result from that subprocess's exit code + stderr, not from an ADR-0002 sentinel.
+SceneTree run, so the actual export is a native ``--export-release`` invocation
+(#121 fixes the mode to release; --mode/--output are deferred to #170). ``gda``
+synthesizes the typed result from that subprocess's exit code, not from an
+ADR-0002 sentinel.
 
-The command runs in two phases, each behind its own injectable seam:
+The command runs in three steps, the engine-touching ones behind injectable seams:
 
 1. ``export-get`` (the existing sentinel op) resolves the preset's
    details + configured ``export_path`` + template-install status — reusing
    #114's clean structured preset/project errors.
-2. the native ``ExportRunner`` performs the export to that path; its raw
-   ``{stdout, stderr, exit_code}`` is classified into success or a ``GdaError``.
+2. a structured preflight (on export-get's ``templates_installed`` and the
+   configured ``export_path``) fails fast — export_templates_missing /
+   export_path_unset — before any native export is spawned.
+3. the native ``ExportRunner`` performs the export to the configured path; its
+   raw ``{stdout, stderr, exit_code}`` is classified into success or a
+   ``GdaError``.
 
 These tests inject both seams with canned output, so the full
-Typer → resolve → export → classify → JSON pipeline runs engine-free.
+Typer → resolve → preflight → export → classify → JSON pipeline runs engine-free.
 """
 
 import json
@@ -61,11 +66,11 @@ def _inject(monkeypatch, *, get=GET_RESULT, export=None):
     return get_runner, export_runner
 
 
-def test_export_run_json_reports_output_path_and_exit_zero(monkeypatch, tmp_path):
-    # export run exports the named preset to its configured output path and
-    # reports the result (preset, platform, mode, output_path, warnings) as typed
-    # JSON. The default mode is release (a full platform export), matching the
-    # template-readiness check an agent makes via export get first.
+def test_export_run_json_reports_configured_path_and_exit_zero(monkeypatch, tmp_path):
+    # export run exports the named preset to its CONFIGURED export_path (the #121
+    # acceptance behavior) and reports the result (preset, platform, mode,
+    # output_path, warnings) as typed JSON. The mode is always release in #121; an
+    # agent's template-readiness check via export get is now also gda's preflight.
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
     _, export_runner = _inject(monkeypatch)
 
@@ -79,35 +84,32 @@ def test_export_run_json_reports_output_path_and_exit_zero(monkeypatch, tmp_path
     assert data["preset"] == "Linux/X11"
     assert data["platform"] == "Linux/X11"
     assert data["mode"] == "release"
+    # The reported output_path is the preset's configured export_path verbatim.
     assert data["output_path"] == "build/game.x86_64"
     assert data["warnings"] == []
-    # The export ran for the preset, in release mode, to the configured path.
+    # The export ran for the preset, in release mode, to the CONFIGURED path
+    # (no --output override — that flag is deferred to #170).
     assert export_runner.calls == [("Linux/X11", "release", "build/game.x86_64")]
 
 
-def test_export_run_mode_and_output_override(monkeypatch, tmp_path):
-    # --mode selects the export flavor and --output overrides the preset's
-    # configured path; both are echoed on the result and passed to the runner.
+def test_export_run_has_no_mode_or_output_flags(monkeypatch, tmp_path):
+    # #121 trims the surface to the issue's ask: --mode and --output are deferred
+    # to #170, so passing either is an unknown-option usage error (Typer exits 2),
+    # and no engine is ever spawned.
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    _, export_runner = _inject(monkeypatch)
 
-    result = CliRunner().invoke(
-        app,
-        [
-            "export", "run",
-            "--preset", "Linux/X11",
-            "--mode", "debug",
-            "--output", "dist/game-debug.x86_64",
-            "--project", str(tmp_path),
-            "--json",
-        ],
-    )
+    def _boom(*args, **kwargs):
+        raise AssertionError("a rejected flag must not spawn any engine")
 
-    assert result.exit_code == 0, result.stdout + result.stderr
-    data = json.loads(result.stdout)
-    assert data["mode"] == "debug"
-    assert data["output_path"] == "dist/game-debug.x86_64"
-    assert export_runner.calls == [("Linux/X11", "debug", "dist/game-debug.x86_64")]
+    monkeypatch.setattr("gda.cli._make_runner", _boom)
+    monkeypatch.setattr("gda.cli._make_export_runner", _boom)
+
+    for bad in (["--mode", "debug"], ["--output", "dist/game.x86_64"]):
+        result = CliRunner().invoke(
+            app,
+            ["export", "run", "--preset", "Linux/X11", *bad, "--project", str(tmp_path)],
+        )
+        assert result.exit_code == 2, f"{bad}: {result.stdout + result.stderr}"
 
 
 def test_export_run_surfaces_advisory_warnings(monkeypatch, tmp_path):
@@ -145,23 +147,14 @@ def _error(result):
     return json.loads(result.stdout)["error"]
 
 
-def test_export_run_missing_templates_is_structured(monkeypatch, tmp_path):
-    # A non-zero export whose stderr carries the engine's stable
-    # "due to configuration errors" prefix (the missing-templates / misconfigured
-    # signature) surfaces as the distinct export_templates_missing code so an
-    # agent installs templates rather than re-parsing prose.
+def test_export_run_missing_templates_is_structured_preflight(monkeypatch, tmp_path):
+    # Templates readiness is a STRUCTURED preflight: export get reports
+    # templates_installed=False, so gda fails with export_templates_missing BEFORE
+    # spawning any native export — no stderr string-matching (ADR-0002), no native
+    # run. The message names the templates_version the agent must install.
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    _inject(
-        monkeypatch,
-        export=ExportRunOutput(
-            stdout="",
-            stderr=(
-                'ERROR: Project export for preset "Linux/X11" failed due to '
-                "configuration errors.\n"
-            ),
-            exit_code=1,
-        ),
-    )
+    get = {**GET_RESULT, "templates_installed": False, "templates_version": "4.6.3.stable"}
+    _, export_runner = _inject(monkeypatch, get=get)
 
     result = CliRunner().invoke(
         app,
@@ -172,6 +165,9 @@ def test_export_run_missing_templates_is_structured(monkeypatch, tmp_path):
     error = _error(result)
     assert error["code"] == "export_templates_missing"
     assert error["category"] == "operation"
+    assert "4.6.3.stable" in error["message"]
+    # The native export was never attempted — the preflight caught it first.
+    assert export_runner.calls == []
 
 
 def test_export_run_generic_failure_is_structured(monkeypatch, tmp_path):
@@ -198,8 +194,9 @@ def test_export_run_generic_failure_is_structured(monkeypatch, tmp_path):
 
 
 def test_export_run_unset_path_is_structured(monkeypatch, tmp_path):
-    # A preset whose configured export_path is empty, with no --output override,
-    # is the export_path_unset failure — reported BEFORE the native export runs.
+    # A preset whose configured export_path is empty is the export_path_unset
+    # failure — reported BEFORE the native export runs (no --output to fall back
+    # on; that override is deferred to #170).
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
     get = {**GET_RESULT, "export_path": ""}
     _, export_runner = _inject(monkeypatch, get=get)
@@ -261,9 +258,11 @@ def test_export_run_schema_emits_contract_without_engine(monkeypatch):
     assert result.exit_code == 0, result.stdout + result.stderr
     schema = json.loads(result.stdout)
     assert set(schema) == {"input", "output", "error"}
-    # The input schema carries the command's params; the output schema the result.
+    # The input schema carries only the command's single param (--mode / --output
+    # are deferred to #170); the output schema carries the result.
     assert "preset" in schema["input"]["properties"]
-    assert "mode" in schema["input"]["properties"]
+    assert "mode" not in schema["input"]["properties"]
+    assert "output_path" not in schema["input"]["properties"]
     assert "output_path" in schema["output"]["properties"]
     assert "warnings" in schema["output"]["properties"]
 
