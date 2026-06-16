@@ -233,7 +233,7 @@ gda <meta-command> [options]        # meta commands about gda/the engine, e.g. g
 | `--json`    | Emit the result as a single JSON object on stdout. Without it, commands print a concise human-readable rendering. |
 | `--schema`  | Emit the command's input/output JSON Schema contract (no Godot spawned). |
 | `--godot`   | Path to the Godot binary (overrides `$GDA_GODOT` and the default). |
-| `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. |
+| `--project` | Godot project directory for `res://` resolution (overrides `$GDA_PROJECT`; defaults to the current directory if it is a project). Domain commands only. Resolving a project runs that project's code — see [Project code execution](#project-code-execution). |
 | `--help`    | Show usage for `gda` or any command.                                |
 
 ---
@@ -269,6 +269,31 @@ the engine; filesystem paths get `~` expanded. See
 ```bash
 gda scene get res://main.tscn --project ~/game --json
 ```
+
+### Project code execution
+
+Resolving a project so `res://` paths work runs Godot against that project, and Godot runs
+some of the project's own code as part of that. Concretely:
+
+- **Autoloads run on every `--project` operation.** When a project is resolved, the engine
+  constructs the project's autoload singletons at startup — before the command's own work runs —
+  so their `_init` (and `_ready`) execute on **every** operation, including read-only ones like
+  `scene get` and `node list`. Without a resolved project, no autoloads are registered, so they do
+  not run.
+- **Commands that instantiate a scene execute that scene's attached scripts' constructors.** A
+  command that needs a live node tree — every mutating command (`node add`, `node set`,
+  `node remove`, …), and `node get` (which reports runtime property defaults the stored data does
+  not carry) — loads and instantiates the scene, which constructs each node and runs the `_init` of
+  any script attached to a node in it. Commands that only read the stored scene data
+  (`scene get`, `scene list`, `node list`) walk it without instantiating, so they do not run those
+  scripts.
+
+In short: pointing `gda` at a project executes that project's autoload code on every command, and
+any command that instantiates a scene additionally executes that scene's attached scripts' `_init`.
+The tracked decisions on this are [#61](https://github.com/aigengame/godot-agent/issues/61)
+(autoloads) and [#62](https://github.com/aigengame/godot-agent/issues/62) (scene scripts on
+instantiating operations); see also
+[ADR-0009](docs/adr/0009-trust-boundary-trusted-project.md).
 
 ---
 
