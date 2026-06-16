@@ -69,8 +69,12 @@ from gda.models import (
     ProjectSetResult,
     ResourceCreateParams,
     ResourceCreateResult,
+    ResourceDeleteParams,
+    ResourceDeleteResult,
     ResourceGetParams,
     ResourceGetResult,
+    ResourceSetParams,
+    ResourceSetResult,
     ResourceUidParams,
     ResourceUidResult,
     SceneCreateParams,
@@ -442,6 +446,18 @@ RESOURCE_GET_COMMAND: HeadlessCommand[ResourceGetResult] = HeadlessCommand(
     operation="resource-get",
     input_model=ResourceGetParams,
     output_model=ResourceGetResult,
+)
+
+RESOURCE_SET_COMMAND: HeadlessCommand[ResourceSetResult] = HeadlessCommand(
+    operation="resource-set",
+    input_model=ResourceSetParams,
+    output_model=ResourceSetResult,
+)
+
+RESOURCE_DELETE_COMMAND: HeadlessCommand[ResourceDeleteResult] = HeadlessCommand(
+    operation="resource-delete",
+    input_model=ResourceDeleteParams,
+    output_model=ResourceDeleteResult,
 )
 
 EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
@@ -1406,6 +1422,57 @@ def get_resource(
     _dispatch(
         RESOURCE_GET_COMMAND,
         ResourceGetParams(path=_normalize_path(path)),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@resource_app.command(name="set", cls=RESOURCE_SET_COMMAND.command_class())
+def set_resource(
+    path: str = typer.Argument(..., help="The .tres resource file to mutate."),
+    property: str = typer.Option(
+        ..., "--property", help="The resource property to set (e.g. interpolation_mode)."
+    ),
+    value: str = typer.Option(
+        ...,
+        "--value",
+        help=(
+            "The value to set, as a string. Coerced to the property's declared "
+            "Godot type; an uncoercible value is a clean error."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_SET_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Set a .tres property, coercing the value to its declared Godot type, then save."""
+    _dispatch(
+        RESOURCE_SET_COMMAND,
+        ResourceSetParams(
+            path=_normalize_path(path), property=property, value=value
+        ),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@resource_app.command(name="delete", cls=RESOURCE_DELETE_COMMAND.command_class())
+def delete_resource(
+    path: str = typer.Argument(..., help="The .tres resource file to delete."),
+    json_output: bool = json_option(),
+    schema: bool = RESOURCE_DELETE_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Delete a .tres resource file and report what was removed."""
+    _dispatch(
+        RESOURCE_DELETE_COMMAND,
+        ResourceDeleteParams(path=_normalize_path(path)),
         json_output=json_output,
         godot=godot,
         project=project,

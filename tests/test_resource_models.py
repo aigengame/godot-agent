@@ -11,7 +11,14 @@ import json
 
 import jsonschema
 
-from gda.models import ResourceUidParams, ResourceUidResult
+from gda.models import (
+    ResourceDeleteParams,
+    ResourceDeleteResult,
+    ResourceSetParams,
+    ResourceSetResult,
+    ResourceUidParams,
+    ResourceUidResult,
+)
 
 
 def test_params_carry_the_single_target_argument():
@@ -57,3 +64,53 @@ def test_result_schema_is_valid_json_schema_with_the_three_fields():
 
     jsonschema.Draft202012Validator.check_schema(schema)
     assert {"queried", "uid", "path"} <= set(schema["properties"])
+
+
+# --- resource set / delete models (issue #120) ---------------------------
+
+
+def test_set_params_carry_path_property_and_string_value():
+    params = ResourceSetParams(
+        path="res://palette.tres", property="interpolation_mode", value="1"
+    )
+
+    # The CLI value rides through as a string; the operation owns the coercion.
+    assert params.model_dump() == {
+        "path": "res://palette.tres",
+        "property": "interpolation_mode",
+        "value": "1",
+    }
+
+
+def test_set_result_carries_the_coerced_value_projection():
+    # The result reports the coerced value in the JSON projection get reports, so
+    # a set round-trips through a get (the declared int type, not the string).
+    payload = {
+        "path": "res://palette.tres",
+        "property": "interpolation_mode",
+        "type": "int",
+        "value": 1,
+    }
+
+    result = ResourceSetResult.model_validate(payload)
+
+    assert result.property == "interpolation_mode"
+    assert result.type == "int"
+    assert result.value == 1
+    assert json.loads(result.model_dump_json()) == payload
+
+
+def test_delete_params_carry_the_single_path_argument():
+    params = ResourceDeleteParams(path="res://palette.tres")
+
+    assert params.model_dump() == {"path": "res://palette.tres"}
+
+
+def test_delete_result_names_the_removed_path_and_type():
+    payload = {"path": "res://palette.tres", "type": "Gradient"}
+
+    result = ResourceDeleteResult.model_validate(payload)
+
+    assert result.path == "res://palette.tres"
+    assert result.type == "Gradient"
+    assert json.loads(result.model_dump_json()) == payload

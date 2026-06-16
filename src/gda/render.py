@@ -40,7 +40,9 @@ from gda.models import (
     ProjectRemoveAutoloadResult,
     ProjectSetResult,
     ResourceCreateResult,
+    ResourceDeleteResult,
     ResourceGetResult,
+    ResourceSetResult,
     ResourceUidResult,
     SceneCreateResult,
     SceneDeleteResult,
@@ -316,6 +318,19 @@ def render_resource_properties(got: "ResourceGetResult") -> str:
     return "\n".join([header, *lines])
 
 
+def render_resource_set(was_set: "ResourceSetResult") -> str:
+    """Render a set property as ``set <path>.<property> (<type>) = <value>``."""
+    return (
+        f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
+        f"{format_value(was_set.value)}"
+    )
+
+
+def render_resource_delete(removed: "ResourceDeleteResult") -> str:
+    """Render a deleted resource as ``deleted <path> (<type>)``."""
+    return f"deleted {removed.path} ({removed.type})"
+
+
 def render_export_list(listed: "ExportListResult") -> str:
     """Render the enumerated presets as ``name (platform) [runnable]`` lines."""
     if not listed.presets:
@@ -506,6 +521,8 @@ _RENDERERS = {
     ScriptValidateResult: render_script_validate,
     ResourceCreateResult: render_resource_create,
     ResourceGetResult: render_resource_properties,
+    ResourceSetResult: render_resource_set,
+    ResourceDeleteResult: render_resource_delete,
     ExportListResult: render_export_list,
     ExportGetResult: render_export_get,
     ResourceUidResult: render_resource_uid,

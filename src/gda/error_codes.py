@@ -242,7 +242,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "A requested property does not exist as a settable property on the node.",
+        "A requested property does not exist as a settable property on the target node or resource.",
     ),
     ErrorCodeSpec(
         "uncoercible_value",

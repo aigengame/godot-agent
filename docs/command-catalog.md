@@ -138,6 +138,13 @@ Whitespace around a value or a component is tolerated. A property of any other t
 reported by `node get` (its value degrades to a string projection), but `node set` cannot coerce
 to it yet and refuses with `uncoercible_value` — the coercible set grows as later slices need it.
 
+This coercion contract — the accepted string forms above, the declared-type target, and the
+`unknown_property` / `uncoercible_value` failures — is **shared by other property-bearing
+commands**, not specific to nodes. `gda resource set` (#120) applies the same #55 coercion to the
+addressed `.tres` resource property's declared type and round-trips through `resource get`, exactly
+as `node set` round-trips through `node get`; here `unknown_property` names a property absent on the
+**resource** rather than a node.
+
 **Structural edits** (established by #56): three commands restructure the node tree within a
 scene file, each a `load → locate → restructure → pack → save` round-trip that reuses the
 node-path addressing and the mutation-integrity boundary above. They share one rule for the

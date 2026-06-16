@@ -835,6 +835,60 @@ def test_resource_get_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_resource_set_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for resource set (issue #120): the bare --schema flag
+    # — no path, no --property/--value — short-circuits into the self-description,
+    # derived from the same typed models that back --json. The value param
+    # documents the type-coercion contract agents must rely on.
+    from gda.models import ResourceSetParams, ResourceSetResult
+
+    result = CliRunner().invoke(app, ["resource", "set", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ResourceSetParams.model_json_schema()
+    assert doc["output"] == ResourceSetResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    value_description = doc["input"]["properties"]["value"]["description"]
+    assert "coerce" in value_description.lower()
+    assert "property" in doc["output"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_resource_delete_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for resource delete (issue #120): the bare --schema
+    # flag — no path — short-circuits into the self-description.
+    from gda.models import ResourceDeleteParams, ResourceDeleteResult
+
+    result = CliRunner().invoke(app, ["resource", "delete", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ResourceDeleteParams.model_json_schema()
+    assert doc["output"] == ResourceDeleteResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "type" in doc["output"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_sample_resource_set_delete_results_validate_against_emitted_output_schemas():
+    # A sample --json payload of each new resource command satisfies the contract
+    # its --schema emits (the other half of the ADR-0004 hard gate, issue #120).
+    from tests.test_resource_commands import DELETE_RESULT, SET_RESULT
+
+    set_doc = json.loads(
+        CliRunner().invoke(app, ["resource", "set", "--schema"]).stdout
+    )
+    delete_doc = json.loads(
+        CliRunner().invoke(app, ["resource", "delete", "--schema"]).stdout
+    )
+
+    jsonschema.validate(instance=SET_RESULT, schema=set_doc["output"])
+    jsonschema.validate(instance=DELETE_RESULT, schema=delete_doc["output"])
+
+
 def test_project_find_unused_resources_schema_emits_model_derived_contract():
     from gda.models import (
         ProjectFindUnusedResourcesParams,
