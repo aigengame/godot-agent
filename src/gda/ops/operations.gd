@@ -60,8 +60,17 @@ const OP_ERROR_EXPORT_PRESET_NOT_FOUND := "export_preset_not_found"
 const OP_ERROR_INVALID_UID := "invalid_uid"
 const OP_ERROR_UNKNOWN_UID := "unknown_uid"
 const OP_ERROR_NO_UID_ASSIGNED := "no_uid_assigned"
+const OP_ERROR_UNKNOWN_SETTING := "unknown_setting"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
+
+# The project-info settings (issue #111), read with a default so a project that
+# never wrote them still reports a sensible value rather than failing: a new
+# Godot 4 project has no explicit main_scene and inherits viewport defaults.
+const PROJECT_NAME_SETTING := "application/config/name"
+const PROJECT_MAIN_SCENE_SETTING := "application/run/main_scene"
+const PROJECT_VIEWPORT_WIDTH_SETTING := "display/window/size/viewport_width"
+const PROJECT_VIEWPORT_HEIGHT_SETTING := "display/window/size/viewport_height"
 
 # The exit code the process will use. Defaults to failure, so an operation that
 # aborts before recording an outcome (e.g. an uncaught runtime error) still
@@ -137,6 +146,12 @@ func _initialize() -> void:
 			_op_export_get(params)
 		"resource-uid":
 			_op_resource_uid(params)
+		"project-info":
+			_op_project_info(params)
+		"project-get":
+			_op_project_get(params)
+		"project-set":
+			_op_project_set(params)
 		_:
 			_fail(OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 
@@ -1700,6 +1715,121 @@ func _resolve_path_to_uid(path: String) -> void:
 		"queried": "path",
 		"uid": ResourceUID.id_to_text(id),
 		"path": path,
+	})
+
+
+# project-info: report core project metadata — name, main scene, viewport size,
+# and the engine version — as typed JSON (issue #111, the project-group tracer's
+# read half). Reads ProjectSettings, which the engine populates from project.godot
+# at startup; the engine version comes from Engine.get_version_info(), the same
+# source gda info reports. The viewport/main-scene settings are read WITH A DEFAULT
+# so a new project that never wrote them still reports a value (a fresh Godot 4
+# project has no explicit main_scene and inherits the built-in viewport size)
+# rather than failing.
+#
+# project-info needs a project: ProjectSettings without a resolved project would
+# report only the engine's bare defaults, not the agent's project, so a projectless
+# run is refused with project_not_found rather than returning a misleading result.
+# Like every --project op it runs the project's autoloads at engine startup (#61,
+# ADR-0009) — reading settings is a state-read at the operation level (it never
+# instantiates a scene), but the startup autoload execution surface still applies.
+func _op_project_info(_params: Dictionary) -> void:
+	_diag("running operation: project-info")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project info requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+
+	_succeed({
+		"name": String(ProjectSettings.get_setting(PROJECT_NAME_SETTING, "")),
+		"main_scene": String(ProjectSettings.get_setting(PROJECT_MAIN_SCENE_SETTING, "")),
+		"viewport_width": int(ProjectSettings.get_setting(PROJECT_VIEWPORT_WIDTH_SETTING, 0)),
+		"viewport_height": int(ProjectSettings.get_setting(PROJECT_VIEWPORT_HEIGHT_SETTING, 0)),
+		"engine_version": Engine.get_version_info(),
+	})
+
+
+# project-get: read one project setting by its full "section/key" name and report
+# it as typed JSON (issue #111). The reported `type` is the setting's declared
+# Godot type name and `value` its JSON projection — the same {type, value}
+# projection node get reports for a node property, so project get / set round-trip
+# through the same shape as node get / set. A setting that does not exist is a
+# clean unknown_setting error (not a null value), so a typo'd key is distinguished
+# from a setting genuinely holding null.
+#
+# Like project-info it needs a project (project_not_found otherwise) and runs the
+# project's autoloads at startup (#61, ADR-0009); reading a setting never
+# instantiates a scene, so it is a state-read at the operation level.
+func _op_project_get(params: Dictionary) -> void:
+	_diag("running operation: project-get")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project get requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+	var setting := _string_param(params, "setting")
+	if setting.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: setting")
+		return
+	if not ProjectSettings.has_setting(setting):
+		_fail(OP_ERROR_UNKNOWN_SETTING, "project setting not found: " + setting)
+		return
+
+	var value: Variant = ProjectSettings.get_setting(setting)
+	_succeed({
+		"setting": setting,
+		"type": _type_name(typeof(value)),
+		"value": _jsonify(value),
+	})
+
+
+# project-set: write one project setting, coercing the CLI string value to the
+# setting's DECLARED Godot type, then persist project.godot (issue #111, the write
+# half — verifiable via project get). The declared type is read off the setting's
+# CURRENT value (typeof), exactly as node set reads it off the node's property
+# list, and the value is coerced with the SAME shared _coerce_value rules (#55):
+# an uncoercible value is a clean uncoercible_value error, leaving project.godot
+# untouched. set only writes a setting that already exists — an unknown key is
+# unknown_setting, not a silent create — so the type to coerce to is always known.
+#
+# Persistence: ProjectSettings.set_setting mutates the in-memory settings, and
+# ProjectSettings.save() writes them back to res://project.godot. A failed save is
+# save_failed. Like every --project op it runs the project's autoloads at
+# startup (#61, ADR-0009); the set itself never instantiates a scene.
+func _op_project_set(params: Dictionary) -> void:
+	_diag("running operation: project-set")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project set requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+	var setting := _string_param(params, "setting")
+	if setting.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: setting")
+		return
+	if not ProjectSettings.has_setting(setting):
+		_fail(OP_ERROR_UNKNOWN_SETTING, "project setting not found: " + setting
+				+ " — project set edits an existing setting; it never creates one")
+		return
+
+	var declared_type := typeof(ProjectSettings.get_setting(setting))
+	var raw_value := _string_param(params, "value")
+	var coerced: Variant = _coerce_value(raw_value, declared_type)
+	if coerced == null:
+		_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
+				+ " to " + _type_name(declared_type) + " for project setting " + setting)
+		return
+
+	ProjectSettings.set_setting(setting, coerced)
+	var save_err := ProjectSettings.save()
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, "failed to save project settings after setting "
+				+ setting + ": " + error_string(save_err))
+		return
+
+	# Read the value back off ProjectSettings before reporting — it now holds the
+	# coerced value in its canonical form, the same projection project get reports,
+	# so a set round-trips through a get.
+	var stored_value: Variant = _jsonify(ProjectSettings.get_setting(setting))
+	_succeed({
+		"setting": setting,
+		"type": _type_name(declared_type),
+		"value": stored_value,
 	})
 
 

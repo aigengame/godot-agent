@@ -19,6 +19,9 @@ from gda.models import (
     NodeMoveResult,
     NodeRemoveResult,
     NodeSetResult,
+    ProjectGetResult,
+    ProjectInfoResult,
+    ProjectSetResult,
     ResourceCreateResult,
     ResourceGetResult,
     SceneCreateResult,
@@ -791,3 +794,100 @@ def test_scene_get_exports_result_round_trips_per_node_exports():
     assert node.exports[0].type == "float"
     assert node.exports[0].value == 3.5
     assert json.loads(got.model_dump_json()) == payload
+
+
+def test_project_info_result_round_trips_metadata_and_engine_version():
+    # project info reports the project's core metadata (issue #111): name and
+    # main scene from ProjectSettings, the configured viewport size, and the
+    # nested engine_version the project runs on (the same shape gda info reports).
+    payload = {
+        "name": "My Game",
+        "main_scene": "res://main.tscn",
+        "viewport_width": 1920,
+        "viewport_height": 1080,
+        "engine_version": {
+            "major": 4,
+            "minor": 6,
+            "patch": 3,
+            "hex": 0x040603,
+            "status": "stable",
+            "build": "official",
+            "hash": "7d41c59c457bd5a245092b4e7eb2d833e3b3f8c3",
+            "string": "4.6.3-stable (official)",
+            "timestamp": 0,
+        },
+    }
+
+    info = ProjectInfoResult.model_validate(payload)
+
+    assert info.name == "My Game"
+    assert info.main_scene == "res://main.tscn"
+    assert (info.viewport_width, info.viewport_height) == (1920, 1080)
+    assert info.engine_version.string == "4.6.3-stable (official)"
+    assert json.loads(info.model_dump_json()) == payload
+
+
+def test_project_info_result_round_trips_a_brand_new_project():
+    # A brand-new project that never set a main scene reports the empty string for
+    # main_scene and the engine's built-in viewport defaults — a complete, valid
+    # result rather than an error.
+    payload = {
+        "name": "",
+        "main_scene": "",
+        "viewport_width": 1152,
+        "viewport_height": 648,
+        "engine_version": {
+            "major": 4,
+            "minor": 6,
+            "patch": 3,
+            "hex": 0x040603,
+            "status": "stable",
+            "build": "official",
+            "hash": "7d41c59c457bd5a245092b4e7eb2d833e3b3f8c3",
+            "string": "4.6.3-stable (official)",
+            "timestamp": 0,
+        },
+    }
+
+    info = ProjectInfoResult.model_validate(payload)
+
+    assert info.main_scene == ""
+    assert (info.viewport_width, info.viewport_height) == (1152, 648)
+    assert json.loads(info.model_dump_json()) == payload
+
+
+def test_project_get_result_round_trips_a_typed_setting():
+    # project get echoes one setting (issue #111): its full section/key name, its
+    # declared Godot type name, and its value in the same JSON projection node get
+    # uses for a property — a packed type projects to a list (Vector2 → [x, y]).
+    payload = {
+        "setting": "display/window/size/viewport_width",
+        "type": "int",
+        "value": 1920,
+    }
+
+    got = ProjectGetResult.model_validate(payload)
+
+    assert got.setting == "display/window/size/viewport_width"
+    assert got.type == "int"
+    assert got.value == 1920
+    assert json.loads(got.model_dump_json()) == payload
+
+
+def test_project_set_result_round_trips_the_coerced_setting():
+    # project set echoes the one setting it wrote (issue #111): the setting name,
+    # the declared type the CLI value was coerced to, and the coerced value as
+    # ProjectSettings now holds it — the same projection project get reports, so a
+    # set round-trips through a get.
+    payload = {
+        "setting": "application/config/name",
+        "type": "String",
+        "value": "Renamed Game",
+    }
+
+    was_set = ProjectSetResult.model_validate(payload)
+
+    assert was_set.setting == "application/config/name"
+    assert was_set.type == "String"
+    assert was_set.value == "Renamed Game"
+    assert json.loads(was_set.model_dump_json()) == payload

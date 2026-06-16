@@ -49,6 +49,12 @@ from gda.models import (
     NodeRemoveResult,
     NodeSetParams,
     NodeSetResult,
+    ProjectGetParams,
+    ProjectGetResult,
+    ProjectInfoParams,
+    ProjectInfoResult,
+    ProjectSetParams,
+    ProjectSetResult,
     ResourceCreateParams,
     ResourceCreateResult,
     ResourceGetParams,
@@ -128,6 +134,17 @@ export_app = typer.Typer(
     help="Discover export presets and export-template status.", no_args_is_help=True
 )
 app.add_typer(export_app, name="export")
+
+# The project command group (issue #111): commands that read and write the
+# resolved project's project.godot / ProjectSettings headlessly. Every project
+# command runs against an explicit project context (--project), so — like any
+# --project op — it runs the project's autoloads at engine startup (#61,
+# ADR-0009); reading/writing settings never instantiates a scene, so it is a
+# state-read at the operation level.
+project_app = typer.Typer(
+    help="Read and write the project's project.godot settings.", no_args_is_help=True
+)
+app.add_typer(project_app, name="project")
 
 
 def _version_callback(value: Optional[bool]) -> None:
@@ -402,6 +419,24 @@ RESOURCE_UID_COMMAND: HeadlessCommand[ResourceUidResult] = HeadlessCommand(
     operation="resource-uid",
     input_model=ResourceUidParams,
     output_model=ResourceUidResult,
+)
+
+PROJECT_INFO_COMMAND: HeadlessCommand[ProjectInfoResult] = HeadlessCommand(
+    operation="project-info",
+    input_model=ProjectInfoParams,
+    output_model=ProjectInfoResult,
+)
+
+PROJECT_GET_COMMAND: HeadlessCommand[ProjectGetResult] = HeadlessCommand(
+    operation="project-get",
+    input_model=ProjectGetParams,
+    output_model=ProjectGetResult,
+)
+
+PROJECT_SET_COMMAND: HeadlessCommand[ProjectSetResult] = HeadlessCommand(
+    operation="project-set",
+    input_model=ProjectSetParams,
+    output_model=ProjectSetResult,
 )
 
 
@@ -1139,6 +1174,45 @@ def create(
     )
 
 
+@project_app.command(name="info", cls=PROJECT_INFO_COMMAND.command_class())
+def project_info(
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_INFO_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Report the resolved project's metadata (name, main scene, viewport, engine)."""
+    _dispatch(
+        PROJECT_INFO_COMMAND,
+        ProjectInfoParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@project_app.command(name="get", cls=PROJECT_GET_COMMAND.command_class())
+def project_get(
+    setting: str = typer.Argument(
+        ..., help="The project setting's full section/key name (e.g. application/config/name)."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_GET_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read a single project setting by section/key as typed JSON."""
+    _dispatch(
+        PROJECT_GET_COMMAND,
+        ProjectGetParams(setting=setting),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
 @resource_app.command(name="get", cls=RESOURCE_GET_COMMAND.command_class())
 def get_resource(
     path: str = typer.Argument(..., help="The .tres resource file to read."),
@@ -1218,6 +1292,35 @@ def resolve_uid(
     _dispatch(
         RESOURCE_UID_COMMAND,
         ResourceUidParams(target=_normalize_path(target)),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        render=render,
+    )
+
+
+@project_app.command(name="set", cls=PROJECT_SET_COMMAND.command_class())
+def project_set(
+    setting: str = typer.Argument(
+        ..., help="The project setting's full section/key name (e.g. application/config/name)."
+    ),
+    value: str = typer.Option(
+        ...,
+        "--value",
+        help=(
+            "The value to set, as a string. Coerced to the setting's declared "
+            "Godot type; an uncoercible value is a clean error."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_SET_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Set a project setting, coercing the value to its declared Godot type, then save."""
+    _dispatch(
+        PROJECT_SET_COMMAND,
+        ProjectSetParams(setting=setting, value=value),
         json_output=json_output,
         godot=godot,
         project=project,

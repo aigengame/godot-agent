@@ -343,6 +343,13 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A resource path exists but has no UID assigned in the engine's UID cache.",
     ),
     ErrorCodeSpec(
+        "unknown_setting",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested project setting does not exist in the project's ProjectSettings.",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         EXIT_PARSE,

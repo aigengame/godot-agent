@@ -34,6 +34,9 @@ from gda.models import (
     NodeMoveResult,
     NodeRemoveResult,
     NodeSetResult,
+    ProjectGetResult,
+    ProjectInfoResult,
+    ProjectSetResult,
     ResourceCreateResult,
     ResourceGetResult,
     ResourceUidResult,
@@ -331,6 +334,29 @@ def render_resource_uid(resolved: "ResourceUidResult") -> str:
     return f"{resolved.uid} -> {resolved.path}"
 
 
+def render_project_info(info: "ProjectInfoResult") -> str:
+    """Render project metadata as a small ``key: value`` block for humans."""
+    main_scene = info.main_scene if info.main_scene else "(none)"
+    return "\n".join(
+        [
+            f"name: {info.name}",
+            f"main_scene: {main_scene}",
+            f"viewport: {info.viewport_width}x{info.viewport_height}",
+            f"engine: {info.engine_version.string}",
+        ]
+    )
+
+
+def render_project_get(got: "ProjectGetResult") -> str:
+    """Render a read setting as ``<setting> (<type>) = <value>``."""
+    return f"{got.setting} ({got.type}) = {format_value(got.value)}"
+
+
+def render_project_set(was_set: "ProjectSetResult") -> str:
+    """Render a set setting as ``set <setting> (<type>) = <value>``."""
+    return f"set {was_set.setting} ({was_set.type}) = {format_value(was_set.value)}"
+
+
 def render_engine_version(version: "EngineVersion") -> str:
     """Render the engine version as its one-line version string."""
     return version.string
@@ -368,6 +394,9 @@ _RENDERERS = {
     ExportListResult: render_export_list,
     ExportGetResult: render_export_get,
     ResourceUidResult: render_resource_uid,
+    ProjectInfoResult: render_project_info,
+    ProjectGetResult: render_project_get,
+    ProjectSetResult: render_project_set,
     EngineVersion: render_engine_version,
 }
 

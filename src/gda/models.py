@@ -1399,7 +1399,8 @@ class ResourceUidResult(BaseModel):
 class EngineVersion(BaseModel):
     """The Godot engine version, as reported by ``Engine.get_version_info()``.
 
-    This is the result model of ``gda info``.
+    This is the result model of ``gda info``, and the ``engine_version`` carried
+    by ``gda project info``.
     """
 
     major: int
@@ -1411,3 +1412,120 @@ class EngineVersion(BaseModel):
     hash: str
     string: str
     timestamp: int
+
+
+class ProjectInfoParams(BaseModel):
+    """The operation params of ``gda project info`` — none (ADR-0004).
+
+    ``project info`` reports the resolved project's metadata from its
+    ``ProjectSettings``; the project is process context (``--project``), not an
+    operation param (ADR-0006), so the ``input`` schema is trivially empty.
+    """
+
+
+class ProjectInfoResult(BaseModel):
+    """The result of ``gda project info``: core project metadata (issue #111).
+
+    Reports the project's ``name`` and ``main_scene`` from ``ProjectSettings``,
+    its configured ``viewport_width``/``viewport_height``, and the ``engine_version``
+    the project runs on (the same shape ``gda info`` reports). ``main_scene`` is the
+    empty string for a project that has not set a main scene, and the viewport
+    fields fall back to the engine's built-in defaults when the project never set
+    them, so a brand-new project still reports a complete, valid result.
+    """
+
+    name: str = Field(description="The project name (ProjectSettings application/config/name).")
+    main_scene: str = Field(
+        description=(
+            "The project's main scene path (application/run/main_scene), or the "
+            "empty string when none is set."
+        )
+    )
+    viewport_width: int = Field(
+        description="The configured viewport width (display/window/size/viewport_width)."
+    )
+    viewport_height: int = Field(
+        description="The configured viewport height (display/window/size/viewport_height)."
+    )
+    engine_version: EngineVersion = Field(
+        description="The Godot engine version the project runs on."
+    )
+
+
+class ProjectGetParams(BaseModel):
+    """The operation params of ``gda project get`` (issue #111).
+
+    ``setting`` is the project setting's full ``section/key`` name (e.g.
+    ``application/config/name``). The project is process context (``--project``),
+    not an operation param (ADR-0006), so only ``setting`` is an input.
+    """
+
+    setting: str = Field(
+        description=(
+            "The project setting's full section/key name, e.g. "
+            "application/config/name."
+        )
+    )
+
+
+class ProjectGetResult(BaseModel):
+    """The result of ``gda project get``: one setting as typed JSON (issue #111).
+
+    Echoes the addressed ``setting``, its declared Godot ``type`` name, and its
+    ``value`` in the same JSON projection ``node get`` reports for a node property
+    (a scalar stays a scalar, a Vector2 becomes ``[x, y]``) — the projection
+    ``project set`` accepts back, so a ``set`` round-trips through a ``get``.
+    """
+
+    setting: str
+    type: str = Field(
+        description="The setting's declared Godot type name (e.g. String, int, Vector2)."
+    )
+    value: Any = Field(
+        description=(
+            "The setting's value as JSON: a scalar for a scalar type, a list for "
+            "a packed type (Vector2 → [x, y], Color → [r, g, b, a])."
+        )
+    )
+
+
+class ProjectSetParams(BaseModel):
+    """The operation params of ``gda project set`` (issue #111).
+
+    ``setting`` is the project setting's full ``section/key`` name; ``value`` is
+    the CLI string value, coerced to the setting's declared Godot type by the
+    operation (the same coercion rules as ``node set``, #55) before
+    ``project.godot`` is saved. ``set`` edits an EXISTING setting — an unknown key
+    is a clean error, never a silent create — so the declared type to coerce to is
+    always known (read off the setting's current value).
+    """
+
+    setting: str = Field(
+        description=(
+            "The project setting's full section/key name, e.g. "
+            "application/config/name."
+        )
+    )
+    value: str = Field(
+        description=(
+            "The value to set, as a string. The operation coerces it to the "
+            "setting's declared Godot type (see the command catalog's 'Property "
+            "value coercion'); an uncoercible value is a clean error."
+        )
+    )
+
+
+class ProjectSetResult(BaseModel):
+    """The result of ``gda project set``: the one setting it set (issue #111).
+
+    Echoes the ``setting`` set, the declared ``type`` the CLI value was coerced
+    to, and the coerced ``value`` as JSON — the same projection ``project get``
+    reports, so a ``set`` round-trips through a ``get`` without re-reading
+    ``project.godot``.
+    """
+
+    setting: str
+    type: str = Field(description="The setting's declared Godot type the value was coerced to.")
+    value: Any = Field(
+        description="The coerced value as JSON, as ProjectSettings now holds it."
+    )
