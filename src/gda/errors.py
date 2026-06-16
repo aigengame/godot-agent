@@ -44,8 +44,11 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from gda.error_codes import ERROR_CODE_BY_CODE, OPERATION_ERROR_CODES
+from gda.export_runner import ExportRunOutput
 from gda.models import (
     EngineVersion,
+    ExportRunMode,
+    ExportRunResult,
     GdaError,
     OperationErrorEnvelope,
     ScriptDiagnostic,
@@ -304,3 +307,124 @@ def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
         )
 
     return version
+
+
+# A non-fatal export warning the engine prints to stderr. WARNING is Godot's
+# WARN_PRINT prefix; these never fail the export (it still exits 0) but are
+# surfaced advisorily on the success result (ADR-0002: stderr is advisory for
+# success diagnostics), so an agent sees e.g. a missing optional icon.
+_EXPORT_WARNING_LINE = re.compile(
+    r"^[ \t]*WARNING:[ \t]*(?P<message>.+?)[ \t]*$", re.MULTILINE
+)
+
+
+def parse_export_warnings(stderr: str) -> list[str]:
+    """Parse advisory export warnings from a native export's stderr (issue #121).
+
+    A pure function: the engine's ``WARN_PRINT`` lines are advisory-only (they
+    never determine the success/failure outcome — a warned export still exits 0),
+    so they are surfaced as best-effort diagnostics on the success result.
+    Returns ``[]`` when the export was clean.
+    """
+    return [m.group("message") for m in _EXPORT_WARNING_LINE.finditer(stderr)]
+
+
+def classify_export_run(
+    output: ExportRunOutput,
+    binary: Path,
+    *,
+    preset: str,
+    platform: str,
+    mode: ExportRunMode,
+    output_path: str,
+) -> ExportRunResult | Failure:
+    """Classify a native Godot export into a typed result or a ``Failure`` (issue #121).
+
+    ``export run`` is the one command that does NOT emit an ADR-0002 sentinel —
+    the export subsystem is editor-only, so the artifact is produced by a native
+    ``--export-<mode>`` invocation. gda synthesizes the structured outcome from
+    the subprocess's **exit code** instead (ADR-0010): a clean exit is success
+    (with any advisory warnings parsed off stderr); a non-zero exit is the
+    classifier-source ``export_failed``. Crucially, this does NOT parse stderr to
+    *choose* the code — that would violate ADR-0002's "stderr is never parsed for
+    stable codes". The distinct ``export_templates_missing`` mode is decided
+    *before* the native run by the CLI's structured preflight (``export get``'s
+    ``templates_installed``), not here; on a non-zero export stderr is surfaced
+    only as the advisory ``message`` / diagnostics.
+
+    The decision tree mirrors :func:`classify_run`'s env/crash prefix so a
+    missing binary or hung export is reported identically across both channels.
+    """
+    if output.launch_failure is LaunchFailure.NOT_FOUND:
+        return _failure(
+            "binary_not_found",
+            f"Godot binary could not be launched: {binary}",
+            output.stderr,
+        )
+    if output.launch_failure is LaunchFailure.TIMEOUT:
+        return _failure(
+            "launch_timeout",
+            "Godot launched but did not return before the timeout",
+            output.stderr,
+        )
+    if output.exit_code < 0:
+        return _failure(
+            "engine_crashed",
+            f"Godot terminated abnormally (signal {-output.exit_code})",
+            output.stderr,
+        )
+    if output.exit_code != 0:
+        # Templates are checked structurally BEFORE this call (the CLI preflights
+        # export get's templates_installed), so a missing-templates run never
+        # reaches here. Every non-zero native export is therefore the generic
+        # classifier-source export_failed; the engine's stderr is preserved only
+        # as advisory diagnostics (ADR-0002), never parsed to pick the code.
+        return _failure(
+            "export_failed",
+            f'export of preset "{preset}" failed',
+            output.stderr,
+        )
+    return ExportRunResult(
+        preset=preset,
+        platform=platform,
+        mode=mode,
+        output_path=output_path,
+        warnings=parse_export_warnings(output.stderr),
+    )
+
+
+def export_path_unset_failure(preset: str) -> Failure:
+    """The ``export_path_unset`` failure for a preset with no configured path (issue #121).
+
+    ``export run`` writes the artifact to the preset's own configured
+    ``export_path`` (a ``--output`` override is deferred to #170). When the preset
+    has no configured ``export_path`` there is nowhere to write, so gda fails
+    *before* spawning the export rather than letting the engine error obscurely.
+    A pre-run classifier decision (the path is resolved at the CLI from
+    ``export get``'s ``export_path``), kept here beside the other export failures
+    so the whole taxonomy reads from one place.
+    """
+    return _failure(
+        "export_path_unset",
+        f'export preset "{preset}" has no configured export_path',
+        "",
+    )
+
+
+def export_templates_missing_failure(preset: str, templates_version: str) -> Failure:
+    """The ``export_templates_missing`` failure from the structured preflight (issue #121).
+
+    A release export needs the export templates for the running engine version
+    installed. ``export get`` already reports that structurally
+    (``templates_installed``) — the readiness check built for exactly this — so
+    gda decides this *before* spawning the native export, rather than
+    string-matching the engine's "due to configuration errors" stderr (which
+    ADR-0002 forbids, and which also fires for a merely-misconfigured preset).
+    Names the ``templates_version`` directory the agent must install.
+    """
+    return _failure(
+        "export_templates_missing",
+        f'export preset "{preset}" cannot be exported: the export templates for '
+        f"the running engine version ({templates_version}) are not installed",
+        "",
+    )

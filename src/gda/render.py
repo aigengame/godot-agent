@@ -25,6 +25,7 @@ from gda.models import (
     EngineVersion,
     ExportGetResult,
     ExportListResult,
+    ExportRunResult,
     NodeAddResult,
     NodeConnectSignalResult,
     NodeDisconnectSignalResult,
@@ -354,6 +355,21 @@ def render_export_get(got: "ExportGetResult") -> str:
     return "\n".join([header, f"  export_path: {got.export_path}", f"  {templates}"])
 
 
+def render_export_run(ran: "ExportRunResult") -> str:
+    """Render a completed export as ``exported <preset> (<platform>, <mode>) -> <path>``.
+
+    Echoes the artifact that was produced, then one ``warning: …`` line per
+    non-fatal engine warning (a clean export prints just the header line).
+    """
+    header = (
+        f"exported {ran.preset} ({ran.platform}, {ran.mode.value}) "
+        f"-> {ran.output_path}"
+    )
+    if not ran.warnings:
+        return header
+    return "\n".join([header, *[f"  warning: {w}" for w in ran.warnings]])
+
+
 def render_resource_uid(resolved: "ResourceUidResult") -> str:
     """Render a resolved UID↔path mapping as ``<uid> -> <path>`` for humans."""
     return f"{resolved.uid} -> {resolved.path}"
@@ -525,6 +541,7 @@ _RENDERERS = {
     ResourceDeleteResult: render_resource_delete,
     ExportListResult: render_export_list,
     ExportGetResult: render_export_get,
+    ExportRunResult: render_export_run,
     ResourceUidResult: render_resource_uid,
     ProjectInfoResult: render_project_info,
     ProjectGetResult: render_project_get,

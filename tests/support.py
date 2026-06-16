@@ -9,6 +9,7 @@ emits it.
 
 import json
 
+from gda.export_runner import ExportRunOutput
 from gda.runner import RunResult
 
 
@@ -22,6 +23,24 @@ class FakeRunner:
     def run(self, operation: str, params: dict) -> RunResult:
         self.calls.append((operation, params))
         return self.result
+
+
+class FakeExportRunner:
+    """A fakeable ExportRunner for ``export run`` (issue #121).
+
+    Records each ``(preset, mode, output_path)`` it is asked to export and returns
+    a canned :class:`~gda.export_runner.ExportRunOutput`, so the native-export
+    pipeline is exercised without a real engine, mirroring :class:`FakeRunner` for
+    the sentinel channel.
+    """
+
+    def __init__(self, output: ExportRunOutput) -> None:
+        self.output = output
+        self.calls: list[tuple[str, str, str]] = []
+
+    def run(self, preset: str, mode: str, output_path: str) -> ExportRunOutput:
+        self.calls.append((preset, mode, output_path))
+        return self.output
 
 
 def sentinel(payload: dict) -> str:

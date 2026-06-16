@@ -14,11 +14,21 @@ from typing import Optional
 import typer
 from pydantic import BaseModel
 
-from gda.errors import classify_info, classify_script_validate
+from gda.binary import resolve_godot_binary
+from gda.errors import (
+    Failure,
+    classify_export_run,
+    classify_info,
+    classify_script_validate,
+    export_path_unset_failure,
+    export_templates_missing_failure,
+)
+from gda.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.headless import (
     HeadlessCommand,
     HumanRenderer,
     M,
+    emit_failure,
     godot_option,
     json_option,
     make_subprocess_runner,
@@ -30,6 +40,9 @@ from gda.models import (
     ExportGetResult,
     ExportListParams,
     ExportListResult,
+    ExportRunMode,
+    ExportRunParams,
+    ExportRunResult,
     InfoParams,
     ProjectDependenciesParams,
     ProjectDependenciesResult,
@@ -220,6 +233,16 @@ def _make_runner(binary: Path, project: Optional[Path]) -> GodotRunner:
     A seam tests override (via monkeypatch) to inject a fake runner.
     """
     return make_subprocess_runner(binary, project)
+
+
+def _make_export_runner(binary: Path, project: Optional[Path]) -> ExportRunner:
+    """Build the default (real) native-export runner for ``binary`` and ``project``.
+
+    The ``export run``-only twin of :func:`_make_runner`: a seam tests override
+    to inject a fake export runner, since ``export run`` spawns Godot with native
+    ``--export-<mode>`` flags rather than the ``operations.gd`` payload.
+    """
+    return make_subprocess_export_runner(binary, project)
 
 
 def _emit(
@@ -470,6 +493,20 @@ EXPORT_GET_COMMAND: HeadlessCommand[ExportGetResult] = HeadlessCommand(
     operation="export-get",
     input_model=ExportGetParams,
     output_model=ExportGetResult,
+)
+
+# export run is the one command that does NOT route through operations.gd: the
+# Godot export subsystem is editor-only C++, unreachable from a --script
+# SceneTree run, so the export itself is a native --export-<mode> invocation
+# (gda.export_runner). This HeadlessCommand is used only for its --schema /
+# --json model plumbing; the command body (run_export) drives the two phases by
+# hand — export-get resolves the preset + path, the native ExportRunner exports,
+# classify_export_run turns the subprocess outcome into the typed result — rather
+# than the shared sentinel pipeline.
+EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
+    operation="export-run",
+    input_model=ExportRunParams,
+    output_model=ExportRunResult,
 )
 
 RESOURCE_UID_COMMAND: HeadlessCommand[ResourceUidResult] = HeadlessCommand(
@@ -1579,6 +1616,95 @@ def get_preset(
         project=project,
         render=render,
     )
+
+
+@export_app.command(name="run", cls=EXPORT_RUN_COMMAND.command_class())
+def run_export(
+    preset: str = typer.Option(
+        ...,
+        "--preset",
+        help="The export preset's display name, as 'gda export list' reports it.",
+    ),
+    # NOTE: --mode (release/debug/pack) and --output (path override) are
+    # deferred to follow-up issue #170. Issue #121 asks only to export a named
+    # preset in RELEASE mode to its CONFIGURED export_path, so this command
+    # exposes neither flag; the result still carries `mode` (always "release")
+    # to document the mode that ran.
+    json_output: bool = json_option(),
+    schema: bool = EXPORT_RUN_COMMAND.schema_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Export a named preset (release mode) to its configured path and report the artifact.
+
+    Unlike every other command, the export itself is a native ``--export-release``
+    invocation (the export subsystem is editor-only, so it cannot run through
+    operations.gd). The command orchestrates three phases by hand: ``export get``
+    resolves the preset's platform + configured ``export_path`` + template
+    readiness (reusing #114's clean preset/project errors), a structured preflight
+    fails fast when templates are missing or the path is unset, then the native
+    ``ExportRunner`` performs the export and ``classify_export_run`` synthesizes
+    the typed result from the subprocess's exit code.
+    """
+    resolved_project = resolve_project_dir(project)
+    binary = resolve_godot_binary(godot)
+    # #121 fixes the export flavor to release; --mode is deferred to #170.
+    mode = ExportRunMode.RELEASE
+
+    # Phase 1: resolve the preset via the existing export-get sentinel op. This
+    # reuses #114's clean structured errors — an unknown preset is
+    # export_preset_not_found, a project with no export_presets.cfg is
+    # export_presets_not_found — and emits + exits on any of them via the shared
+    # failure channel, before any native export is attempted.
+    got = EXPORT_GET_COMMAND.run(
+        ExportGetParams(preset=preset),
+        godot=godot,
+        project=resolved_project,
+        make_runner=_make_runner,
+    )
+
+    # Phase 2: structured preflight, BEFORE any native run (ADR-0010). Two
+    # fail-fast checks, both decided from export get's structured fields rather
+    # than from the engine's stderr (which ADR-0002 forbids parsing for codes):
+    #
+    #  - The configured export_path must be set. A --output override is deferred
+    #    to #170, so an empty configured path means there is nowhere to write —
+    #    export_path_unset. Checked first because it is a per-preset config error
+    #    independent of the engine's template state, so it stays deterministic
+    #    whether or not templates happen to be installed.
+    #  - Templates for the running engine version must be installed. export get
+    #    reports that structurally (templates_installed) — the readiness check
+    #    built for exactly this — so an export against an uninstalled template
+    #    version is the distinct export_templates_missing, decided here rather
+    #    than by string-matching the engine's "due to configuration errors"
+    #    stderr (which also fires for a merely-misconfigured preset).
+    output_path = got.export_path
+    if not output_path:
+        emit_failure(export_path_unset_failure(got.name))
+    if not got.templates_installed:
+        emit_failure(export_templates_missing_failure(got.name, got.templates_version))
+
+    # Phase 3: run the native export and classify its raw outcome. The export-get
+    # resolved name (got.name) is authoritative throughout — it is what the engine
+    # exports and what the result echoes — so the native invocation, not the raw
+    # --preset string, is keyed on it.
+    export_runner = _make_export_runner(binary, resolved_project)
+    export_output = export_runner.run(got.name, mode.value, output_path)
+    outcome = classify_export_run(
+        export_output,
+        binary,
+        preset=got.name,
+        platform=got.platform,
+        mode=mode,
+        output_path=output_path,
+    )
+    if isinstance(outcome, Failure):
+        emit_failure(outcome)
+
+    if json_output:
+        typer.echo(outcome.model_dump_json())
+    else:
+        typer.echo(render(outcome))
 
 
 @resource_app.command(name="uid", cls=RESOURCE_UID_COMMAND.command_class())

@@ -122,6 +122,9 @@ operation, and parse codes the CLI assigns).
 | `invalid_resource_type` | `operation` | `operation` | `4` | A requested resource type cannot be instantiated as a `Resource`. |
 | `export_presets_not_found` | `operation` | `operation` | `4` | The project has no export_presets.cfg, so it defines no export presets. |
 | `export_preset_not_found` | `operation` | `operation` | `4` | No export preset with the requested name exists in export_presets.cfg. |
+| `export_path_unset` | `operation` | `classifier` | `4` | An export run targeted a preset that has no configured export_path. |
+| `export_templates_missing` | `operation` | `classifier` | `4` | An export run needs the export templates for the running engine version, which are not installed. |
+| `export_failed` | `operation` | `classifier` | `4` | A native Godot export run failed (the engine reported the export did not complete). |
 | `invalid_uid` | `operation` | `operation` | `4` | A requested `uid://` value is not a syntactically valid resource UID. |
 | `unknown_uid` | `operation` | `operation` | `4` | A syntactically valid resource UID is not registered in the engine's UID cache. |
 | `no_uid_assigned` | `operation` | `operation` | `4` | A resource path exists but has no UID assigned in the engine's UID cache. |

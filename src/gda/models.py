@@ -1359,6 +1359,71 @@ class ExportGetResult(BaseModel):
     )
 
 
+class ExportRunMode(str, Enum):
+    """The export flavor ``gda export run`` produces (issue #121).
+
+    Maps to Godot's native export flags (ADR-0001). ``release``/``debug`` produce
+    a full platform binary and require the matching export templates to be
+    installed; ``pack`` produces project data only — a PCK/ZIP, chosen by the
+    output path's extension — and needs no platform templates.
+
+    Issue #121 fixes the mode to ``release`` (the common intent — a complete
+    export), exposing no ``--mode`` flag; selecting ``debug``/``pack`` is deferred
+    to follow-up #170. The enum keeps all three flavors so the result field can
+    document the mode that ran and #170 can wire the flag without reshaping it.
+    """
+
+    RELEASE = "release"
+    DEBUG = "debug"
+    PACK = "pack"
+
+
+class ExportRunParams(BaseModel):
+    """The operation params of ``gda export run`` (issue #121).
+
+    ``preset`` addresses the export preset by its display name (as ``export
+    list`` reports it); an unknown name is the ``export_preset_not_found``
+    failure. The export runs in ``release`` mode to the preset's *configured*
+    ``export_path`` (an empty configured path is the ``export_path_unset``
+    failure). A ``--mode`` selector and an ``--output`` path override are deferred
+    to follow-up #170, so this command takes only ``preset``. The project is
+    process context (``--project``, ADR-0006).
+    """
+
+    preset: str = Field(
+        description="The export preset's display name, as 'gda export list' reports it."
+    )
+
+
+class ExportRunResult(BaseModel):
+    """The result of ``gda export run``: the artifact that was produced (issue #121).
+
+    Echoes the addressed preset's ``preset`` name and target ``platform`` (read
+    from ``export_presets.cfg``), the ``mode`` that was run (always ``release``
+    in #121 — ``--mode`` is deferred to #170), and the ``output_path`` the
+    artifact was written to — the preset's *configured* ``export_path``.
+    ``warnings`` carries the engine's non-fatal export warnings (e.g. a missing
+    optional icon), parsed best-effort from the export's stderr; an export that
+    succeeds cleanly reports ``warnings == []``. Unlike the sentinel operations,
+    ``export run`` is a native Godot export (the export subsystem is editor-only,
+    ADR-0002 sentinels do not apply), so this result is synthesized by ``gda``
+    from the export's exit code + stderr.
+    """
+
+    preset: str = Field(description="The export preset's display name.")
+    platform: str = Field(
+        description="The preset's target platform (e.g. Linux/X11, Web, macOS)."
+    )
+    mode: ExportRunMode = Field(description="The export flavor that was run.")
+    output_path: str = Field(
+        description="The path the export artifact was written to."
+    )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="The engine's non-fatal export warnings, parsed from stderr; empty on a clean export.",
+    )
+
+
 class ResourceCreateResult(BaseModel):
     """The result of ``gda resource create``: what was written where (issue #112).
 
