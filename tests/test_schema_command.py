@@ -12,19 +12,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.models import EngineVersion, GdaErrorEnvelope, InfoParams
-
-# A sample `gda info` result, shaped as Engine.get_version_info() reports it.
-VERSION_INFO = {
-    "major": 4,
-    "minor": 6,
-    "patch": 3,
-    "hex": 0x040603,
-    "status": "stable",
-    "build": "official",
-    "hash": "7d41c59c457bd5a245092b4e7eb2d833e3b3f8c3",
-    "string": "4.6.3-stable (official)",
-    "timestamp": 0,
-}
+from tests.support import VERSION_INFO
 
 
 def test_info_schema_emits_json_object_with_input_output_and_error():
@@ -194,11 +182,11 @@ def test_sample_scene_results_validate_against_emitted_output_schemas():
     # The other half of the ADR-0004 hard gate (issues #18, #54): a sample
     # --json payload of each scene command satisfies the contract its --schema
     # emits.
-    from tests.test_scene_commands import (
-        CREATE_RESULT,
-        DELETE_RESULT,
-        GET_RESULT,
-        LIST_RESULT,
+    from tests.support import (
+        SCENE_CREATE_RESULT,
+        SCENE_DELETE_RESULT,
+        SCENE_GET_RESULT,
+        SCENE_LIST_RESULT,
     )
 
     create_doc = json.loads(
@@ -210,10 +198,10 @@ def test_sample_scene_results_validate_against_emitted_output_schemas():
         CliRunner().invoke(app, ["scene", "delete", "--schema"]).stdout
     )
 
-    jsonschema.validate(instance=CREATE_RESULT, schema=create_doc["output"])
-    jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
-    jsonschema.validate(instance=LIST_RESULT, schema=list_doc["output"])
-    jsonschema.validate(instance=DELETE_RESULT, schema=delete_doc["output"])
+    jsonschema.validate(instance=SCENE_CREATE_RESULT, schema=create_doc["output"])
+    jsonschema.validate(instance=SCENE_GET_RESULT, schema=get_doc["output"])
+    jsonschema.validate(instance=SCENE_LIST_RESULT, schema=list_doc["output"])
+    jsonschema.validate(instance=SCENE_DELETE_RESULT, schema=delete_doc["output"])
 
 
 def test_scene_schema_spawns_no_godot(monkeypatch):

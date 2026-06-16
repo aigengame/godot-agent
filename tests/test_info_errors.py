@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.runner import LaunchFailure, RunResult
 from tests.support import inject_runner as _inject
+from tests.support import raw_sentinel, sentinel
 
 
 def test_binary_not_found_maps_to_environment_error(monkeypatch):
@@ -135,7 +136,7 @@ def test_wrong_shape_sentinel_payload_maps_to_parse_error(monkeypatch):
     _inject(
         monkeypatch,
         RunResult(
-            stdout='<<<GDA:RESULT>>>{"major": 4, "minor": 4}<<<GDA:END>>>\n',
+            stdout=sentinel({"major": 4, "minor": 4}),
             stderr="",
             exit_code=0,
         ),
@@ -152,18 +153,19 @@ def test_wrong_shape_sentinel_payload_maps_to_parse_error(monkeypatch):
 
 
 def _version_payload(major: int, minor: int) -> str:
-    info = {
-        "major": major,
-        "minor": minor,
-        "patch": 0,
-        "hex": (major << 16) | (minor << 8),
-        "status": "stable",
-        "build": "official",
-        "hash": "0" * 40,
-        "string": f"{major}.{minor}.0-stable (official)",
-        "timestamp": 0,
-    }
-    return f"<<<GDA:RESULT>>>{json.dumps(info)}<<<GDA:END>>>\n"
+    return sentinel(
+        {
+            "major": major,
+            "minor": minor,
+            "patch": 0,
+            "hex": (major << 16) | (minor << 8),
+            "status": "stable",
+            "build": "official",
+            "hash": "0" * 40,
+            "string": f"{major}.{minor}.0-stable (official)",
+            "timestamp": 0,
+        }
+    )
 
 
 def test_version_below_minimum_maps_to_version_error_distinct_from_environment(monkeypatch):
@@ -206,7 +208,7 @@ def test_malformed_sentinel_json_maps_to_parse_error(monkeypatch):
     _inject(
         monkeypatch,
         RunResult(
-            stdout="<<<GDA:RESULT>>>{not valid json}<<<GDA:END>>>\n",
+            stdout=raw_sentinel("{not valid json}"),
             stderr="",
             exit_code=0,
         ),
