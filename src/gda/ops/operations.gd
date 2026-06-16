@@ -61,6 +61,7 @@ const OP_ERROR_INVALID_UID := "invalid_uid"
 const OP_ERROR_UNKNOWN_UID := "unknown_uid"
 const OP_ERROR_NO_UID_ASSIGNED := "no_uid_assigned"
 const OP_ERROR_UNKNOWN_SETTING := "unknown_setting"
+const OP_ERROR_INVALID_TARGET := "invalid_target"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -160,6 +161,14 @@ func _initialize() -> void:
 			_op_shader_set(params)
 		"theme-create":
 			_op_theme_create(params)
+		"project-find-references":
+			_op_project_find_references(params)
+		"project-dependencies":
+			_op_project_dependencies(params)
+		"project-find-unused-resources":
+			_op_project_find_unused_resources(params)
+		"project-statistics":
+			_op_project_statistics(params)
 		_:
 			_fail(OP_ERROR_UNKNOWN_OPERATION, "unknown operation: " + operation)
 
@@ -2075,6 +2084,610 @@ func _write_text_file(path: String, source: String, noun: String) -> bool:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(noun, path, write_err))
 		return false
 	return true
+
+
+# --- project static-analysis reads (issue #116) -----------------------------
+#
+# Four read-only, project-wide reads, all backed by a SINGLE static project scan
+# (_scan_project). The scan reads files as TEXT — it parses each .tscn/.tres for
+# its [ext_resource path="..."] entries and each .gd for its preload/load/extends
+# references — and never instantiates a scene or loads/compiles a script (the
+# read trust boundary of issue #30). Reads still run under --project, so the
+# engine constructs the project's autoloads at startup before _initialize (the
+# residual project-code execution of issue #61); the scan itself adds none.
+#
+# All four share one reference graph so they stay consistent (acceptance
+# criterion): find-references reports the incoming references of one target;
+# dependencies reports the outgoing references of every scene/resource;
+# find-unused-resources reports the resources with no incoming reference (and not
+# an entry point). A resource is "unused" exactly when find-references for it
+# would return empty — the same graph, one truth.
+
+
+# project-find-references: find every project file that references the target — a
+# resource res:// path, or a script class_name (issue #116). Walks the project's
+# res:// tree, parsing each file's references as text (no instantiation), and
+# reports each referencing site (path + kind + matched context). A target nothing
+# references is a SUCCESSFUL empty result, not a failure.
+func _op_project_find_references(params: Dictionary) -> void:
+	_diag("running operation: project-find-references")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project find-references requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+	var target := _string_param(params, "target")
+	if target.is_empty():
+		_fail(OP_ERROR_INVALID_TARGET, "missing required param: target")
+		return
+
+	# Resolve the target to the set of strings a reference can name it by. A
+	# res:// path names a resource directly; a class_name names both the class
+	# token (used in .gd as `extends Name` / type annotations) AND the script
+	# path it registers (used as an ext_resource/preload). A bare token that is
+	# neither a res:// path nor a registered class_name is rejected: a filesystem
+	# path (or a typo) could never appear in a res://-addressed reference, so
+	# scanning for it would only ever return a misleading empty result.
+	var target_paths := {}  # res:// paths a reference may name the target by
+	var target_class := ""  # class_name token a .gd reference may name it by
+	if target.begins_with("res://"):
+		target_paths[target] = true
+	else:
+		var script_path := _class_name_script_path(target)
+		if script_path.is_empty():
+			_fail(OP_ERROR_INVALID_TARGET, "find-references target is not a res:// path or a registered class_name: " + target)
+			return
+		target_class = target
+		target_paths[script_path] = true
+
+	var paths: Array[String] = []
+	_collect_resource_paths("res://", paths)
+	paths.sort()
+
+	var references: Array = []
+	for path in paths:
+		_collect_references_from(path, target_paths, target_class, references)
+	# Project-level references (autoloads, the main scene) live in
+	# project.godot, not in a scanned file — add them from ProjectSettings.
+	_collect_project_level_references(target_paths, references)
+
+	_succeed({
+		"target": target,
+		"references": references,
+	})
+
+
+# project-dependencies: map every scene/resource in the project to the resources
+# it references — its outgoing [ext_resource] / preload references (issue #116).
+# A scene/resource with no external references is reported with an empty
+# depends_on, not dropped.
+func _op_project_dependencies(_params: Dictionary) -> void:
+	_diag("running operation: project-dependencies")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project dependencies requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+
+	var paths: Array[String] = []
+	_collect_resource_paths("res://", paths)
+	paths.sort()
+
+	var dependencies: Array = []
+	for path in paths:
+		# Only resources that can declare ext_resource dependencies (.tscn/.tres)
+		# and scripts (.gd, via preload/load) are reported as dependency sources;
+		# a leaf asset (an image) has no outgoing references to map.
+		if not _has_outgoing_references(path):
+			continue
+		var depends_on := _outgoing_references_of(path)
+		dependencies.append({
+			"path": path,
+			"depends_on": depends_on,
+		})
+
+	_succeed({"dependencies": dependencies})
+
+
+# project-find-unused-resources: resources nothing references (issue #116). Built
+# on the SAME reference graph as find-references/dependencies (acceptance
+# criterion): a resource is unused exactly when no other file references it AND it
+# is not a project entry point (the main scene, or an autoload's script/scene).
+# Scripts (.gd) are excluded from the "unused resource" report — an unreferenced
+# script is dead CODE, a different concern from an unused resource asset, and a
+# project's scripts are routinely referenced only dynamically; reporting them
+# would be noise. .tscn scenes and .tres/asset resources are the resources this
+# reports.
+func _op_project_find_unused_resources(_params: Dictionary) -> void:
+	_diag("running operation: project-find-unused-resources")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project find-unused-resources requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+
+	var paths: Array[String] = []
+	_collect_resource_paths("res://", paths)
+	paths.sort()
+
+	# Build the set of every res:// path that ANY file references — the union of
+	# all outgoing references across the project, the exact graph find-references
+	# reads one target at a time. A path absent from this set has zero incoming
+	# references (find-references would return empty for it), the consistency the
+	# issue requires.
+	var referenced := {}
+	for path in paths:
+		for dep in _outgoing_references_of(path):
+			referenced[dep["path"]] = true
+	# Project-level entry points are "referenced" too, so they are never reported
+	# unused: the main scene and the autoloads are entered directly, not via a
+	# file reference.
+	for entry in _project_entry_points():
+		referenced[entry] = true
+
+	var unused: Array = []
+	for path in paths:
+		# A script is dead CODE, not an unused resource asset (see the op note).
+		if _is_script_path(path):
+			continue
+		if not referenced.has(path):
+			unused.append(path)
+
+	_succeed({"unused": unused})
+
+
+# project-statistics: file/line counts, autoloads, plugins (issue #116). Counts
+# every file under res:// (skipping the engine's .godot cache) by extension; sums
+# line counts for text files (binary assets count as files but contribute no
+# lines). Autoloads and plugins are read from ProjectSettings — never executed.
+func _op_project_statistics(_params: Dictionary) -> void:
+	_diag("running operation: project-statistics")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project statistics requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+
+	var paths: Array[String] = []
+	_collect_all_file_paths("res://", paths)
+	paths.sort()
+
+	var total_files := 0
+	var total_lines := 0
+	var by_ext := {}  # extension -> {"files": int, "lines": int}
+	var scene_count := 0
+	var script_count := 0
+	var resource_count := 0
+	for path in paths:
+		total_files += 1
+		var ext := path.get_extension().to_lower()
+		if not by_ext.has(ext):
+			by_ext[ext] = {"files": 0, "lines": 0}
+		by_ext[ext]["files"] += 1
+		var lines := _count_lines(path)
+		by_ext[ext]["lines"] += lines
+		total_lines += lines
+		match ext:
+			"tscn":
+				scene_count += 1
+			"gd":
+				script_count += 1
+			"png", "jpg", "jpeg", "webp", "svg", "ogg", "wav", "mp3", "ttf", "otf", "import", "godot", "cfg":
+				# import sidecars, the project file, and binary/asset files are not
+				# "resource" files in the .tres sense; they still count as files.
+				pass
+			_:
+				resource_count += 1
+
+	var extensions: Array = []
+	var ext_keys := by_ext.keys()
+	ext_keys.sort()
+	for ext in ext_keys:
+		extensions.append({
+			"extension": ext,
+			"files": by_ext[ext]["files"],
+			"lines": by_ext[ext]["lines"],
+		})
+
+	_succeed({
+		"total_files": total_files,
+		"total_lines": total_lines,
+		"by_extension": extensions,
+		"autoloads": _project_autoloads(),
+		"plugins": _project_plugins(),
+		"scene_count": scene_count,
+		"script_count": script_count,
+		"resource_count": resource_count,
+	})
+
+
+# The script res:// path a registered class_name resolves to, or "" if no such
+# class_name is registered. Read from the project's global class list (the same
+# registry node-add resolves class_name nodes through) — never compiled.
+func _class_name_script_path(class_token: String) -> String:
+	for entry in ProjectSettings.get_global_class_list():
+		if String(entry.get("class", "")) == class_token:
+			return String(entry.get("path", ""))
+	return ""
+
+
+# Recursively collect every RESOURCE-bearing file under res:// — the files that
+# can carry references (.tscn/.tres scenes & resources, .gd scripts) AND the leaf
+# asset resources (everything else except import sidecars, the project file, and
+# the .godot cache). Mirrors _collect_scene_paths: hidden entries enumerated,
+# navigational entries off, res://.godot skipped. This is the universe both the
+# reference graph and find-unused range over.
+func _collect_resource_paths(dir_path: String, out: Array[String]) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	dir.include_hidden = true
+	dir.list_dir_begin()
+	var entry := dir.get_next()
+	while not entry.is_empty():
+		var child := dir_path.path_join(entry)
+		if dir.current_is_dir():
+			if entry != ".godot":
+				_collect_resource_paths(child, out)
+		elif _is_graph_resource_path(child):
+			out.append(child)
+		entry = dir.get_next()
+	dir.list_dir_end()
+
+
+# Recursively collect EVERY file under res:// (skipping only the .godot cache) for
+# the statistics counts — unlike _collect_resource_paths this keeps import
+# sidecars, project.godot and every asset, since statistics counts all files.
+func _collect_all_file_paths(dir_path: String, out: Array[String]) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	dir.include_hidden = true
+	dir.list_dir_begin()
+	var entry := dir.get_next()
+	while not entry.is_empty():
+		var child := dir_path.path_join(entry)
+		if dir.current_is_dir():
+			if entry != ".godot":
+				_collect_all_file_paths(child, out)
+		else:
+			out.append(child)
+		entry = dir.get_next()
+	dir.list_dir_end()
+
+
+# Whether a path names a file the reference graph / find-unused treat as a
+# resource: a scene, a resource, a script, or a leaf asset — anything except the
+# import sidecars and the project file the .godot cache and the engine own. Kept
+# deliberately inclusive so an asset (an image, a font) referenced by a scene is
+# itself a node in the graph and a candidate for find-unused. Distinct from the
+# resource group's _is_resource_path (a strict .tres check): this is the project
+# scan's graph-eligibility test, hence the separate name.
+func _is_graph_resource_path(path: String) -> bool:
+	var ext := path.get_extension().to_lower()
+	if ext == "import" or ext == "godot" or ext == "cfg" or ext == "uid":
+		return false
+	return not ext.is_empty()
+
+
+# Whether this file can declare OUTGOING references (so dependencies reports it as
+# a source row): a scene/resource (.tscn/.tres, via [ext_resource]) or a script
+# (.gd, via preload/load/extends). A leaf asset declares none.
+func _has_outgoing_references(path: String) -> bool:
+	var ext := path.get_extension().to_lower()
+	return ext == "tscn" or ext == "tres" or ext == "gd"
+
+
+# The outgoing references of one file as a list of {path, kind} entries, in the
+# order they appear, de-duplicated. A .tscn/.tres yields its [ext_resource]
+# paths; a .gd yields its preload/load/extends-by-path references. The referenced
+# path is always a res:// path (a relative .gd preload is resolved against the
+# file's own directory). Reading is pure text — no load/instantiate (issue #30).
+func _outgoing_references_of(path: String) -> Array:
+	var ext := path.get_extension().to_lower()
+	var seen := {}
+	var out: Array = []
+	if ext == "tscn" or ext == "tres":
+		for ref_path in _ext_resource_paths(path):
+			# Dedup the ext_resource form on path+kind, the same key
+			# find-references matches by, so the two views of the graph agree
+			# exactly (issue #116 consistency criterion).
+			var key: String = ref_path + "\next_resource"
+			if not seen.has(key):
+				seen[key] = true
+				out.append({"path": ref_path, "kind": "ext_resource"})
+	elif ext == "gd":
+		for ref in _script_outgoing_references(path):
+			# Dedup on path+KIND, not path alone: the same target reached by both
+			# preload() and load() is two distinct references, and find-references
+			# reports both — so dependencies must too, or the graphs disagree
+			# (issue #116 review). A newline joins the pair into a collision-free
+			# key — it can appear in neither a res:// path nor a kind token.
+			var key: String = String(ref["path"]) + "\n" + String(ref["kind"])
+			if not seen.has(key):
+				seen[key] = true
+				out.append(ref)
+	return out
+
+
+# The res:// paths an [ext_resource ... path="res://..."] line names in a
+# .tscn/.tres file — the file's external dependencies. Parsed by text: each
+# ext_resource line carries a path="..." attribute (Godot 4 also carries a uid,
+# but always the path too). Returns res:// paths in line order.
+func _ext_resource_paths(path: String) -> Array[String]:
+	var out: Array[String] = []
+	var text := FileAccess.get_file_as_string(path)
+	if text.is_empty():
+		return out
+	for line in text.split("\n"):
+		var stripped := line.strip_edges()
+		if not stripped.begins_with("[ext_resource"):
+			continue
+		var ref := _quoted_attr(stripped, "path=")
+		if not ref.is_empty():
+			out.append(ref)
+	return out
+
+
+# A .gd script's outgoing references as {path, kind} entries: preload("res://…")
+# and load("res://…") calls (kind preload / load), and an `extends "res://Base.gd"`
+# base-class-by-path (kind class_extends). A relative path argument is resolved
+# against the script's own directory so it becomes a res:// path comparable to the
+# rest of the graph. Parsed by text — the script is never compiled (issue #30).
+func _script_outgoing_references(path: String) -> Array:
+	var out: Array = []
+	var text := FileAccess.get_file_as_string(path)
+	if text.is_empty():
+		return out
+	var base_dir := path.get_base_dir()
+	for line in text.split("\n"):
+		var stripped := line.strip_edges()
+		out.append_array(_script_outgoing_references_in_line(stripped, base_dir))
+	return out
+
+
+# Resolve a reference-path argument to a res:// path: a res:// (or uid://) path is
+# already absolute; a relative path is joined onto the referencing file's base
+# directory and simplified, so "../shared/util.gd" from res://a/b.gd becomes
+# res://shared/util.gd. uid:// references are left as-is (they round-trip through
+# Godot's UID system, not the path graph).
+func _resolve_ref_path(ref: String, base_dir: String) -> String:
+	if ref.begins_with("res://") or ref.begins_with("uid://") or ref.begins_with("user://"):
+		return ref
+	return base_dir.path_join(ref).simplify_path()
+
+
+# Find every reference to the target inside one file, appending {path, kind,
+# context} entries to `references`. A .tscn/.tres references the target when an
+# [ext_resource] names one of the target's res:// paths; a .gd references it when
+# a preload/load/extends names one of those paths, or — when the target is a
+# class_name — when the file uses the class token as an identifier. The context is
+# the matched line, trimmed, so an agent locates the reference without re-reading.
+func _collect_references_from(path: String, target_paths: Dictionary, target_class: String, references: Array) -> void:
+	var ext := path.get_extension().to_lower()
+	var text := FileAccess.get_file_as_string(path)
+	if text.is_empty():
+		return
+	if ext == "tscn" or ext == "tres":
+		for line in text.split("\n"):
+			var stripped := line.strip_edges()
+			if not stripped.begins_with("[ext_resource"):
+				continue
+			var ref := _quoted_attr(stripped, "path=")
+			if target_paths.has(ref):
+				references.append({"path": path, "kind": "ext_resource", "context": stripped})
+	elif ext == "gd":
+		var base_dir := path.get_base_dir()
+		for line in text.split("\n"):
+			var stripped := line.strip_edges()
+			# A preload/load/extends-by-path naming one of the target's paths.
+			for ref in _script_outgoing_references_in_line(stripped, base_dir):
+				if target_paths.has(ref["path"]):
+					references.append({"path": path, "kind": ref["kind"], "context": stripped})
+			# A class_name target used as a bare identifier token (extends Name,
+			# `var x: Name`, `Name.new()`, …). Best-effort: a whole-word token
+			# match, so a substring of a longer identifier is not a false hit.
+			# Skip the target's OWN `class_name <target>` declaration line: that is
+			# the definition site, not a reference (issue #116 review). Without this
+			# guard the class's defining file reports itself as a class_reference.
+			if (
+				not target_class.is_empty()
+				and not _is_class_name_declaration_of(stripped, target_class)
+				and _line_uses_token(stripped, target_class)
+			):
+				references.append({"path": path, "kind": "class_reference", "context": stripped})
+
+
+# The {path, kind} references in a SINGLE already-stripped .gd line — the
+# per-line core _script_outgoing_references loops over, factored out so
+# find-references can match a target path AND keep the matched line as context.
+# Finds EVERY preload(...)/load(...) call on the line (not just the first), so a
+# line with two calls is fully captured; each call's marker is matched on a word
+# boundary so `load(` INSIDE `preload(` is not double-counted as its own load
+# reference (the markers overlap as substrings, issue #116 review).
+func _script_outgoing_references_in_line(stripped: String, base_dir: String) -> Array:
+	var out: Array = []
+	var markers: Array[String] = ["preload", "load"]
+	for marker in markers:
+		var call: String = marker + "("
+		var from := 0
+		while true:
+			var idx := stripped.find(call, from)
+			if idx == -1:
+				break
+			from = idx + call.length()
+			# Word boundary on the left: the char before the marker must not be an
+			# identifier char, or this is a longer identifier ending in the marker
+			# (the `load(` inside `preload(`, or a user `myload(`), not a call to it.
+			if idx > 0 and _is_identifier_char(stripped[idx - 1]):
+				continue
+			var arg := _first_quoted_after(stripped, idx + call.length())
+			if arg.is_empty():
+				continue
+			out.append({"path": _resolve_ref_path(arg, base_dir), "kind": marker})
+	if stripped.begins_with("extends ") and stripped.find("\"") != -1:
+		var ext_arg := _first_quoted_after(stripped, "extends ".length())
+		if not ext_arg.is_empty():
+			out.append({"path": _resolve_ref_path(ext_arg, base_dir), "kind": "class_extends"})
+	return out
+
+
+# Project-level references to the target that live in project.godot rather than a
+# scanned file (issue #116): the main scene (run/main_scene) and the autoloads
+# (autoload/*). These reference a resource by path the way a file's ext_resource
+# does, so find-references must surface them or the target would look less
+# referenced than it is.
+func _collect_project_level_references(target_paths: Dictionary, references: Array) -> void:
+	var main_scene := _main_scene_path()
+	if not main_scene.is_empty() and target_paths.has(main_scene):
+		references.append({"path": "project.godot", "kind": "main_scene", "context": "application/run/main_scene=" + main_scene})
+	for autoload in _project_autoloads():
+		if target_paths.has(autoload["path"]):
+			references.append({"path": "project.godot", "kind": "autoload", "context": "autoload/" + autoload["name"] + "=" + autoload["path"]})
+
+
+# The project entry points — paths that are "reached" without a file reference, so
+# find-unused must never flag them: the main scene plus every autoload's path.
+func _project_entry_points() -> Array[String]:
+	var out: Array[String] = []
+	var main_scene := _main_scene_path()
+	if not main_scene.is_empty():
+		out.append(main_scene)
+	for autoload in _project_autoloads():
+		out.append(autoload["path"])
+	return out
+
+
+# The project's main scene res:// path, or "" when none is set. Read from
+# ProjectSettings — never run.
+func _main_scene_path() -> String:
+	var value: Variant = ProjectSettings.get_setting("application/run/main_scene", "")
+	return String(value)
+
+
+# The project's autoload singletons as {name, path} entries, read from
+# ProjectSettings's autoload/* keys (never executed). The stored value carries a
+# leading "*" enable marker for an enabled singleton; it is stripped so the path
+# is the bare res:// path the rest of the graph compares against.
+func _project_autoloads() -> Array:
+	var out: Array = []
+	for setting in ProjectSettings.get_property_list():
+		var key := String(setting.get("name", ""))
+		if not key.begins_with("autoload/"):
+			continue
+		var autoload_name: String = key.substr("autoload/".length())
+		var value := String(ProjectSettings.get_setting(key, ""))
+		out.append({"name": autoload_name, "path": value.trim_prefix("*")})
+	return out
+
+
+# The enabled editor plugins' plugin.cfg res:// paths (issue #116). Read from
+# editor_plugins/enabled in ProjectSettings; each entry is already a
+# res://addons/<name>/plugin.cfg path. Empty when the project enables none.
+func _project_plugins() -> Array[String]:
+	var out: Array[String] = []
+	var enabled: Variant = ProjectSettings.get_setting("editor_plugins/enabled", PackedStringArray())
+	if enabled is PackedStringArray or enabled is Array:
+		for entry in enabled:
+			out.append(String(entry))
+	return out
+
+
+# Count the lines of a TEXT file (issue #116): the number of newline-separated
+# parts of its content, treating a binary/unreadable file as 0 lines. A trailing
+# newline does not add a phantom empty final line, so "a\nb\n" is 2 lines. Only
+# called on files statistics counts.
+#
+# Line-count ONLY known text extensions (issue #116 review): a binary asset (an
+# image, a font, audio) must contribute to the file count but NOT the line count
+# — statistics' documented contract. Reading every file as text counted a binary
+# asset's stray newline bytes as lines, inflating total_lines. An unknown
+# extension is treated as binary (0 lines) rather than read as text.
+func _count_lines(path: String) -> int:
+	if not _is_text_extension(path.get_extension().to_lower()):
+		return 0
+	var text := FileAccess.get_file_as_string(path)
+	if text.is_empty():
+		return 0
+	var normalized := text.replace("\r\n", "\n")
+	var parts := normalized.split("\n")
+	var count := parts.size()
+	# A trailing newline yields a final empty part; do not count it as a line.
+	if count > 0 and parts[count - 1].is_empty():
+		count -= 1
+	return count
+
+
+# The file extensions statistics treats as text for line counting (issue #116
+# review). Covers Godot's text formats (.gd/.tscn/.tres scenes & resources, the
+# .godot/.cfg/.import config files, .gdshader) plus common plain-text companions
+# (docs, data, the C# source). Anything else — images, audio, fonts, .res binary
+# resources — is binary: it counts as a file but contributes 0 lines.
+func _is_text_extension(ext: String) -> bool:
+	return ext in [
+		"gd", "tscn", "tres", "godot", "cfg", "import", "gdshader", "gdshaderinc",
+		"cs", "json", "txt", "md", "xml", "csv", "ini", "po", "pot", "gdextension",
+	]
+
+
+# The value of a quoted attribute (e.g. path="res://x") in a line, or "" when the
+# attribute is absent. `attr` includes the trailing '=' ("path="). Returns the
+# text between the first pair of double quotes after the attribute.
+func _quoted_attr(line: String, attr: String) -> String:
+	var idx := line.find(attr)
+	if idx == -1:
+		return ""
+	return _first_quoted_after(line, idx + attr.length())
+
+
+# The contents of the first quoted string (single or double quotes) at/after
+# `from` in `text`, or "" when there is none. Used to pull the literal-string
+# argument out of preload("...") / load("...") / path="..." without compiling.
+func _first_quoted_after(text: String, from: int) -> String:
+	var dq := text.find("\"", from)
+	var sq := text.find("'", from)
+	var open := -1
+	var quote := "\""
+	if dq != -1 and (sq == -1 or dq < sq):
+		open = dq
+		quote = "\""
+	elif sq != -1:
+		open = sq
+		quote = "'"
+	if open == -1:
+		return ""
+	var close := text.find(quote, open + 1)
+	if close == -1:
+		return ""
+	return text.substr(open + 1, close - open - 1)
+
+
+# Whether a line uses `token` as a WHOLE-WORD identifier — bounded by a non
+# identifier character (or the line edge) on both sides — so a class_name match
+# is not a false positive on a substring of a longer name (Hero vs HeroSpawner)
+# or inside another word. Best-effort static check for class_name references that
+# carry no res:// path (extends Name, type annotations, Name.new()).
+func _line_uses_token(line: String, token: String) -> bool:
+	var from := 0
+	while true:
+		var idx := line.find(token, from)
+		if idx == -1:
+			return false
+		var before_ok := idx == 0 or not _is_identifier_char(line[idx - 1])
+		var after_index := idx + token.length()
+		var after_ok := after_index >= line.length() or not _is_identifier_char(line[after_index])
+		if before_ok and after_ok:
+			return true
+		from = idx + 1
+	return false
+
+
+func _is_identifier_char(ch: String) -> bool:
+	return ch == "_" or (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or (ch >= "0" and ch <= "9")
+
+
+# Whether an already-stripped .gd line is the `class_name <target>` declaration
+# of the find-references target — the definition site, not a reference. Matches
+# the same `class_name ` prefix _parse_script_meta keys on, with the first token
+# of the remainder equal to the target class (so `class_name HeroSpawner` is not
+# treated as Hero's declaration). Lets find-references exclude a class's own
+# defining line from its class_reference hits (issue #116 review).
+func _is_class_name_declaration_of(line: String, target_class: String) -> bool:
+	if not line.begins_with("class_name "):
+		return false
+	return _first_token(line.substr("class_name ".length())) == target_class
 
 
 # Whether a path names a script file the script group operates on: a .gd

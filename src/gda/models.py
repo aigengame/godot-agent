@@ -1231,6 +1231,36 @@ class ResourceUidParams(BaseModel):
     )
 
 
+# --- project static-analysis reads (issue #116) -----------------------------
+#
+# Four read-only, project-wide analysis commands, all backed by a single static
+# project scan: find-references, dependencies, find-unused-resources, statistics.
+# The scan parses files as TEXT (.tscn/.tres ext_resource paths, .gd
+# preload/load/class_name references) — it never instantiates a scene or loads a
+# script, so it honors the read trust boundary (issue #30). The only residual
+# project-code execution is the engine constructing the project's autoloads at
+# startup, inherent to any ``--project`` op (issue #61), documented on the params.
+
+
+class ProjectFindReferencesParams(BaseModel):
+    """The operation params of ``gda project find-references`` (issue #116).
+
+    ``target`` is what to find references TO: a resource's ``res://`` path (a
+    scene, script, image, ``.tres`` resource — anything addressable by path), or
+    a script ``class_name``. The scan reads project files as TEXT and never
+    instantiates a scene or loads a script (issue #30); the only project code that
+    runs is the project's autoloads, constructed by the engine at startup on any
+    ``--project`` op (issue #61).
+    """
+
+    target: str = Field(
+        description=(
+            "What to find references to: a resource's res:// path (scene, script, "
+            "image, .tres, …) or a script class_name."
+        )
+    )
+
+
 class ExportListParams(BaseModel):
     """The operation params of ``gda export list`` — none (ADR-0004).
 
@@ -1615,6 +1645,179 @@ class ThemeCreateResult(BaseModel):
             "Parent directories created before saving, from outermost to innermost."
         )
     )
+
+
+class ResourceReference(BaseModel):
+    """One referencing site found by ``gda project find-references`` (issue #116).
+
+    ``path`` is the ``res://`` path of the file that references the target — or
+    ``project.godot`` for a project-level reference (an autoload or the main
+    scene). ``kind`` names how it references it: ``ext_resource`` (a
+    scene/resource ext_resource entry), ``preload``/``load`` (a script load
+    call), ``class_extends`` (a script extending a base-class-by-path),
+    ``class_reference`` (a ``.gd`` file using the target ``class_name`` as a bare
+    identifier — best-effort, whole-word), or ``autoload``/``main_scene`` (a
+    project-level reference in ``project.godot``). ``context`` is the matched
+    line/snippet, best-effort, so an agent can locate the reference without
+    re-reading the file.
+    """
+
+    path: str = Field(
+        description=(
+            "The res:// path of the referencing file, or 'project.godot' for a "
+            "project-level reference."
+        )
+    )
+    kind: str = Field(
+        description=(
+            "How the file references the target: ext_resource, preload, load, "
+            "class_extends, class_reference, autoload, or main_scene."
+        )
+    )
+    context: str = Field(
+        description="The matched line or snippet that holds the reference."
+    )
+
+
+class ProjectFindReferencesResult(BaseModel):
+    """The result of ``gda project find-references``: every site referencing the target.
+
+    Echoes the ``target`` and the list of referencing sites. A target nothing
+    references is a valid, empty result (``references == []``), not a failure —
+    that emptiness is exactly what ``find-unused-resources`` keys on, so the two
+    stay consistent (same reference graph).
+    """
+
+    target: str
+    references: list[ResourceReference]
+
+
+class ProjectDependenciesParams(BaseModel):
+    """The operation params of ``gda project dependencies`` — none (ADR-0004).
+
+    ``dependencies`` maps every scene/resource in the resolved project to the
+    resources it references (its ``[ext_resource]`` entries). The project is
+    process context (``--project``), not an operation param (ADR-0006), so the
+    ``input`` schema is trivially empty.
+    """
+
+
+class Dependency(BaseModel):
+    """One outgoing reference of a scene/resource (issue #116).
+
+    ``path`` is the referenced resource's ``res://`` path; ``kind`` names how it
+    is referenced (``ext_resource`` for a ``[ext_resource]`` entry).
+    """
+
+    path: str = Field(description="The res:// path of the referenced resource.")
+    kind: str = Field(
+        description="How the resource is referenced (ext_resource)."
+    )
+
+
+class ResourceDependencies(BaseModel):
+    """One scene/resource and the resources it references (issue #116).
+
+    ``path`` is the scene/resource's own ``res://`` path; ``depends_on`` lists the
+    resources it references. A scene with no external references is reported with
+    an empty ``depends_on``, not dropped.
+    """
+
+    path: str = Field(description="The res:// path of the scene/resource.")
+    depends_on: list[Dependency]
+
+
+class ProjectDependenciesResult(BaseModel):
+    """The result of ``gda project dependencies``: the scene/resource → resource map.
+
+    An empty project is a valid, empty map (``dependencies == []``), not a
+    failure. Built from the same ext_resource parse as ``find-references``, so the
+    two views of the reference graph stay consistent.
+    """
+
+    dependencies: list[ResourceDependencies]
+
+
+class ProjectFindUnusedResourcesParams(BaseModel):
+    """The operation params of ``gda project find-unused-resources`` — none (ADR-0004).
+
+    Reports resource files that nothing references, built on the SAME reference
+    graph as ``find-references``/``dependencies`` (acceptance criterion: the three
+    must agree). The project is process context (``--project``), not an operation
+    param (ADR-0006), so the ``input`` schema is trivially empty.
+    """
+
+
+class ProjectFindUnusedResourcesResult(BaseModel):
+    """The result of ``gda project find-unused-resources``: the unreferenced resources.
+
+    ``unused`` lists the ``res://`` paths of resource files that no other file
+    references AND that are not project entry points (the main scene, an autoload
+    script). A resource is unused exactly when ``find-references`` for it would
+    return an empty list — the consistency the issue requires. An empty list means
+    every resource is referenced (or an entry point).
+    """
+
+    unused: list[str]
+
+
+class ProjectStatisticsParams(BaseModel):
+    """The operation params of ``gda project statistics`` — none (ADR-0004).
+
+    Reports file/line counts, autoloads and plugins for the resolved project. The
+    project is process context (``--project``), not an operation param (ADR-0006),
+    so the ``input`` schema is trivially empty.
+    """
+
+
+class ExtensionCount(BaseModel):
+    """File/line counts for one file extension (issue #116).
+
+    ``extension`` is the lowercased extension without the dot (``gd``, ``tscn``);
+    ``files`` is how many files carry it; ``lines`` is their summed line count.
+    """
+
+    extension: str = Field(
+        description="The lowercased file extension without the dot (e.g. gd, tscn)."
+    )
+    files: int
+    lines: int
+
+
+class Autoload(BaseModel):
+    """One project autoload singleton (issue #116).
+
+    ``name`` is the singleton name; ``path`` its ``res://`` script/scene path
+    (with any leading ``*`` enable marker stripped). Read from ProjectSettings,
+    not by executing the autoload.
+    """
+
+    name: str
+    path: str = Field(description="The autoload's res:// path (enable marker stripped).")
+
+
+class ProjectStatisticsResult(BaseModel):
+    """The result of ``gda project statistics``: file/line counts, autoloads, plugins.
+
+    ``total_files``/``total_lines`` are the project-wide totals; ``by_extension``
+    breaks them down per extension. ``autoloads`` lists the project's autoload
+    singletons (name + path, read from ProjectSettings); ``plugins`` lists the
+    enabled editor plugins' ``plugin.cfg`` ``res://`` paths. ``scene_count`` /
+    ``script_count`` / ``resource_count`` are convenience counts of ``.tscn`` /
+    ``.gd`` / other-resource files. Line counts cover text files only; binary
+    assets contribute to file counts but not line counts.
+    """
+
+    total_files: int
+    total_lines: int
+    by_extension: list[ExtensionCount]
+    autoloads: list[Autoload]
+    plugins: list[str] = Field(
+        description="The res:// paths of the enabled editor plugins' plugin.cfg files."
+    )
+    scene_count: int
+    script_count: int
+    resource_count: int
 
 
 class EngineVersion(BaseModel):

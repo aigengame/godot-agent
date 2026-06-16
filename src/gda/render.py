@@ -57,6 +57,10 @@ from gda.models import (
     ShaderGetResult,
     ShaderSetResult,
     ThemeCreateResult,
+    ProjectDependenciesResult,
+    ProjectFindReferencesResult,
+    ProjectFindUnusedResourcesResult,
+    ProjectStatisticsResult,
 )
 
 
@@ -407,6 +411,55 @@ def render_theme_create(created: "ThemeCreateResult") -> str:
     return f"created {created.path} ({created.type})"
 
 
+def render_project_find_references(found: "ProjectFindReferencesResult") -> str:
+    """Render find-references as ``<target>`` then one ``path (kind)`` line each."""
+    if not found.references:
+        return f"{found.target} (no references)"
+    lines = [found.target]
+    lines += [f"  {ref.path} ({ref.kind})" for ref in found.references]
+    return "\n".join(lines)
+
+
+def render_project_dependencies(deps: "ProjectDependenciesResult") -> str:
+    """Render the dependency map as ``<scene>`` then indented ``-> <dep>`` lines."""
+    if not deps.dependencies:
+        return "(no scenes or resources)"
+    lines = []
+    for resource in deps.dependencies:
+        lines.append(resource.path)
+        lines += [f"  -> {dep.path} ({dep.kind})" for dep in resource.depends_on]
+    return "\n".join(lines)
+
+
+def render_project_find_unused_resources(
+    unused: "ProjectFindUnusedResourcesResult",
+) -> str:
+    """Render the unreferenced resources, one path per line."""
+    if not unused.unused:
+        return "(no unused resources)"
+    return "\n".join(unused.unused)
+
+
+def render_project_statistics(stats: "ProjectStatisticsResult") -> str:
+    """Render the project statistics as a human-readable summary."""
+    lines = [
+        f"{stats.total_files} files, {stats.total_lines} lines",
+        (
+            f"  scenes: {stats.scene_count}, scripts: {stats.script_count}, "
+            f"resources: {stats.resource_count}"
+        ),
+    ]
+    for ext in stats.by_extension:
+        lines.append(f"  .{ext.extension}: {ext.files} files, {ext.lines} lines")
+    if stats.autoloads:
+        lines.append("autoloads:")
+        lines += [f"  {a.name} = {a.path}" for a in stats.autoloads]
+    if stats.plugins:
+        lines.append("plugins:")
+        lines += [f"  {p}" for p in stats.plugins]
+    return "\n".join(lines)
+
+
 def render_engine_version(version: "EngineVersion") -> str:
     """Render the engine version as its one-line version string."""
     return version.string
@@ -451,6 +504,10 @@ _RENDERERS = {
     ShaderGetResult: render_shader_get,
     ShaderSetResult: render_shader_set,
     ThemeCreateResult: render_theme_create,
+    ProjectFindReferencesResult: render_project_find_references,
+    ProjectDependenciesResult: render_project_dependencies,
+    ProjectFindUnusedResourcesResult: render_project_find_unused_resources,
+    ProjectStatisticsResult: render_project_statistics,
     EngineVersion: render_engine_version,
 }
 

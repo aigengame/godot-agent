@@ -350,6 +350,13 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A requested project setting does not exist in the project's ProjectSettings.",
     ),
     ErrorCodeSpec(
+        "invalid_target",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A project find-references target is empty or not a valid res:// path or class_name.",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         EXIT_PARSE,
