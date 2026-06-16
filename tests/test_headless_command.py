@@ -9,19 +9,7 @@ import typer
 from gda.headless import HeadlessCommand
 from gda.models import EngineVersion, InfoParams
 from gda.runner import LaunchFailure, RunResult
-from tests.support import FakeRunner, sentinel
-
-VERSION_INFO = {
-    "major": 4,
-    "minor": 6,
-    "patch": 3,
-    "hex": 0x040603,
-    "status": "stable",
-    "build": "official",
-    "hash": "7d41c59c457bd5a245092b4e7eb2d833e3b3f8c3",
-    "string": "4.6.3-stable (official)",
-    "timestamp": 0,
-}
+from tests.support import VERSION_INFO, FakeRunner, sentinel
 
 
 def test_headless_command_emit_owns_runner_classification_and_json_output(capsys):

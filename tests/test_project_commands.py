@@ -27,19 +27,7 @@ from gda.models import (
     ProjectSetResult,
 )
 from gda.runner import RunResult
-from tests.support import FakeRunner, inject_runner, sentinel
-
-VERSION_INFO = {
-    "major": 4,
-    "minor": 6,
-    "patch": 3,
-    "hex": 0x040603,
-    "status": "stable",
-    "build": "official",
-    "hash": "7d41c59c457bd5a245092b4e7eb2d833e3b3f8c3",
-    "string": "4.6.3-stable (official)",
-    "timestamp": 0,
-}
+from tests.support import VERSION_INFO, FakeRunner, inject_runner, sentinel
 
 INFO_RESULT = {
     "name": "My Game",
