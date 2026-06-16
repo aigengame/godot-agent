@@ -12,16 +12,18 @@ import pytest
 from gda import render as render_mod
 from gda.models import (
     EngineVersion,
+    ListedNode,
     ListedScript,
     NodeGetResult,
     NodeProperty,
     NodeSetResult,
+    SceneNode,
     ScriptCreateResult,
     ScriptDeleteResult,
     ScriptGetResult,
     ScriptSetResult,
 )
-from gda.render import ScriptMetadata, format_value, render
+from gda.render import ScriptMetadata, format_value, render, render_node_tree
 
 # The five script result types the metadata renderer used to read as a union.
 SCRIPT_METADATA_MODELS = [
@@ -68,6 +70,45 @@ def test_format_value_owns_value_to_text():
     assert format_value(3) == "3"
     assert format_value([1.0, 2.0]) == "[1.0, 2.0]"
     assert format_value(True) == "true"
+
+
+def _deep_chain(model, depth, **leaf_fields):
+    # A single-child chain `depth` nodes deep, built via model_construct so it
+    # bypasses pydantic's recursive validation (issue #37): the point is to
+    # exercise the RENDER path's recursion in isolation, at a depth past the
+    # ~255 pydantic-core ceiling a legitimately deep scene can reach.
+    root = leaf = model.model_construct(name="n0", type="Node", children=[], **leaf_fields)
+    for i in range(1, depth):
+        child = model.model_construct(
+            name=f"n{i}", type="Node", children=[], **leaf_fields
+        )
+        leaf.children = [child]
+        leaf = child
+    return root
+
+
+def test_render_node_tree_does_not_recurse_on_a_deep_tree():
+    # The non-`--json` render path must not raise an unstructured RecursionError
+    # on a legitimately deep scene tree (issue #37): a 2000-deep chain — far past
+    # the ~255 pydantic-core ceiling — renders one indented line per node.
+    deep = _deep_chain(SceneNode, 2000)
+
+    rendered = render_node_tree(deep)
+
+    lines = rendered.split("\n")
+    assert len(lines) == 2000
+    assert lines[0] == "n0 (Node)"
+    assert lines[-1] == "  " * 1999 + "n1999 (Node)"
+
+
+def test_render_node_tree_renders_listed_nodes_deeply_too():
+    # node list shares the same recursive renderer over ListedNode; a deep listed
+    # tree must render without RecursionError as well (issue #37).
+    deep = _deep_chain(ListedNode, 2000, path=".")
+
+    rendered = render_node_tree(deep)
+
+    assert len(rendered.split("\n")) == 2000
 
 
 def test_render_node_properties_routes_value_through_the_helper():

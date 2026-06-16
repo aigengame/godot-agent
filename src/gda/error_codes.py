@@ -307,6 +307,14 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.PARSER,
         "The process claimed success but violated the structured-output contract.",
     ),
+    ErrorCodeSpec(
+        "tree_too_deep",
+        ErrorCategory.PARSE,
+        EXIT_PARSE,
+        ErrorCodeSource.CLASSIFIER,
+        "The engine emitted a valid result tree that nests past gda's recursion"
+        " limit; the payload is contract-conformant, the limit is wrapper-side.",
+    ),
 )
 
 ERROR_CODE_BY_CODE: dict[str, ErrorCodeSpec] = {spec.code: spec for spec in ERROR_CODES}

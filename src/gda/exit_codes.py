@@ -13,6 +13,11 @@ glance and new codes cannot silently collide.
   failure, not mislabelled environment (issue #15).
 - ``EXIT_VERSION`` / ``EXIT_OPERATION`` / ``EXIT_PARSE`` are distinct small codes
   the CLI assigns to failures the engine signalled differently or not at all.
+  ``parse`` (exit ``5``) spans more than one ``GdaError.code``: both a genuine
+  ``contract_violation`` and a deep-but-valid ``tree_too_deep`` (issue #37) — the
+  envelope ``code`` distinguishes them, exactly as the many ``operation`` codes
+  share exit ``4``. Exit codes stay at category granularity; finer detail is the
+  ``code`` field's job (ADR-0002, ADR-0004).
 """
 
 EXIT_NOT_FOUND = 127
