@@ -70,6 +70,14 @@ class SubprocessExportRunner:
     export subsystem requires an editor (tools) build; a non-tools binary lacks
     these flags entirely and the engine reports it as a usage error, surfaced as a
     generic export failure by the classifier.
+
+    The process is spawned with ``cwd = <project>`` when a project is resolved.
+    Godot writes the export artifact via ``FileAccess``/``DirAccess`` with NO
+    project globalization (verified against the engine source), so a *relative*
+    output path — the common case, since a preset's configured ``export_path`` is
+    stored project-relative (e.g. ``build/game.x86_64``) — resolves against the
+    process CWD. Running from the project root makes that relative path land
+    inside the project, exactly as the editor resolves it (issue #121).
     """
 
     binary: Path
@@ -79,12 +87,13 @@ class SubprocessExportRunner:
     def run(self, preset: str, mode: str, output_path: str) -> ExportRunOutput:
         flag = EXPORT_MODE_FLAGS[mode]
         cmd = [str(self.binary), "--headless"]
+        cwd = str(self.project) if self.project is not None else None
         if self.project is not None:
             cmd += ["--path", str(self.project)]
         cmd += [flag, preset, output_path]
         try:
             proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=self.timeout
+                cmd, capture_output=True, text=True, timeout=self.timeout, cwd=cwd
             )
         except subprocess.TimeoutExpired:
             return ExportRunOutput(

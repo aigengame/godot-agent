@@ -34,19 +34,41 @@ one-shot `godot --headless` processes under ADR-0001:
    unless they cannot.
 2. **Native engine CLI mode (editor-only capabilities).** When the capability is
    editor-only / unreachable from a runtime script, `gda` invokes the engine's native
-   CLI mode directly and **classifies** the subprocess outcome (exit code + output)
-   into **classifier-source** `GdaError` codes — the same mechanism ADR-0002 already
-   uses for `engine_crashed` / `operation_failed`. Such codes live in the
-   `src/gda/error_codes.py` registry and the ADR-0002 table only, and are **not**
-   mirrored in GDScript (per ADR-0002: only operation-source codes are mirrored,
-   because only those can be reported by an op). A drift test enforces this.
+   CLI mode directly and **classifies** the subprocess outcome into
+   **classifier-source** `GdaError` codes — the same mechanism ADR-0002 already
+   uses for `engine_crashed` / `operation_failed`. The native CLI mode emits no
+   ADR-0002 sentinel, so the classification keys on the **process exit code** plus a
+   **structured pre-check** performed before the native run — never on the engine's
+   stderr text. Consistent with ADR-0002, stderr is **never** parsed to choose a
+   stable code; it is surfaced **only** as the advisory `message` / diagnostics on
+   the outcome (the same advisory-diagnostics carve-out ADR-0002 grants `script
+   validate`). Such codes live in the `src/gda/error_codes.py` registry and the
+   ADR-0002 table only, and are **not** mirrored in GDScript (per ADR-0002: only
+   operation-source codes are mirrored, because only those can be reported by an op).
+   A drift test enforces this.
 
 **Minimise the divergence.** Keep as much of an operation as possible on the default
 rails; only the irreducibly-native step takes mechanism 2. `export run` is therefore
-two-phase: phase 1 resolves the preset via the standard `export-get` op (so an unknown
-preset is the operation-source `export_preset_not_found`); only phase 2 — the export
-execution itself — uses the native CLI mode plus classifier (`export_path_unset`,
-`export_templates_missing`, `export_failed`).
+staged so that everything decidable from structured data is decided *before* the
+native run:
+
+- **Resolve (op-dispatch).** The preset is resolved via the standard `export-get`
+  op, so an unknown preset is the operation-source `export_preset_not_found` and a
+  project with no `export_presets.cfg` is `export_presets_not_found`.
+- **Structured preflight (classifier, no native run).** `export-get` already reports
+  the preset's configured `export_path` and, structurally, its template readiness
+  (`templates_installed` — the readiness field built for exactly this check). From
+  those: an empty configured `export_path` is `export_path_unset`, and uninstalled
+  templates for the running engine version are `export_templates_missing`. Both are
+  decided here, from structured fields, with **no** native export spawned — in
+  particular `export_templates_missing` is *not* inferred from the engine's "due to
+  configuration errors" stderr (which would violate ADR-0002 and also misfires for a
+  merely-misconfigured preset).
+- **Native run (classifier on exit code).** Only the export execution itself uses the
+  native CLI mode. A clean exit is the typed success result (with any advisory
+  `WARNING` lines parsed off stderr as best-effort diagnostics); any non-zero exit is
+  the generic `export_failed`, with the engine's stderr attached only as advisory
+  diagnostics, never parsed to select the code.
 
 ## Considered options
 

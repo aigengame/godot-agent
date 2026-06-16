@@ -326,7 +326,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.CLASSIFIER,
-        "An export run was asked to use the preset's configured export_path, but the preset has none and no output path was given.",
+        "An export run targeted a preset that has no configured export_path.",
     ),
     ErrorCodeSpec(
         "export_templates_missing",
