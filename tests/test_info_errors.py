@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.runner import LaunchFailure, RunResult
 from tests.support import inject_runner as _inject
-from tests.support import sentinel
+from tests.support import raw_sentinel, sentinel
 
 
 def test_binary_not_found_maps_to_environment_error(monkeypatch):
@@ -208,7 +208,7 @@ def test_malformed_sentinel_json_maps_to_parse_error(monkeypatch):
     _inject(
         monkeypatch,
         RunResult(
-            stdout="<<<GDA:RESULT>>>{not valid json}<<<GDA:END>>>\n",
+            stdout=raw_sentinel("{not valid json}"),
             stderr="",
             exit_code=0,
         ),

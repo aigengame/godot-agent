@@ -49,7 +49,17 @@ class FakeExportRunner:
 
 def sentinel(payload: dict) -> str:
     """Wrap ``payload`` in the ADR-0002 result sentinels, as operations.gd emits."""
-    return f"<<<GDA:RESULT>>>{json.dumps(payload)}<<<GDA:END>>>\n"
+    return raw_sentinel(json.dumps(payload))
+
+
+def raw_sentinel(body: str) -> str:
+    """Wrap a RAW string ``body`` in the ADR-0002 result sentinels.
+
+    The escape hatch for frames :func:`sentinel` cannot build from a ``dict`` —
+    notably an intentionally malformed-JSON payload — so tests exercising the
+    parse-error path don't hand-build the sentinel markers inline.
+    """
+    return f"<<<GDA:RESULT>>>{body}<<<GDA:END>>>\n"
 
 
 def error_sentinel(code: str, message: str) -> str:
