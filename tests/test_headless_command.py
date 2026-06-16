@@ -90,3 +90,31 @@ def test_headless_command_emit_owns_structured_failure_output(capsys):
     assert raised.value.exit_code == 127
     assert json.loads(captured.out)["error"]["code"] == "binary_not_found"
     assert "not found" in captured.err
+
+
+def test_empty_godot_path_maps_to_structured_binary_not_found(capsys):
+    # ``--godot ""`` makes binary resolution raise ``ValueError`` *before* a
+    # runner is ever built; that must become the structured ``binary_not_found``
+    # environment envelope (exit 127), not escape as a raw traceback (#33).
+    def make_runner(binary: Path, project: Path | None):  # pragma: no cover
+        raise AssertionError("no runner should be built for an unresolvable binary")
+
+    command: HeadlessCommand[EngineVersion] = HeadlessCommand(
+        operation="info",
+        input_model=InfoParams,
+        output_model=EngineVersion,
+    )
+
+    with pytest.raises(typer.Exit) as raised:
+        command.emit(
+            InfoParams(),
+            godot="",
+            project=None,
+            json_output=False,
+            render_text=lambda version: version.string,
+            make_runner=make_runner,
+        )
+
+    captured = capsys.readouterr()
+    assert raised.value.exit_code == 127
+    assert json.loads(captured.out)["error"]["code"] == "binary_not_found"

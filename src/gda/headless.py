@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from typer.core import TyperCommand
 
 from gda.binary import resolve_godot_binary
-from gda.errors import Failure, classify_run
+from gda.errors import Failure, classify_run, unresolvable_binary_failure
 from gda.models import CommandSchema, GdaErrorEnvelope
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
 
@@ -160,7 +160,15 @@ class HeadlessCommand(Generic[M]):
         Diagnostics are forwarded to stderr. Failures are emitted as the public
         structured error envelope and terminate via Typer's exit path.
         """
-        binary = resolve_godot_binary(godot)
+        try:
+            binary = resolve_godot_binary(godot)
+        except ValueError as exc:
+            # An empty ``--godot ""`` (a natural $GDA_GODOT mistake) makes
+            # resolution raise *before* a runner exists — there is no binary to
+            # launch, the same environment failure as a missing one. Map it to
+            # the structured ``binary_not_found`` envelope so it never escapes as
+            # a raw traceback (issue #33), mirroring the runner's NOT_FOUND path.
+            _fail(unresolvable_binary_failure(str(exc)))
         runner = make_runner(binary, project)
         result = runner.run(self.operation, params.model_dump())
 
