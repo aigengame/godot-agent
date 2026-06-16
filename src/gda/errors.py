@@ -125,6 +125,24 @@ def _operation_error_from_payload(result: RunResult) -> tuple[str, str] | None:
     return envelope.error.code, envelope.error.message
 
 
+def unresolvable_binary_failure(reason: str) -> Failure:
+    """The ``binary_not_found`` failure when the binary cannot even be resolved (issue #33).
+
+    Binary resolution runs *before* a runner is built, so an unresolvable
+    ``--godot`` value (an empty ``--godot ""`` / ``$GDA_GODOT`` mistake) raises
+    instead of producing a launchable path. There is no engine to run — the same
+    environment outcome the runner reports as ``LaunchFailure.NOT_FOUND`` — so it
+    reuses the ``binary_not_found`` code rather than minting a new one (ADR-0002:
+    reuse the exit code; discriminate via the envelope). Kept here beside the
+    other environment failures so the whole taxonomy reads from one place.
+    """
+    return _failure(
+        "binary_not_found",
+        f"Godot binary could not be resolved: {reason}",
+        "",
+    )
+
+
 def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | Failure:
     """Classify a raw headless run into the command's typed model or a ``Failure``.
 

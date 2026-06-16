@@ -89,9 +89,13 @@ class SubprocessGodotRunner:
             json.dumps(params),
         ]
         try:
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=self.timeout
-            )
+            # Capture raw bytes (no ``text=True``): Godot's ``JSON.stringify``
+            # emits UTF-8, but ``text=True`` would decode with the host locale,
+            # which mojibakes or raises ``UnicodeDecodeError`` on a non-UTF-8
+            # locale (e.g. Windows cp1252/cp936) for a non-ASCII node name or
+            # echoed path. We decode UTF-8 explicitly below so user content
+            # round-trips regardless of locale (issue #33).
+            proc = subprocess.run(cmd, capture_output=True, timeout=self.timeout)
         except subprocess.TimeoutExpired:
             return RunResult(
                 stdout="",
@@ -99,13 +103,31 @@ class SubprocessGodotRunner:
                 exit_code=EXIT_TIMEOUT,
                 launch_failure=LaunchFailure.TIMEOUT,
             )
-        except FileNotFoundError:
+        except OSError as exc:
+            # The configured binary could not be launched. ``FileNotFoundError``
+            # (missing), ``PermissionError`` (a directory like ``Godot.app`` — a
+            # natural $GDA_GODOT mistake — or a non-executable file), and any
+            # other ``OSError`` from ``exec`` are all the same environment
+            # failure: there was no engine to run (issue #33). They synthesize
+            # the typed ``NOT_FOUND`` reason so the classifier keys environment
+            # on it, not on the overloaded exit code (issue #15). ``OSError``
+            # does not subsume ``TimeoutExpired`` (a ``SubprocessError``), so the
+            # timeout path above is preserved. The original OS message is kept as
+            # advisory stderr to disambiguate which of the three modes occurred.
             return RunResult(
                 stdout="",
-                stderr=f"gda: Godot binary not found: {self.binary}\n",
+                stderr=f"gda: Godot binary could not be launched: {self.binary} ({exc})\n",
                 exit_code=EXIT_NOT_FOUND,
                 launch_failure=LaunchFailure.NOT_FOUND,
             )
         return RunResult(
-            stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode
+            # Decode the engine's bytes as UTF-8 with a replacement policy: a
+            # well-behaved operation emits valid UTF-8, so ``replace`` only ever
+            # fires on genuinely malformed bytes — and the runner never crashes
+            # on engine output. A malformed result then surfaces as a structured
+            # ``contract_violation`` downstream rather than an escaping
+            # ``UnicodeDecodeError`` traceback (ADR-0002).
+            stdout=proc.stdout.decode("utf-8", errors="replace"),
+            stderr=proc.stderr.decode("utf-8", errors="replace"),
+            exit_code=proc.returncode,
         )

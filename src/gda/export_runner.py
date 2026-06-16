@@ -92,8 +92,12 @@ class SubprocessExportRunner:
             cmd += ["--path", str(self.project)]
         cmd += [flag, preset, output_path]
         try:
+            # Capture raw bytes (no ``text=True``): like the sentinel runner,
+            # the native export channel must not decode with the host locale,
+            # which mojibakes or raises ``UnicodeDecodeError`` on a non-UTF-8
+            # locale. We decode UTF-8 explicitly below (issue #33).
             proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=self.timeout, cwd=cwd
+                cmd, capture_output=True, timeout=self.timeout, cwd=cwd
             )
         except subprocess.TimeoutExpired:
             return ExportRunOutput(
@@ -102,15 +106,29 @@ class SubprocessExportRunner:
                 exit_code=EXIT_TIMEOUT,
                 launch_failure=LaunchFailure.TIMEOUT,
             )
-        except FileNotFoundError:
+        except OSError as exc:
+            # The configured binary could not be launched: ``FileNotFoundError``
+            # (missing), ``PermissionError`` (a directory like ``Godot.app`` or a
+            # non-executable file), and any other ``OSError`` from ``exec`` are
+            # one environment failure — there was no engine to run (issue #33).
+            # Mirrors ``SubprocessGodotRunner`` so both runners close the same
+            # raw-launch-failure surface. ``OSError`` does not subsume
+            # ``TimeoutExpired`` (a ``SubprocessError``), so the timeout path
+            # above is preserved.
             return ExportRunOutput(
                 stdout="",
-                stderr=f"gda: Godot binary not found: {self.binary}\n",
+                stderr=f"gda: Godot binary could not be launched: {self.binary} ({exc})\n",
                 exit_code=EXIT_NOT_FOUND,
                 launch_failure=LaunchFailure.NOT_FOUND,
             )
         return ExportRunOutput(
-            stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode
+            # Decode the engine's bytes as UTF-8 with a replacement policy, like
+            # the sentinel runner: a well-behaved export emits valid UTF-8, so
+            # ``replace`` only fires on genuinely malformed bytes and the runner
+            # never crashes on engine output (issue #33).
+            stdout=proc.stdout.decode("utf-8", errors="replace"),
+            stderr=proc.stderr.decode("utf-8", errors="replace"),
+            exit_code=proc.returncode,
         )
 
 
