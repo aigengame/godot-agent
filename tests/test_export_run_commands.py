@@ -286,6 +286,61 @@ def test_export_run_missing_templates_is_structured_preflight(monkeypatch, tmp_p
     assert export_runner.calls == []
 
 
+def test_export_run_pack_skips_template_preflight_when_missing(monkeypatch, tmp_path):
+    # #170: --mode pack produces project data only (Godot's native --export-pack)
+    # and needs NO platform export templates. So when export get reports
+    # templates_installed=False, pack must NOT emit export_templates_missing — it
+    # proceeds straight to the native runner. (release/debug, which DO need
+    # templates, still fail fast — asserted by the parametric test below.)
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    get = {**GET_RESULT, "templates_installed": False, "templates_version": "4.6.3.stable"}
+    _, export_runner = _inject(monkeypatch, get=get)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "export", "run", "--preset", "Linux/X11",
+            "--mode", "pack",
+            "--project", str(tmp_path), "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["mode"] == "pack"
+    # The preflight was skipped for pack: the native export actually ran.
+    assert export_runner.calls == [("Linux/X11", "pack", "build/game.x86_64")]
+
+
+def test_export_run_release_debug_still_require_templates_when_missing(monkeypatch, tmp_path):
+    # The counterpart guard: release and debug DO need platform templates, so with
+    # templates_installed=False they still fail fast with export_templates_missing
+    # before any native run — only pack is exempt (#170).
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    for mode in ("release", "debug"):
+        get = {
+            **GET_RESULT,
+            "templates_installed": False,
+            "templates_version": "4.6.3.stable",
+        }
+        _, export_runner = _inject(monkeypatch, get=get)
+
+        result = CliRunner().invoke(
+            app,
+            [
+                "export", "run", "--preset", "Linux/X11",
+                "--mode", mode,
+                "--project", str(tmp_path), "--json",
+            ],
+        )
+
+        assert result.exit_code == 4, f"{mode}: {result.stdout + result.stderr}"
+        error = _error(result)
+        assert error["code"] == "export_templates_missing", f"{mode}: {result.stdout}"
+        # The preflight fired before any native run.
+        assert export_runner.calls == [], mode
+
+
 def test_export_run_generic_failure_is_structured(monkeypatch, tmp_path):
     # A non-zero export with no recognized stderr signature is the generic
     # export_failed code; the engine's stderr is preserved as diagnostics.

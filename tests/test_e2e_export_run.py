@@ -9,15 +9,21 @@ real Godot, classified by the real ``classify_export_run`` — plus the real
 ``export get`` structured template-readiness preflight.
 
 The acceptance behavior is exporting to the preset's **configured** ``export_path``
-(no ``--output``). A successful export needs the export templates for the running
-engine version installed; the test machine may not have them, so the configured-
-path happy-path test **auto-skips** when ``export get`` reports the templates are
-missing — the same template-presence policy the read-only export e2e (issue #114)
-observes. Crucially, missing templates are now caught by gda's STRUCTURED preflight
-(export get's ``templates_installed``) *before* any native run, so when templates
-are absent this test asserts the structured ``export_templates_missing`` path live
-and then skips only the success assertion. The structured-failure paths that need
-no templates (unknown preset, unset path) run unconditionally.
+(no ``--output``). A successful *release* export needs the export templates for the
+running engine version installed; the test machine may not have them, so the
+configured-path release happy-path test **auto-skips** when ``export get`` reports
+the templates are missing — the same template-presence policy the read-only export
+e2e (issue #114) observes. Crucially, missing templates are caught by gda's
+STRUCTURED preflight (export get's ``templates_installed``) *before* any native run,
+so when templates are absent that release test asserts the structured
+``export_templates_missing`` path live and then skips only the success assertion.
+
+``--mode pack`` is different (#170): Godot's native ``--export-pack`` produces
+project data only (a PCK/ZIP) and needs **no** platform export templates, so the
+pack test must RUN — not skip — on a template-less machine: it asserts exit 0 and
+the ``.pck`` on disk, giving the on-disk verification a release export cannot give
+here. The structured-failure paths that need no templates (unknown preset, unset
+path) run unconditionally.
 """
 
 import json
@@ -41,6 +47,8 @@ platform="Linux/X11"
 runnable=true
 custom_features=""
 export_filter="all_resources"
+include_filter=""
+exclude_filter=""
 export_path="build/game.x86_64"
 
 [preset.0.options]
@@ -54,6 +62,8 @@ platform="Linux/X11"
 runnable=false
 custom_features=""
 export_filter="all_resources"
+include_filter=""
+exclude_filter=""
 export_path=""
 
 [preset.1.options]
@@ -170,16 +180,23 @@ def test_export_run_writes_to_configured_export_path(godot_project):
 
 
 @pytest.mark.e2e
-def test_export_run_output_override_and_mode_write_to_overridden_path(godot_project):
-    # #170 overrides: `--mode pack --output <path>` runs the native --export-pack
-    # to the OVERRIDDEN path (not the preset's configured build/game.x86_64) and
-    # reports mode == "pack" with output_path == the override. A pack export still
-    # needs the engine's templates, so this follows the same template-presence
-    # policy: when templates are absent, gda's structured preflight fails fast with
-    # export_templates_missing before any native run — assert that live, then skip
-    # only the success assertion.
+def test_export_run_pack_writes_pck_without_templates(godot_project):
+    # #170 PROOF: `--mode pack --output <path>.pck` runs Godot's native
+    # --export-pack to the OVERRIDDEN path (not the preset's configured
+    # build/game.x86_64) and writes a .pck — WITHOUT installed export templates.
+    # pack produces project data only, so unlike release/debug it needs no platform
+    # templates and gda's preflight must NOT block it. This test therefore does NOT
+    # skip on a template-less machine: it asserts exit 0 and the artifact on disk,
+    # the on-disk verification a release export cannot give here. (If this machine
+    # DOES have templates, the same assertions hold.)
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    # all_resources packs every res:// resource, so the project needs at least one
+    # exportable file — a bare project.godot alone yields Godot's "Must select at
+    # least one file to export." A trivial script suffices as pack content.
+    (godot_project / "main.gd").write_text(
+        "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
     )
     override_rel = "dist/packed.pck"
     artifact = godot_project / override_rel
@@ -192,22 +209,12 @@ def test_export_run_output_override_and_mode_write_to_overridden_path(godot_proj
         "--mode", "pack", "--output", override_rel, "--json",
     )
 
-    if not _templates_installed(gda):
-        assert run.returncode == 4, run.stdout + run.stderr
-        err = json.loads(run.stdout)["error"]
-        assert err["code"] == "export_templates_missing", run.stdout + run.stderr
-        assert not artifact.exists(), "no artifact when the preflight fails fast"
-        pytest.skip(
-            "export templates for the running engine version are not installed; "
-            "skipping the successful-override assertion (the structured "
-            "export_templates_missing preflight was verified instead)"
-        )
-
+    # No skip: pack must RUN to completion regardless of template presence.
     assert run.returncode == 0, run.stdout + run.stderr
     data = json.loads(run.stdout)
     assert data["mode"] == "pack"
-    # The reported output_path is the override, and the artifact lands there —
+    # The reported output_path is the override, and the .pck lands there on disk —
     # NOT at the preset's configured export_path.
     assert data["output_path"] == override_rel
-    assert artifact.exists(), f"expected artifact at the override path {artifact}"
+    assert artifact.exists(), f"expected .pck at the override path {artifact}"
     assert not configured.exists(), "the override must not write the configured path"

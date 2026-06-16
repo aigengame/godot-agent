@@ -1688,20 +1688,28 @@ def run_export(
     # fail-fast checks, both decided from export get's structured fields rather
     # than from the engine's stderr (which ADR-0002 forbids parsing for codes):
     #
-    #  - There must be a destination. --output supplies one directly (#170); only
-    #    when no override is given AND the configured export_path is empty is there
-    #    nowhere to write — export_path_unset. Checked first because it is a
-    #    config/argument error independent of the engine's template state, so it
-    #    stays deterministic whether or not templates happen to be installed.
-    #  - Templates for the running engine version must be installed. export get
-    #    reports that structurally (templates_installed) — the readiness check
-    #    built for exactly this — so an export against an uninstalled template
-    #    version is the distinct export_templates_missing, decided here rather
-    #    than by string-matching the engine's "due to configuration errors"
-    #    stderr (which also fires for a merely-misconfigured preset).
+    #  - There must be a destination, for EVERY mode. --output supplies one
+    #    directly (#170); only when no override is given AND the configured
+    #    export_path is empty is there nowhere to write — export_path_unset.
+    #    Checked first because it is a config/argument error independent of the
+    #    engine's template state, so it stays deterministic whether or not
+    #    templates happen to be installed.
+    #  - Templates for the running engine version must be installed — but ONLY
+    #    for release/debug, never for pack (#170). release/debug produce a full
+    #    platform binary and need the matching platform export templates; pack
+    #    produces project data only (a PCK/ZIP via Godot's native --export-pack)
+    #    and needs no platform templates (ExportRunMode's docstring; confirmed on
+    #    Godot 4.6.3, where a template-less --export-pack writes a .pck). Gating
+    #    pack out lets template-less environments use the mode that works there.
+    #    export get reports template readiness structurally (templates_installed)
+    #    — the readiness check built for exactly this — so a release/debug export
+    #    against an uninstalled template version is the distinct
+    #    export_templates_missing, decided here rather than by string-matching the
+    #    engine's "due to configuration errors" stderr (which also fires for a
+    #    merely-misconfigured preset).
     if not output_path:
         emit_failure(export_path_unset_failure(got.name))
-    if not got.templates_installed:
+    if mode is not ExportRunMode.PACK and not got.templates_installed:
         emit_failure(export_templates_missing_failure(got.name, got.templates_version))
 
     # Phase 3: run the native export and classify its raw outcome. The export-get

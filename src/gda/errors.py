@@ -412,33 +412,37 @@ def classify_export_run(
 
 
 def export_path_unset_failure(preset: str) -> Failure:
-    """The ``export_path_unset`` failure for a preset with no configured path (issue #121).
+    """The ``export_path_unset`` failure for a preset with no effective destination (issue #121, #170).
 
-    ``export run`` writes the artifact to the preset's own configured
-    ``export_path`` (a ``--output`` override is deferred to #170). When the preset
-    has no configured ``export_path`` there is nowhere to write, so gda fails
+    ``export run`` writes the artifact to the effective destination: the
+    ``--output`` override if given (#170), else the preset's own configured
+    ``export_path``. When neither supplies a destination — no ``--output`` AND an
+    empty configured ``export_path`` — there is nowhere to write, so gda fails
     *before* spawning the export rather than letting the engine error obscurely.
-    A pre-run classifier decision (the path is resolved at the CLI from
-    ``export get``'s ``export_path``), kept here beside the other export failures
-    so the whole taxonomy reads from one place.
+    A pre-run classifier decision (the destination is resolved at the CLI from
+    ``--output`` / ``export get``'s ``export_path``), kept here beside the other
+    export failures so the whole taxonomy reads from one place.
     """
     return _failure(
         "export_path_unset",
-        f'export preset "{preset}" has no configured export_path',
+        f'export preset "{preset}" has no destination: '
+        "pass --output or set the preset's export_path",
         "",
     )
 
 
 def export_templates_missing_failure(preset: str, templates_version: str) -> Failure:
-    """The ``export_templates_missing`` failure from the structured preflight (issue #121).
+    """The ``export_templates_missing`` failure from the structured preflight (issue #121, #170).
 
-    A release export needs the export templates for the running engine version
-    installed. ``export get`` already reports that structurally
-    (``templates_installed``) — the readiness check built for exactly this — so
-    gda decides this *before* spawning the native export, rather than
-    string-matching the engine's "due to configuration errors" stderr (which
-    ADR-0002 forbids, and which also fires for a merely-misconfigured preset).
-    Names the ``templates_version`` directory the agent must install.
+    A release/debug export needs the platform export templates for the running
+    engine version installed (``pack`` does not — it produces project data only,
+    so the preflight skips this check for ``--mode pack``; #170). ``export get``
+    already reports template readiness structurally (``templates_installed``) —
+    the readiness check built for exactly this — so gda decides this *before*
+    spawning the native export, rather than string-matching the engine's "due to
+    configuration errors" stderr (which ADR-0002 forbids, and which also fires for
+    a merely-misconfigured preset). Names the ``templates_version`` directory the
+    agent must install.
     """
     return _failure(
         "export_templates_missing",
