@@ -1360,17 +1360,16 @@ class ExportGetResult(BaseModel):
 
 
 class ExportRunMode(str, Enum):
-    """The export flavor ``gda export run`` produces (issue #121).
+    """The export flavor ``gda export run`` produces (issue #121, selectable #170).
 
     Maps to Godot's native export flags (ADR-0001). ``release``/``debug`` produce
     a full platform binary and require the matching export templates to be
     installed; ``pack`` produces project data only — a PCK/ZIP, chosen by the
     output path's extension — and needs no platform templates.
 
-    Issue #121 fixes the mode to ``release`` (the common intent — a complete
-    export), exposing no ``--mode`` flag; selecting ``debug``/``pack`` is deferred
-    to follow-up #170. The enum keeps all three flavors so the result field can
-    document the mode that ran and #170 can wire the flag without reshaping it.
+    Issue #121 fixed the mode to ``release`` (the common intent — a complete
+    export); follow-up #170 exposes ``--mode`` so an agent can select
+    ``debug``/``pack``. ``release`` stays the default.
     """
 
     RELEASE = "release"
@@ -1379,19 +1378,27 @@ class ExportRunMode(str, Enum):
 
 
 class ExportRunParams(BaseModel):
-    """The operation params of ``gda export run`` (issue #121).
+    """The operation params of ``gda export run`` (issue #121, overrides #170).
 
     ``preset`` addresses the export preset by its display name (as ``export
     list`` reports it); an unknown name is the ``export_preset_not_found``
-    failure. The export runs in ``release`` mode to the preset's *configured*
-    ``export_path`` (an empty configured path is the ``export_path_unset``
-    failure). A ``--mode`` selector and an ``--output`` path override are deferred
-    to follow-up #170, so this command takes only ``preset``. The project is
-    process context (``--project``, ADR-0006).
+    failure. ``mode`` selects the export flavor (``release`` default; #170).
+    ``output`` overrides the preset's *configured* ``export_path`` (#170); when
+    omitted the export targets the configured path (an empty configured path with
+    no override is the ``export_path_unset`` failure). The project is process
+    context (``--project``, ADR-0006).
     """
 
     preset: str = Field(
         description="The export preset's display name, as 'gda export list' reports it."
+    )
+    mode: ExportRunMode = Field(
+        default=ExportRunMode.RELEASE,
+        description="The export flavor to run (release/debug/pack); default release.",
+    )
+    output: str | None = Field(
+        default=None,
+        description="Override the preset's configured export_path; write the artifact here instead.",
     )
 
 
@@ -1399,9 +1406,10 @@ class ExportRunResult(BaseModel):
     """The result of ``gda export run``: the artifact that was produced (issue #121).
 
     Echoes the addressed preset's ``preset`` name and target ``platform`` (read
-    from ``export_presets.cfg``), the ``mode`` that was run (always ``release``
-    in #121 — ``--mode`` is deferred to #170), and the ``output_path`` the
-    artifact was written to — the preset's *configured* ``export_path``.
+    from ``export_presets.cfg``), the ``mode`` that was run (the selected flavor,
+    ``release`` by default; #170), and the ``output_path`` the artifact was
+    written to — the effective destination, i.e. the ``--output`` override when
+    given, else the preset's *configured* ``export_path`` (#170).
     ``warnings`` carries the engine's non-fatal export warnings (e.g. a missing
     optional icon), parsed best-effort from the export's stderr; an export that
     succeeds cleanly reports ``warnings == []``. Unlike the sentinel operations,

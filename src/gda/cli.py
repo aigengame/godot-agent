@@ -1625,31 +1625,47 @@ def run_export(
         "--preset",
         help="The export preset's display name, as 'gda export list' reports it.",
     ),
-    # NOTE: --mode (release/debug/pack) and --output (path override) are
-    # deferred to follow-up issue #170. Issue #121 asks only to export a named
-    # preset in RELEASE mode to its CONFIGURED export_path, so this command
-    # exposes neither flag; the result still carries `mode` (always "release")
-    # to document the mode that ran.
+    # --mode (#170): select the export flavor. A closed Enum so an unrecognized
+    # value is a Typer usage error (exit 2) rather than reaching the runner;
+    # release is the default, preserving #121's behavior when --mode is omitted.
+    mode: ExportRunMode = typer.Option(
+        ExportRunMode.RELEASE,
+        "--mode",
+        help="The export flavor to run (release/debug/pack); default release.",
+    ),
+    # --output (#170): override the preset's configured export_path. A filesystem
+    # path normalized ONCE at the CLI layer (ADR-0006: ~ expanded), like every
+    # other path-taking command.
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help="Override the preset's configured export_path; write the artifact here instead.",
+    ),
     json_output: bool = json_option(),
     schema: bool = EXPORT_RUN_COMMAND.schema_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Export a named preset (release mode) to its configured path and report the artifact.
+    """Export a named preset to a destination and report the artifact.
 
-    Unlike every other command, the export itself is a native ``--export-release``
+    Unlike every other command, the export itself is a native ``--export-<mode>``
     invocation (the export subsystem is editor-only, so it cannot run through
     operations.gd). The command orchestrates three phases by hand: ``export get``
     resolves the preset's platform + configured ``export_path`` + template
     readiness (reusing #114's clean preset/project errors), a structured preflight
-    fails fast when templates are missing or the path is unset, then the native
-    ``ExportRunner`` performs the export and ``classify_export_run`` synthesizes
-    the typed result from the subprocess's exit code.
+    fails fast when templates are missing or there is no destination, then the
+    native ``ExportRunner`` performs the export and ``classify_export_run``
+    synthesizes the typed result from the subprocess's exit code.
+
+    ``--mode`` selects the export flavor (release/debug/pack; default release) and
+    ``--output`` overrides the preset's configured ``export_path``; both are
+    reflected in the native invocation and the reported result (#170).
     """
     resolved_project = resolve_project_dir(project)
     binary = resolve_godot_binary(godot)
-    # #121 fixes the export flavor to release; --mode is deferred to #170.
-    mode = ExportRunMode.RELEASE
+    # --output is a filesystem path: normalize it ONCE here (ADR-0006, ~-expanded)
+    # so the runner and the reported result both see the effective destination.
+    override_output = _normalize_path(output) if output is not None else None
 
     # Phase 1: resolve the preset via the existing export-get sentinel op. This
     # reuses #114's clean structured errors — an unknown preset is
@@ -1663,22 +1679,26 @@ def run_export(
         make_runner=_make_runner,
     )
 
+    # Resolve the effective destination: --output (already CLI-normalized) wins
+    # over the preset's configured export_path (#170). This is what the native
+    # export writes to AND what the result reports as output_path.
+    output_path = override_output if override_output is not None else got.export_path
+
     # Phase 2: structured preflight, BEFORE any native run (ADR-0010). Two
     # fail-fast checks, both decided from export get's structured fields rather
     # than from the engine's stderr (which ADR-0002 forbids parsing for codes):
     #
-    #  - The configured export_path must be set. A --output override is deferred
-    #    to #170, so an empty configured path means there is nowhere to write —
-    #    export_path_unset. Checked first because it is a per-preset config error
-    #    independent of the engine's template state, so it stays deterministic
-    #    whether or not templates happen to be installed.
+    #  - There must be a destination. --output supplies one directly (#170); only
+    #    when no override is given AND the configured export_path is empty is there
+    #    nowhere to write — export_path_unset. Checked first because it is a
+    #    config/argument error independent of the engine's template state, so it
+    #    stays deterministic whether or not templates happen to be installed.
     #  - Templates for the running engine version must be installed. export get
     #    reports that structurally (templates_installed) — the readiness check
     #    built for exactly this — so an export against an uninstalled template
     #    version is the distinct export_templates_missing, decided here rather
     #    than by string-matching the engine's "due to configuration errors"
     #    stderr (which also fires for a merely-misconfigured preset).
-    output_path = got.export_path
     if not output_path:
         emit_failure(export_path_unset_failure(got.name))
     if not got.templates_installed:

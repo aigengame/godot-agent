@@ -167,3 +167,47 @@ def test_export_run_writes_to_configured_export_path(godot_project):
     assert isinstance(data["warnings"], list)
     # (a) The artifact was actually written to the configured path on disk.
     assert artifact.exists(), f"expected artifact at configured path {artifact}"
+
+
+@pytest.mark.e2e
+def test_export_run_output_override_and_mode_write_to_overridden_path(godot_project):
+    # #170 overrides: `--mode pack --output <path>` runs the native --export-pack
+    # to the OVERRIDDEN path (not the preset's configured build/game.x86_64) and
+    # reports mode == "pack" with output_path == the override. A pack export still
+    # needs the engine's templates, so this follows the same template-presence
+    # policy: when templates are absent, gda's structured preflight fails fast with
+    # export_templates_missing before any native run — assert that live, then skip
+    # only the success assertion.
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    override_rel = "dist/packed.pck"
+    artifact = godot_project / override_rel
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    configured = godot_project / "build/game.x86_64"
+    gda = _gda_project(godot_project)
+
+    run = gda(
+        "export", "run", "--preset", "Linux/X11",
+        "--mode", "pack", "--output", override_rel, "--json",
+    )
+
+    if not _templates_installed(gda):
+        assert run.returncode == 4, run.stdout + run.stderr
+        err = json.loads(run.stdout)["error"]
+        assert err["code"] == "export_templates_missing", run.stdout + run.stderr
+        assert not artifact.exists(), "no artifact when the preflight fails fast"
+        pytest.skip(
+            "export templates for the running engine version are not installed; "
+            "skipping the successful-override assertion (the structured "
+            "export_templates_missing preflight was verified instead)"
+        )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert data["mode"] == "pack"
+    # The reported output_path is the override, and the artifact lands there —
+    # NOT at the preset's configured export_path.
+    assert data["output_path"] == override_rel
+    assert artifact.exists(), f"expected artifact at the override path {artifact}"
+    assert not configured.exists(), "the override must not write the configured path"
