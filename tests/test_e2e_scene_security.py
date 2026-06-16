@@ -3,10 +3,13 @@
 These tests freeze *today's verified contract* for when a single ``gda`` run
 triggers the target project's own code to run (CONTEXT.md "Project-code
 execution surface"). They are deliberate characterization tests for the two
-tracked security findings #61 (autoloads run on every ``--project`` op) and #62
-(mutating commands execute pre-existing scene scripts' ``_init``). They pin the
-facts so that *if hardening ever lands*, the change shows up here as an
-intentional, reviewed test inversion rather than a silent behavior drift.
+tracked findings #61 (autoloads run on every ``--project`` op) and #62
+(instantiating commands execute pre-existing scene scripts' ``_init``). They pin
+the facts so that *if a future behavior/robustness change lands*, the change
+shows up here as an intentional, reviewed test inversion rather than a silent
+behavior drift. ADR-0009 settles the trust-boundary posture: in a Phase-1
+trusted project this constructor execution is expected behavior, and future
+autoload suppression would be a robustness change.
 
 The contract pinned (verified on Godot 4.6.3):
 
@@ -17,10 +20,14 @@ The contract pinned (verified on Godot 4.6.3):
    never runs (issue #30, extended to the node group).
 2. ``test_node_add_executes_pre_existing_scene_script`` — mutation instantiates
    the scene, so a pre-existing scripted node's ``_init`` runs (#62).
-3. ``test_node_add_forged_sentinel_from_scene_script_fails_loudly`` — a scene
+3. ``test_node_get_executes_pre_existing_scene_script`` — ``node get`` is a read
+   that *instantiates* (``operations.gd`` reads it via ``packed.instantiate()``),
+   so it too runs a pre-existing scripted node's ``_init``; the get still
+   succeeds (#62).
+4. ``test_node_add_forged_sentinel_from_scene_script_fails_loudly`` — a scene
    script that forges a result block makes the mutate command fail loudly with
    ``contract_violation`` / exit 5, never a silently accepted forged result (#62).
-4. ``test_autoload_runs_on_scene_get`` — a project's autoload constructor runs
+5. ``test_autoload_runs_on_scene_get`` — a project's autoload constructor runs
    on *every* ``--project`` op, even a read-only ``scene get`` (#61).
 """
 
@@ -99,6 +106,10 @@ def test_scene_get_does_not_execute_scene_code(godot_project):
 
 
 # --- Characterization of the project-code execution surface (issues #61/#62) ---
+# Trust-boundary posture is settled by ADR-0009: in a Phase-1 trusted project the
+# autoload/scene-script constructor execution these tests pin is expected
+# behavior, not a vulnerability. These are characterization tests of that
+# operation-level contract — not security regression tests.
 
 # A scene script whose _init writes an observable marker file. Reused by the
 # read-clean and mutation tests below to detect whether the script ran.
@@ -137,10 +148,10 @@ def _plant_spied_scene(project):
 def test_node_list_does_not_execute_scene_script(godot_project):
     # Characterizes #30's read-clean guarantee, extended to the node group:
     # `node list` (and `scene get`) walk the packed scene's stored state and
-    # never instantiate it, so an attached script's _init never runs. This is a
-    # POSITIVE security property; unlike the #61/#62 contracts below it is NOT a
+    # never instantiate it, so an attached script's _init never runs. This is an
+    # operation-level invariant; unlike the #61/#62 contracts below it is NOT a
     # behavior we expect to invert — if it ever fails, a read started executing
-    # project code and that is a regression, not intentional hardening.
+    # project code and that is a regression, not an intentional behavior change.
     scene = _plant_spied_scene(godot_project)
 
     listed = _gda("node", "list", str(scene), "--project", str(godot_project), "--json")
@@ -166,9 +177,9 @@ def test_node_add_executes_pre_existing_scene_script(godot_project):
     # `node add` on a scene with a pre-existing scripted root EXECUTES that
     # script. The add still succeeds and reports the added node.
     #
-    # If hardening ever lands for #62 (mutate path no longer executes scene
-    # scripts), THIS TEST MUST BE INTENTIONALLY INVERTED: the assertion below
-    # should flip to assert the marker file does NOT appear.
+    # If a future behavior/robustness change lands for #62 (mutate path no longer
+    # executes scene scripts), THIS TEST MUST BE INTENTIONALLY INVERTED: the
+    # assertion below should flip to assert the marker file does NOT appear.
     scene = _plant_spied_scene(godot_project)
 
     added = _gda(
@@ -181,6 +192,39 @@ def test_node_add_executes_pre_existing_scene_script(godot_project):
     data = json.loads(added.stdout)
     assert (data["path"], data["name"], data["type"]) == ("Hero", "Hero", "Sprite2D")
     # Today's contract (#62): the pre-existing scene script's _init ran.
+    assert (godot_project / "spy_ran.txt").exists()
+
+
+@pytest.mark.e2e
+def test_node_get_executes_pre_existing_scene_script(godot_project):
+    # CHARACTERIZATION of issue #62 — today's contract, deliberately pinned:
+    # `node get` is a READ that instantiates. operations.gd reads a node's
+    # property VALUES off the live tree via `packed.instantiate()`, so even
+    # though it mutates nothing it constructs the scene — and constructing a node
+    # with an attached script runs that script's _init. So `node get` on a scene
+    # with a pre-existing scripted root EXECUTES that script. The get still
+    # succeeds and reports the root node's properties.
+    #
+    # `node get` is on the *instantiating* side of the execution surface (like
+    # `node add`), so if a future behavior/robustness change lands for #62 (the
+    # instantiating reads no longer execute scene scripts), THIS TEST MUST BE
+    # INTENTIONALLY INVERTED: the assertion below should flip to assert the
+    # marker file does NOT appear.
+    scene = _plant_spied_scene(godot_project)
+
+    got = _gda(
+        "node", "get", str(scene),
+        "--node", ".",
+        "--project", str(godot_project), "--json",
+    )
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    data = json.loads(got.stdout)
+    # The real root node is reported (the get succeeded).
+    assert data["name"] == "Root"
+    assert data["type"] == "Node2D"
+    # Today's contract (#62): the pre-existing scene script's _init ran during
+    # the instantiating read.
     assert (godot_project / "spy_ran.txt").exists()
 
 
@@ -214,10 +258,11 @@ def test_node_add_forged_sentinel_from_scene_script_fails_loudly(godot_project):
     # because stdout then carries two payloads. Verified on Godot 4.6.3:
     # exit 5, category "parse", code "contract_violation".
     #
-    # This loud-failure property is the desirable half of #62. If #62 is hardened
-    # so the mutate path stops executing scene scripts, this forgery vector
-    # disappears and the test must be intentionally updated (the script would no
-    # longer run, so no second payload would be emitted).
+    # This loud-failure property is the desirable half of #62. If a future
+    # behavior/robustness change for #62 stops the mutate path from executing
+    # scene scripts, this forgery vector disappears and the test must be
+    # intentionally updated (the script would no longer run, so no second payload
+    # would be emitted).
     (godot_project / "forge.gd").write_text(FORGE_GD, encoding="utf-8")
     (godot_project / "forged.tscn").write_text(FORGED_TSCN, encoding="utf-8")
 
@@ -283,9 +328,9 @@ def test_autoload_runs_on_scene_get(godot_project):
     # The autoload's _init therefore fires even on a read-only `scene get`,
     # against a scene that has no script of its own. Verified on Godot 4.6.3.
     #
-    # If hardening ever lands for #61 (autoloads suppressed for one-shot headless
-    # runs), THIS TEST MUST BE INTENTIONALLY INVERTED: the assertion should flip
-    # to assert the marker file does NOT appear.
+    # If a future behavior/robustness change lands for #61 (autoloads suppressed
+    # for one-shot headless runs), THIS TEST MUST BE INTENTIONALLY INVERTED: the
+    # assertion should flip to assert the marker file does NOT appear.
     (godot_project / "project.godot").write_text(
         PROJECT_WITH_AUTOLOAD, encoding="utf-8"
     )
