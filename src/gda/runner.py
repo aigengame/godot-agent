@@ -52,6 +52,90 @@ class RunResult:
     launch_failure: "LaunchFailure | None" = None
 
 
+def launch(
+    binary: Path,
+    args: list[str],
+    *,
+    cwd: Path | None,
+    timeout: float,
+    timeout_label: str = "Godot",
+) -> RunResult:
+    """Spawn one ``godot --headless`` process and normalize its raw outcome.
+
+    The single home of the headless-launch primitive: it builds
+    ``[binary, --headless, *args]``, runs it with a timeout capturing raw
+    *bytes*, and returns a normalized :class:`RunResult`. Both Phase-1 channels
+    — the sentinel op-dispatch runner and the native-export runner — build only
+    their channel-specific argv tail (and the export-only ``cwd``) and delegate
+    the spawn/timeout/``OSError``/decode handling here, so a launch-handling fix
+    lands in one place rather than two copies (issue #185, ADR-0010).
+
+    The mapping, identical for both channels:
+
+    - ``subprocess.TimeoutExpired`` → a synthesized ``EXIT_TIMEOUT`` result
+      flagged ``LaunchFailure.TIMEOUT``: launched, but did not return before the
+      timeout (a hung engine bounded so the CLI fails loudly, #15). The diagnostic
+      names ``timeout_label`` (default ``"Godot"``; the export channel passes
+      ``"Godot export"``) — this stderr is carried into ``GdaError.diagnostics``
+      and serialized in ``--json``, so the per-channel wording is part of the
+      public error envelope and stays byte-compatible across the refactor (#185);
+    - ``OSError`` → a synthesized ``EXIT_NOT_FOUND`` result flagged
+      ``LaunchFailure.NOT_FOUND``: the configured binary could not be launched —
+      ``FileNotFoundError`` (missing), ``PermissionError`` (a directory like
+      ``Godot.app`` — a natural ``$GDA_GODOT`` mistake — or a non-executable
+      file), and any other ``OSError`` from ``exec`` are the one environment
+      failure of there being no engine to run (#33). The synthesized typed
+      reason lets the classifier key environment on it, not on the overloaded
+      exit code (#15). ``OSError`` does not subsume ``TimeoutExpired`` (a
+      ``SubprocessError``), so the timeout path above is preserved. The OS
+      message is kept as advisory stderr to disambiguate which mode occurred;
+    - otherwise → the engine's own ``returncode`` with ``launch_failure=None``,
+      and stdout/stderr decoded as UTF-8 with ``errors="replace"`` (see below).
+    """
+    cmd = [str(binary), "--headless", *args]
+    try:
+        # Capture raw bytes (no ``text=True``): Godot's ``JSON.stringify`` emits
+        # UTF-8, but ``text=True`` would decode with the host locale, which
+        # mojibakes or raises ``UnicodeDecodeError`` on a non-UTF-8 locale (e.g.
+        # Windows cp1252/cp936) for a non-ASCII node name or echoed path. We
+        # decode UTF-8 explicitly below so user content round-trips regardless of
+        # locale (issue #33).
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=timeout,
+            # Pass the working directory as a string (not a Path): the export
+            # channel resolves a relative output path against this CWD, and the
+            # spawn shape stays byte-identical to the pre-#185 ``str(project)``.
+            cwd=str(cwd) if cwd is not None else None,
+        )
+    except subprocess.TimeoutExpired:
+        return RunResult(
+            stdout="",
+            stderr=f"gda: {timeout_label} timed out after {timeout}s\n",
+            exit_code=EXIT_TIMEOUT,
+            launch_failure=LaunchFailure.TIMEOUT,
+        )
+    except OSError as exc:
+        return RunResult(
+            stdout="",
+            stderr=f"gda: Godot binary could not be launched: {binary} ({exc})\n",
+            exit_code=EXIT_NOT_FOUND,
+            launch_failure=LaunchFailure.NOT_FOUND,
+        )
+    return RunResult(
+        # Decode the engine's bytes as UTF-8 with a replacement policy: a
+        # well-behaved operation emits valid UTF-8, so ``replace`` only ever
+        # fires on genuinely malformed bytes — and the runner never crashes on
+        # engine output. A malformed result then surfaces as a structured
+        # ``contract_violation`` downstream rather than an escaping
+        # ``UnicodeDecodeError`` traceback (ADR-0002).
+        stdout=proc.stdout.decode("utf-8", errors="replace"),
+        stderr=proc.stderr.decode("utf-8", errors="replace"),
+        exit_code=proc.returncode,
+    )
+
+
 class GodotRunner(Protocol):
     """Spawns a headless Godot operation and returns its raw output."""
 
@@ -75,59 +159,21 @@ class SubprocessGodotRunner:
     timeout: float = DEFAULT_TIMEOUT_SECONDS
 
     def run(self, operation: str, params: dict) -> RunResult:
+        # Build only this channel's argv tail and delegate the spawn / timeout /
+        # OSError / UTF-8-decode handling to the shared launch primitive (#185).
         # Everything after `--` is delivered to the script verbatim via
         # OS.get_cmdline_user_args(), so the payload is decoupled from however
         # Godot orders its own engine arguments.
-        cmd = [str(self.binary), "--headless"]
+        args: list[str] = []
         if self.project is not None:
-            cmd += ["--path", str(self.project)]
-        cmd += [
+            args += ["--path", str(self.project)]
+        args += [
             "--script",
             str(self.script),
             "--",
             operation,
             json.dumps(params),
         ]
-        try:
-            # Capture raw bytes (no ``text=True``): Godot's ``JSON.stringify``
-            # emits UTF-8, but ``text=True`` would decode with the host locale,
-            # which mojibakes or raises ``UnicodeDecodeError`` on a non-UTF-8
-            # locale (e.g. Windows cp1252/cp936) for a non-ASCII node name or
-            # echoed path. We decode UTF-8 explicitly below so user content
-            # round-trips regardless of locale (issue #33).
-            proc = subprocess.run(cmd, capture_output=True, timeout=self.timeout)
-        except subprocess.TimeoutExpired:
-            return RunResult(
-                stdout="",
-                stderr=f"gda: Godot timed out after {self.timeout}s\n",
-                exit_code=EXIT_TIMEOUT,
-                launch_failure=LaunchFailure.TIMEOUT,
-            )
-        except OSError as exc:
-            # The configured binary could not be launched. ``FileNotFoundError``
-            # (missing), ``PermissionError`` (a directory like ``Godot.app`` — a
-            # natural $GDA_GODOT mistake — or a non-executable file), and any
-            # other ``OSError`` from ``exec`` are all the same environment
-            # failure: there was no engine to run (issue #33). They synthesize
-            # the typed ``NOT_FOUND`` reason so the classifier keys environment
-            # on it, not on the overloaded exit code (issue #15). ``OSError``
-            # does not subsume ``TimeoutExpired`` (a ``SubprocessError``), so the
-            # timeout path above is preserved. The original OS message is kept as
-            # advisory stderr to disambiguate which of the three modes occurred.
-            return RunResult(
-                stdout="",
-                stderr=f"gda: Godot binary could not be launched: {self.binary} ({exc})\n",
-                exit_code=EXIT_NOT_FOUND,
-                launch_failure=LaunchFailure.NOT_FOUND,
-            )
-        return RunResult(
-            # Decode the engine's bytes as UTF-8 with a replacement policy: a
-            # well-behaved operation emits valid UTF-8, so ``replace`` only ever
-            # fires on genuinely malformed bytes — and the runner never crashes
-            # on engine output. A malformed result then surfaces as a structured
-            # ``contract_violation`` downstream rather than an escaping
-            # ``UnicodeDecodeError`` traceback (ADR-0002).
-            stdout=proc.stdout.decode("utf-8", errors="replace"),
-            stderr=proc.stderr.decode("utf-8", errors="replace"),
-            exit_code=proc.returncode,
-        )
+        # A sentinel op runs projectless or against --path; it never needs a
+        # working directory, so cwd is always the default.
+        return launch(self.binary, args, cwd=None, timeout=self.timeout)

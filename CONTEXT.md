@@ -40,6 +40,25 @@ in-place state (e.g. inspect the live scene tree, runtime inspection, UndoRedo,
 input simulation). Served through `gda-daemon`, not by a one-shot headless call.
 _Avoid_: realtime op, online op
 
+**Headless launch**:
+The one-shot `godot --headless` spawn primitive that both Phase-1 channels — the
+sentinel op-dispatch runner and the native-export runner — share. Given the
+binary, an argv tail, an optional working directory, and a timeout, it builds
+`[binary, --headless, *args]`, captures bytes with the timeout, and normalizes
+the outcome into a `Raw run` (the single home of the spawn / timeout / launch-
+failure / UTF-8-decode handling). Each channel contributes only its argv tail and
+the export-only cwd.
+_Avoid_: spawn helper, subprocess wrapper
+
+**Raw run**:
+The normalized outcome a `Headless launch` returns — `{stdout, stderr, exit_code,
+launch_failure}`, unparsed — before any classification. `launch_failure` is set
+only when the primitive synthesized the result (binary missing, timed out) rather
+than the engine returning one, so the classifier keys environment failures on
+that typed reason, not on the overloaded exit code. Both channels return the one
+`RunResult` shape.
+_Avoid_: run output, export output
+
 ### Failure reporting
 
 **Gda error code**:

@@ -44,7 +44,6 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from gda.error_codes import ERROR_CODE_BY_CODE, OPERATION_ERROR_CODES
-from gda.export_runner import ExportRunOutput
 from gda.models import (
     EngineVersion,
     ExportRunMode,
@@ -143,33 +142,55 @@ def unresolvable_binary_failure(reason: str) -> Failure:
     )
 
 
+def classify_launch_or_crash(raw: RunResult, binary: Path) -> Failure | None:
+    """The env/crash classifier prefix shared by both headless channels (#185).
+
+    The single home of the launch-failure and signal-death mapping that the
+    sentinel channel (``classify_run``) and the native-export channel
+    (``classify_export_run``) both open with, so a missing binary, a hung run,
+    or a signal death is classified identically across both (ADR-0010 — reuse
+    the machinery rather than duplicate it). Returns the env/crash ``Failure``
+    for the three modes below, or ``None`` to let the caller's channel-specific
+    tail (sentinel parse+validate vs synthesize-from-exit-code) take over.
+
+    Environment failures key on the runner's typed ``launch_failure`` reason,
+    not the exit code, so an engine (or shell/AppImage wrapper) that *genuinely*
+    returns 124/127 is classified as ``operation`` by the tail rather than
+    mislabelled environment (issue #15).
+    """
+    if raw.launch_failure is LaunchFailure.NOT_FOUND:
+        return _failure(
+            "binary_not_found",
+            f"Godot binary could not be launched: {binary}",
+            raw.stderr,
+        )
+    if raw.launch_failure is LaunchFailure.TIMEOUT:
+        return _failure(
+            "launch_timeout",
+            "Godot launched but did not return before the timeout",
+            raw.stderr,
+        )
+    if raw.exit_code < 0:
+        # subprocess reports a signal death as a negative return code; the
+        # engine ran but was killed (e.g. SIGSEGV crash, OOM SIGKILL) rather
+        # than the operation cleanly reporting an error.
+        return _failure(
+            "engine_crashed",
+            f"Godot terminated abnormally (signal {-raw.exit_code})",
+            raw.stderr,
+        )
+    return None
+
+
 def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | Failure:
     """Classify a raw headless run into the command's typed model or a ``Failure``.
 
     Command-agnostic: owns the env/operation/parse decision tree shared by all
     commands. Per-command classifiers layer their specific checks on top.
     """
-    if result.launch_failure is LaunchFailure.NOT_FOUND:
-        return _failure(
-            "binary_not_found",
-            f"Godot binary could not be launched: {binary}",
-            result.stderr,
-        )
-    if result.launch_failure is LaunchFailure.TIMEOUT:
-        return _failure(
-            "launch_timeout",
-            "Godot launched but did not return before the timeout",
-            result.stderr,
-        )
-    if result.exit_code < 0:
-        # subprocess reports a signal death as a negative return code; the
-        # engine ran but was killed (e.g. SIGSEGV crash, OOM SIGKILL) rather
-        # than the operation cleanly reporting an error.
-        return _failure(
-            "engine_crashed",
-            f"Godot terminated abnormally (signal {-result.exit_code})",
-            result.stderr,
-        )
+    prefix = classify_launch_or_crash(result, binary)
+    if prefix is not None:
+        return prefix
     if result.exit_code != 0:
         # The engine ran but the operation itself reported an error and quit
         # non-zero (its own exit, not the runner's synthetic 124/127). When the
@@ -348,7 +369,7 @@ def parse_export_warnings(stderr: str) -> list[str]:
 
 
 def classify_export_run(
-    output: ExportRunOutput,
+    output: RunResult,
     binary: Path,
     *,
     preset: str,
@@ -370,27 +391,14 @@ def classify_export_run(
     ``templates_installed``), not here; on a non-zero export stderr is surfaced
     only as the advisory ``message`` / diagnostics.
 
-    The decision tree mirrors :func:`classify_run`'s env/crash prefix so a
-    missing binary or hung export is reported identically across both channels.
+    The decision tree shares :func:`classify_launch_or_crash`'s env/crash prefix
+    so a missing binary or hung export is reported identically across both
+    channels (#185); only the non-zero-exit tail differs from the sentinel
+    channel (synthesize-from-exit-code, no sentinel parse).
     """
-    if output.launch_failure is LaunchFailure.NOT_FOUND:
-        return _failure(
-            "binary_not_found",
-            f"Godot binary could not be launched: {binary}",
-            output.stderr,
-        )
-    if output.launch_failure is LaunchFailure.TIMEOUT:
-        return _failure(
-            "launch_timeout",
-            "Godot launched but did not return before the timeout",
-            output.stderr,
-        )
-    if output.exit_code < 0:
-        return _failure(
-            "engine_crashed",
-            f"Godot terminated abnormally (signal {-output.exit_code})",
-            output.stderr,
-        )
+    prefix = classify_launch_or_crash(output, binary)
+    if prefix is not None:
+        return prefix
     if output.exit_code != 0:
         # Templates are checked structurally BEFORE this call (the CLI preflights
         # export get's templates_installed), so a missing-templates run never
