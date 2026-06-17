@@ -6,10 +6,19 @@ surface as one JSON document, one entry per command carrying
 `{name, description, input, output, error}`. It is the whole-surface
 generalisation of per-command `--schema` (ADR-0004): the machine-readable
 manifest gda-mcp introspects once at startup to generate its tool surface
-(ADR-0012). These are unit tests; one e2e test runs the real binary.
+(ADR-0012).
+
+These are fast tests — `gda schema` spawns no Godot, so none of them need the
+engine. Most drive the command in-process via `CliRunner`; the last drives the
+real installed `gda` console script as a subprocess to protect the public entry
+point. That one is deliberately NOT marked `e2e`: this repo's `e2e` marker means
+"spawns a real Godot process" and gates a schedule/manual-only CI job, whereas
+this check is cheap and deterministic and belongs in the default PR gate.
 """
 
 import json
+import shutil
+import subprocess
 
 import typer
 from typer.testing import CliRunner
@@ -132,3 +141,19 @@ def test_schema_command_is_itself_self_describing():
     assert doc["input"] == SchemaAllParams.model_json_schema()
     assert doc["output"] == SurfaceManifest.model_json_schema()
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+
+
+def test_real_console_script_manifest_covers_the_live_command_tree():
+    # The real installed `gda` entry point — not the in-process CliRunner —
+    # emits the manifest and covers the whole live command tree (issue #192).
+    # Under `uv run` (how CI runs the fast suite) this resolves to the project
+    # venv's console script, so it tracks the current checkout.
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+
+    proc = subprocess.run([gda_bin, "schema"], capture_output=True, text=True)
+
+    assert proc.returncode == 0, proc.stderr
+    names = {entry["name"] for entry in json.loads(proc.stdout)["commands"]}
+    assert names == _live_command_names()
+    assert {"info", "schema", "scene create"} <= names
