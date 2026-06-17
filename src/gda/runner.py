@@ -58,6 +58,7 @@ def launch(
     *,
     cwd: Path | None,
     timeout: float,
+    timeout_label: str = "Godot",
 ) -> RunResult:
     """Spawn one ``godot --headless`` process and normalize its raw outcome.
 
@@ -73,7 +74,11 @@ def launch(
 
     - ``subprocess.TimeoutExpired`` → a synthesized ``EXIT_TIMEOUT`` result
       flagged ``LaunchFailure.TIMEOUT``: launched, but did not return before the
-      timeout (a hung engine bounded so the CLI fails loudly, #15);
+      timeout (a hung engine bounded so the CLI fails loudly, #15). The diagnostic
+      names ``timeout_label`` (default ``"Godot"``; the export channel passes
+      ``"Godot export"``) — this stderr is carried into ``GdaError.diagnostics``
+      and serialized in ``--json``, so the per-channel wording is part of the
+      public error envelope and stays byte-compatible across the refactor (#185);
     - ``OSError`` → a synthesized ``EXIT_NOT_FOUND`` result flagged
       ``LaunchFailure.NOT_FOUND``: the configured binary could not be launched —
       ``FileNotFoundError`` (missing), ``PermissionError`` (a directory like
@@ -107,7 +112,7 @@ def launch(
     except subprocess.TimeoutExpired:
         return RunResult(
             stdout="",
-            stderr=f"gda: Godot timed out after {timeout}s\n",
+            stderr=f"gda: {timeout_label} timed out after {timeout}s\n",
             exit_code=EXIT_TIMEOUT,
             launch_failure=LaunchFailure.TIMEOUT,
         )

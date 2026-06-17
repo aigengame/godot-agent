@@ -20,7 +20,7 @@ from gda.errors import (
 )
 from gda.exit_codes import EXIT_OPERATION
 from gda.models import ExportRunMode, ExportRunResult
-from gda.runner import RunResult
+from gda.runner import LaunchFailure, RunResult
 
 BINARY = Path("/x/Godot")
 
@@ -96,6 +96,27 @@ def test_other_nonzero_maps_to_generic_export_failed():
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "export_failed"
     assert "disk full" in outcome.error.diagnostics
+
+
+def test_export_timeout_envelope_keeps_byte_compatible_diagnostics():
+    # Regression for the #185 review: an export timeout maps to launch_timeout,
+    # and the runner-synthesized stderr is carried verbatim into the PUBLIC
+    # GdaError.diagnostics — the field serialized in `export run --json`. The
+    # refactor must keep that diagnostics string byte-compatible with the pre-#185
+    # "Godot export timed out" wording, so the error envelope is unchanged.
+    timeout_stderr = "gda: Godot export timed out after 600.0s\n"
+    outcome = _classify(
+        RunResult(
+            stdout="",
+            stderr=timeout_stderr,
+            exit_code=124,
+            launch_failure=LaunchFailure.TIMEOUT,
+        )
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "launch_timeout"
+    assert outcome.error.diagnostics == timeout_stderr
 
 
 def test_export_path_unset_failure_builder():

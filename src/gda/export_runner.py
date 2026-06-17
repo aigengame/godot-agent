@@ -77,7 +77,17 @@ class SubprocessExportRunner:
         if self.project is not None:
             args += ["--path", str(self.project)]
         args += [flag, preset, output_path]
-        return launch(self.binary, args, cwd=self.project, timeout=self.timeout)
+        # Pass the export-specific timeout label: on a timeout the primitive's
+        # stderr is carried into GdaError.diagnostics and serialized in
+        # `export run --json`, so it is part of the public error envelope and must
+        # stay byte-compatible with the pre-#185 "Godot export timed out" wording.
+        return launch(
+            self.binary,
+            args,
+            cwd=self.project,
+            timeout=self.timeout,
+            timeout_label="Godot export",
+        )
 
 
 def make_subprocess_export_runner(

@@ -90,3 +90,27 @@ def test_export_launch_failure_surfaces_through_the_typed_run_adapter(tmp_path):
     assert result.exit_code == EXIT_NOT_FOUND
     assert str(tmp_path) in result.stderr
     assert result.launch_failure is LaunchFailure.NOT_FOUND
+
+
+def test_export_timeout_keeps_the_export_worded_diagnostic(monkeypatch):
+    # The export channel passes timeout_label="Godot export" to the shared
+    # primitive so its timeout stderr stays byte-compatible with the pre-#185
+    # wording. This stderr is what the classifier carries into the public
+    # GdaError.diagnostics, so the wording is part of `export run --json` (#185
+    # review). The shared launch handling itself is tested in test_launch.py.
+    import subprocess
+
+    from gda.exit_codes import EXIT_TIMEOUT
+    from gda.runner import LaunchFailure
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr(runner_mod.subprocess, "run", fake_run)
+
+    runner = SubprocessExportRunner(Path("/x/Godot"), timeout=600.0)
+    result = runner.run("Linux/X11", "release", "out.x86_64")
+
+    assert result.exit_code == EXIT_TIMEOUT
+    assert result.stderr == "gda: Godot export timed out after 600.0s\n"
+    assert result.launch_failure is LaunchFailure.TIMEOUT

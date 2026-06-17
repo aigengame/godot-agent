@@ -64,7 +64,31 @@ def test_timeout_maps_to_synthesized_timeout_result(monkeypatch):
     result = launch(Path("/any/Godot"), ["--version"], cwd=None, timeout=0.01)
 
     assert result.exit_code == EXIT_TIMEOUT
-    assert "timed out" in result.stderr.lower()
+    # Default label is "Godot": the sentinel channel keeps its exact pre-#185
+    # timeout diagnostic wording.
+    assert result.stderr == "gda: Godot timed out after 0.01s\n"
+    assert result.launch_failure is LaunchFailure.TIMEOUT
+
+
+def test_timeout_label_customizes_the_diagnostic(monkeypatch):
+    # The export channel passes a distinct label so its timeout diagnostic stays
+    # byte-compatible with the pre-#185 "Godot export timed out" wording — the
+    # stderr the classifier carries into the public GdaError.diagnostics (#185).
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = launch(
+        Path("/any/Godot"),
+        ["--export-release", "Web", "out"],
+        cwd=None,
+        timeout=600.0,
+        timeout_label="Godot export",
+    )
+
+    assert result.exit_code == EXIT_TIMEOUT
+    assert result.stderr == "gda: Godot export timed out after 600.0s\n"
     assert result.launch_failure is LaunchFailure.TIMEOUT
 
 
