@@ -14,20 +14,22 @@ from typing import Optional
 import typer
 from pydantic import BaseModel
 
-from gda.binary import resolve_godot_binary
 from gda.errors import (
     Failure,
-    classify_export_run,
     classify_info,
     classify_script_validate,
-    export_path_unset_failure,
-    export_templates_missing_failure,
+)
+from gda.export_run import (
+    EXPORT_GET_COMMAND,
+    EXPORT_RUN_COMMAND,
+    run_export_operation,
 )
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.headless import (
     HeadlessCommand,
     M,
     emit_failure,
+    emit_result,
     godot_option,
     json_option,
     make_subprocess_runner,
@@ -36,12 +38,9 @@ from gda.headless import (
 from gda.models import (
     EngineVersion,
     ExportGetParams,
-    ExportGetResult,
     ExportListParams,
     ExportListResult,
     ExportRunMode,
-    ExportRunParams,
-    ExportRunResult,
     InfoParams,
     ProjectDependenciesParams,
     ProjectDependenciesResult,
@@ -124,7 +123,6 @@ from gda.models import (
     ThemeCreateResult,
 )
 from gda.project import resolve_project_dir
-from gda.render import render
 from gda.runner import GodotRunner
 
 app = typer.Typer(
@@ -484,25 +482,10 @@ EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
     output_model=ExportListResult,
 )
 
-EXPORT_GET_COMMAND: HeadlessCommand[ExportGetResult] = HeadlessCommand(
-    operation="export-get",
-    input_model=ExportGetParams,
-    output_model=ExportGetResult,
-)
-
-# export run is the one command that does NOT route through operations.gd: the
-# Godot export subsystem is editor-only C++, unreachable from a --script
-# SceneTree run, so the export itself is a native --export-<mode> invocation
-# (gda.export_runner). This HeadlessCommand is used only for its --schema /
-# --json model plumbing; the command body (run_export) drives the two phases by
-# hand — export-get resolves the preset + path, the native ExportRunner exports,
-# classify_export_run turns the subprocess outcome into the typed result — rather
-# than the shared sentinel pipeline.
-EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
-    operation="export-run",
-    input_model=ExportRunParams,
-    output_model=ExportRunResult,
-)
+# EXPORT_GET_COMMAND / EXPORT_RUN_COMMAND live in gda.export_run (imported above):
+# they are co-located with run_export_operation, which drives export-get to
+# resolve the preset, so the recipe can reuse them without an export_run ↔ cli
+# import cycle (issue #187).
 
 RESOURCE_UID_COMMAND: HeadlessCommand[ResourceUidResult] = HeadlessCommand(
     operation="resource-uid",
@@ -1611,89 +1594,35 @@ def run_export(
 
     Unlike every other command, the export itself is a native ``--export-<mode>``
     invocation (the export subsystem is editor-only, so it cannot run through
-    operations.gd). The command orchestrates three phases by hand: ``export get``
-    resolves the preset's platform + configured ``export_path`` + template
-    readiness (reusing #114's clean preset/project errors), a structured preflight
-    fails fast when templates are missing or there is no destination, then the
-    native ``ExportRunner`` performs the export and ``classify_export_run``
-    synthesizes the typed result from the subprocess's exit code.
+    operations.gd). The recipe — ``export get`` resolves the preset's platform +
+    configured ``export_path`` + template readiness (reusing #114's clean
+    preset/project errors), a structured preflight fails fast when templates are
+    missing or there is no destination, then the native ``ExportRunner`` performs
+    the export and ``classify_export_run`` synthesizes the typed result from the
+    subprocess's exit code — is owned by :func:`gda.export_run.run_export_operation`
+    (issue #187), so this command is the same thin shape as every other: build
+    params → invoke the operation → emit.
 
     ``--mode`` selects the export flavor (release/debug/pack; default release) and
     ``--output`` overrides the preset's configured ``export_path``; both are
     reflected in the native invocation and the reported result (#170).
     """
-    resolved_project = resolve_project_dir(project)
-    binary = resolve_godot_binary(godot)
     # --output is a filesystem path: normalize it ONCE here (ADR-0006, ~-expanded)
-    # so the runner and the reported result both see the effective destination.
+    # at the CLI layer before it reaches the operation, like every other
+    # path-taking command. The operation receives the already-normalized override.
     override_output = _normalize_path(output) if output is not None else None
-
-    # Phase 1: resolve the preset via the existing export-get sentinel op. This
-    # reuses #114's clean structured errors — an unknown preset is
-    # export_preset_not_found, a project with no export_presets.cfg is
-    # export_presets_not_found — and emits + exits on any of them via the shared
-    # failure channel, before any native export is attempted.
-    got = EXPORT_GET_COMMAND.run(
-        ExportGetParams(preset=preset),
-        godot=godot,
-        project=resolved_project,
-        make_runner=_make_runner,
-    )
-
-    # Resolve the effective destination: --output (already CLI-normalized) wins
-    # over the preset's configured export_path (#170). This is what the native
-    # export writes to AND what the result reports as output_path.
-    output_path = override_output if override_output is not None else got.export_path
-
-    # Phase 2: structured preflight, BEFORE any native run (ADR-0010). Two
-    # fail-fast checks, both decided from export get's structured fields rather
-    # than from the engine's stderr (which ADR-0002 forbids parsing for codes):
-    #
-    #  - There must be a destination, for EVERY mode. --output supplies one
-    #    directly (#170); only when no override is given AND the configured
-    #    export_path is empty is there nowhere to write — export_path_unset.
-    #    Checked first because it is a config/argument error independent of the
-    #    engine's template state, so it stays deterministic whether or not
-    #    templates happen to be installed.
-    #  - Templates for the running engine version must be installed — but ONLY
-    #    for release/debug, never for pack (#170). release/debug produce a full
-    #    platform binary and need the matching platform export templates; pack
-    #    produces project data only (a PCK/ZIP via Godot's native --export-pack)
-    #    and needs no platform templates (ExportRunMode's docstring; confirmed on
-    #    Godot 4.6.3, where a template-less --export-pack writes a .pck). Gating
-    #    pack out lets template-less environments use the mode that works there.
-    #    export get reports template readiness structurally (templates_installed)
-    #    — the readiness check built for exactly this — so a release/debug export
-    #    against an uninstalled template version is the distinct
-    #    export_templates_missing, decided here rather than by string-matching the
-    #    engine's "due to configuration errors" stderr (which also fires for a
-    #    merely-misconfigured preset).
-    if not output_path:
-        emit_failure(export_path_unset_failure(got.name))
-    if mode is not ExportRunMode.PACK and not got.templates_installed:
-        emit_failure(export_templates_missing_failure(got.name, got.templates_version))
-
-    # Phase 3: run the native export and classify its raw outcome. The export-get
-    # resolved name (got.name) is authoritative throughout — it is what the engine
-    # exports and what the result echoes — so the native invocation, not the raw
-    # --preset string, is keyed on it.
-    export_runner = _make_export_runner(binary, resolved_project)
-    export_output = export_runner.run(got.name, mode.value, output_path)
-    outcome = classify_export_run(
-        export_output,
-        binary,
-        preset=got.name,
-        platform=got.platform,
+    outcome = run_export_operation(
+        preset=preset,
         mode=mode,
-        output_path=output_path,
+        output_override=override_output,
+        godot=godot,
+        project=resolve_project_dir(project),
+        make_runner=_make_runner,
+        make_export_runner=_make_export_runner,
     )
     if isinstance(outcome, Failure):
         emit_failure(outcome)
-
-    if json_output:
-        typer.echo(outcome.model_dump_json())
-    else:
-        typer.echo(render(outcome))
+    emit_result(outcome, json_output)
 
 
 @resource_app.command(name="uid", cls=RESOURCE_UID_COMMAND.command_class())
