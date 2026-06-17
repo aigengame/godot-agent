@@ -15,12 +15,15 @@ sentinel pipeline:
 3. the native ``--export-<mode>`` run, whose raw outcome
    :func:`gda.errors.classify_export_run` turns into the typed result.
 
-This module is the recipe's home. :func:`run_export_operation` is a PURE function
-that RETURNS the outcome (``ExportRunResult | Failure``) — it never emits or
-exits — so the CLI command (``gda.cli.run_export``) shrinks to the same thin
+This module is the recipe's home. :func:`run_export_operation` RETURNS its
+outcome (``ExportRunResult | Failure``) instead of emitting the public result or
+exiting — so the CLI command (``gda.cli.run_export``) shrinks to the same thin
 shape as every other command and the recipe gets its own engine-free test
 surface (driven with the two injected seams; see
-``tests/test_export_run_operation.py``).
+``tests/test_export_run_operation.py``). It is not side-effect-free: phase 1's
+``HeadlessCommand.execute`` still forwards the ``export-get`` engine stderr to
+this process's stderr as advisory diagnostics; only the public result/error
+envelope and the process exit are deferred to the CLI caller.
 
 The two ``EXPORT_GET_COMMAND`` / ``EXPORT_RUN_COMMAND`` :class:`HeadlessCommand`
 definitions live here, not in ``cli.py``, so the operation can drive ``export
@@ -87,9 +90,13 @@ def run_export_operation(
 ) -> ExportRunResult | Failure:
     """Run ``export run``'s resolve → preflight → native-run → classify recipe.
 
-    A PURE function: it RETURNS the typed ``ExportRunResult`` on success or a
-    ``Failure`` at any phase, and never emits or exits — the CLI layer owns the
-    public emit/exit channel. ``output_override`` is the already-CLI-normalized
+    Returns its outcome instead of emitting or exiting: the typed
+    ``ExportRunResult`` on success or a ``Failure`` at any phase — the CLI layer
+    owns the public emit/exit channel. Not side-effect-free, though: phase 1's
+    ``HeadlessCommand.execute`` still forwards the ``export-get`` engine stderr to
+    this process's stderr as advisory diagnostics; only the public result/error
+    envelope and the exit are deferred to the caller. ``output_override`` is the
+    already-CLI-normalized
     ``--output`` value (ADR-0006 path normalization stays at the CLI); both
     engine-touching seams (``make_runner`` for ``export-get``, ``make_export_runner``
     for the native export) are injected, so the recipe is fully testable without a

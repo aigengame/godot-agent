@@ -172,11 +172,14 @@ class HeadlessCommand(Generic[M]):
     ) -> M | Failure:
         """Run the command and RETURN its typed success model or a ``Failure``.
 
-        The pure outcome step: it resolves the binary, runs the operation,
-        forwards diagnostics to stderr, and classifies the raw result — but it
-        never emits or exits. A failure is *returned* as a :class:`Failure`, so
-        a caller composing a multi-phase recipe (``export run``) can branch on
-        it. :meth:`run` adds the emit-and-exit-on-failure behavior on top.
+        The outcome step: it resolves the binary, runs the operation, forwards
+        engine diagnostics to stderr, and classifies the raw result — but it
+        never emits the public result/error envelope or exits. (Forwarding the
+        engine's stderr is its one side effect; the public emit and the process
+        exit are deferred to :meth:`run`.) A failure is *returned* as a
+        :class:`Failure`, so a caller composing a multi-phase recipe
+        (``export run``) can branch on it. :meth:`run` adds the
+        emit-and-exit-on-failure behavior on top.
         """
         try:
             binary = resolve_godot_binary(godot)
@@ -210,7 +213,7 @@ class HeadlessCommand(Generic[M]):
         """Run the command and return its typed success model.
 
         Diagnostics are forwarded to stderr. Failures are emitted as the public
-        structured error envelope and terminate via Typer's exit path. The pure
+        structured error envelope and terminate via Typer's exit path. The
         outcome is produced by :meth:`execute`; this method adds the
         emit-and-exit-on-failure behavior shared by every CLI command.
         """
