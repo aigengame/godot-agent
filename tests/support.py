@@ -13,7 +13,6 @@ between modules or imported test-module-to-test-module (issue #39).
 
 import json
 
-from gda.export_runner import ExportRunOutput
 from gda.runner import RunResult
 
 
@@ -33,16 +32,16 @@ class FakeExportRunner:
     """A fakeable ExportRunner for ``export run`` (issue #121).
 
     Records each ``(preset, mode, output_path)`` it is asked to export and returns
-    a canned :class:`~gda.export_runner.ExportRunOutput`, so the native-export
-    pipeline is exercised without a real engine, mirroring :class:`FakeRunner` for
-    the sentinel channel.
+    a canned :class:`~gda.runner.RunResult`, so the native-export pipeline is
+    exercised without a real engine, mirroring :class:`FakeRunner` for the
+    sentinel channel. Both channels share the one raw-run dataclass (#185).
     """
 
-    def __init__(self, output: ExportRunOutput) -> None:
+    def __init__(self, output: RunResult) -> None:
         self.output = output
         self.calls: list[tuple[str, str, str]] = []
 
-    def run(self, preset: str, mode: str, output_path: str) -> ExportRunOutput:
+    def run(self, preset: str, mode: str, output_path: str) -> RunResult:
         self.calls.append((preset, mode, output_path))
         return self.output
 

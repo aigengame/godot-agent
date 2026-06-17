@@ -5,8 +5,9 @@ export subsystem is editor-only, so the artifact is produced by a native
 ``--export-<mode>`` invocation, and ``gda`` synthesizes the structured outcome
 from the subprocess's exit code + stderr. ``classify_export_run`` owns that
 synthesis as a pure function — exercised here without a real engine by injecting
-a crafted :class:`~gda.export_runner.ExportRunOutput`, exactly like
-``classify_run`` is for the sentinel pipeline.
+a crafted :class:`~gda.runner.RunResult` (the shared raw-run dataclass both
+channels return since #185), exactly like ``classify_run`` is for the sentinel
+pipeline.
 """
 
 from pathlib import Path
@@ -17,15 +18,14 @@ from gda.errors import (
     export_path_unset_failure,
     parse_export_warnings,
 )
-from gda.exit_codes import EXIT_NOT_FOUND, EXIT_OPERATION, EXIT_TIMEOUT
-from gda.export_runner import ExportRunOutput
+from gda.exit_codes import EXIT_OPERATION
 from gda.models import ExportRunMode, ExportRunResult
-from gda.runner import LaunchFailure
+from gda.runner import RunResult
 
 BINARY = Path("/x/Godot")
 
 
-def _classify(output: ExportRunOutput) -> ExportRunResult | Failure:
+def _classify(output: RunResult) -> ExportRunResult | Failure:
     return classify_export_run(
         output,
         BINARY,
@@ -39,7 +39,7 @@ def _classify(output: ExportRunOutput) -> ExportRunResult | Failure:
 def test_clean_export_synthesizes_success_result():
     # A clean native export (exit 0, no warnings) becomes the typed result
     # echoing the preset/platform/mode/path that were exported.
-    outcome = _classify(ExportRunOutput(stdout="", stderr="", exit_code=0))
+    outcome = _classify(RunResult(stdout="", stderr="", exit_code=0))
 
     assert outcome == ExportRunResult(
         preset="Linux/X11",
@@ -54,7 +54,7 @@ def test_clean_export_surfaces_advisory_warnings():
     # WARNING lines on a clean (exit 0) export are advisory diagnostics on the
     # success result (ADR-0002), not a failure.
     outcome = _classify(
-        ExportRunOutput(
+        RunResult(
             stdout="",
             stderr="WARNING: missing icon.\nINFO: noise\nWARNING: skipped asset.\n",
             exit_code=0,
@@ -65,49 +65,6 @@ def test_clean_export_surfaces_advisory_warnings():
     assert outcome.warnings == ["missing icon.", "skipped asset."]
 
 
-def test_not_found_maps_to_environment_failure():
-    # The runner synthesizes NOT_FOUND when the binary is missing — an
-    # environment failure exiting 127, keyed on the typed launch_failure (not the
-    # exit code), mirroring classify_run.
-    outcome = _classify(
-        ExportRunOutput(
-            stdout="",
-            stderr="gda: Godot binary not found\n",
-            exit_code=EXIT_NOT_FOUND,
-            launch_failure=LaunchFailure.NOT_FOUND,
-        )
-    )
-
-    assert isinstance(outcome, Failure)
-    assert outcome.error.code == "binary_not_found"
-    assert outcome.exit_code == EXIT_NOT_FOUND
-
-
-def test_timeout_maps_to_environment_failure():
-    # A hung export the runner timed out is launch_timeout, exiting 124.
-    outcome = _classify(
-        ExportRunOutput(
-            stdout="",
-            stderr="gda: Godot export timed out\n",
-            exit_code=EXIT_TIMEOUT,
-            launch_failure=LaunchFailure.TIMEOUT,
-        )
-    )
-
-    assert isinstance(outcome, Failure)
-    assert outcome.error.code == "launch_timeout"
-    assert outcome.exit_code == EXIT_TIMEOUT
-
-
-def test_signal_death_maps_to_engine_crashed():
-    # subprocess reports a signal death as a negative return code: the engine ran
-    # but was killed, not the export cleanly reporting an error.
-    outcome = _classify(ExportRunOutput(stdout="", stderr="", exit_code=-11))
-
-    assert isinstance(outcome, Failure)
-    assert outcome.error.code == "engine_crashed"
-
-
 def test_config_error_stderr_still_maps_to_generic_export_failed():
     # Template readiness is now a STRUCTURED preflight (export get's
     # templates_installed, decided BEFORE the native run), so classify_export_run
@@ -115,7 +72,7 @@ def test_config_error_stderr_still_maps_to_generic_export_failed():
     # non-zero native export — even the engine's old "due to configuration errors"
     # text — is the generic export_failed; the stderr is advisory diagnostics only.
     outcome = _classify(
-        ExportRunOutput(
+        RunResult(
             stdout="",
             stderr="ERROR: export failed due to configuration errors.\n",
             exit_code=1,
@@ -133,7 +90,7 @@ def test_other_nonzero_maps_to_generic_export_failed():
     # A non-zero export with no recognized signature is the generic export_failed,
     # preserving the engine stderr as diagnostics.
     outcome = _classify(
-        ExportRunOutput(stdout="", stderr="ERROR: disk full\n", exit_code=1)
+        RunResult(stdout="", stderr="ERROR: disk full\n", exit_code=1)
     )
 
     assert isinstance(outcome, Failure)

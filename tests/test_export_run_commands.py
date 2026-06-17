@@ -29,7 +29,6 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from gda.cli import app
-from gda.export_runner import ExportRunOutput
 from gda.runner import RunResult
 from tests.support import (
     FakeExportRunner,
@@ -59,7 +58,7 @@ def _inject(monkeypatch, *, get=GET_RESULT, export=None):
     )
     monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: get_runner)
     if export is None:
-        export = ExportRunOutput(stdout="", stderr="", exit_code=0)
+        export = RunResult(stdout="", stderr="", exit_code=0)
     export_runner = FakeExportRunner(export)
     monkeypatch.setattr(
         "gda.cli._make_export_runner", lambda binary, project=None: export_runner
@@ -235,7 +234,7 @@ def test_export_run_surfaces_advisory_warnings(monkeypatch, tmp_path):
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
     _inject(
         monkeypatch,
-        export=ExportRunOutput(
+        export=RunResult(
             stdout="",
             stderr=(
                 "WARNING: No export template found at the expected icon path.\n"
@@ -347,7 +346,7 @@ def test_export_run_generic_failure_is_structured(monkeypatch, tmp_path):
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
     _inject(
         monkeypatch,
-        export=ExportRunOutput(
+        export=RunResult(
             stdout="", stderr="ERROR: could not write artifact to disk.\n", exit_code=1
         ),
     )
@@ -399,7 +398,7 @@ def test_export_run_unknown_preset_reuses_export_get_error(monkeypatch, tmp_path
     monkeypatch.setattr(
         "gda.cli._make_runner", lambda binary, project=None: get_runner
     )
-    export_runner = FakeExportRunner(ExportRunOutput(stdout="", stderr="", exit_code=0))
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
     monkeypatch.setattr(
         "gda.cli._make_export_runner", lambda binary, project=None: export_runner
     )

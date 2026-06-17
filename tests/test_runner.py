@@ -1,126 +1,89 @@
-"""SubprocessGodotRunner maps subprocess failures to a structured RunResult.
+"""SubprocessGodotRunner builds the sentinel argv tail and delegates to launch.
 
-A hung or missing engine must not surface as a raw Python traceback; it is
-turned into a non-zero-exit RunResult with a diagnostic on stderr, which the
-CLI already handles via its exit-code path.
+The launch / timeout / OSError / UTF-8-decode contract now lives once on the
+shared ``launch`` primitive (tested in ``test_launch.py``); this suite covers
+only what is *specific* to the sentinel op-dispatch channel: the argv tail it
+builds (``--path`` when a project is set, then ``--script operations.gd -- <op>
+<json params>``), and that a launch failure still surfaces through the typed
+``run(operation, params)`` adapter rather than escaping as a traceback (#185).
 """
 
+import json
 import subprocess
 from pathlib import Path
 
-from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
-from gda.runner import LaunchFailure, SubprocessGodotRunner
+from gda.exit_codes import EXIT_NOT_FOUND
+from gda.runner import OPERATIONS_GD, LaunchFailure, SubprocessGodotRunner
 
 
-def test_missing_binary_maps_to_nonzero_result_not_traceback():
-    runner = SubprocessGodotRunner(Path("/nonexistent/Godot"))
+class _RecordingRun:
+    """A ``subprocess.run`` double recording the call and returning a clean exit."""
 
-    result = runner.run("info", {})
+    def __init__(self) -> None:
+        self.cmd: list[str] | None = None
+        self.kwargs: dict | None = None
 
-    assert result.exit_code == EXIT_NOT_FOUND
-    assert "/nonexistent/Godot" in result.stderr
-    assert result.stdout == ""
-    # The runner flags this as a synthesized launch failure so the classifier
-    # keys environment on the typed reason, not the overloaded exit code (#15).
-    assert result.launch_failure is LaunchFailure.NOT_FOUND
-
-
-def test_directory_binary_maps_to_not_found_not_traceback(tmp_path):
-    # A directory passed as --godot (e.g. the bundle "Godot.app", a natural
-    # $GDA_GODOT mistake) cannot be exec'd; the OS raises a PermissionError /
-    # IsADirectoryError that must not escape as a raw traceback (#33).
-    runner = SubprocessGodotRunner(tmp_path)
-
-    result = runner.run("info", {})
-
-    assert result.exit_code == EXIT_NOT_FOUND
-    assert str(tmp_path) in result.stderr
-    assert result.stdout == ""
-    assert result.launch_failure is LaunchFailure.NOT_FOUND
-
-
-def test_non_executable_file_binary_maps_to_not_found_not_traceback(tmp_path):
-    # A plain, non-executable file passed as --godot cannot be exec'd; the OS
-    # raises a PermissionError that the runner must catch and synthesize as a
-    # launch failure rather than leak as a traceback (#33).
-    not_exec = tmp_path / "notgodot.txt"
-    not_exec.write_text("i am not an engine")
-    runner = SubprocessGodotRunner(not_exec)
-
-    result = runner.run("info", {})
-
-    assert result.exit_code == EXIT_NOT_FOUND
-    assert str(not_exec) in result.stderr
-    assert result.stdout == ""
-    assert result.launch_failure is LaunchFailure.NOT_FOUND
-
-
-def test_engine_output_is_decoded_as_utf8_regardless_of_host_locale(monkeypatch):
-    # Godot's JSON.stringify emits raw UTF-8, but subprocess(text=True) would
-    # decode with the host locale. On a non-UTF-8 locale a non-ASCII node name
-    # mojibakes or raises UnicodeDecodeError. The runner must capture bytes and
-    # decode UTF-8 explicitly so user content round-trips (#33). We prove this by
-    # returning raw UTF-8 *bytes* from subprocess (the bytes mode the fix uses).
-    payload = '<<<GDA:RESULT>>>{"name":"日本語"}<<<GDA:END>>>'
-    stdout_bytes = payload.encode("utf-8")
-    stderr_bytes = "警告: ノード名\n".encode("utf-8")
-
-    def fake_run(cmd, **kwargs):
-        # The fix drops text=True and captures bytes; assert that contract here
-        # so the test fails loudly if decoding silently reverts to locale text.
-        assert kwargs.get("text") in (None, False)
+    def __call__(self, cmd, **kwargs):
+        self.cmd = cmd
+        self.kwargs = kwargs
 
         class _Proc:
-            stdout = stdout_bytes
-            stderr = stderr_bytes
-            returncode = 0
-
-        return _Proc()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    runner = SubprocessGodotRunner(Path("/any/Godot"))
-
-    result = runner.run("scene", {})
-
-    assert "日本語" in result.stdout
-    assert "警告: ノード名" in result.stderr
-
-
-def test_timeout_maps_to_nonzero_result(monkeypatch):
-    def fake_run(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout"))
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    runner = SubprocessGodotRunner(Path("/any/Godot"), timeout=0.01)
-
-    result = runner.run("info", {})
-
-    assert result.exit_code == EXIT_TIMEOUT
-    assert "timed out" in result.stderr.lower()
-    assert result.launch_failure is LaunchFailure.TIMEOUT
-
-
-def test_timeout_is_passed_through_to_subprocess(monkeypatch):
-    captured = {}
-
-    def fake_run(cmd, **kwargs):
-        captured["timeout"] = kwargs.get("timeout")
-
-        class _Proc:
-            # The runner captures bytes (no text=True) and decodes UTF-8 itself,
-            # so the double mirrors that real subprocess contract (#33).
+            # The primitive captures bytes (no text=True) and decodes UTF-8
+            # itself, so the double mirrors that real subprocess contract (#33).
             stdout = b"<<<GDA:RESULT>>>{}<<<GDA:END>>>"
             stderr = b""
             returncode = 0
 
         return _Proc()
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    runner = SubprocessGodotRunner(Path("/any/Godot"), timeout=42.0)
+
+def test_projectless_run_builds_the_script_dispatch_tail(monkeypatch):
+    # A projectless op spawns `--headless --script operations.gd -- <op> <json>`
+    # with no --path and no working directory: everything after `--` reaches the
+    # script verbatim via OS.get_cmdline_user_args().
+    rec = _RecordingRun()
+    monkeypatch.setattr(subprocess, "run", rec)
+    runner = SubprocessGodotRunner(Path("/x/Godot"))
+
+    runner.run("info", {"a": 1})
+
+    assert rec.cmd == [
+        "/x/Godot",
+        "--headless",
+        "--script",
+        str(OPERATIONS_GD),
+        "--",
+        "info",
+        json.dumps({"a": 1}),
+    ]
+    # A sentinel op never needs a working directory.
+    assert rec.kwargs is not None and rec.kwargs.get("cwd") is None
+
+
+def test_run_against_a_project_passes_path(monkeypatch):
+    # When a project is resolved it is passed as --path so the engine runs against
+    # it and res:// resolves there (#32); --path precedes the --script tail.
+    rec = _RecordingRun()
+    monkeypatch.setattr(subprocess, "run", rec)
+    project = Path("/tmp/proj")
+    runner = SubprocessGodotRunner(Path("/x/Godot"), project=project)
+
+    runner.run("scene-get", {})
+
+    assert rec.cmd is not None
+    assert rec.cmd[:5] == ["/x/Godot", "--headless", "--path", str(project), "--script"]
+    # A sentinel op runs against --path, never with a working directory.
+    assert rec.kwargs is not None and rec.kwargs.get("cwd") is None
+
+
+def test_launch_failure_surfaces_through_the_typed_run_adapter():
+    # A missing binary surfaces through the typed run(operation, params) adapter
+    # as a synthesized launch failure, not a raw traceback — the runner delegates
+    # the launch handling to the shared primitive (#185).
+    runner = SubprocessGodotRunner(Path("/nonexistent/Godot"))
 
     result = runner.run("info", {})
 
-    assert captured["timeout"] == 42.0
-    # An engine that actually returned has no synthesized launch failure, so its
-    # exit code is classified as the engine's own result (#15).
-    assert result.launch_failure is None
+    assert result.exit_code == EXIT_NOT_FOUND
+    assert "/nonexistent/Godot" in result.stderr
+    assert result.launch_failure is LaunchFailure.NOT_FOUND

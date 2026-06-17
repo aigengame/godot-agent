@@ -10,18 +10,17 @@ editor export pipeline and writes the artifact. It emits no ADR-0002 sentinel, s
 stderr (see :func:`gda.errors.classify_export_run`).
 
 This module owns only the *seam*: spawn the native export and return its raw
-``{stdout, stderr, exit_code}``. Classification lives in ``gda.errors`` so the
-mapping from raw output to typed result / ``GdaError`` is a pure function exercised
-without a real engine, exactly like the sentinel pipeline.
+``{stdout, stderr, exit_code}`` as the shared :class:`~gda.runner.RunResult`.
+Classification lives in ``gda.errors`` so the mapping from raw output to typed
+result / ``GdaError`` is a pure function exercised without a real engine, exactly
+like the sentinel pipeline.
 """
 
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from gda.exit_codes import EXIT_NOT_FOUND, EXIT_TIMEOUT
-from gda.runner import LaunchFailure
+from gda.runner import RunResult, launch
 
 # An export packs the whole project and may invoke platform toolchains, so it is
 # far slower than a one-shot headless op. Give it a generous ceiling distinct
@@ -40,25 +39,10 @@ EXPORT_MODE_FLAGS: dict[str, str] = {
 }
 
 
-@dataclass
-class ExportRunOutput:
-    """The raw result of a native Godot export invocation.
-
-    Mirrors :class:`gda.runner.RunResult` for the export channel: the unparsed
-    process output plus a ``launch_failure`` set only when the runner synthesized
-    the result (binary missing, timed out) rather than the engine returning one.
-    """
-
-    stdout: str
-    stderr: str
-    exit_code: int
-    launch_failure: "LaunchFailure | None" = None
-
-
 class ExportRunner(Protocol):
     """Spawns a native Godot export and returns its raw output."""
 
-    def run(self, preset: str, mode: str, output_path: str) -> ExportRunOutput: ...
+    def run(self, preset: str, mode: str, output_path: str) -> RunResult: ...
 
 
 @dataclass
@@ -84,52 +68,16 @@ class SubprocessExportRunner:
     project: Path | None = None
     timeout: float = DEFAULT_EXPORT_TIMEOUT_SECONDS
 
-    def run(self, preset: str, mode: str, output_path: str) -> ExportRunOutput:
+    def run(self, preset: str, mode: str, output_path: str) -> RunResult:
+        # Build only this channel's argv tail and the export-only cwd (see the
+        # class docstring), then delegate the spawn / timeout / OSError /
+        # UTF-8-decode handling to the shared launch primitive (#185).
         flag = EXPORT_MODE_FLAGS[mode]
-        cmd = [str(self.binary), "--headless"]
-        cwd = str(self.project) if self.project is not None else None
+        args: list[str] = []
         if self.project is not None:
-            cmd += ["--path", str(self.project)]
-        cmd += [flag, preset, output_path]
-        try:
-            # Capture raw bytes (no ``text=True``): like the sentinel runner,
-            # the native export channel must not decode with the host locale,
-            # which mojibakes or raises ``UnicodeDecodeError`` on a non-UTF-8
-            # locale. We decode UTF-8 explicitly below (issue #33).
-            proc = subprocess.run(
-                cmd, capture_output=True, timeout=self.timeout, cwd=cwd
-            )
-        except subprocess.TimeoutExpired:
-            return ExportRunOutput(
-                stdout="",
-                stderr=f"gda: Godot export timed out after {self.timeout}s\n",
-                exit_code=EXIT_TIMEOUT,
-                launch_failure=LaunchFailure.TIMEOUT,
-            )
-        except OSError as exc:
-            # The configured binary could not be launched: ``FileNotFoundError``
-            # (missing), ``PermissionError`` (a directory like ``Godot.app`` or a
-            # non-executable file), and any other ``OSError`` from ``exec`` are
-            # one environment failure — there was no engine to run (issue #33).
-            # Mirrors ``SubprocessGodotRunner`` so both runners close the same
-            # raw-launch-failure surface. ``OSError`` does not subsume
-            # ``TimeoutExpired`` (a ``SubprocessError``), so the timeout path
-            # above is preserved.
-            return ExportRunOutput(
-                stdout="",
-                stderr=f"gda: Godot binary could not be launched: {self.binary} ({exc})\n",
-                exit_code=EXIT_NOT_FOUND,
-                launch_failure=LaunchFailure.NOT_FOUND,
-            )
-        return ExportRunOutput(
-            # Decode the engine's bytes as UTF-8 with a replacement policy, like
-            # the sentinel runner: a well-behaved export emits valid UTF-8, so
-            # ``replace`` only fires on genuinely malformed bytes and the runner
-            # never crashes on engine output (issue #33).
-            stdout=proc.stdout.decode("utf-8", errors="replace"),
-            stderr=proc.stderr.decode("utf-8", errors="replace"),
-            exit_code=proc.returncode,
-        )
+            args += ["--path", str(self.project)]
+        args += [flag, preset, output_path]
+        return launch(self.binary, args, cwd=self.project, timeout=self.timeout)
 
 
 def make_subprocess_export_runner(
