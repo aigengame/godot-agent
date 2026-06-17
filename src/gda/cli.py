@@ -26,7 +26,6 @@ from gda.errors import (
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.headless import (
     HeadlessCommand,
-    HumanRenderer,
     M,
     emit_failure,
     godot_option,
@@ -252,7 +251,6 @@ def _emit(
     json_output: bool,
     godot: Optional[str],
     project: Optional[Path],
-    render: HumanRenderer[M],
 ) -> None:
     """Drive ``cmd.emit`` with the shared CLI execution tail.
 
@@ -267,7 +265,6 @@ def _emit(
         godot=godot,
         project=project,
         json_output=json_output,
-        render_text=render,
         make_runner=_make_runner,
     )
 
@@ -279,15 +276,16 @@ def _dispatch(
     json_output: bool,
     godot: Optional[str],
     project: Optional[str],
-    render: HumanRenderer[M],
 ) -> None:
     """Run a domain command through the shared CLI execution tail.
 
     Owns the per-command-repeated wiring: project resolution
     (``resolve_project_dir``, kept at the CLI layer per ADR-0006), the runner
     seam, the ``json_output`` pass-through, and the JSON-vs-text branch. Each
-    command keeps its own Typer signature, params construction, ``render``, and
-    pre-dispatch validation; only this execution tail is shared.
+    command keeps its own Typer signature, params construction, and
+    pre-dispatch validation; only this execution tail is shared. Human
+    rendering is type-dispatched by :func:`gda.render.render` inside
+    ``cmd.emit`` (issue #186), so no renderer is threaded here.
     """
     _emit(
         cmd,
@@ -295,7 +293,6 @@ def _dispatch(
         json_output=json_output,
         godot=godot,
         project=resolve_project_dir(project),
-        render=render,
     )
 
 
@@ -305,7 +302,6 @@ def _dispatch_meta(
     *,
     json_output: bool,
     godot: Optional[str],
-    render: HumanRenderer[M],
 ) -> None:
     """Run a meta command (no ``--project``, ADR-0005) through the shared tail.
 
@@ -319,7 +315,6 @@ def _dispatch_meta(
         json_output=json_output,
         godot=godot,
         project=None,
-        render=render,
     )
 
 
@@ -657,7 +652,6 @@ def create(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -676,7 +670,6 @@ def get(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -695,7 +688,6 @@ def get_exports(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -713,7 +705,6 @@ def list_scenes(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -732,7 +723,6 @@ def delete(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -777,7 +767,6 @@ def add(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -796,7 +785,6 @@ def list_nodes(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -823,7 +811,6 @@ def get(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -863,7 +850,6 @@ def set_property(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -890,7 +876,6 @@ def remove_node(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -918,7 +903,6 @@ def duplicate_node(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -954,7 +938,6 @@ def move_node(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1018,7 +1001,6 @@ def connect_signal(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1049,7 +1031,6 @@ def disconnect_signal(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1090,7 +1071,6 @@ def create(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1109,7 +1089,6 @@ def get_script(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1127,7 +1106,6 @@ def list_scripts(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1146,7 +1124,6 @@ def delete_script(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1211,7 +1188,6 @@ def set_script(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1289,7 +1265,6 @@ def attach_script(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1308,7 +1283,6 @@ def validate_script(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1332,7 +1306,6 @@ def create(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1350,7 +1323,6 @@ def project_info(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1371,7 +1343,6 @@ def project_get(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1398,7 +1369,6 @@ def find_references(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1443,7 +1413,6 @@ def create(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1462,7 +1431,6 @@ def get_resource(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1494,7 +1462,6 @@ def set_resource(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1513,7 +1480,6 @@ def delete_resource(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1532,7 +1498,6 @@ def get_shader(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1552,7 +1517,6 @@ def dependencies(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1570,7 +1534,6 @@ def list_presets(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1591,7 +1554,6 @@ def find_unused_resources(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1614,7 +1576,6 @@ def get_preset(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1757,7 +1718,6 @@ def resolve_uid(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1824,7 +1784,6 @@ def set_shader(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1853,7 +1812,6 @@ def project_set(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1879,7 +1837,6 @@ def project_add_autoload(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1902,7 +1859,6 @@ def project_remove_autoload(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1921,7 +1877,6 @@ def create_theme(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1939,7 +1894,6 @@ def statistics(
         json_output=json_output,
         godot=godot,
         project=project,
-        render=render,
     )
 
 
@@ -1955,5 +1909,4 @@ def info(
         InfoParams(),
         json_output=json_output,
         godot=godot,
-        render=render,
     )

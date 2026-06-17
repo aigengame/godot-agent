@@ -20,13 +20,13 @@ from typer.core import TyperCommand
 from gda.binary import resolve_godot_binary
 from gda.errors import Failure, classify_run, unresolvable_binary_failure
 from gda.models import CommandSchema, GdaErrorEnvelope
+from gda.render import render
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
 
 M = TypeVar("M", bound=BaseModel)
 
 Classifier = Callable[[RunResult, Path], M | Failure]
 RunnerFactory = Callable[[Path, Optional[Path]], GodotRunner]
-HumanRenderer = Callable[[M], str]
 
 
 def make_subprocess_runner(binary: Path, project: Optional[Path] = None) -> GodotRunner:
@@ -191,14 +191,19 @@ class HeadlessCommand(Generic[M]):
         godot: Optional[str],
         project: Optional[Path] = None,
         json_output: bool,
-        render_text: HumanRenderer[M],
         make_runner: RunnerFactory = make_subprocess_runner,
     ) -> None:
-        """Run the command and emit either JSON or human-readable output."""
+        """Run the command and emit either JSON or human-readable output.
+
+        Human output is rendered by the module-level :func:`gda.render.render`,
+        which dispatches on the result type — there is no per-command renderer
+        seam to thread, since every command renders through the same type-keyed
+        table (issue #186).
+        """
         result = self.run(
             params, godot=godot, project=project, make_runner=make_runner
         )
         if json_output:
             typer.echo(result.model_dump_json())
         else:
-            typer.echo(render_text(result))
+            typer.echo(render(result))
