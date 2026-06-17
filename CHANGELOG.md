@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.20](https://github.com/aigengame/godot-agent/compare/v0.1.19...v0.1.20) (2026-06-17)
+
+
+### Features
+
+* **gda:** add aggregate-schema meta command (whole-surface dump) ([#196](https://github.com/aigengame/godot-agent/issues/196)) ([6e1c8f4](https://github.com/aigengame/godot-agent/commit/6e1c8f42a100affe0bcc8931e290dfd74e92fcb8))
+
 ## [0.1.19](https://github.com/aigengame/godot-agent/compare/v0.1.18...v0.1.19) (2026-06-16)
 
 
