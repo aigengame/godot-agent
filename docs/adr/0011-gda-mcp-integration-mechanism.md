@@ -22,11 +22,27 @@ gda-daemon exists in Phase 2 — the topology of {gda-mcp, gda, gda-daemon}.
 ## Decision
 
 **gda-mcp wraps `gda` as a subprocess.** It shells out to the installed `gda`
-console script (`gda <group> <command> --json …`, and `gda <group> <command>
---schema` for tool generation) and consumes only `gda`'s **public ABI**: the
-ADR-0002 sentinel-delimited JSON result / error envelope on stdout, the ADR-0002
-exit-code categories, and the ADR-0004 `--schema` self-description. It does **not**
+console script and consumes only `gda`'s **public CLI ABI** — *not* the internal
+sentinel protocol ADR-0002 defines **between** `gda` and its headless operation
+subprocesses (which `gda` already parses away before emitting its public output, and
+which ADR-0010's native-CLI-mode operations do not emit at all). That public ABI is:
+the `--json` success output, the structured `GdaError` envelope on a non-zero exit
+(the uniform `GdaErrorEnvelope` of ADR-0004), the exit-code categories, and the
+`--schema` self-description (ADR-0004). Operations are invoked per-command as
+`gda <group> <command> --json …`; the **tool surface is enumerated from the aggregate
+schema dump** (ADR-0012), *not* a per-command `--schema` fan-out. gda-mcp does **not**
 import `gda`'s Python modules or depend on any internal symbol.
+
+**Error mapping is part of this mechanism, and is lossless.** gda-mcp keys on `gda`'s
+exit code: exit 0 is success — the `--json` result becomes the tool's
+`structuredContent` (validated against its `outputSchema`); any non-zero exit becomes
+`CallToolResult(is_error=True)` carrying the **full** `GdaError` envelope
+`{code, category, message, diagnostics}` **losslessly** as JSON in the result content.
+The envelope is **never** flattened to a prose string — the stable `code` exists
+precisely so an agent branches on it without parsing prose — and the `error` schema
+stays out of `outputSchema` (ADR-0004). All non-zero categories (environment /
+version / operation / parse / contract_violation, including launch failures) map
+uniformly to `isError`; `category` / `code` distinguish them.
 
 **Phase-2 topology — gda-daemon sits *below* `gda`, not beside gda-mcp.** This ADR
 records the load-bearing assumption that makes ADR-0001's "gda-mcp follows `gda` into
@@ -36,7 +52,7 @@ Phase 2 automatically" literally true:
   them, internally, to gda-daemon over its IPC channel; gda-daemon owns the
   persistent engine and therefore the cross-call state (the subject of #5).
 - Each `gda` invocation stays a one-shot, stateless RPC to the daemon and emits the
-  **same** ADR-0002 contract a headless op does.
+  **same** public `--json` / `GdaError` contract a headless op does.
 - **gda-mcp always wraps the CLI and never speaks to gda-daemon directly.** The
   headless/live distinction stays invisible to gda-mcp exactly as ADR-0005 keeps it
   invisible in the command tree. gda-mcp therefore needs no IPC client and no
@@ -47,7 +63,7 @@ Phase 2 automatically" literally true:
 
 - **In-process import (rejected).** gda-mcp imports `gda` and calls its
   functions/models directly. Rejected because: (1) it couples gda-mcp to `gda`'s
-  internals instead of the frozen public ABI that `--schema` / ADR-0002 exist to
+  internals instead of the frozen public CLI ABI that `--schema` (ADR-0004) exists to
   expose; (2) its only real upside is per-call speed, which is illusory in Phase 1 —
   every call's latency is dominated by Godot's own `--headless` spawn (60 s / 600 s
   timeouts), beside which a `gda` process start is noise; (3) it gets *worse* under
@@ -78,6 +94,6 @@ Phase 2 automatically" literally true:
   design (#5, #7): the daemon backs the CLI, and "state consistency" (#5) is a
   property of the daemon holding the engine across one-shot CLI calls — gda-mcp does
   not participate in it.
-- gda-mcp's packaging, tool-generation strategy, transport, and error-mapping
-  fidelity are deliberately out of scope here; they are downstream of this mechanism
-  and decided separately.
+- This ADR owns the integration mechanism **and its error mapping**. gda-mcp's
+  packaging, tool-generation strategy, and transport are downstream and decided
+  separately (ADR-0013, ADR-0012, and the PRD respectively).

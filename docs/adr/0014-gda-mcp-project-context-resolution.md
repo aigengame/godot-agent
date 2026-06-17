@@ -33,7 +33,16 @@ wins:
    launch dir),
 4. the process **cwd**, as a last-resort fallback.
 
-The resolved path is passed as `gda --project <dir>`.
+**A candidate is asserted as an explicit project only when it is a valid Godot
+project** (it contains `project.godot`). gda-mcp does **not** promote an unvalidated
+cwd or root into an explicit `--project`, because ADR-0006 gives `--project` /
+`$GDA_PROJECT` strict semantics (must be a real project) while leaving cwd lenient.
+So an explicit `GDA_PROJECT` / `CLAUDE_PROJECT_DIR`, and any validated `roots`/cwd
+candidate, are passed as `gda --project <dir>`; if nothing resolves to a valid
+project, gda-mcp passes **no** `--project` and lets `gda` apply its own ADR-0006 cwd
+resolution — including running projectless when the cwd is not a project. gda-mcp
+does not itself reject projectless operation; an op that requires a project surfaces
+`gda`'s own typed error, relayed unchanged.
 
 ## Considered options
 
@@ -53,8 +62,10 @@ The resolved path is passed as `gda --project <dir>`.
 - A **user-scoped** server with nothing pinned falls back through `CLAUDE_PROJECT_DIR`
   / `roots/list` / cwd; it works for the single-active-project workflow but cannot, in
   this first delivery, follow a user juggling several projects in one session.
+- The startup `roots/list` read (precedence 3) is part of the resolution contract,
+  not a staged extra — the first delivery implements the full precedence above.
 - **Future multi-project without a tool parameter:** honour MCP `roots/list_changed`
   to re-resolve when the client's active root changes — the MCP-native path to
-  multi-project support that still keeps the project out of the tool surface. Deferred
-  until a concrete need appears. (The startup `roots/list` read at precedence 3 may
-  itself be staged after the env-based resolution in the first slice.)
+  multi-project support that still keeps the project out of the tool surface. This
+  *dynamic* re-resolution (not the static `roots/list` read) is the piece deferred
+  until a concrete need appears, and is out of scope for the first delivery per PRD #8.
