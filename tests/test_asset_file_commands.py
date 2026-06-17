@@ -15,15 +15,16 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.models import ScriptSetMode
 from gda.runner import RunResult
-from tests.support import inject_runner, sentinel
+from tests.support import (
+    SHADER_CREATE_RESULT,
+    SHADER_GET_RESULT,
+    SHADER_SET_RESULT,
+    THEME_CREATE_RESULT,
+    inject_runner,
+    sentinel,
+)
 
 # --- shader create ---------------------------------------------------------
-
-SHADER_CREATE_RESULT = {
-    "path": "/tmp/proj/wave.gdshader",
-    "shader_type": "canvas_item",
-    "created_dirs": [],
-}
 
 
 def test_shader_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
@@ -140,12 +141,6 @@ def test_shader_create_content_and_type_are_mutually_exclusive(monkeypatch):
 
 # --- shader get ------------------------------------------------------------
 
-SHADER_GET_RESULT = {
-    "path": "/tmp/proj/wave.gdshader",
-    "source": "shader_type canvas_item;\n",
-    "shader_type": "canvas_item",
-}
-
 
 def test_shader_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch):
     # shader get is the verifier (issue #115): it reads a shader's source back as
@@ -163,8 +158,6 @@ def test_shader_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch):
 
 
 # --- shader set: reuses the script set edit-mode interface (issue #115) -----
-
-SHADER_SET_RESULT = {"path": "/tmp/proj/wave.gdshader", "shader_type": "spatial"}
 
 
 def test_shader_set_search_replace_dispatches_search_and_replace(monkeypatch):
@@ -325,12 +318,6 @@ def test_shader_set_search_replace_and_content_are_mutually_exclusive(monkeypatc
 
 
 # --- theme create: engine-backed .tres -------------------------------------
-
-THEME_CREATE_RESULT = {
-    "path": "/tmp/proj/ui.tres",
-    "type": "Theme",
-    "created_dirs": [],
-}
 
 
 def test_theme_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):

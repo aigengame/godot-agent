@@ -13,47 +13,15 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import RunResult
-from tests.support import FakeRunner, inject_runner, sentinel
-
-DEPENDENCIES_RESULT = {
-    "dependencies": [
-        {
-            "path": "res://main.tscn",
-            "depends_on": [
-                {"path": "res://hero.tscn", "kind": "ext_resource"},
-                {"path": "res://icon.png", "kind": "ext_resource"},
-            ],
-        },
-        {"path": "res://hero.tscn", "depends_on": []},
-    ]
-}
-
-FIND_REFERENCES_RESULT = {
-    "target": "res://hero.gd",
-    "references": [
-        {
-            "path": "res://hero.tscn",
-            "kind": "ext_resource",
-            "context": 'res://hero.gd type="Script"',
-        }
-    ],
-}
-
-UNUSED_RESULT = {"unused": ["res://orphan.png", "res://orphan.tres"]}
-
-STATISTICS_RESULT = {
-    "total_files": 5,
-    "total_lines": 120,
-    "by_extension": [
-        {"extension": "gd", "files": 2, "lines": 100},
-        {"extension": "tscn", "files": 2, "lines": 20},
-    ],
-    "autoloads": [{"name": "GameState", "path": "res://game_state.gd"}],
-    "plugins": ["res://addons/widget/plugin.cfg"],
-    "scene_count": 2,
-    "script_count": 2,
-    "resource_count": 1,
-}
+from tests.support import (
+    DEPENDENCIES_RESULT,
+    FIND_REFERENCES_RESULT,
+    STATISTICS_RESULT,
+    UNUSED_RESULT,
+    FakeRunner,
+    inject_runner,
+    sentinel,
+)
 
 
 def test_dependencies_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
