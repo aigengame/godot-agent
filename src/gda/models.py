@@ -90,6 +90,16 @@ class InfoParams(BaseModel):
     """
 
 
+class SchemaAllParams(BaseModel):
+    """The operation params of ``gda schema`` — none (ADR-0012).
+
+    Like ``gda info``, ``gda schema`` takes no operation params, so its
+    ``input`` schema is trivially empty. The model still exists so ``gda schema
+    --schema`` is derived model-side rather than hand-written, keeping the meta
+    command self-describing under the same ADR-0004 gate as every other command.
+    """
+
+
 class CommandSchema(BaseModel):
     """A command's self-description: its ``input``, ``output`` and ``error`` JSON Schemas (ADR-0004).
 
@@ -127,6 +137,36 @@ class CommandSchema(BaseModel):
         )
 
 
+class CommandManifestEntry(BaseModel):
+    """One command's entry in the aggregate surface manifest (ADR-0012).
+
+    The whole-surface generalisation of a single command's :class:`CommandSchema`:
+    it carries the same model-derived ``input`` / ``output`` / ``error`` halves,
+    plus the two facts gda-mcp needs to register a tool — ``name`` (the
+    ``<group> <command>`` MCP mapping basis, ADR-0005, e.g. ``scene create``;
+    bare for a meta command such as ``info``) and the command's ``description``
+    (its help text, which flows into the MCP tool description).
+    """
+
+    name: str
+    description: str
+    input: dict[str, Any]
+    output: dict[str, Any]
+    error: dict[str, Any]
+
+
+class SurfaceManifest(BaseModel):
+    """The whole ``gda`` command surface as one document (ADR-0012).
+
+    What ``gda schema`` emits and gda-mcp introspects once at startup: one
+    :class:`CommandManifestEntry` per command in every group. An object (rather
+    than a bare array) leaves room for top-level metadata later and gives the
+    manifest its own schema, so ``gda schema --schema`` self-describes.
+    """
+
+    commands: list[CommandManifestEntry]
+
+
 class SceneCreateParams(BaseModel):
     """The operation params of ``gda scene create`` (issue #18).
 
@@ -137,8 +177,10 @@ class SceneCreateParams(BaseModel):
     without the final extension.
     """
 
-    path: str
-    root_type: str
+    path: str = Field(description="Target .tscn path to write.")
+    root_type: str = Field(
+        description="Godot node class of the new scene's root (e.g. Node2D)."
+    )
     root_name: str | None = Field(
         default=None,
         description=(
@@ -183,7 +225,7 @@ class SceneNode(BaseModel):
 class SceneGetParams(BaseModel):
     """The operation params of ``gda scene get``: the ``.tscn`` file to read."""
 
-    path: str
+    path: str = Field(description="The .tscn scene file to read.")
 
 
 class SceneGetResult(BaseModel):
@@ -261,7 +303,7 @@ class ExportingNode(BaseModel):
 class SceneGetExportsParams(BaseModel):
     """The operation params of ``gda scene get-exports``: the ``.tscn`` file to read (issue #58)."""
 
-    path: str
+    path: str = Field(description="The .tscn scene file to read.")
 
 
 class SceneGetExportsResult(BaseModel):
@@ -322,7 +364,7 @@ class SceneListResult(BaseModel):
 class SceneDeleteParams(BaseModel):
     """The operation params of ``gda scene delete``: the ``.tscn`` file to remove."""
 
-    path: str
+    path: str = Field(description="The .tscn scene file to delete.")
 
 
 class SceneDeleteResult(BaseModel):
@@ -349,7 +391,7 @@ class NodeAddParams(BaseModel):
     the type name.
     """
 
-    path: str
+    path: str = Field(description="The .tscn scene file to mutate.")
     parent: str = Field(
         default=".",
         description=(
@@ -357,7 +399,12 @@ class NodeAddParams(BaseModel):
             "root itself, 'Player/Arm' a nested node."
         ),
     )
-    type: str
+    type: str = Field(
+        description=(
+            "Node type to add: a Godot node class (e.g. Sprite2D), or a "
+            "class_name registered in the project's global class list."
+        )
+    )
     name: str | None = Field(
         default=None,
         description=(
@@ -427,7 +474,7 @@ class ListedNode(SceneNode):
 class NodeListParams(BaseModel):
     """The operation params of ``gda node list``: the ``.tscn`` file to read."""
 
-    path: str
+    path: str = Field(description="The .tscn scene file to read.")
 
 
 class NodeListResult(BaseModel):
@@ -466,7 +513,7 @@ class NodeGetParams(BaseModel):
     its node path relative to the scene root ('.' is the root itself).
     """
 
-    path: str
+    path: str = Field(description="The .tscn scene file to read.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: '.' addresses the root "
@@ -502,14 +549,16 @@ class NodeSetParams(BaseModel):
     Godot type by the operation before the scene is re-packed and saved.
     """
 
-    path: str
+    path: str = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: '.' addresses the root "
             "itself, 'Player/Arm' a nested node."
         )
     )
-    property: str
+    property: str = Field(
+        description="The property to set (e.g. position, visible)."
+    )
     value: str = Field(
         description=(
             "The value to set, as a string. The operation coerces it to the "
@@ -548,7 +597,7 @@ class NodeRemoveParams(BaseModel):
     emptying the scene.
     """
 
-    path: str
+    path: str = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: 'Player/Arm' a nested node. "
@@ -583,7 +632,7 @@ class NodeDuplicateParams(BaseModel):
     copy, so duplicating it is refused.
     """
 
-    path: str
+    path: str = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: 'Player/Arm' a nested node. "
@@ -626,7 +675,7 @@ class NodeMoveParams(BaseModel):
     the scene. The scene root ('.') has no parent to be reparented out of.
     """
 
-    path: str
+    path: str = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path of the node to reparent, relative to the scene root: "
@@ -780,7 +829,7 @@ class ScriptCreateParams(BaseModel):
     content is not templated, so a base class would have nowhere to go.
     """
 
-    path: str
+    path: str = Field(description="Target .gd script path to write.")
     content: str | None = Field(
         default=None,
         description=(
@@ -839,7 +888,7 @@ class ScriptGetParams(BaseModel):
     reading it can never run project code (issue #30).
     """
 
-    path: str
+    path: str = Field(description="The .gd script file to read.")
 
 
 class ScriptGetResult(BaseModel):
@@ -910,7 +959,7 @@ class ScriptListResult(BaseModel):
 class ScriptDeleteParams(BaseModel):
     """The operation params of ``gda script delete``: the ``.gd`` file to remove."""
 
-    path: str
+    path: str = Field(description="The .gd script file to delete.")
 
 
 class ScriptDeleteResult(BaseModel):
@@ -973,7 +1022,7 @@ class ScriptSetParams(BaseModel):
       overwritten.
     """
 
-    path: str
+    path: str = Field(description="The .gd script file to edit.")
     mode: ScriptSetMode = Field(
         description=(
             "The resolved edit mode, the single source of truth the operation "
@@ -1152,7 +1201,7 @@ class ScriptValidateParams(BaseModel):
     project resource and so needs project context to compile.
     """
 
-    path: str
+    path: str = Field(description="The .gd script file to validate.")
 
 
 class ScriptValidateResult(BaseModel):
@@ -1196,7 +1245,7 @@ class ResourceCreateParams(BaseModel):
     ``scene create``'s ``root_type`` check against ``Node``.
     """
 
-    path: str
+    path: str = Field(description="Target .tres resource path to write.")
     type: str = Field(
         description=(
             "The Godot resource class to create (e.g. Gradient, Curve). Must be "
@@ -1464,7 +1513,7 @@ class ShaderCreateParams(BaseModel):
     source; when omitted, the operation writes a minimal ``shader_type`` template.
     """
 
-    path: str
+    path: str = Field(description="Target .gdshader path to write.")
     content: str | None = Field(
         default=None,
         description=(
@@ -1518,7 +1567,7 @@ class ResourceGetParams(BaseModel):
     runs on load.
     """
 
-    path: str
+    path: str = Field(description="The .tres resource file to read.")
 
 
 class ShaderGetParams(BaseModel):
@@ -1532,7 +1581,7 @@ class ShaderGetParams(BaseModel):
     (ADR-0009).
     """
 
-    path: str
+    path: str = Field(description="The .gdshader file to read.")
 
 
 class ResourceGetResult(BaseModel):
@@ -1564,7 +1613,7 @@ class ResourceSetParams(BaseModel):
     round-trip via ``resource get``.
     """
 
-    path: str
+    path: str = Field(description="The .tres resource file to mutate.")
     property: str = Field(
         description="The resource property to set (e.g. interpolation_mode)."
     )
@@ -1599,7 +1648,7 @@ class ResourceSetResult(BaseModel):
 class ResourceDeleteParams(BaseModel):
     """The operation params of ``gda resource delete``: the ``.tres`` file to remove (issue #120)."""
 
-    path: str
+    path: str = Field(description="The .tres resource file to delete.")
 
 
 class ResourceDeleteResult(BaseModel):
@@ -1680,7 +1729,7 @@ class ShaderSetParams(BaseModel):
       overwritten.
     """
 
-    path: str
+    path: str = Field(description="The .gdshader file to edit.")
     mode: ScriptSetMode = Field(
         description=(
             "The resolved edit mode, the single source of truth the operation "
@@ -1761,7 +1810,7 @@ class ThemeCreateParams(BaseModel):
     a resource-producing op goes through the engine.
     """
 
-    path: str
+    path: str = Field(description="Target .tres Theme path to write.")
 
 
 class ThemeCreateResult(BaseModel):
