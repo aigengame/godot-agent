@@ -18,17 +18,17 @@ import pytest
 
 from gda.binary import resolve_godot_binary
 
+from .conftest import project_godot
+
 GODOT = resolve_godot_binary()
 
 
 # A project.godot with an autoload, a main scene, and an enabled editor plugin —
 # the project-level references and the statistics fields the commands report.
-PROJECT_GODOT = """\
-config_version=5
-
-[application]
-
-config/name="gda-refgraph-fixture"
+# Built through ``project_godot`` so e2e file logging stays disabled (issue #180).
+PROJECT_GODOT = project_godot(
+    name="gda-refgraph-fixture",
+    extra="""\
 run/main_scene="res://main.tscn"
 
 [autoload]
@@ -38,7 +38,8 @@ GameState="*res://game_state.gd"
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/widget/plugin.cfg")
-"""
+""",
+)
 
 # A main scene that ext_resources a sub-scene, a script and an image — three
 # outgoing references, the shape Godot 4 writes.
@@ -285,13 +286,8 @@ def test_find_references_bad_target_is_invalid_target(refgraph_project):
 # Hero must report the consumers but NOT Hero's own `class_name Hero` declaration
 # line (the definition site, not a reference); find-references for Lonely must be
 # empty.
-CLASSNAME_PROJECT_GODOT = """\
-config_version=5
-
-[application]
-
-config/name="gda-classname-fixture"
-"""
+# Built through ``project_godot`` so e2e file logging stays disabled (issue #180).
+CLASSNAME_PROJECT_GODOT = project_godot(name="gda-classname-fixture")
 
 HERO_GD = """\
 extends Node
@@ -402,9 +398,9 @@ def test_statistics_counts_binary_assets_as_files_but_not_lines(tmp_path):
     # ("binary assets contribute to file counts but not line counts"). Issue #116
     # review: _count_lines previously read every file as text, so a binary asset's
     # newline bytes inflated total_lines.
+    # Built through ``project_godot`` so e2e file logging stays disabled (#180).
     (tmp_path / "project.godot").write_text(
-        'config_version=5\n\n[application]\n\nconfig/name="gda-binary-fixture"\n',
-        encoding="utf-8",
+        project_godot(name="gda-binary-fixture"), encoding="utf-8"
     )
     # A two-line .gd: a real text file contributing 2 lines.
     (tmp_path / "code.gd").write_text("extends Node\n\n", encoding="utf-8")
