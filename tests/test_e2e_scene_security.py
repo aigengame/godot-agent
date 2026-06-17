@@ -39,6 +39,8 @@ import pytest
 
 from gda.binary import resolve_godot_binary
 
+from .conftest import project_godot
+
 GODOT = resolve_godot_binary()
 
 
@@ -298,17 +300,15 @@ func _init() -> void:
 """
 
 # A project.godot that registers the autoload (extends the minimal fixture form).
-PROJECT_WITH_AUTOLOAD = """\
-config_version=5
-
-[application]
-
-config/name="gda-e2e-autoload-fixture"
-
+# Built through ``project_godot`` so e2e file logging stays disabled (issue #180).
+PROJECT_WITH_AUTOLOAD = project_godot(
+    name="gda-e2e-autoload-fixture",
+    extra="""\
 [autoload]
 
 Spy="*res://autoload.gd"
-"""
+""",
+)
 
 # A plain scene with NO attached script, so the only project-code execution
 # surface in this test is the autoload (not a scene script).
