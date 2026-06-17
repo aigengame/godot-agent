@@ -4,7 +4,7 @@
 
 > An agent-first **CLI and MCP server** that lets AI agents drive the [Godot Engine](https://godotengine.org) to build games — with **structured output** built for programmatic consumption.
 
-[![Status](https://img.shields.io/badge/status-Phase%201%20headless%20surface%20complete-brightgreen)](#project-status)
+[![Status](https://img.shields.io/badge/status-Phase%201%20headless%20surface%20complete-brightgreen?cacheSeconds=3600)](#project-status)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
 [![Godot](https://img.shields.io/badge/godot-4.4%2B%20(tested%204.6)-478CBF)](https://godotengine.org)
