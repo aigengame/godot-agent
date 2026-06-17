@@ -34,7 +34,6 @@ def test_headless_command_emit_owns_runner_classification_and_json_output(capsys
         godot="/tmp/Godot",
         project=Path("/tmp/project"),
         json_output=True,
-        render_text=lambda version: version.string,
         make_runner=make_runner,
     )
 
@@ -70,7 +69,6 @@ def test_headless_command_emit_owns_structured_failure_output(capsys):
             godot="/tmp/missing",
             project=None,
             json_output=False,
-            render_text=lambda version: version.string,
             make_runner=make_runner,
         )
 
@@ -99,7 +97,6 @@ def test_empty_godot_path_maps_to_structured_binary_not_found(capsys):
             godot="",
             project=None,
             json_output=False,
-            render_text=lambda version: version.string,
             make_runner=make_runner,
         )
 
