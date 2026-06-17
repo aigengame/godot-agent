@@ -14,24 +14,13 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import RunResult
-from tests.support import FakeRunner, inject_runner, sentinel
-
-LIST_RESULT = {
-    "presets": [
-        {"index": 0, "name": "Linux/X11", "platform": "Linux/X11", "runnable": True},
-        {"index": 1, "name": "Web", "platform": "Web", "runnable": False},
-    ]
-}
-
-GET_RESULT = {
-    "index": 1,
-    "name": "Web",
-    "platform": "Web",
-    "runnable": False,
-    "export_path": "build/index.html",
-    "templates_installed": True,
-    "templates_version": "4.6.3.stable",
-}
+from tests.support import (
+    EXPORT_GET_RESULT as GET_RESULT,
+    EXPORT_LIST_RESULT as LIST_RESULT,
+    FakeRunner,
+    inject_runner,
+    sentinel,
+)
 
 
 def test_export_list_json_enumerates_presets_and_exit_zero(monkeypatch, tmp_path):

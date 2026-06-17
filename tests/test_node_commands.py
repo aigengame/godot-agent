@@ -12,15 +12,18 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import RunResult
-from tests.support import inject_runner, sentinel
-
-ADD_RESULT = {
-    "scene_path": "/tmp/proj/main.tscn",
-    "path": "Hero",
-    "name": "Hero",
-    "type": "Sprite2D",
-    "script_class": None,
-}
+from tests.support import (
+    NODE_ADD_RESULT as ADD_RESULT,
+    NODE_CONNECT_RESULT as CONNECT_RESULT,
+    NODE_DUPLICATE_RESULT as DUPLICATE_RESULT,
+    NODE_GET_RESULT as GET_RESULT,
+    NODE_LIST_RESULT as LIST_RESULT,
+    NODE_MOVE_RESULT as MOVE_RESULT,
+    NODE_REMOVE_RESULT as REMOVE_RESULT,
+    NODE_SET_RESULT as SET_RESULT,
+    inject_runner,
+    sentinel,
+)
 
 
 def test_node_add_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
@@ -71,31 +74,6 @@ def test_node_add_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     assert "engine diagnostic" in result.stderr
 
 
-LIST_RESULT = {
-    "scene_path": "/tmp/proj/main.tscn",
-    "root": {
-        "name": "main",
-        "type": "Node2D",
-        "path": ".",
-        "children": [
-            {
-                "name": "Hero",
-                "type": "Sprite2D",
-                "path": "Hero",
-                "children": [
-                    {
-                        "name": "Hitbox",
-                        "type": "Area2D",
-                        "path": "Hero/Hitbox",
-                        "children": [],
-                    }
-                ],
-            }
-        ],
-    },
-}
-
-
 def test_node_list_json_emits_node_tree_with_paths_and_exit_zero(monkeypatch):
     # node list is the node-group verifier (issue #53): it reports the scene's
     # tree like scene get, but each node carries its node path — the address an
@@ -114,18 +92,6 @@ def test_node_list_json_emits_node_tree_with_paths_and_exit_zero(monkeypatch):
     assert (hero["name"], hero["type"], hero["path"]) == ("Hero", "Sprite2D", "Hero")
     assert hero["children"][0]["path"] == "Hero/Hitbox"
     assert fake.calls == [("node-list", {"path": "/tmp/proj/main.tscn"})]
-
-
-GET_RESULT = {
-    "scene_path": "/tmp/proj/main.tscn",
-    "path": "Hero",
-    "name": "Hero",
-    "type": "Sprite2D",
-    "properties": [
-        {"name": "position", "type": "Vector2", "value": [10.0, 20.0]},
-        {"name": "visible", "type": "bool", "value": True},
-    ],
-}
 
 
 def test_node_get_json_emits_typed_properties_and_exit_zero(monkeypatch):
@@ -153,15 +119,6 @@ def test_node_get_json_emits_typed_properties_and_exit_zero(monkeypatch):
     assert fake.calls == [
         ("node-get", {"path": "/tmp/proj/main.tscn", "node": "Hero"})
     ]
-
-
-SET_RESULT = {
-    "scene_path": "/tmp/proj/main.tscn",
-    "path": "Hero",
-    "property": "position",
-    "type": "Vector2",
-    "value": [3.0, 4.0],
-}
 
 
 def test_node_set_json_echoes_the_coerced_property_and_exit_zero(monkeypatch):
@@ -209,14 +166,6 @@ def test_node_set_json_echoes_the_coerced_property_and_exit_zero(monkeypatch):
     ]
 
 
-REMOVE_RESULT = {
-    "scene_path": "/tmp/proj/main.tscn",
-    "path": "Hero",
-    "name": "Hero",
-    "type": "Sprite2D",
-}
-
-
 def test_node_remove_json_echoes_the_removed_node_and_exit_zero(monkeypatch):
     # node remove is the first structural edit (issue #56): it deletes a node
     # and its subtree, echoing the removed node's address/name/type — the result
@@ -237,15 +186,6 @@ def test_node_remove_json_echoes_the_removed_node_and_exit_zero(monkeypatch):
     ]
 
 
-DUPLICATE_RESULT = {
-    "scene_path": "/tmp/proj/main.tscn",
-    "source_path": "Hero",
-    "path": "Hero2",
-    "name": "Hero2",
-    "type": "Sprite2D",
-}
-
-
 def test_node_duplicate_json_echoes_the_new_copy_and_exit_zero(monkeypatch):
     # node duplicate (issue #56) copies a node and its subtree under the source's
     # own parent with a fresh name, echoing the source and the new copy's
@@ -264,16 +204,6 @@ def test_node_duplicate_json_echoes_the_new_copy_and_exit_zero(monkeypatch):
     assert fake.calls == [
         ("node-duplicate", {"path": "/tmp/proj/main.tscn", "node": "Hero"})
     ]
-
-
-MOVE_RESULT = {
-    "scene_path": "/tmp/proj/main.tscn",
-    "source_path": "Hero",
-    "new_parent": "Enemies",
-    "path": "Enemies/Hero",
-    "name": "Hero",
-    "type": "Sprite2D",
-}
 
 
 def test_node_move_json_echoes_the_reparented_node_and_exit_zero(monkeypatch):
@@ -333,15 +263,6 @@ def test_node_add_defaults_parent_to_root_and_name_to_type(monkeypatch):
             },
         )
     ]
-
-
-CONNECT_RESULT = {
-    "scene_path": "/tmp/proj/main.tscn",
-    "from": "Emitter",
-    "signal": "timeout",
-    "to": "Receiver",
-    "method": "on_timeout",
-}
 
 
 def test_node_connect_signal_json_dispatches_the_four_part_connection(monkeypatch):

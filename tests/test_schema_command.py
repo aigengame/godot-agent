@@ -411,15 +411,15 @@ def test_sample_node_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each node command satisfies the contract its
     # --schema emits (the other half of the ADR-0004 hard gate, issues
     # #53/#55/#56/#57).
-    from tests.test_node_commands import (
-        ADD_RESULT,
-        CONNECT_RESULT,
-        DUPLICATE_RESULT,
-        GET_RESULT,
-        LIST_RESULT,
-        MOVE_RESULT,
-        REMOVE_RESULT,
-        SET_RESULT,
+    from tests.support import (
+        NODE_ADD_RESULT as ADD_RESULT,
+        NODE_CONNECT_RESULT as CONNECT_RESULT,
+        NODE_DUPLICATE_RESULT as DUPLICATE_RESULT,
+        NODE_GET_RESULT as GET_RESULT,
+        NODE_LIST_RESULT as LIST_RESULT,
+        NODE_MOVE_RESULT as MOVE_RESULT,
+        NODE_REMOVE_RESULT as REMOVE_RESULT,
+        NODE_SET_RESULT as SET_RESULT,
     )
 
     add_doc = json.loads(CliRunner().invoke(app, ["node", "add", "--schema"]).stdout)
@@ -607,9 +607,12 @@ def test_script_validate_schema_emits_model_derived_contract_without_other_args(
 def test_sample_script_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each script command satisfies the contract its
     # --schema emits (the other half of the ADR-0004 hard gate, issues #110, #117).
-    from tests.test_script_commands import CREATE_RESULT, GET_RESULT, LIST_RESULT
-
-    from tests.test_script_commands import SET_RESULT
+    from tests.support import (
+        SCRIPT_CREATE_RESULT as CREATE_RESULT,
+        SCRIPT_GET_RESULT as GET_RESULT,
+        SCRIPT_LIST_RESULT as LIST_RESULT,
+        SCRIPT_SET_RESULT as SET_RESULT,
+    )
 
     create_doc = json.loads(
         CliRunner().invoke(app, ["script", "create", "--schema"]).stdout
@@ -682,7 +685,7 @@ def test_sample_resource_uid_results_validate_against_emitted_output_schema():
     # A sample --json payload of resource uid satisfies the contract its --schema
     # emits — the other half of the ADR-0004 hard gate (issue #113). Both
     # directions share one result shape, so one sample covers them.
-    from tests.test_resource_commands import PATH_TO_UID_RESULT, UID_TO_PATH_RESULT
+    from tests.support import PATH_TO_UID_RESULT, UID_TO_PATH_RESULT
 
     doc = json.loads(CliRunner().invoke(app, ["resource", "uid", "--schema"]).stdout)
 
@@ -864,7 +867,10 @@ def test_resource_delete_schema_emits_model_derived_contract_without_other_args(
 def test_sample_resource_set_delete_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each new resource command satisfies the contract
     # its --schema emits (the other half of the ADR-0004 hard gate, issue #120).
-    from tests.test_resource_commands import DELETE_RESULT, SET_RESULT
+    from tests.support import (
+        RESOURCE_DELETE_RESULT as DELETE_RESULT,
+        RESOURCE_SET_RESULT as SET_RESULT,
+    )
 
     set_doc = json.loads(
         CliRunner().invoke(app, ["resource", "set", "--schema"]).stdout
@@ -939,7 +945,10 @@ def test_project_statistics_schema_emits_model_derived_contract():
 def test_sample_resource_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each resource command satisfies the contract
     # its --schema emits (the other half of the ADR-0004 hard gate, issue #112).
-    from tests.test_resource_commands import CREATE_RESULT, GET_RESULT
+    from tests.support import (
+        RESOURCE_CREATE_RESULT as CREATE_RESULT,
+        RESOURCE_GET_RESULT as GET_RESULT,
+    )
 
     create_doc = json.loads(
         CliRunner().invoke(app, ["resource", "create", "--schema"]).stdout
@@ -955,7 +964,10 @@ def test_sample_resource_results_validate_against_emitted_output_schemas():
 def test_sample_export_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each export command satisfies the contract its
     # --schema emits (the other half of the ADR-0004 hard gate, issue #114).
-    from tests.test_export_commands import GET_RESULT, LIST_RESULT
+    from tests.support import (
+        EXPORT_GET_RESULT as GET_RESULT,
+        EXPORT_LIST_RESULT as LIST_RESULT,
+    )
 
     list_doc = json.loads(
         CliRunner().invoke(app, ["export", "list", "--schema"]).stdout
@@ -969,7 +981,7 @@ def test_sample_export_results_validate_against_emitted_output_schemas():
 def test_sample_project_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each project analysis command satisfies the
     # contract its --schema emits (the other half of the ADR-0004 hard gate).
-    from tests.test_project_analysis_commands import (
+    from tests.support import (
         DEPENDENCIES_RESULT,
         FIND_REFERENCES_RESULT,
         STATISTICS_RESULT,
@@ -1146,7 +1158,7 @@ def test_theme_create_schema_emits_model_derived_contract_without_other_args():
 def test_sample_asset_file_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each asset-file command satisfies the contract
     # its --schema emits (the other half of the ADR-0004 hard gate, issue #115).
-    from tests.test_asset_file_commands import (
+    from tests.support import (
         SHADER_CREATE_RESULT,
         SHADER_GET_RESULT,
         SHADER_SET_RESULT,

@@ -127,3 +127,235 @@ SCENE_DELETE_RESULT = {
     "root_name": "old",
     "root_type": "Node2D",
 }
+
+# Canned ``gda node <command> --json`` result payloads. Defined here so the node
+# command tests and the --schema sample-validation tests share one source rather
+# than the latter importing them from the former (issue #178).
+NODE_ADD_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "path": "Hero",
+    "name": "Hero",
+    "type": "Sprite2D",
+    "script_class": None,
+}
+
+NODE_LIST_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "root": {
+        "name": "main",
+        "type": "Node2D",
+        "path": ".",
+        "children": [
+            {
+                "name": "Hero",
+                "type": "Sprite2D",
+                "path": "Hero",
+                "children": [
+                    {
+                        "name": "Hitbox",
+                        "type": "Area2D",
+                        "path": "Hero/Hitbox",
+                        "children": [],
+                    }
+                ],
+            }
+        ],
+    },
+}
+
+NODE_GET_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "path": "Hero",
+    "name": "Hero",
+    "type": "Sprite2D",
+    "properties": [
+        {"name": "position", "type": "Vector2", "value": [10.0, 20.0]},
+        {"name": "visible", "type": "bool", "value": True},
+    ],
+}
+
+NODE_SET_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "path": "Hero",
+    "property": "position",
+    "type": "Vector2",
+    "value": [3.0, 4.0],
+}
+
+NODE_REMOVE_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "path": "Hero",
+    "name": "Hero",
+    "type": "Sprite2D",
+}
+
+NODE_DUPLICATE_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "source_path": "Hero",
+    "path": "Hero2",
+    "name": "Hero2",
+    "type": "Sprite2D",
+}
+
+NODE_MOVE_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "source_path": "Hero",
+    "new_parent": "Enemies",
+    "path": "Enemies/Hero",
+    "name": "Hero",
+    "type": "Sprite2D",
+}
+
+NODE_CONNECT_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "from": "Emitter",
+    "signal": "timeout",
+    "to": "Receiver",
+    "method": "on_timeout",
+}
+
+# Canned ``gda script <command> --json`` result payloads (issue #178).
+SCRIPT_CREATE_RESULT = {
+    "path": "/tmp/proj/hero.gd",
+    "class_name": "Hero",
+    "extends": "Node2D",
+    "created_dirs": [],
+}
+
+SCRIPT_GET_RESULT = {
+    "path": "/tmp/proj/hero.gd",
+    "source": "class_name Hero\nextends Node2D\n",
+    "class_name": "Hero",
+    "extends": "Node2D",
+}
+
+SCRIPT_LIST_RESULT = {
+    "scripts": [
+        {"path": "res://hero.gd", "class_name": "Hero", "extends": "Node2D"},
+        {"path": "res://util.gd", "class_name": None, "extends": "RefCounted"},
+        {"path": "res://empty.gd", "class_name": None, "extends": None},
+    ]
+}
+
+SCRIPT_SET_RESULT = {
+    "path": "/tmp/proj/hero.gd",
+    "class_name": "Hero",
+    "extends": "Node2D",
+}
+
+# Canned ``gda resource <command> --json`` result payloads (issue #178). For
+# ``resource uid``, both directions converge on one ``{queried, uid, path}``
+# shape, so ``UID``/``PATH`` are shared constants too.
+RESOURCE_CREATE_RESULT = {
+    "path": "/tmp/proj/palette.tres",
+    "type": "Gradient",
+    "created_dirs": [],
+}
+
+RESOURCE_GET_RESULT = {
+    "path": "/tmp/proj/palette.tres",
+    "type": "Gradient",
+    "properties": [
+        {"name": "resource_name", "type": "String", "value": ""},
+        {"name": "interpolation_mode", "type": "int", "value": 0},
+    ],
+}
+
+RESOURCE_SET_RESULT = {
+    "path": "/tmp/proj/palette.tres",
+    "property": "interpolation_mode",
+    "type": "int",
+    "value": 1,
+}
+
+RESOURCE_DELETE_RESULT = {
+    "path": "/tmp/proj/palette.tres",
+    "type": "Gradient",
+}
+
+UID = "uid://caax1gby1api1"
+PATH = "res://data.tres"
+
+UID_TO_PATH_RESULT = {"queried": "uid", "uid": UID, "path": PATH}
+PATH_TO_UID_RESULT = {"queried": "path", "uid": UID, "path": PATH}
+
+# Canned ``gda export <command> --json`` result payloads (issue #178).
+EXPORT_LIST_RESULT = {
+    "presets": [
+        {"index": 0, "name": "Linux/X11", "platform": "Linux/X11", "runnable": True},
+        {"index": 1, "name": "Web", "platform": "Web", "runnable": False},
+    ]
+}
+
+EXPORT_GET_RESULT = {
+    "index": 1,
+    "name": "Web",
+    "platform": "Web",
+    "runnable": False,
+    "export_path": "build/index.html",
+    "templates_installed": True,
+    "templates_version": "4.6.3.stable",
+}
+
+# Canned ``gda project <command> --json`` analysis result payloads (issue #178).
+DEPENDENCIES_RESULT = {
+    "dependencies": [
+        {
+            "path": "res://main.tscn",
+            "depends_on": [
+                {"path": "res://hero.tscn", "kind": "ext_resource"},
+                {"path": "res://icon.png", "kind": "ext_resource"},
+            ],
+        },
+        {"path": "res://hero.tscn", "depends_on": []},
+    ]
+}
+
+FIND_REFERENCES_RESULT = {
+    "target": "res://hero.gd",
+    "references": [
+        {
+            "path": "res://hero.tscn",
+            "kind": "ext_resource",
+            "context": 'res://hero.gd type="Script"',
+        }
+    ],
+}
+
+UNUSED_RESULT = {"unused": ["res://orphan.png", "res://orphan.tres"]}
+
+STATISTICS_RESULT = {
+    "total_files": 5,
+    "total_lines": 120,
+    "by_extension": [
+        {"extension": "gd", "files": 2, "lines": 100},
+        {"extension": "tscn", "files": 2, "lines": 20},
+    ],
+    "autoloads": [{"name": "GameState", "path": "res://game_state.gd"}],
+    "plugins": ["res://addons/widget/plugin.cfg"],
+    "scene_count": 2,
+    "script_count": 2,
+    "resource_count": 1,
+}
+
+# Canned ``gda shader``/``gda theme`` asset-file ``--json`` result payloads
+# (issue #178).
+SHADER_CREATE_RESULT = {
+    "path": "/tmp/proj/wave.gdshader",
+    "shader_type": "canvas_item",
+    "created_dirs": [],
+}
+
+SHADER_GET_RESULT = {
+    "path": "/tmp/proj/wave.gdshader",
+    "source": "shader_type canvas_item;\n",
+    "shader_type": "canvas_item",
+}
+
+SHADER_SET_RESULT = {"path": "/tmp/proj/wave.gdshader", "shader_type": "spatial"}
+
+THEME_CREATE_RESULT = {
+    "path": "/tmp/proj/ui.tres",
+    "type": "Theme",
+    "created_dirs": [],
+}

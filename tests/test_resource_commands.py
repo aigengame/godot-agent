@@ -17,43 +17,19 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.runner import RunResult
-from tests.support import FakeRunner, inject_runner, sentinel
-
-
-CREATE_RESULT = {
-    "path": "/tmp/proj/palette.tres",
-    "type": "Gradient",
-    "created_dirs": [],
-}
-
-GET_RESULT = {
-    "path": "/tmp/proj/palette.tres",
-    "type": "Gradient",
-    "properties": [
-        {"name": "resource_name", "type": "String", "value": ""},
-        {"name": "interpolation_mode", "type": "int", "value": 0},
-    ],
-}
-
-
-SET_RESULT = {
-    "path": "/tmp/proj/palette.tres",
-    "property": "interpolation_mode",
-    "type": "int",
-    "value": 1,
-}
-
-DELETE_RESULT = {
-    "path": "/tmp/proj/palette.tres",
-    "type": "Gradient",
-}
-
-
-UID = "uid://caax1gby1api1"
-PATH = "res://data.tres"
-
-UID_TO_PATH_RESULT = {"queried": "uid", "uid": UID, "path": PATH}
-PATH_TO_UID_RESULT = {"queried": "path", "uid": UID, "path": PATH}
+from tests.support import (
+    RESOURCE_CREATE_RESULT as CREATE_RESULT,
+    RESOURCE_DELETE_RESULT as DELETE_RESULT,
+    RESOURCE_GET_RESULT as GET_RESULT,
+    RESOURCE_SET_RESULT as SET_RESULT,
+    PATH,
+    PATH_TO_UID_RESULT,
+    UID,
+    UID_TO_PATH_RESULT,
+    FakeRunner,
+    inject_runner,
+    sentinel,
+)
 
 
 # --- resource set (issue #120) -------------------------------------------

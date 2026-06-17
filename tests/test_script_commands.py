@@ -13,14 +13,15 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.models import ScriptSetMode
 from gda.runner import RunResult
-from tests.support import FakeRunner, inject_runner, sentinel
-
-CREATE_RESULT = {
-    "path": "/tmp/proj/hero.gd",
-    "class_name": "Hero",
-    "extends": "Node2D",
-    "created_dirs": [],
-}
+from tests.support import (
+    SCRIPT_CREATE_RESULT as CREATE_RESULT,
+    SCRIPT_GET_RESULT as GET_RESULT,
+    SCRIPT_LIST_RESULT as LIST_RESULT,
+    SCRIPT_SET_RESULT as SET_RESULT,
+    FakeRunner,
+    inject_runner,
+    sentinel,
+)
 
 
 def test_script_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
@@ -130,14 +131,6 @@ def test_script_create_content_and_extends_are_mutually_exclusive(monkeypatch):
     assert fake.calls == []
 
 
-GET_RESULT = {
-    "path": "/tmp/proj/hero.gd",
-    "source": "class_name Hero\nextends Node2D\n",
-    "class_name": "Hero",
-    "extends": "Node2D",
-}
-
-
 def test_script_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch):
     # script get is the verifier (issue #110): it reads a script's source back
     # as raw text with its class_name/extends, so a create round-trips.
@@ -153,15 +146,6 @@ def test_script_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch):
     assert data["class_name"] == "Hero"
     assert data["extends"] == "Node2D"
     assert fake.calls == [("script-get", {"path": "/tmp/proj/hero.gd"})]
-
-
-LIST_RESULT = {
-    "scripts": [
-        {"path": "res://hero.gd", "class_name": "Hero", "extends": "Node2D"},
-        {"path": "res://util.gd", "class_name": None, "extends": "RefCounted"},
-        {"path": "res://empty.gd", "class_name": None, "extends": None},
-    ]
-}
 
 
 def test_script_list_json_enumerates_project_scripts_and_exit_zero(monkeypatch, tmp_path):
@@ -210,13 +194,6 @@ def test_script_list_passes_resolved_project_to_the_runner(monkeypatch, tmp_path
 
     assert result.exit_code == 0
     assert seen["project"] == tmp_path
-
-
-SET_RESULT = {
-    "path": "/tmp/proj/hero.gd",
-    "class_name": "Hero",
-    "extends": "Node2D",
-}
 
 
 def test_script_set_search_replace_dispatches_search_and_replace(monkeypatch):
