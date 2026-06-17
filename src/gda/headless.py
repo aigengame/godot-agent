@@ -125,6 +125,21 @@ def emit_failure(failure: Failure) -> NoReturn:
 _fail = emit_failure
 
 
+def emit_result(result: BaseModel, json_output: bool) -> None:
+    """Emit a typed success result as JSON or human-readable text.
+
+    The single home for the public success channel: a result model becomes its
+    ``--json`` serialization when ``json_output``, else the type-dispatched
+    human rendering by :func:`gda.render.render` (issue #186). Shared by the
+    sentinel-pipeline commands (via :meth:`HeadlessCommand.emit`) and the
+    native-export command (``export run``), so both render success identically.
+    """
+    if json_output:
+        typer.echo(result.model_dump_json())
+    else:
+        typer.echo(render(result))
+
+
 @dataclass(frozen=True)
 class HeadlessCommand(Generic[M]):
     """A deep module for one Phase-1 headless operation.
@@ -147,6 +162,46 @@ class HeadlessCommand(Generic[M]):
         """Return the Typer command class that owns this command's ``--schema``."""
         return schema_command_class(self.input_model, self.output_model)
 
+    def execute(
+        self,
+        params: BaseModel,
+        *,
+        godot: Optional[str],
+        project: Optional[Path] = None,
+        make_runner: RunnerFactory = make_subprocess_runner,
+    ) -> M | Failure:
+        """Run the command and RETURN its typed success model or a ``Failure``.
+
+        The outcome step: it resolves the binary, runs the operation, forwards
+        engine diagnostics to stderr, and classifies the raw result — but it
+        never emits the public result/error envelope or exits. (Forwarding the
+        engine's stderr is its one side effect; the public emit and the process
+        exit are deferred to :meth:`run`.) A failure is *returned* as a
+        :class:`Failure`, so a caller composing a multi-phase recipe
+        (``export run``) can branch on it. :meth:`run` adds the
+        emit-and-exit-on-failure behavior on top.
+        """
+        try:
+            binary = resolve_godot_binary(godot)
+        except ValueError as exc:
+            # An empty ``--godot ""`` (a natural $GDA_GODOT mistake) makes
+            # resolution raise *before* a runner exists — there is no binary to
+            # launch, the same environment failure as a missing one. Map it to
+            # the structured ``binary_not_found`` envelope so it never escapes as
+            # a raw traceback (issue #33), mirroring the runner's NOT_FOUND path.
+            return unresolvable_binary_failure(str(exc))
+        runner = make_runner(binary, project)
+        result = runner.run(self.operation, params.model_dump())
+
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+
+        return (
+            self.classify(result, binary)
+            if self.classify is not None
+            else classify_run(result, binary, self.output_model)
+        )
+
     def run(
         self,
         params: BaseModel,
@@ -158,27 +213,12 @@ class HeadlessCommand(Generic[M]):
         """Run the command and return its typed success model.
 
         Diagnostics are forwarded to stderr. Failures are emitted as the public
-        structured error envelope and terminate via Typer's exit path.
+        structured error envelope and terminate via Typer's exit path. The
+        outcome is produced by :meth:`execute`; this method adds the
+        emit-and-exit-on-failure behavior shared by every CLI command.
         """
-        try:
-            binary = resolve_godot_binary(godot)
-        except ValueError as exc:
-            # An empty ``--godot ""`` (a natural $GDA_GODOT mistake) makes
-            # resolution raise *before* a runner exists — there is no binary to
-            # launch, the same environment failure as a missing one. Map it to
-            # the structured ``binary_not_found`` envelope so it never escapes as
-            # a raw traceback (issue #33), mirroring the runner's NOT_FOUND path.
-            _fail(unresolvable_binary_failure(str(exc)))
-        runner = make_runner(binary, project)
-        result = runner.run(self.operation, params.model_dump())
-
-        if result.stderr:
-            print(result.stderr, end="", file=sys.stderr)
-
-        outcome = (
-            self.classify(result, binary)
-            if self.classify is not None
-            else classify_run(result, binary, self.output_model)
+        outcome = self.execute(
+            params, godot=godot, project=project, make_runner=make_runner
         )
         if isinstance(outcome, Failure):
             _fail(outcome)
@@ -203,7 +243,4 @@ class HeadlessCommand(Generic[M]):
         result = self.run(
             params, godot=godot, project=project, make_runner=make_runner
         )
-        if json_output:
-            typer.echo(result.model_dump_json())
-        else:
-            typer.echo(render(result))
+        emit_result(result, json_output)
