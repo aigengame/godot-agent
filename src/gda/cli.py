@@ -34,6 +34,8 @@ from gda.headless import (
     json_option,
     make_subprocess_runner,
     project_option,
+    schema_command_class,
+    schema_option,
 )
 from gda.models import (
     EngineVersion,
@@ -88,6 +90,7 @@ from gda.models import (
     ResourceSetResult,
     ResourceUidParams,
     ResourceUidResult,
+    SchemaAllParams,
     SceneCreateParams,
     SceneCreateResult,
     SceneDeleteParams,
@@ -119,11 +122,13 @@ from gda.models import (
     ShaderGetResult,
     ShaderSetParams,
     ShaderSetResult,
+    SurfaceManifest,
     ThemeCreateParams,
     ThemeCreateResult,
 )
 from gda.project import resolve_project_dir
 from gda.runner import GodotRunner
+from gda.surface import build_surface_manifest
 
 app = typer.Typer(
     name="gda",
@@ -1839,3 +1844,19 @@ def info(
         json_output=json_output,
         godot=godot,
     )
+
+
+@app.command(cls=schema_command_class(SchemaAllParams, SurfaceManifest))
+def schema(
+    schema: bool = schema_option(),
+) -> None:
+    """Emit the whole command surface as one JSON manifest; no Godot is spawned.
+
+    The aggregate generalisation of per-command ``--schema`` (ADR-0004/0012):
+    one entry per command in every group, each carrying
+    ``{name, description, input, output, error}``. gda-mcp introspects this once
+    at startup to generate its tool surface, so it stays a faithful mirror of the
+    installed ``gda`` with no codegen step. As a meta command (ADR-0005) it is
+    top-level and ungrouped, a sibling of ``gda info``.
+    """
+    typer.echo(build_surface_manifest(app).model_dump_json())

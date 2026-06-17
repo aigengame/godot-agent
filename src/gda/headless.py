@@ -85,6 +85,14 @@ def schema_command_class(
     """
 
     class _SchemaCommand(TyperCommand):
+        # Expose the command's models so the aggregate-schema walker
+        # (gda.surface) can reuse CommandSchema.of per command when it walks the
+        # live Typer tree, instead of re-deriving the contract a second way
+        # (ADR-0012). The closure above keeps them for `--schema`; these make
+        # the same single source readable off the registered command object.
+        gda_input_model = input_model
+        gda_output_model = output_model
+
         def parse_args(self, ctx: typer.Context, args: list[str]) -> list[str]:
             if "--schema" not in args:
                 return super().parse_args(ctx, args)
