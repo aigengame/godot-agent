@@ -4,7 +4,7 @@
 
 > An agent-first **CLI and MCP server** that lets AI agents drive the [Godot Engine](https://godotengine.org) to build games — with **structured output** built for programmatic consumption.
 
-[![Status](https://img.shields.io/badge/status-Phase%201%20(in%20development)-orange)](#project-status)
+[![Status](https://img.shields.io/badge/status-Phase%201%20headless%20surface%20complete-brightgreen)](#project-status)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
 [![Godot](https://img.shields.io/badge/godot-4.4%2B%20(tested%204.6)-478CBF)](https://godotengine.org)
@@ -15,7 +15,7 @@
 operations** rather than raw logs: an agent issues an operation and gets back a single clean
 result it can act on, not prose it has to scrape.
 
-It is delivered as three layers: **`gda`**, the agent-facing CLI that exposes Godot operations
+It is designed as three layers: **`gda`**, the agent-facing CLI that exposes Godot operations
 with structured `--json` output and self-describing schemas; **`gda-mcp`**, a thin
 [Model Context Protocol](https://modelcontextprotocol.io) server that turns those same
 capabilities into MCP tools, derived mechanically from `gda`'s schemas; and **`gda-daemon`**, a
@@ -32,9 +32,10 @@ for the full picture.
   result object on stdout. Engine noise and diagnostics are routed to stderr, so an agent never
   has to scrape prose. See the [structured-output contract](#the-structured-output-contract).
 - **📐 Model-driven & self-describing.** Each command's input and output are defined as typed
-  models. The same model serializes `--json` today and will emit a machine-readable `--schema`
-  (a JSON Schema contract) — so an MCP adapter can generate tool definitions mechanically instead
-  of hand-maintaining them. *(See [ADR-0004](docs/adr/0004-schema-flag-self-description.md).)*
+  models that back both `--json` and a machine-readable `--schema` (a JSON Schema contract). Carrying
+  a valid `--schema` is a hard, no-exception merge gate on every command — so an MCP adapter can
+  generate tool definitions mechanically instead of hand-maintaining them.
+  *(See [ADR-0004](docs/adr/0004-schema-flag-self-description.md).)*
 - **🧩 Godot-native command surface.** Commands are grouped by Godot domain object
   (`gda scene create`, `gda node add`, …) with a small, orthogonal verb vocabulary — zero learning
   cost if you already know Godot. *(See [ADR-0005](docs/adr/0005-cli-command-taxonomy.md).)*
@@ -48,32 +49,45 @@ for the full picture.
 
 ## Project status
 
-> **`gda` is in active early development (Phase 1).** The architecture and contracts are settled
-> (see [`CONTEXT.md`](CONTEXT.md) and [`docs/adr/`](docs/adr/)), and the headless pipeline is live
-> end-to-end. This README documents the working surface *and* the roadmap, and is explicit about
-> which is which.
+> **`gda`'s Phase-1 headless command surface is feature-complete.** The architecture and contracts
+> are settled (see [`CONTEXT.md`](CONTEXT.md) and [`docs/adr/`](docs/adr/)), and every headless
+> domain command group designed in
+> [PRD #17](https://github.com/aigengame/godot-agent/issues/17) now ships end-to-end against a real
+> engine. `gda` is still pre-1.0 and not yet published to a package index; the next milestones are
+> the `gda-mcp` adapter and Phase 2 live operations.
 
-**Working today**
+**Working today — the full headless command surface**
 
-- ✅ A first working command surface: the `info` meta command and the first domain command groups —
-  `gda scene create` / `gda scene get` / `gda scene list` / `gda scene delete` and
-  `gda node add` / `gda node list` / `gda node get` / `gda node set`
+- ✅ **Eight command groups, fulfilled headlessly:** `scene`, `node`, `script`, `project`,
+  `resource`, `export`, `shader`, and `theme`, plus the `info` meta command — and the `project`
+  static-analysis reads (`find-references`, `dependencies`, `find-unused-resources`, `statistics`).
+  See the [command reference](#command-reference) for every command
   ([ADR-0005](docs/adr/0005-cli-command-taxonomy.md)).
-- ✅ The contract every shipped command carries: structured `--json` output, model-derived
-  `--schema` self-description ([ADR-0004](docs/adr/0004-schema-flag-self-description.md)), and
-  structured `{"error": {category, code, …}}` failures with category-distinguishing
+- ✅ **The contract every command carries:** structured `--json` output, model-derived `--schema`
+  self-description as a hard merge gate
+  ([ADR-0004](docs/adr/0004-schema-flag-self-description.md)), and structured
+  `{"error": {category, code, …}}` failures with category-distinguishing
   [exit codes](#exit-codes-the-cli-abi).
-- ✅ The engine plumbing underneath: Godot binary resolution (flag / env var / default) and the
+- ✅ **The engine plumbing underneath:** Godot binary resolution (flag / env var / default), the
   bounded one-shot `godot --headless` runner with its sentinel output contract
-  ([ADR-0002](docs/adr/0002-headless-structured-output-contract.md)).
+  ([ADR-0002](docs/adr/0002-headless-structured-output-contract.md)), command-agnostic failure
+  classification, and project-context / `res://` path resolution
+  ([ADR-0006](docs/adr/0006-project-context-and-path-resolution.md)).
 
 **On the roadmap** (designed, not yet implemented)
 
-- 🔜 The remaining domain command groups and commands: the rest of `node`, `script`, `project`,
-  `resource`, `export`, …
 - 🔜 `gda-mcp`, a thin [Model Context Protocol](https://modelcontextprotocol.io) adapter generated
-  from `--schema`.
-- 🔜 `gda-daemon` for *live operations* against a running engine (Phase 2).
+  mechanically from `--schema` — the `--schema` hard gate is precisely what makes it cheap.
+- 🔜 `gda-daemon` for *live operations* against a running engine (Phase 2): live scene tree,
+  runtime inspection, input simulation, `scene play`/`stop`, screenshots.
+
+**Out of scope for now**
+
+- **C# / .NET scripts.** The `script` group operates on GDScript (`.gd`) only; whether and how to
+  support the Godot .NET build and `.cs` scripts is deferred
+  ([#124](https://github.com/aigengame/godot-agent/issues/124)).
+- **The deferred catalog groups** — animation, tilemap, physics, audio, particles, 3D scene,
+  navigation, Android deploy — each needs its own slice-level design before becoming a commitment.
 
 The active backlog and per-command status live in the
 [issue tracker](https://github.com/aigengame/godot-agent/issues) — the headless increment is
@@ -221,10 +235,104 @@ gda <meta-command> [options]        # meta commands about gda/the engine, e.g. g
 | `set`                    | Mutate a property                                                |
 | domain verbs             | `play`, `run`, `export`, `import`, … kept with their natural meaning |
 
-> The surface grows one vertical slice at a time; `gda --help` lists what is installed, and the
-> active backlog / per-command status lives in the
-> [issue tracker](https://github.com/aigengame/godot-agent/issues) (the Phase 1 milestone). The
-> taxonomy and naming rules are specified in [ADR-0005](docs/adr/0005-cli-command-taxonomy.md).
+> The taxonomy and naming rules are specified in
+> [ADR-0005](docs/adr/0005-cli-command-taxonomy.md). `gda --help` (and `gda <group> --help`) is the
+> authoritative list of what is installed; the table below mirrors the shipped Phase-1 surface.
+
+### Command reference
+
+Every command supports `--json` and `--schema`; commands that read or mutate a `res://` path resolve
+a [project context](#project-context), and mutating commands run that project's code
+([project code execution](#project-code-execution)). Run `gda <group> <command> --help` for full
+flags.
+
+**Meta** — about `gda` / the engine itself
+
+| Command | What it does |
+| ------- | ------------ |
+| `gda info` | Report the Godot engine version info. |
+
+**`scene`** — scene files (`.tscn`)
+
+| Command | What it does |
+| ------- | ------------ |
+| `scene create` | Create a new `.tscn` with the given root node type. |
+| `scene get` | Read a scene and report its structured node tree. |
+| `scene list` | Enumerate the `.tscn` scenes in the resolved project. |
+| `scene get-exports` | List the `@export` properties a scene's nodes' scripts declare. |
+| `scene delete` | Delete a scene file and report what was removed. |
+
+**`node`** — nodes within a scene file
+
+| Command | What it does |
+| ------- | ------------ |
+| `node add` | Add a node under a parent (built-in type or `class_name` script). |
+| `node get` | Read a node's properties (by node path) as typed JSON. |
+| `node list` | List a scene's node tree with each node's path relative to the root. |
+| `node set` | Set a node property, coercing the value to its declared Godot type. |
+| `node remove` | Remove a node (and its subtree) by node path. |
+| `node duplicate` | Duplicate a node (and its subtree) under its parent. |
+| `node move` | Reparent a node (and its subtree) under a new parent. |
+| `node connect-signal` | Wire a source node's signal to a target node's method. |
+| `node disconnect-signal` | Unwire an existing signal→method connection. |
+
+**`script`** — GDScript files (`.gd`)
+
+| Command | What it does |
+| ------- | ------------ |
+| `script create` | Create a new `.gd` script from a template or verbatim `--content`. |
+| `script get` | Read a script's source plus its `class_name` / `extends` metadata. |
+| `script list` | Enumerate the `.gd` scripts in the resolved project. |
+| `script set` | Edit a script via search-replace, line-range, or full overwrite. |
+| `script delete` | Delete a script file and report what was removed. |
+| `script attach` | Attach a `.gd` script to a node (by node path) in a scene. |
+| `script validate` | Syntax/compile-check a `.gd` script. |
+
+**`project`** — the project as a whole (settings, autoloads, static analysis)
+
+| Command | What it does |
+| ------- | ------------ |
+| `project info` | Report project metadata (name, main scene, viewport, engine version). |
+| `project get` | Read a single project setting by section/key as typed JSON. |
+| `project set` | Set a project setting, coercing the value to its declared type. |
+| `project add-autoload` | Register an autoload singleton (name → script/scene). |
+| `project remove-autoload` | Unregister an autoload singleton by name. |
+| `project find-references` | Find every project file that references a given resource. |
+| `project dependencies` | Map each scene/resource to the resources it depends on. |
+| `project find-unused-resources` | Find resource files that nothing references. |
+| `project statistics` | Report the project's file/line counts, autoloads, and more. |
+
+**`resource`** — resource files (`.tres`)
+
+| Command | What it does |
+| ------- | ------------ |
+| `resource create` | Create a new `.tres` resource of the given type. |
+| `resource get` | Read a `.tres` resource's properties as typed JSON. |
+| `resource set` | Set a `.tres` property, coercing the value to its declared type. |
+| `resource delete` | Delete a `.tres` resource file and report what was removed. |
+| `resource uid` | Resolve a resource UID ↔ its `res://` path in both directions. |
+
+**`export`** — export presets and artifacts
+
+| Command | What it does |
+| ------- | ------------ |
+| `export list` | Enumerate the project's export presets (name, platform, …). |
+| `export get` | Report one preset's details plus export-template install status. |
+| `export run` | Export a named preset (`release` / `debug` / `pack`) to a destination. |
+
+**`shader`** — shader files (`.gdshader`)
+
+| Command | What it does |
+| ------- | ------------ |
+| `shader create` | Create a new `.gdshader` from a template or verbatim `--content`. |
+| `shader get` | Read a shader's source plus its `shader_type`. |
+| `shader set` | Edit a `.gdshader` via search-replace, line-range, or full overwrite. |
+
+**`theme`** — theme resources (`.tres`)
+
+| Command | What it does |
+| ------- | ------------ |
+| `theme create` | Create a new, loadable `.tres` Theme resource (no-clobber). |
 
 ### Global flags
 
@@ -379,11 +487,11 @@ drives a real engine. Everything between the CLI and the runner runs as real cod
 
 ## Roadmap
 
-| Phase       | Delivers                                                                            |
-| ----------- | ----------------------------------------------------------------------------------- |
-| **Phase 1** | `gda` serving *headless operations* standalone: `info`, structured errors, `--schema`, and domain command groups (`scene`, `node`, `script`, `project`, `resource`, `export`, …). |
-| **`gda-mcp`** | A thin MCP adapter generated mechanically from `--schema` — first on top of Phase 1, following `gda` forward automatically. |
-| **Phase 2** | `gda` also serving *live operations* through `gda-daemon`'s persistent engine connection. |
+| Phase / component | Delivers                                                                  | Status |
+| ----------------- | ------------------------------------------------------------------------- | ------ |
+| **Phase 1** | `gda` serving *headless operations* standalone: `info`, structured errors, `--schema`, and the domain command groups `scene`, `node`, `script`, `project` (incl. static-analysis), `resource`, `export`, `shader`, `theme`. | ✅ Surface complete |
+| **`gda-mcp`** | A thin MCP adapter generated mechanically from `--schema` — first on top of Phase 1, following `gda` forward automatically. | 🔜 Next |
+| **Phase 2** | `gda` also serving *live operations* through `gda-daemon`'s persistent engine connection. | 🗓 Planned |
 
 Track progress and proposals on the [issue tracker](https://github.com/aigengame/godot-agent/issues).
 
