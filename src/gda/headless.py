@@ -14,11 +14,17 @@ from pathlib import Path
 from typing import Generic, NoReturn, Optional, TypeVar
 
 import typer
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typer.core import TyperCommand
 
 from gda.binary import resolve_godot_binary
-from gda.errors import Failure, classify_run, unresolvable_binary_failure
+from gda.errors import (
+    Failure,
+    classify_run,
+    conflicting_params_input_failure,
+    invalid_params_json_failure,
+    unresolvable_binary_failure,
+)
 from gda.models import CommandSchema, GdaErrorEnvelope
 from gda.render import render
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
@@ -71,8 +77,59 @@ def schema_option() -> bool:
     )
 
 
+def params_json_option() -> Optional[str]:
+    """A ``--params-json`` option: supply the command's params as one JSON object.
+
+    The value is a JSON object of the command's params, or ``-`` to read the
+    object from stdin (ADR-0015). It is mutually exclusive with the individual
+    arguments; the command class (:func:`schema_command_class`) intercepts it,
+    builds the input model from the JSON, and dispatches through the same
+    execution tail the argv path uses, so ``gda-mcp`` can forward an MCP tool's
+    input object verbatim without reconstructing argv.
+    """
+    return typer.Option(
+        None,
+        "--params-json",
+        help="Supply params as one JSON object (or '-' to read it from stdin); "
+        "mutually exclusive with the individual arguments.",
+    )
+
+
+# A hook registered by gda.cli that runs a command from a params model built off
+# ``--params-json``, through the same project-resolution + runner seam the argv
+# path uses. Held as a hook so this module need not import gda.cli (ADR-0015).
+ParamsJsonDispatch = Callable[["HeadlessCommand", BaseModel, "typer.Context"], None]
+_params_json_dispatch: Optional[ParamsJsonDispatch] = None
+
+
+def register_params_json_dispatch(dispatch: ParamsJsonDispatch) -> None:
+    """Register the CLI-layer dispatcher used by the ``--params-json`` path."""
+    global _params_json_dispatch
+    _params_json_dispatch = dispatch
+
+
+# The cross-cutting options every command shares; they compose with
+# ``--params-json`` rather than counting as the individual operation arguments it
+# is mutually exclusive with (ADR-0015).
+_GLOBAL_OPTION_NAMES = frozenset(
+    {"json_output", "schema", "params_json", "godot", "project"}
+)
+
+
+def _from_command_line(ctx: typer.Context, name: str) -> bool:
+    """True when ``name`` was supplied on the command line, not left at default.
+
+    Compares the Click ``ParameterSource`` by member name so this module need
+    not import Click (a transitive dependency through Typer).
+    """
+    source = ctx.get_parameter_source(name)
+    return source is not None and source.name == "COMMANDLINE"
+
+
 def schema_command_class(
-    input_model: type[BaseModel], output_model: type[BaseModel]
+    input_model: type[BaseModel],
+    output_model: type[BaseModel],
+    command: "Optional[HeadlessCommand]" = None,
 ) -> type[TyperCommand]:
     """A Typer command that owns ``--schema`` handling (ADR-0004).
 
@@ -90,28 +147,70 @@ def schema_command_class(
         # live Typer tree, instead of re-deriving the contract a second way
         # (ADR-0012). The closure above keeps them for `--schema`; these make
         # the same single source readable off the registered command object.
+        # ``gda_command`` carries the full HeadlessCommand so the ``--params-json``
+        # path can dispatch the operation (ADR-0015); None for the bare ``gda
+        # schema`` meta command, which has no operation to run.
         gda_input_model = input_model
         gda_output_model = output_model
+        gda_command = command
 
-        def parse_args(self, ctx: typer.Context, args: list[str]) -> list[str]:
-            if "--schema" not in args:
-                return super().parse_args(ctx, args)
-
-            # Relax required args so a bare ``--schema`` probe succeeds, while
-            # Click still rejects unknown options / extra positional args and an
-            # eager ``--help`` still wins. Restore afterwards: Typer reuses the
-            # command object across invocations.
+        def _parse_relaxed(
+            self, ctx: typer.Context, args: list[str]
+        ) -> list[str]:
+            # Parse with required args relaxed, so a probe that omits the
+            # individual operation args still succeeds, while Click still rejects
+            # unknown options / extra positionals and an eager ``--help`` still
+            # wins. Restore afterwards: Typer reuses the command object across
+            # invocations. Shared by the ``--schema`` and ``--params-json`` paths.
             relaxed = [(param, param.required) for param in self.params]
             try:
                 for param, _ in relaxed:
                     param.required = False
-                super().parse_args(ctx, list(args))
+                return super().parse_args(ctx, list(args))
             finally:
                 for param, required in relaxed:
                     param.required = required
 
-            typer.echo(CommandSchema.of(input_model, output_model).model_dump_json())
-            raise typer.Exit()
+        def parse_args(self, ctx: typer.Context, args: list[str]) -> list[str]:
+            if "--schema" in args:
+                self._parse_relaxed(ctx, args)
+                typer.echo(
+                    CommandSchema.of(input_model, output_model).model_dump_json()
+                )
+                raise typer.Exit()
+            if command is not None and "--params-json" in args:
+                # The individual operation args are absent — supplied by the JSON
+                # object instead; ``invoke`` builds the model and dispatches.
+                return self._parse_relaxed(ctx, args)
+            return super().parse_args(ctx, args)
+
+        def invoke(self, ctx: typer.Context):
+            if command is not None and ctx.params.get("params_json") is not None:
+                # --params-json supplies ALL operation params, so no individual
+                # operation argument may also be given on the command line; the
+                # global flags (--json/--godot/--project/--schema) still compose.
+                if any(
+                    name not in _GLOBAL_OPTION_NAMES
+                    and _from_command_line(ctx, name)
+                    for name in ctx.params
+                ):
+                    emit_failure(conflicting_params_input_failure())
+                raw = ctx.params["params_json"]
+                # ``-`` reads the object from stdin so large payloads avoid OS
+                # argv length limits and process-listing leakage (ADR-0015).
+                text = sys.stdin.read() if raw == "-" else raw
+                try:
+                    model = command.input_model.model_validate_json(text)
+                except ValidationError as exc:
+                    emit_failure(invalid_params_json_failure(str(exc)))
+                if _params_json_dispatch is None:  # pragma: no cover - misconfig
+                    raise RuntimeError(
+                        "no --params-json dispatcher registered; gda.cli must call "
+                        "register_params_json_dispatch()"
+                    )
+                _params_json_dispatch(command, model, ctx)
+                return None
+            return super().invoke(ctx)
 
     return _SchemaCommand
 
@@ -167,8 +266,8 @@ class HeadlessCommand(Generic[M]):
         return schema_option()
 
     def command_class(self) -> type[TyperCommand]:
-        """Return the Typer command class that owns this command's ``--schema``."""
-        return schema_command_class(self.input_model, self.output_model)
+        """Return the Typer command class owning ``--schema`` and ``--params-json``."""
+        return schema_command_class(self.input_model, self.output_model, command=self)
 
     def execute(
         self,

@@ -90,7 +90,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "The operation dispatcher was invoked without the required operation name.",
+        "The command was invoked incorrectly: the operation dispatcher received no "
+        "operation name, or the CLI received --params-json together with the "
+        "individual arguments (ADR-0015).",
     ),
     ErrorCodeSpec(
         "unknown_operation",
@@ -104,7 +106,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "The operation dispatcher received params that are not a JSON object.",
+        "Params do not match the command's contract: the operation dispatcher "
+        "received non-object params, or a --params-json object was malformed or "
+        "schema-invalid (ADR-0015).",
     ),
     ErrorCodeSpec(
         "invalid_path",

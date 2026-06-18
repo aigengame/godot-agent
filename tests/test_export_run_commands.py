@@ -66,6 +66,32 @@ def _inject(monkeypatch, *, get=GET_RESULT, export=None):
     return get_runner, export_runner
 
 
+def test_export_run_params_json_drives_the_native_export_runner(monkeypatch, tmp_path):
+    # export run is the native-export recipe (run_export_operation), NOT the
+    # sentinel pipeline. --params-json (ADR-0015) must drive that SAME recipe, so
+    # the export runner is actually invoked — a regression guard against the
+    # generic dispatch hook routing it through the wrong (sentinel) path.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    _, export_runner = _inject(monkeypatch)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "export",
+            "run",
+            "--params-json",
+            '{"preset": "Linux/X11"}',
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["mode"] == "release"
+    assert export_runner.calls == [("Linux/X11", "release", "build/game.x86_64")]
+
+
 def test_export_run_json_reports_configured_path_and_exit_zero(monkeypatch, tmp_path):
     # export run exports the named preset to its CONFIGURED export_path (the #121
     # acceptance behavior) and reports the result (preset, platform, mode,

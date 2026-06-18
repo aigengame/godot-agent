@@ -142,6 +142,37 @@ def unresolvable_binary_failure(reason: str) -> Failure:
     )
 
 
+def conflicting_params_input_failure() -> Failure:
+    """``--params-json`` was combined with the individual arguments (ADR-0015).
+
+    A CLI-side usage error reported *before* any engine launch, but the same
+    failure mode the operation dispatcher reports as ``usage_error`` — the
+    command was invoked incorrectly — so it reuses that code rather than minting
+    a new one (ADR-0002: reuse the code; discriminate via the message).
+    """
+    return _failure(
+        "usage_error",
+        "--params-json is mutually exclusive with the individual arguments; "
+        "pass the params as one JSON object OR as individual arguments, not both.",
+        "",
+    )
+
+
+def invalid_params_json_failure(detail: str) -> Failure:
+    """``--params-json`` was not a valid params object for the command (ADR-0015).
+
+    Malformed JSON, or a well-formed object that fails the command's input
+    schema. It is the same failure mode the operation dispatcher reports as
+    ``invalid_params`` — params that do not match the command's contract — just
+    detected CLI-side, so it reuses that code (ADR-0002).
+    """
+    return _failure(
+        "invalid_params",
+        f"--params-json is not a valid params object: {detail}",
+        "",
+    )
+
+
 def classify_launch_or_crash(raw: RunResult, binary: Path) -> Failure | None:
     """The env/crash classifier prefix shared by both headless channels (#185).
 

@@ -89,9 +89,9 @@ operation, and parse codes the CLI assigns).
 | `unsupported_version` | `version` | `version_gate` | `3` | The detected Godot version is below the supported minimum. |
 | `engine_crashed` | `operation` | `classifier` | `4` | Godot terminated abnormally, such as by signal death. |
 | `operation_failed` | `operation` | `classifier` | `4` | The engine or operation failed without a valid registered operation error envelope. |
-| `usage_error` | `operation` | `operation` | `4` | The operation dispatcher was invoked without the required operation name. |
+| `usage_error` | `operation` | `operation` | `4` | The command was invoked incorrectly: the operation dispatcher received no operation name, or the CLI received `--params-json` together with the individual arguments (ADR-0015). |
 | `unknown_operation` | `operation` | `operation` | `4` | The operation dispatcher received an unknown operation name. |
-| `invalid_params` | `operation` | `operation` | `4` | The operation dispatcher received params that are not a JSON object. |
+| `invalid_params` | `operation` | `operation` | `4` | Params do not match the command's contract: the operation dispatcher received non-object params, or a `--params-json` object was malformed or schema-invalid (ADR-0015). |
 | `invalid_path` | `operation` | `operation` | `4` | A required path parameter is missing or invalid. |
 | `invalid_root_type` | `operation` | `operation` | `4` | A requested Godot root node type cannot be instantiated as a `Node`. |
 | `invalid_root_name` | `operation` | `operation` | `4` | A requested root node name is empty or would be rewritten by Godot. |

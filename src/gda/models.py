@@ -7,9 +7,16 @@ hand-maintaining the contract twice.
 """
 
 from enum import Enum
-from typing import Any
+from pathlib import Path
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_validator,
+)
 
 
 class ErrorCategory(str, Enum):
@@ -167,28 +174,70 @@ class SurfaceManifest(BaseModel):
     commands: list[CommandManifestEntry]
 
 
+def normalize_path(path: str) -> str:
+    """Normalize a path argument (issue #32; ADR-0015 moves it model-side).
+
+    Engine-resolved virtual paths (``res://``, ``user://``, ``uid://``) pass
+    through untouched — the engine resolves them against the project. A
+    filesystem path gets ``~`` expanded so a literal ``~`` works without a shell.
+
+    Lives here, not at the CLI layer, so the argv path and the ``--params-json``
+    path normalize identically (ADR-0015): the model is the single home of
+    normalization, applied wherever the model is constructed.
+    """
+    if "://" in path:
+        return path
+    return str(Path(path).expanduser())
+
+
+# The one reusable path-field type: a ``str`` whose value is run through
+# ``normalize_path`` whenever the model is constructed (ADR-0015). Annotating a
+# field with this is the single normalization mechanism shared by the argv and
+# ``--params-json`` paths — no per-model ``@field_validator`` to maintain.
+# ``AfterValidator`` (not Before): the value is validated as a ``str`` FIRST, so a
+# wrong-typed ``--params-json`` value (e.g. ``{"path": 123}``) raises a
+# ``ValidationError`` (→ structured ``invalid_params``) instead of ``normalize_path``
+# hitting a ``TypeError`` on a non-string.
+NormalizedPath = Annotated[str, AfterValidator(normalize_path)]
+
+
+def derive_scene_root_name(path: str) -> str:
+    """Derive the default scene root name from the target file name."""
+    filename = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    if "." in filename:
+        return filename.rsplit(".", 1)[0]
+    return filename
+
+
 class SceneCreateParams(BaseModel):
     """The operation params of ``gda scene create`` (issue #18).
 
     ``path`` is the target ``.tscn`` file; ``root_type`` the Godot node class
     of the new scene's root (e.g. ``Node2D``). ``root_name`` is explicit so the
-    operation never silently derives a name Godot later sanitizes; when the CLI
-    caller omits ``--root-name``, it derives this from the target filename
-    without the final extension.
+    operation never silently derives a name Godot later sanitizes; when omitted,
+    it is derived from the target filename without the final extension. Path
+    normalization and that derivation live in the model (ADR-0015), so the argv
+    and ``--params-json`` paths produce identical params.
     """
 
-    path: str = Field(description="Target .tscn path to write.")
+    path: NormalizedPath = Field(description="Target .tscn path to write.")
     root_type: str = Field(
         description="Godot node class of the new scene's root (e.g. Node2D)."
     )
     root_name: str | None = Field(
         default=None,
         description=(
-            "Root node name to write. If omitted by the CLI, it is derived from "
-            "the target filename without its final extension. Must be non-empty "
-            "and must not contain '.', ':', '@', '/', '\"', or '%'."
+            "Root node name to write. If omitted, it is derived from the target "
+            "filename without its final extension. Must be non-empty and must not "
+            "contain '.', ':', '@', '/', '\"', or '%'."
         ),
     )
+
+    @model_validator(mode="after")
+    def _default_root_name(self) -> "SceneCreateParams":
+        if self.root_name is None:
+            self.root_name = derive_scene_root_name(self.path)
+        return self
 
 
 class SceneCreateResult(BaseModel):
@@ -225,7 +274,7 @@ class SceneNode(BaseModel):
 class SceneGetParams(BaseModel):
     """The operation params of ``gda scene get``: the ``.tscn`` file to read."""
 
-    path: str = Field(description="The .tscn scene file to read.")
+    path: NormalizedPath = Field(description="The .tscn scene file to read.")
 
 
 class SceneGetResult(BaseModel):
@@ -303,7 +352,7 @@ class ExportingNode(BaseModel):
 class SceneGetExportsParams(BaseModel):
     """The operation params of ``gda scene get-exports``: the ``.tscn`` file to read (issue #58)."""
 
-    path: str = Field(description="The .tscn scene file to read.")
+    path: NormalizedPath = Field(description="The .tscn scene file to read.")
 
 
 class SceneGetExportsResult(BaseModel):
@@ -364,7 +413,7 @@ class SceneListResult(BaseModel):
 class SceneDeleteParams(BaseModel):
     """The operation params of ``gda scene delete``: the ``.tscn`` file to remove."""
 
-    path: str = Field(description="The .tscn scene file to delete.")
+    path: NormalizedPath = Field(description="The .tscn scene file to delete.")
 
 
 class SceneDeleteResult(BaseModel):
@@ -391,7 +440,7 @@ class NodeAddParams(BaseModel):
     the type name.
     """
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     parent: str = Field(
         default=".",
         description=(
@@ -408,11 +457,18 @@ class NodeAddParams(BaseModel):
     name: str | None = Field(
         default=None,
         description=(
-            "Name for the new node. If omitted by the CLI, the type name is "
-            "used. Must be non-empty and must not contain '.', ':', '@', '/', "
-            "'\"', or '%'."
+            "Name for the new node. If omitted, the type name is used. Must be "
+            "non-empty and must not contain '.', ':', '@', '/', '\"', or '%'."
         ),
     )
+
+    @model_validator(mode="after")
+    def _default_name(self) -> "NodeAddParams":
+        # Derive the default node name from the type model-side (ADR-0015), so the
+        # argv and --params-json paths agree instead of the CLI deriving it.
+        if self.name is None:
+            self.name = self.type
+        return self
 
 
 class NodeAddResult(BaseModel):
@@ -474,7 +530,7 @@ class ListedNode(SceneNode):
 class NodeListParams(BaseModel):
     """The operation params of ``gda node list``: the ``.tscn`` file to read."""
 
-    path: str = Field(description="The .tscn scene file to read.")
+    path: NormalizedPath = Field(description="The .tscn scene file to read.")
 
 
 class NodeListResult(BaseModel):
@@ -513,7 +569,7 @@ class NodeGetParams(BaseModel):
     its node path relative to the scene root ('.' is the root itself).
     """
 
-    path: str = Field(description="The .tscn scene file to read.")
+    path: NormalizedPath = Field(description="The .tscn scene file to read.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: '.' addresses the root "
@@ -549,7 +605,7 @@ class NodeSetParams(BaseModel):
     Godot type by the operation before the scene is re-packed and saved.
     """
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: '.' addresses the root "
@@ -597,7 +653,7 @@ class NodeRemoveParams(BaseModel):
     emptying the scene.
     """
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: 'Player/Arm' a nested node. "
@@ -632,7 +688,7 @@ class NodeDuplicateParams(BaseModel):
     copy, so duplicating it is refused.
     """
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: 'Player/Arm' a nested node. "
@@ -675,7 +731,7 @@ class NodeMoveParams(BaseModel):
     the scene. The scene root ('.') has no parent to be reparented out of.
     """
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path of the node to reparent, relative to the scene root: "
@@ -758,7 +814,7 @@ class NodeConnectSignalParams(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     from_node: str = _FROM_FIELD
     signal: str = _SIGNAL_FIELD
     to: str = _TO_FIELD
@@ -794,7 +850,7 @@ class NodeDisconnectSignalParams(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     from_node: str = _FROM_FIELD
     signal: str = _SIGNAL_FIELD
     to: str = _TO_FIELD
@@ -829,7 +885,7 @@ class ScriptCreateParams(BaseModel):
     content is not templated, so a base class would have nowhere to go.
     """
 
-    path: str = Field(description="Target .gd script path to write.")
+    path: NormalizedPath = Field(description="Target .gd script path to write.")
     content: str | None = Field(
         default=None,
         description=(
@@ -846,6 +902,15 @@ class ScriptCreateParams(BaseModel):
             "when neither is given."
         ),
     )
+
+    @model_validator(mode="after")
+    def _content_xor_extends(self) -> "ScriptCreateParams":
+        # Verbatim content is not templated, so a base class has nowhere to go:
+        # the two are mutually exclusive. Enforced model-side (ADR-0015) so the
+        # --params-json path rejects the conflict too, not just argv.
+        if self.content is not None and self.extends_type is not None:
+            raise ValueError("'content' and 'extends_type' are mutually exclusive.")
+        return self
 
 
 class ScriptCreateResult(BaseModel):
@@ -888,7 +953,7 @@ class ScriptGetParams(BaseModel):
     reading it can never run project code (issue #30).
     """
 
-    path: str = Field(description="The .gd script file to read.")
+    path: NormalizedPath = Field(description="The .gd script file to read.")
 
 
 class ScriptGetResult(BaseModel):
@@ -959,7 +1024,7 @@ class ScriptListResult(BaseModel):
 class ScriptDeleteParams(BaseModel):
     """The operation params of ``gda script delete``: the ``.gd`` file to remove."""
 
-    path: str = Field(description="The .gd script file to delete.")
+    path: NormalizedPath = Field(description="The .gd script file to delete.")
 
 
 class ScriptDeleteResult(BaseModel):
@@ -1001,6 +1066,50 @@ class ScriptSetMode(str, Enum):
     FULL = "full"
 
 
+def resolve_set_mode(
+    search: str | None,
+    replace: str | None,
+    start_line: int | None,
+    end_line: int | None,
+    content: str | None,
+) -> ScriptSetMode:
+    """Resolve a script/shader-set edit mode from the supplied params (issue #133).
+
+    The single home of the edit-mode rule, shared by ``script set`` and ``shader
+    set`` and by BOTH input paths (ADR-0015): exactly one of the three
+    mutually-exclusive modes must be supplied. Raises ``ValueError`` on a
+    violation — the CLI wrapper translates it to a usage error (exit 2) for argv,
+    while the params models surface it as the structured ``invalid_params`` for
+    ``--params-json``.
+    """
+    has_search = search is not None or replace is not None
+    has_line_range = start_line is not None or end_line is not None
+
+    if has_search:
+        if search is None or replace is None:
+            raise ValueError("'search' and 'replace' must be used together.")
+        if content is not None or has_line_range:
+            raise ValueError(
+                "'search'/'replace' cannot be combined with 'content', "
+                "'start_line', or 'end_line'."
+            )
+        return ScriptSetMode.SEARCH_REPLACE
+
+    if has_line_range:
+        if content is None:
+            raise ValueError("'start_line'/'end_line' require 'content'.")
+        if start_line is None:
+            raise ValueError("'end_line' requires 'start_line'.")
+        return ScriptSetMode.LINE_RANGE
+
+    if content is None:
+        raise ValueError(
+            "a set command needs an edit: 'search'/'replace', 'start_line' "
+            "(+ 'content'), or 'content' (full overwrite)."
+        )
+    return ScriptSetMode.FULL
+
+
 class ScriptSetParams(BaseModel):
     """The operation params of ``gda script set`` (issue #118).
 
@@ -1022,12 +1131,13 @@ class ScriptSetParams(BaseModel):
       overwritten.
     """
 
-    path: str = Field(description="The .gd script file to edit.")
-    mode: ScriptSetMode = Field(
+    path: NormalizedPath = Field(description="The .gd script file to edit.")
+    mode: ScriptSetMode | None = Field(
+        default=None,
         description=(
             "The resolved edit mode, the single source of truth the operation "
-            "dispatches on (issue #133). Set by the CLI from the supplied flags, "
-            "not inferred by the operation from param presence."
+            "dispatches on (issue #133). Derived model-side from the supplied "
+            "edit params (ADR-0015); a value passed in is ignored."
         ),
     )
     search: str | None = Field(
@@ -1070,6 +1180,16 @@ class ScriptSetParams(BaseModel):
             "entire file (full mode)."
         ),
     )
+
+    @model_validator(mode="after")
+    def _resolve_mode(self) -> "ScriptSetParams":
+        # Derive the edit mode from the supplied params (ADR-0015), so the argv
+        # and --params-json paths agree and a JSON caller cannot pass a mode
+        # inconsistent with the other edit fields.
+        self.mode = resolve_set_mode(
+            self.search, self.replace, self.start_line, self.end_line, self.content
+        )
+        return self
 
 
 class ScriptSetResult(BaseModel):
@@ -1114,7 +1234,7 @@ class ScriptAttachParams(BaseModel):
     success — check a script with ``script validate`` first.
     """
 
-    path: str = Field(
+    path: NormalizedPath = Field(
         description="The .tscn scene file to mutate."
     )
     node: str = Field(
@@ -1123,7 +1243,7 @@ class ScriptAttachParams(BaseModel):
             "itself, 'Player/Arm' a nested node."
         )
     )
-    script: str = Field(
+    script: NormalizedPath = Field(
         description="The .gd script file to attach to the node."
     )
 
@@ -1201,7 +1321,7 @@ class ScriptValidateParams(BaseModel):
     project resource and so needs project context to compile.
     """
 
-    path: str = Field(description="The .gd script file to validate.")
+    path: NormalizedPath = Field(description="The .gd script file to validate.")
 
 
 class ScriptValidateResult(BaseModel):
@@ -1245,7 +1365,7 @@ class ResourceCreateParams(BaseModel):
     ``scene create``'s ``root_type`` check against ``Node``.
     """
 
-    path: str = Field(description="Target .tres resource path to write.")
+    path: NormalizedPath = Field(description="Target .tres resource path to write.")
     type: str = Field(
         description=(
             "The Godot resource class to create (e.g. Gradient, Curve). Must be "
@@ -1271,7 +1391,7 @@ class ResourceUidParams(BaseModel):
     queries the cache, not a file's contents.
     """
 
-    target: str = Field(
+    target: NormalizedPath = Field(
         description=(
             "The resolution target: a 'uid://…' value to resolve to its res:// "
             "path, or a 'res://…' / filesystem path to resolve to its 'uid://…'. "
@@ -1302,7 +1422,7 @@ class ProjectFindReferencesParams(BaseModel):
     ``--project`` op (issue #61).
     """
 
-    target: str = Field(
+    target: NormalizedPath = Field(
         description=(
             "What to find references to: a resource's res:// path (scene, script, "
             "image, .tres, …) or a script class_name."
@@ -1445,7 +1565,7 @@ class ExportRunParams(BaseModel):
         default=ExportRunMode.RELEASE,
         description="The export flavor to run (release/debug/pack); default release.",
     )
-    output: str | None = Field(
+    output: NormalizedPath | None = Field(
         default=None,
         description="Override the preset's configured export_path; write the artifact here instead.",
     )
@@ -1513,7 +1633,7 @@ class ShaderCreateParams(BaseModel):
     source; when omitted, the operation writes a minimal ``shader_type`` template.
     """
 
-    path: str = Field(description="Target .gdshader path to write.")
+    path: NormalizedPath = Field(description="Target .gdshader path to write.")
     content: str | None = Field(
         default=None,
         description=(
@@ -1531,6 +1651,15 @@ class ShaderCreateParams(BaseModel):
             "is given."
         ),
     )
+
+    @model_validator(mode="after")
+    def _content_xor_shader_type(self) -> "ShaderCreateParams":
+        # Same rule as script create: verbatim content is not templated, so a
+        # shader type has nowhere to go. Enforced model-side (ADR-0015) so the
+        # --params-json path rejects the conflict, not just argv.
+        if self.content is not None and self.shader_type is not None:
+            raise ValueError("'content' and 'shader_type' are mutually exclusive.")
+        return self
 
 
 class ShaderCreateResult(BaseModel):
@@ -1567,7 +1696,7 @@ class ResourceGetParams(BaseModel):
     runs on load.
     """
 
-    path: str = Field(description="The .tres resource file to read.")
+    path: NormalizedPath = Field(description="The .tres resource file to read.")
 
 
 class ShaderGetParams(BaseModel):
@@ -1581,7 +1710,7 @@ class ShaderGetParams(BaseModel):
     (ADR-0009).
     """
 
-    path: str = Field(description="The .gdshader file to read.")
+    path: NormalizedPath = Field(description="The .gdshader file to read.")
 
 
 class ResourceGetResult(BaseModel):
@@ -1613,7 +1742,7 @@ class ResourceSetParams(BaseModel):
     round-trip via ``resource get``.
     """
 
-    path: str = Field(description="The .tres resource file to mutate.")
+    path: NormalizedPath = Field(description="The .tres resource file to mutate.")
     property: str = Field(
         description="The resource property to set (e.g. interpolation_mode)."
     )
@@ -1648,7 +1777,7 @@ class ResourceSetResult(BaseModel):
 class ResourceDeleteParams(BaseModel):
     """The operation params of ``gda resource delete``: the ``.tres`` file to remove (issue #120)."""
 
-    path: str = Field(description="The .tres resource file to delete.")
+    path: NormalizedPath = Field(description="The .tres resource file to delete.")
 
 
 class ResourceDeleteResult(BaseModel):
@@ -1729,12 +1858,13 @@ class ShaderSetParams(BaseModel):
       overwritten.
     """
 
-    path: str = Field(description="The .gdshader file to edit.")
-    mode: ScriptSetMode = Field(
+    path: NormalizedPath = Field(description="The .gdshader file to edit.")
+    mode: ScriptSetMode | None = Field(
+        default=None,
         description=(
             "The resolved edit mode, the single source of truth the operation "
-            "dispatches on (issue #133). Set by the CLI from the supplied flags, "
-            "not inferred by the operation from param presence. The same edit "
+            "dispatches on (issue #133). Derived model-side from the supplied "
+            "edit params (ADR-0015); a value passed in is ignored. The same edit "
             "modes as script set (issue #118), reused here."
         ),
     )
@@ -1779,6 +1909,16 @@ class ShaderSetParams(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def _resolve_mode(self) -> "ShaderSetParams":
+        # Derive the edit mode from the supplied params (ADR-0015), so the argv
+        # and --params-json paths agree and a JSON caller cannot pass a mode
+        # inconsistent with the other edit fields.
+        self.mode = resolve_set_mode(
+            self.search, self.replace, self.start_line, self.end_line, self.content
+        )
+        return self
+
 
 class ShaderSetResult(BaseModel):
     """The result of ``gda shader set``: the edited shader's metadata (issue #115).
@@ -1810,7 +1950,7 @@ class ThemeCreateParams(BaseModel):
     a resource-producing op goes through the engine.
     """
 
-    path: str = Field(description="Target .tres Theme path to write.")
+    path: NormalizedPath = Field(description="Target .tres Theme path to write.")
 
 
 class ThemeCreateResult(BaseModel):
@@ -2158,7 +2298,7 @@ class ProjectAddAutoloadParams(BaseModel):
             "and the key under the project's autoload/ section."
         )
     )
-    path: str = Field(
+    path: NormalizedPath = Field(
         description=(
             "The res:// path to the script or scene to autoload, e.g. "
             "res://global.gd."
