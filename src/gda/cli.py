@@ -340,6 +340,25 @@ def _run_params_json(
     options = ctx.params
     json_output = bool(options.get("json_output", False))
     godot = options.get("godot")
+    if cmd is EXPORT_RUN_COMMAND:
+        # export run is the native-export recipe (#187), not the sentinel
+        # pipeline, so it cannot go through cmd.emit. Mirror its body so
+        # --params-json drives the SAME run_export_operation path as the argv
+        # form. params.output is already normalized (ExportRunParams.output is a
+        # NormalizedPath), so no extra normalization is needed here.
+        outcome = run_export_operation(
+            preset=params.preset,
+            mode=params.mode,
+            output_override=params.output,
+            godot=godot,
+            project=resolve_project_dir(options.get("project")),
+            make_runner=_make_runner,
+            make_export_runner=_make_export_runner,
+        )
+        if isinstance(outcome, Failure):
+            emit_failure(outcome)
+        emit_result(outcome, json_output)
+        return
     if "project" in options:
         _dispatch(
             cmd,
