@@ -33,7 +33,9 @@ from gda.headless import (
     godot_option,
     json_option,
     make_subprocess_runner,
+    params_json_option,
     project_option,
+    register_params_json_dispatch,
     schema_command_class,
     schema_option,
 )
@@ -125,6 +127,7 @@ from gda.models import (
     SurfaceManifest,
     ThemeCreateParams,
     ThemeCreateResult,
+    normalize_path,
 )
 from gda.project import resolve_project_dir
 from gda.runner import GodotRunner
@@ -319,6 +322,37 @@ def _dispatch_meta(
         godot=godot,
         project=None,
     )
+
+
+def _run_params_json(
+    cmd: HeadlessCommand[M], params: BaseModel, ctx: typer.Context
+) -> None:
+    """Dispatch a ``--params-json`` invocation through the shared CLI tail (ADR-0015).
+
+    Registered with :func:`gda.headless.register_params_json_dispatch`. The model
+    is already built from the JSON object by the command class; this only routes
+    it through the *same* project resolution + runner seam the argv path uses, so
+    the two input paths are indistinguishable downstream. The global
+    ``--json`` / ``--godot`` / ``--project`` options parsed alongside
+    ``--params-json`` are honored; a meta command (no ``--project`` option)
+    dispatches projectless, mirroring :func:`_dispatch_meta`.
+    """
+    options = ctx.params
+    json_output = bool(options.get("json_output", False))
+    godot = options.get("godot")
+    if "project" in options:
+        _dispatch(
+            cmd,
+            params,
+            json_output=json_output,
+            godot=godot,
+            project=options.get("project"),
+        )
+    else:
+        _dispatch_meta(cmd, params, json_output=json_output, godot=godot)
+
+
+register_params_json_dispatch(_run_params_json)
 
 
 INFO_COMMAND: HeadlessCommand[EngineVersion] = HeadlessCommand(
@@ -585,24 +619,10 @@ PROJECT_STATISTICS_COMMAND: HeadlessCommand[ProjectStatisticsResult] = HeadlessC
 )
 
 
-def _normalize_path(path: str) -> str:
-    """Normalize a path argument at the CLI layer (issue #32).
-
-    Engine-resolved virtual paths (``res://``, ``user://``, ``uid://``) pass
-    through untouched — the engine resolves them against the project. A
-    filesystem path gets ``~`` expanded so a literal ``~`` works without a shell.
-    """
-    if "://" in path:
-        return path
-    return str(Path(path).expanduser())
-
-
-def _derive_scene_root_name(path: str) -> str:
-    """Derive the default scene root name from the target file name."""
-    filename = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
-    if "." in filename:
-        return filename.rsplit(".", 1)[0]
-    return filename
+# Path normalization now lives in the models (ADR-0015), the single home shared
+# by the argv and ``--params-json`` paths. Commands not yet migrated to model-side
+# normalization still call this alias in their bodies.
+_normalize_path = normalize_path
 
 
 @scene_app.command(cls=SCENE_CREATE_COMMAND.command_class())
@@ -623,20 +643,16 @@ def create(
     ),
     json_output: bool = json_option(),
     schema: bool = SCENE_CREATE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Create a new .tscn scene file with the given root node type."""
-    normalized_path = _normalize_path(path)
+    # Normalization + root-name derivation live in SceneCreateParams (ADR-0015),
+    # so this body is a thin argv→model adapter and the --params-json path agrees.
     _dispatch(
         SCENE_CREATE_COMMAND,
-        SceneCreateParams(
-            path=normalized_path,
-            root_type=root_type,
-            root_name=root_name
-            if root_name is not None
-            else _derive_scene_root_name(normalized_path),
-        ),
+        SceneCreateParams(path=path, root_type=root_type, root_name=root_name),
         json_output=json_output,
         godot=godot,
         project=project,

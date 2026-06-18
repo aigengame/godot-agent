@@ -7,9 +7,10 @@ hand-maintaining the contract twice.
 """
 
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ErrorCategory(str, Enum):
@@ -167,14 +168,39 @@ class SurfaceManifest(BaseModel):
     commands: list[CommandManifestEntry]
 
 
+def normalize_path(path: str) -> str:
+    """Normalize a path argument (issue #32; ADR-0015 moves it model-side).
+
+    Engine-resolved virtual paths (``res://``, ``user://``, ``uid://``) pass
+    through untouched — the engine resolves them against the project. A
+    filesystem path gets ``~`` expanded so a literal ``~`` works without a shell.
+
+    Lives here, not at the CLI layer, so the argv path and the ``--params-json``
+    path normalize identically (ADR-0015): the model is the single home of
+    normalization, applied wherever the model is constructed.
+    """
+    if "://" in path:
+        return path
+    return str(Path(path).expanduser())
+
+
+def derive_scene_root_name(path: str) -> str:
+    """Derive the default scene root name from the target file name."""
+    filename = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    if "." in filename:
+        return filename.rsplit(".", 1)[0]
+    return filename
+
+
 class SceneCreateParams(BaseModel):
     """The operation params of ``gda scene create`` (issue #18).
 
     ``path`` is the target ``.tscn`` file; ``root_type`` the Godot node class
     of the new scene's root (e.g. ``Node2D``). ``root_name`` is explicit so the
-    operation never silently derives a name Godot later sanitizes; when the CLI
-    caller omits ``--root-name``, it derives this from the target filename
-    without the final extension.
+    operation never silently derives a name Godot later sanitizes; when omitted,
+    it is derived from the target filename without the final extension. Path
+    normalization and that derivation live in the model (ADR-0015), so the argv
+    and ``--params-json`` paths produce identical params.
     """
 
     path: str = Field(description="Target .tscn path to write.")
@@ -184,11 +210,22 @@ class SceneCreateParams(BaseModel):
     root_name: str | None = Field(
         default=None,
         description=(
-            "Root node name to write. If omitted by the CLI, it is derived from "
-            "the target filename without its final extension. Must be non-empty "
-            "and must not contain '.', ':', '@', '/', '\"', or '%'."
+            "Root node name to write. If omitted, it is derived from the target "
+            "filename without its final extension. Must be non-empty and must not "
+            "contain '.', ':', '@', '/', '\"', or '%'."
         ),
     )
+
+    @field_validator("path")
+    @classmethod
+    def _normalize(cls, value: str) -> str:
+        return normalize_path(value)
+
+    @model_validator(mode="after")
+    def _default_root_name(self) -> "SceneCreateParams":
+        if self.root_name is None:
+            self.root_name = derive_scene_root_name(self.path)
+        return self
 
 
 class SceneCreateResult(BaseModel):
