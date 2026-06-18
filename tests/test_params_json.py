@@ -15,12 +15,17 @@ import typer
 from typer.testing import CliRunner
 
 from gda.cli import app
+from gda.models import ScriptSetMode
 from gda.runner import RunResult
 from tests.support import (
+    NODE_ADD_RESULT,
     NODE_GET_RESULT,
     RESOURCE_CREATE_RESULT,
     SCENE_CREATE_RESULT,
     SCENE_GET_RESULT,
+    SCRIPT_CREATE_RESULT,
+    SCRIPT_SET_RESULT,
+    SHADER_CREATE_RESULT,
     inject_runner,
     sentinel,
 )
@@ -191,6 +196,122 @@ def test_params_json_dash_reads_the_object_from_stdin(monkeypatch):
             },
         )
     ]
+
+
+# --- the model is the single source of input semantics (PR #201 review) --------
+# argv derives/validates in the CLI body; for parity these must live in the model
+# so --params-json gets the SAME derivation/validation, not a wider or divergent API.
+
+
+def test_wrong_typed_path_is_a_structured_error_not_a_traceback(monkeypatch):
+    # A non-string NormalizedPath value must surface as structured invalid_params,
+    # not a TypeError traceback: NormalizedPath uses AfterValidator, so the value is
+    # validated as a str FIRST (ADR-0015). Regression for the BeforeValidator crash.
+    inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(SCENE_CREATE_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app, ["scene", "create", "--params-json", '{"path": 123, "root_type": "Node2D"}']
+    )
+
+    assert result.exit_code != 0
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "invalid_params"
+    assert err["category"] == "operation"
+
+
+def test_node_add_params_json_derives_default_name_like_argv(monkeypatch):
+    # Parity: omitting name derives it from the type model-side, exactly like the
+    # argv path (which used to do this in the CLI body).
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(NODE_ADD_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["node", "add", "--params-json", '{"path": "/tmp/proj/main.tscn", "type": "Sprite2D"}'],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    op, params = fake.calls[0]
+    assert op == "node-add"
+    assert params["name"] == "Sprite2D"
+
+
+def test_script_create_params_json_rejects_content_and_extends(monkeypatch):
+    # The content/extends mutual exclusivity is enforced model-side, so
+    # --params-json cannot bypass it (it is rejected, not silently resolved).
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SCRIPT_CREATE_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "create",
+            "--params-json",
+            '{"path": "/tmp/proj/hero.gd", "content": "extends Node\\n", "extends_type": "Node2D"}',
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+
+
+def test_shader_create_params_json_rejects_content_and_shader_type(monkeypatch):
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SHADER_CREATE_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "shader",
+            "create",
+            "--params-json",
+            '{"path": "/tmp/proj/wave.gdshader", "content": "shader_type spatial;", "shader_type": "spatial"}',
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+
+
+def test_script_set_params_json_rejects_inconsistent_edit_fields(monkeypatch):
+    # The edit-mode rule is enforced model-side: a half-specified mode (search
+    # without replace) is invalid_params via --params-json, not a silent dispatch.
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SCRIPT_SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "set", "--params-json", '{"path": "/tmp/proj/hero.gd", "search": "a"}'],
+    )
+
+    assert result.exit_code != 0
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+
+
+def test_script_set_params_json_derives_mode_like_argv(monkeypatch):
+    # Parity: the edit mode is derived from the supplied fields model-side, so a
+    # --params-json caller need not (and should not) supply it.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SCRIPT_SET_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "set", "--params-json", '{"path": "/tmp/proj/hero.gd", "content": "extends Node\\n"}'],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    op, params = fake.calls[0]
+    assert op == "script-set"
+    assert params["mode"] == ScriptSetMode.FULL
 
 
 def _leaf_commands(command, prefix=()):

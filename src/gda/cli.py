@@ -128,6 +128,7 @@ from gda.models import (
     ThemeCreateParams,
     ThemeCreateResult,
     normalize_path,
+    resolve_set_mode,
 )
 from gda.project import resolve_project_dir
 from gda.runner import GodotRunner
@@ -795,7 +796,7 @@ def add(
             path=path,
             parent=parent,
             type=node_type,
-            name=name if name is not None else node_type,
+            name=name,
         ),
         json_output=json_output,
         godot=godot,
@@ -1244,41 +1245,18 @@ def _resolve_set_mode(
     end_line: Optional[int],
     content: Optional[str],
 ) -> ScriptSetMode:
-    """Resolve ``script set``'s edit mode, the single source of truth (issue #133).
+    """Resolve a set command's edit mode for the argv path (issue #133).
 
-    This is the one place the edit mode is decided: it enforces that exactly one
-    of the three mutually-exclusive modes is supplied (a violation is a usage
-    error, exit 2, like ``script create``'s mutual exclusion) and returns the
-    resolved :class:`ScriptSetMode`. The CLI stamps it onto the op params so the
-    operation dispatches on this explicit discriminator instead of re-inferring
-    the mode from which params are present — the two can no longer drift.
+    The rule itself lives in :func:`gda.models.resolve_set_mode` — the single
+    source shared with ``ScriptSetParams`` / ``ShaderSetParams`` (ADR-0015). This
+    thin wrapper translates its ``ValueError`` into a Click usage error (exit 2)
+    so the argv path keeps its usage-error ergonomics, while ``--params-json``
+    surfaces the same rule as a structured ``invalid_params`` via the model.
     """
-    has_search = search is not None or replace is not None
-    has_line_range = start_line is not None or end_line is not None
-
-    if has_search:
-        if search is None or replace is None:
-            raise typer.BadParameter("--search and --replace must be used together.")
-        if content is not None or has_line_range:
-            raise typer.BadParameter(
-                "--search/--replace cannot be combined with --content, "
-                "--start-line, or --end-line."
-            )
-        return ScriptSetMode.SEARCH_REPLACE
-
-    if has_line_range:
-        if content is None:
-            raise typer.BadParameter("--start-line/--end-line require --content.")
-        if start_line is None:
-            raise typer.BadParameter("--end-line requires --start-line.")
-        return ScriptSetMode.LINE_RANGE
-
-    if content is None:
-        raise typer.BadParameter(
-            "script set needs an edit: --search/--replace, --start-line "
-            "(+ --content), or --content (full overwrite)."
-        )
-    return ScriptSetMode.FULL
+    try:
+        return resolve_set_mode(search, replace, start_line, end_line, content)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 @script_app.command(name="attach", cls=SCRIPT_ATTACH_COMMAND.command_class())

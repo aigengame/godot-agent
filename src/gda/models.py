@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
-    BeforeValidator,
     ConfigDict,
     Field,
     model_validator,
@@ -194,7 +194,11 @@ def normalize_path(path: str) -> str:
 # ``normalize_path`` whenever the model is constructed (ADR-0015). Annotating a
 # field with this is the single normalization mechanism shared by the argv and
 # ``--params-json`` paths — no per-model ``@field_validator`` to maintain.
-NormalizedPath = Annotated[str, BeforeValidator(normalize_path)]
+# ``AfterValidator`` (not Before): the value is validated as a ``str`` FIRST, so a
+# wrong-typed ``--params-json`` value (e.g. ``{"path": 123}``) raises a
+# ``ValidationError`` (→ structured ``invalid_params``) instead of ``normalize_path``
+# hitting a ``TypeError`` on a non-string.
+NormalizedPath = Annotated[str, AfterValidator(normalize_path)]
 
 
 def derive_scene_root_name(path: str) -> str:
@@ -453,11 +457,18 @@ class NodeAddParams(BaseModel):
     name: str | None = Field(
         default=None,
         description=(
-            "Name for the new node. If omitted by the CLI, the type name is "
-            "used. Must be non-empty and must not contain '.', ':', '@', '/', "
-            "'\"', or '%'."
+            "Name for the new node. If omitted, the type name is used. Must be "
+            "non-empty and must not contain '.', ':', '@', '/', '\"', or '%'."
         ),
     )
+
+    @model_validator(mode="after")
+    def _default_name(self) -> "NodeAddParams":
+        # Derive the default node name from the type model-side (ADR-0015), so the
+        # argv and --params-json paths agree instead of the CLI deriving it.
+        if self.name is None:
+            self.name = self.type
+        return self
 
 
 class NodeAddResult(BaseModel):
@@ -892,6 +903,15 @@ class ScriptCreateParams(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def _content_xor_extends(self) -> "ScriptCreateParams":
+        # Verbatim content is not templated, so a base class has nowhere to go:
+        # the two are mutually exclusive. Enforced model-side (ADR-0015) so the
+        # --params-json path rejects the conflict too, not just argv.
+        if self.content is not None and self.extends_type is not None:
+            raise ValueError("'content' and 'extends_type' are mutually exclusive.")
+        return self
+
 
 class ScriptCreateResult(BaseModel):
     """The result of ``gda script create``: what was written where (issue #110).
@@ -1046,6 +1066,50 @@ class ScriptSetMode(str, Enum):
     FULL = "full"
 
 
+def resolve_set_mode(
+    search: str | None,
+    replace: str | None,
+    start_line: int | None,
+    end_line: int | None,
+    content: str | None,
+) -> ScriptSetMode:
+    """Resolve a script/shader-set edit mode from the supplied params (issue #133).
+
+    The single home of the edit-mode rule, shared by ``script set`` and ``shader
+    set`` and by BOTH input paths (ADR-0015): exactly one of the three
+    mutually-exclusive modes must be supplied. Raises ``ValueError`` on a
+    violation — the CLI wrapper translates it to a usage error (exit 2) for argv,
+    while the params models surface it as the structured ``invalid_params`` for
+    ``--params-json``.
+    """
+    has_search = search is not None or replace is not None
+    has_line_range = start_line is not None or end_line is not None
+
+    if has_search:
+        if search is None or replace is None:
+            raise ValueError("'search' and 'replace' must be used together.")
+        if content is not None or has_line_range:
+            raise ValueError(
+                "'search'/'replace' cannot be combined with 'content', "
+                "'start_line', or 'end_line'."
+            )
+        return ScriptSetMode.SEARCH_REPLACE
+
+    if has_line_range:
+        if content is None:
+            raise ValueError("'start_line'/'end_line' require 'content'.")
+        if start_line is None:
+            raise ValueError("'end_line' requires 'start_line'.")
+        return ScriptSetMode.LINE_RANGE
+
+    if content is None:
+        raise ValueError(
+            "a set command needs an edit: 'search'/'replace', 'start_line' "
+            "(+ 'content'), or 'content' (full overwrite)."
+        )
+    return ScriptSetMode.FULL
+
+
 class ScriptSetParams(BaseModel):
     """The operation params of ``gda script set`` (issue #118).
 
@@ -1068,11 +1132,12 @@ class ScriptSetParams(BaseModel):
     """
 
     path: NormalizedPath = Field(description="The .gd script file to edit.")
-    mode: ScriptSetMode = Field(
+    mode: ScriptSetMode | None = Field(
+        default=None,
         description=(
             "The resolved edit mode, the single source of truth the operation "
-            "dispatches on (issue #133). Set by the CLI from the supplied flags, "
-            "not inferred by the operation from param presence."
+            "dispatches on (issue #133). Derived model-side from the supplied "
+            "edit params (ADR-0015); a value passed in is ignored."
         ),
     )
     search: str | None = Field(
@@ -1115,6 +1180,16 @@ class ScriptSetParams(BaseModel):
             "entire file (full mode)."
         ),
     )
+
+    @model_validator(mode="after")
+    def _resolve_mode(self) -> "ScriptSetParams":
+        # Derive the edit mode from the supplied params (ADR-0015), so the argv
+        # and --params-json paths agree and a JSON caller cannot pass a mode
+        # inconsistent with the other edit fields.
+        self.mode = resolve_set_mode(
+            self.search, self.replace, self.start_line, self.end_line, self.content
+        )
+        return self
 
 
 class ScriptSetResult(BaseModel):
@@ -1577,6 +1652,15 @@ class ShaderCreateParams(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def _content_xor_shader_type(self) -> "ShaderCreateParams":
+        # Same rule as script create: verbatim content is not templated, so a
+        # shader type has nowhere to go. Enforced model-side (ADR-0015) so the
+        # --params-json path rejects the conflict, not just argv.
+        if self.content is not None and self.shader_type is not None:
+            raise ValueError("'content' and 'shader_type' are mutually exclusive.")
+        return self
+
 
 class ShaderCreateResult(BaseModel):
     """The result of ``gda shader create``: what was written where (issue #115).
@@ -1775,11 +1859,12 @@ class ShaderSetParams(BaseModel):
     """
 
     path: NormalizedPath = Field(description="The .gdshader file to edit.")
-    mode: ScriptSetMode = Field(
+    mode: ScriptSetMode | None = Field(
+        default=None,
         description=(
             "The resolved edit mode, the single source of truth the operation "
-            "dispatches on (issue #133). Set by the CLI from the supplied flags, "
-            "not inferred by the operation from param presence. The same edit "
+            "dispatches on (issue #133). Derived model-side from the supplied "
+            "edit params (ADR-0015); a value passed in is ignored. The same edit "
             "modes as script set (issue #118), reused here."
         ),
     )
@@ -1823,6 +1908,16 @@ class ShaderSetParams(BaseModel):
             "entire file (full mode)."
         ),
     )
+
+    @model_validator(mode="after")
+    def _resolve_mode(self) -> "ShaderSetParams":
+        # Derive the edit mode from the supplied params (ADR-0015), so the argv
+        # and --params-json paths agree and a JSON caller cannot pass a mode
+        # inconsistent with the other edit fields.
+        self.mode = resolve_set_mode(
+            self.search, self.replace, self.start_line, self.end_line, self.content
+        )
+        return self
 
 
 class ShaderSetResult(BaseModel):
