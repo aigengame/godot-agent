@@ -21,13 +21,18 @@ through verbatim rather than reconstruct argv.
   (`model_validate_json`). Command selection stays in argv (Typer routing is
   unchanged); only the params *source* changes.
 
-- **The params model is the single source of truth** for, now, three things: the
-  `--json` success result, the emitted `input` schema (`--schema` / the `gda schema`
-  dump, via `model_json_schema`), and structured input parsing
-  (`model_validate_json`). The MCP-facing input schema and the accepted input
-  format are therefore the *same model* — aligned by construction, never
-  hand-maintained twice. This extends ADR-0004's model-driven self-description from
-  the *emit* direction to the *input-supply* direction.
+- **The params (input) model is the single source of truth for the input side** —
+  both the emitted `input` schema (`--schema` / the `gda schema` dump, via
+  `model_json_schema`) and structured input parsing (`model_validate_json`). The
+  MCP-facing input schema and the accepted input format are therefore the *same
+  model* — aligned by construction, never hand-maintained twice. This extends
+  ADR-0004's model-driven self-description from the *emit* direction to the
+  *input-supply* direction. **ADR-0004's three-channel separation is preserved**: a
+  command's success `--json` result stays owned by its own `output` model and the
+  failure envelope by `error`; `--params-json` adds an *input* channel and does not
+  touch `output` or `error`. (`gda schema` is the aggregate-schema meta command
+  shipped in #192 — ADR-0012 deferred its surface form to the PRD, now resolved as
+  `gda schema`; this ADR references that decision, it does not re-make it.)
 
 - **Normalization lives in the model, not the CLI body.** Any normalization or
   derivation a command currently performs in its CLI function (e.g. path
@@ -37,9 +42,16 @@ through verbatim rather than reconstruct argv.
   adapter.
 
 - **`--params-json` is mutually exclusive with individual positional/option args**;
-  supplying both is a usage error. A bare `--schema` still wins (it is emit-only and
-  ignores params). `--json` (a *result* projection) composes freely with
-  `--params-json` (an *input* source) — they are orthogonal directions.
+  supplying both is reported as gda's structured `GdaError` envelope on a non-zero
+  exit (per ADR-0011 / ADR-0002 — a public CLI failure, never a bare traceback or
+  ad-hoc text). The exact stable `code` / `category` for this usage failure is
+  settled by the implementation (#199) against ADR-0002's `GdaError.code` registry;
+  this ADR does **not** mint a new code. A bare `--schema` still wins (it is
+  emit-only and ignores params). `--json` (a *result* projection) composes freely
+  with `--params-json` (an *input* source) — they are orthogonal directions. (These
+  compositional rules — exclusivity, `--schema` precedence, `--json` composition —
+  are ADR-0015 refinements beyond #198's sketch, recorded here as the deliberate
+  input ABI.)
 
 - **stdin for large payloads.** `--params-json -` reads the object from stdin so
   large fields (e.g. `script create` / `shader create` `content`) avoid OS argv
@@ -84,7 +96,9 @@ through verbatim rather than reconstruct argv.
   schemas* for future open-ended ops. This ADR governs how a caller *supplies input
   data*. `--schema` is unchanged, and `gda schema` (the dump) remains the necessary
   *description* channel — complementary to `--params-json` (the *dispatch* channel).
-  Both derive from the one params model.
+  On the **input** side, the emitted `input` schema and `--params-json` parsing both
+  derive from the one params model; the `output` and `error` halves are unchanged and
+  owned by their own models. This ADR touches only the input axis.
 
 - **ADR-0011 / ADR-0012 (gda-mcp) — prerequisite.** This is the gda-side capability
   that lets gda-mcp forward tool inputs verbatim and stay a pure transform. It is
@@ -109,5 +123,13 @@ through verbatim rather than reconstruct argv.
 - A new public input ABI exists, covered by its own tests (round-trip parity,
   error / mutual-exclusivity) alongside the standing `--schema` invariant — the
   emitted `input` schema is exactly the model that `--params-json` accepts.
+
+**No new CONTEXT.md glossary term is introduced.** `--params-json` is a *mechanism*
+/ flag, recorded in an ADR exactly as `--schema` is (ADR-0004) rather than promoted
+to the CONTEXT.md glossary (which holds shared domain nouns — Components,
+Operations, Command surface, …). Phrases like "structured params input" and "input
+ABI" in this ADR are descriptive prose, not coined canonical terms; the canonical
+reference is the flag `--params-json` itself. (If the project later decides this
+warrants a glossary noun, that is a separate CONTEXT.md change.)
 
 Implemented in #199; recorded here (#198) as the authoritative decision.
