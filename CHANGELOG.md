@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.21](https://github.com/aigengame/godot-agent/compare/v0.1.20...v0.1.21) (2026-06-18)
+
+
+### Features
+
+* **gda:** uniform --params-json structured params-input + normalization parity ([#201](https://github.com/aigengame/godot-agent/issues/201)) ([65ed2e6](https://github.com/aigengame/godot-agent/commit/65ed2e6b43f5243285049f7f6794e98a265d8b62))
+
 ## [0.1.20](https://github.com/aigengame/godot-agent/compare/v0.1.19...v0.1.20) (2026-06-17)
 
 
