@@ -8,9 +8,15 @@ hand-maintaining the contract twice.
 
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    model_validator,
+)
 
 
 class ErrorCategory(str, Enum):
@@ -184,6 +190,13 @@ def normalize_path(path: str) -> str:
     return str(Path(path).expanduser())
 
 
+# The one reusable path-field type: a ``str`` whose value is run through
+# ``normalize_path`` whenever the model is constructed (ADR-0015). Annotating a
+# field with this is the single normalization mechanism shared by the argv and
+# ``--params-json`` paths — no per-model ``@field_validator`` to maintain.
+NormalizedPath = Annotated[str, BeforeValidator(normalize_path)]
+
+
 def derive_scene_root_name(path: str) -> str:
     """Derive the default scene root name from the target file name."""
     filename = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
@@ -203,7 +216,7 @@ class SceneCreateParams(BaseModel):
     and ``--params-json`` paths produce identical params.
     """
 
-    path: str = Field(description="Target .tscn path to write.")
+    path: NormalizedPath = Field(description="Target .tscn path to write.")
     root_type: str = Field(
         description="Godot node class of the new scene's root (e.g. Node2D)."
     )
@@ -215,11 +228,6 @@ class SceneCreateParams(BaseModel):
             "contain '.', ':', '@', '/', '\"', or '%'."
         ),
     )
-
-    @field_validator("path")
-    @classmethod
-    def _normalize(cls, value: str) -> str:
-        return normalize_path(value)
 
     @model_validator(mode="after")
     def _default_root_name(self) -> "SceneCreateParams":
@@ -262,7 +270,7 @@ class SceneNode(BaseModel):
 class SceneGetParams(BaseModel):
     """The operation params of ``gda scene get``: the ``.tscn`` file to read."""
 
-    path: str = Field(description="The .tscn scene file to read.")
+    path: NormalizedPath = Field(description="The .tscn scene file to read.")
 
 
 class SceneGetResult(BaseModel):
@@ -340,7 +348,7 @@ class ExportingNode(BaseModel):
 class SceneGetExportsParams(BaseModel):
     """The operation params of ``gda scene get-exports``: the ``.tscn`` file to read (issue #58)."""
 
-    path: str = Field(description="The .tscn scene file to read.")
+    path: NormalizedPath = Field(description="The .tscn scene file to read.")
 
 
 class SceneGetExportsResult(BaseModel):
@@ -401,7 +409,7 @@ class SceneListResult(BaseModel):
 class SceneDeleteParams(BaseModel):
     """The operation params of ``gda scene delete``: the ``.tscn`` file to remove."""
 
-    path: str = Field(description="The .tscn scene file to delete.")
+    path: NormalizedPath = Field(description="The .tscn scene file to delete.")
 
 
 class SceneDeleteResult(BaseModel):
@@ -428,7 +436,7 @@ class NodeAddParams(BaseModel):
     the type name.
     """
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     parent: str = Field(
         default=".",
         description=(
@@ -511,7 +519,7 @@ class ListedNode(SceneNode):
 class NodeListParams(BaseModel):
     """The operation params of ``gda node list``: the ``.tscn`` file to read."""
 
-    path: str = Field(description="The .tscn scene file to read.")
+    path: NormalizedPath = Field(description="The .tscn scene file to read.")
 
 
 class NodeListResult(BaseModel):
@@ -550,7 +558,7 @@ class NodeGetParams(BaseModel):
     its node path relative to the scene root ('.' is the root itself).
     """
 
-    path: str = Field(description="The .tscn scene file to read.")
+    path: NormalizedPath = Field(description="The .tscn scene file to read.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: '.' addresses the root "
@@ -586,7 +594,7 @@ class NodeSetParams(BaseModel):
     Godot type by the operation before the scene is re-packed and saved.
     """
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: '.' addresses the root "
@@ -634,7 +642,7 @@ class NodeRemoveParams(BaseModel):
     emptying the scene.
     """
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: 'Player/Arm' a nested node. "
@@ -669,7 +677,7 @@ class NodeDuplicateParams(BaseModel):
     copy, so duplicating it is refused.
     """
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: 'Player/Arm' a nested node. "
@@ -712,7 +720,7 @@ class NodeMoveParams(BaseModel):
     the scene. The scene root ('.') has no parent to be reparented out of.
     """
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path of the node to reparent, relative to the scene root: "
@@ -795,7 +803,7 @@ class NodeConnectSignalParams(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     from_node: str = _FROM_FIELD
     signal: str = _SIGNAL_FIELD
     to: str = _TO_FIELD
@@ -831,7 +839,7 @@ class NodeDisconnectSignalParams(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
-    path: str = Field(description="The .tscn scene file to mutate.")
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     from_node: str = _FROM_FIELD
     signal: str = _SIGNAL_FIELD
     to: str = _TO_FIELD
@@ -866,7 +874,7 @@ class ScriptCreateParams(BaseModel):
     content is not templated, so a base class would have nowhere to go.
     """
 
-    path: str = Field(description="Target .gd script path to write.")
+    path: NormalizedPath = Field(description="Target .gd script path to write.")
     content: str | None = Field(
         default=None,
         description=(
@@ -925,7 +933,7 @@ class ScriptGetParams(BaseModel):
     reading it can never run project code (issue #30).
     """
 
-    path: str = Field(description="The .gd script file to read.")
+    path: NormalizedPath = Field(description="The .gd script file to read.")
 
 
 class ScriptGetResult(BaseModel):
@@ -996,7 +1004,7 @@ class ScriptListResult(BaseModel):
 class ScriptDeleteParams(BaseModel):
     """The operation params of ``gda script delete``: the ``.gd`` file to remove."""
 
-    path: str = Field(description="The .gd script file to delete.")
+    path: NormalizedPath = Field(description="The .gd script file to delete.")
 
 
 class ScriptDeleteResult(BaseModel):
@@ -1059,7 +1067,7 @@ class ScriptSetParams(BaseModel):
       overwritten.
     """
 
-    path: str = Field(description="The .gd script file to edit.")
+    path: NormalizedPath = Field(description="The .gd script file to edit.")
     mode: ScriptSetMode = Field(
         description=(
             "The resolved edit mode, the single source of truth the operation "
@@ -1151,7 +1159,7 @@ class ScriptAttachParams(BaseModel):
     success — check a script with ``script validate`` first.
     """
 
-    path: str = Field(
+    path: NormalizedPath = Field(
         description="The .tscn scene file to mutate."
     )
     node: str = Field(
@@ -1160,7 +1168,7 @@ class ScriptAttachParams(BaseModel):
             "itself, 'Player/Arm' a nested node."
         )
     )
-    script: str = Field(
+    script: NormalizedPath = Field(
         description="The .gd script file to attach to the node."
     )
 
@@ -1238,7 +1246,7 @@ class ScriptValidateParams(BaseModel):
     project resource and so needs project context to compile.
     """
 
-    path: str = Field(description="The .gd script file to validate.")
+    path: NormalizedPath = Field(description="The .gd script file to validate.")
 
 
 class ScriptValidateResult(BaseModel):
@@ -1282,7 +1290,7 @@ class ResourceCreateParams(BaseModel):
     ``scene create``'s ``root_type`` check against ``Node``.
     """
 
-    path: str = Field(description="Target .tres resource path to write.")
+    path: NormalizedPath = Field(description="Target .tres resource path to write.")
     type: str = Field(
         description=(
             "The Godot resource class to create (e.g. Gradient, Curve). Must be "
@@ -1308,7 +1316,7 @@ class ResourceUidParams(BaseModel):
     queries the cache, not a file's contents.
     """
 
-    target: str = Field(
+    target: NormalizedPath = Field(
         description=(
             "The resolution target: a 'uid://…' value to resolve to its res:// "
             "path, or a 'res://…' / filesystem path to resolve to its 'uid://…'. "
@@ -1339,7 +1347,7 @@ class ProjectFindReferencesParams(BaseModel):
     ``--project`` op (issue #61).
     """
 
-    target: str = Field(
+    target: NormalizedPath = Field(
         description=(
             "What to find references to: a resource's res:// path (scene, script, "
             "image, .tres, …) or a script class_name."
@@ -1482,7 +1490,7 @@ class ExportRunParams(BaseModel):
         default=ExportRunMode.RELEASE,
         description="The export flavor to run (release/debug/pack); default release.",
     )
-    output: str | None = Field(
+    output: NormalizedPath | None = Field(
         default=None,
         description="Override the preset's configured export_path; write the artifact here instead.",
     )
@@ -1550,7 +1558,7 @@ class ShaderCreateParams(BaseModel):
     source; when omitted, the operation writes a minimal ``shader_type`` template.
     """
 
-    path: str = Field(description="Target .gdshader path to write.")
+    path: NormalizedPath = Field(description="Target .gdshader path to write.")
     content: str | None = Field(
         default=None,
         description=(
@@ -1604,7 +1612,7 @@ class ResourceGetParams(BaseModel):
     runs on load.
     """
 
-    path: str = Field(description="The .tres resource file to read.")
+    path: NormalizedPath = Field(description="The .tres resource file to read.")
 
 
 class ShaderGetParams(BaseModel):
@@ -1618,7 +1626,7 @@ class ShaderGetParams(BaseModel):
     (ADR-0009).
     """
 
-    path: str = Field(description="The .gdshader file to read.")
+    path: NormalizedPath = Field(description="The .gdshader file to read.")
 
 
 class ResourceGetResult(BaseModel):
@@ -1650,7 +1658,7 @@ class ResourceSetParams(BaseModel):
     round-trip via ``resource get``.
     """
 
-    path: str = Field(description="The .tres resource file to mutate.")
+    path: NormalizedPath = Field(description="The .tres resource file to mutate.")
     property: str = Field(
         description="The resource property to set (e.g. interpolation_mode)."
     )
@@ -1685,7 +1693,7 @@ class ResourceSetResult(BaseModel):
 class ResourceDeleteParams(BaseModel):
     """The operation params of ``gda resource delete``: the ``.tres`` file to remove (issue #120)."""
 
-    path: str = Field(description="The .tres resource file to delete.")
+    path: NormalizedPath = Field(description="The .tres resource file to delete.")
 
 
 class ResourceDeleteResult(BaseModel):
@@ -1766,7 +1774,7 @@ class ShaderSetParams(BaseModel):
       overwritten.
     """
 
-    path: str = Field(description="The .gdshader file to edit.")
+    path: NormalizedPath = Field(description="The .gdshader file to edit.")
     mode: ScriptSetMode = Field(
         description=(
             "The resolved edit mode, the single source of truth the operation "
@@ -1847,7 +1855,7 @@ class ThemeCreateParams(BaseModel):
     a resource-producing op goes through the engine.
     """
 
-    path: str = Field(description="Target .tres Theme path to write.")
+    path: NormalizedPath = Field(description="Target .tres Theme path to write.")
 
 
 class ThemeCreateResult(BaseModel):
@@ -2195,7 +2203,7 @@ class ProjectAddAutoloadParams(BaseModel):
             "and the key under the project's autoload/ section."
         )
     )
-    path: str = Field(
+    path: NormalizedPath = Field(
         description=(
             "The res:// path to the script or scene to autoload, e.g. "
             "res://global.gd."

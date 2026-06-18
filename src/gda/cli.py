@@ -619,9 +619,14 @@ PROJECT_STATISTICS_COMMAND: HeadlessCommand[ProjectStatisticsResult] = HeadlessC
 )
 
 
-# Path normalization now lives in the models (ADR-0015), the single home shared
-# by the argv and ``--params-json`` paths. Commands not yet migrated to model-side
-# normalization still call this alias in their bodies.
+# Path normalization now lives in the models (ADR-0015) via the NormalizedPath
+# field type, the single home shared by the argv and ``--params-json`` paths —
+# every domain command's body passes its raw path straight to the params model.
+# The one exception is ``export run`` (issue #187): its argv body does NOT build
+# an ``ExportRunParams`` (it passes preset/mode/output straight to
+# ``run_export_operation``), so the model's NormalizedPath on ``output`` only
+# fires on the ``--params-json`` path. The argv ``--output`` is therefore still
+# normalized here, via this alias, to keep both export-run paths consistent.
 _normalize_path = normalize_path
 
 
@@ -664,13 +669,14 @@ def get(
     path: str = typer.Argument(..., help="The .tscn scene file to read."),
     json_output: bool = json_option(),
     schema: bool = SCENE_GET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a scene file and report its structured node tree."""
     _dispatch(
         SCENE_GET_COMMAND,
-        SceneGetParams(path=_normalize_path(path)),
+        SceneGetParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -682,13 +688,14 @@ def get_exports(
     path: str = typer.Argument(..., help="The .tscn scene file to read."),
     json_output: bool = json_option(),
     schema: bool = SCENE_GET_EXPORTS_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """List the @export properties a scene's nodes' scripts declare, per node path."""
     _dispatch(
         SCENE_GET_EXPORTS_COMMAND,
-        SceneGetExportsParams(path=_normalize_path(path)),
+        SceneGetExportsParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -699,6 +706,7 @@ def get_exports(
 def list_scenes(
     json_output: bool = json_option(),
     schema: bool = SCENE_LIST_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -717,13 +725,14 @@ def delete(
     path: str = typer.Argument(..., help="The .tscn scene file to delete."),
     json_output: bool = json_option(),
     schema: bool = SCENE_DELETE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Delete a scene file and report what was removed."""
     _dispatch(
         SCENE_DELETE_COMMAND,
-        SceneDeleteParams(path=_normalize_path(path)),
+        SceneDeleteParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -756,6 +765,7 @@ def add(
     ),
     json_output: bool = json_option(),
     schema: bool = NODE_ADD_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -763,7 +773,7 @@ def add(
     _dispatch(
         NODE_ADD_COMMAND,
         NodeAddParams(
-            path=_normalize_path(path),
+            path=path,
             parent=parent,
             type=node_type,
             name=name if name is not None else node_type,
@@ -779,13 +789,14 @@ def list_nodes(
     path: str = typer.Argument(..., help="The .tscn scene file to read."),
     json_output: bool = json_option(),
     schema: bool = NODE_LIST_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """List a scene's node tree with each node's path relative to the root."""
     _dispatch(
         NODE_LIST_COMMAND,
-        NodeListParams(path=_normalize_path(path)),
+        NodeListParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -805,13 +816,14 @@ def get(
     ),
     json_output: bool = json_option(),
     schema: bool = NODE_GET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a node's properties (by node path) as typed JSON."""
     _dispatch(
         NODE_GET_COMMAND,
-        NodeGetParams(path=_normalize_path(path), node=node),
+        NodeGetParams(path=path, node=node),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -842,6 +854,7 @@ def set_property(
     ),
     json_output: bool = json_option(),
     schema: bool = NODE_SET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -849,7 +862,7 @@ def set_property(
     _dispatch(
         NODE_SET_COMMAND,
         NodeSetParams(
-            path=_normalize_path(path), node=node, property=property, value=value
+            path=path, node=node, property=property, value=value
         ),
         json_output=json_output,
         godot=godot,
@@ -870,13 +883,14 @@ def remove_node(
     ),
     json_output: bool = json_option(),
     schema: bool = NODE_REMOVE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Remove a node (and its subtree) from a scene file by node path."""
     _dispatch(
         NODE_REMOVE_COMMAND,
-        NodeRemoveParams(path=_normalize_path(path), node=node),
+        NodeRemoveParams(path=path, node=node),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -897,13 +911,14 @@ def duplicate_node(
     ),
     json_output: bool = json_option(),
     schema: bool = NODE_DUPLICATE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Duplicate a node (and its subtree) under its parent with a fresh name."""
     _dispatch(
         NODE_DUPLICATE_COMMAND,
-        NodeDuplicateParams(path=_normalize_path(path), node=node),
+        NodeDuplicateParams(path=path, node=node),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -932,13 +947,14 @@ def move_node(
     ),
     json_output: bool = json_option(),
     schema: bool = NODE_MOVE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Reparent a node (and its subtree) under a new parent node path."""
     _dispatch(
         NODE_MOVE_COMMAND,
-        NodeMoveParams(path=_normalize_path(path), node=node, to=to),
+        NodeMoveParams(path=path, node=node, to=to),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -989,6 +1005,7 @@ def connect_signal(
     method: str = _method_option(),
     json_output: bool = json_option(),
     schema: bool = NODE_CONNECT_SIGNAL_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -996,7 +1013,7 @@ def connect_signal(
     _dispatch(
         NODE_CONNECT_SIGNAL_COMMAND,
         NodeConnectSignalParams(
-            path=_normalize_path(path),
+            path=path,
             from_node=from_node,
             signal=signal,
             to=to,
@@ -1019,6 +1036,7 @@ def disconnect_signal(
     method: str = _method_option(),
     json_output: bool = json_option(),
     schema: bool = NODE_DISCONNECT_SIGNAL_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1026,7 +1044,7 @@ def disconnect_signal(
     _dispatch(
         NODE_DISCONNECT_SIGNAL_COMMAND,
         NodeDisconnectSignalParams(
-            path=_normalize_path(path),
+            path=path,
             from_node=from_node,
             signal=signal,
             to=to,
@@ -1059,6 +1077,7 @@ def create(
     ),
     json_output: bool = json_option(),
     schema: bool = SCRIPT_CREATE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1068,7 +1087,7 @@ def create(
     _dispatch(
         SCRIPT_CREATE_COMMAND,
         ScriptCreateParams(
-            path=_normalize_path(path),
+            path=path,
             content=content,
             extends_type=extends_type,
         ),
@@ -1083,13 +1102,14 @@ def get_script(
     path: str = typer.Argument(..., help="The .gd script file to read."),
     json_output: bool = json_option(),
     schema: bool = SCRIPT_GET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a script's source and report its class_name/extends metadata."""
     _dispatch(
         SCRIPT_GET_COMMAND,
-        ScriptGetParams(path=_normalize_path(path)),
+        ScriptGetParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1100,6 +1120,7 @@ def get_script(
 def list_scripts(
     json_output: bool = json_option(),
     schema: bool = SCRIPT_LIST_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1118,13 +1139,14 @@ def delete_script(
     path: str = typer.Argument(..., help="The .gd script file to delete."),
     json_output: bool = json_option(),
     schema: bool = SCRIPT_DELETE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Delete a script file and report what was removed."""
     _dispatch(
         SCRIPT_DELETE_COMMAND,
-        ScriptDeleteParams(path=_normalize_path(path)),
+        ScriptDeleteParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1173,6 +1195,7 @@ def set_script(
     ),
     json_output: bool = json_option(),
     schema: bool = SCRIPT_SET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1181,7 +1204,7 @@ def set_script(
     _dispatch(
         SCRIPT_SET_COMMAND,
         ScriptSetParams(
-            path=_normalize_path(path),
+            path=path,
             mode=mode,
             search=search,
             replace=replace,
@@ -1255,6 +1278,7 @@ def attach_script(
     ),
     json_output: bool = json_option(),
     schema: bool = SCRIPT_ATTACH_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1262,9 +1286,9 @@ def attach_script(
     _dispatch(
         SCRIPT_ATTACH_COMMAND,
         ScriptAttachParams(
-            path=_normalize_path(path),
+            path=path,
             node=node,
-            script=_normalize_path(script),
+            script=script,
         ),
         json_output=json_output,
         godot=godot,
@@ -1277,13 +1301,14 @@ def validate_script(
     path: str = typer.Argument(..., help="The .gd script file to validate."),
     json_output: bool = json_option(),
     schema: bool = SCRIPT_VALIDATE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Syntax/compile-check a .gd script; an invalid script is a successful op."""
     _dispatch(
         SCRIPT_VALIDATE_COMMAND,
-        ScriptValidateParams(path=_normalize_path(path)),
+        ScriptValidateParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1300,13 +1325,14 @@ def create(
     ),
     json_output: bool = json_option(),
     schema: bool = RESOURCE_CREATE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Create a new .tres resource file of the given resource type."""
     _dispatch(
         RESOURCE_CREATE_COMMAND,
-        ResourceCreateParams(path=_normalize_path(path), type=resource_type),
+        ResourceCreateParams(path=path, type=resource_type),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1317,6 +1343,7 @@ def create(
 def project_info(
     json_output: bool = json_option(),
     schema: bool = PROJECT_INFO_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1337,6 +1364,7 @@ def project_get(
     ),
     json_output: bool = json_option(),
     schema: bool = PROJECT_GET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1363,13 +1391,14 @@ def find_references(
     ),
     json_output: bool = json_option(),
     schema: bool = PROJECT_FIND_REFERENCES_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Find every project file that references a given resource path or class_name."""
     _dispatch(
         PROJECT_FIND_REFERENCES_COMMAND,
-        ProjectFindReferencesParams(target=_normalize_path(target)),
+        ProjectFindReferencesParams(target=target),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1399,6 +1428,7 @@ def create(
     ),
     json_output: bool = json_option(),
     schema: bool = SHADER_CREATE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1410,7 +1440,7 @@ def create(
     _dispatch(
         SHADER_CREATE_COMMAND,
         ShaderCreateParams(
-            path=_normalize_path(path),
+            path=path,
             content=content,
             shader_type=shader_type,
         ),
@@ -1425,13 +1455,14 @@ def get_resource(
     path: str = typer.Argument(..., help="The .tres resource file to read."),
     json_output: bool = json_option(),
     schema: bool = RESOURCE_GET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a .tres resource and report its properties as typed JSON."""
     _dispatch(
         RESOURCE_GET_COMMAND,
-        ResourceGetParams(path=_normalize_path(path)),
+        ResourceGetParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1454,6 +1485,7 @@ def set_resource(
     ),
     json_output: bool = json_option(),
     schema: bool = RESOURCE_SET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1461,7 +1493,7 @@ def set_resource(
     _dispatch(
         RESOURCE_SET_COMMAND,
         ResourceSetParams(
-            path=_normalize_path(path), property=property, value=value
+            path=path, property=property, value=value
         ),
         json_output=json_output,
         godot=godot,
@@ -1474,13 +1506,14 @@ def delete_resource(
     path: str = typer.Argument(..., help="The .tres resource file to delete."),
     json_output: bool = json_option(),
     schema: bool = RESOURCE_DELETE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Delete a .tres resource file and report what was removed."""
     _dispatch(
         RESOURCE_DELETE_COMMAND,
-        ResourceDeleteParams(path=_normalize_path(path)),
+        ResourceDeleteParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1492,13 +1525,14 @@ def get_shader(
     path: str = typer.Argument(..., help="The .gdshader file to read."),
     json_output: bool = json_option(),
     schema: bool = SHADER_GET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Read a shader's source and report its shader_type metadata."""
     _dispatch(
         SHADER_GET_COMMAND,
-        ShaderGetParams(path=_normalize_path(path)),
+        ShaderGetParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1511,6 +1545,7 @@ def get_shader(
 def dependencies(
     json_output: bool = json_option(),
     schema: bool = PROJECT_DEPENDENCIES_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1528,6 +1563,7 @@ def dependencies(
 def list_presets(
     json_output: bool = json_option(),
     schema: bool = EXPORT_LIST_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1548,6 +1584,7 @@ def list_presets(
 def find_unused_resources(
     json_output: bool = json_option(),
     schema: bool = PROJECT_FIND_UNUSED_RESOURCES_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1570,6 +1607,7 @@ def get_preset(
     ),
     json_output: bool = json_option(),
     schema: bool = EXPORT_GET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1608,6 +1646,7 @@ def run_export(
     ),
     json_output: bool = json_option(),
     schema: bool = EXPORT_RUN_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1658,13 +1697,14 @@ def resolve_uid(
     ),
     json_output: bool = json_option(),
     schema: bool = RESOURCE_UID_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Resolve a resource UID to/from its res:// path via the engine's UID cache."""
     _dispatch(
         RESOURCE_UID_COMMAND,
-        ResourceUidParams(target=_normalize_path(target)),
+        ResourceUidParams(target=target),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1713,6 +1753,7 @@ def set_shader(
     ),
     json_output: bool = json_option(),
     schema: bool = SHADER_SET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1723,7 +1764,7 @@ def set_shader(
     _dispatch(
         SHADER_SET_COMMAND,
         ShaderSetParams(
-            path=_normalize_path(path),
+            path=path,
             mode=mode,
             search=search,
             replace=replace,
@@ -1752,6 +1793,7 @@ def project_set(
     ),
     json_output: bool = json_option(),
     schema: bool = PROJECT_SET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1777,13 +1819,14 @@ def project_add_autoload(
     ),
     json_output: bool = json_option(),
     schema: bool = PROJECT_ADD_AUTOLOAD_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Register an autoload singleton (name → script/scene path), then save project.godot."""
     _dispatch(
         PROJECT_ADD_AUTOLOAD_COMMAND,
-        ProjectAddAutoloadParams(name=name, path=_normalize_path(path)),
+        ProjectAddAutoloadParams(name=name, path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1799,6 +1842,7 @@ def project_remove_autoload(
     ),
     json_output: bool = json_option(),
     schema: bool = PROJECT_REMOVE_AUTOLOAD_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1817,13 +1861,14 @@ def create_theme(
     path: str = typer.Argument(..., help="Target .tres Theme path to write."),
     json_output: bool = json_option(),
     schema: bool = THEME_CREATE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
     """Create a new, loadable .tres Theme resource (no-clobber)."""
     _dispatch(
         THEME_CREATE_COMMAND,
-        ThemeCreateParams(path=_normalize_path(path)),
+        ThemeCreateParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -1834,6 +1879,7 @@ def create_theme(
 def statistics(
     json_output: bool = json_option(),
     schema: bool = PROJECT_STATISTICS_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
@@ -1851,6 +1897,7 @@ def statistics(
 def info(
     json_output: bool = json_option(),
     schema: bool = INFO_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
 ) -> None:
     """Report the Godot engine version info."""
