@@ -163,8 +163,7 @@ uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
 Register it by dropping the matching config in place. `gda-mcp` picks your Godot project from the
 client's workspace `roots` where available, otherwise from `GDA_PROJECT` (ADR-0014).
 
-**Claude Code** — project scope: `.mcp.json` in the project root (committed; auto-detects the
-workspace project):
+**Claude Code** — project scope, `.mcp.json` at the repo root (auto-detects the project via `roots`):
 
 ```json
 {
@@ -177,14 +176,14 @@ workspace project):
 }
 ```
 
-…or user scope (available in every project), via the CLI — writes `~/.claude.json`:
+User scope (every project) — the CLI, which writes `~/.claude.json`:
 
 ```bash
 claude mcp add --scope user gda-mcp -- \
   uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
 ```
 
-**Codex** — `~/.codex/config.toml` (global) or `.codex/config.toml` (project; pin the project path):
+**Codex** — project scope, `.codex/config.toml` at the repo root (the project must be trusted):
 
 ```toml
 [mcp_servers.gda-mcp]
@@ -195,7 +194,11 @@ args = ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gd
 GDA_PROJECT = "/absolute/path/to/your/godot/project"
 ```
 
-**Cursor** — `.cursor/mcp.json` in the project root:
+User scope (every project) — the same `[mcp_servers.gda-mcp]` table in `~/.codex/config.toml` (Codex
+has no workspace variable, so `GDA_PROJECT` stays an absolute path).
+
+**Cursor** — project scope, `.cursor/mcp.json` at the repo root (`${workspaceFolder}` tracks the open
+project):
 
 ```json
 {
@@ -209,6 +212,9 @@ GDA_PROJECT = "/absolute/path/to/your/godot/project"
   }
 }
 ```
+
+User scope (every project) — the same config in `~/.cursor/mcp.json`; `${workspaceFolder}` still
+resolves per open project.
 
 > Cursor and Claude Desktop are GUI-launched with a minimal `PATH`, so a bare `uvx` may not resolve —
 > use an absolute path (`which uvx`) for `command`. Full recipes — user vs project scope, Claude
