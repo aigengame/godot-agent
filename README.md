@@ -194,8 +194,13 @@ args = ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gd
 GDA_PROJECT = "/absolute/path/to/your/godot/project"
 ```
 
-User scope (every project) — the same `[mcp_servers.gda-mcp]` table in `~/.codex/config.toml` (Codex
-has no workspace variable, so `GDA_PROJECT` stays an absolute path).
+User scope (every project) — the same table in `~/.codex/config.toml`, or add it with the CLI
+(Codex has no workspace variable, so `GDA_PROJECT` stays an absolute path):
+
+```bash
+codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- \
+  uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
+```
 
 **Cursor** — project scope, `.cursor/mcp.json` at the repo root (`${workspaceFolder}` tracks the open
 project):
@@ -214,7 +219,8 @@ project):
 ```
 
 User scope (every project) — the same config in `~/.cursor/mcp.json`; `${workspaceFolder}` still
-resolves per open project.
+resolves per open project. (Cursor has no `mcp add` shell command — register via the JSON above or
+the Settings → MCP UI.)
 
 > Cursor and Claude Desktop are GUI-launched with a minimal `PATH`, so a bare `uvx` may not resolve —
 > use an absolute path (`which uvx`) for `command`. Full recipes — user vs project scope, Claude
