@@ -68,8 +68,12 @@ error, relayed unchanged.
 - A **user-scoped** server with nothing pinned falls back through `roots/list` / cwd;
   it works for the single-active-project workflow but cannot, in this first delivery,
   follow a user juggling several projects in one session.
-- The startup `roots/list` read (precedence 2) is part of the resolution contract,
-  not a staged extra — the first delivery implements the full precedence above.
+- The `roots/list` read (precedence 2) is part of the resolution contract, not a
+  staged extra — the first delivery implements the full precedence above. Because
+  `roots/list` is a server→client request that needs a live session, it cannot run
+  at process startup; resolution is **snapshotted on the first tool call** and then
+  cached for the server's lifetime (one server : one project). Re-resolving when the
+  client's active root changes is the deferred `roots/list_changed` path below.
 - **No vendor coupling in the core.** This ADR names no specific agent; per-agent
   registration — how each agent's config sets the server's `env` / launch command and
   pins the project — is the registration recipes' concern (ADR-0013), which must cover

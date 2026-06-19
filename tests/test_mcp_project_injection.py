@@ -159,6 +159,36 @@ def test_invalid_client_roots_skipped_first_valid_used(tmp_path, monkeypatch):
     assert project == proj
 
 
+def test_project_is_snapshotted_on_first_call_then_cached(tmp_path, monkeypatch):
+    # Timing contract (ADR-0014): roots/list is a server->client request needing a
+    # live session, so resolution is snapshotted on the FIRST tool call (not at
+    # process startup) and then cached for the server's lifetime — one server :
+    # one project. A later call advertising a different root reuses the first
+    # snapshot; re-resolving on a changed root is the deferred roots/list_changed
+    # path, out of scope for the first delivery.
+    monkeypatch.delenv("GDA_PROJECT", raising=False)
+    first = _project(tmp_path / "first")
+    second = _project(tmp_path / "second")
+    runner = _scene_create_runner()
+    server = build_server(runner)
+
+    call_tool(
+        server,
+        "scene_create",
+        {"path": "res://a.tscn", "root_type": "Node2D"},
+        roots=[str(first)],
+    )
+    call_tool(
+        server,
+        "scene_create",
+        {"path": "res://b.tscn", "root_type": "Node2D"},
+        roots=[str(second)],
+    )
+
+    _args, _stdin, project = runner.calls[-1]
+    assert project == first
+
+
 def test_no_roots_capability_degrades_to_no_project_without_error(
     tmp_path, monkeypatch
 ):
