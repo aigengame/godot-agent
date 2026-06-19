@@ -163,7 +163,8 @@ uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
 Register it by dropping the matching config in place. `gda-mcp` picks your Godot project from the
 client's workspace `roots` where available, otherwise from `GDA_PROJECT` (ADR-0014).
 
-**Claude Code** — `.mcp.json` in the project root (auto-detects the workspace project):
+**Claude Code** — project scope: `.mcp.json` in the project root (committed; auto-detects the
+workspace project):
 
 ```json
 {
@@ -174,6 +175,13 @@ client's workspace `roots` where available, otherwise from `GDA_PROJECT` (ADR-00
     }
   }
 }
+```
+
+…or user scope (available in every project), via the CLI — writes `~/.claude.json`:
+
+```bash
+claude mcp add --scope user gda-mcp -- \
+  uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
 ```
 
 **Codex** — `~/.codex/config.toml` (global) or `.codex/config.toml` (project; pin the project path):
