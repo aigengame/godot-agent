@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.23](https://github.com/aigengame/godot-agent/compare/v0.1.22...v0.1.23) (2026-06-19)
+
+
+### Features
+
+* **gda-mcp:** project-context resolution via portable precedence ([#194](https://github.com/aigengame/godot-agent/issues/194)) ([#205](https://github.com/aigengame/godot-agent/issues/205)) ([6058dc4](https://github.com/aigengame/godot-agent/commit/6058dc435e414c586d3ffab295bfbdd9e1dc8425))
+
 ## [0.1.22](https://github.com/aigengame/godot-agent/compare/v0.1.21...v0.1.22) (2026-06-19)
 
 
