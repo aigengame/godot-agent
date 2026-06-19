@@ -93,12 +93,24 @@ def list_tools(server):
     return anyio.run(_inner)
 
 
-def call_tool(server, name: str, arguments: dict):
-    """Open an in-memory MCP session, call one tool, return its ``CallToolResult``."""
+def call_tool(server, name: str, arguments: dict, *, roots: Optional[list[str]] = None):
+    """Open an in-memory MCP session, call one tool, return its ``CallToolResult``.
+
+    When ``roots`` is given the in-memory client advertises them (as ``file://``
+    URIs) and answers the server's ``roots/list`` request with them, so the
+    server's project-context resolution (ADR-0014 precedence 2) can be exercised.
+    """
     from mcp.shared.memory import create_connected_server_and_client_session as connect
 
+    list_roots_callback = None
+    if roots is not None:
+        from mcp.types import ListRootsResult, Root
+
+        async def list_roots_callback(_context):
+            return ListRootsResult(roots=[Root(uri=Path(r).as_uri()) for r in roots])
+
     async def _inner():
-        async with connect(server) as session:
+        async with connect(server, list_roots_callback=list_roots_callback) as session:
             return await session.call_tool(name, arguments)
 
     return anyio.run(_inner)

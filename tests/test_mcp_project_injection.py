@@ -22,6 +22,7 @@ from tests.support import SCENE_CREATE_RESULT
 
 def _project(dir_path: Path) -> Path:
     """Mark ``dir_path`` a Godot project (a ``project.godot`` is all that counts)."""
+    dir_path.mkdir(parents=True, exist_ok=True)
     (dir_path / "project.godot").write_text("", encoding="utf-8")
     return dir_path
 
@@ -79,3 +80,79 @@ def test_server_resolves_gda_project_env_and_injects_it_on_dispatch(
 
     _args, _stdin, project = runner.calls[-1]
     assert project == proj
+
+
+def _scene_create_runner():
+    return FakeGdaRunner(
+        schema_then(lambda args, stdin: gda_result(json.dumps(SCENE_CREATE_RESULT)))
+    )
+
+
+def test_client_root_resolves_project_when_gda_project_unset(tmp_path, monkeypatch):
+    monkeypatch.delenv("GDA_PROJECT", raising=False)
+    proj = _project(tmp_path / "game")
+    runner = _scene_create_runner()
+    server = build_server(runner)
+
+    call_tool(
+        server,
+        "scene_create",
+        {"path": "main.tscn", "root_type": "Node2D"},
+        roots=[str(proj)],
+    )
+
+    _args, _stdin, project = runner.calls[-1]
+    assert project == proj
+
+
+def test_gda_project_env_beats_client_roots(tmp_path, monkeypatch):
+    pinned = _project(tmp_path / "pinned")
+    other = _project(tmp_path / "other")
+    monkeypatch.setenv("GDA_PROJECT", str(pinned))
+    runner = _scene_create_runner()
+    server = build_server(runner)
+
+    call_tool(
+        server,
+        "scene_create",
+        {"path": "main.tscn", "root_type": "Node2D"},
+        roots=[str(other)],
+    )
+
+    _args, _stdin, project = runner.calls[-1]
+    assert project == pinned
+
+
+def test_invalid_client_roots_skipped_first_valid_used(tmp_path, monkeypatch):
+    monkeypatch.delenv("GDA_PROJECT", raising=False)
+    not_a_project = tmp_path / "plain"
+    not_a_project.mkdir()
+    proj = _project(tmp_path / "game")
+    runner = _scene_create_runner()
+    server = build_server(runner)
+
+    call_tool(
+        server,
+        "scene_create",
+        {"path": "main.tscn", "root_type": "Node2D"},
+        roots=[str(not_a_project), str(proj)],
+    )
+
+    _args, _stdin, project = runner.calls[-1]
+    assert project == proj
+
+
+def test_no_roots_capability_degrades_to_no_project_without_error(
+    tmp_path, monkeypatch
+):
+    # Client advertises no roots and cwd is not a project: resolution degrades to
+    # no project and dispatch still succeeds (roots is optional, never required).
+    monkeypatch.delenv("GDA_PROJECT", raising=False)
+    runner = _scene_create_runner()
+    server = build_server(runner)
+
+    result = call_tool(server, "scene_create", {"path": "x.tscn", "root_type": "Node2D"})
+
+    assert result.isError is False
+    _args, _stdin, project = runner.calls[-1]
+    assert project is None
