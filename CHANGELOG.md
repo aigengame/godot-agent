@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.22](https://github.com/aigengame/godot-agent/compare/v0.1.21...v0.1.22) (2026-06-19)
+
+
+### Features
+
+* **gda-mcp:** generated stdio MCP server over the gda CLI ([#193](https://github.com/aigengame/godot-agent/issues/193)) ([#203](https://github.com/aigengame/godot-agent/issues/203)) ([14de65d](https://github.com/aigengame/godot-agent/commit/14de65dd576d4c485feaf0a2feb6fdd98459bc48))
+
 ## [0.1.21](https://github.com/aigengame/godot-agent/compare/v0.1.20...v0.1.21) (2026-06-18)
 
 
