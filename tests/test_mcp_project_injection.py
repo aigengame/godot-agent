@@ -16,7 +16,13 @@ from pathlib import Path
 
 from gda.mcp.runner import SubprocessGdaRunner
 from gda.mcp.server import build_server, dispatch
-from tests.mcp_support import FakeGdaRunner, call_tool, gda_result, schema_then
+from tests.mcp_support import (
+    FakeGdaRunner,
+    call_tool,
+    gda_result,
+    list_tools,
+    schema_then,
+)
 from tests.support import SCENE_CREATE_RESULT
 
 
@@ -25,6 +31,17 @@ def _project(dir_path: Path) -> Path:
     dir_path.mkdir(parents=True, exist_ok=True)
     (dir_path / "project.godot").write_text("", encoding="utf-8")
     return dir_path
+
+
+def test_no_tool_inputschema_carries_a_project_field():
+    # ADR-0014/0012: the project is server context, never a tool parameter — the
+    # tool surface stays a faithful mirror of --schema, so gda-mcp synthesizes no
+    # `project` field into any tool's inputSchema.
+    runner = FakeGdaRunner(schema_then(lambda _args, _stdin: gda_result("{}")))
+    server = build_server(runner)
+    for tool in list_tools(server).tools:
+        properties = (tool.inputSchema or {}).get("properties", {})
+        assert "project" not in properties, tool.name
 
 # A tiny stand-in "gda": echoes the GDA_PROJECT the child process actually sees,
 # so the test observes the real subprocess environment without spawning gda.
