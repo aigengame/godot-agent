@@ -13,8 +13,21 @@ dependencies = [
     "typer>=0.26.7",
 ]
 
+[project.optional-dependencies]
+# The MCP adapter (gda-mcp) ships inside this one distribution, gated behind an
+# optional extra so a plain `gda` install stays lean — only `gda[mcp]` pulls the
+# MCP SDK (ADR-0013). Pinned to the v1 low-level Server API (decorator handlers,
+# camelCase Tool/CallToolResult fields) that gda-mcp targets; <2 fences off the
+# different v2 constructor API.
+mcp = [
+    "mcp>=1.12,<2",
+]
+
 [project.scripts]
 gda = "gda.cli:app"
+# Declared in every install (ADR-0013); without the `[mcp]` extra it errors on a
+# missing `mcp` import with an actionable "install gda[mcp]" message.
+gda-mcp = "gda.mcp:main"
 
 [build-system]
 requires = ["uv_build>=0.11.19,<0.12.0"]
@@ -24,6 +37,9 @@ build-backend = "uv_build"
 dev = [
     "jsonschema>=4.26.0",
     "pytest>=9.0.3",
+    # The MCP SDK is also a dev dependency (not just the `[mcp]` extra) so
+    # `uv run pytest` has it for the gda-mcp fast/e2e tiers (ADR-0013).
+    "mcp>=1.12,<2",
 ]
 
 [tool.pytest.ini_options]

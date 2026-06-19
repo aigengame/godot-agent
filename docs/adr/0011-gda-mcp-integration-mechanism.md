@@ -21,15 +21,21 @@ gda-daemon exists in Phase 2 — the topology of {gda-mcp, gda, gda-daemon}.
 
 ## Decision
 
-**gda-mcp wraps `gda` as a subprocess.** It shells out to the installed `gda`
-console script and consumes only `gda`'s **public CLI ABI** — *not* the internal
-sentinel protocol ADR-0002 defines **between** `gda` and its headless operation
-subprocesses (which `gda` already parses away before emitting its public output, and
-which ADR-0010's native-CLI-mode operations do not emit at all). That public ABI is:
-the `--json` success output, the structured `GdaError` envelope on a non-zero exit
-(the uniform `GdaErrorEnvelope` of ADR-0004), the exit-code categories, and the
-`--schema` self-description (ADR-0004). Operations are invoked per-command as
-`gda <group> <command> --json …`; the **tool surface is enumerated from the aggregate
+**gda-mcp wraps `gda` as a subprocess.** It shells out to `gda` — invoked as
+`[sys.executable, "-m", "gda", …]`, the *same-distribution* binary paired with the
+running gda-mcp (the `[mcp]` extra), which is deterministic and cannot resolve a
+*wrong global* `gda`, rather than a PATH lookup of the console script (#193 Design
+decision 3; an optional `$GDA_BIN` escape hatch overrides it, ADR-0013) — and
+consumes only `gda`'s **public CLI ABI** — *not* the internal sentinel protocol
+ADR-0002 defines **between** `gda` and its headless operation subprocesses (which
+`gda` already parses away before emitting its public output, and which ADR-0010's
+native-CLI-mode operations do not emit at all). That public ABI is: the `--json`
+success output, the structured `GdaError` envelope on a non-zero exit (the uniform
+`GdaErrorEnvelope` of ADR-0004), the exit-code categories, and the `--schema`
+self-description (ADR-0004). Operations are invoked per-command as
+`python -m gda <group> <command> --params-json - --json`, forwarding the tool's
+input object **verbatim** on stdin (ADR-0015's structured params channel — so
+gda-mcp reconstructs no argv); the **tool surface is enumerated from the aggregate
 schema dump** (ADR-0012), *not* a per-command `--schema` fan-out. gda-mcp does **not**
 import `gda`'s Python modules or depend on any internal symbol.
 

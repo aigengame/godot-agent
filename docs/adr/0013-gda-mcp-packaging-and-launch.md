@@ -59,3 +59,15 @@ plus repo-local `.codex/config.toml`; `claude_desktop_config.json`; `.cursor/mcp
   (python-sdk#1520).
 - The `gda-mcp` entry point exists in every install; without the `[mcp]` extra it
   errors on a missing `mcp` import with an actionable message.
+- **Which `gda` gda-mcp shells out to, and the `GDA_BIN` escape hatch (#193).** By
+  default gda-mcp invokes `[sys.executable, "-m", "gda", …]` (ADR-0011) — the
+  interpreter running gda-mcp, hence the *same install*. This preserves this ADR's
+  single-version guarantee **structurally**: the adapter and the CLI are one
+  distribution, so no CLI/adapter skew is possible. An optional `GDA_BIN` env var
+  overrides that command for unusual deployment layouts (e.g. gda installed under a
+  different interpreter); it is an **explicit escape hatch**, analogous to `--godot`
+  overriding engine resolution (ADR-0006). When set, it can point at a *different*
+  `gda` and therefore transfers responsibility for CLI/adapter version alignment to
+  the operator — the structural no-skew guarantee holds only for the default. A
+  binary the override cannot launch is surfaced as a structured `isError`, never an
+  escaping exception (ADR-0011's can't-run edge).

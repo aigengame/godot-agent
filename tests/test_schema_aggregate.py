@@ -1,12 +1,14 @@
 """`gda schema` aggregate-surface manifest (issue #192, ADR-0012, ADR-0004).
 
 `gda schema` is a meta command (ADR-0005): top-level and ungrouped, a sibling of
-`gda info`. In a single process — no Godot spawned — it emits the whole command
-surface as one JSON document, one entry per command carrying
+`gda info`. In a single process — no Godot spawned — it emits the **dispatchable**
+command surface as one JSON document, one entry per dispatchable command carrying
 `{name, description, input, output, error}`. It is the whole-surface
 generalisation of per-command `--schema` (ADR-0004): the machine-readable
 manifest gda-mcp introspects once at startup to generate its tool surface
-(ADR-0012).
+(ADR-0012). A non-dispatchable meta command — one with no backing operation, so
+no `--params-json` (e.g. `gda schema` itself) — is excluded from the surface it
+describes (Plan A); `gda schema --schema` still self-describes as any command.
 
 These are fast tests — `gda schema` spawns no Godot, so none of them need the
 engine. Most drive the command in-process via `CliRunner`; the last drives the
@@ -32,11 +34,16 @@ def _manifest() -> dict:
     return json.loads(result.stdout)
 
 
-def _live_command_names() -> set[str]:
+def _live_dispatchable_command_names() -> set[str]:
     """Independently walk the live Typer tree into ``<group> <command>`` names.
 
     Mirrors the manifest's enumeration via a separate traversal so the coverage
-    assertion is a real cross-check, not a tautology against the production walker.
+    assertion is a real cross-check, not a tautology against the production
+    walker. Restricted to *dispatchable* commands — the manifest excludes
+    non-dispatchable meta commands (Plan A) — but keyed on a signal INDEPENDENT
+    of production's ``gda_command``: whether the command exposes a
+    ``--params-json`` option. The two signals are 1:1, so requiring them to agree
+    keeps this an honest cross-check rather than a mirror of the production rule.
     """
     names: set[str] = set()
 
@@ -46,7 +53,11 @@ def _live_command_names() -> set[str]:
             for name, subcommand in subcommands.items():
                 walk(subcommand, [*path, name])
             return
-        names.add(" ".join(path))
+        dispatchable = any(
+            getattr(p, "name", None) == "params_json" for p in command.params
+        )
+        if dispatchable:
+            names.add(" ".join(path))
 
     walk(typer.main.get_command(app), [])
     return names
@@ -73,11 +84,23 @@ def test_name_is_the_group_command_mcp_mapping_basis():
     assert "info" in names
 
 
-def test_manifest_covers_every_command_reachable_from_the_cli():
-    # The manifest is a faithful mirror of the live command tree (ADR-0012):
-    # nothing dropped, filtered, or deduped away.
+def test_manifest_covers_every_dispatchable_command_reachable_from_the_cli():
+    # The manifest is a faithful mirror of the live command tree's dispatchable
+    # commands (ADR-0012, Plan A): every dispatchable command present, nothing
+    # else dropped or deduped, and only non-dispatchable meta commands excluded.
     names = {entry["name"] for entry in _manifest()["commands"]}
-    assert names == _live_command_names()
+    assert names == _live_dispatchable_command_names()
+
+
+def test_non_dispatchable_meta_commands_are_excluded():
+    # Plan A (ADR-0012): the manifest is the dispatchable-operation surface. `gda
+    # schema` is a live, reachable command but a pure self-describer with no
+    # backing operation (no --params-json), so it is NOT a manifest entry —
+    # re-listing the describer inside the surface it describes would be circular.
+    names = {entry["name"] for entry in _manifest()["commands"]}
+    assert "schema" not in names
+    # …yet it remains a real command that self-describes under its own --schema.
+    assert CliRunner().invoke(app, ["schema", "--schema"]).exit_code == 0
 
 
 def test_each_entry_matches_the_commands_own_schema():
@@ -155,5 +178,7 @@ def test_real_console_script_manifest_covers_the_live_command_tree():
 
     assert proc.returncode == 0, proc.stderr
     names = {entry["name"] for entry in json.loads(proc.stdout)["commands"]}
-    assert names == _live_command_names()
-    assert {"info", "schema", "scene create"} <= names
+    assert names == _live_dispatchable_command_names()
+    assert {"info", "scene create"} <= names
+    # The non-dispatchable `schema` meta command is excluded (Plan A).
+    assert "schema" not in names

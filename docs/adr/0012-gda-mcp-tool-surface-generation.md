@@ -32,6 +32,22 @@ server starts — no codegen step, no release-pipeline coupling, no drift.
   flag — is a taxonomy detail left to the PRD). gda-mcp **never parses `gda --help`
   prose** to enumerate the surface.
 
+**The dump is the dispatchable-operation surface (refinement, #193).** It carries
+one entry per command that accepts the `--params-json` structured-input channel
+(ADR-0015) — i.e. has a backing operation gda-mcp can actually invoke. A
+*non-dispatchable* meta command (no backing operation, hence no `--params-json`)
+is excluded **at the source**, inside `gda`'s own surface walk, keyed on the one
+fact the command's registration already carries (its backing operation, `None`
+for such a command). `gda schema` is the only such command today: a pure
+self-describer, excluded from the surface it describes (re-listing it would be
+circular), while it still self-describes under its own `--schema`. This keeps the
+sole authority for "is this an MCP-dispatchable operation" in `gda`, so gda-mcp
+stays a pure transform that registers exactly what the dump reports and never
+advertises a tool it cannot fulfil — it holds no exclusion list of its own. This
+exclusion is a **soundness** property (gda-mcp can only serve what it can
+dispatch), distinct from the optional, user-facing group/tool *filtering* below
+(a surface-*size* control).
+
 **Expose the full surface; do not ship hand-curated profiles.** gda-mcp registers
 every tool the dump reports. It explicitly does **not** provide named tiers (full /
 lite / minimal). If a tool-count-limited client ever needs a smaller surface, the
