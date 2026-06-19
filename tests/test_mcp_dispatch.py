@@ -30,7 +30,7 @@ def test_scene_create_input_object_builds_params_json_dispatch():
     assert result.isError is False
     assert result.structuredContent == SCENE_CREATE_RESULT
     # The seam was driven with the gda command argv + verbatim object on stdin.
-    dispatch_args, dispatch_stdin = runner.calls[-1]
+    dispatch_args, dispatch_stdin, _ = runner.calls[-1]
     assert dispatch_args == ["scene", "create", "--params-json", "-", "--json"]
     assert json.loads(dispatch_stdin) == arguments
 
@@ -46,7 +46,7 @@ def test_multiword_command_name_maps_back_to_the_right_argv():
 
     call_tool(server, "scene_get_exports", {"path": "res://main.tscn"})
 
-    dispatch_args, _ = runner.calls[-1]
+    dispatch_args, _, _ = runner.calls[-1]
     assert dispatch_args[:2] == ["scene", "get-exports"]
 
 
@@ -62,6 +62,6 @@ def test_no_param_tool_dispatches_an_empty_params_object():
 
     assert result.isError is False
     assert result.structuredContent["string"] == VERSION_INFO["string"]
-    dispatch_args, dispatch_stdin = runner.calls[-1]
+    dispatch_args, dispatch_stdin, _ = runner.calls[-1]
     assert dispatch_args == ["info", "--params-json", "-", "--json"]
     assert json.loads(dispatch_stdin) == {}

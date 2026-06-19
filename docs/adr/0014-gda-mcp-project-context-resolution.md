@@ -16,8 +16,13 @@ breaking either decision.
 **The target project is server context, not a per-call tool parameter.** gda-mcp does
 **not** inject a `project` field into any tool's inputSchema; the tool surface stays a
 faithful mirror of `--schema` (ADR-0012), and `gda` still receives the project exactly
-as ADR-0006 specifies. gda-mcp resolves one target project for the server and passes
-it as `--project` to every `gda` subprocess it spawns.
+as ADR-0006 specifies. gda-mcp resolves one target project for the server and hands it
+to its `gda` subprocesses through gda's own **`GDA_PROJECT`** channel (ADR-0006) — set
+on the subprocess environment, **not** a `--project` flag. The env channel applies
+uniformly: project-taking domain commands consume it, while meta commands (`info`) that
+take no project simply ignore it — so gda-mcp needs no per-command knowledge of which
+commands accept a project, and a `--project` flag (which meta commands reject outright)
+is never forged.
 
 **Resolution is by a portable precedence, with cwd only as a last resort** — because
 the launch working directory is not reliably the project across MCP clients (clients
@@ -32,16 +37,18 @@ gda-mcp resolves, first hit wins:
 2. the MCP **`roots/list`** the client advertises — the protocol-native workspace signal,
 3. the process **cwd**, as a last-resort fallback.
 
-**A candidate is asserted as an explicit project only when it is a valid Godot
-project** (it contains `project.godot`). gda-mcp does **not** promote an unvalidated
-cwd or root into an explicit `--project`, because ADR-0006 gives `--project` /
-`$GDA_PROJECT` strict semantics (must be a real project) while leaving cwd lenient.
-So an explicit `GDA_PROJECT`, and any validated `roots`/cwd candidate, are passed as
-`gda --project <dir>`; if nothing resolves to a valid
-project, gda-mcp passes **no** `--project` and lets `gda` apply its own ADR-0006 cwd
-resolution — including running projectless when the cwd is not a project. gda-mcp
-does not itself reject projectless operation; an op that requires a project surfaces
-`gda`'s own typed error, relayed unchanged.
+**A candidate is asserted as the project only when it is a valid Godot project** (it
+contains `project.godot`). gda-mcp does **not** promote an unvalidated cwd or root,
+because ADR-0006 gives `$GDA_PROJECT` strict semantics (must be a real project) while
+leaving cwd lenient. So a validated `roots` or cwd candidate is exported as
+`GDA_PROJECT=<dir>` on the subprocess; if nothing resolves to a valid project, gda-mcp
+sets **no** `GDA_PROJECT` and lets `gda` apply its own ADR-0006 resolution over the
+inherited environment — including running projectless when neither `$GDA_PROJECT` nor
+the cwd is a project. An explicitly set but **invalid** `GDA_PROJECT` is left untouched
+in the inherited environment (not silently shadowed by a roots/cwd candidate), so `gda`
+surfaces its own strict typed error for project-taking commands. gda-mcp does not itself
+reject projectless operation; an op that requires a project surfaces `gda`'s own typed
+error, relayed unchanged.
 
 ## Considered options
 

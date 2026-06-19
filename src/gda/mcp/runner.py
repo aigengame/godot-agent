@@ -20,7 +20,10 @@ import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Protocol
+
+from gda.mcp.project_context import GDA_PROJECT_ENV
 
 # Override the default ``-m gda`` invocation with an explicit command line.
 GDA_BIN_ENV = "GDA_BIN"
@@ -49,7 +52,13 @@ class GdaRunner(Protocol):
     result/error mapping engine-free.
     """
 
-    def run(self, args: list[str], *, stdin: Optional[str] = None) -> GdaResult: ...
+    def run(
+        self,
+        args: list[str],
+        *,
+        stdin: Optional[str] = None,
+        project: Optional[Path] = None,
+    ) -> GdaResult: ...
 
 
 def gda_command() -> list[str]:
@@ -76,7 +85,23 @@ class SubprocessGdaRunner:
         """Build the runner from the resolved :func:`gda_command`."""
         return cls(command=gda_command())
 
-    def run(self, args: list[str], *, stdin: Optional[str] = None) -> GdaResult:
+    def run(
+        self,
+        args: list[str],
+        *,
+        stdin: Optional[str] = None,
+        project: Optional[Path] = None,
+    ) -> GdaResult:
+        # Hand the resolved project to gda through its own ``GDA_PROJECT`` channel
+        # (ADR-0006), not a ``--project`` flag: meta commands (``info``) that
+        # reject ``--project`` simply ignore the env, so gda-mcp injects uniformly
+        # with no per-command knowledge (ADR-0014, mechanism D). ``project=None``
+        # leaves the inherited environment untouched — an explicit-but-invalid
+        # ``GDA_PROJECT`` then reaches gda, which surfaces its own typed error for
+        # project-taking commands.
+        env: Optional[dict[str, str]] = None
+        if project is not None:
+            env = {**os.environ, GDA_PROJECT_ENV: str(project)}
         # Capture raw bytes (no ``text=True``) and decode UTF-8 explicitly, like
         # gda's own runner (issue #33): gda emits its ``--json`` result as UTF-8
         # via pydantic, which can carry non-ASCII (e.g. a CJK node name); a
@@ -86,6 +111,7 @@ class SubprocessGdaRunner:
                 [*self.command, *args],
                 input=stdin.encode("utf-8") if stdin is not None else None,
                 capture_output=True,
+                env=env,
             )
         except OSError as exc:
             # The gda command itself could not be launched — e.g. a ``$GDA_BIN``

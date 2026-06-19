@@ -27,7 +27,9 @@ envelope); it never imports a gda internal symbol.
 """
 
 import json
+import os
 from importlib.metadata import version
+from pathlib import Path
 from typing import Any, Optional
 
 import mcp.server.stdio
@@ -35,6 +37,7 @@ import mcp.types as types
 from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
+from gda.mcp.project_context import resolve_project_dir
 from gda.mcp.runner import GdaResult, GdaRunner, SubprocessGdaRunner
 
 SERVER_NAME = "gda-mcp"
@@ -118,7 +121,10 @@ def _synthesized_error(message: str, result: GdaResult) -> types.CallToolResult:
 
 
 def dispatch(
-    runner: GdaRunner, argv: list[str], arguments: dict[str, Any]
+    runner: GdaRunner,
+    argv: list[str],
+    arguments: dict[str, Any],
+    project: Optional[Path] = None,
 ) -> dict[str, Any] | types.CallToolResult:
     """Forward one MCP tool call to gda and map the outcome (ADR-0011/0015).
 
@@ -134,7 +140,9 @@ def dispatch(
     # ``--params-json -``; ``--json`` makes gda emit the machine-readable result.
     # gda-mcp builds no per-command argv beyond the command name — no binding
     # knowledge — so new commands/params reach the surface with no gda-mcp change.
-    result = runner.run([*argv, "--params-json", "-", "--json"], stdin=params_json)
+    result = runner.run(
+        [*argv, "--params-json", "-", "--json"], stdin=params_json, project=project
+    )
 
     if result.returncode == 0:
         try:
@@ -171,6 +179,11 @@ def build_server(runner: GdaRunner) -> Server:
     knowledge, so it stays correct as gda's surface grows without edits here.
     """
     commands = _load_commands(runner)
+    # Resolve the server's one target project (ADR-0014). env + cwd only for now;
+    # the MCP roots/list precedence level (a live server->client request) is wired
+    # in a later slice. The resolved dir reaches gda via the GDA_PROJECT env
+    # channel on every dispatch (mechanism D), so meta commands ignore it.
+    project = resolve_project_dir(os.environ, [], Path.cwd())
     tools = [
         types.Tool(
             name=tool_name(entry["name"]),
@@ -208,7 +221,7 @@ def build_server(runner: GdaRunner) -> Server:
                 ],
                 isError=True,
             )
-        return dispatch(runner, argv, arguments or {})
+        return dispatch(runner, argv, arguments or {}, project)
 
     return server
 
