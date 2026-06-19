@@ -53,8 +53,9 @@ for the full picture.
 > are settled (see [`CONTEXT.md`](CONTEXT.md) and [`docs/adr/`](docs/adr/)), and every headless
 > domain command group designed in
 > [PRD #17](https://github.com/aigengame/godot-agent/issues/17) now ships end-to-end against a real
-> engine. `gda` is still pre-1.0 and not yet published to a package index; the next milestones are
-> the `gda-mcp` adapter and Phase 2 live operations.
+> engine. `gda` is still pre-1.0 and not yet published to a package index
+> ([#207](https://github.com/aigengame/godot-agent/issues/207)); **`gda-mcp` now ships** alongside
+> the CLI, and the next milestone is Phase 2 live operations.
 
 **Working today — the full headless command surface**
 
@@ -74,10 +75,14 @@ for the full picture.
   classification, and project-context / `res://` path resolution
   ([ADR-0006](docs/adr/0006-project-context-and-path-resolution.md)).
 
+**Also working today — the MCP adapter**
+
+- ✅ `gda-mcp`, a thin [Model Context Protocol](https://modelcontextprotocol.io) stdio server that
+  exposes the whole `gda` surface as MCP tools, generated mechanically from `--schema`. Register it
+  with your agent using the [registration recipes](docs/gda-mcp-registration.md).
+
 **On the roadmap** (designed, not yet implemented)
 
-- 🔜 `gda-mcp`, a thin [Model Context Protocol](https://modelcontextprotocol.io) adapter generated
-  mechanically from `--schema` — the `--schema` hard gate is precisely what makes it cheap.
 - 🔜 `gda-daemon` for *live operations* against a running engine (Phase 2): live scene tree,
   runtime inspection, input simulation, `scene play`/`stop`, screenshots.
 
@@ -145,6 +150,90 @@ To install `gda` as a standalone CLI on your `PATH`:
 uv tool install .
 gda --help
 ```
+
+### MCP server (`gda-mcp`)
+
+`gda` ships a stdio [MCP](https://modelcontextprotocol.io) server behind an optional `[mcp]` extra,
+so any MCP-speaking agent can drive Godot through it. Try it with no install:
+
+```bash
+uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
+```
+
+Register it by dropping the matching config in place. `gda-mcp` picks your Godot project from
+`GDA_PROJECT` if set, otherwise the client's workspace `roots`, otherwise the working directory
+(ADR-0014). An explicitly set `GDA_PROJECT` that is not a valid project is reported as an error, not
+silently replaced.
+
+**Claude Code** — project scope, `.mcp.json` at the repo root (auto-detects the project via `roots`):
+
+```json
+{
+  "mcpServers": {
+    "gda-mcp": {
+      "command": "uvx",
+      "args": ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gda-mcp"]
+    }
+  }
+}
+```
+
+User scope (every project) — the CLI, which writes `~/.claude.json`:
+
+```bash
+claude mcp add --scope user gda-mcp -- \
+  uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
+```
+
+**Codex** — project scope, `.codex/config.toml` at the repo root (the project must be trusted):
+
+```toml
+[mcp_servers.gda-mcp]
+command = "uvx"
+args = ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gda-mcp"]
+
+[mcp_servers.gda-mcp.env]
+GDA_PROJECT = "/absolute/path/to/your/godot/project"
+```
+
+User scope (every project) — the same table in `~/.codex/config.toml`, or add it with the CLI
+(Codex has no workspace variable, so `GDA_PROJECT` stays an absolute path):
+
+```bash
+codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- \
+  uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
+```
+
+**Cursor** — project scope, `.cursor/mcp.json` at the repo root (`${workspaceFolder}` tracks the open
+project):
+
+```json
+{
+  "mcpServers": {
+    "gda-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gda-mcp"],
+      "env": {
+        "GDA_PROJECT": "${workspaceFolder}",
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:${userHome}/.local/bin:${env:PATH}"
+      }
+    }
+  }
+}
+```
+
+User scope (every project) — the same config in `~/.cursor/mcp.json`, but set `GDA_PROJECT` to an
+absolute path (`${workspaceFolder}` is only reliable in the project-level file). Cursor has no
+`mcp add` shell command — register via the JSON above or the Settings → MCP UI.
+
+> Cursor and Claude Desktop are GUI-launched with a minimal `PATH`, so a bare `uvx` may not resolve —
+> the Cursor snippet above repairs it in `env`; if `uvx` is still not found (or for Claude Desktop),
+> use an absolute path (`which uvx`) for `command`. Full recipes — user vs project scope, Claude
+> Desktop, and per-agent project pinning — are in the
+> [registration recipes](docs/gda-mcp-registration.md). Once `gda` is on PyPI
+> ([#207](https://github.com/aigengame/godot-agent/issues/207)), the `@ git+…` part drops to just
+> `"gda[mcp]"`.
 
 ---
 
@@ -490,7 +579,7 @@ drives a real engine. Everything between the CLI and the runner runs as real cod
 | Phase / component | Delivers                                                                  | Status |
 | ----------------- | ------------------------------------------------------------------------- | ------ |
 | **Phase 1** | `gda` serving *headless operations* standalone: `info`, structured errors, `--schema`, and the domain command groups `scene`, `node`, `script`, `project` (incl. static-analysis), `resource`, `export`, `shader`, `theme`. | ✅ Surface complete |
-| **`gda-mcp`** | A thin MCP adapter generated mechanically from `--schema` — first on top of Phase 1, following `gda` forward automatically. | 🔜 Next |
+| **`gda-mcp`** | A thin MCP adapter generated mechanically from `--schema` — first on top of Phase 1, following `gda` forward automatically. | ✅ Shipped |
 | **Phase 2** | `gda` also serving *live operations* through `gda-daemon`'s persistent engine connection. | 🗓 Planned |
 
 Track progress and proposals on the [issue tracker](https://github.com/aigengame/godot-agent/issues).
