@@ -257,6 +257,27 @@ install`). After editing, fully quit and reopen Claude Desktop.
 
 ---
 
+## Working across multiple projects
+
+`gda-mcp` targets **one** Godot project per server: it resolves the project once (on the first tool
+call) and reuses it for the server's lifetime. A fresh agent session spawns a fresh server, which
+resolves again.
+
+- **One project at a time** — the common case; nothing special needed. A project-scoped registration
+  (or a pinned `GDA_PROJECT`) gives one server : one project.
+- **Several projects** — the reliable pattern is **one registration per project**: register at
+  project scope (the per-repo `.mcp.json` / `.codex/config.toml` / `.cursor/mcp.json` above) so each
+  project gets its own server pinned to it.
+- A **user/global** registration follows the client's signal where there is one: Claude Code resolves
+  the workspace from `roots`, and Cursor's `${workspaceFolder}` tracks the open project, so each tends
+  to target the project you are working in. Codex has no per-workspace signal, so a global Codex
+  registration stays pinned to the single `GDA_PROJECT` you set.
+
+Switching the active project **within a single live session** (without starting a new one) is not yet
+supported — the server keeps the project it first resolved. Dynamic re-resolution when the client's
+active workspace changes is tracked in
+[#209](https://github.com/aigengame/godot-agent/issues/209).
+
 ## Notes
 
 - **After PyPI ([#207](https://github.com/aigengame/godot-agent/issues/207))** every
