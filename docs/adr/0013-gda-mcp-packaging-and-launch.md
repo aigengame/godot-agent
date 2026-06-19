@@ -26,7 +26,10 @@ the extra is absent (running it without the extra fails with a clear "install
 agent (Claude Code, Codex, Claude Desktop, Cursor) is a stdio server described by
 `command` + `args` (+ optional `env`); gda-mcp targets exactly that shape. Two
 invocations are supported: the installed console script `gda-mcp`, and a zero-install
-`uvx --from "gda[mcp]" gda-mcp`.
+`uvx`. Until `gda` is published to PyPI (tracked by #207), the zero-install form
+resolves the package from the public git repo —
+`uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp`; once on
+PyPI it simplifies to the canonical `uvx --from "gda[mcp]" gda-mcp`.
 
 **Per-agent registration recipes are a shipped deliverable** (user- and
 project-scope) — not left to the user to derive — because the agents diverge in

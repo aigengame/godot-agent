@@ -53,8 +53,9 @@ for the full picture.
 > are settled (see [`CONTEXT.md`](CONTEXT.md) and [`docs/adr/`](docs/adr/)), and every headless
 > domain command group designed in
 > [PRD #17](https://github.com/aigengame/godot-agent/issues/17) now ships end-to-end against a real
-> engine. `gda` is still pre-1.0 and not yet published to a package index; the next milestones are
-> the `gda-mcp` adapter and Phase 2 live operations.
+> engine. `gda` is still pre-1.0 and not yet published to a package index
+> ([#207](https://github.com/aigengame/godot-agent/issues/207)); **`gda-mcp` now ships** alongside
+> the CLI, and the next milestone is Phase 2 live operations.
 
 **Working today — the full headless command surface**
 
@@ -74,10 +75,14 @@ for the full picture.
   classification, and project-context / `res://` path resolution
   ([ADR-0006](docs/adr/0006-project-context-and-path-resolution.md)).
 
+**Also working today — the MCP adapter**
+
+- ✅ `gda-mcp`, a thin [Model Context Protocol](https://modelcontextprotocol.io) stdio server that
+  exposes the whole `gda` surface as MCP tools, generated mechanically from `--schema`. Register it
+  with your agent using the [registration recipes](docs/gda-mcp-registration.md).
+
 **On the roadmap** (designed, not yet implemented)
 
-- 🔜 `gda-mcp`, a thin [Model Context Protocol](https://modelcontextprotocol.io) adapter generated
-  mechanically from `--schema` — the `--schema` hard gate is precisely what makes it cheap.
 - 🔜 `gda-daemon` for *live operations* against a running engine (Phase 2): live scene tree,
   runtime inspection, input simulation, `scene play`/`stop`, screenshots.
 
@@ -145,6 +150,20 @@ To install `gda` as a standalone CLI on your `PATH`:
 uv tool install .
 gda --help
 ```
+
+### MCP server (`gda-mcp`)
+
+`gda` ships a stdio [MCP](https://modelcontextprotocol.io) server behind an optional `[mcp]` extra,
+so any MCP-speaking agent can drive Godot through it. Try it with no install:
+
+```bash
+uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
+```
+
+To register it with **Claude Code, Codex, Cursor, or Claude Desktop** (user and project scope), see
+the [registration recipes](docs/gda-mcp-registration.md). (Once `gda` is on PyPI —
+[#207](https://github.com/aigengame/godot-agent/issues/207) — this simplifies to
+`uvx --from "gda[mcp]" gda-mcp`.)
 
 ---
 
@@ -490,7 +509,7 @@ drives a real engine. Everything between the CLI and the runner runs as real cod
 | Phase / component | Delivers                                                                  | Status |
 | ----------------- | ------------------------------------------------------------------------- | ------ |
 | **Phase 1** | `gda` serving *headless operations* standalone: `info`, structured errors, `--schema`, and the domain command groups `scene`, `node`, `script`, `project` (incl. static-analysis), `resource`, `export`, `shader`, `theme`. | ✅ Surface complete |
-| **`gda-mcp`** | A thin MCP adapter generated mechanically from `--schema` — first on top of Phase 1, following `gda` forward automatically. | 🔜 Next |
+| **`gda-mcp`** | A thin MCP adapter generated mechanically from `--schema` — first on top of Phase 1, following `gda` forward automatically. | ✅ Shipped |
 | **Phase 2** | `gda` also serving *live operations* through `gda-daemon`'s persistent engine connection. | 🗓 Planned |
 
 Track progress and proposals on the [issue tracker](https://github.com/aigengame/godot-agent/issues).
