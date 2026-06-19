@@ -25,6 +25,12 @@ from typing import Optional, Protocol
 # Override the default ``-m gda`` invocation with an explicit command line.
 GDA_BIN_ENV = "GDA_BIN"
 
+# The exit code synthesized when the gda command itself cannot be launched (the
+# binary is missing / not executable) — the shell "command not found" convention,
+# matching gda's own runner (gda.exit_codes.EXIT_NOT_FOUND). The value only has to
+# be non-zero for the layer above to treat it as a failure; 127 keeps it legible.
+_LAUNCH_FAILURE_EXIT = 127
+
 
 @dataclass(frozen=True)
 class GdaResult:
@@ -75,11 +81,24 @@ class SubprocessGdaRunner:
         # gda's own runner (issue #33): gda emits its ``--json`` result as UTF-8
         # via pydantic, which can carry non-ASCII (e.g. a CJK node name); a
         # locale-based decode would mojibake it on a non-UTF-8 locale.
-        proc = subprocess.run(
-            [*self.command, *args],
-            input=stdin.encode("utf-8") if stdin is not None else None,
-            capture_output=True,
-        )
+        try:
+            proc = subprocess.run(
+                [*self.command, *args],
+                input=stdin.encode("utf-8") if stdin is not None else None,
+                capture_output=True,
+            )
+        except OSError as exc:
+            # The gda command itself could not be launched — e.g. a ``$GDA_BIN``
+            # override pointing at a missing / non-executable path. Mirror gda's
+            # own runner (gda.runner.launch): never let the OSError escape;
+            # synthesize a non-zero raw result so the layer above turns it into a
+            # structured ``isError`` (ADR-0011's "can't-run" edge, synthesized by
+            # gda-mcp) rather than a traceback crossing the MCP boundary.
+            return GdaResult(
+                stdout="",
+                stderr=f"gda could not be launched: {self.command!r} ({exc})",
+                returncode=_LAUNCH_FAILURE_EXIT,
+            )
         return GdaResult(
             stdout=proc.stdout.decode("utf-8", errors="replace"),
             stderr=proc.stderr.decode("utf-8", errors="replace"),
