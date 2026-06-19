@@ -70,6 +70,15 @@ def test_known_tool_has_a_nonempty_output_schema():
     assert info.outputSchema and info.outputSchema.get("type") == "object"
 
 
+def test_non_dispatchable_meta_commands_are_not_registered():
+    # Plan A, proven at the MCP layer (PR #203 review): `gda schema` is
+    # non-dispatchable (no --params-json), so gda-mcp must NOT advertise it as a
+    # tool it cannot fulfil. The dump excludes it at the source, so it never
+    # reaches registration — no per-command exclusion logic in gda-mcp.
+    names = {t.name for t in list_tools(_server()).tools}
+    assert "schema" not in names
+
+
 def test_startup_introspects_the_dump_through_the_seam_once():
     # The surface comes from one `gda schema` run through the shared seam
     # (ADR-0012's single startup subprocess), not a per-command fan-out.
