@@ -160,10 +160,54 @@ so any MCP-speaking agent can drive Godot through it. Try it with no install:
 uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
 ```
 
-To register it with **Claude Code, Codex, Cursor, or Claude Desktop** (user and project scope), see
-the [registration recipes](docs/gda-mcp-registration.md). (Once `gda` is on PyPI —
-[#207](https://github.com/aigengame/godot-agent/issues/207) — this simplifies to
-`uvx --from "gda[mcp]" gda-mcp`.)
+Register it by dropping the matching config in place. `gda-mcp` picks your Godot project from the
+client's workspace `roots` where available, otherwise from `GDA_PROJECT` (ADR-0014).
+
+**Claude Code** — `.mcp.json` in the project root (auto-detects the workspace project):
+
+```json
+{
+  "mcpServers": {
+    "gda-mcp": {
+      "command": "uvx",
+      "args": ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gda-mcp"]
+    }
+  }
+}
+```
+
+**Codex** — `~/.codex/config.toml` (global) or `.codex/config.toml` (project; pin the project path):
+
+```toml
+[mcp_servers.gda-mcp]
+command = "uvx"
+args = ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gda-mcp"]
+
+[mcp_servers.gda-mcp.env]
+GDA_PROJECT = "/absolute/path/to/your/godot/project"
+```
+
+**Cursor** — `.cursor/mcp.json` in the project root:
+
+```json
+{
+  "mcpServers": {
+    "gda-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gda-mcp"],
+      "env": { "GDA_PROJECT": "${workspaceFolder}" }
+    }
+  }
+}
+```
+
+> Cursor and Claude Desktop are GUI-launched with a minimal `PATH`, so a bare `uvx` may not resolve —
+> use an absolute path (`which uvx`) for `command`. Full recipes — user vs project scope, Claude
+> Desktop, the `PATH` fix, and per-agent project pinning — are in the
+> [registration recipes](docs/gda-mcp-registration.md). Once `gda` is on PyPI
+> ([#207](https://github.com/aigengame/godot-agent/issues/207)), the `@ git+…` part drops to just
+> `"gda[mcp]"`.
 
 ---
 
