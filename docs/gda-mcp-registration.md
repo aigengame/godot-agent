@@ -6,7 +6,8 @@ ships inside the one `gda` distribution behind an optional `[mcp]` extra (ADR-00
 any MCP-speaking agent can drive Godot through it.
 
 This guide gives copy-pasteable registration recipes for **Claude Code**, **Codex**,
-**Cursor**, and **Claude Desktop**, at both user and project scope.
+**Cursor**, and **Claude Desktop**, at user and project scope — except **Claude Desktop**, which has
+a single per-user config (no project scope).
 
 ## Before you start
 
@@ -42,16 +43,18 @@ recipe's `env` block, e.g. `"GDA_GODOT": "/Applications/Godot.app/Contents/MacOS
 ### How the server finds your Godot project
 
 `gda-mcp` resolves one target Godot project for the server by an agent-neutral
-precedence (ADR-0014), first valid hit wins:
+precedence (ADR-0014), first hit wins:
 
 1. **`GDA_PROJECT`** in the server's `env` — explicit and portable; works in every agent.
 2. the **`roots/list`** the client advertises — used automatically by clients that
    support it (e.g. Claude Code), no config needed.
 3. the process **cwd** — last-resort fallback (unreliable across agents).
 
-A candidate is only used when it is a real Godot project (contains `project.godot`).
-**Recommended: register at project scope, or pin `GDA_PROJECT`.** Each recipe below
-shows the right way to pin the project for that agent.
+A `roots` or cwd candidate is used only when it is a real Godot project (contains
+`project.godot`); otherwise resolution moves on. An explicitly set **`GDA_PROJECT`** is stricter: if
+it is not a valid project, `gda` reports a typed error rather than silently falling back to `roots`
+or cwd. **Recommended: register at project scope, or pin `GDA_PROJECT`.** Each recipe below shows the
+right way to pin the project for that agent.
 
 ## Two cross-cutting constraints
 
@@ -75,7 +78,8 @@ unaffected.
 ### Project pinning is agent-specific
 
 The mechanism is always one of the three neutral signals above, but how you supply the
-project path differs per agent: `GDA_PROJECT` everywhere, `${workspaceFolder}` on Cursor,
+project path differs per agent: `GDA_PROJECT` everywhere, `${workspaceFolder}` on Cursor (project
+scope),
 `${CLAUDE_PROJECT_DIR}` or `roots` on Claude Code, an absolute path on Codex / Claude
 Desktop.
 
@@ -185,8 +189,8 @@ Config: `.cursor/mcp.json` at the project root (project scope) or `~/.cursor/mcp
 (global scope); project takes precedence. The stdio `type` field is required in current
 Cursor.
 
-Cursor resolves `${workspaceFolder}` (and `${userHome}`, `${env:NAME}`) inside
-`command`/`args`/`env`, so pin the open project cleanly with
+Cursor resolves `${workspaceFolder}`, `${userHome}`, and `${env:NAME}` inside
+`command`/`args`/`env`, so the **project-scoped** config pins the open project cleanly with
 `"GDA_PROJECT": "${workspaceFolder}"`. Cursor is **GUI-launched** — mind the minimal-PATH
 constraint above.
 
@@ -217,8 +221,9 @@ Replace the absolute `command` path with the output of `which uvx`. To keep a ba
 
 ### Global scope — `~/.cursor/mcp.json`
 
-Identical structure; use a literal absolute project path for `GDA_PROJECT` (a global
-config is not tied to one workspace), or omit it and rely on the workspace per project.
+Same structure, but set `GDA_PROJECT` to a literal **absolute** project path: `${workspaceFolder}` is
+only reliable in the project-level `.cursor/mcp.json` — Cursor does not document it for the global
+config, and it has been reported passed through unexpanded there.
 
 ---
 
@@ -268,10 +273,12 @@ resolves again.
 - **Several projects** — the reliable pattern is **one registration per project**: register at
   project scope (the per-repo `.mcp.json` / `.codex/config.toml` / `.cursor/mcp.json` above) so each
   project gets its own server pinned to it.
-- A **user/global** registration follows the client's signal where there is one: Claude Code resolves
-  the workspace from `roots`, and Cursor's `${workspaceFolder}` tracks the open project, so each tends
-  to target the project you are working in. Codex has no per-workspace signal, so a global Codex
-  registration stays pinned to the single `GDA_PROJECT` you set.
+- A **user/global** registration follows the open project only where the client advertises a
+  per-session signal: **Claude Code** advertises `roots`, so it targets the workspace you open it in.
+  **Cursor** and **Codex** have no reliable per-window signal for a global config (Cursor's
+  `${workspaceFolder}` is reliable only in the project-level file), so a global registration there is
+  pinned to the single `GDA_PROJECT` you set — register at project scope for those if you work across
+  several projects.
 
 Switching the active project **within a single live session** (without starting a new one) is not yet
 supported — the server keeps the project it first resolved. Dynamic re-resolution when the client's

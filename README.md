@@ -160,8 +160,10 @@ so any MCP-speaking agent can drive Godot through it. Try it with no install:
 uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
 ```
 
-Register it by dropping the matching config in place. `gda-mcp` picks your Godot project from the
-client's workspace `roots` where available, otherwise from `GDA_PROJECT` (ADR-0014).
+Register it by dropping the matching config in place. `gda-mcp` picks your Godot project from
+`GDA_PROJECT` if set, otherwise the client's workspace `roots`, otherwise the working directory
+(ADR-0014). An explicitly set `GDA_PROJECT` that is not a valid project is reported as an error, not
+silently replaced.
 
 **Claude Code** — project scope, `.mcp.json` at the repo root (auto-detects the project via `roots`):
 
@@ -212,19 +214,23 @@ project):
       "type": "stdio",
       "command": "uvx",
       "args": ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gda-mcp"],
-      "env": { "GDA_PROJECT": "${workspaceFolder}" }
+      "env": {
+        "GDA_PROJECT": "${workspaceFolder}",
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:${userHome}/.local/bin:${env:PATH}"
+      }
     }
   }
 }
 ```
 
-User scope (every project) — the same config in `~/.cursor/mcp.json`; `${workspaceFolder}` still
-resolves per open project. (Cursor has no `mcp add` shell command — register via the JSON above or
-the Settings → MCP UI.)
+User scope (every project) — the same config in `~/.cursor/mcp.json`, but set `GDA_PROJECT` to an
+absolute path (`${workspaceFolder}` is only reliable in the project-level file). Cursor has no
+`mcp add` shell command — register via the JSON above or the Settings → MCP UI.
 
 > Cursor and Claude Desktop are GUI-launched with a minimal `PATH`, so a bare `uvx` may not resolve —
+> the Cursor snippet above repairs it in `env`; if `uvx` is still not found (or for Claude Desktop),
 > use an absolute path (`which uvx`) for `command`. Full recipes — user vs project scope, Claude
-> Desktop, the `PATH` fix, and per-agent project pinning — are in the
+> Desktop, and per-agent project pinning — are in the
 > [registration recipes](docs/gda-mcp-registration.md). Once `gda` is on PyPI
 > ([#207](https://github.com/aigengame/godot-agent/issues/207)), the `@ git+…` part drops to just
 > `"gda[mcp]"`.
