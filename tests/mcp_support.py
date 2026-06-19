@@ -14,6 +14,7 @@ The fast tiers drive the surface from the **real** aggregate dump
 true mirror of the live ``gda`` surface, not a hand-stubbed subset.
 """
 
+from pathlib import Path
 from typing import Callable, Optional
 
 import anyio
@@ -27,14 +28,25 @@ Responder = Callable[[list[str], Optional[str]], GdaResult]
 
 
 class FakeGdaRunner:
-    """A fake ``GdaRunner``: routes each invocation through a responder, records calls."""
+    """A fake ``GdaRunner``: routes each invocation through a responder, records calls.
+
+    Each recorded call is ``(args, stdin, project)`` — ``project`` is the resolved
+    Godot project gda-mcp injects via the ``GDA_PROJECT`` env channel (ADR-0014,
+    #194), so tests assert the project that reached the seam without a subprocess.
+    """
 
     def __init__(self, responder: Responder) -> None:
         self.responder = responder
-        self.calls: list[tuple[list[str], Optional[str]]] = []
+        self.calls: list[tuple[list[str], Optional[str], Optional[Path]]] = []
 
-    def run(self, args: list[str], *, stdin: Optional[str] = None) -> GdaResult:
-        self.calls.append((args, stdin))
+    def run(
+        self,
+        args: list[str],
+        *,
+        stdin: Optional[str] = None,
+        project: Optional[Path] = None,
+    ) -> GdaResult:
+        self.calls.append((args, stdin, project))
         return self.responder(args, stdin)
 
 
@@ -81,12 +93,24 @@ def list_tools(server):
     return anyio.run(_inner)
 
 
-def call_tool(server, name: str, arguments: dict):
-    """Open an in-memory MCP session, call one tool, return its ``CallToolResult``."""
+def call_tool(server, name: str, arguments: dict, *, roots: Optional[list[str]] = None):
+    """Open an in-memory MCP session, call one tool, return its ``CallToolResult``.
+
+    When ``roots`` is given the in-memory client advertises them (as ``file://``
+    URIs) and answers the server's ``roots/list`` request with them, so the
+    server's project-context resolution (ADR-0014 precedence 2) can be exercised.
+    """
     from mcp.shared.memory import create_connected_server_and_client_session as connect
 
+    list_roots_callback = None
+    if roots is not None:
+        from mcp.types import ListRootsResult, Root
+
+        async def list_roots_callback(_context):
+            return ListRootsResult(roots=[Root(uri=Path(r).as_uri()) for r in roots])
+
     async def _inner():
-        async with connect(server) as session:
+        async with connect(server, list_roots_callback=list_roots_callback) as session:
             return await session.call_tool(name, arguments)
 
     return anyio.run(_inner)

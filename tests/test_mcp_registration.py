@@ -84,4 +84,6 @@ def test_startup_introspects_the_dump_through_the_seam_once():
     # (ADR-0012's single startup subprocess), not a per-command fan-out.
     runner = FakeGdaRunner(schema_then(_no_dispatch))
     build_server(runner)
-    assert runner.calls == [(["schema"], None)]
+    # The startup introspection call carries no project (the schema meta command
+    # is projectless); per-tool dispatch is what injects the resolved project.
+    assert runner.calls == [(["schema"], None, None)]
