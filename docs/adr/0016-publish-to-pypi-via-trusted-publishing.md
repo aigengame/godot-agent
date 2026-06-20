@@ -21,29 +21,38 @@ the decision that makes the canonical form real.
 **Publish the built `gda` distributions (sdist + wheel) to PyPI on every cut
 release, via PyPI Trusted Publishing (OIDC) — no long-lived API token.**
 
-- **Where it runs.** The publish is a step inside the existing `github-release`
-  job of `release.yml`, not a new workflow. That job already checks out the
-  exact tagged commit, runs the full test suite, and `uv build`s the
-  distributions; PyPI publish consumes the same `dist/` those steps produce. One
-  release pipeline, one version source (ADR-0007 / ADR-0008) — unchanged.
+- **Where it runs: a minimal publish job, isolated from build/test.** The former
+  single `github-release` job is split into three jobs in `release.yml`:
+  `build-release` (checkout the tagged commit, run the full suite, `uv build`,
+  upload the `dist/` as a run-scoped artifact), `publish-pypi` (download the
+  artifact, publish to PyPI), and `publish-github-release` (download the
+  artifact, upload it to the GitHub Release and un-draft). One release pipeline,
+  one version source (ADR-0007 / ADR-0008) — unchanged; what changes is only the
+  job graph.
 
-- **Auth: Trusted Publishing, not a stored token.** The job requests an OIDC
-  token (`permissions: id-token: write`) and `pypa/gh-action-pypi-publish`
-  exchanges it for a short-lived, scoped PyPI upload credential. This honours
-  ADR-0007's stance that "a long-lived credential is a cost we do not need to
-  pay": no `PYPI_API_TOKEN` secret to store, rotate, or leak. The OIDC trust is
-  scoped to a named GitHub Environment (`pypi`) so only this job — not an
-  arbitrary workflow in the repo — can mint a publishable token.
+- **Auth: Trusted Publishing, not a stored token — scoped to the publish job
+  alone.** `publish-pypi` requests an OIDC token (`permissions: id-token: write`)
+  and `pypa/gh-action-pypi-publish` exchanges it for a short-lived, scoped PyPI
+  upload credential. This honours ADR-0007's stance that "a long-lived
+  credential is a cost we do not need to pay": no `PYPI_API_TOKEN` secret to
+  store, rotate, or leak. Crucially, `id-token: write` is granted to
+  **`publish-pypi` only** — a job that runs no project, test, or build-backend
+  code, just an artifact download and the publish — so the build/test
+  environment never holds publishing authority and an injected build/test path
+  cannot mint a PyPI credential. The trust is further scoped to a named GitHub
+  Environment (`pypi`) so only this job can request a publishable token.
 
-- **Ordering: publish to PyPI *before* the GitHub Release is un-drafted.**
-  Un-drafting the GitHub Release is what creates the git tag, and ADR-0007's
-  recovery model treats **the tag as the atomic "release succeeded" signal** —
-  everything that must succeed runs before it, so a failure leaves a *tag-less
-  draft* that the release-PR-maintenance gate flags ("needs recovery") and
-  "Re-run failed jobs" converges. Slotting PyPI publish between `uv build` and
-  the un-draft brings PyPI under that same guarantee: a PyPI failure wedges the
-  draft exactly like a build failure does, and recovery is the existing,
-  documented re-run — no new failure mode, no new runbook.
+- **Ordering: `publish-pypi` before `publish-github-release`.** Un-drafting the
+  GitHub Release (in `publish-github-release`) is what creates the git tag, and
+  ADR-0007's recovery model treats **the tag as the atomic "release succeeded"
+  signal** — everything that must succeed runs before it, so a failure leaves a
+  *tag-less draft* that the release-PR-maintenance gate flags ("needs recovery")
+  and "Re-run failed jobs" converges. Ordering PyPI publish as the job *before*
+  the un-draft keeps PyPI under that same guarantee: a PyPI failure skips
+  `publish-github-release`, so no tag is minted, and recovery is the existing,
+  documented re-run — no new failure mode, no new runbook. The tag-as-commit-point
+  ordering is a property of the job *sequence*, not of co-locating publish with
+  build — so isolating the publish costs nothing here.
 
 - **Idempotent, like the GitHub-Release upload.** PyPI files are **immutable**
   (a filename can never be re-uploaded), so the publish uses `skip-existing:
@@ -54,12 +63,16 @@ release, via PyPI Trusted Publishing (OIDC) — no long-lived API token.**
   because they build from the **same** tagged commit (ADR-0008's single version
   authority), so "skip what exists" never hides a content change.
 
-- **Project name `gda`, claimed via a pending publisher.** `gda` is free on
-  PyPI today. Trusted Publishing's *pending publisher* mechanism both registers
-  the trust and reserves the name: the project is created automatically on the
-  first successful publish. If the name turns out to be taken or squatted before
-  setup, the fallback is to pick an alternative distribution name and update
-  ADR-0013's canonical commands accordingly — the workflow change is unaffected.
+- **Project name `gda`, claimed only by the first publish — not by setup.**
+  `gda` is unregistered on PyPI today. Registering a *pending publisher* does
+  **not** reserve the name: PyPI creates the project (and thereby claims the
+  name) only on the first successful publish, and if another account registers
+  `gda` before then, the pending publisher is invalidated. So the name is
+  effectively claimed by *landing the first release*, not by configuring the
+  publisher — until that release publishes, `gda` stays available to anyone. If
+  it is taken or squatted before then, the fallback is to pick an alternative
+  distribution name and update ADR-0013's canonical commands accordingly; the
+  workflow change is unaffected.
 
 ### One-time human setup (outside this repo)
 
@@ -83,13 +96,22 @@ enables a dry run before the first real publish.
 - **PyPI API token in GitHub Secrets (rejected).** A long-lived credential that
   must be stored, scoped, and rotated, and is exfiltratable from a compromised
   workflow — precisely the cost ADR-0007 declined to pay for the GitHub token.
-- **A separate publish workflow / job with artifact hand-off (rejected).** A
-  standalone job (download the `dist/` artifact, publish) is the PyPA tutorial's
-  shape, but it would run *after* `github-release` — i.e. after the tag already
-  exists — breaking the "everything load-bearing happens before the tag"
-  invariant the recovery model rests on. Inlining the step keeps PyPI under the
-  existing tag-as-commit-point guarantee at the cost of running the whole job in
-  the `pypi` environment.
+- **A separate, isolated publish job with artifact hand-off (chosen).** A
+  minimal `publish-pypi` job — download the `dist/` artifact, publish, nothing
+  else — is the PyPA-recommended shape, and it keeps `id-token: write` out of
+  the build/test environment. It does *not* break the tag-as-commit-point
+  invariant: the tag is created by the *downstream* `publish-github-release`
+  job's un-draft, so ordering `publish-pypi` ahead of it preserves "everything
+  load-bearing happens before the tag" while isolating the OIDC privilege. (An
+  earlier draft of this ADR rejected this option on the false premise that a
+  separate job must run *after* the GitHub Release; the recovery model depends on
+  job *ordering*, not on co-locating publish with build.)
+- **One job holding OIDC across build, test, and publish (rejected).** Inlining
+  the publish step in the build/test job is simpler, but `id-token: write` is
+  job-scoped, so the whole test/build environment — project autoloads, the test
+  suite, the build backend — could request an OIDC token and exchange it for a
+  PyPI credential. That is the supply-chain privilege bleed the PyPA action
+  explicitly warns against; the split above removes it.
 - **No GitHub Environment scoping (rejected).** Trusted Publishing works without
   naming an environment, but then any workflow in the repo that can request an
   OIDC token could publish. Scoping to a `pypi` environment is cheap defence in
