@@ -67,6 +67,18 @@ jobs:
       needs.cut-release.outputs.release_created == 'true'
     permissions:
       contents: write
+      # Trusted Publishing mints a short-lived, scoped PyPI upload token from an
+      # OIDC token instead of a stored API secret (ADR-0016). The publish step
+      # below needs to request it.
+      id-token: write
+    # Scope the OIDC trust to a named GitHub Environment so only this job — not an
+    # arbitrary workflow in the repo — can publish to PyPI; the PyPI trusted
+    # publisher is configured with this exact environment name. No protection
+    # rules: the release stays fully automated and the human gate remains the
+    # Release PR merge (ADR-0007 / ADR-0016).
+    environment:
+      name: pypi
+      url: https://pypi.org/p/gda
 
     env:
       RELEASE_TAG: ${{ needs.cut-release.outputs.tag_name }}
@@ -117,6 +129,23 @@ jobs:
 
       - name: Build distributions
         run: uv build
+
+      # Publish to PyPI BEFORE the GitHub Release is un-drafted. Un-drafting is
+      # what creates the git tag, and ADR-0007's recovery model treats the tag as
+      # the atomic "release succeeded" signal: everything load-bearing runs before
+      # it, so a failure here leaves a tag-less draft that the release-PR gate
+      # flags and "Re-run failed jobs" converges (ADR-0016). The publish is
+      # idempotent via skip-existing — PyPI files are immutable, so a re-run from
+      # the same tagged commit skips whatever already landed and uploads the rest,
+      # mirroring the --clobber idempotency of the gh release upload below.
+      # Trusted Publishing (OIDC) is used; configuring the PyPI pending publisher
+      # is the one-time human step tracked on #207. Until that is done this step
+      # fails the release — intended: it is the gate that proves the publisher is
+      # configured before any tag is minted.
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
 
       - name: Publish GitHub Release
         env:
