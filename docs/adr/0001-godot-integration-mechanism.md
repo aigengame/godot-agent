@@ -24,6 +24,11 @@ We adopt a **hybrid, delivered in two phases**:
 This reframes `gda-daemon`: it is not merely an optional performance layer (as
 ADR-0000 implies), but the **necessary carrier of all live-engine capabilities**.
 
+> Refined by ADR-0017: Phase 2's live channel is specified there — the daemon holds a
+> gda-owned running game (not an attached editor) via an in-engine `gda harness`,
+> selected per command by an invisible execution-channel `kind`. Its harness install
+> and concurrent-editor boundary are in ADR-0018.
+
 ## Considered options
 
 - **Pure headless** (like `godot-mcp`) — simplest, but permanently incapable of

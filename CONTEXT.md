@@ -21,10 +21,18 @@ never itself a phase. Its order relative to other components follows ADR-0000.
 _Avoid_: the server, mcp wrapper
 
 **gda-daemon**:
-A long-lived process that holds a persistent connection to a running Godot
-engine, serving operations that require a live engine rather than a fresh
-headless process per call.
+A long-lived, per-project process that supervises transient `Engine session`s and
+brokers IPC to them, serving operations that require a live engine rather than a
+fresh headless process per call. The daemon is persistent; the engine it connects to
+is not — the connection lasts only as long as an `Engine session` (ADR-0017).
 _Avoid_: the service, background server
+
+**gda harness**:
+The game-side autoload `gda` installs into a `Trusted project` so that `gda-daemon`
+can run live operations inside an `Engine session` over IPC. It is inert — opening no
+connection — unless the daemon launched the session, so it stays dormant in a human
+editor run, a plain run, and a shipped build (ADR-0018).
+_Avoid_: plugin, addon, agent
 
 ### Operations
 
@@ -35,10 +43,27 @@ run a test). The basis of Phase 1.
 _Avoid_: batch op, offline op
 
 **Live operation**:
-An operation that requires an already-running engine/editor to observe or mutate
-in-place state (e.g. inspect the live scene tree, runtime inspection, UndoRedo,
-input simulation). Served through `gda-daemon`, not by a one-shot headless call.
+An operation that requires an already-running engine to observe or control its
+in-place runtime state (e.g. the runtime scene tree, runtime property get/set, input
+simulation, viewport capture, performance/signal monitoring). Served through
+`gda-daemon` against a running game, not by a one-shot headless call; the editor
+context (UndoRedo, the editor's open-scene tree) is out of scope (ADR-0017).
 _Avoid_: realtime op, online op
+
+**Engine session**:
+A single transient run of a gda-owned Godot game, launched and held by `gda-daemon`
+with the `gda harness` injected, against which `Live operation`s are served. The
+daemon outlives individual sessions; a session is (re)launched per feedback-loop
+iteration to observe the project's current on-disk state (ADR-0017).
+_Avoid_: game run, live session, play session
+
+**State consistency**:
+The guarantee `gda-daemon` provides over an `Engine session`'s runtime state: live
+operations are serialized through a single writer, so a read observes the preceding
+write; each operation is frame-coherent (applied/observed at a frame boundary); and
+the state is bound to the session, not surviving its relaunch. A Phase-2 live-layer
+property only — Phase-1 headless calls are stateless (ADR-0020).
+_Avoid_: consistency, coherence, sync
 
 **Headless launch**:
 The one-shot `godot --headless` spawn primitive that both Phase-1 channels — the
@@ -95,6 +120,13 @@ code to run: autoload constructors at engine startup (every `--project` op), and
 the `_init` of scripts on nodes that an instantiating operation constructs.
 _Avoid_: attack surface, code-execution risk
 
+**Concurrent external editor**:
+A human-opened Godot editor on the same project while `gda` is driving it (e.g. to
+view, run, or verify agent output). Phase 2 assumes `gda` is the project's sole
+driver and does not defend against a concurrent external editor's writes (ADR-0018,
+extending ADR-0009).
+_Avoid_: second instance, shared editor
+
 ### Delivery phases
 
 The order in which **capabilities** are delivered. This is distinct from ADR-0000's
@@ -107,16 +139,18 @@ service dependency.
 _Avoid_: MVP (broader), v1
 
 **Phase 2**:
-The later delivery — `gda` also serves live operations through `gda-daemon`'s
-persistent engine connection.
+The later delivery — `gda` also serves live operations through `gda-daemon` and a
+live `Engine session`.
 _Avoid_: v2
 
 ### Command surface
 
 **Command group**:
 A top-level grouping of `gda` commands named after a Godot domain object
-(`scene`, `node`, `script`, `project`, `resource`, `export`, …). Invoked as
-`gda <group> <command>`.
+(`scene`, `node`, `script`, `project`, `resource`, `export`, the running-game
+`game`, …). Invoked as `gda <group> <command>`. Live operations are placed under
+their real domain-object group too — marked live by their `kind`, not by a separate
+group (ADR-0019).
 _Avoid_: namespace, category, module
 
 **Domain command**:

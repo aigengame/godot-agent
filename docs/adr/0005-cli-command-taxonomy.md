@@ -41,6 +41,11 @@ command on the same object (e.g. `gda scene create` vs a future live scene-inspe
 are siblings under the same `scene` group; the phase/operation kind is expressed in
 each command's `--schema` metadata, not by splitting the tree.
 
+> Refined by ADR-0019: live commands are placed by their real domain object too —
+> input simulation, capture, and monitoring become their own object groups, and the
+> running game's runtime scene graph gets a narrow `game` object — so there is no
+> single "live" group and the phase still never appears in the tree.
+
 ## The command surface is delivered incrementally, not enumerated up front
 
 The surface grows **one vertical slice at a time** (ADR-0000), not as a pre-declared
