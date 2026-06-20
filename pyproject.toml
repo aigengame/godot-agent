@@ -1,6 +1,6 @@
 [project]
 name = "gda"
-version = "0.1.24"
+version = "0.1.25"
 description = "An agent-facing Godot CLI with structured output"
 readme = "README.md"
 authors = [
