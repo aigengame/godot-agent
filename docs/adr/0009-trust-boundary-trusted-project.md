@@ -31,6 +31,10 @@ does not defend against a malicious or untrusted project. Executing that project
 own autoload and scene-script constructors is therefore expected behaviour, not a
 vulnerability, and we **accept and document** it rather than harden in Phase 1.
 
+> Extended by ADR-0018: Phase 2 adds a second axis to this boundary — `gda` is also
+> assumed to be the project's *sole driver*; a concurrent external editor's writes are
+> out of scope, for the same accept-and-document reasons.
+
 The documented [project-code execution surface](../../CONTEXT.md) is classified by
 **mechanism**, on two orthogonal axes — not by a read/mutate split, because
 `node get` is a read that instantiates:

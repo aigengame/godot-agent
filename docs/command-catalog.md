@@ -19,13 +19,17 @@ when they only touch a scene/resource *file*. `gda` classifies by CONTEXT.md ins
 - **Phase 1 (headless)** — fulfillable by a one-shot `godot --headless` process that
   loads a file from disk, mutates it, and saves it (or just reads it). No pre-existing
   engine state required. **This is the near-term increment.**
-- **Phase 2 (live)** — requires an already-running engine/editor to observe or mutate
-  in-place state (runtime scene tree, runtime properties, input simulation, play/stop,
-  screenshots of a running game, editor diagnostics). Served by `gda-daemon`. **Parked.**
+- **Phase 2 (live)** — requires an already-running engine to observe or control its
+  runtime state (runtime scene tree, runtime properties, input simulation, viewport
+  capture, performance/signal monitoring). Served by `gda-daemon` against a **running
+  game**, not an attached editor; the editor context is out of scope (ADR-0017). Live
+  commands are placed by their real domain object, not in a single "live" group
+  (ADR-0019). **Mechanism decided (ADR-0017–0020); catalogue delivered incrementally.**
 
 This catalog does **not** carry a per-command status column — that would duplicate, and
-drift from, the issue tracker. For the live backlog (what is committed, in flight, and
-done) open the **Phase 1 — headless operations** milestone. Inline references to issues
+drift from, the issue tracker. For the **headless** backlog open the **Phase 1 —
+headless operations** milestone; for the **live** backlog open the **Phase 2 — live
+operations** milestone. Inline references to issues
 in the prose below (e.g. "established by #53") cite the slice that defined a behavior;
 they are provenance, not status markers.
 
@@ -440,19 +444,30 @@ These create or edit resource files (`.gdshader`, `.tres`) and so are headless.
 
 ---
 
-## Phase 2 — live domain commands (parked, served by `gda-daemon`)
+## Phase 2 — live domain commands (served by `gda-daemon`)
 
-Listed coarsely; enumerated when Phase 2 (PRD #6) is unparked. All require a running
-engine/editor and so cannot be a one-shot headless call.
+Listed coarsely; enumerated as slices when Phase 2 (PRD #6) is worked. All require a
+running `Engine session` and so cannot be a one-shot headless call. Mechanism is fixed
+by ADR-0017 (execution), ADR-0018 (harness), ADR-0019 (placement), ADR-0020
+(consistency); scope is the **running game**, not an attached editor. Live ops are
+distributed by their real domain object (ADR-0019), not lumped into one "live" group.
 
-- **`scene` (live):** `play`, `stop`, live `get` of the running/edited scene tree, `save` the open scene, instance a packed scene into the open scene.
-- **`node` (live):** runtime property `get`/`set`, anchor presets, group membership on the live tree.
-- **runtime introspection:** running-game scene tree, performance monitors, autoload state, frame capture, property monitoring.
-- **input simulation:** key / mouse / action / sequence injection into a running game.
-- **diagnostics & capture:** editor errors, output log, editor & game screenshots, screenshot diff.
-- **editor utilities:** run editor script, reload plugin/project, list signals.
-- **testing harness:** run scenario, assert node/screen state, stress test, recording/replay.
-- **`input-map` (live):** `get`/`set` InputMap actions on a running engine.
+- **`game` (the running game's scene graph):** live `get` of the runtime scene tree;
+  runtime node property `get`/`set`. The on-disk counterparts stay under `scene` /
+  `node` (ADR-0019).
+- **`input` (input simulation):** key / mouse / action / sequence injection into the
+  running game; record / replay.
+- **`screen` / capture:** running-game viewport screenshot, multi-frame capture.
+- **`perf` / monitor:** performance monitors, property monitoring over N frames,
+  signal watching.
+- **diagnostics:** runtime errors and output log of the running game.
+- **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status`, and `gda daemon
+  install` / `uninstall` for the `gda harness` (ADR-0018).
+
+Out of scope (editor context, ADR-0017): UndoRedo-aware mutation, the editor's
+open-scene tree, saving the open scene, editor errors/screenshots, run-editor-script,
+reload-plugin/project. Authoring that `godot-mcp-pro` does through a live editor, `gda`
+does headless by editing files.
 
 ---
 

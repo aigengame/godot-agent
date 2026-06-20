@@ -33,6 +33,10 @@ simpler to more complex**, in this component order:
 > performance layer into the necessary carrier of all live-engine capabilities, and
 > delivery is split into Phase 1 (headless) and Phase 2 (live).
 
+> Reconciled by ADR-0020: the "state-consistent" advantage is defined and scoped
+> there — it is a Phase-2 live-layer guarantee (single-writer serialization,
+> frame-coherent, session-bound), not a property of the stateless Phase-1 headless CLI.
+
 ## Development conventions
 
 - Incremental development driven by **vertical slices** and **TDD**:
