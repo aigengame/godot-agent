@@ -199,9 +199,11 @@ class _ProjectResolver:
     """Resolves and caches the server's one target project (ADR-0014).
 
     Resolution is deferred to the first tool call because precedence level 2
-    (``roots/list``) is a server->client request needing a live session. The
-    result is cached: the server targets one project (one ``server : project``),
-    re-resolution on a changing root is the deferred ``roots/list_changed`` path.
+    (``roots/list``) is a server->client request needing a live session, then
+    cached (one ``server : project``). On a client ``roots/list_changed``
+    notification the cache is invalidated, so the next tool call re-runs the full
+    precedence against the now-active roots (#209) — a pinned ``GDA_PROJECT`` still
+    wins because :func:`resolve_project_dir` reads env first.
     """
 
     def __init__(self, env, cwd: Path) -> None:
@@ -209,6 +211,11 @@ class _ProjectResolver:
         self._cwd = cwd
         self._resolved = False
         self._project: Optional[Path] = None
+
+    def invalidate(self) -> None:
+        """Drop the cached project so the next ``resolve`` re-runs the precedence."""
+        self._resolved = False
+        self._project = None
 
     async def resolve(self, session) -> Optional[Path]:
         if not self._resolved:
@@ -228,7 +235,8 @@ def build_server(runner: GdaRunner) -> Server:
     # The server's one target project (ADR-0014), resolved lazily on the first
     # tool call (precedence 2, roots/list, needs a live session) and cached. The
     # resolved dir reaches gda via the GDA_PROJECT env channel on every dispatch
-    # (mechanism D), so meta commands ignore it.
+    # (mechanism D), so meta commands ignore it. A client roots/list_changed
+    # invalidates the cache so the next call re-resolves (#209).
     resolver = _ProjectResolver(os.environ, Path.cwd())
     tools = [
         types.Tool(
@@ -248,6 +256,20 @@ def build_server(runner: GdaRunner) -> Server:
     }
 
     server: Server = Server(SERVER_NAME)
+
+    # A client roots/list_changed means the active project may have moved (#209):
+    # invalidate the cache so the next tool call re-runs the ADR-0014 precedence
+    # against the now-current roots. We only invalidate here, never resolve — a
+    # notification handler runs outside any request context, so there is no live
+    # request_context/session for the roots/list back-request; lazy re-resolution
+    # in call_tool keeps resolve_project_dir the single source of precedence
+    # (so a pinned GDA_PROJECT, read first there, still wins).
+    async def _on_roots_list_changed(_n: types.RootsListChangedNotification) -> None:
+        resolver.invalidate()
+
+    server.notification_handlers[types.RootsListChangedNotification] = (
+        _on_roots_list_changed
+    )
 
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:

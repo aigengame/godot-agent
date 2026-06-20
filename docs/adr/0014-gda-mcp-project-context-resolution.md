@@ -84,3 +84,10 @@ error, relayed unchanged.
   multi-project support that still keeps the project out of the tool surface. This
   *dynamic* re-resolution (not the static `roots/list` read) is the piece deferred
   until a concrete need appears, and is out of scope for the first delivery per PRD #8.
+
+> **Outcome (2026-06-20, #209):** the deferred dynamic re-resolution is now
+> implemented. gda-mcp registers a `roots/list_changed` notification handler that
+> invalidates its cached project, so the next tool call re-runs the precedence
+> above against the now-active roots; a pinned `GDA_PROJECT` still wins (env is read
+> first). The project stays out of the tool surface — no per-call parameter — so
+> ADR-0012 and ADR-0006 are untouched.
