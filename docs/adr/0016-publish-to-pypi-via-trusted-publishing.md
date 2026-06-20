@@ -42,17 +42,30 @@ release, via PyPI Trusted Publishing (OIDC) — no long-lived API token.**
   cannot mint a PyPI credential. The trust is further scoped to a named GitHub
   Environment (`pypi`) so only this job can request a publishable token.
 
-- **Ordering: `publish-pypi` before `publish-github-release`.** Un-drafting the
+- **Ordering, and a re-runnable recovery across the split.** Un-drafting the
   GitHub Release (in `publish-github-release`) is what creates the git tag, and
   ADR-0007's recovery model treats **the tag as the atomic "release succeeded"
   signal** — everything that must succeed runs before it, so a failure leaves a
   *tag-less draft* that the release-PR-maintenance gate flags ("needs recovery")
-  and "Re-run failed jobs" converges. Ordering PyPI publish as the job *before*
-  the un-draft keeps PyPI under that same guarantee: a PyPI failure skips
-  `publish-github-release`, so no tag is minted, and recovery is the existing,
-  documented re-run — no new failure mode, no new runbook. The tag-as-commit-point
-  ordering is a property of the job *sequence*, not of co-locating publish with
-  build — so isolating the publish costs nothing here.
+  and **"Re-run failed jobs"** converges. Ordering `publish-pypi` before the
+  un-draft keeps PyPI under that guarantee; the tag-as-commit-point property is a
+  function of the job *sequence*, not of co-locating publish with build.
+
+  Splitting one job into three does introduce a hazard the single job lacked:
+  GitHub's **"Re-run failed jobs"** reliably re-runs *failed* jobs and their
+  dependents, but whether it re-runs a job that was *skipped* because an upstream
+  failed is **undocumented** — and a naive split makes each downstream job skip
+  on upstream failure, so recovery could leave the un-draft stuck skipped and
+  never converge. To keep ADR-0007's contract independent of that grey area, each
+  downstream job (`publish-pypi`, `publish-github-release`) **runs on any
+  non-cancelled post-cut outcome** (`if: !cancelled() && release_created`) and a
+  first **guard step fails it explicitly** when its upstream did not succeed,
+  instead of skipping. Every post-cut job is therefore either *successful* or
+  *failed* (never skipped-because-upstream-failed), so "Re-run failed jobs"
+  re-runs the entire failed tail and drives through to tag creation once the
+  failure is repaired — exactly as the single job did. The guard on
+  `publish-github-release` doubles as a correctness check: it blocks the un-draft
+  (hence the tag) unless PyPI actually published.
 
 - **Idempotent, like the GitHub-Release upload.** PyPI files are **immutable**
   (a filename can never be re-uploaded), so the publish uses `skip-existing:
