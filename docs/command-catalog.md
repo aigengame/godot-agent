@@ -461,7 +461,7 @@ distributed by their real domain object (ADR-0019), not lumped into one "live" g
 - **`perf` / monitor:** performance monitors, property monitoring over N frames,
   signal watching.
 - **diagnostics:** runtime errors and output log of the running game.
-- **lifecycle (meta):** `gda daemon start` / `stop` / `status`, and `gda daemon
+- **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status`, and `gda daemon
   install` / `uninstall` for the `gda harness` (ADR-0018).
 
 Out of scope (editor context, ADR-0017): UndoRedo-aware mutation, the editor's

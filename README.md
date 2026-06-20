@@ -19,7 +19,7 @@ It is designed as three layers: **`gda`**, the agent-facing CLI that exposes God
 with structured `--json` output and self-describing schemas; **`gda-mcp`**, a thin
 [Model Context Protocol](https://modelcontextprotocol.io) server that turns those same
 capabilities into MCP tools, derived mechanically from `gda`'s schemas; and **`gda-daemon`**, a
-long-lived process holding a persistent connection to a running engine to serve *live operations*
+long-lived per-project process supervising transient *engine sessions* (a running game) to serve *live operations*
 that a one-shot headless process cannot. `gda` lands first as a standalone headless CLI (Phase 1);
 live operations follow through `gda-daemon` (Phase 2). See [Architecture](#architecture-at-a-glance)
 for the full picture.
@@ -113,7 +113,7 @@ The [command catalog](docs/command-catalog.md) maps the whole command surface (a
 | ------------- | -------------------------------------------------------------------------------------- | ----- |
 | **`gda`**     | The agent-facing Godot CLI — the bottom layer that exposes Godot with structured output | 1     |
 | **`gda-mcp`** | A thin MCP adapter that exposes `gda`'s capabilities as MCP tools, derived from `--schema` | 1+    |
-| **`gda-daemon`** | A long-lived process holding a persistent connection to a running engine for *live operations* | 2     |
+| **`gda-daemon`** | A long-lived per-project process supervising transient engine sessions (a running game) for *live operations* | 2     |
 
 - **Headless operations** need no pre-existing engine state and are fulfilled by a one-shot
   `godot --headless` process (e.g. report version, create a scene, export). This is the basis of
@@ -588,7 +588,7 @@ drives a real engine. Everything between the CLI and the runner runs as real cod
 | ----------------- | ------------------------------------------------------------------------- | ------ |
 | **Phase 1** | `gda` serving *headless operations* standalone: `info`, structured errors, `--schema`, and the domain command groups `scene`, `node`, `script`, `project` (incl. static-analysis), `resource`, `export`, `shader`, `theme`. | ✅ Surface complete |
 | **`gda-mcp`** | A thin MCP adapter generated mechanically from `--schema` — first on top of Phase 1, following `gda` forward automatically. | ✅ Shipped |
-| **Phase 2** | `gda` also serving *live operations* through `gda-daemon`'s persistent engine connection. | 🗓 Planned |
+| **Phase 2** | `gda` also serving *live operations* through `gda-daemon` and a live *engine session*. | 🗓 Planned |
 
 Track progress and proposals on the [issue tracker](https://github.com/aigengame/godot-agent/issues).
 
