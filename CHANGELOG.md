@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.26](https://github.com/aigengame/godot-agent/compare/v0.1.25...v0.1.26) (2026-06-20)
+
+
+### Features
+
+* **gda-mcp:** follow active project on roots/list_changed ([#209](https://github.com/aigengame/godot-agent/issues/209)) ([#217](https://github.com/aigengame/godot-agent/issues/217)) ([f5e3093](https://github.com/aigengame/godot-agent/commit/f5e3093f04c591736cafba213d716f4d25cecc54))
+
 ## [0.1.25](https://github.com/aigengame/godot-agent/compare/v0.1.24...v0.1.25) (2026-06-20)
 
 
