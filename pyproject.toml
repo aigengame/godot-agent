@@ -2,16 +2,33 @@
 name = "gda"
 version = "0.1.23"
 description = "An agent-facing Godot CLI with structured output"
+readme = "README.md"
 authors = [
     { name = "haihong.qin", email = "haihongqin@gmail.com" }
 ]
 license = "MIT"
 license-files = ["LICENSE"]
+keywords = ["godot", "cli", "agent", "mcp", "game-development"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Games/Entertainment",
+    "Topic :: Software Development :: Build Tools",
+]
 requires-python = ">=3.13"
 dependencies = [
     "pydantic>=2.13.4",
     "typer>=0.26.7",
 ]
+
+[project.urls]
+Homepage = "https://github.com/aigengame/godot-agent"
+Repository = "https://github.com/aigengame/godot-agent"
+Issues = "https://github.com/aigengame/godot-agent/issues"
+Changelog = "https://github.com/aigengame/godot-agent/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 # The MCP adapter (gda-mcp) ships inside this one distribution, gated behind an
