@@ -1,6 +1,6 @@
 # godot-agent (`gda`)
 
-![godot-agent title image](assets/godot-agent-title.png)
+![godot-agent title image](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)
 
 > An agent-first **CLI and MCP server** that lets AI agents drive the [Godot Engine](https://godotengine.org) to build games — with **structured output** built for programmatic consumption.
 
