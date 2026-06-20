@@ -15,24 +15,18 @@ a single per-user config (no project scope).
 
 `gda-mcp` is launched as a `command` + `args` stdio server. Two forms:
 
-- **Zero-install (recommended to try)** — run straight from the public repo with
+- **Zero-install (recommended to try)** — run it straight from PyPI with
   [`uv`](https://docs.astral.sh/uv/):
 
   ```
-  uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
+  uvx --from "gda[mcp]" gda-mcp
   ```
 
 - **Installed** — put the `gda-mcp` console script on your PATH:
 
   ```
-  uv tool install "gda[mcp] @ git+https://github.com/aigengame/godot-agent"
+  uv tool install "gda[mcp]"
   ```
-
-> **Note** — `gda` is not on PyPI yet (tracked by
-> [#207](https://github.com/aigengame/godot-agent/issues/207)). Until it is, the
-> zero-install form resolves the package from git as shown above. Once published, it
-> simplifies to the canonical `uvx --from "gda[mcp]" gda-mcp` /
-> `pip install "gda[mcp]"`.
 
 ### The server needs a Godot engine
 
@@ -103,7 +97,7 @@ than the launch workspace.
       "command": "uvx",
       "args": [
         "--from",
-        "gda[mcp] @ git+https://github.com/aigengame/godot-agent",
+        "gda[mcp]",
         "gda-mcp"
       ],
       "env": {}
@@ -120,7 +114,7 @@ Code provides `CLAUDE_PROJECT_DIR` in the server environment).
 
 ```bash
 claude mcp add --scope user gda-mcp -- \
-  uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
+  uvx --from "gda[mcp]" gda-mcp
 ```
 
 Everything after `--` is the launch command. `--scope user` makes the server available
@@ -153,7 +147,7 @@ explicitly** (an absolute path — Codex has no `${workspaceFolder}` substitutio
 ```toml
 [mcp_servers.gda-mcp]
 command = "uvx"
-args = ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gda-mcp"]
+args = ["--from", "gda[mcp]", "gda-mcp"]
 
 [mcp_servers.gda-mcp.env]
 GDA_PROJECT = "/absolute/path/to/your/godot/project"
@@ -164,7 +158,7 @@ GDA_PROJECT = "/absolute/path/to/your/godot/project"
 ```toml
 [mcp_servers.gda-mcp]
 command = "uvx"
-args = ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gda-mcp"]
+args = ["--from", "gda[mcp]", "gda-mcp"]
 # Pin the project; you can also set cwd = "..." for the server process.
 
 [mcp_servers.gda-mcp.env]
@@ -175,7 +169,7 @@ GDA_PROJECT = "/absolute/path/to/your/godot/project"
 
 ```bash
 codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/project -- \
-  uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
+  uvx --from "gda[mcp]" gda-mcp
 ```
 
 `--env KEY=VALUE` (repeatable) precedes `--`; everything after `--` is the launch
@@ -204,7 +198,7 @@ constraint above.
       "command": "/Users/you/.local/bin/uvx",
       "args": [
         "--from",
-        "gda[mcp] @ git+https://github.com/aigengame/godot-agent",
+        "gda[mcp]",
         "gda-mcp"
       ],
       "env": {
@@ -246,7 +240,7 @@ no `type` field. Claude Desktop is **GUI-launched** — use an **absolute path**
       "command": "/Users/you/.local/bin/uvx",
       "args": [
         "--from",
-        "gda[mcp] @ git+https://github.com/aigengame/godot-agent",
+        "gda[mcp]",
         "gda-mcp"
       ],
       "env": {
@@ -287,9 +281,8 @@ active workspace changes is tracked in
 
 ## Notes
 
-- **After PyPI ([#207](https://github.com/aigengame/godot-agent/issues/207))** every
-  `"gda[mcp] @ git+https://github.com/aigengame/godot-agent"` above simplifies to
-  `"gda[mcp]"`, and `uv tool install "gda[mcp]"` / `pip install "gda[mcp]"` work directly.
+- **`gda` is on [PyPI](https://pypi.org/project/gda/)**, so the `"gda[mcp]"` spec above
+  resolves directly — `uv tool install "gda[mcp]"` / `pip install "gda[mcp]"` work as shown.
 - **`GDA_BIN`** overrides which `gda` the adapter shells out to (default: the `gda` in
   the same install). An escape hatch for unusual layouts; see ADR-0013.
 - **Trust** — a `--project` op runs the target project's own code at engine startup

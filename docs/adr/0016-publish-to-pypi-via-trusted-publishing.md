@@ -4,6 +4,15 @@ status: accepted
 
 # Distribution: publish `gda` to PyPI via Trusted Publishing
 
+> **Outcome (realized in 0.1.24, 2026-06-20):** `gda` is now published on
+> [PyPI](https://pypi.org/project/gda/) and the install/registration docs are
+> reconciled to the canonical commands (#214). The Context, Decision, and
+> Consequences below are the **point-in-time decision record** from before the
+> first publish; their pre-publish framing (e.g. "not on PyPI today", "the name is
+> claimed only on the first publish") is kept as written rather than rewritten to
+> the current state — an ADR records the decision in its original context.
+> Acceptance-criteria verification lives on #207.
+
 [ADR-0013](0013-gda-mcp-packaging-and-launch.md) makes the canonical install and
 registration commands `pip install "gda[mcp]"` and `uvx --from "gda[mcp]" gda-mcp`.
 Neither works today: `gda` is not on PyPI (`pypi.org/pypi/gda` → 404). The
