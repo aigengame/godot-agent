@@ -53,9 +53,9 @@ for the full picture.
 > are settled (see [`CONTEXT.md`](CONTEXT.md) and [`docs/adr/`](docs/adr/)), and every headless
 > domain command group designed in
 > [PRD #17](https://github.com/aigengame/godot-agent/issues/17) now ships end-to-end against a real
-> engine. `gda` is still pre-1.0 and not yet published to a package index
-> ([#207](https://github.com/aigengame/godot-agent/issues/207)); **`gda-mcp` now ships** alongside
-> the CLI, and the next milestone is Phase 2 live operations.
+> engine. `gda` is pre-1.0 and published on
+> [PyPI](https://pypi.org/project/gda/); **`gda-mcp` now ships** alongside the
+> CLI, and the next milestone is Phase 2 live operations.
 
 **Working today — the full headless command surface**
 
@@ -135,7 +135,20 @@ in [`docs/adr/`](docs/adr/).
 
 ## Installation
 
-`gda` is not yet published to a package index; install it from source with `uv`.
+Install `gda` from PyPI as a standalone CLI on your `PATH`:
+
+```bash
+uv tool install gda      # or: pipx install gda
+gda --help
+```
+
+Or add it to a project / environment:
+
+```bash
+uv add gda               # or: pip install gda
+```
+
+**From source** (for development or unreleased changes):
 
 ```bash
 git clone https://github.com/aigengame/godot-agent.git
@@ -144,20 +157,13 @@ uv sync          # create the environment and install dependencies
 uv run gda --help
 ```
 
-To install `gda` as a standalone CLI on your `PATH`:
-
-```bash
-uv tool install .
-gda --help
-```
-
 ### MCP server (`gda-mcp`)
 
 `gda` ships a stdio [MCP](https://modelcontextprotocol.io) server behind an optional `[mcp]` extra,
 so any MCP-speaking agent can drive Godot through it. Try it with no install:
 
 ```bash
-uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
+uvx --from "gda[mcp]" gda-mcp
 ```
 
 Register it by dropping the matching config in place. `gda-mcp` picks your Godot project from
@@ -172,7 +178,7 @@ silently replaced.
   "mcpServers": {
     "gda-mcp": {
       "command": "uvx",
-      "args": ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gda-mcp"]
+      "args": ["--from", "gda[mcp]", "gda-mcp"]
     }
   }
 }
@@ -182,7 +188,7 @@ User scope (every project) — the CLI, which writes `~/.claude.json`:
 
 ```bash
 claude mcp add --scope user gda-mcp -- \
-  uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
+  uvx --from "gda[mcp]" gda-mcp
 ```
 
 **Codex** — project scope, `.codex/config.toml` at the repo root (the project must be trusted):
@@ -190,7 +196,7 @@ claude mcp add --scope user gda-mcp -- \
 ```toml
 [mcp_servers.gda-mcp]
 command = "uvx"
-args = ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gda-mcp"]
+args = ["--from", "gda[mcp]", "gda-mcp"]
 
 [mcp_servers.gda-mcp.env]
 GDA_PROJECT = "/absolute/path/to/your/godot/project"
@@ -201,7 +207,7 @@ User scope (every project) — the same table in `~/.codex/config.toml`, or add 
 
 ```bash
 codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- \
-  uvx --from "gda[mcp] @ git+https://github.com/aigengame/godot-agent" gda-mcp
+  uvx --from "gda[mcp]" gda-mcp
 ```
 
 **Cursor** — project scope, `.cursor/mcp.json` at the repo root (`${workspaceFolder}` tracks the open
@@ -213,7 +219,7 @@ project):
     "gda-mcp": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["--from", "gda[mcp] @ git+https://github.com/aigengame/godot-agent", "gda-mcp"],
+      "args": ["--from", "gda[mcp]", "gda-mcp"],
       "env": {
         "GDA_PROJECT": "${workspaceFolder}",
         "PATH": "/opt/homebrew/bin:/usr/local/bin:${userHome}/.local/bin:${env:PATH}"
@@ -231,9 +237,7 @@ absolute path (`${workspaceFolder}` is only reliable in the project-level file).
 > the Cursor snippet above repairs it in `env`; if `uvx` is still not found (or for Claude Desktop),
 > use an absolute path (`which uvx`) for `command`. Full recipes — user vs project scope, Claude
 > Desktop, and per-agent project pinning — are in the
-> [registration recipes](docs/gda-mcp-registration.md). Once `gda` is on PyPI
-> ([#207](https://github.com/aigengame/godot-agent/issues/207)), the `@ git+…` part drops to just
-> `"gda[mcp]"`.
+> [registration recipes](docs/gda-mcp-registration.md).
 
 ---
 
