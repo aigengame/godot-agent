@@ -114,3 +114,41 @@ def call_tool(server, name: str, arguments: dict, *, roots: Optional[list[str]] 
             return await session.call_tool(name, arguments)
 
     return anyio.run(_inner)
+
+
+def roots_changed_call(
+    server,
+    name: str,
+    arguments: dict,
+    *,
+    roots_before: list[str],
+    roots_after: list[str],
+):
+    """Drive #209 within ONE live session: call ``name``, switch the advertised
+    roots and fire ``roots/list_changed``, then call ``name`` again.
+
+    Returns ``(result1, result2)``. The client's ``list_roots_callback`` reads a
+    mutable holder, so the server's first resolve sees ``roots_before`` and the
+    post-notification re-resolve sees ``roots_after`` — exercising dynamic
+    re-resolution that the single-shot :func:`call_tool` (roots fixed at connect,
+    one call) structurally cannot.
+    """
+    from mcp.shared.memory import create_connected_server_and_client_session as connect
+    from mcp.types import ListRootsResult, Root
+
+    holder = {"roots": roots_before}
+
+    async def list_roots_callback(_context):
+        return ListRootsResult(
+            roots=[Root(uri=Path(r).as_uri()) for r in holder["roots"]]
+        )
+
+    async def _inner():
+        async with connect(server, list_roots_callback=list_roots_callback) as session:
+            r1 = await session.call_tool(name, arguments)
+            holder["roots"] = roots_after
+            await session.send_roots_list_changed()
+            r2 = await session.call_tool(name, arguments)
+            return r1, r2
+
+    return anyio.run(_inner)

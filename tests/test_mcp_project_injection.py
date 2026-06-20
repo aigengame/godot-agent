@@ -21,6 +21,7 @@ from tests.mcp_support import (
     call_tool,
     gda_result,
     list_tools,
+    roots_changed_call,
     schema_then,
 )
 from tests.support import SCENE_CREATE_RESULT
@@ -164,8 +165,8 @@ def test_project_is_snapshotted_on_first_call_then_cached(tmp_path, monkeypatch)
     # live session, so resolution is snapshotted on the FIRST tool call (not at
     # process startup) and then cached for the server's lifetime — one server :
     # one project. A later call advertising a different root reuses the first
-    # snapshot; re-resolving on a changed root is the deferred roots/list_changed
-    # path, out of scope for the first delivery.
+    # snapshot. (Re-resolution on a roots/list_changed notification — a different
+    # trigger — is exercised by the two tests below.)
     monkeypatch.delenv("GDA_PROJECT", raising=False)
     first = _project(tmp_path / "first")
     second = _project(tmp_path / "second")
@@ -187,6 +188,49 @@ def test_project_is_snapshotted_on_first_call_then_cached(tmp_path, monkeypatch)
 
     _args, _stdin, project = runner.calls[-1]
     assert project == first
+
+
+def test_roots_list_changed_reresolves_to_the_new_active_project(tmp_path, monkeypatch):
+    # #209: a client roots/list_changed means the active project may have moved.
+    # gda-mcp invalidates its cached project so the NEXT tool call re-runs the
+    # ADR-0014 precedence against the now-current roots.
+    monkeypatch.delenv("GDA_PROJECT", raising=False)
+    first = _project(tmp_path / "first")
+    second = _project(tmp_path / "second")
+    runner = _scene_create_runner()
+    server = build_server(runner)
+
+    roots_changed_call(
+        server,
+        "scene_create",
+        {"path": "res://a.tscn", "root_type": "Node2D"},
+        roots_before=[str(first)],
+        roots_after=[str(second)],
+    )
+
+    _args, _stdin, project = runner.calls[-1]
+    assert project == second
+
+
+def test_roots_list_changed_does_not_override_pinned_gda_project(tmp_path, monkeypatch):
+    # #209: an explicitly pinned GDA_PROJECT wins regardless of a roots change —
+    # resolve_project_dir reads env first, so re-resolution returns the pin.
+    pinned = _project(tmp_path / "pinned")
+    other = _project(tmp_path / "other")
+    monkeypatch.setenv("GDA_PROJECT", str(pinned))
+    runner = _scene_create_runner()
+    server = build_server(runner)
+
+    roots_changed_call(
+        server,
+        "scene_create",
+        {"path": "res://a.tscn", "root_type": "Node2D"},
+        roots_before=[str(pinned)],
+        roots_after=[str(other)],
+    )
+
+    _args, _stdin, project = runner.calls[-1]
+    assert project == pinned
 
 
 def test_no_roots_capability_degrades_to_no_project_without_error(
