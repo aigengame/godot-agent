@@ -4,6 +4,15 @@ status: accepted
 
 # Distribution: publish `gda` to PyPI via Trusted Publishing
 
+> **Outcome (realized in 0.1.24, 2026-06-20):** `gda` is now published on
+> [PyPI](https://pypi.org/project/gda/) and the install/registration docs are
+> reconciled to the canonical commands (#214). The Context, Decision, and
+> Consequences below are the **point-in-time decision record** from before the
+> first publish; their pre-publish framing (e.g. "not on PyPI today", "the name is
+> claimed only on the first publish") is kept as written rather than rewritten to
+> the current state — an ADR records the decision in its original context.
+> Acceptance-criteria verification lives on #207.
+
 [ADR-0013](0013-gda-mcp-packaging-and-launch.md) makes the canonical install and
 registration commands `pip install "gda[mcp]"` and `uvx --from "gda[mcp]" gda-mcp`.
 Neither works today: `gda` is not on PyPI (`pypi.org/pypi/gda` → 404). The
@@ -134,15 +143,12 @@ enables a dry run before the first real publish.
 
 - After the one-time setup and the next cut release, `pip install "gda[mcp]"`
   and `uvx --from "gda[mcp]" gda-mcp` work from a clean environment — the
-  ADR-0013 promise is fulfilled. **Realized in 0.1.24**, the first release
-  published through this pipeline: `gda` is now on PyPI, and a clean Python 3.13
-  `uv pip install "gda[mcp]"` resolves 0.1.24 with both the `gda` and `gda-mcp`
-  console scripts working.
-- **Follow-up, gated on the first successful publish — done:** the git-source
-  form is reconciled back to the canonical commands in the #195 registration
-  recipes (`docs/gda-mcp-registration.md`), `README.md`, and ADR-0013's prose.
-  This happened only *after* 0.1.24 published, so the docs never advertised a
-  command that 404s.
+  ADR-0013 promise is fulfilled.
+- **Follow-up, gated on the first successful publish:** reconcile the git-source
+  form back to the canonical form in the #195 registration recipes
+  (`docs/gda-mcp-registration.md`), `README.md`, and ADR-0013's prose. Done only
+  *after* a real PyPI release exists, so the docs never advertise a command that
+  404s.
 - The `pypi` GitHub Environment carries no protection rules, keeping the release
   fully automated; the human gate stays at the Release PR merge (ADR-0007).
   Adding required reviewers to the environment is an available hardening — it

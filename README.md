@@ -142,10 +142,10 @@ uv tool install gda      # or: pipx install gda
 gda --help
 ```
 
-Or add it to a project / environment:
+Or into an existing environment:
 
 ```bash
-uv add gda               # or: pip install gda
+pip install gda
 ```
 
 **From source** (for development or unreleased changes):

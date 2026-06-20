@@ -15,7 +15,7 @@ a single per-user config (no project scope).
 
 `gda-mcp` is launched as a `command` + `args` stdio server. Two forms:
 
-- **Zero-install (recommended to try)** — run straight from the public repo with
+- **Zero-install (recommended to try)** — run it straight from PyPI with
   [`uv`](https://docs.astral.sh/uv/):
 
   ```
