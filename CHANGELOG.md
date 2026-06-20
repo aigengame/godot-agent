@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.25](https://github.com/aigengame/godot-agent/compare/v0.1.24...v0.1.25) (2026-06-20)
+
+
+### Bug Fixes
+
+* **readme:** render the title image on PyPI via an absolute URL ([#215](https://github.com/aigengame/godot-agent/issues/215)) ([773e446](https://github.com/aigengame/godot-agent/commit/773e4461f1fee70dc9f7cd0b04066e65e651adee))
+
 ## [0.1.24](https://github.com/aigengame/godot-agent/compare/v0.1.23...v0.1.24) (2026-06-20)
 
 
