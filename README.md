@@ -83,8 +83,10 @@ for the full picture.
 
 **On the roadmap** (designed, not yet implemented)
 
-- 🔜 `gda-daemon` for *live operations* against a running engine (Phase 2): live scene tree,
-  runtime inspection, input simulation, `scene play`/`stop`, screenshots.
+- 🔜 `gda-daemon` for *live operations* against a **running game** (Phase 2): runtime scene
+  tree, runtime properties, input simulation, viewport capture, performance/signal monitoring —
+  via `gda daemon` lifecycle commands. Live commands are placed by domain object (a narrow `game`
+  group for the runtime scene graph); the editor context is out of scope. See ADR-0017–0020.
 
 **Out of scope for now**
 
@@ -116,8 +118,10 @@ The [command catalog](docs/command-catalog.md) maps the whole command surface (a
 - **Headless operations** need no pre-existing engine state and are fulfilled by a one-shot
   `godot --headless` process (e.g. report version, create a scene, export). This is the basis of
   **Phase 1**.
-- **Live operations** require an already-running engine (live scene tree, runtime inspection,
-  UndoRedo, input simulation) and are served by `gda-daemon` in **Phase 2**.
+- **Live operations** require an already-running game (runtime scene tree, runtime properties,
+  input simulation, viewport capture, performance/signal monitoring) and are served by
+  `gda-daemon` in **Phase 2**. The editor context (UndoRedo, the editor's open-scene tree) is
+  out of scope (ADR-0017).
 
 The vocabulary above is defined precisely in [`CONTEXT.md`](CONTEXT.md); the decisions behind it live
 in [`docs/adr/`](docs/adr/).

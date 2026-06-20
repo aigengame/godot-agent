@@ -53,7 +53,9 @@ reached by a **direct** daemon↔harness connection, not an editor→game relay.
 **4. A two-level lifecycle: a persistent daemon over transient engine sessions.**
 A persistent, per-project `gda-daemon` (supervisor + IPC broker) holds transient
 [engine sessions](../../CONTEXT.md). Lifecycle is **explicit**:
-`gda daemon start` / `stop` / `status` are [meta commands](../../CONTEXT.md), and a
+`gda daemon start` / `stop` / `status` form a **`daemon` command group** — named
+after gda's own daemon (an infrastructure object), a deliberate extension of
+ADR-0005's domain-object grouping, not a top-level meta singleton like `gda info` — and a
 live [domain command](../../CONTEXT.md) **attaches-or-fails** — with no running
 daemon it returns a typed `daemon_not_running` error whose message names the
 remediation, making the start *timing* self-revealing without upfront ceremony.
@@ -69,14 +71,16 @@ Inherently time-windowed live ops (frame capture, property/signal monitoring ove
 frames) are collected daemon/harness-side and returned as **one** result — no
 streaming enters the public contract.
 
-**6. Live failures are classifier-source codes.** New codes
-(`daemon_not_running`, `engine_disconnected`, `live_timeout`,
-`engine_session_not_running`, …) live in the `src/gda/error_codes.py` registry as
-classifier-source `GdaError`s (possibly under a new `ErrorCategory.LIVE`); the
-daemon IPC client surfaces typed launch/transport failures the way ADR-0010's
-native runner keys on a typed reason rather than overloaded exit codes. The
-agent-facing contract (typed models, `--json`, `--schema` gate, registered
-`GdaError.code`s) is identical to headless.
+**6. Live failures are classifier-source codes.** They are classifier-source
+`GdaError`s (possibly under a new `ErrorCategory.LIVE`); the daemon IPC client
+surfaces typed launch/transport failures the way ADR-0010's native runner keys on a
+typed reason rather than overloaded exit codes. The names used illustratively in this
+ADR (`daemon_not_running`, `engine_disconnected`, `live_timeout`,
+`engine_session_not_running`, …) are **candidate codes, not accepted ABI**: each is
+added to the `src/gda/error_codes.py` registry and the ADR-0002 table by the slice
+that implements it (ADR-0002), not by this ADR. The agent-facing contract (typed
+models, `--json`, `--schema` gate, registered `GdaError.code`s) is identical to
+headless.
 
 ## Considered options
 
@@ -99,7 +103,7 @@ agent-facing contract (typed models, `--json`, `--schema` gate, registered
 
 - New code is **contained**: a `kind` field on the command descriptor, one branch in
   the runner factory, a `DaemonRunner` IPC client, the daemon itself, the
-  `gda daemon` meta commands, the harness (ADR-0018), and a few error codes.
+  `gda daemon` lifecycle commands, the harness (ADR-0018), and a few error codes.
   Everything downstream of `runner.run()` is reused.
 - Per-call `gda` process-start latency is no longer amortised by a Godot spawn for
   live ops — accepted in ADR-0011 as a CLI/daemon-layer concern.
@@ -109,4 +113,4 @@ agent-facing contract (typed models, `--json`, `--schema` gate, registered
   virtual framebuffer on headless CI). Recorded as an environment constraint.
 - "State consistency" (#5) is now concretely scoped: the property of a per-project
   daemon holding one engine session across one-shot CLI calls and across multiple
-  clients — to be defined there.
+  clients — **defined in ADR-0020** (which closes #5).

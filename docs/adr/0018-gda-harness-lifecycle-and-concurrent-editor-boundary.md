@@ -32,9 +32,12 @@ true`), and **self-syncs** the harness to the running `gda` version. This is a
 
 **2. A runtime gate keeps the harness inert unless the daemon launched the session.**
 At startup the harness checks for the daemon's launch marker (in the args after
-`--`); absent it, it frees itself and opens **no** connection. So it is dormant in a
-human editor run, a plain `godot --path` run, and — crucially — a **shipped/exported
-build**. No uninstall is required for safety.
+`--`); absent it, it **returns early — starting no server and opening no connection —
+and stays resident**. It must *not* free itself: Godot autoloads must not be removed
+with `free()` / `queue_free()` at runtime (it crashes the engine), so a resident
+do-nothing autoload is the safe inert form. Thus it is dormant in a human editor run,
+a plain `godot --path` run, and — crucially — a **shipped/exported build**. No
+uninstall is required for safety (only for build hygiene, point 3).
 
 **3. `gda daemon uninstall` removes the autoload entry and the harness files
 together.** A release-hygiene step for teams that require dev tooling to be
@@ -78,6 +81,8 @@ external editor's writes out of scope, with two cheap safeguards:
 - ADR-0009's trust boundary gains a second axis: from "trusted project" to also
   "**single driver**". New glossary terms: `gda harness`, `engine session`
   (ADR-0017), `concurrent external editor`.
-- New classifier-source error code `file_changed_externally`.
+- `file_changed_externally` is a **candidate** classifier-source code — registered in
+  the `src/gda/error_codes.py` registry and the ADR-0002 table by the slice that
+  implements it, not by this ADR.
 - `.godot/` import-cache races between a concurrent editor and an engine session
   remain possible but are recoverable (md5-keyed reimport); not defended, documented.

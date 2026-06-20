@@ -146,9 +146,10 @@ _Avoid_: v2
 ### Command surface
 
 **Command group**:
-A top-level grouping of `gda` commands named after a Godot domain object
-(`scene`, `node`, `script`, `project`, `resource`, `export`, the running-game
-`game`, …). Invoked as `gda <group> <command>`. Live operations are placed under
+A top-level grouping of `gda` commands named after an object the user acts on —
+usually a Godot domain object (`scene`, `node`, `script`, `project`, `resource`,
+`export`, the running-game `game`, …), plus gda's own `daemon` lifecycle group
+(ADR-0017). Invoked as `gda <group> <command>`. Live operations are placed under
 their real domain-object group too — marked live by their `kind`, not by a separate
 group (ADR-0019).
 _Avoid_: namespace, category, module

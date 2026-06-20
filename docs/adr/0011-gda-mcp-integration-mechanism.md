@@ -65,6 +65,10 @@ Phase 2 automatically" literally true:
   per-phase work to cover live operations — it is a client of the daemon only
   transitively, through the CLI.
 
+> Refined by ADR-0017 / ADR-0020: the gda-daemon design referenced below as
+> "still-parked (#5, #7)" is now decided — ADR-0017 fixes its live-execution mechanism
+> and ADR-0020 defines the "state consistency" (#5) this ADR anticipates.
+
 ## Considered options
 
 - **In-process import (rejected).** gda-mcp imports `gda` and calls its

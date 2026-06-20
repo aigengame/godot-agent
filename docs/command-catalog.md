@@ -27,8 +27,9 @@ when they only touch a scene/resource *file*. `gda` classifies by CONTEXT.md ins
   (ADR-0019). **Mechanism decided (ADR-0017–0020); catalogue delivered incrementally.**
 
 This catalog does **not** carry a per-command status column — that would duplicate, and
-drift from, the issue tracker. For the live backlog (what is committed, in flight, and
-done) open the **Phase 1 — headless operations** milestone. Inline references to issues
+drift from, the issue tracker. For the **headless** backlog open the **Phase 1 —
+headless operations** milestone; for the **live** backlog open the **Phase 2 — live
+operations** milestone. Inline references to issues
 in the prose below (e.g. "established by #53") cite the slice that defined a behavior;
 they are provenance, not status markers.
 

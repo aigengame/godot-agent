@@ -21,6 +21,11 @@ rather than a Godot domain object — are exempt from grouping and sit at the to
 `gda info`, `gda version`, `gda help`. This is the usual CLI pattern (`git --version`,
 `docker info`). Everything that acts on a Godot domain object is grouped.
 
+> Extended by ADR-0017: gda's own **`daemon`** lifecycle (`gda daemon start` / `stop` /
+> `status` / `install` / `uninstall`) is a command group named after a gda-infrastructure
+> object — neither a Godot domain object nor a top-level meta singleton — a deliberate
+> extension of this taxonomy for the daemon's surface.
+
 This enables:
 
 - **Zero learning cost** for anyone who knows Godot — a group name *is* an engine
