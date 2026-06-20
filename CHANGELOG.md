@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.24](https://github.com/aigengame/godot-agent/compare/v0.1.23...v0.1.24) (2026-06-20)
+
+
+### Features
+
+* **packaging:** render README on PyPI and add project metadata ([#212](https://github.com/aigengame/godot-agent/issues/212)) ([3dfc2ff](https://github.com/aigengame/godot-agent/commit/3dfc2ff18c08be2378a24a5e8df93228af1d5fd7))
+
 ## [0.1.23](https://github.com/aigengame/godot-agent/compare/v0.1.22...v0.1.23) (2026-06-19)
 
 
