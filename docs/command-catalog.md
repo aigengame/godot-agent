@@ -24,7 +24,7 @@ when they only touch a scene/resource *file*. `gda` classifies by CONTEXT.md ins
   capture, performance/signal monitoring). Served by `gda-daemon` against a **running
   game**, not an attached editor; the editor context is out of scope (ADR-0017). Live
   commands are placed by their real domain object, not in a single "live" group
-  (ADR-0019). **Mechanism decided (ADR-0017–0020); catalogue delivered incrementally.**
+  (ADR-0019). **Mechanism decided (ADR-0017–0021); catalogue delivered incrementally.**
 
 This catalog does **not** carry a per-command status column — that would duplicate, and
 drift from, the issue tracker. For the **headless** backlog open the **Phase 1 —
