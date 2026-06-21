@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.27](https://github.com/aigengame/godot-agent/compare/v0.1.26...v0.1.27) (2026-06-21)
+
+
+### Features
+
+* gda-daemon bootstrap — Phase-2 live operations end-to-end ([#7](https://github.com/aigengame/godot-agent/issues/7)) ([#229](https://github.com/aigengame/godot-agent/issues/229)) ([578f39c](https://github.com/aigengame/godot-agent/commit/578f39c909290333f92d49658b5c0380325eb351))
+
 ## [0.1.26](https://github.com/aigengame/godot-agent/compare/v0.1.25...v0.1.26) (2026-06-20)
 
 
