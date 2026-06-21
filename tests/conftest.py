@@ -27,6 +27,11 @@ needs its own ``project.godot`` must build it through this helper (passing its
 extra sections via ``extra``) so the logging stays disabled.
 """
 
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
 import pytest
 
 from gda.binary import GODOT_BIN_ENV, resolve_godot_binary
@@ -89,3 +94,28 @@ def godot_project(tmp_path):
     """A temp Godot project dir: ``project.godot`` scaffolded, cleanup owned by pytest."""
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     return tmp_path
+
+
+@pytest.fixture
+def daemon_runtime_dir(monkeypatch):
+    """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket (#7).
+
+    A Unix-domain-socket path is bounded by the OS ``sun_path`` limit — **104
+    bytes on macOS**, 108 on Linux. pytest's macOS ``tmp_path`` lives under a long
+    ``/private/var/folders/...`` prefix, so the daemon's
+    ``<runtime>/gda/<hash>.cli.sock`` overflows the limit and ``bind()`` fails (the
+    daemon then never becomes ready and ``start`` times out). Any test that starts
+    a **real** daemon must therefore point ``XDG_RUNTIME_DIR`` at a SHORT directory
+    — ``/tmp`` is short and POSIX-present — NOT ``tmp_path``. This fixture yields
+    that dir (and cleans it up); the daemon's discovery (``gda.daemon.discovery``)
+    reads ``XDG_RUNTIME_DIR`` and the spawned daemon inherits it.
+
+    Tests that only *derive* socket paths, or that expect NO daemon (so never
+    ``bind()``), can keep using ``tmp_path``; only a real bind needs this. UNIX
+    only (the whole live stack is — ADR-0021), so use it under an ``os.name ==
+    'posix'`` guard.
+    """
+    runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", runtime)
+    yield Path(runtime)
+    shutil.rmtree(runtime, ignore_errors=True)

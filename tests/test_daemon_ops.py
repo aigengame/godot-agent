@@ -8,9 +8,6 @@ focus is the socket/pidfile lifecycle and idempotent start. The full session loo
 """
 
 import os
-import shutil
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -27,18 +24,10 @@ pytestmark = [
     pytest.mark.e2e,  # start resolves a real Godot binary
 ]
 
-# A 4.6 engine so the live-version gate passes without running the engine.
+# A 4.6 engine so the live-version gate passes without running the engine. The
+# short-runtime-dir requirement (UDS sun_path limit) is the shared
+# ``daemon_runtime_dir`` fixture in conftest.
 _OK_VERSION = lambda binary: (4, 6)  # noqa: E731
-
-
-@pytest.fixture
-def short_runtime(monkeypatch):
-    # A real UDS path must fit the OS ``sun_path`` limit (~104B); pytest's macOS
-    # tmp_path is already too long, so point XDG_RUNTIME_DIR at a short /tmp dir.
-    runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
-    monkeypatch.setenv("XDG_RUNTIME_DIR", runtime)
-    yield Path(runtime)
-    shutil.rmtree(runtime, ignore_errors=True)
 
 
 def _project(tmp_path):
@@ -46,7 +35,7 @@ def _project(tmp_path):
     return tmp_path
 
 
-def test_daemon_start_status_stop_lifecycle(tmp_path, short_runtime):
+def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
     project = _project(tmp_path)
     paths = daemon_paths(project)
 
@@ -76,7 +65,7 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, short_runtime):
     assert not paths.cli_socket.exists()
 
 
-def test_live_version_gate_rejects_below_4_6(tmp_path, short_runtime):
+def test_live_version_gate_rejects_below_4_6(tmp_path, daemon_runtime_dir):
     from gda.errors import Failure
 
     project = _project(tmp_path)
@@ -88,7 +77,7 @@ def test_live_version_gate_rejects_below_4_6(tmp_path, short_runtime):
     assert daemon_pid(daemon_paths(project)) is None  # nothing spawned
 
 
-def test_daemon_status_and_stop_when_not_running(tmp_path, short_runtime):
+def test_daemon_status_and_stop_when_not_running(tmp_path, daemon_runtime_dir):
     project = _project(tmp_path)
 
     status = run_daemon_status_operation(project)

@@ -4,14 +4,14 @@ The Step-6 proof: a real ``gda daemon start`` (real detached daemon, real harnes
 install, live-version gate) → a real engine session it launches on demand →
 ``gda game tree`` returns the RUNNING game's runtime scene tree, observed live via
 the harness over Unix domain sockets → ``gda daemon stop`` tears it down. Run e2e
-serially; not a fresh empty HOME (Godot first-run).
+serially; not a fresh empty HOME (Godot first-run). The ``daemon_runtime_dir``
+fixture keeps the daemon's UDS path within the OS ``sun_path`` limit.
 """
 
 import json
 import os
 import shutil
 import subprocess
-import tempfile
 
 import pytest
 
@@ -30,15 +30,15 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"
 
 
 @pytest.mark.e2e
-def test_daemon_serves_a_real_runtime_tree(tmp_path):
+def test_daemon_serves_a_real_runtime_tree(tmp_path, daemon_runtime_dir):
     gda = shutil.which("gda")
     assert gda, "the `gda` console script is not on PATH"
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
 
-    # A SHORT runtime dir so the daemon's UDS paths fit sun_path (~104B).
-    runtime = tempfile.mkdtemp(prefix="gda-e2e-", dir="/tmp")
-    env = {**os.environ, "XDG_RUNTIME_DIR": runtime}
+    # XDG_RUNTIME_DIR is set short by the daemon_runtime_dir fixture; the spawned
+    # daemon inherits it through the subprocess environment.
+    env = {**os.environ}
 
     def run(*args):
         return subprocess.run(
@@ -67,4 +67,3 @@ def test_daemon_serves_a_real_runtime_tree(tmp_path):
         assert json.loads(run("daemon", "status").stdout)["running"] is False
     finally:
         run("daemon", "stop")
-        shutil.rmtree(runtime, ignore_errors=True)
