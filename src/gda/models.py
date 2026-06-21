@@ -2380,3 +2380,53 @@ class GameTreeResult(BaseModel):
     """The result of ``gda game tree``: the running game's runtime scene tree."""
 
     root: GameNode
+
+
+class DaemonStartParams(BaseModel):
+    """The params of ``gda daemon start``: none (the project is the --project context)."""
+
+
+class DaemonStartResult(BaseModel):
+    """The result of ``gda daemon start``: the live context it brought up (ADR-0017)."""
+
+    pid: int = Field(description="The gda-daemon process id.")
+    socket_path: str = Field(
+        description="The per-project CLI socket the daemon listens on."
+    )
+    installed_harness: bool = Field(
+        description="Whether this start installed or updated the harness autoload (ADR-0018)."
+    )
+    already_running: bool = Field(
+        description="Whether a daemon was already running, so start was a no-op."
+    )
+
+
+class DaemonStopParams(BaseModel):
+    """The params of ``gda daemon stop``: none."""
+
+
+class DaemonStopResult(BaseModel):
+    """The result of ``gda daemon stop``: whether a running daemon was torn down."""
+
+    stopped: bool = Field(
+        description="Whether a running daemon was stopped (False if none was running)."
+    )
+    pid: int | None = Field(
+        default=None, description="The stopped daemon's pid, if one was running."
+    )
+
+
+class DaemonStatusParams(BaseModel):
+    """The params of ``gda daemon status``: none."""
+
+
+class DaemonStatusResult(BaseModel):
+    """The result of ``gda daemon status``: whether a per-project daemon is up."""
+
+    running: bool = Field(
+        description="Whether a gda-daemon is running for the project."
+    )
+    pid: int | None = Field(
+        default=None, description="The running daemon's pid, if any."
+    )
+    socket_path: str = Field(description="The per-project CLI socket path.")

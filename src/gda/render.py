@@ -22,6 +22,9 @@ import json
 from typing import Any, Protocol, runtime_checkable
 
 from gda.models import (
+    DaemonStartResult,
+    DaemonStatusResult,
+    DaemonStopResult,
     EngineVersion,
     ExportGetResult,
     ExportListResult,
@@ -145,6 +148,27 @@ def render_game_tree(game: "GameTreeResult") -> str:
     runtime tree flows through the same indented outline as the on-disk scene.
     """
     return render_node_tree(game.root)
+
+
+def render_daemon_start(started: "DaemonStartResult") -> str:
+    """Render a `gda daemon start` outcome for humans."""
+    state = "already running" if started.already_running else "started"
+    harness = " (installed harness)" if started.installed_harness else ""
+    return f"daemon {state}: pid {started.pid} on {started.socket_path}{harness}"
+
+
+def render_daemon_stop(stopped: "DaemonStopResult") -> str:
+    """Render a `gda daemon stop` outcome for humans."""
+    if stopped.stopped:
+        return f"daemon stopped (pid {stopped.pid})"
+    return "no daemon was running"
+
+
+def render_daemon_status(status: "DaemonStatusResult") -> str:
+    """Render a `gda daemon status` outcome for humans."""
+    if status.running:
+        return f"daemon running: pid {status.pid} on {status.socket_path}"
+    return "daemon not running"
 
 
 def render_scene_exports(scene: "SceneGetExportsResult") -> str:
@@ -528,6 +552,9 @@ _RENDERERS = {
     SceneCreateResult: render_scene_metadata,
     SceneGetResult: render_scene_tree,
     GameTreeResult: render_game_tree,
+    DaemonStartResult: render_daemon_start,
+    DaemonStopResult: render_daemon_stop,
+    DaemonStatusResult: render_daemon_status,
     SceneGetExportsResult: render_scene_exports,
     SceneListResult: render_scene_list,
     SceneDeleteResult: render_scene_delete,

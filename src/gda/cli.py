@@ -14,6 +14,11 @@ from typing import Optional
 import typer
 from pydantic import BaseModel
 
+from gda.daemon_ops import (
+    run_daemon_start_operation,
+    run_daemon_status_operation,
+    run_daemon_stop_operation,
+)
 from gda.errors import (
     Failure,
     classify_game_tree,
@@ -43,6 +48,12 @@ from gda.headless import (
 )
 from gda.live_runner import make_daemon_runner
 from gda.models import (
+    DaemonStartParams,
+    DaemonStartResult,
+    DaemonStatusParams,
+    DaemonStatusResult,
+    DaemonStopParams,
+    DaemonStopResult,
     EngineVersion,
     ExportGetParams,
     ExportListParams,
@@ -223,6 +234,14 @@ app.add_typer(theme_app, name="theme")
 game_app = typer.Typer(help="Act on the running game (live).", no_args_is_help=True)
 app.add_typer(game_app, name="game")
 
+# The daemon command group (Phase 2, ADR-0017): gda's own per-project daemon
+# lifecycle — a deliberate extension of ADR-0005's domain-object grouping to an
+# infrastructure object (gda-daemon), not a top-level meta singleton. start /
+# stop / status manage the daemon PROCESS, so — like `export run` — they run a
+# recipe (gda.daemon_ops) rather than the sentinel pipeline.
+daemon_app = typer.Typer(help="Manage the per-project gda-daemon.", no_args_is_help=True)
+app.add_typer(daemon_app, name="daemon")
+
 
 def _version_callback(value: Optional[bool]) -> None:
     if value:
@@ -390,6 +409,14 @@ def _run_params_json(
             emit_failure(outcome)
         emit_result(outcome, json_output)
         return
+    if cmd in _DAEMON_COMMANDS:
+        # daemon lifecycle commands run their process recipe (gda.daemon_ops),
+        # not the sentinel pipeline; route --params-json to the SAME recipe the
+        # argv body uses (their params are empty, so nothing else is needed).
+        _daemon_dispatch(
+            cmd, json_output=json_output, godot=godot, project=options.get("project")
+        )
+        return
     if "project" in options:
         _dispatch(
             cmd,
@@ -443,6 +470,101 @@ def game_tree(
         json_output=json_output,
         godot=godot,
         project=project,
+    )
+
+
+DAEMON_START_COMMAND: HeadlessCommand[DaemonStartResult] = HeadlessCommand(
+    operation="daemon-start",
+    input_model=DaemonStartParams,
+    output_model=DaemonStartResult,
+)
+
+DAEMON_STOP_COMMAND: HeadlessCommand[DaemonStopResult] = HeadlessCommand(
+    operation="daemon-stop",
+    input_model=DaemonStopParams,
+    output_model=DaemonStopResult,
+)
+
+DAEMON_STATUS_COMMAND: HeadlessCommand[DaemonStatusResult] = HeadlessCommand(
+    operation="daemon-status",
+    input_model=DaemonStatusParams,
+    output_model=DaemonStatusResult,
+)
+
+# The daemon lifecycle commands run a process-management recipe (gda.daemon_ops),
+# not the sentinel pipeline — the same shape as `export run`. They carry no Godot
+# execution channel, so they are routed by command identity, shared by the argv
+# bodies and the --params-json path so both forms drive the SAME recipe.
+_DAEMON_COMMANDS = frozenset(
+    {DAEMON_START_COMMAND, DAEMON_STOP_COMMAND, DAEMON_STATUS_COMMAND}
+)
+
+
+def _daemon_dispatch(
+    cmd: HeadlessCommand[M],
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    project: Optional[str],
+) -> None:
+    """Run a ``daemon`` lifecycle command through its process-management recipe."""
+    resolved = resolve_project_dir(project)
+    if cmd is DAEMON_START_COMMAND:
+        outcome = run_daemon_start_operation(resolved, godot)
+    elif cmd is DAEMON_STOP_COMMAND:
+        outcome = run_daemon_stop_operation(resolved)
+    else:
+        outcome = run_daemon_status_operation(resolved)
+    if isinstance(outcome, Failure):
+        emit_failure(outcome)
+    emit_result(outcome, json_output)
+
+
+@daemon_app.command(name="start", cls=DAEMON_START_COMMAND.command_class())
+def daemon_start(
+    json_output: bool = json_option(),
+    schema: bool = DAEMON_START_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Start the per-project gda-daemon (idempotent), installing the harness.
+
+    Brings up the live context: a long-lived, per-project daemon, after a reported
+    idempotent harness install (ADR-0018). Never auto-spawned by a live call —
+    launching the engine is a deliberate, declared effect (ADR-0017). Live is
+    UNIX-only and needs Godot 4.6+ (ADR-0021).
+    """
+    _daemon_dispatch(
+        DAEMON_START_COMMAND, json_output=json_output, godot=godot, project=project
+    )
+
+
+@daemon_app.command(name="stop", cls=DAEMON_STOP_COMMAND.command_class())
+def daemon_stop(
+    json_output: bool = json_option(),
+    schema: bool = DAEMON_STOP_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Stop the per-project gda-daemon (a no-op if none is running)."""
+    _daemon_dispatch(
+        DAEMON_STOP_COMMAND, json_output=json_output, godot=godot, project=project
+    )
+
+
+@daemon_app.command(name="status", cls=DAEMON_STATUS_COMMAND.command_class())
+def daemon_status(
+    json_output: bool = json_option(),
+    schema: bool = DAEMON_STATUS_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Report whether a per-project gda-daemon is running."""
+    _daemon_dispatch(
+        DAEMON_STATUS_COMMAND, json_output=json_output, godot=godot, project=project
     )
 
 SCENE_CREATE_COMMAND: HeadlessCommand[SceneCreateResult] = HeadlessCommand(

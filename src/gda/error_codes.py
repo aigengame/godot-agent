@@ -433,6 +433,18 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A live operation did not return from the engine session before the"
         " daemon's timeout.",
     ),
+    # A pre-launch platform precondition, not a live-runtime failure: live needs
+    # Unix domain sockets, which are UNIX-only, so it is an ENVIRONMENT-category
+    # code in the binary_not_found bucket (ADR-0021), decided before any engine
+    # launch and classifier-source (no operation reports it).
+    ErrorCodeSpec(
+        "live_unsupported_platform",
+        ErrorCategory.ENVIRONMENT,
+        EXIT_NOT_FOUND,
+        ErrorCodeSource.CLASSIFIER,
+        "Live operations require a UNIX platform (macOS/Linux); they use Unix"
+        " domain sockets, which are unavailable here.",
+    ),
 )
 
 ERROR_CODE_BY_CODE: dict[str, ErrorCodeSpec] = {spec.code: spec for spec in ERROR_CODES}

@@ -136,6 +136,7 @@ operation, and parse codes the CLI assigns).
 | `engine_session_not_running` | `live` | `classifier` | `6` | The daemon is running but holds no live engine session to serve the live operation (Phase 2). |
 | `engine_disconnected` | `live` | `classifier` | `6` | The engine session disconnected before the live operation returned — the game crashed or the harness connection dropped (Phase 2). |
 | `live_timeout` | `live` | `classifier` | `6` | A live operation did not return from the engine session before the daemon's timeout (Phase 2). |
+| `live_unsupported_platform` | `environment` | `classifier` | `127` | Live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, unavailable here. Phase-1 headless is unaffected (Phase 2, ADR-0021). |
 
 ## Considered options
 
