@@ -24,7 +24,7 @@ when they only touch a scene/resource *file*. `gda` classifies by CONTEXT.md ins
   capture, performance/signal monitoring). Served by `gda-daemon` against a **running
   game**, not an attached editor; the editor context is out of scope (ADR-0017). Live
   commands are placed by their real domain object, not in a single "live" group
-  (ADR-0019). **Mechanism decided (ADR-0017–0020); catalogue delivered incrementally.**
+  (ADR-0019). **Mechanism decided (ADR-0017–0021); catalogue delivered incrementally.**
 
 This catalog does **not** carry a per-command status column — that would duplicate, and
 drift from, the issue tracker. For the **headless** backlog open the **Phase 1 —
@@ -449,8 +449,11 @@ These create or edit resource files (`.gdshader`, `.tres`) and so are headless.
 Listed coarsely; enumerated as slices when Phase 2 (PRD #6) is worked. All require a
 running `Engine session` and so cannot be a one-shot headless call. Mechanism is fixed
 by ADR-0017 (execution), ADR-0018 (harness), ADR-0019 (placement), ADR-0020
-(consistency); scope is the **running game**, not an attached editor. Live ops are
-distributed by their real domain object (ADR-0019), not lumped into one "live" group.
+(consistency), and ADR-0021 (transport / discovery); scope is the **running game**, not
+an attached editor. Live ops are distributed by their real domain object (ADR-0019), not
+lumped into one "live" group. Because the daemon↔harness transport is a Unix domain
+socket (ADR-0021), **Phase-2 live requires Godot 4.6+ and is macOS/Linux only**; Phase-1
+headless is unaffected (4.4+, cross-platform).
 
 - **`game` (the running game's scene graph):** live `get` of the runtime scene tree;
   runtime node property `get`/`set`. The on-disk counterparts stay under `scene` /
