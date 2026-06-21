@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from gda.exit_codes import (
+    EXIT_LIVE,
     EXIT_NOT_FOUND,
     EXIT_OPERATION,
     EXIT_PARSE,
@@ -395,6 +396,42 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.CLASSIFIER,
         "The engine emitted a valid result tree that nests past gda's recursion"
         " limit; the payload is contract-conformant, the limit is wrapper-side.",
+    ),
+    # Phase-2 live execution channel (ADR-0017, ADR-0021). Classifier-source —
+    # surfaced by the daemon IPC client / the daemon, never by a headless
+    # operation — so they are NOT GDScript-mirrored. They share the EXIT_LIVE
+    # exit; the code tells the failure modes apart.
+    ErrorCodeSpec(
+        "daemon_not_running",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live command found no running gda-daemon for the project; start one"
+        " with `gda daemon start`.",
+    ),
+    ErrorCodeSpec(
+        "engine_session_not_running",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "The daemon is running but holds no live engine session to serve the"
+        " live operation.",
+    ),
+    ErrorCodeSpec(
+        "engine_disconnected",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "The engine session disconnected before the live operation returned"
+        " (the game crashed or the harness connection dropped).",
+    ),
+    ErrorCodeSpec(
+        "live_timeout",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live operation did not return from the engine session before the"
+        " daemon's timeout.",
     ),
 )
 

@@ -132,6 +132,10 @@ operation, and parse codes the CLI assigns).
 | `invalid_target` | `operation` | `operation` | `4` | A project find-references target is empty or not a valid `res://` path or `class_name`. |
 | `contract_violation` | `parse` | `parser` | `5` | The process claimed success but violated the structured-output contract. |
 | `tree_too_deep` | `parse` | `classifier` | `5` | The engine emitted a valid result tree that nests past gda's recursion limit; the payload is contract-conformant, the limit is wrapper-side (shares the `parse` exit code; the `code` distinguishes it from `contract_violation`). |
+| `daemon_not_running` | `live` | `classifier` | `6` | A live command found no running gda-daemon for the project; start one with `gda daemon start` (Phase 2, ADR-0017 / ADR-0021). |
+| `engine_session_not_running` | `live` | `classifier` | `6` | The daemon is running but holds no live engine session to serve the live operation (Phase 2). |
+| `engine_disconnected` | `live` | `classifier` | `6` | The engine session disconnected before the live operation returned — the game crashed or the harness connection dropped (Phase 2). |
+| `live_timeout` | `live` | `classifier` | `6` | A live operation did not return from the engine session before the daemon's timeout (Phase 2). |
 
 ## Considered options
 

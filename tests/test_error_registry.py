@@ -12,6 +12,18 @@ from gda.error_codes import (
     ErrorCodeSource,
 )
 from gda.errors import _failure
+from gda.exit_codes import EXIT_LIVE
+from gda.models import ErrorCategory
+
+# The live execution channel's failure codes (ADR-0017 / ADR-0021). Registered
+# here as the first Phase-2 slice's error contract; emitted by the daemon IPC
+# client and the daemon as the live capability lands.
+LIVE_ERROR_CODES = (
+    "daemon_not_running",
+    "engine_session_not_running",
+    "engine_disconnected",
+    "live_timeout",
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 ADR_0002 = ROOT / "docs" / "adr" / "0002-headless-structured-output-contract.md"
@@ -80,3 +92,16 @@ def test_gdscript_fail_calls_do_not_use_literal_error_codes():
     gdscript = OPERATIONS_GD.read_text(encoding="utf-8")
 
     assert not BARE_FAIL_CODE.search(gdscript)
+
+
+def test_live_failures_are_registered_classifier_live_codes():
+    # A live operation's failure is a classifier-source LIVE code (ADR-0017 /
+    # ADR-0021): the new LIVE category, the shared EXIT_LIVE exit, and — because
+    # no headless operation reports it — NOT GDScript-mirrored (the mirror subset
+    # below stays the operation-source set, so the drift test is unaffected).
+    for code in LIVE_ERROR_CODES:
+        spec = ERROR_CODE_BY_CODE[code]
+        assert spec.category is ErrorCategory.LIVE
+        assert spec.source is ErrorCodeSource.CLASSIFIER
+        assert spec.exit_code == EXIT_LIVE
+        assert spec.code not in OPERATION_ERROR_CODES

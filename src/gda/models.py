@@ -20,7 +20,7 @@ from pydantic import (
 
 
 class ErrorCategory(str, Enum):
-    """The four coarse buckets a ``gda`` operation can fail into (issue #3).
+    """The coarse buckets a ``gda`` operation can fail into (issue #3).
 
     This is the coarse axis; each category fans out to one or more finer,
     stable ``GdaError.code`` values (e.g. ENVIRONMENT → ``binary_not_found`` /
@@ -33,12 +33,16 @@ class ErrorCategory(str, Enum):
     launched engine that failed to deliver a result (the operation reported an
     error, or the engine crashed). PARSE is a violation of the structured-output
     contract (ADR-0002): a missing/malformed sentinel or a wrong-shape payload.
+    LIVE is a Phase-2 live operation failing against ``gda-daemon`` / the engine
+    session — no running daemon, a lost session, or a live timeout (ADR-0017,
+    ADR-0021).
     """
 
     ENVIRONMENT = "environment"
     VERSION = "version"
     OPERATION = "operation"
     PARSE = "parse"
+    LIVE = "live"
 
 
 class GdaError(BaseModel):
