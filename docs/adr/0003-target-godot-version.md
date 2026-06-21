@@ -4,6 +4,13 @@ status: accepted
 
 # Target Godot version: 4.x, minimum 4.4, tested against 4.6
 
+> **Amended by [ADR-0021](0021-gda-daemon-transport-discovery-and-live-version-floor.md)
+> (2026-06-21, #7) for the live layer:** Phase-2 [live operations](../../CONTEXT.md)
+> require **Godot ≥ 4.6**, because the daemon↔harness transport is a Unix domain socket
+> and `StreamPeerUDS` landed in 4.6-stable. The minimum stated below **stands unchanged
+> for the Phase-1 headless layer (4.4)** — headless uses neither the daemon nor UDS. UDS
+> is also UNIX-only, so live is macOS/Linux only; headless stays cross-platform.
+
 GDScript APIs, `--headless` behaviour, and `Engine.get_version_info()` fields all
 vary across Godot versions, and the 3.x and 4.x lines are effectively two different
 engines. `gda` must declare which versions it supports so that e2e tests can assert
