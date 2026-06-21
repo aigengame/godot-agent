@@ -20,7 +20,7 @@ from pydantic import (
 
 
 class ErrorCategory(str, Enum):
-    """The four coarse buckets a ``gda`` operation can fail into (issue #3).
+    """The coarse buckets a ``gda`` operation can fail into (issue #3).
 
     This is the coarse axis; each category fans out to one or more finer,
     stable ``GdaError.code`` values (e.g. ENVIRONMENT → ``binary_not_found`` /
@@ -33,12 +33,16 @@ class ErrorCategory(str, Enum):
     launched engine that failed to deliver a result (the operation reported an
     error, or the engine crashed). PARSE is a violation of the structured-output
     contract (ADR-0002): a missing/malformed sentinel or a wrong-shape payload.
+    LIVE is a Phase-2 live operation failing against ``gda-daemon`` / the engine
+    session — no running daemon, a lost session, or a live timeout (ADR-0017,
+    ADR-0021).
     """
 
     ENVIRONMENT = "environment"
     VERSION = "version"
     OPERATION = "operation"
     PARSE = "parse"
+    LIVE = "live"
 
 
 class GdaError(BaseModel):
@@ -2347,3 +2351,82 @@ class ProjectRemoveAutoloadResult(BaseModel):
     """
 
     name: str = Field(description="The unregistered autoload's global name.")
+
+
+class GameNode(BaseModel):
+    """One node of the RUNNING game's runtime scene tree (Phase 2, ADR-0019).
+
+    The runtime counterpart of :class:`SceneNode`: ``gda game tree`` reports the
+    live ``SceneTree`` after ``_ready`` and dynamic instantiation, so it carries
+    the runtime node ``path`` alongside ``name``/``type``/``children``. Distinct
+    from the on-disk ``.tscn`` read by ``scene get`` (a different object, ADR-0019).
+    """
+
+    name: str
+    type: str
+    path: str
+    children: list["GameNode"] = []
+
+
+class GameTreeParams(BaseModel):
+    """The params of ``gda game tree``: read the running game's runtime scene tree.
+
+    Empty — it reads the whole runtime tree of the engine session held by
+    ``gda-daemon`` (a subtree root may be added by a later slice).
+    """
+
+
+class GameTreeResult(BaseModel):
+    """The result of ``gda game tree``: the running game's runtime scene tree."""
+
+    root: GameNode
+
+
+class DaemonStartParams(BaseModel):
+    """The params of ``gda daemon start``: none (the project is the --project context)."""
+
+
+class DaemonStartResult(BaseModel):
+    """The result of ``gda daemon start``: the live context it brought up (ADR-0017)."""
+
+    pid: int = Field(description="The gda-daemon process id.")
+    socket_path: str = Field(
+        description="The per-project CLI socket the daemon listens on."
+    )
+    installed_harness: bool = Field(
+        description="Whether this start installed or updated the harness autoload (ADR-0018)."
+    )
+    already_running: bool = Field(
+        description="Whether a daemon was already running, so start was a no-op."
+    )
+
+
+class DaemonStopParams(BaseModel):
+    """The params of ``gda daemon stop``: none."""
+
+
+class DaemonStopResult(BaseModel):
+    """The result of ``gda daemon stop``: whether a running daemon was torn down."""
+
+    stopped: bool = Field(
+        description="Whether a running daemon was stopped (False if none was running)."
+    )
+    pid: int | None = Field(
+        default=None, description="The stopped daemon's pid, if one was running."
+    )
+
+
+class DaemonStatusParams(BaseModel):
+    """The params of ``gda daemon status``: none."""
+
+
+class DaemonStatusResult(BaseModel):
+    """The result of ``gda daemon status``: whether a per-project daemon is up."""
+
+    running: bool = Field(
+        description="Whether a gda-daemon is running for the project."
+    )
+    pid: int | None = Field(
+        default=None, description="The running daemon's pid, if any."
+    )
+    socket_path: str = Field(description="The per-project CLI socket path.")

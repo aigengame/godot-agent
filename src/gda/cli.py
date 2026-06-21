@@ -14,11 +14,18 @@ from typing import Optional
 import typer
 from pydantic import BaseModel
 
+from gda.daemon_ops import (
+    run_daemon_start_operation,
+    run_daemon_status_operation,
+    run_daemon_stop_operation,
+)
 from gda.errors import (
     Failure,
+    classify_game_tree,
     classify_info,
     classify_script_validate,
 )
+from gda.execution import ExecutionKind
 from gda.export_run import (
     EXPORT_GET_COMMAND,
     EXPORT_RUN_COMMAND,
@@ -39,12 +46,21 @@ from gda.headless import (
     schema_command_class,
     schema_option,
 )
+from gda.live_runner import make_daemon_runner
 from gda.models import (
+    DaemonStartParams,
+    DaemonStartResult,
+    DaemonStatusParams,
+    DaemonStatusResult,
+    DaemonStopParams,
+    DaemonStopResult,
     EngineVersion,
     ExportGetParams,
     ExportListParams,
     ExportListResult,
     ExportRunMode,
+    GameTreeParams,
+    GameTreeResult,
     InfoParams,
     ProjectDependenciesParams,
     ProjectDependenciesResult,
@@ -210,6 +226,28 @@ theme_app = typer.Typer(
 )
 app.add_typer(theme_app, name="theme")
 
+# The game command group (Phase 2, ADR-0019): the RUNNING game's runtime scene
+# graph, served LIVE through gda-daemon (`kind = LIVE`). `game tree` reads the
+# runtime SceneTree after _ready; the on-disk counterparts stay under `scene` /
+# `node`. It is a domain-object group named after the running game, not a phase
+# group — the headless/live split is carried by `kind`, never by the tree.
+game_app = typer.Typer(
+    help="Act on the running game (live; macOS/Linux only, needs `gda daemon start`).",
+    no_args_is_help=True,
+)
+app.add_typer(game_app, name="game")
+
+# The daemon command group (Phase 2, ADR-0017): gda's own per-project daemon
+# lifecycle — a deliberate extension of ADR-0005's domain-object grouping to an
+# infrastructure object (gda-daemon), not a top-level meta singleton. start /
+# stop / status manage the daemon PROCESS, so — like `export run` — they run a
+# recipe (gda.daemon_ops) rather than the sentinel pipeline.
+daemon_app = typer.Typer(
+    help="Manage the per-project gda-daemon (live ops; macOS/Linux only, Godot 4.6+).",
+    no_args_is_help=True,
+)
+app.add_typer(daemon_app, name="daemon")
+
 
 def _version_callback(value: Optional[bool]) -> None:
     if value:
@@ -251,6 +289,17 @@ def _make_export_runner(binary: Path, project: Optional[Path]) -> ExportRunner:
     return make_subprocess_export_runner(binary, project)
 
 
+def _make_live_runner(binary: Optional[Path], project: Optional[Path]) -> GodotRunner:
+    """Build the LIVE runner — the per-project gda-daemon IPC client (ADR-0017).
+
+    The ``kind = LIVE`` twin of :func:`_make_runner`, a seam tests override to
+    inject a fake daemon runner. ``binary`` is unused: a live op reaches the
+    running daemon, not a fresh engine, so the daemon (not the CLI) owns the
+    engine session.
+    """
+    return make_daemon_runner(project)
+
+
 def _emit(
     cmd: HeadlessCommand[M],
     params: BaseModel,
@@ -261,18 +310,23 @@ def _emit(
 ) -> None:
     """Drive ``cmd.emit`` with the shared CLI execution tail.
 
-    The sole reference to the runner seam ``_make_runner`` — held here, at call
-    time, so the test monkeypatch on ``gda.cli._make_runner`` still binds rather
-    than being frozen as a def-time default. Both the domain dispatch
+    Selects the runner seam by the command's execution channel ``kind`` (ADR-0017):
+    a ``LIVE`` command goes through :func:`_make_live_runner` (the daemon IPC
+    client), every other through :func:`_make_runner`. Both seams are referenced
+    here at call time, so a test monkeypatch on ``gda.cli._make_runner`` /
+    ``gda.cli._make_live_runner`` still binds. Both the domain dispatch
     (:func:`_dispatch`) and the meta dispatch (:func:`_dispatch_meta`) funnel
     through here; they differ only in how ``project`` is obtained.
     """
+    make_runner = (
+        _make_live_runner if cmd.kind is ExecutionKind.LIVE else _make_runner
+    )
     cmd.emit(
         params,
         godot=godot,
         project=project,
         json_output=json_output,
-        make_runner=_make_runner,
+        make_runner=make_runner,
     )
 
 
@@ -341,9 +395,10 @@ def _run_params_json(
     options = ctx.params
     json_output = bool(options.get("json_output", False))
     godot = options.get("godot")
-    if cmd is EXPORT_RUN_COMMAND:
+    if cmd.kind is ExecutionKind.EXPORT:
         # export run is the native-export recipe (#187), not the sentinel
-        # pipeline, so it cannot go through cmd.emit. Mirror its body so
+        # pipeline, so it cannot go through cmd.emit. Selected by its static
+        # execution channel (ADR-0017), not command identity. Mirror its body so
         # --params-json drives the SAME run_export_operation path as the argv
         # form. params.output is already normalized (ExportRunParams.output is a
         # NormalizedPath), so no extra normalization is needed here.
@@ -359,6 +414,14 @@ def _run_params_json(
         if isinstance(outcome, Failure):
             emit_failure(outcome)
         emit_result(outcome, json_output)
+        return
+    if cmd in _DAEMON_COMMANDS:
+        # daemon lifecycle commands run their process recipe (gda.daemon_ops),
+        # not the sentinel pipeline; route --params-json to the SAME recipe the
+        # argv body uses (their params are empty, so nothing else is needed).
+        _daemon_dispatch(
+            cmd, json_output=json_output, godot=godot, project=options.get("project")
+        )
         return
     if "project" in options:
         _dispatch(
@@ -381,6 +444,143 @@ INFO_COMMAND: HeadlessCommand[EngineVersion] = HeadlessCommand(
     output_model=EngineVersion,
     classify=classify_info,
 )
+
+GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(
+    operation="game-tree",
+    input_model=GameTreeParams,
+    output_model=GameTreeResult,
+    classify=classify_game_tree,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@game_app.command(name="tree", cls=GAME_TREE_COMMAND.command_class())
+def game_tree(
+    json_output: bool = json_option(),
+    schema: bool = GAME_TREE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read the running game's runtime scene tree (live).
+
+    Routes through gda-daemon to the engine session it holds (kind = LIVE,
+    ADR-0017): the runtime SceneTree after _ready and dynamic instantiation,
+    distinct from the on-disk .tscn read by `scene get` (ADR-0019). Live ops are
+    macOS/Linux only (Unix domain sockets) and need a running daemon: with none,
+    it reports the typed `daemon_not_running` error naming the remediation
+    (`gda daemon start`); on a non-UNIX platform, `live_unsupported_platform`.
+    """
+    _dispatch(
+        GAME_TREE_COMMAND,
+        GameTreeParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+DAEMON_START_COMMAND: HeadlessCommand[DaemonStartResult] = HeadlessCommand(
+    operation="daemon-start",
+    input_model=DaemonStartParams,
+    output_model=DaemonStartResult,
+)
+
+DAEMON_STOP_COMMAND: HeadlessCommand[DaemonStopResult] = HeadlessCommand(
+    operation="daemon-stop",
+    input_model=DaemonStopParams,
+    output_model=DaemonStopResult,
+)
+
+DAEMON_STATUS_COMMAND: HeadlessCommand[DaemonStatusResult] = HeadlessCommand(
+    operation="daemon-status",
+    input_model=DaemonStatusParams,
+    output_model=DaemonStatusResult,
+)
+
+# The daemon lifecycle commands run a process-management recipe (gda.daemon_ops),
+# not the sentinel pipeline — the same shape as `export run`. They carry no Godot
+# execution channel, so they are routed by command identity, shared by the argv
+# bodies and the --params-json path so both forms drive the SAME recipe.
+_DAEMON_COMMANDS = frozenset(
+    {DAEMON_START_COMMAND, DAEMON_STOP_COMMAND, DAEMON_STATUS_COMMAND}
+)
+
+
+def _daemon_dispatch(
+    cmd: HeadlessCommand[M],
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    project: Optional[str],
+) -> None:
+    """Run a ``daemon`` lifecycle command through its process-management recipe."""
+    resolved = resolve_project_dir(project)
+    if cmd is DAEMON_START_COMMAND:
+        outcome = run_daemon_start_operation(resolved, godot)
+    elif cmd is DAEMON_STOP_COMMAND:
+        outcome = run_daemon_stop_operation(resolved)
+    else:
+        outcome = run_daemon_status_operation(resolved)
+    if isinstance(outcome, Failure):
+        emit_failure(outcome)
+    emit_result(outcome, json_output)
+
+
+@daemon_app.command(name="start", cls=DAEMON_START_COMMAND.command_class())
+def daemon_start(
+    json_output: bool = json_option(),
+    schema: bool = DAEMON_START_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Start the per-project gda-daemon (idempotent), installing the harness.
+
+    Brings up the live context: a long-lived, per-project daemon, after a reported
+    idempotent harness install (ADR-0018). Never auto-spawned by a live call —
+    launching the engine is a deliberate, declared effect (ADR-0017). Live is
+    UNIX-only and needs Godot 4.6+ (ADR-0021).
+    """
+    _daemon_dispatch(
+        DAEMON_START_COMMAND, json_output=json_output, godot=godot, project=project
+    )
+
+
+@daemon_app.command(name="stop", cls=DAEMON_STOP_COMMAND.command_class())
+def daemon_stop(
+    json_output: bool = json_option(),
+    schema: bool = DAEMON_STOP_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Stop the per-project gda-daemon (a no-op if none is running).
+
+    Live operations are macOS/Linux only (Unix domain sockets); on a non-UNIX
+    platform this reports `live_unsupported_platform`.
+    """
+    _daemon_dispatch(
+        DAEMON_STOP_COMMAND, json_output=json_output, godot=godot, project=project
+    )
+
+
+@daemon_app.command(name="status", cls=DAEMON_STATUS_COMMAND.command_class())
+def daemon_status(
+    json_output: bool = json_option(),
+    schema: bool = DAEMON_STATUS_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Report whether a per-project gda-daemon is running.
+
+    Live operations are macOS/Linux only (Unix domain sockets); on a non-UNIX
+    platform this reports `live_unsupported_platform`.
+    """
+    _daemon_dispatch(
+        DAEMON_STATUS_COMMAND, json_output=json_output, godot=godot, project=project
+    )
 
 SCENE_CREATE_COMMAND: HeadlessCommand[SceneCreateResult] = HeadlessCommand(
     operation="scene-create",

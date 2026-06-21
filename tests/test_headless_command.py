@@ -6,10 +6,23 @@ from pathlib import Path
 import pytest
 import typer
 
+from gda.execution import ExecutionKind
 from gda.headless import HeadlessCommand
 from gda.models import EngineVersion, InfoParams
 from gda.runner import LaunchFailure, RunResult
 from tests.support import VERSION_INFO, FakeRunner, sentinel
+
+
+def test_headless_command_classifies_its_execution_channel_as_headless_by_default():
+    # A command carries a static execution-channel `kind` (ADR-0017); a plain
+    # sentinel-pipeline command is HEADLESS without having to say so.
+    command: HeadlessCommand[EngineVersion] = HeadlessCommand(
+        operation="info",
+        input_model=InfoParams,
+        output_model=EngineVersion,
+    )
+
+    assert command.kind is ExecutionKind.HEADLESS
 
 
 def test_headless_command_emit_owns_runner_classification_and_json_output(capsys):

@@ -455,9 +455,9 @@ lumped into one "live" group. Because the daemon↔harness transport is a Unix d
 socket (ADR-0021), **Phase-2 live requires Godot 4.6+ and is macOS/Linux only**; Phase-1
 headless is unaffected (4.4+, cross-platform).
 
-- **`game` (the running game's scene graph):** live `get` of the runtime scene tree;
-  runtime node property `get`/`set`. The on-disk counterparts stay under `scene` /
-  `node` (ADR-0019).
+- **`game` (the running game's scene graph):** `game tree` reads the runtime scene
+  tree (shipped — the Phase-2 bootstrap tracer, #7); runtime node property `get`/`set`
+  (#220). The on-disk counterparts stay under `scene` / `node` (ADR-0019).
 - **`input` (input simulation):** key / mouse / action / sequence injection into the
   running game; record / replay.
 - **`screen` / capture:** running-game viewport screenshot, multi-frame capture.

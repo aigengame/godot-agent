@@ -18,6 +18,11 @@ glance and new codes cannot silently collide.
   envelope ``code`` distinguishes them, exactly as the many ``operation`` codes
   share exit ``4``. Exit codes stay at category granularity; finer detail is the
   ``code`` field's job (ADR-0002, ADR-0004).
+- ``EXIT_LIVE`` (exit ``6``) is the Phase-2 ``live`` category: a live operation
+  failed against ``gda-daemon`` / the engine session — no running daemon, a lost
+  session, or a live timeout (ADR-0017, ADR-0021). Like ``operation`` and
+  ``parse`` it spans several ``GdaError.code``s that the ``code`` field tells
+  apart.
 """
 
 EXIT_NOT_FOUND = 127
@@ -25,3 +30,4 @@ EXIT_TIMEOUT = 124
 EXIT_VERSION = 3
 EXIT_OPERATION = 4
 EXIT_PARSE = 5
+EXIT_LIVE = 6

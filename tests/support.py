@@ -73,6 +73,18 @@ def inject_runner(monkeypatch, result: RunResult) -> FakeRunner:
     return fake
 
 
+def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
+    """Swap the CLI's LIVE (daemon) runner seam for a ``FakeRunner`` (#7).
+
+    The ``kind = LIVE`` twin of :func:`inject_runner`: live commands route through
+    ``gda.cli._make_live_runner`` (the daemon IPC client), so a fake injected here
+    exercises the full Typer→classify_live→JSON pipeline without a real daemon.
+    """
+    fake = FakeRunner(result)
+    monkeypatch.setattr("gda.cli._make_live_runner", lambda binary, project=None: fake)
+    return fake
+
+
 # A sample ``gda info`` result, shaped as ``Engine.get_version_info()`` reports
 # it. Shared by the info success/schema tests so the canned engine version has a
 # single source of truth (issue #39).
@@ -357,4 +369,22 @@ THEME_CREATE_RESULT = {
     "path": "/tmp/proj/ui.tres",
     "type": "Theme",
     "created_dirs": [],
+}
+
+# A sample ``gda game tree`` result — the running game's runtime scene tree
+# (ADR-0019). Shared by the game-command success/schema tests.
+GAME_TREE_RESULT = {
+    "root": {
+        "name": "Main",
+        "type": "Node2D",
+        "path": "/root/Main",
+        "children": [
+            {
+                "name": "Player",
+                "type": "CharacterBody2D",
+                "path": "/root/Main/Player",
+                "children": [],
+            }
+        ],
+    }
 }

@@ -83,12 +83,14 @@ for the full picture.
 
 **On the roadmap** (designed, not yet implemented)
 
-- 🔜 `gda-daemon` for *live operations* against a **running game** (Phase 2): runtime scene
-  tree, runtime properties, input simulation, viewport capture, performance/signal monitoring —
-  via `gda daemon` lifecycle commands. Live commands are placed by domain object (a narrow `game`
-  group for the runtime scene graph); the editor context is out of scope. Phase-2 live needs
-  **Godot 4.6+** and is **macOS/Linux only** (it uses Unix domain sockets); Phase-1 headless is
-  unaffected — still 4.4+ and cross-platform. See ADR-0017–0021.
+- 🚧 `gda-daemon` for *live operations* against a **running game** (Phase 2). The **bootstrap
+  has shipped**: `gda daemon start` / `stop` / `status` and the first live op, `gda game tree`
+  (the running game's runtime scene tree), through the daemon. The broader live catalogue —
+  runtime properties, input simulation, viewport capture, performance/signal monitoring — is in
+  progress. Live commands are placed by domain object (a narrow `game` group for the runtime
+  scene graph); the editor context is out of scope. Phase-2 live needs **Godot 4.6+** and is
+  **macOS/Linux only** (it uses Unix domain sockets); Phase-1 headless is unaffected — still
+  4.4+ and cross-platform. See ADR-0017–0021.
 
 **Out of scope for now**
 
@@ -590,7 +592,7 @@ drives a real engine. Everything between the CLI and the runner runs as real cod
 | ----------------- | ------------------------------------------------------------------------- | ------ |
 | **Phase 1** | `gda` serving *headless operations* standalone: `info`, structured errors, `--schema`, and the domain command groups `scene`, `node`, `script`, `project` (incl. static-analysis), `resource`, `export`, `shader`, `theme`. | ✅ Surface complete |
 | **`gda-mcp`** | A thin MCP adapter generated mechanically from `--schema` — first on top of Phase 1, following `gda` forward automatically. | ✅ Shipped |
-| **Phase 2** | `gda` also serving *live operations* through `gda-daemon` and a live *engine session* (requires Godot 4.6+, macOS/Linux only; headless stays 4.4+ and cross-platform — ADR-0021). | 🗓 Planned |
+| **Phase 2** | `gda` also serving *live operations* through `gda-daemon` and a live *engine session* (requires Godot 4.6+, macOS/Linux only; headless stays 4.4+ and cross-platform — ADR-0021). | 🚧 Bootstrap shipped (`gda daemon` + `gda game tree`); live catalogue in progress |
 
 Track progress and proposals on the [issue tracker](https://github.com/aigengame/godot-agent/issues).
 

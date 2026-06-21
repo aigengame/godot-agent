@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from gda.exit_codes import (
+    EXIT_LIVE,
     EXIT_NOT_FOUND,
     EXIT_OPERATION,
     EXIT_PARSE,
@@ -396,10 +397,65 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "The engine emitted a valid result tree that nests past gda's recursion"
         " limit; the payload is contract-conformant, the limit is wrapper-side.",
     ),
+    # Phase-2 live execution channel (ADR-0017, ADR-0021). Classifier-source —
+    # surfaced by the daemon IPC client / the daemon, never by a headless
+    # operation — so they are NOT GDScript-mirrored. They share the EXIT_LIVE
+    # exit; the code tells the failure modes apart.
+    ErrorCodeSpec(
+        "daemon_not_running",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live command found no running gda-daemon for the project; start one"
+        " with `gda daemon start`.",
+    ),
+    ErrorCodeSpec(
+        "engine_session_not_running",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "The daemon is running but holds no live engine session to serve the"
+        " live operation.",
+    ),
+    ErrorCodeSpec(
+        "engine_disconnected",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "The engine session disconnected before the live operation returned"
+        " (the game crashed or the harness connection dropped).",
+    ),
+    ErrorCodeSpec(
+        "live_timeout",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live operation did not return from the engine session before the"
+        " daemon's timeout.",
+    ),
+    # A pre-launch platform precondition, not a live-runtime failure: live needs
+    # Unix domain sockets, which are UNIX-only, so it is an ENVIRONMENT-category
+    # code in the binary_not_found bucket (ADR-0021), decided before any engine
+    # launch and classifier-source (no operation reports it).
+    ErrorCodeSpec(
+        "live_unsupported_platform",
+        ErrorCategory.ENVIRONMENT,
+        EXIT_NOT_FOUND,
+        ErrorCodeSource.CLASSIFIER,
+        "Live operations require a UNIX platform (macOS/Linux); they use Unix"
+        " domain sockets, which are unavailable here.",
+    ),
 )
 
 ERROR_CODE_BY_CODE: dict[str, ErrorCodeSpec] = {spec.code: spec for spec in ERROR_CODES}
 
 OPERATION_ERROR_CODES: frozenset[str] = frozenset(
     spec.code for spec in ERROR_CODES if spec.source is ErrorCodeSource.OPERATION
+)
+
+# The Phase-2 live failure codes (ADR-0017, ADR-0021). Surfaced from a sentinel
+# error envelope by the daemon IPC client / the daemon and mapped to the
+# registered code by ``classify_live`` — the live analogue of OPERATION_ERROR_CODES.
+LIVE_ERROR_CODES: frozenset[str] = frozenset(
+    spec.code for spec in ERROR_CODES if spec.category is ErrorCategory.LIVE
 )

@@ -42,6 +42,7 @@ from gda.errors import (
     export_path_unset_failure,
     export_templates_missing_failure,
 )
+from gda.execution import ExecutionKind
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.headless import HeadlessCommand, RunnerFactory, make_subprocess_runner
 from gda.models import (
@@ -75,6 +76,7 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
     operation="export-run",
     input_model=ExportRunParams,
     output_model=ExportRunResult,
+    kind=ExecutionKind.EXPORT,
 )
 
 
