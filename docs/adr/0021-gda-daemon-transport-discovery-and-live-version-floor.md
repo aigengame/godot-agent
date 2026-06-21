@@ -27,13 +27,36 @@ it is *told* a path.
 
 **2. Discovery is per-project and deterministic.** The CLI and the lifecycle commands
 locate the daemon by deriving the socket and **pidfile** paths from the **resolved
-project root** (gda's existing `GDA_PROJECT → … → cwd` precedence, ADR-0006), under a
-short per-user runtime directory. Liveness is the pidfile (a held advisory lock = alive;
-a grabbable lock + present socket = stale, to be reclaimed). `gda daemon status` and a
-live command's **attach-or-fail** check (ADR-0017) both key on *socket present +
-pidfile alive*. The paths must stay **short**: a UDS path is bounded by the OS
-`sun_path` limit (104 bytes on macOS, 108 on Linux), so the runtime directory is a
-short `~/.gda`-style location, never the long macOS `$TMPDIR`.
+project root** (gda's existing `GDA_PROJECT → … → cwd` precedence, ADR-0006). To make
+`daemon start`, `daemon status`, and a live command's attach all agree on the **same
+daemon identity** regardless of how the project was referenced, the derivation is fixed
+as a contract (the exact hash function is an implementation choice, the contract is not):
+
+- **Canonicalize first.** The resolved project root is reduced to its canonical absolute
+  path (symlinks resolved) before derivation, so two references to one project derive one
+  identity and two different projects never collide.
+- **Names are a stable hash of that canonical path.** Same canonical path → same socket
+  and pidfile names; different paths → different names. The **pidfile records the
+  canonical project path**, so a hash collision or a reused runtime slot is detectable:
+  `status` / attach treat a pidfile whose recorded path ≠ the caller's resolved path as
+  **foreign** (not this project's daemon), never as a hit.
+- **Private, short runtime directory.** The socket and pidfile live in a per-user,
+  owner-only (`0700`) runtime directory — `$XDG_RUNTIME_DIR` when set (Linux), else a
+  `~/.gda/run`-style location — created with `0700` and the socket owner-only. This is
+  what makes "no localhost surface" *also* "no other-user surface": the socket is never
+  in a world-reachable directory. The directory must be **short**: a UDS path is bounded
+  by the OS `sun_path` limit (104 bytes on macOS, 108 on Linux), never the long macOS
+  `$TMPDIR`.
+- **No resolved project is an error, not a global daemon.** The daemon is per-project by
+  definition; when ADR-0006 resolves no project, `daemon start` / `status` and any live
+  command return the structured project-resolution error (a project is required) rather
+  than falling back to a default/global daemon.
+
+Liveness is the pidfile (a held advisory lock = alive; a grabbable lock + present socket
+= **stale**). `daemon start` reclaims a stale slot (unlink the socket, relaunch);
+`daemon status` reports *not running* for a stale or foreign pidfile; a live command's
+attach treats either as `daemon_not_running`. `gda daemon status` and the attach-or-fail
+check (ADR-0017) both key on *socket present + pidfile alive + recorded path matches*.
 
 **3. The wire format reuses the ADR-0002 sentinel result shape.** A live op's payload
 crosses both legs as the **same** `<<<GDA:RESULT>>>…<<<GDA:END>>>` sentinel a headless
@@ -88,10 +111,12 @@ capability with no installed 4.4/4.5 live users to preserve.
     is UNIX-only today, rather than surfacing a raw socket error. `--help` / `--schema`
     for the `daemon` group and live commands state the UNIX-only constraint.
     The platform check precedes the version check (it needs no engine launch).
-  - **Future Windows support is the rejected TCP option, not a redesign.** When
-    warranted, Windows live runs the localhost-TCP daemon↔harness variant above (and a
-    named-pipe or TCP CLI↔daemon leg); it is a future ADR + slice, would **not** raise
-    the headless floor, and does not block this slice.
+  - **Future Windows support is out of scope here, left to its own ADR.** A *candidate*
+    path — should it be pursued — is the localhost-TCP daemon↔harness variant above (with
+    a named-pipe or TCP CLI↔daemon leg); that future ADR + slice evaluates the transport
+    on its own facts. It is named here only to show the cutoff is not a dead end; it is
+    **not** decided now, would **not** raise the headless floor, and does not block this
+    slice.
 - **Amends ADR-0003**: the live floor is 4.6; a pointer is added on ADR-0003. The
   headless floor is untouched.
 - **Implementation constraint**: socket/pidfile paths must respect the `sun_path`

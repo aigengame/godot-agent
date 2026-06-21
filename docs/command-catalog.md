@@ -449,8 +449,11 @@ These create or edit resource files (`.gdshader`, `.tres`) and so are headless.
 Listed coarsely; enumerated as slices when Phase 2 (PRD #6) is worked. All require a
 running `Engine session` and so cannot be a one-shot headless call. Mechanism is fixed
 by ADR-0017 (execution), ADR-0018 (harness), ADR-0019 (placement), ADR-0020
-(consistency); scope is the **running game**, not an attached editor. Live ops are
-distributed by their real domain object (ADR-0019), not lumped into one "live" group.
+(consistency), and ADR-0021 (transport / discovery); scope is the **running game**, not
+an attached editor. Live ops are distributed by their real domain object (ADR-0019), not
+lumped into one "live" group. Because the daemon↔harness transport is a Unix domain
+socket (ADR-0021), **Phase-2 live requires Godot 4.6+ and is macOS/Linux only**; Phase-1
+headless is unaffected (4.4+, cross-platform).
 
 - **`game` (the running game's scene graph):** live `get` of the runtime scene tree;
   runtime node property `get`/`set`. The on-disk counterparts stay under `scene` /

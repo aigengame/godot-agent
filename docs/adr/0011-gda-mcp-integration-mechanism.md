@@ -65,9 +65,10 @@ Phase 2 automatically" literally true:
   per-phase work to cover live operations — it is a client of the daemon only
   transitively, through the CLI.
 
-> Refined by ADR-0017 / ADR-0020: the gda-daemon design referenced below as
-> "still-parked (#5, #7)" is now decided — ADR-0017 fixes its live-execution mechanism
-> and ADR-0020 defines the "state consistency" (#5) this ADR anticipates.
+> Refined by ADR-0017 / ADR-0020 / ADR-0021: the gda-daemon design referenced below as
+> "still-parked (#5, #7)" is now decided — ADR-0017 fixes its live-execution mechanism,
+> ADR-0020 defines the "state consistency" (#5) this ADR anticipates, and ADR-0021
+> fixes the daemon transport / discovery (the remaining #7 item). #7 is no longer parked.
 
 ## Considered options
 

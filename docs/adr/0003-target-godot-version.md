@@ -41,6 +41,8 @@ making "version too old" a programmatically detectable failure.
 
 ## Consequences
 
-- e2e tests assume 4.6 locally; CI/other machines must provide a 4.4+ engine.
+- e2e tests assume 4.6 locally. **Headless** e2e need a **4.4+** engine; **Phase-2 live**
+  e2e need a **4.6+** engine (ADR-0021), so CI/other machines running the live suites must
+  provide 4.6+ — the headless suites still run on 4.4+.
 - 3.x is explicitly unsupported.
 - The minimum-version check depends on the `gda info` operation (issue #2) existing.
