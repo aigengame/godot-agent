@@ -13,6 +13,7 @@ land in the next slice; this recipe stands up the process lifecycle.
 """
 
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -20,10 +21,11 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
+from gda.binary import resolve_godot_binary
 from gda.daemon.discovery import DaemonPaths, daemon_paths, daemon_pid
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.server import STATUS_OP, STOP_OP
-from gda.errors import Failure, _failure
+from gda.errors import Failure, _failure, unresolvable_binary_failure
 from gda.harness.install import install_harness
 from gda.models import DaemonStartResult, DaemonStatusResult, DaemonStopResult
 
@@ -31,15 +33,35 @@ _READY_TIMEOUT = 8.0
 _STOP_TIMEOUT = 8.0
 _POLL = 0.05
 
-# A spawn seam tests override to avoid launching a real detached process.
-SpawnDaemon = Callable[[Path, Optional[str]], None]
+# Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).
+MIN_LIVE_VERSION = (4, 6)
+_VERSION_RE = re.compile(r"(\d+)\.(\d+)")
+
+# Seams tests override to avoid launching a real process / running the engine.
+SpawnDaemon = Callable[[Path, str], None]
+VersionCheck = Callable[[str], Optional[tuple]]
 
 
 def _is_unix() -> bool:
     return os.name == "posix"
 
 
-def _spawn_daemon(project: Path, godot: Optional[str]) -> None:
+def _engine_version(binary: str) -> Optional[tuple]:
+    """The running engine's (major, minor) via ``--version``, or None if unknown."""
+    try:
+        result = subprocess.run(
+            [str(binary), "--headless", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except OSError:
+        return None
+    match = _VERSION_RE.search(result.stdout + result.stderr)
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def _spawn_daemon(project: Path, binary: str) -> None:
     """Spawn the detached, per-project daemon (its own session, no std streams)."""
     subprocess.Popen(
         [
@@ -49,7 +71,7 @@ def _spawn_daemon(project: Path, godot: Optional[str]) -> None:
             "--project",
             str(project),
             "--godot",
-            str(godot or ""),
+            str(binary),
         ],
         start_new_session=True,
         stdin=subprocess.DEVNULL,
@@ -101,6 +123,7 @@ def run_daemon_start_operation(
     godot: Optional[str],
     *,
     spawn: Optional[SpawnDaemon] = None,
+    version_check: Optional[VersionCheck] = None,
 ) -> "DaemonStartResult | Failure":
     if not _is_unix():
         return _failure(
@@ -125,8 +148,26 @@ def run_daemon_start_operation(
             installed_harness=False,
             already_running=True,
         )
+
+    # The daemon needs the engine binary for its sessions; resolve it and gate the
+    # live version here (ADR-0021), so the floor is reported at start, not midway.
+    try:
+        binary = resolve_godot_binary(godot)
+    except ValueError as exc:
+        return unresolvable_binary_failure(str(exc))
+    version = (version_check or _engine_version)(str(binary))
+    if version is None or tuple(version) < MIN_LIVE_VERSION:
+        minimum = ".".join(str(part) for part in MIN_LIVE_VERSION)
+        found = ".".join(str(part) for part in version) if version else "unknown"
+        return _failure(
+            "unsupported_version",
+            f"live operations require Godot {minimum}+ (the daemon transport uses Unix "
+            f"domain sockets, added in {minimum}); the engine reports {found}",
+            "",
+        )
+
     installed = install_harness(project)
-    (spawn or _spawn_daemon)(project, godot)
+    (spawn or _spawn_daemon)(project, str(binary))
     pid = _await_ready(paths)
     if pid is None:
         return _failure(

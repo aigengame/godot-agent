@@ -1,30 +1,34 @@
 """gda-daemon process lifecycle (#7, ADR-0017): start / status / stop.
 
-Spawns the REAL detached daemon process (Python only — no engine) against a short
-runtime dir, so the socket/pidfile lifecycle, idempotent start, and the
-no-session live-op reply are exercised end-to-end without Godot.
+Spawns the REAL detached daemon process against a short runtime dir. ``start`` now
+resolves the engine binary and gates the live version, so this needs a Godot
+install (e2e), but the version check is injected so no engine actually runs — the
+focus is the socket/pidfile lifecycle and idempotent start. The full session loop
+(a real runtime tree) is the CLI e2e in ``test_e2e_daemon``.
 """
 
 import os
 import shutil
-import socket
 import tempfile
 from pathlib import Path
 
 import pytest
 
 from gda.daemon.discovery import daemon_paths, daemon_pid
-from gda.daemon.protocol import read_message, write_message
 from gda.daemon_ops import (
     run_daemon_start_operation,
     run_daemon_status_operation,
     run_daemon_stop_operation,
 )
 from gda.models import DaemonStartResult, DaemonStatusResult, DaemonStopResult
-from gda.parser import parse_result
 
-# The daemon binds AF_UNIX sockets — UNIX-only (ADR-0021).
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
+pytestmark = [
+    pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"),
+    pytest.mark.e2e,  # start resolves a real Godot binary
+]
+
+# A 4.6 engine so the live-version gate passes without running the engine.
+_OK_VERSION = lambda binary: (4, 6)  # noqa: E731
 
 
 @pytest.fixture
@@ -47,14 +51,14 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, short_runtime):
     paths = daemon_paths(project)
 
     try:
-        started = run_daemon_start_operation(project, None)
+        started = run_daemon_start_operation(project, None, version_check=_OK_VERSION)
         assert isinstance(started, DaemonStartResult), started
         assert started.already_running is False
         assert started.installed_harness is True  # harness installed + reported
         assert daemon_pid(paths) == started.pid
 
         # Idempotent: a second start finds the running daemon.
-        again = run_daemon_start_operation(project, None)
+        again = run_daemon_start_operation(project, None, version_check=_OK_VERSION)
         assert isinstance(again, DaemonStartResult)
         assert again.already_running is True
         assert again.pid == started.pid
@@ -63,14 +67,6 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, short_runtime):
         status = run_daemon_status_operation(project)
         assert isinstance(status, DaemonStatusResult)
         assert status.running is True and status.pid == started.pid
-
-        # A live op against the running daemon: no session held yet, so it returns
-        # the engine_session_not_running sentinel through the normal reply.
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-            sock.connect(str(paths.cli_socket))
-            write_message(sock, {"op": "game-tree", "params": {}})
-            reply = read_message(sock)
-        assert parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
     finally:
         stopped = run_daemon_stop_operation(project)
         assert isinstance(stopped, DaemonStopResult)
@@ -78,6 +74,18 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, short_runtime):
     # Torn down: pidfile dead, socket gone.
     assert daemon_pid(paths) is None
     assert not paths.cli_socket.exists()
+
+
+def test_live_version_gate_rejects_below_4_6(tmp_path, short_runtime):
+    from gda.errors import Failure
+
+    project = _project(tmp_path)
+    outcome = run_daemon_start_operation(
+        project, None, version_check=lambda binary: (4, 5)
+    )
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "unsupported_version"
+    assert daemon_pid(daemon_paths(project)) is None  # nothing spawned
 
 
 def test_daemon_status_and_stop_when_not_running(tmp_path, short_runtime):

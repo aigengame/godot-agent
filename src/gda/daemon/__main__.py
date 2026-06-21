@@ -16,13 +16,13 @@ from gda.daemon.server import DaemonServer
 def main() -> None:
     parser = argparse.ArgumentParser(prog="gda.daemon")
     parser.add_argument("--project", required=True, help="The project root to serve.")
-    # Accepted for forward-compatibility with the engine-session slice; unused here.
-    parser.add_argument("--godot", default="")
-    parser.add_argument("--token", default="")
+    parser.add_argument(
+        "--godot", default="", help="The resolved Godot binary for engine sessions."
+    )
     args = parser.parse_args()
 
     paths = daemon_paths(Path(args.project))
-    DaemonServer(paths).serve()
+    DaemonServer(paths, godot=args.godot).serve()
 
 
 if __name__ == "__main__":

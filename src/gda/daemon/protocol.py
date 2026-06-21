@@ -1,10 +1,10 @@
-"""Length-prefixed JSON framing for the daemon's IPC legs (ADR-0021).
+"""Length-prefixed framing for the daemon's IPC legs (ADR-0021).
 
-Both the CLI↔daemon and (in a later slice) daemon↔harness legs exchange JSON
-objects over a stream socket. A message is a 4-byte big-endian length prefix
-followed by that many UTF-8 JSON bytes, so two messages sent back-to-back on one
-connection stay distinct. The daemon↔harness *response* body carries the raw
-ADR-0002 sentinel string, so the existing parser is reused unchanged.
+A frame is a 4-byte big-endian length prefix followed by that many payload bytes,
+so messages sent back-to-back on one connection stay distinct. The CLI↔daemon leg
+and the daemon→harness *request* carry JSON (``write_message`` / ``read_message``);
+the harness→daemon *response* carries the raw ADR-0002 sentinel string as bytes
+(``write_frame`` / ``read_frame``), so the existing parser is reused unchanged.
 """
 
 import json
@@ -15,19 +15,28 @@ from typing import Any
 _LENGTH = struct.Struct(">I")  # 4-byte big-endian frame length
 
 
-def write_message(sock: socket.socket, obj: Any) -> None:
-    """Send ``obj`` as one length-prefixed JSON frame."""
-    body = json.dumps(obj).encode("utf-8")
-    sock.sendall(_LENGTH.pack(len(body)) + body)
+def write_frame(sock: socket.socket, payload: bytes) -> None:
+    """Send ``payload`` as one length-prefixed frame."""
+    sock.sendall(_LENGTH.pack(len(payload)) + payload)
 
 
-def read_message(sock: socket.socket) -> Any | None:
-    """Read one length-prefixed JSON frame, or ``None`` if the peer closed."""
+def read_frame(sock: socket.socket) -> bytes | None:
+    """Read one length-prefixed frame's payload, or ``None`` if the peer closed."""
     header = _recv_exactly(sock, _LENGTH.size)
     if header is None:
         return None
     (length,) = _LENGTH.unpack(header)
-    body = _recv_exactly(sock, length)
+    return _recv_exactly(sock, length)
+
+
+def write_message(sock: socket.socket, obj: Any) -> None:
+    """Send ``obj`` as one length-prefixed JSON frame."""
+    write_frame(sock, json.dumps(obj).encode("utf-8"))
+
+
+def read_message(sock: socket.socket) -> Any | None:
+    """Read one length-prefixed JSON frame, or ``None`` if the peer closed."""
+    body = read_frame(sock)
     if body is None:
         return None
     return json.loads(body.decode("utf-8"))
