@@ -18,6 +18,17 @@ This ADR fixes that **mechanism and its running-game scope**. It does not enumer
 the live command catalogue, which is delivered incrementally per ADR-0005 and
 tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 
+> **Outcome (2026-06-21, #7 / PR #229) — two scoped narrowings in the bootstrap:**
+> (1) **Session mode.** The bootstrap's only live op is `game tree`, which reads the
+> runtime `SceneTree` and needs no viewport, so its engine session is launched
+> **`--headless`**, not windowed. The "windowed by default" of decision 2 below is for
+> viewport capture; the daemon switches to a **windowed** session when the first
+> capturing op lands (#222), which carries that change. (2) **Launch timing.** The
+> session is **launched lazily on the first live op**, not eagerly at `daemon start` —
+> consistent with this ADR's "(re)launched per feedback-loop iteration"; `daemon start`
+> brings up the persistent daemon and the harness install, and the session follows on
+> demand.
+
 ## Decision
 
 **1. An execution-channel selector, chosen per command by a static `kind`.**

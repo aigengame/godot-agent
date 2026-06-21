@@ -384,21 +384,30 @@ def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
     return version
 
 
-def _live_error_from_payload(result: RunResult) -> Failure | None:
-    """A LIVE-code error envelope on stdout becomes its registered ``Failure``.
+# Codes the daemon IPC client / the daemon surface through the live sentinel that
+# classify_run would otherwise misroute. The LIVE codes are live-runtime failures;
+# ``live_unsupported_platform`` is an ENVIRONMENT-category pre-launch precondition
+# (ADR-0021) but still arrives via the live path, so classify_live must surface it
+# too (else classify_run falls back to operation_failed for a non-operation code).
+# ``project_not_found`` is deliberately NOT here — it is an operation-source code
+# classify_run already maps, so it falls through to the shared decision tree.
+_LIVE_CLIENT_CODES = LIVE_ERROR_CODES | {"live_unsupported_platform"}
 
-    The daemon IPC client / the daemon report a live failure as the *same*
-    ADR-0002 error envelope a headless op uses, but carrying a classifier-source
-    LIVE code (``daemon_not_running``, …). ``classify_run`` would fall back to
-    ``operation_failed`` for a non-operation code, so this maps the LIVE code to
-    its registered ``Failure`` directly. A non-LIVE envelope returns ``None`` so
-    the shared decision tree still handles it.
+
+def _live_error_from_payload(result: RunResult) -> Failure | None:
+    """A live-channel error envelope on stdout becomes its registered ``Failure``.
+
+    The daemon IPC client / the daemon report a live failure as the *same* ADR-0002
+    error envelope a headless op uses, carrying a classifier-source code. This maps
+    the daemon-channel codes to their registered ``Failure`` directly; any other
+    envelope returns ``None`` so the shared ``classify_run`` decision tree handles
+    it (e.g. ``project_not_found``).
     """
     pair = _operation_error_from_payload(result)
     if pair is None:
         return None
     code, message = pair
-    if code in LIVE_ERROR_CODES:
+    if code in _LIVE_CLIENT_CODES:
         return _failure(code, message, result.stderr)
     return None
 

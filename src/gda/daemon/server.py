@@ -14,7 +14,7 @@ import secrets
 import signal
 import socket
 
-from gda.daemon.discovery import DaemonPaths, ensure_runtime_dir, write_pidfile
+from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.session import EngineSession, launch_session
 from gda.exit_codes import EXIT_LIVE
@@ -36,12 +36,16 @@ class DaemonServer:
         self._listener: socket.socket | None = None
         self._harness_listener: socket.socket | None = None
         self._session: EngineSession | None = None
+        self._pidfile_handle = None
 
     def serve(self) -> None:
         ensure_runtime_dir(self.paths)
         self._listener = self._bind(self.paths.cli_socket)
         self._harness_listener = self._bind(self.paths.harness_socket)
-        write_pidfile(self.paths, os.getpid())
+        # Hold the pidfile's advisory lock for our lifetime — that held lock is the
+        # liveness signal the CLI keys on (ADR-0021); bind first so the socket is
+        # present before we are reported live.
+        self._pidfile_handle = acquire_pidfile(self.paths, os.getpid())
 
         for sig in (signal.SIGTERM, signal.SIGINT):
             signal.signal(sig, self._on_signal)
@@ -123,6 +127,11 @@ class DaemonServer:
     def _cleanup(self) -> None:
         if self._session is not None:
             self._session.close()
+        if self._pidfile_handle is not None:
+            try:
+                self._pidfile_handle.close()  # releases the advisory lock
+            except OSError:
+                pass
         for sock in (self._listener, self._harness_listener):
             if sock is not None:
                 try:

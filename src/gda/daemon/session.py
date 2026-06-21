@@ -27,6 +27,9 @@ from gda.parser import RESULT_BEGIN, RESULT_END
 LAUNCH_MARKER = "gda-daemon"
 # Engine boot + autoload + harness connect; a windowed/cold start can be slow.
 CONNECT_TIMEOUT = 25.0
+# Bounds one live op against the harness so a stuck op cannot hang the daemon
+# forever; surfaced as the registered ``live_timeout`` (ADR-0021).
+OP_TIMEOUT = 30.0
 
 
 class EngineSession:
@@ -42,8 +45,14 @@ class EngineSession:
     def request(self, operation: str, params: dict) -> dict:
         """Relay one live op to the harness; return the CLI reply dict."""
         try:
+            self._conn.settimeout(OP_TIMEOUT)
             write_message(self._conn, {"op": operation, "params": params})
             reply = read_frame(self._conn)  # the raw ADR-0002 sentinel string
+        except TimeoutError:
+            return _live_reply(
+                "live_timeout",
+                f"the engine session did not return within {int(OP_TIMEOUT)}s",
+            )
         except OSError:
             return _live_reply("engine_disconnected", "the engine session dropped the connection")
         if reply is None:

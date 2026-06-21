@@ -22,7 +22,12 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from gda.binary import resolve_godot_binary
-from gda.daemon.discovery import DaemonPaths, daemon_paths, daemon_pid
+from gda.daemon.discovery import (
+    DaemonPaths,
+    daemon_paths,
+    daemon_pid,
+    within_uds_limit,
+)
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.server import STATUS_OP, STOP_OP
 from gda.errors import Failure, _failure, unresolvable_binary_failure
@@ -139,6 +144,17 @@ def run_daemon_start_operation(
             "",
         )
     paths = daemon_paths(project)
+    if not (
+        within_uds_limit(paths.cli_socket) and within_uds_limit(paths.harness_socket)
+    ):
+        # Fail clearly here rather than letting the daemon's bind() overflow the
+        # OS sun_path limit and the start time out into a vague error (ADR-0021).
+        return _failure(
+            "daemon_not_running",
+            "the runtime directory yields a socket path longer than the OS limit "
+            "for a Unix domain socket; set a shorter $XDG_RUNTIME_DIR",
+            "",
+        )
     existing = daemon_pid(paths)
     if existing is not None:
         # Idempotent: a daemon is already up for this project.
@@ -184,6 +200,13 @@ def run_daemon_start_operation(
 
 
 def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Failure":
+    if not _is_unix():
+        return _failure(
+            "live_unsupported_platform",
+            "the gda-daemon requires a UNIX platform (macOS/Linux); it uses Unix "
+            "domain sockets, which are unavailable here",
+            "",
+        )
     if project is None:
         return _failure(
             "project_not_found",
@@ -200,6 +223,13 @@ def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Fa
 
 
 def run_daemon_status_operation(project: Optional[Path]) -> "DaemonStatusResult | Failure":
+    if not _is_unix():
+        return _failure(
+            "live_unsupported_platform",
+            "the gda-daemon requires a UNIX platform (macOS/Linux); it uses Unix "
+            "domain sockets, which are unavailable here",
+            "",
+        )
     if project is None:
         return _failure(
             "project_not_found",

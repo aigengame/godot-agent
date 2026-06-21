@@ -231,7 +231,10 @@ app.add_typer(theme_app, name="theme")
 # runtime SceneTree after _ready; the on-disk counterparts stay under `scene` /
 # `node`. It is a domain-object group named after the running game, not a phase
 # group — the headless/live split is carried by `kind`, never by the tree.
-game_app = typer.Typer(help="Act on the running game (live).", no_args_is_help=True)
+game_app = typer.Typer(
+    help="Act on the running game (live; macOS/Linux only, needs `gda daemon start`).",
+    no_args_is_help=True,
+)
 app.add_typer(game_app, name="game")
 
 # The daemon command group (Phase 2, ADR-0017): gda's own per-project daemon
@@ -239,7 +242,10 @@ app.add_typer(game_app, name="game")
 # infrastructure object (gda-daemon), not a top-level meta singleton. start /
 # stop / status manage the daemon PROCESS, so — like `export run` — they run a
 # recipe (gda.daemon_ops) rather than the sentinel pipeline.
-daemon_app = typer.Typer(help="Manage the per-project gda-daemon.", no_args_is_help=True)
+daemon_app = typer.Typer(
+    help="Manage the per-project gda-daemon (live ops; macOS/Linux only, Godot 4.6+).",
+    no_args_is_help=True,
+)
 app.add_typer(daemon_app, name="daemon")
 
 
@@ -460,9 +466,10 @@ def game_tree(
 
     Routes through gda-daemon to the engine session it holds (kind = LIVE,
     ADR-0017): the runtime SceneTree after _ready and dynamic instantiation,
-    distinct from the on-disk .tscn read by `scene get` (ADR-0019). With no
-    running daemon it reports the typed `daemon_not_running` error naming the
-    remediation (`gda daemon start`).
+    distinct from the on-disk .tscn read by `scene get` (ADR-0019). Live ops are
+    macOS/Linux only (Unix domain sockets) and need a running daemon: with none,
+    it reports the typed `daemon_not_running` error naming the remediation
+    (`gda daemon start`); on a non-UNIX platform, `live_unsupported_platform`.
     """
     _dispatch(
         GAME_TREE_COMMAND,

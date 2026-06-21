@@ -99,10 +99,28 @@ def ensure_runtime_dir(paths: DaemonPaths) -> Path:
     return paths.runtime_dir
 
 
-def write_pidfile(paths: DaemonPaths, pid: int) -> None:
-    """Record ``pid`` and the canonical project path for liveness/foreign checks."""
+def acquire_pidfile(paths: DaemonPaths, pid: int):
+    """Open + advisory-lock the pidfile, record ``pid`` + canonical path; return the held handle.
+
+    The daemon keeps the returned file open for its whole lifetime so the ``flock``
+    is *held* — that held lock IS the liveness signal (ADR-0021): a held lock means
+    a live daemon, a grabbable lock means a crashed/stale one, with no reliance on
+    ``os.kill`` PID-liveness (which a reused PID could spoof). The OS releases the
+    lock when the daemon exits or crashes, so liveness self-heals with no cleanup.
+    Raises ``OSError`` if another live daemon already holds it (a start race).
+    """
+    import fcntl
+
     ensure_runtime_dir(paths)
-    paths.pidfile.write_text(f"{pid}\n{paths.project}\n", encoding="utf-8")
+    handle = open(paths.pidfile, "w", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        raise
+    handle.write(f"{pid}\n{paths.project}\n")
+    handle.flush()
+    return handle
 
 
 def read_pidfile(paths: DaemonPaths) -> tuple[int, Path] | None:
@@ -117,28 +135,34 @@ def read_pidfile(paths: DaemonPaths) -> tuple[int, Path] | None:
     return int(lines[0].strip()), Path(lines[1].strip())
 
 
-def _pid_alive(pid: int) -> bool:
-    if pid <= 0:
+def _pidfile_lock_held(pidfile: Path) -> bool:
+    """Whether the pidfile's advisory lock is currently held by a live daemon."""
+    import fcntl
+
+    try:
+        probe = open(pidfile, "r", encoding="utf-8")
+    except FileNotFoundError:
         return False
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False  # no such process — stale
-    except PermissionError:
-        return True  # alive, owned by another user
+        fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
+        return True  # could not grab it -> held by a live daemon
+    else:
+        fcntl.flock(probe.fileno(), fcntl.LOCK_UN)  # we grabbed it -> stale; release
         return False
-    return True
+    finally:
+        probe.close()
 
 
 def daemon_pid(paths: DaemonPaths) -> int | None:
-    """The pid of a LIVE daemon for THIS project, or ``None``.
+    """The pid of a LIVE daemon for THIS project, or ``None`` (ADR-0021).
 
-    ``None`` when there is no pidfile, it is malformed, the recorded process is
-    dead (**stale**), or the recorded project path differs from this project
-    (**foreign** — a hash collision or a reused runtime slot). ``daemon start``
-    reclaims a stale slot; ``daemon status`` and a live command's attach read this
-    as not-running (``daemon_not_running``).
+    Live requires all three: the pidfile's recorded project **matches** this
+    project (else *foreign* — a hash collision / reused slot), the CLI socket is
+    **bound** (present), and the pidfile's advisory lock is **held** (a grabbable
+    lock means a crashed/stale daemon). So a reused PID or a stale socket is never
+    mistaken for a live daemon. ``daemon start`` reclaims a stale slot; ``status``
+    and a live command's attach read this as not-running.
     """
     info = read_pidfile(paths)
     if info is None:
@@ -146,6 +170,8 @@ def daemon_pid(paths: DaemonPaths) -> int | None:
     pid, recorded = info
     if recorded != paths.project:
         return None  # foreign
-    if not _pid_alive(pid):
-        return None  # stale
+    if not paths.cli_socket.exists():
+        return None  # not bound -> stale
+    if not _pidfile_lock_held(paths.pidfile):
+        return None  # grabbable -> crashed/stale
     return pid

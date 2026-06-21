@@ -62,3 +62,27 @@ def test_game_tree_schema_is_self_describing():
     schema = json.loads(result.stdout)
     # Self-describes its input and output contracts like any headless command.
     assert "input" in schema and "output" in schema
+
+
+def test_game_tree_without_a_project_reports_project_not_found(monkeypatch, tmp_path):
+    # No --project and a projectless cwd -> the project resolves to None, which is
+    # a project-resolution error, NOT a daemon error (ADR-0021).
+    monkeypatch.chdir(tmp_path)  # tmp_path holds no project.godot
+
+    result = CliRunner().invoke(app, ["game", "tree", "--json"])
+
+    assert result.exit_code != 0, result.stdout
+    assert json.loads(result.stdout)["error"]["code"] == "project_not_found"
+
+
+def test_game_tree_on_non_unix_reports_live_unsupported_platform(monkeypatch, tmp_path):
+    # The live stack is UNIX-only (UDS); a non-UNIX platform fails fast with the
+    # typed error, before touching the daemon (ADR-0021).
+    monkeypatch.setattr("gda.live_runner._is_unix", lambda: False)
+
+    result = CliRunner().invoke(
+        app, ["game", "tree", "--project", str(_project(tmp_path)), "--json"]
+    )
+
+    assert result.exit_code != 0, result.stdout
+    assert json.loads(result.stdout)["error"]["code"] == "live_unsupported_platform"

@@ -15,6 +15,7 @@ becomes ``engine_disconnected``. Both ride the normal classify pipeline via
 """
 
 import json
+import os
 import socket
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,15 @@ from gda.daemon.protocol import read_message, write_message
 from gda.exit_codes import EXIT_LIVE
 from gda.parser import RESULT_BEGIN, RESULT_END
 from gda.runner import GodotRunner, RunResult
+
+# Bounds a live call so it never hangs the CLI forever; generous because the
+# daemon may launch the engine session on the first op (ADR-0017). A timeout is
+# surfaced as the registered ``live_timeout`` (ADR-0021).
+LIVE_REQUEST_TIMEOUT = 60.0
+
+
+def _is_unix() -> bool:
+    return os.name == "posix"
 
 
 def make_daemon_runner(project: Optional[Path]) -> GodotRunner:
@@ -39,13 +49,21 @@ class DaemonRunner:
     project: Optional[Path]
 
     def run(self, operation: str, params: dict) -> RunResult:
-        if self.project is None:
-            # A live op is per-project; with no resolved project there is no
-            # daemon to find (ADR-0021). Attach-or-fail, naming the remediation.
+        # Platform gate first (ADR-0021): live is UNIX-only (UDS), checked before
+        # any project / daemon resolution and before any version concern.
+        if not _is_unix():
             return _live_error_result(
-                "daemon_not_running",
-                "no Godot project resolved; a live operation needs a project with a "
-                "running gda-daemon (start one with `gda daemon start`)",
+                "live_unsupported_platform",
+                "live operations require a UNIX platform (macOS/Linux); they use "
+                "Unix domain sockets, which are unavailable here",
+            )
+        if self.project is None:
+            # No resolved project is a project-resolution error, not a daemon one
+            # (ADR-0021): a live op is per-project, so there is no daemon to find.
+            return _live_error_result(
+                "project_not_found",
+                "no Godot project resolved; a live operation needs a project "
+                "(pass --project or run inside one)",
             )
         paths = daemon_paths(self.project)
         if daemon_pid(paths) is None:
@@ -59,9 +77,15 @@ class DaemonRunner:
     def _request(self, cli_socket: Path, operation: str, params: dict) -> RunResult:
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.settimeout(LIVE_REQUEST_TIMEOUT)
                 sock.connect(str(cli_socket))
                 write_message(sock, {"op": operation, "params": params})
                 reply = read_message(sock)
+        except TimeoutError:
+            return _live_error_result(
+                "live_timeout",
+                f"the live operation did not return within {int(LIVE_REQUEST_TIMEOUT)}s",
+            )
         except OSError:
             return _live_error_result(
                 "engine_disconnected",
