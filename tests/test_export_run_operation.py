@@ -18,10 +18,25 @@ surface, complementary to the command tests in
 from pathlib import Path
 
 from gda.errors import Failure
-from gda.export_run import run_export_operation
+from gda.execution import ExecutionKind
+from gda.export_run import (
+    EXPORT_GET_COMMAND,
+    EXPORT_RUN_COMMAND,
+    run_export_operation,
+)
 from gda.models import ExportRunMode, ExportRunResult
 from gda.runner import RunResult
 from tests.support import FakeExportRunner, FakeRunner, error_sentinel, sentinel
+
+
+def test_export_run_command_is_the_native_export_channel():
+    # ``export run`` is the one editor-only-export capability that does not run
+    # through operations.gd, so it carries the EXPORT execution channel (ADR-0017
+    # / ADR-0010); ``export get`` resolves via the sentinel pipeline and stays
+    # HEADLESS. The dispatcher selects the native recipe by this kind.
+    assert EXPORT_RUN_COMMAND.kind is ExecutionKind.EXPORT
+    assert EXPORT_GET_COMMAND.kind is ExecutionKind.HEADLESS
+
 
 GET_RESULT = {
     "index": 0,

@@ -19,6 +19,7 @@ from gda.errors import (
     classify_info,
     classify_script_validate,
 )
+from gda.execution import ExecutionKind
 from gda.export_run import (
     EXPORT_GET_COMMAND,
     EXPORT_RUN_COMMAND,
@@ -341,9 +342,10 @@ def _run_params_json(
     options = ctx.params
     json_output = bool(options.get("json_output", False))
     godot = options.get("godot")
-    if cmd is EXPORT_RUN_COMMAND:
+    if cmd.kind is ExecutionKind.EXPORT:
         # export run is the native-export recipe (#187), not the sentinel
-        # pipeline, so it cannot go through cmd.emit. Mirror its body so
+        # pipeline, so it cannot go through cmd.emit. Selected by its static
+        # execution channel (ADR-0017), not command identity. Mirror its body so
         # --params-json drives the SAME run_export_operation path as the argv
         # form. params.output is already normalized (ExportRunParams.output is a
         # NormalizedPath), so no extra normalization is needed here.

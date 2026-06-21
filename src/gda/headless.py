@@ -25,6 +25,7 @@ from gda.errors import (
     invalid_params_json_failure,
     unresolvable_binary_failure,
 )
+from gda.execution import ExecutionKind
 from gda.models import CommandSchema, GdaErrorEnvelope
 from gda.render import render
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
@@ -260,6 +261,11 @@ class HeadlessCommand(Generic[M]):
     input_model: type[BaseModel]
     output_model: type[M]
     classify: Classifier[M] | None = None
+    # The static execution channel this command is fulfilled through (ADR-0017).
+    # Defaults to HEADLESS — the sentinel ``operations.gd`` pipeline — so every
+    # existing command keeps its channel without restating it; EXPORT and LIVE
+    # commands declare their channel explicitly.
+    kind: ExecutionKind = ExecutionKind.HEADLESS
 
     def schema_option(self) -> bool:
         """Return the Typer ``--schema`` flag for this command."""
