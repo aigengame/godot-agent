@@ -440,3 +440,10 @@ ERROR_CODE_BY_CODE: dict[str, ErrorCodeSpec] = {spec.code: spec for spec in ERRO
 OPERATION_ERROR_CODES: frozenset[str] = frozenset(
     spec.code for spec in ERROR_CODES if spec.source is ErrorCodeSource.OPERATION
 )
+
+# The Phase-2 live failure codes (ADR-0017, ADR-0021). Surfaced from a sentinel
+# error envelope by the daemon IPC client / the daemon and mapped to the
+# registered code by ``classify_live`` — the live analogue of OPERATION_ERROR_CODES.
+LIVE_ERROR_CODES: frozenset[str] = frozenset(
+    spec.code for spec in ERROR_CODES if spec.category is ErrorCategory.LIVE
+)

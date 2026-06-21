@@ -26,6 +26,7 @@ from gda.models import (
     ExportGetResult,
     ExportListResult,
     ExportRunResult,
+    GameTreeResult,
     NodeAddResult,
     NodeConnectSignalResult,
     NodeDisconnectSignalResult,
@@ -134,6 +135,16 @@ def render_scene_metadata(scene: "SceneCreateResult") -> str:
 def render_scene_tree(scene: "SceneGetResult") -> str:
     """Render a read scene's node tree."""
     return render_node_tree(scene.root)
+
+
+def render_game_tree(game: "GameTreeResult") -> str:
+    """Render the running game's runtime scene tree (ADR-0019).
+
+    The runtime counterpart of ``render_scene_tree``: ``render_node_tree`` reads
+    only ``name``/``type``/``children``, which a ``GameNode`` carries, so the
+    runtime tree flows through the same indented outline as the on-disk scene.
+    """
+    return render_node_tree(game.root)
 
 
 def render_scene_exports(scene: "SceneGetExportsResult") -> str:
@@ -516,6 +527,7 @@ def render_engine_version(version: "EngineVersion") -> str:
 _RENDERERS = {
     SceneCreateResult: render_scene_metadata,
     SceneGetResult: render_scene_tree,
+    GameTreeResult: render_game_tree,
     SceneGetExportsResult: render_scene_exports,
     SceneListResult: render_scene_list,
     SceneDeleteResult: render_scene_delete,

@@ -43,11 +43,16 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from gda.error_codes import ERROR_CODE_BY_CODE, OPERATION_ERROR_CODES
+from gda.error_codes import (
+    ERROR_CODE_BY_CODE,
+    LIVE_ERROR_CODES,
+    OPERATION_ERROR_CODES,
+)
 from gda.models import (
     EngineVersion,
     ExportRunMode,
     ExportRunResult,
+    GameTreeResult,
     GdaError,
     OperationErrorEnvelope,
     ScriptDiagnostic,
@@ -377,6 +382,45 @@ def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
         )
 
     return version
+
+
+def _live_error_from_payload(result: RunResult) -> Failure | None:
+    """A LIVE-code error envelope on stdout becomes its registered ``Failure``.
+
+    The daemon IPC client / the daemon report a live failure as the *same*
+    ADR-0002 error envelope a headless op uses, but carrying a classifier-source
+    LIVE code (``daemon_not_running``, …). ``classify_run`` would fall back to
+    ``operation_failed`` for a non-operation code, so this maps the LIVE code to
+    its registered ``Failure`` directly. A non-LIVE envelope returns ``None`` so
+    the shared decision tree still handles it.
+    """
+    pair = _operation_error_from_payload(result)
+    if pair is None:
+        return None
+    code, message = pair
+    if code in LIVE_ERROR_CODES:
+        return _failure(code, message, result.stderr)
+    return None
+
+
+def classify_live(result: RunResult, binary: Path, output_model: type[M]) -> M | Failure:
+    """Classify a live operation's raw result (ADR-0017).
+
+    A live op returns the same ``RunResult`` + ADR-0002 sentinel a headless op
+    does, so the success path is ``classify_run`` verbatim and the public contract
+    is identical. The one addition is the LIVE error envelope
+    (``daemon_not_running``, ``engine_disconnected``, …), surfaced here as its
+    registered classifier-source code before the shared decision tree runs.
+    """
+    failure = _live_error_from_payload(result)
+    if failure is not None:
+        return failure
+    return classify_run(result, binary, output_model)
+
+
+def classify_game_tree(result: RunResult, binary: Path) -> GameTreeResult | Failure:
+    """The per-command live classifier for ``gda game tree`` (mirrors ``classify_info``)."""
+    return classify_live(result, binary, GameTreeResult)
 
 
 # A non-fatal export warning the engine prints to stderr. WARNING is Godot's

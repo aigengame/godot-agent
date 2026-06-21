@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from gda.errors import (
     Failure,
+    classify_game_tree,
     classify_info,
     classify_script_validate,
 )
@@ -40,12 +41,15 @@ from gda.headless import (
     schema_command_class,
     schema_option,
 )
+from gda.live_runner import make_daemon_runner
 from gda.models import (
     EngineVersion,
     ExportGetParams,
     ExportListParams,
     ExportListResult,
     ExportRunMode,
+    GameTreeParams,
+    GameTreeResult,
     InfoParams,
     ProjectDependenciesParams,
     ProjectDependenciesResult,
@@ -211,6 +215,14 @@ theme_app = typer.Typer(
 )
 app.add_typer(theme_app, name="theme")
 
+# The game command group (Phase 2, ADR-0019): the RUNNING game's runtime scene
+# graph, served LIVE through gda-daemon (`kind = LIVE`). `game tree` reads the
+# runtime SceneTree after _ready; the on-disk counterparts stay under `scene` /
+# `node`. It is a domain-object group named after the running game, not a phase
+# group — the headless/live split is carried by `kind`, never by the tree.
+game_app = typer.Typer(help="Act on the running game (live).", no_args_is_help=True)
+app.add_typer(game_app, name="game")
+
 
 def _version_callback(value: Optional[bool]) -> None:
     if value:
@@ -252,6 +264,17 @@ def _make_export_runner(binary: Path, project: Optional[Path]) -> ExportRunner:
     return make_subprocess_export_runner(binary, project)
 
 
+def _make_live_runner(binary: Optional[Path], project: Optional[Path]) -> GodotRunner:
+    """Build the LIVE runner — the per-project gda-daemon IPC client (ADR-0017).
+
+    The ``kind = LIVE`` twin of :func:`_make_runner`, a seam tests override to
+    inject a fake daemon runner. ``binary`` is unused: a live op reaches the
+    running daemon, not a fresh engine, so the daemon (not the CLI) owns the
+    engine session.
+    """
+    return make_daemon_runner(project)
+
+
 def _emit(
     cmd: HeadlessCommand[M],
     params: BaseModel,
@@ -262,18 +285,23 @@ def _emit(
 ) -> None:
     """Drive ``cmd.emit`` with the shared CLI execution tail.
 
-    The sole reference to the runner seam ``_make_runner`` — held here, at call
-    time, so the test monkeypatch on ``gda.cli._make_runner`` still binds rather
-    than being frozen as a def-time default. Both the domain dispatch
+    Selects the runner seam by the command's execution channel ``kind`` (ADR-0017):
+    a ``LIVE`` command goes through :func:`_make_live_runner` (the daemon IPC
+    client), every other through :func:`_make_runner`. Both seams are referenced
+    here at call time, so a test monkeypatch on ``gda.cli._make_runner`` /
+    ``gda.cli._make_live_runner`` still binds. Both the domain dispatch
     (:func:`_dispatch`) and the meta dispatch (:func:`_dispatch_meta`) funnel
     through here; they differ only in how ``project`` is obtained.
     """
+    make_runner = (
+        _make_live_runner if cmd.kind is ExecutionKind.LIVE else _make_runner
+    )
     cmd.emit(
         params,
         godot=godot,
         project=project,
         json_output=json_output,
-        make_runner=_make_runner,
+        make_runner=make_runner,
     )
 
 
@@ -383,6 +411,39 @@ INFO_COMMAND: HeadlessCommand[EngineVersion] = HeadlessCommand(
     output_model=EngineVersion,
     classify=classify_info,
 )
+
+GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(
+    operation="game-tree",
+    input_model=GameTreeParams,
+    output_model=GameTreeResult,
+    classify=classify_game_tree,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@game_app.command(name="tree", cls=GAME_TREE_COMMAND.command_class())
+def game_tree(
+    json_output: bool = json_option(),
+    schema: bool = GAME_TREE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read the running game's runtime scene tree (live).
+
+    Routes through gda-daemon to the engine session it holds (kind = LIVE,
+    ADR-0017): the runtime SceneTree after _ready and dynamic instantiation,
+    distinct from the on-disk .tscn read by `scene get` (ADR-0019). With no
+    running daemon it reports the typed `daemon_not_running` error naming the
+    remediation (`gda daemon start`).
+    """
+    _dispatch(
+        GAME_TREE_COMMAND,
+        GameTreeParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
 
 SCENE_CREATE_COMMAND: HeadlessCommand[SceneCreateResult] = HeadlessCommand(
     operation="scene-create",

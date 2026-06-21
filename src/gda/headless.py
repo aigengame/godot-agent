@@ -294,15 +294,22 @@ class HeadlessCommand(Generic[M]):
         (``export run``) can branch on it. :meth:`run` adds the
         emit-and-exit-on-failure behavior on top.
         """
-        try:
-            binary = resolve_godot_binary(godot)
-        except ValueError as exc:
-            # An empty ``--godot ""`` (a natural $GDA_GODOT mistake) makes
-            # resolution raise *before* a runner exists — there is no binary to
-            # launch, the same environment failure as a missing one. Map it to
-            # the structured ``binary_not_found`` envelope so it never escapes as
-            # a raw traceback (issue #33), mirroring the runner's NOT_FOUND path.
-            return unresolvable_binary_failure(str(exc))
+        if self.kind is ExecutionKind.LIVE:
+            # A live op reaches the running daemon, not a fresh engine, so it
+            # needs no Godot binary — the daemon owns the engine session
+            # (ADR-0017). Skip resolution so `gda game tree` with no daemon
+            # reports daemon_not_running, not a spurious binary_not_found.
+            binary: Optional[Path] = None
+        else:
+            try:
+                binary = resolve_godot_binary(godot)
+            except ValueError as exc:
+                # An empty ``--godot ""`` (a natural $GDA_GODOT mistake) makes
+                # resolution raise *before* a runner exists — there is no binary to
+                # launch, the same environment failure as a missing one. Map it to
+                # the structured ``binary_not_found`` envelope so it never escapes as
+                # a raw traceback (issue #33), mirroring the runner's NOT_FOUND path.
+                return unresolvable_binary_failure(str(exc))
         runner = make_runner(binary, project)
         result = runner.run(self.operation, params.model_dump())
 

@@ -2351,3 +2351,32 @@ class ProjectRemoveAutoloadResult(BaseModel):
     """
 
     name: str = Field(description="The unregistered autoload's global name.")
+
+
+class GameNode(BaseModel):
+    """One node of the RUNNING game's runtime scene tree (Phase 2, ADR-0019).
+
+    The runtime counterpart of :class:`SceneNode`: ``gda game tree`` reports the
+    live ``SceneTree`` after ``_ready`` and dynamic instantiation, so it carries
+    the runtime node ``path`` alongside ``name``/``type``/``children``. Distinct
+    from the on-disk ``.tscn`` read by ``scene get`` (a different object, ADR-0019).
+    """
+
+    name: str
+    type: str
+    path: str
+    children: list["GameNode"] = []
+
+
+class GameTreeParams(BaseModel):
+    """The params of ``gda game tree``: read the running game's runtime scene tree.
+
+    Empty — it reads the whole runtime tree of the engine session held by
+    ``gda-daemon`` (a subtree root may be added by a later slice).
+    """
+
+
+class GameTreeResult(BaseModel):
+    """The result of ``gda game tree``: the running game's runtime scene tree."""
+
+    root: GameNode
