@@ -555,7 +555,11 @@ def daemon_stop(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Stop the per-project gda-daemon (a no-op if none is running)."""
+    """Stop the per-project gda-daemon (a no-op if none is running).
+
+    Live operations are macOS/Linux only (Unix domain sockets); on a non-UNIX
+    platform this reports `live_unsupported_platform`.
+    """
     _daemon_dispatch(
         DAEMON_STOP_COMMAND, json_output=json_output, godot=godot, project=project
     )
@@ -569,7 +573,11 @@ def daemon_status(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Report whether a per-project gda-daemon is running."""
+    """Report whether a per-project gda-daemon is running.
+
+    Live operations are macOS/Linux only (Unix domain sockets); on a non-UNIX
+    platform this reports `live_unsupported_platform`.
+    """
     _daemon_dispatch(
         DAEMON_STATUS_COMMAND, json_output=json_output, godot=godot, project=project
     )
