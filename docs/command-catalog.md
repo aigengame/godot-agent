@@ -147,7 +147,11 @@ This coercion contract — the accepted string forms above, the declared-type ta
 commands**, not specific to nodes. `gda resource set` (#120) applies the same #55 coercion to the
 addressed `.tres` resource property's declared type and round-trips through `resource get`, exactly
 as `node set` round-trips through `node get`; here `unknown_property` names a property absent on the
-**resource** rather than a node.
+**resource** rather than a node. The live `gda game set` (#220) applies the same coercion table to a
+**running** node's runtime property (the gda harness carries a verbatim copy of the coercion helpers,
+kept in sync by a drift test) and round-trips through `game get`; its failures are the LIVE-category
+`live_unknown_property` / `live_uncoercible_value` (the harness reports them in-band, mapped by the
+live classifier — see [Phase 2 — live domain commands](#phase-2--live-domain-commands-served-by-gda-daemon)).
 
 **Structural edits** (established by #56): three commands restructure the node tree within a
 scene file, each a `load → locate → restructure → pack → save` round-trip that reuses the
@@ -456,8 +460,17 @@ socket (ADR-0021), **Phase-2 live requires Godot 4.6+ and is macOS/Linux only**;
 headless is unaffected (4.4+, cross-platform).
 
 - **`game` (the running game's scene graph):** `game tree` reads the runtime scene
-  tree (shipped — the Phase-2 bootstrap tracer, #7); runtime node property `get`/`set`
-  (#220). The on-disk counterparts stay under `scene` / `node` (ADR-0019).
+  tree (shipped — the Phase-2 bootstrap tracer, #7); runtime node property `game get` /
+  `game set` (shipped, #220) read and mutate a running node's live properties — the live
+  counterparts of headless `node get` / `node set`, applying the **same** value-coercion
+  table and round-tripping `set`→`get`. They address the node by its **runtime (absolute)
+  path** as `game tree` reports it (e.g. `/root/Main/Player`), in contrast to the on-disk
+  node group's **root-relative** path: the live tree has no `.tscn` scene root to be
+  relative to, and the headless resolver rejects absolute paths, so the harness resolves
+  off the running `SceneTree` root. A `set` applies at a frame boundary (ADR-0020) and is
+  bound to the session, not persisted; a missing node is `live_node_not_found`, an absent
+  property `live_unknown_property`, an uncoercible value `live_uncoercible_value`. The
+  on-disk counterparts stay under `scene` / `node` (ADR-0019).
 - **`input` (input simulation):** key / mouse / action / sequence injection into the
   running game; record / replay.
 - **`screen` / capture:** running-game viewport screenshot, multi-frame capture.

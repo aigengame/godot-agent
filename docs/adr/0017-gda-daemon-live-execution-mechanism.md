@@ -29,6 +29,24 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > brings up the persistent daemon and the harness install, and the session follows on
 > demand.
 
+> **Outcome (2026-06-22, #220) — live op-errors are minted LIVE-category,
+> classifier-source codes, one family per live op.** When `game get` / `game set`
+> added the first live ops that report *operation-level* failures (a missing node,
+> an unknown or uncoercible property — distinct from the daemon-channel failures
+> `daemon_not_running` / `engine_disconnected`), the routing forced the code shape.
+> The gda harness reports its op-error as the same ADR-0002 error envelope a
+> headless op does, but the daemon relays the harness reply verbatim with
+> **`exit_code = 0`**; the live classifier maps *only* codes whose category is
+> `LIVE` before falling back to the shared decision tree, which on exit 0 would try
+> to validate the error envelope as the success model and misreport
+> `contract_violation`. So each harness-reported op-error **must** be a registered
+> `LIVE`-category, classifier-source code (`live_node_not_found`,
+> `live_unknown_property`, `live_uncoercible_value`). They are minted per live
+> op-family (mirroring the headless `node_not_found` / `unknown_property` /
+> `uncoercible_value`) and, being classifier-source, do not enter the
+> operations.gd OP_ERROR mirror; a separate test mirrors them against the harness
+> consts.
+
 ## Decision
 
 **1. An execution-channel selector, chosen per command by a static `kind`.**

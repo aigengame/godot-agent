@@ -20,6 +20,25 @@ a Godot editor on the same project to view, run, or verify agent output — a
 [concurrent external editor](../../CONTEXT.md) — and Godot takes **no project lock**,
 so two instances can touch the project at once.
 
+> **Outcome (2026-06-22, #220) — the harness is a multi-op `match` dispatcher, and
+> it carries a duplicated-with-drift-test copy of the headless coercion helpers.**
+> Adding `game get` / `game set` turned the bootstrap harness's hardcoded
+> single-op `if op == "game-tree"` check into a `match op:` dispatcher with one
+> handler per live op — the natural shape as the live catalogue grows. More
+> consequentially, `game set` must coerce a CLI string to a property's declared
+> Godot type using the **same** table headless `node set` uses (the command
+> catalogue promises one coercion contract). The two cannot share a `.gd` module:
+> `operations.gd` runs via `godot --headless --script <abs-fs-path>` (often
+> projectless), while the harness is a `res://addons/gda_harness/` autoload inside
+> the project — no single `preload()` reaches both runtime contexts, and the
+> harness installer copies exactly one file. So the pure coercion / property-
+> introspection helpers are **duplicated verbatim** into the harness, delimited by
+> matching marker comments in both files, with a drift test asserting the two
+> blocks stay byte-identical. The duplication is a deliberate consequence of the
+> irreconcilable runtime contexts, not an oversight; if the appended-helper count
+> grows, the treatment to revisit is per-module fragments + an automatic summary
+> (the same direction RULES.md flags for central registries), under its own ADR.
+
 ## Decision
 
 **1. The harness is an installed autoload, not a runtime injection.** `gda` bundles

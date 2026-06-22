@@ -12,6 +12,8 @@ import pytest
 from gda import render as render_mod
 from gda.models import (
     EngineVersion,
+    GameGetResult,
+    GameSetResult,
     ListedNode,
     ListedScript,
     NodeGetResult,
@@ -132,6 +134,27 @@ def test_render_node_set_routes_value_through_the_helper():
         value=False,
     )
     assert render(result) == "set ..visible (bool) = false"
+
+
+def test_render_game_get_renders_runtime_properties_by_absolute_path():
+    result = GameGetResult(
+        path="/root/Main/Player",
+        name="Player",
+        type="Node2D",
+        properties=[NodeProperty(name="position", type="Vector2", value=[10.0, 20.0])],
+    )
+    rendered = render(result)
+    assert rendered == "/root/Main/Player (Node2D)\n  position (Vector2) = [10.0, 20.0]"
+
+
+def test_render_game_set_renders_the_set_runtime_property():
+    result = GameSetResult(
+        path="/root/Main/Player",
+        property="position",
+        type="Vector2",
+        value=[10.0, 20.0],
+    )
+    assert render(result) == "set /root/Main/Player.position (Vector2) = [10.0, 20.0]"
 
 
 def test_render_is_keyed_by_result_type():

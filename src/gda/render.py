@@ -29,6 +29,8 @@ from gda.models import (
     ExportGetResult,
     ExportListResult,
     ExportRunResult,
+    GameGetResult,
+    GameSetResult,
     GameTreeResult,
     NodeAddResult,
     NodeConnectSignalResult,
@@ -148,6 +150,28 @@ def render_game_tree(game: "GameTreeResult") -> str:
     runtime tree flows through the same indented outline as the on-disk scene.
     """
     return render_node_tree(game.root)
+
+
+def render_game_get(got: "GameGetResult") -> str:
+    """Render a running node's runtime properties (the live `render_node_properties`).
+
+    The runtime counterpart of ``render_node_properties``: same ``path (Type)``
+    header + ``name (Type) = value`` lines, addressed by the runtime path.
+    """
+    header = f"{got.path} ({got.type})"
+    lines = [
+        f"  {prop.name} ({prop.type}) = {format_value(prop.value)}"
+        for prop in got.properties
+    ]
+    return "\n".join([header, *lines])
+
+
+def render_game_set(was_set: "GameSetResult") -> str:
+    """Render a set runtime property as ``set <path>.<prop> (<type>) = <value>``."""
+    return (
+        f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
+        f"{format_value(was_set.value)}"
+    )
 
 
 def render_daemon_start(started: "DaemonStartResult") -> str:
@@ -552,6 +576,8 @@ _RENDERERS = {
     SceneCreateResult: render_scene_metadata,
     SceneGetResult: render_scene_tree,
     GameTreeResult: render_game_tree,
+    GameGetResult: render_game_get,
+    GameSetResult: render_game_set,
     DaemonStartResult: render_daemon_start,
     DaemonStopResult: render_daemon_stop,
     DaemonStatusResult: render_daemon_status,
