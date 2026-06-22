@@ -510,6 +510,37 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.CLASSIFIER,
         "A live perf monitor targeted a signal the running node does not declare.",
     ),
+    # Per live-operation failures the gda harness reports for `input` (#221). Same
+    # shape as the #220/#223 op-errors above: LIVE-category, classifier-source,
+    # exit_code EXIT_LIVE, harness-mirrored (a test mirrors them against the harness
+    # LIVE_ERROR_* consts). Only the failures the harness genuinely needs the LIVE
+    # engine to decide are minted (the #239 lesson): a key name the engine cannot
+    # resolve to a keycode (live_invalid_key), an action absent from the running
+    # InputMap (live_unknown_action), and a sequence event whose type the harness
+    # does not recognize (live_invalid_event_spec — the defensive arm for a request
+    # that reached the harness without passing the model). Every other malformed
+    # input is rejected model-side (ADR-0015) and never reaches the harness.
+    ErrorCodeSpec(
+        "live_invalid_key",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live input key event named a key the engine could not resolve to a keycode.",
+    ),
+    ErrorCodeSpec(
+        "live_unknown_action",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live input action targeted an action the running game's InputMap does not declare.",
+    ),
+    ErrorCodeSpec(
+        "live_invalid_event_spec",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live input sequence event has a type the harness does not recognize.",
+    ),
     # A pre-launch platform precondition, not a live-runtime failure: live needs
     # Unix domain sockets, which are UNIX-only, so it is an ENVIRONMENT-category
     # code in the binary_not_found bucket (ADR-0021), decided before any engine

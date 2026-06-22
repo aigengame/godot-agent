@@ -7,12 +7,13 @@ domain group (issue #18). Every command drives the same headless pipeline:
 binary resolution → runner → sentinel parse → typed model → JSON.
 """
 
+import json
 from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Optional
 
 import typer
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from gda.daemon_ops import (
     run_daemon_start_operation,
@@ -27,6 +28,10 @@ from gda.errors import (
     classify_game_set,
     classify_game_tree,
     classify_info,
+    classify_input_action,
+    classify_input_key,
+    classify_input_mouse,
+    classify_input_sequence,
     classify_perf_monitor,
     classify_perf_monitors,
     classify_script_validate,
@@ -76,7 +81,17 @@ from gda.models import (
     GameTreeParams,
     GameTreeResult,
     InfoParams,
+    InputActionParams,
+    InputActionResult,
+    InputKeyParams,
+    InputKeyResult,
+    InputMouseClickParams,
+    InputMouseMoveParams,
+    InputMouseResult,
+    InputSequenceParams,
+    InputSequenceResult,
     MAX_WINDOW_FRAMES,
+    MouseButton,
     PerfMonitorParams,
     PerfMonitorResult,
     PerfMonitorsParams,
@@ -280,6 +295,22 @@ perf_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(perf_app, name="perf")
+
+# The input command group (Phase 2, ADR-0019, #221): runtime input simulation into
+# the RUNNING game, served LIVE through gda-daemon (`kind = LIVE`). Single-frame
+# ops (`input key`, `input mouse-click/mouse-move`, `input action`) inject one event
+# at a frame boundary; `input sequence` reuses #223's time-windowed multi-frame base
+# to apply events across frames in one blocking call. Like `game` / `perf`, a domain-
+# object group marked live by `kind`, not by the tree (ADR-0019). The mouse ops are
+# flat two-token commands (`mouse-click` / `mouse-move`) directly under `input`, not a
+# nested `mouse` sub-group: a 3-token name would break the mechanical
+# `gda <group> <command>` → `<group>_<command>` dispatch + gda-mcp tool-name mapping
+# (ADR-0005/0011/0012).
+input_app = typer.Typer(
+    help="Inject input into the running game (live; macOS/Linux only).",
+    no_args_is_help=True,
+)
+app.add_typer(input_app, name="input")
 
 # The daemon command group (Phase 2, ADR-0017): gda's own per-project daemon
 # lifecycle — a deliberate extension of ADR-0005's domain-object grouping to an
@@ -807,6 +838,240 @@ def perf_monitor(
     _dispatch(
         PERF_MONITOR_COMMAND,
         PerfMonitorParams(node=node, property=property, signal=signal, frames=frames),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+INPUT_KEY_COMMAND: HeadlessCommand[InputKeyResult] = HeadlessCommand(
+    operation="input-key",
+    input_model=InputKeyParams,
+    output_model=InputKeyResult,
+    classify=classify_input_key,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@input_app.command(name="key", cls=INPUT_KEY_COMMAND.command_class())
+def input_key(
+    key: str = typer.Argument(
+        ..., help="A Godot key name to inject (e.g. Right, A, Space, Escape)."
+    ),
+    modifiers: list[str] = typer.Option(
+        [],
+        "--modifiers",
+        help="Modifier keys held with the key (repeatable): shift, ctrl, alt, meta.",
+    ),
+    released: bool = typer.Option(
+        False, "--released", help="Inject a key RELEASE instead of a press."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = INPUT_KEY_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Inject one key event into the running game (live).
+
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
+    pushes an InputEventKey into the running game's root viewport, so it rides the
+    game's real input flow. The harness resolves the key name to a keycode; an
+    unresolvable name is `live_invalid_key`. With no daemon it reports
+    `daemon_not_running`.
+    """
+    try:
+        params = InputKeyParams(key=key, modifiers=modifiers, released=released)
+    except (ValueError, ValidationError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _dispatch(
+        INPUT_KEY_COMMAND,
+        params,
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+INPUT_MOUSE_CLICK_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
+    operation="input-mouse-click",
+    input_model=InputMouseClickParams,
+    output_model=InputMouseResult,
+    classify=classify_input_mouse,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@input_app.command(name="mouse-click", cls=INPUT_MOUSE_CLICK_COMMAND.command_class())
+def input_mouse_click(
+    x: float = typer.Argument(..., help="The click's x position in the viewport."),
+    y: float = typer.Argument(..., help="The click's y position in the viewport."),
+    button: MouseButton = typer.Option(
+        MouseButton.LEFT,
+        "--button",
+        help="Which mouse button to click: left, right, or middle.",
+    ),
+    double: bool = typer.Option(
+        False, "--double", help="Mark the event a double click."
+    ),
+    json_output: bool = json_option(),
+    schema: bool = INPUT_MOUSE_CLICK_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Inject a mouse button click into the running game (live).
+
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
+    pushes an InputEventMouseButton at the viewport position into the running
+    game's root viewport. With no daemon it reports `daemon_not_running`.
+    """
+    _dispatch(
+        INPUT_MOUSE_CLICK_COMMAND,
+        InputMouseClickParams(x=x, y=y, button=button, double=double),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+INPUT_MOUSE_MOVE_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
+    operation="input-mouse-move",
+    input_model=InputMouseMoveParams,
+    output_model=InputMouseResult,
+    classify=classify_input_mouse,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@input_app.command(name="mouse-move", cls=INPUT_MOUSE_MOVE_COMMAND.command_class())
+def input_mouse_move(
+    x: float = typer.Argument(..., help="The motion's target x position in the viewport."),
+    y: float = typer.Argument(..., help="The motion's target y position in the viewport."),
+    json_output: bool = json_option(),
+    schema: bool = INPUT_MOUSE_MOVE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Inject a mouse motion event into the running game (live).
+
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
+    pushes an InputEventMouseMotion to the viewport position into the running
+    game's root viewport. With no daemon it reports `daemon_not_running`.
+    """
+    _dispatch(
+        INPUT_MOUSE_MOVE_COMMAND,
+        InputMouseMoveParams(x=x, y=y),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+INPUT_ACTION_COMMAND: HeadlessCommand[InputActionResult] = HeadlessCommand(
+    operation="input-action",
+    input_model=InputActionParams,
+    output_model=InputActionResult,
+    classify=classify_input_action,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@input_app.command(name="action", cls=INPUT_ACTION_COMMAND.command_class())
+def input_action(
+    action: str = typer.Argument(
+        ..., help="The input action name (must be in the running InputMap)."
+    ),
+    release: bool = typer.Option(
+        False, "--release", help="Release the action instead of pressing it."
+    ),
+    strength: float = typer.Option(
+        1.0,
+        "--strength",
+        min=0.0,
+        max=1.0,
+        help="The analog press strength, 0..1 (ignored on a release).",
+    ),
+    json_output: bool = json_option(),
+    schema: bool = INPUT_ACTION_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Press or release a named input action in the running game (live).
+
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
+    drives Input.action_press / action_release against the running InputMap, so the
+    game observes the action exactly as a real binding would fire. An action absent
+    from the InputMap is `live_unknown_action`. With no daemon it reports
+    `daemon_not_running`.
+    """
+    try:
+        params = InputActionParams(action=action, release=release, strength=strength)
+    except (ValueError, ValidationError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _dispatch(
+        INPUT_ACTION_COMMAND,
+        params,
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+INPUT_SEQUENCE_COMMAND: HeadlessCommand[InputSequenceResult] = HeadlessCommand(
+    operation="input-sequence",
+    input_model=InputSequenceParams,
+    output_model=InputSequenceResult,
+    classify=classify_input_sequence,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@input_app.command(name="sequence", cls=INPUT_SEQUENCE_COMMAND.command_class())
+def input_sequence(
+    events: str = typer.Option(
+        ...,
+        "--events",
+        help=(
+            "The events to inject, as a JSON array of event objects, each with a "
+            "'type' (key/mouse_click/mouse_move/action), an optional relative "
+            "'frame' offset, and the type's fields (e.g. "
+            '\'[{"type":"key","key":"Right","frame":0}]\').'
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = INPUT_SEQUENCE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Inject a sequence of events across frames in one blocking call (live).
+
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
+    applies the `--events` across frames at their relative frame offsets, returned
+    as one blocking result (reuses #223's time-windowed multi-frame base). A
+    malformed `--events` (not a JSON array, an empty list, or an ill-formed event)
+    is a usage error; with no daemon it reports `daemon_not_running`. An event's
+    action absent from the InputMap is `live_unknown_action`, an unresolvable key
+    `live_invalid_key`.
+    """
+    # --events is a JSON array on the argv path; the model is the source of truth for
+    # the per-event shape (ADR-0015), so a parse or validation failure is a usage
+    # error (exit 2), while --params-json surfaces the same model rule as a
+    # structured invalid_params.
+    try:
+        decoded = json.loads(events)
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter(f"--events is not valid JSON: {exc}") from exc
+    try:
+        params = InputSequenceParams(events=decoded)
+    except (ValueError, ValidationError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _dispatch(
+        INPUT_SEQUENCE_COMMAND,
+        params,
         json_output=json_output,
         godot=godot,
         project=project,

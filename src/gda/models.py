@@ -2722,6 +2722,340 @@ class PerfMonitorResult(BaseModel):
     )
 
 
+# --- input (runtime input simulation into the running game, #221) -------------
+#
+# Live input injection into the RUNNING game's engine session via the gda harness
+# (ADR-0017, ADR-0019). Key/mouse events ride the game's real input flow via the
+# root viewport's push_input; actions go through Input.action_press/release. Every
+# rule that bounds a request — the modifier set, the mouse button enum, the action
+# strength range, and the well-formedness of a sequence event — is enforced
+# MODEL-SIDE (ADR-0015), so the argv path and the --params-json path reject the
+# same malformed request with one source of truth, before it ever reaches the
+# harness. Only two failures are deferred to the harness because they need the
+# live engine to decide: a key name the engine cannot resolve to a keycode
+# (live_invalid_key) and an action the running InputMap does not declare
+# (live_unknown_action). A sequence event whose type the harness does not
+# recognize is live_invalid_event_spec — the defensive arm for a request that
+# reached the harness without passing the model (a direct daemon caller).
+
+# The keyboard modifier names a key/sequence event may carry, mapped to the
+# InputEventKey modifier flag the harness sets. Bounding the set model-side means a
+# typo'd modifier ("control" for "ctrl") is a clean usage/invalid_params error, not
+# a silently-dropped flag.
+INPUT_MODIFIERS = ("shift", "ctrl", "alt", "meta")
+
+
+class MouseButton(str, Enum):
+    """The mouse button a ``gda input mouse-click`` targets (#221).
+
+    The CLI-facing names map to Godot's ``MOUSE_BUTTON_*`` indices harness-side;
+    bounding them as an enum makes an unknown button a usage/invalid_params error
+    rather than a silently-ignored value.
+    """
+
+    LEFT = "left"
+    RIGHT = "right"
+    MIDDLE = "middle"
+
+
+def _validate_modifiers(modifiers: list[str]) -> list[str]:
+    """Reject any modifier outside the known set (the single home of the rule).
+
+    Shared by ``InputKeyParams`` and a sequence key event so the argv and
+    ``--params-json`` paths — and a sequence event nested in a JSON object —
+    validate modifiers identically (ADR-0015).
+    """
+    unknown = [m for m in modifiers if m not in INPUT_MODIFIERS]
+    if unknown:
+        raise ValueError(
+            f"unknown modifier(s) {unknown}; allowed: {list(INPUT_MODIFIERS)}."
+        )
+    return modifiers
+
+
+class InputKeyParams(BaseModel):
+    """The params of ``gda input key``: inject one key event (#221).
+
+    Pushes an ``InputEventKey`` for ``key`` (with any ``modifiers``) into the
+    running game's root viewport, so it rides the game's real input flow. ``key``
+    is a Godot key name (e.g. ``Right``, ``A``, ``Space``, ``Escape``) the harness
+    resolves with ``OS.find_keycode_from_string``; an unresolvable name is the
+    typed ``live_invalid_key`` error. By default the event is a press; ``released``
+    makes it a release. The modifier set is bounded model-side (ADR-0015).
+    """
+
+    key: str = Field(
+        min_length=1,
+        description="A Godot key name to inject (e.g. Right, A, Space, Escape).",
+    )
+    modifiers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Modifier keys held with the key, any of: shift, ctrl, alt, meta."
+        ),
+    )
+    released: bool = Field(
+        default=False,
+        description="Inject a key RELEASE instead of a press (default: press).",
+    )
+
+    @model_validator(mode="after")
+    def _check_modifiers(self) -> "InputKeyParams":
+        _validate_modifiers(self.modifiers)
+        return self
+
+
+class InputKeyResult(BaseModel):
+    """The result of ``gda input key``: the key event the harness injected (#221).
+
+    Echoes the resolved ``keycode`` (so an agent can confirm the name mapped as
+    intended), the ``key`` name, the ``modifiers`` applied, and whether it was a
+    ``pressed`` event — the live counterpart's confirmation that the event was
+    pushed at a frame boundary (ADR-0020).
+    """
+
+    kind: str = Field(default="key", description="The injected event kind ('key').")
+    key: str = Field(description="The key name that was injected.")
+    keycode: int = Field(description="The Godot keycode the name resolved to.")
+    modifiers: list[str] = Field(
+        default_factory=list, description="The modifier keys held with the key."
+    )
+    pressed: bool = Field(description="True for a press event, false for a release.")
+
+
+class InputMouseClickParams(BaseModel):
+    """The params of ``gda input mouse-click``: inject a mouse button click (#221).
+
+    Pushes an ``InputEventMouseButton`` at viewport position ``(x, y)`` into the
+    running game's root viewport. ``button`` selects which button (left/right/
+    middle); ``double`` marks the event a double click. A single-frame op (the
+    press is injected at one frame boundary, ADR-0020).
+    """
+
+    x: float = Field(description="The click's x position in the viewport.")
+    y: float = Field(description="The click's y position in the viewport.")
+    button: MouseButton = Field(
+        default=MouseButton.LEFT,
+        description="Which mouse button to click: left, right, or middle.",
+    )
+    double: bool = Field(
+        default=False, description="Mark the event a double click."
+    )
+
+
+class InputMouseMoveParams(BaseModel):
+    """The params of ``gda input mouse-move``: inject a mouse motion event (#221).
+
+    Pushes an ``InputEventMouseMotion`` to viewport position ``(x, y)`` into the
+    running game's root viewport — the runtime counterpart of moving the cursor
+    over the game. A single-frame op.
+    """
+
+    x: float = Field(description="The motion's target x position in the viewport.")
+    y: float = Field(description="The motion's target y position in the viewport.")
+
+
+class InputMouseResult(BaseModel):
+    """The result of a ``gda input mouse-click`` / ``mouse-move`` op: the mouse event injected (#221).
+
+    Echoes the event ``kind`` (``mouse_click`` or ``mouse_move``), the viewport
+    ``position`` it was pushed at as ``[x, y]``, and — for a click — the ``button``
+    and whether it was a ``double`` click (both null for a move).
+    """
+
+    kind: str = Field(description="The injected event kind: 'mouse_click' or 'mouse_move'.")
+    position: list[float] = Field(
+        description="The viewport position the event was injected at, as [x, y]."
+    )
+    button: str | None = Field(
+        default=None, description="The clicked button (a click only); null for a move."
+    )
+    double: bool | None = Field(
+        default=None, description="Whether the click was a double click; null for a move."
+    )
+
+
+class InputActionParams(BaseModel):
+    """The params of ``gda input action``: press or release an input action (#221).
+
+    Drives ``Input.action_press`` / ``Input.action_release`` for the named action,
+    so the running game observes it through its ``InputMap`` exactly as a real
+    binding would fire. ``action`` MUST be declared in the running ``InputMap`` —
+    an unknown action is the typed ``live_unknown_action`` error (validated
+    harness-side via ``InputMap.has_action``). By default the action is pressed;
+    ``release`` releases it instead. ``strength`` is the analog strength of a press,
+    0..1; it is ignored on a release.
+    """
+
+    action: str = Field(
+        min_length=1, description="The input action name (must be in the InputMap)."
+    )
+    release: bool = Field(
+        default=False, description="Release the action instead of pressing it."
+    )
+    strength: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="The analog press strength, 0..1 (ignored on a release).",
+    )
+
+
+class InputActionResult(BaseModel):
+    """The result of ``gda input action``: the action event the harness applied (#221).
+
+    Echoes the ``action`` driven, whether it was a ``pressed`` event, and the
+    ``strength`` applied (the press strength; 0.0 on a release) — confirmation the
+    action fired against the running ``InputMap`` at a frame boundary (ADR-0020).
+    """
+
+    kind: str = Field(default="action", description="The injected event kind ('action').")
+    action: str = Field(description="The action name that was driven.")
+    pressed: bool = Field(description="True for a press, false for a release.")
+    strength: float = Field(description="The press strength applied (0.0 on a release).")
+
+
+# The event types a `gda input sequence` may carry. A sequence event reuses the
+# single-frame ops' shapes (key / mouse click / mouse move / action) plus a `frame`
+# delay; the harness applies each event at its relative frame index. Bounding the
+# type model-side keeps an unknown type a usage/invalid_params error rather than a
+# request the harness must defend against (it still does, as live_invalid_event_spec).
+class InputEventType(str, Enum):
+    """The kind of one event in a ``gda input sequence`` (#221)."""
+
+    KEY = "key"
+    MOUSE_CLICK = "mouse_click"
+    MOUSE_MOVE = "mouse_move"
+    ACTION = "action"
+
+
+class InputSequenceEvent(BaseModel):
+    """One event in a ``gda input sequence``, applied at its relative frame (#221).
+
+    A tagged union over the single-frame ops: ``type`` selects the event shape and
+    ``frame`` is its 0-based relative frame offset within the window (events due at
+    the same frame index are applied together). The type-specific fields mirror the
+    single-frame params — ``key``/``modifiers``/``released`` for a key, ``x``/``y``/
+    ``button``/``double`` for a mouse click, ``x``/``y`` for a mouse move,
+    ``action``/``release``/``strength`` for an action. The required fields per type
+    and the shared bounds (modifier set, button enum, strength range) are validated
+    model-side (ADR-0015) so a malformed event is rejected before the harness runs.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: InputEventType = Field(description="The event kind.")
+    frame: int = Field(
+        default=0,
+        ge=0,
+        description="The 0-based relative frame offset to apply this event at.",
+    )
+    # key fields
+    key: str | None = Field(default=None, description="A key event's key name.")
+    modifiers: list[str] = Field(
+        default_factory=list, description="A key event's modifier keys."
+    )
+    released: bool = Field(
+        default=False, description="A key event: inject a release instead of a press."
+    )
+    # mouse fields
+    x: float | None = Field(default=None, description="A mouse event's x position.")
+    y: float | None = Field(default=None, description="A mouse event's y position.")
+    button: MouseButton | None = Field(
+        default=None, description="A mouse-click event's button."
+    )
+    double: bool = Field(
+        default=False, description="A mouse-click event: mark it a double click."
+    )
+    # action fields
+    action: str | None = Field(default=None, description="An action event's action name.")
+    release: bool = Field(
+        default=False, description="An action event: release instead of press."
+    )
+    strength: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="An action event's press strength, 0..1.",
+    )
+
+    @model_validator(mode="after")
+    def _check_event_shape(self) -> "InputSequenceEvent":
+        # Each event type requires its own fields; the shared bounds (modifier set,
+        # strength range, button enum) are enforced by the fields above. Enforced
+        # model-side (ADR-0015) so the argv JSON and --params-json paths reject the
+        # same malformed event before it reaches the harness.
+        if self.type is InputEventType.KEY:
+            if not self.key:
+                raise ValueError("a 'key' sequence event requires 'key'.")
+            _validate_modifiers(self.modifiers)
+        elif self.type is InputEventType.MOUSE_CLICK:
+            if self.x is None or self.y is None:
+                raise ValueError("a 'mouse_click' sequence event requires 'x' and 'y'.")
+        elif self.type is InputEventType.MOUSE_MOVE:
+            if self.x is None or self.y is None:
+                raise ValueError("a 'mouse_move' sequence event requires 'x' and 'y'.")
+        elif self.type is InputEventType.ACTION:
+            if not self.action:
+                raise ValueError("an 'action' sequence event requires 'action'.")
+        return self
+
+
+class InputSequenceParams(BaseModel):
+    """The params of ``gda input sequence``: inject events across frames (#221).
+
+    A multi-frame op (the time-windowed harness base, #223): ``events`` is a list of
+    :class:`InputSequenceEvent`, each applied at its relative ``frame`` index, and
+    the whole sequence returns as ONE blocking result (ADR-0017 one-shot RPC). The
+    window runs for as many frames as the largest event ``frame`` requires (at least
+    one). ``events`` must be non-empty; each event is validated model-side
+    (ADR-0015).
+
+    The window the sequence requests — ``max(frame) + 1`` frames — is bounded
+    model-side to ``MAX_WINDOW_FRAMES`` (#223). The time-windowed harness base has
+    no harness-side timeout (it relies on its driver's model bounds, as
+    ``PerfMonitorParams`` enforces via ``frames``), so an unbounded event ``frame``
+    would let a single valid request monopolise the serialised live session until
+    ``live_timeout``. Rejecting it here makes it a structured ``invalid_params`` on
+    ``--params-json`` and a usage error (exit 2) on argv, never a live stall
+    (ADR-0015).
+    """
+
+    events: list[InputSequenceEvent] = Field(
+        min_length=1,
+        description="The events to inject, each at its relative frame offset.",
+    )
+
+    @model_validator(mode="after")
+    def _check_window(self) -> "InputSequenceParams":
+        # The window spans one past the largest event frame (mirrors the harness's
+        # `max_frame + 1`). Bounding it to MAX_WINDOW_FRAMES — the same per-window
+        # ceiling perf enforces — keeps a sequence from holding the single-writer
+        # live session for an unbounded number of frames.
+        window = max(event.frame for event in self.events) + 1
+        if window > MAX_WINDOW_FRAMES:
+            raise ValueError(
+                f"the sequence requests a {window}-frame window (one past its "
+                f"largest event frame), exceeding the maximum of "
+                f"{MAX_WINDOW_FRAMES} (the gda harness's per-window ceiling). "
+                "Use smaller relative frame offsets."
+            )
+        return self
+
+
+class InputSequenceResult(BaseModel):
+    """The result of ``gda input sequence``: what the harness injected (#221).
+
+    Echoes the number of ``events`` applied and the number of ``frames`` the window
+    spanned (one past the largest event frame), confirming the whole sequence was
+    injected over the window at frame boundaries (ADR-0020).
+    """
+
+    kind: str = Field(default="sequence", description="The op kind ('sequence').")
+    events: int = Field(description="The number of events injected.")
+    frames: int = Field(description="The number of frames the window spanned.")
+
+
 class DaemonStartParams(BaseModel):
     """The params of ``gda daemon start``: none (the project is the --project context)."""
 

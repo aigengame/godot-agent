@@ -144,6 +144,9 @@ operation, and parse codes the CLI assigns).
 | `live_perf_node_not_found` | `live` | `classifier` | `6` | A live perf monitor's node path does not resolve to a node in the running scene tree (Phase 2, #223). |
 | `live_perf_property_not_found` | `live` | `classifier` | `6` | A live perf monitor targeted a property the running node does not expose for reading (Phase 2, #223). |
 | `live_perf_signal_not_found` | `live` | `classifier` | `6` | A live perf monitor targeted a signal the running node does not declare (Phase 2, #223). |
+| `live_invalid_key` | `live` | `classifier` | `6` | A live input key event named a key the engine could not resolve to a keycode (Phase 2, #221). |
+| `live_unknown_action` | `live` | `classifier` | `6` | A live input action targeted an action the running game's InputMap does not declare (Phase 2, #221). |
+| `live_invalid_event_spec` | `live` | `classifier` | `6` | A live input sequence event has a type the harness does not recognize (Phase 2, #221). |
 | `live_unsupported_platform` | `environment` | `classifier` | `127` | Live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, unavailable here. Phase-1 headless is unaffected (Phase 2, ADR-0021). |
 
 ## Considered options

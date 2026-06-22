@@ -471,8 +471,28 @@ headless is unaffected (4.4+, cross-platform).
   bound to the session, not persisted; a missing node is `live_node_not_found`, an absent
   property `live_unknown_property`, an uncoercible value `live_uncoercible_value`. The
   on-disk counterparts stay under `scene` / `node` (ADR-0019).
-- **`input` (input simulation):** key / mouse / action / sequence injection into the
-  running game; record / replay.
+- **`input` (input simulation):** runtime input injection into the running game
+  (shipped, #221). Single-frame ops `input key <KEY> [--modifiers …] [--released]`,
+  `input mouse-click <x> <y> [--button left|right|middle] [--double]` /
+  `input mouse-move <x> <y>`, and `input action <NAME> [--release] [--strength F]`
+  each inject one event at a frame boundary (ADR-0020); the multi-frame
+  `input sequence --events <JSON>` applies a list of events across frames at their
+  relative frame offsets and returns as one blocking payload, on the gda harness's
+  time-windowed multi-frame base (the same base `perf monitor` uses, #223). The
+  mouse ops are flat two-token commands (`mouse-click` / `mouse-move`), not a nested
+  `mouse` sub-group, so each maps to a single `<group>_<command>` MCP tool name
+  (ADR-0005/0011/0012). Key/mouse events ride the game's real input flow via the
+  root viewport's `push_input` (scene-aware); actions go through
+  `Input.action_press`/`action_release` against the running `InputMap`. The modifier
+  set, mouse-button enum, action strength range (0..1), per-event shape, and the
+  sequence's frame window (`max(frame)+1` ≤ the per-window ceiling, the same bound
+  `perf monitor` enforces, #223) are bounded **model-side** (ADR-0015), so an
+  out-of-contract request is a structured `invalid_params` (or argv usage error)
+  before it reaches the harness. The two failures that need the live engine
+  to decide are deferred to the harness: a key name the engine cannot resolve to a
+  keycode is `live_invalid_key`, an action absent from the running `InputMap` is
+  `live_unknown_action`; a sequence event whose type the harness does not recognize
+  is `live_invalid_event_spec`.
 - **`screen` / capture:** running-game viewport screenshot, multi-frame capture.
 - **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
   game's instantaneous Performance counters in one frame (shipped, #223); `perf

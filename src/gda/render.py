@@ -34,6 +34,10 @@ from gda.models import (
     GameGetResult,
     GameSetResult,
     GameTreeResult,
+    InputActionResult,
+    InputKeyResult,
+    InputMouseResult,
+    InputSequenceResult,
     NodeAddResult,
     NodeConnectSignalResult,
     NodeDisconnectSignalResult,
@@ -236,6 +240,34 @@ def render_perf_monitor(timeline: "PerfMonitorResult") -> str:
         f"  frame {s.frame}: {format_value(s.value)}" for s in timeline.samples
     ]
     return "\n".join([header, *rows])
+
+
+def render_input_key(injected: "InputKeyResult") -> str:
+    """Render an injected key event as ``key <name> [+ mods] <pressed|released>`` (#221)."""
+    mods = ("+" + "+".join(injected.modifiers)) if injected.modifiers else ""
+    state = "pressed" if injected.pressed else "released"
+    return f"key {injected.key}{mods} {state} (keycode {injected.keycode})"
+
+
+def render_input_mouse(injected: "InputMouseResult") -> str:
+    """Render an injected mouse event as a click or a move at its position (#221)."""
+    x, y = injected.position
+    if injected.kind == "mouse_click":
+        double = " double" if injected.double else ""
+        return f"{injected.button} click{double} at ({x}, {y})"
+    return f"mouse move to ({x}, {y})"
+
+
+def render_input_action(injected: "InputActionResult") -> str:
+    """Render an injected action event as ``action <name> <pressed|released>`` (#221)."""
+    if injected.pressed:
+        return f"action {injected.action} pressed (strength {injected.strength})"
+    return f"action {injected.action} released"
+
+
+def render_input_sequence(injected: "InputSequenceResult") -> str:
+    """Render an injected sequence as ``sequence: N events over M frames`` (#221)."""
+    return f"sequence: {injected.events} events over {injected.frames} frames"
 
 
 def render_daemon_start(started: "DaemonStartResult") -> str:
@@ -646,6 +678,10 @@ _RENDERERS = {
     DiagLogResult: render_diag_log,
     PerfMonitorsResult: render_perf_monitors,
     PerfMonitorResult: render_perf_monitor,
+    InputKeyResult: render_input_key,
+    InputMouseResult: render_input_mouse,
+    InputActionResult: render_input_action,
+    InputSequenceResult: render_input_sequence,
     DaemonStartResult: render_daemon_start,
     DaemonStopResult: render_daemon_stop,
     DaemonStatusResult: render_daemon_status,

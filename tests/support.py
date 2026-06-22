@@ -486,3 +486,43 @@ PERF_MONITOR_SIGNAL_RESULT = {
         {"frame": 2, "timestamp": 132, "args": []},
     ],
 }
+
+# Sample ``gda input`` results — the events the gda harness injected into the
+# running game, served LIVE through gda-daemon (#221). Shared by the input-command
+# success/schema tests. A key echoes the resolved keycode + modifiers; a mouse
+# event echoes its viewport position; an action echoes the press strength; a
+# sequence echoes the event count and the window length.
+INPUT_KEY_RESULT = {
+    "kind": "key",
+    "key": "Right",
+    "keycode": 4194321,
+    "modifiers": [],
+    "pressed": True,
+}
+
+INPUT_MOUSE_CLICK_RESULT = {
+    "kind": "mouse_click",
+    "position": [100.0, 200.0],
+    "button": "left",
+    "double": False,
+}
+
+INPUT_MOUSE_MOVE_RESULT = {
+    "kind": "mouse_move",
+    "position": [50.0, 60.0],
+    "button": None,
+    "double": None,
+}
+
+INPUT_ACTION_RESULT = {
+    "kind": "action",
+    "action": "jump",
+    "pressed": True,
+    "strength": 1.0,
+}
+
+INPUT_SEQUENCE_RESULT = {
+    "kind": "sequence",
+    "events": 3,
+    "frames": 5,
+}
