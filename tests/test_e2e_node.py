@@ -25,6 +25,11 @@ def _gda(*args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _no_gda_temp_siblings(project) -> bool:
+    """No ``.gda-*`` atomic-write temp file remains in the project tree."""
+    return not list(project.rglob(".gda-*"))
+
+
 def _create_scene(scene_path) -> None:
     created = _gda(
         "scene", "create", str(scene_path), "--root-type", "Node2D", "--json"
@@ -1550,3 +1555,21 @@ def test_node_connect_signal_to_missing_scene_yields_path_not_found(godot_projec
 
     err = _assert_operation_error(connected, "path_not_found")
     assert str(missing) in err["message"]
+
+
+@pytest.mark.e2e
+def test_node_add_leaves_no_temp_file_on_success(godot_project):
+    # Atomicity (issue #226): a successful node add writes through a sibling temp
+    # then renames it over the target, so no .gda-*.tmp orphan is left behind.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Sprite2D", "--name", "Hero", "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    assert _no_gda_temp_siblings(godot_project), sorted(
+        p.name for p in godot_project.rglob(".gda-*")
+    )

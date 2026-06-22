@@ -1474,7 +1474,7 @@ func _op_resource_create(params: Dictionary) -> void:
 	var created_dirs: Variant = _ensure_parent_dirs(path)
 	if created_dirs == null:
 		return  # _ensure_parent_dirs already recorded the failure
-	var save_err := ResourceSaver.save(resource, path)
+	var save_err := _atomic_save_resource(resource, path)
 	if save_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("resource", path, save_err))
 		return
@@ -1608,7 +1608,7 @@ func _op_resource_set(params: Dictionary) -> void:
 		return
 
 	resource.set(prop_name, coerced)
-	var save_err := ResourceSaver.save(resource, path)
+	var save_err := _atomic_save_resource(resource, path)
 	if save_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("resource", path, save_err))
 		return
@@ -1787,7 +1787,7 @@ func _op_theme_create(params: Dictionary) -> void:
 	var created_dirs: Variant = _ensure_parent_dirs(path)
 	if created_dirs == null:
 		return  # _ensure_parent_dirs already recorded the failure
-	var save_err := ResourceSaver.save(theme, path)
+	var save_err := _atomic_save_resource(theme, path)
 	if save_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("theme", path, save_err))
 		return
@@ -2272,13 +2272,7 @@ func _read_text_file(path: String, noun: String) -> Variant:
 # in its diagnostic). Returns true on a clean write, or false after recording the
 # failure (the caller must stop). `noun` names the asset in the diagnostic.
 func _write_text_file(path: String, source: String, noun: String) -> bool:
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(noun, path, FileAccess.get_open_error()))
-		return false
-	file.store_string(source)
-	var write_err := file.get_error()
-	file.close()
+	var write_err := _atomic_write_text(path, source)
 	if write_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(noun, path, write_err))
 		return false
@@ -3176,7 +3170,7 @@ func _repack_and_save(root: Node, path: String) -> bool:
 		root.free()
 		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
 		return false
-	var save_err := ResourceSaver.save(repacked, path)
+	var save_err := _atomic_save_resource(repacked, path)
 	root.free()
 	if save_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
@@ -3696,19 +3690,92 @@ func _save_failure_message(noun: String, path: String, save_err: Error) -> Strin
 # successful write: a disk-full/I/O error surfaces at get_error(), not at open,
 # so capture it BEFORE close() invalidates the handle — a failed write is
 # save_failed, never a phantom success over a partial or empty file. Shared by
-# script create and script set, the two ops that write script text.
+# script create and script set, the two ops that write script text. The write
+# itself goes through _atomic_write_text so a torn/failed write never tears the
+# original .gd (issue #226): a non-OK return leaves the target untouched, and we
+# translate it into the same save_failed ladder this op has always reported.
 func _write_script_file(path: String, source: String) -> bool:
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, FileAccess.get_open_error()))
-		return false
-	file.store_string(source)
-	var write_err := file.get_error()
-	file.close()
+	var write_err := _atomic_write_text(path, source)
 	if write_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
 		return false
 	return true
+
+
+# --- atomic write primitives (issue #226) -----------------------------------
+#
+# Godot's text savers (ResourceSaver for .tscn/.tres, FileAccess for .gd/.gdshader)
+# open the destination directly and truncate-in-place, so a failed save TEARS the
+# original. The engine has an atomic mode (FileAccess::set_backup_save(true)) but it
+# is not bound to GDScript, so we replicate it: write to a SAME-DIRECTORY sibling
+# temp, then DirAccess.rename_absolute(tmp, path) — a same-filesystem POSIX rename,
+# which IS bound and IS atomic. On any failure the target is left byte-untouched and
+# the temp is removed, so a concurrent reader (or our own staleness guard) never sees
+# a half-written file. Returns an Error code (OK on success); the caller keeps its
+# existing save_failed ladder and only translates a non-OK return.
+
+
+# A sibling temp path in the target's own directory (so rename is same-filesystem
+# and therefore atomic). The PID disambiguates parallel one-shot headless processes
+# writing the same target, so their temps never collide. Pure string ops, so it
+# works for res:// paths as well as absolute/user:// paths.
+#
+# The target's ORIGINAL extension is PRESERVED as the temp's trailing extension
+# (".gda-<pid>-<file>.tmp.<ext>") because ResourceSaver.save picks its saver by the
+# destination's recognized extension — a ".tmp" tail would be "File unrecognized"
+# and fail every .tscn/.tres save. FileAccess writes (.gd/.gdshader) don't care, so
+# preserving the extension is harmless there and correct for the resource path.
+func _atomic_temp_path(path: String) -> String:
+	var ext := path.get_extension()
+	var suffix := ".tmp" if ext.is_empty() else ".tmp." + ext
+	return path.get_base_dir().path_join(".gda-" + str(OS.get_process_id()) + "-" + path.get_file() + suffix)
+
+
+# Remove a file if it exists, swallowing the outcome — used to clean up a temp on a
+# failed atomic write, where the write error is what we want to report, not a
+# secondary cleanup error.
+func _remove_quiet(path: String) -> void:
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
+
+
+# Save `res` to `path` atomically: ResourceSaver.save to a sibling temp, then rename
+# the temp over the target. Returns OK on success, or the first non-OK Error (with
+# the temp removed and the target untouched).
+func _atomic_save_resource(res: Resource, path: String) -> int:
+	var tmp := _atomic_temp_path(path)
+	var save_err := ResourceSaver.save(res, tmp)
+	if save_err != OK:
+		_remove_quiet(tmp)
+		return save_err
+	var rename_err := DirAccess.rename_absolute(tmp, path)
+	if rename_err != OK:
+		_remove_quiet(tmp)
+		return rename_err
+	return OK
+
+
+# Write `content` to `path` atomically as RAW TEXT: store into a sibling temp,
+# capture the write error BEFORE close() invalidates the handle (a disk-full/I/O
+# error surfaces at get_error(), not at open), then rename the temp over the target.
+# Returns OK on success, or the first non-OK Error (with the temp removed and the
+# target untouched).
+func _atomic_write_text(path: String, content: String) -> int:
+	var tmp := _atomic_temp_path(path)
+	var file := FileAccess.open(tmp, FileAccess.WRITE)
+	if file == null:
+		return FileAccess.get_open_error()
+	file.store_string(content)
+	var write_err := file.get_error()
+	file.close()
+	if write_err != OK:
+		_remove_quiet(tmp)
+		return write_err
+	var rename_err := DirAccess.rename_absolute(tmp, path)
+	if rename_err != OK:
+		_remove_quiet(tmp)
+		return rename_err
+	return OK
 
 
 # Record a successful result: emit it through the sentinel contract and mark
