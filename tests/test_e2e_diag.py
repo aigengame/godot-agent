@@ -19,6 +19,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 
 import pytest
 
@@ -70,6 +71,24 @@ def test_diag_reads_back_a_known_runtime_error_and_log_line(tmp_path, daemon_run
             timeout=90,
         )
 
+    # `gda diag` is best-effort over the live Session log (ADR-0022): the FIRST diag
+    # call is what launches the (cold) session, and `daemon start` does not auto-spawn
+    # one, so the game's `_ready` (which push_errors / prints) has not necessarily run
+    # and flushed when the first read lands. Poll the daemon-owned log until the known
+    # marker appears — this mirrors the real "run the game, then observe" workflow.
+    def poll_diag(sub, key, needle, timeout=25.0):
+        deadline = time.monotonic() + timeout
+        last = []
+        while time.monotonic() < deadline:
+            proc = run("diag", sub)
+            assert proc.returncode == 0, proc.stdout + proc.stderr
+            last = json.loads(proc.stdout)[key]
+            texts = [it["message"] if isinstance(it, dict) else it for it in last]
+            if any(needle in t for t in texts):
+                return last
+            time.sleep(1.0)
+        return last
+
     try:
         started = run("daemon", "start")
         assert started.returncode == 0, started.stdout + started.stderr
@@ -77,17 +96,14 @@ def test_diag_reads_back_a_known_runtime_error_and_log_line(tmp_path, daemon_run
         # diag errors: the daemon launches the session (with --log-file), the game
         # push_errors at _ready, and the daemon reads the structured error back from
         # the Session log it owns — even though the project disables file logging.
-        errors = run("diag", "errors")
-        assert errors.returncode == 0, errors.stdout + errors.stderr
-        error_docs = json.loads(errors.stdout)["errors"]
+        error_docs = poll_diag("errors", "errors", "known error")
         known = [e for e in error_docs if "known error" in e["message"]]
         assert known, error_docs
-        assert known[0]["level"] == "error"
+        # push_error surfaces as an error-class diagnostic (ERROR / SCRIPT ERROR).
+        assert known[0]["level"] in ("error", "script_error"), known[0]
 
         # diag log: the SAME session's captured output stream carries the print line.
-        log = run("diag", "log")
-        assert log.returncode == 0, log.stdout + log.stderr
-        lines = json.loads(log.stdout)["lines"]
+        lines = poll_diag("log", "lines", "known line")
         assert any("known line" in line for line in lines), lines
     finally:
         run("daemon", "stop")
