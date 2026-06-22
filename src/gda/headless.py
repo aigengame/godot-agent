@@ -175,8 +175,17 @@ def schema_command_class(
         def parse_args(self, ctx: typer.Context, args: list[str]) -> list[str]:
             if "--schema" in args:
                 self._parse_relaxed(ctx, args)
+                # Carry the command's static execution channel (ADR-0017) from
+                # the one source of truth — the backing ``HeadlessCommand.kind``
+                # — into the self-description (issue #230). ``ExecutionKind``
+                # subclasses ``str``, so it serializes as the lowercase value
+                # ("headless"/"export"/"live"). ``None`` for the bare ``gda
+                # schema`` meta command, which has no backing command to run.
+                kind = command.kind if command is not None else None
                 typer.echo(
-                    CommandSchema.of(input_model, output_model).model_dump_json()
+                    CommandSchema.of(
+                        input_model, output_model, kind=kind
+                    ).model_dump_json()
                 )
                 raise typer.Exit()
             if command is not None and "--params-json" in args:
