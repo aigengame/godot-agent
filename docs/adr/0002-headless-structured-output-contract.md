@@ -98,6 +98,7 @@ operation, and parse codes the CLI assigns).
 | `already_exists` | `operation` | `operation` | `4` | A create operation target already exists and will not be overwritten. |
 | `save_failed` | `operation` | `operation` | `4` | A scene could not be packed or saved. |
 | `delete_failed` | `operation` | `operation` | `4` | A file could not be removed from disk. |
+| `file_changed_externally` | `operation` | `operation` | `4` | A read-modify-write operation's target file changed on disk between the read and the write, so the write was refused to avoid clobbering the external edit. |
 | `project_not_found` | `operation` | `operation` | `4` | An operation that enumerates a project's `res://` tree ran without a resolved Godot project. |
 | `path_not_found` | `operation` | `operation` | `4` | A requested file does not exist. |
 | `not_a_scene` | `operation` | `operation` | `4` | A requested file cannot be loaded as a `PackedScene`. |

@@ -154,6 +154,13 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A file could not be removed from disk.",
     ),
     ErrorCodeSpec(
+        "file_changed_externally",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A read-modify-write operation's target file changed on disk between the read and the write, so the write was refused to avoid clobbering the external edit.",
+    ),
+    ErrorCodeSpec(
         "project_not_found",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
