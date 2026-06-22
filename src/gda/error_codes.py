@@ -459,7 +459,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "A live game set targeted a property the running node does not declare as settable.",
+        "A live game get or set targeted a property the running node does not expose for the requested operation (no such readable storage property for get, or no such settable property for set).",
     ),
     ErrorCodeSpec(
         "live_uncoercible_value",
