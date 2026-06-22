@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.31](https://github.com/aigengame/godot-agent/compare/v0.1.30...v0.1.31) (2026-06-22)
+
+
+### Features
+
+* perf — runtime performance monitoring + the time-windowed live base ([#223](https://github.com/aigengame/godot-agent/issues/223)) ([#239](https://github.com/aigengame/godot-agent/issues/239)) ([385ecb8](https://github.com/aigengame/godot-agent/commit/385ecb8a1ba8ffee03da1f9ce5fbcb057c6ab799))
+
 ## [0.1.30](https://github.com/aigengame/godot-agent/compare/v0.1.29...v0.1.30) (2026-06-22)
 
 
