@@ -20,26 +20,67 @@ const LAUNCH_MARKER := "gda-daemon"
 const RESULT_BEGIN := "<<<GDA:RESULT>>>"
 const RESULT_END := "<<<GDA:END>>>"
 
-# The live operations this harness serves, keyed by their wire op name (#220).
+# The live operations this harness serves, keyed by their wire op name (#220, #223).
 const OP_GAME_TREE := "game-tree"
 const OP_GAME_GET := "game-get"
 const OP_GAME_SET := "game-set"
+const OP_PERF_MONITORS := "perf-monitors"
+const OP_PERF_MONITOR := "perf-monitor"
 
-# The per-op LIVE failure codes the harness reports in-band (#220). Each MUST be a
-# registered LIVE-category code (src/gda/error_codes.py) so the daemon's exit-0
+# The per-op LIVE failure codes the harness reports in-band (#220, #223). Each MUST
+# be a registered LIVE-category code (src/gda/error_codes.py) so the daemon's exit-0
 # relay is mapped by classify_live, not misrouted to contract_violation; a Python
 # mirror test (tests/test_error_registry.py) keeps these in sync with the registry.
 const LIVE_ERROR_NODE_NOT_FOUND := "live_node_not_found"
 const LIVE_ERROR_UNKNOWN_PROPERTY := "live_unknown_property"
 const LIVE_ERROR_UNCOERCIBLE_VALUE := "live_uncoercible_value"
+const LIVE_ERROR_PERF_NODE_NOT_FOUND := "live_perf_node_not_found"
+const LIVE_ERROR_PERF_PROPERTY_NOT_FOUND := "live_perf_property_not_found"
+const LIVE_ERROR_PERF_SIGNAL_NOT_FOUND := "live_perf_signal_not_found"
+const LIVE_ERROR_PERF_TIMEOUT := "live_perf_timeout"
+
+# The frame count a time-windowed op may request before the harness clamps it
+# (#223). A window collects one sample per frame, so an unbounded N would block the
+# RPC for an unbounded time; this bounds the collection to a generous ceiling.
+const MAX_WINDOW_FRAMES := 600
+
+# A window's hard frame budget guard (#223). A window finalizes when it has
+# collected its requested frame count, but if the engine stalls (a crash mid-window,
+# a frame that never advances) the window must still fail rather than hang the RPC
+# forever — the time-windowed analogue of the _pending_frames > 300 boot guard. The
+# ceiling is the max requestable frames plus headroom for the few-frame settle.
+const WINDOW_FRAME_LIMIT := MAX_WINDOW_FRAMES + 60
 
 var _peer: StreamPeerUDS = null
 var _authed := false
 var _pending = null
 var _pending_frames := 0
+# The active time-windowed collection, or null when none is running (#223). A
+# multi-frame handler sets this from _run instead of returning a payload; the
+# _process loop then advances it one frame per tick until it finalizes. See
+# _begin_window / _advance_window.
+var _window_state = null
 
 
 func _ready() -> void:
+	_perf_monitors = {
+		"fps": Performance.TIME_FPS,
+		"process_time": Performance.TIME_PROCESS,
+		"physics_process_time": Performance.TIME_PHYSICS_PROCESS,
+		"static_memory": Performance.MEMORY_STATIC,
+		"static_memory_max": Performance.MEMORY_STATIC_MAX,
+		"object_count": Performance.OBJECT_COUNT,
+		"node_count": Performance.OBJECT_NODE_COUNT,
+		"orphan_node_count": Performance.OBJECT_ORPHAN_NODE_COUNT,
+		"resource_count": Performance.OBJECT_RESOURCE_COUNT,
+		"draw_calls": Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME,
+		"objects_in_frame": Performance.RENDER_TOTAL_OBJECTS_IN_FRAME,
+		"primitives_in_frame": Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME,
+		"video_memory": Performance.RENDER_VIDEO_MEM_USED,
+		"physics_2d_active_objects": Performance.PHYSICS_2D_ACTIVE_OBJECTS,
+		"physics_3d_active_objects": Performance.PHYSICS_3D_ACTIVE_OBJECTS,
+		"navigation_active_maps": Performance.NAVIGATION_ACTIVE_MAPS,
+	}
 	var user_args := OS.get_cmdline_user_args()
 	var idx := user_args.find(LAUNCH_MARKER)
 	if idx == -1 or idx + 2 >= user_args.size():
@@ -62,6 +103,13 @@ func _process(_delta: float) -> void:
 	if _peer == null or not _authed:
 		return
 	_peer.poll()
+	# A time-windowed op owns the connection until it finalizes (#223): advance it
+	# one frame and serve nothing else this tick, so per-frame samples stay
+	# frame-coherent (ADR-0020) and the single-writer order is preserved (one op at
+	# a time). _advance_window replies once and clears _window_state when done.
+	if _window_state != null:
+		_advance_window()
+		return
 	# Read one pending request when a full length prefix is available; the body
 	# follows in the same daemon write, so get_data does not block in practice.
 	if _pending == null and _peer.get_available_bytes() >= 4:
@@ -77,8 +125,13 @@ func _process(_delta: float) -> void:
 	if _pending != null:
 		_pending_frames += 1
 		if get_tree().current_scene != null or _pending_frames > 300:
-			_send_frame(_run(_pending).to_utf8_buffer())
+			# _run returns a finished sentinel payload for a single-frame op (reply
+			# now), or null when the handler instead opened a multi-frame window
+			# (_window_state is set) — then the loop above drives it to completion.
+			var reply: Variant = _run(_pending)
 			_pending = null
+			if reply != null:
+				_send_frame((reply as String).to_utf8_buffer())
 
 
 func _send_frame(payload: PackedByteArray) -> void:
@@ -86,11 +139,72 @@ func _send_frame(payload: PackedByteArray) -> void:
 	_peer.put_data(payload)
 
 
-# Dispatch one live request to its handler by op name (#220). A request is the
-# ADR-0002 {"op", "params"} envelope the daemon relays verbatim; each handler
-# returns a full sentinel-framed payload (a success via _ok or a failure via
-# _error), so adding an op is one match arm + one handler.
-func _run(request) -> String:
+# --- Time-windowed multi-frame base (#223) ------------------------------------
+# A multi-frame handler does not return a finished payload from _run; instead it
+# calls _begin_window with a per-frame `sample` Callable and a `finalize` Callable,
+# returning null so _process keeps ticking. Each subsequent frame, _advance_window
+# calls `sample` once (frame-coherent, ADR-0020) and accumulates its return into a
+# samples Array; once `frames` samples are collected (or an error sample is
+# returned) it calls `finalize(samples)` for the final payload and replies once.
+# A hard frame budget (WINDOW_FRAME_LIMIT) fails with live_perf_timeout so a
+# stalled/crashed engine cannot hang the RPC forever. #221's capture op reuses
+# this same base by adding its own sample/finalize Callables — no _process change.
+
+# Open a window: store its frame budget, sampler, and finalizer, then let
+# _process drive it. `frames` is the number of per-frame samples to collect,
+# clamped to MAX_WINDOW_FRAMES. Returns null so _run's caller does not reply now.
+func _begin_window(frames: int, sample: Callable, finalize: Callable) -> Variant:
+	var budget := clampi(frames, 1, MAX_WINDOW_FRAMES)
+	_window_state = {
+		"budget": budget,
+		"elapsed": 0,
+		"samples": [],
+		"sample": sample,
+		"finalize": finalize,
+	}
+	return null
+
+
+# Advance the active window one frame. Collects one sample; finalizes once the
+# frame budget is met. A sample handler may abort the window early by returning a
+# Dictionary carrying an "error" key (e.g. a node that vanished mid-window) — that
+# envelope is sent verbatim. The frame ceiling is the time-windowed boot-guard.
+func _advance_window() -> void:
+	var state: Dictionary = _window_state
+	state["elapsed"] = int(state["elapsed"]) + 1
+	if int(state["elapsed"]) > WINDOW_FRAME_LIMIT:
+		_finish_window(_error(LIVE_ERROR_PERF_TIMEOUT,
+				"time-windowed collection did not complete within "
+				+ str(WINDOW_FRAME_LIMIT) + " frames"))
+		return
+	var sampler: Callable = state["sample"]
+	var sampled: Variant = sampler.call()
+	# A sampler may abort the window by returning a Dictionary with an "error" key
+	# (e.g. the monitored node was freed mid-window): send that envelope verbatim.
+	if typeof(sampled) == TYPE_DICTIONARY and (sampled as Dictionary).has("error"):
+		_finish_window(RESULT_BEGIN + JSON.stringify(sampled) + RESULT_END)
+		return
+	var samples: Array = state["samples"]
+	samples.append(sampled)
+	if samples.size() >= int(state["budget"]):
+		var finalizer: Callable = state["finalize"]
+		_finish_window(finalizer.call(samples))
+
+
+# Reply once with a window's final payload and clear the window so the loop
+# resumes serving the next request.
+func _finish_window(payload: String) -> void:
+	_window_state = null
+	_send_frame(payload.to_utf8_buffer())
+
+
+# Dispatch one live request to its handler by op name (#220, #223). A request is
+# the ADR-0002 {"op", "params"} envelope the daemon relays verbatim. A single-frame
+# handler returns a full sentinel-framed payload (success via _ok, failure via
+# _error). A multi-frame handler instead opens a window via _begin_window and
+# returns null, so _process keeps ticking. Adding an op is one match arm + one
+# handler.
+func _run(request) -> Variant:
 	if typeof(request) != TYPE_DICTIONARY:
 		return _error("operation_failed", "unsupported live operation")
 	var op: Variant = request.get("op")
@@ -104,6 +218,10 @@ func _run(request) -> String:
 			return _handle_game_get(params)
 		OP_GAME_SET:
 			return _handle_game_set(params)
+		OP_PERF_MONITORS:
+			return _handle_perf_monitors()
+		OP_PERF_MONITOR:
+			return _handle_perf_monitor(params)
 		_:
 			return _error("operation_failed", "unsupported live operation")
 
@@ -186,6 +304,171 @@ func _handle_game_set(params: Dictionary) -> String:
 		"type": _type_name(declared_type),
 		"value": _jsonify(node.get(prop_name)),
 	})
+
+
+# --- perf (runtime performance monitoring, #223) ------------------------------
+
+# The performance monitors snapshotted by `perf monitors`, keyed by their public
+# name. Each entry pairs the human/wire name with the Godot Performance.Monitor
+# enum to sample (#223). Built once at _ready (a plain var, not a const, so the
+# initializer is an ordinary runtime expression and never a const-expression
+# concern). One source of truth so the snapshot and any docs stay in step; the
+# breadth covers timing, memory, object counts, render stats, and the active
+# physics/navigation object counts.
+var _perf_monitors := {}
+
+
+# perf monitors: snapshot the running game's performance monitors in one frame —
+# the instantaneous counters Godot's Performance singleton exposes (fps, frame
+# timing, memory, object/node counts, render stats, active physics/navigation
+# objects). Single-frame and frame-coherent (ADR-0020): every value reads on the
+# same _process tick. The value's type is the Godot type Performance.get_monitor
+# returns (a float), reported so a consumer need not guess.
+func _handle_perf_monitors() -> String:
+	var monitors := {}
+	for name in _perf_monitors:
+		var value: float = Performance.get_monitor(_perf_monitors[name])
+		monitors[name] = {
+			"name": name,
+			"type": _type_name(typeof(value)),
+			"value": _jsonify(value),
+		}
+	return _ok({
+		"timestamp": Time.get_ticks_msec(),
+		"monitors": monitors,
+	})
+
+
+# perf monitor: collect a per-frame timeline over a window (#223) — either a
+# property's value each frame (--property) or a signal's emissions over the window
+# (--signal). The first time-windowed live op, built on the multi-frame base: it
+# resolves and validates up front (a missing node / property / signal fails
+# immediately), then opens a window whose sampler runs once per frame. The reply
+# is one blocking payload carrying the whole timeline (ADR-0017 one-shot RPC).
+func _handle_perf_monitor(params: Dictionary) -> Variant:
+	var path := _string_param(params, "node")
+	var node := _resolve_runtime_node(path)
+	if node == null:
+		return _error(LIVE_ERROR_PERF_NODE_NOT_FOUND,
+				"no node at runtime path: " + path)
+
+	var frames := _int_param(params, "frames", 1)
+	var prop_name := _string_param(params, "property")
+	var signal_name := _string_param(params, "signal")
+
+	if params.has("signal") and not signal_name.is_empty():
+		return _begin_signal_monitor(node, path, signal_name, frames)
+	if params.has("property") and not prop_name.is_empty():
+		return _begin_property_monitor(node, path, prop_name, frames)
+	# Neither selector given: a property monitor with an empty property is an
+	# unknown property, the clearest of the two for a malformed request.
+	return _error(LIVE_ERROR_PERF_PROPERTY_NOT_FOUND,
+			"node " + path + " perf monitor needs a --property or --signal")
+
+
+# Open a property timeline window: validate the property is readable, then sample
+# its jsonified value each frame. The sampler re-resolves nothing — the node is
+# captured — but a node freed mid-window yields a typed error sample that aborts
+# the window cleanly.
+func _begin_property_monitor(node: Node, path: String, prop_name: String, frames: int) -> Variant:
+	if _property_type(node, prop_name) == TYPE_NIL:
+		return _error(LIVE_ERROR_PERF_PROPERTY_NOT_FOUND,
+				"node " + path + " has no readable property: " + prop_name)
+	var node_ref: WeakRef = weakref(node)
+	var frame_box := {"n": 0}
+	var sample := func() -> Variant:
+		var live: Node = node_ref.get_ref()
+		if live == null:
+			return {"error": {
+				"code": LIVE_ERROR_PERF_NODE_NOT_FOUND,
+				"message": "node " + path + " was freed during monitoring",
+			}}
+		var entry := {
+			"frame": int(frame_box["n"]),
+			"timestamp": Time.get_ticks_msec(),
+			"value": _jsonify(live.get(prop_name)),
+		}
+		frame_box["n"] = int(frame_box["n"]) + 1
+		return entry
+	var finalize := func(samples: Array) -> String:
+		return _ok({
+			"node": path,
+			"kind": "property",
+			"property": prop_name,
+			"frames": samples.size(),
+			"samples": samples,
+		})
+	return _begin_window(frames, sample, finalize)
+
+
+# Open a signal timeline window: validate the signal exists, connect a recorder
+# that appends each emission ({frame, args, timestamp}), and sample the current
+# frame index each frame. On finalize, disconnect and return the recorded
+# emissions. The per-frame sample drives the window's clock; the recorder runs on
+# the signal's own emission, so an emission is tagged with the frame it landed in.
+func _begin_signal_monitor(node: Node, path: String, signal_name: String, frames: int) -> Variant:
+	var arg_count := _signal_arg_count(node, signal_name)
+	if arg_count < 0:
+		return _error(LIVE_ERROR_PERF_SIGNAL_NOT_FOUND,
+				"node " + path + " has no signal: " + signal_name)
+	var emissions: Array = []
+	var frame_box := {"n": 0}
+	# A signal carries a fixed declared arg count; a recorder Callable connected to
+	# a signal must accept at least that many positional args. A max-arity recorder
+	# (4 defaulted params) accepts any signal up to 4 args, and the declared count
+	# (captured above) tells it exactly how many of its params are real emission
+	# args — so a legitimate null arg within the declared arity is preserved and a
+	# trailing default is never mistaken for one.
+	var recorder := func(arg0 = null, arg1 = null, arg2 = null, arg3 = null) -> void:
+		var all_args := [arg0, arg1, arg2, arg3]
+		var args: Array = []
+		for i in mini(arg_count, all_args.size()):
+			args.append(_jsonify(all_args[i]))
+		emissions.append({
+			"frame": int(frame_box["n"]),
+			"timestamp": Time.get_ticks_msec(),
+			"args": args,
+		})
+	node.connect(signal_name, recorder)
+	var node_ref: WeakRef = weakref(node)
+	var sample := func() -> Variant:
+		frame_box["n"] = int(frame_box["n"]) + 1
+		return null
+	var finalize := func(_samples: Array) -> String:
+		var live: Node = node_ref.get_ref()
+		if live != null and live.is_connected(signal_name, recorder):
+			live.disconnect(signal_name, recorder)
+		return _ok({
+			"node": path,
+			"kind": "signal",
+			"signal": signal_name,
+			"frames": frames,
+			"emissions": emissions,
+		})
+	return _begin_window(frames, sample, finalize)
+
+
+# The declared positional argument count of `node`'s signal by this name, or -1
+# when the node declares no such signal — read from get_signal_list (the runtime
+# signal surface, including script-declared signals). Validating off the signal
+# list, not a try/connect (which only fails at emit time), and the arg count
+# bounds how many emission args the recorder records.
+func _signal_arg_count(node: Node, signal_name: String) -> int:
+	for sig in node.get_signal_list():
+		if String(sig.get("name", "")) == signal_name:
+			var args: Variant = sig.get("args", [])
+			return (args as Array).size() if typeof(args) == TYPE_ARRAY else 0
+	return -1
+
+
+# Read an int param defensively (the params arrive as arbitrary JSON): a missing or
+# non-numeric value falls back to `fallback` rather than crashing a typed
+# assignment, so a malformed param degrades gracefully.
+func _int_param(params: Dictionary, key: String, fallback: int) -> int:
+	var value: Variant = params.get(key, fallback)
+	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
+		return int(value)
+	return fallback
 
 
 # Resolve a node by its ABSOLUTE runtime path (e.g. /root/Main/Player), the form
