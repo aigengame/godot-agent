@@ -70,6 +70,7 @@ from gda.models import (
     GameTreeParams,
     GameTreeResult,
     InfoParams,
+    MAX_WINDOW_FRAMES,
     PerfMonitorParams,
     PerfMonitorResult,
     PerfMonitorsParams,
@@ -664,7 +665,11 @@ def perf_monitor(
         60,
         "--frames",
         min=1,
-        help="The number of frames to collect over (the harness clamps an excessive value).",
+        max=MAX_WINDOW_FRAMES,
+        help=(
+            f"The number of frames to collect over, 1..{MAX_WINDOW_FRAMES} (the "
+            "gda harness's per-window ceiling)."
+        ),
     ),
     json_output: bool = json_option(),
     schema: bool = PERF_MONITOR_COMMAND.schema_option(),
@@ -683,6 +688,14 @@ def perf_monitor(
     property `live_perf_property_not_found`, an absent signal
     `live_perf_signal_not_found`.
     """
+    # Exactly one of --property/--signal is required (the same rule the model
+    # enforces for --params-json). On the argv path it is a usage error (exit 2),
+    # keeping the argv ergonomics, mirroring `script create`'s --content/--extends
+    # check; --params-json surfaces the same rule as a structured invalid_params.
+    if property is not None and signal is not None:
+        raise typer.BadParameter("--property and --signal are mutually exclusive.")
+    if property is None and signal is None:
+        raise typer.BadParameter("perf monitor needs --property or --signal.")
     _dispatch(
         PERF_MONITOR_COMMAND,
         PerfMonitorParams(node=node, property=property, signal=signal, frames=frames),

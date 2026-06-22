@@ -57,10 +57,12 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > per frame (frame-coherent, ADR-0020), and replies **once** with the whole timeline
 > when the budget is met. This keeps the **one-shot RPC** this ADR prescribes — the
 > client still issues one request and blocks for one reply — while the collection
-> itself is multi-frame. A bounded frame ceiling fails a stalled/crashed window with
-> `live_perf_timeout` (the time-windowed analogue of the boot guard), so a hung
-> engine cannot hang the RPC forever. The base is general: #222's viewport capture
-> reuses it by supplying its own sampler/finalizer, with no `_process` change.
+> itself is multi-frame. The window finalizes on its sample count and the requested
+> frame count is bounded model-side (`PerfMonitorParams`, ADR-0015), so the window
+> has no timeout of its own; a genuinely stalled engine — which never advances the
+> window at all — is caught by the daemon-level `live_timeout`, the real
+> stalled-engine guard. The base is general: #222's viewport capture reuses it by
+> supplying its own sampler/finalizer, with no `_process` change.
 
 ## Decision
 

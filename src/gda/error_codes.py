@@ -471,8 +471,10 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
     # Per live-operation failures the gda harness reports for `perf` (#223). Same
     # shape as the #220 game op-errors above: LIVE-category, classifier-source,
     # exit_code EXIT_LIVE, harness-mirrored (a test mirrors them against the harness
-    # LIVE_ERROR_* consts). live_perf_timeout is reported by the harness's
-    # time-windowed base when a collection cannot complete within its frame budget.
+    # LIVE_ERROR_* consts). A stalled/crashed engine is caught by the daemon-level
+    # `live_timeout`, not a perf-specific code: the time-windowed base finalizes on
+    # sample count (reached before any frame ceiling), so it never emits its own
+    # timeout — there is no `live_perf_timeout`.
     ErrorCodeSpec(
         "live_perf_node_not_found",
         ErrorCategory.LIVE,
@@ -493,13 +495,6 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
         "A live perf monitor targeted a signal the running node does not declare.",
-    ),
-    ErrorCodeSpec(
-        "live_perf_timeout",
-        ErrorCategory.LIVE,
-        EXIT_LIVE,
-        ErrorCodeSource.CLASSIFIER,
-        "A live perf time-windowed collection did not complete within the harness's frame budget.",
     ),
     # A pre-launch platform precondition, not a live-runtime failure: live needs
     # Unix domain sockets, which are UNIX-only, so it is an ENVIRONMENT-category

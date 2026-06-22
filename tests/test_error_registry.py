@@ -47,7 +47,6 @@ HARNESS_LIVE_ERROR_CODES = (
     "live_perf_node_not_found",
     "live_perf_property_not_found",
     "live_perf_signal_not_found",
-    "live_perf_timeout",
 )
 
 
@@ -150,3 +149,21 @@ def test_gdscript_harness_live_error_codes_mirror_python_harness_subset():
     for code in mirrored_codes:
         spec = ERROR_CODE_BY_CODE[code]
         assert spec.category is ErrorCategory.LIVE
+
+
+HARNESS_MAX_WINDOW_FRAMES = re.compile(
+    r'^const MAX_WINDOW_FRAMES := (\d+)$', re.MULTILINE
+)
+
+
+def test_max_window_frames_mirrors_the_harness_const():
+    # The time-windowed frame ceiling is bounded model-side (PerfMonitorParams,
+    # ADR-0015) by gda.models.MAX_WINDOW_FRAMES, mirroring the harness's
+    # MAX_WINDOW_FRAMES const so the model rejects exactly what the harness would
+    # otherwise have to defend against. Keep the two in sync.
+    from gda.models import MAX_WINDOW_FRAMES
+
+    harness = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    match = HARNESS_MAX_WINDOW_FRAMES.search(harness)
+    assert match is not None, "MAX_WINDOW_FRAMES const missing from gda_harness.gd"
+    assert int(match.group(1)) == MAX_WINDOW_FRAMES

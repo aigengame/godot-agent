@@ -260,32 +260,6 @@ def test_perf_monitor_unknown_signal_reports_live_perf_signal_not_found(monkeypa
     assert json.loads(result.stdout)["error"]["code"] == "live_perf_signal_not_found"
 
 
-def test_perf_monitor_timeout_reports_live_perf_timeout(monkeypatch, tmp_path):
-    # The harness time-windowed base reports live_perf_timeout when a collection
-    # cannot complete within its frame budget; it is a LIVE-category code, so
-    # classify_live maps it (exit EXIT_LIVE), not the contract_violation fallthrough.
-    inject_live_runner(
-        monkeypatch,
-        RunResult(
-            stdout=error_sentinel("live_perf_timeout", "did not complete in budget"),
-            stderr="",
-            exit_code=0,
-        ),
-    )
-
-    result = CliRunner().invoke(
-        app,
-        [
-            "perf", "monitor", "/root/Main/Player",
-            "--property", "position",
-            "--project", str(_project(tmp_path)), "--json",
-        ],
-    )
-
-    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
-    assert json.loads(result.stdout)["error"]["code"] == "live_perf_timeout"
-
-
 def test_perf_monitor_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
 
@@ -300,6 +274,70 @@ def test_perf_monitor_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
     assert json.loads(result.stdout)["error"]["code"] == "daemon_not_running"
+
+
+# --- argv selector / frames validation (#239) ---------------------------------
+# Exactly one of --property/--signal is required and --frames is bounded. On the
+# argv path these are usage errors (exit 2), the engine is never reached; the
+# --params-json path surfaces them as the structured invalid_params error (see
+# tests/test_params_json.py). Both forms derive from the one PerfMonitorParams
+# model (ADR-0015), so neither can bypass the rule.
+
+
+def test_perf_monitor_argv_both_selectors_is_a_usage_error(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(PERF_MONITOR_PROPERTY_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "perf", "monitor", "/root/Main/Player",
+            "--property", "position", "--signal", "hit",
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert fake.calls == []
+
+
+def test_perf_monitor_argv_no_selector_is_a_usage_error(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(PERF_MONITOR_PROPERTY_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "perf", "monitor", "/root/Main/Player",
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert fake.calls == []
+
+
+def test_perf_monitor_argv_frames_over_range_is_a_usage_error(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(PERF_MONITOR_PROPERTY_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "perf", "monitor", "/root/Main/Player",
+            "--property", "position", "--frames", "601",
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert fake.calls == []
 
 
 def test_perf_monitor_schema_reports_kind_live_and_is_self_describing():

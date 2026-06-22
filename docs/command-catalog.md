@@ -480,9 +480,12 @@ headless is unaffected (4.4+, cross-platform).
   property/signal timeline over N frames and returns it as one blocking payload
   (shipped, #223). The time-windowed collection runs on the gda harness's multi-frame
   base — per-frame accumulation, replied once (ADR-0017 one-shot RPC, ADR-0020
-  multi-frame). A missing node is `live_perf_node_not_found`, an absent property
-  `live_perf_property_not_found`, an absent signal `live_perf_signal_not_found`, and a
-  collection that overruns its frame budget `live_perf_timeout`.
+  multi-frame). The `--frames` count is bounded model-side (1..600, ADR-0015) and
+  exactly one of `--property`/`--signal` is required, so an over-range or ambiguous
+  request is a structured `invalid_params` before it reaches the harness. A missing
+  node is `live_perf_node_not_found`, an absent property `live_perf_property_not_found`,
+  an absent signal `live_perf_signal_not_found`; a genuinely stalled engine is caught
+  by the daemon-level `live_timeout`.
 - **diagnostics:** runtime errors and output log of the running game.
 - **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status`, and `gda daemon
   install` / `uninstall` for the `gda harness` (ADR-0018).

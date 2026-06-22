@@ -143,7 +143,6 @@ operation, and parse codes the CLI assigns).
 | `live_perf_node_not_found` | `live` | `classifier` | `6` | A live perf monitor's node path does not resolve to a node in the running scene tree (Phase 2, #223). |
 | `live_perf_property_not_found` | `live` | `classifier` | `6` | A live perf monitor targeted a property the running node does not expose for reading (Phase 2, #223). |
 | `live_perf_signal_not_found` | `live` | `classifier` | `6` | A live perf monitor targeted a signal the running node does not declare (Phase 2, #223). |
-| `live_perf_timeout` | `live` | `classifier` | `6` | A live perf time-windowed collection did not complete within the harness's frame budget (Phase 2, #223). |
 | `live_unsupported_platform` | `environment` | `classifier` | `127` | Live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, unavailable here. Phase-1 headless is unaffected (Phase 2, ADR-0021). |
 
 ## Considered options
