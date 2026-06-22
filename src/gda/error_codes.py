@@ -440,6 +440,34 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A live operation did not return from the engine session before the"
         " daemon's timeout.",
     ),
+    # Per live-operation failures the gda harness reports in-band (#220). Harness
+    # op-errors arrive with exit_code 0 (the daemon relays the sentinel verbatim),
+    # so each MUST be a LIVE-category code for ``classify_live`` to map it before
+    # the shared decision tree misroutes an exit-0 error envelope to
+    # ``contract_violation``. CLASSIFIER-source — surfaced via the live channel,
+    # not GDScript-mirrored by operations.gd — so the operations.gd mirror test is
+    # unaffected; a separate test mirrors them against the harness consts.
+    ErrorCodeSpec(
+        "live_node_not_found",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live game operation's node path does not resolve to a node in the running scene tree.",
+    ),
+    ErrorCodeSpec(
+        "live_unknown_property",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live game set targeted a property the running node does not declare as settable.",
+    ),
+    ErrorCodeSpec(
+        "live_uncoercible_value",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live game set value cannot be coerced to the running property's declared Godot type.",
+    ),
     # A pre-launch platform precondition, not a live-runtime failure: live needs
     # Unix domain sockets, which are UNIX-only, so it is an ENVIRONMENT-category
     # code in the binary_not_found bucket (ADR-0021), decided before any engine

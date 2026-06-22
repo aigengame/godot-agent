@@ -20,6 +20,19 @@ const LAUNCH_MARKER := "gda-daemon"
 const RESULT_BEGIN := "<<<GDA:RESULT>>>"
 const RESULT_END := "<<<GDA:END>>>"
 
+# The live operations this harness serves, keyed by their wire op name (#220).
+const OP_GAME_TREE := "game-tree"
+const OP_GAME_GET := "game-get"
+const OP_GAME_SET := "game-set"
+
+# The per-op LIVE failure codes the harness reports in-band (#220). Each MUST be a
+# registered LIVE-category code (src/gda/error_codes.py) so the daemon's exit-0
+# relay is mapped by classify_live, not misrouted to contract_violation; a Python
+# mirror test (tests/test_error_registry.py) keeps these in sync with the registry.
+const LIVE_ERROR_NODE_NOT_FOUND := "live_node_not_found"
+const LIVE_ERROR_UNKNOWN_PROPERTY := "live_unknown_property"
+const LIVE_ERROR_UNCOERCIBLE_VALUE := "live_uncoercible_value"
+
 var _peer: StreamPeerUDS = null
 var _authed := false
 var _pending = null

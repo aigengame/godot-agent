@@ -137,6 +137,9 @@ operation, and parse codes the CLI assigns).
 | `engine_session_not_running` | `live` | `classifier` | `6` | The daemon is running but holds no live engine session to serve the live operation (Phase 2). |
 | `engine_disconnected` | `live` | `classifier` | `6` | The engine session disconnected before the live operation returned — the game crashed or the harness connection dropped (Phase 2). |
 | `live_timeout` | `live` | `classifier` | `6` | A live operation did not return from the engine session before the daemon's timeout (Phase 2). |
+| `live_node_not_found` | `live` | `classifier` | `6` | A live game operation's node path does not resolve to a node in the running scene tree (Phase 2, #220). |
+| `live_unknown_property` | `live` | `classifier` | `6` | A live game set targeted a property the running node does not declare as settable (Phase 2, #220). |
+| `live_uncoercible_value` | `live` | `classifier` | `6` | A live game set value cannot be coerced to the running property's declared Godot type (Phase 2, #220). |
 | `live_unsupported_platform` | `environment` | `classifier` | `127` | Live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, unavailable here. Phase-1 headless is unaffected (Phase 2, ADR-0021). |
 
 ## Considered options
