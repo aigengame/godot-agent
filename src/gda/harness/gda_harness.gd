@@ -26,6 +26,11 @@ const OP_GAME_GET := "game-get"
 const OP_GAME_SET := "game-set"
 const OP_PERF_MONITORS := "perf-monitors"
 const OP_PERF_MONITOR := "perf-monitor"
+const OP_INPUT_KEY := "input-key"
+const OP_INPUT_MOUSE_CLICK := "input-mouse-click"
+const OP_INPUT_MOUSE_MOVE := "input-mouse-move"
+const OP_INPUT_ACTION := "input-action"
+const OP_INPUT_SEQUENCE := "input-sequence"
 
 # The per-op LIVE failure codes the harness reports in-band (#220, #223). Each MUST
 # be a registered LIVE-category code (src/gda/error_codes.py) so the daemon's exit-0
@@ -37,6 +42,9 @@ const LIVE_ERROR_UNCOERCIBLE_VALUE := "live_uncoercible_value"
 const LIVE_ERROR_PERF_NODE_NOT_FOUND := "live_perf_node_not_found"
 const LIVE_ERROR_PERF_PROPERTY_NOT_FOUND := "live_perf_property_not_found"
 const LIVE_ERROR_PERF_SIGNAL_NOT_FOUND := "live_perf_signal_not_found"
+const LIVE_ERROR_INVALID_KEY := "live_invalid_key"
+const LIVE_ERROR_UNKNOWN_ACTION := "live_unknown_action"
+const LIVE_ERROR_INVALID_EVENT_SPEC := "live_invalid_event_spec"
 
 # The frame count a time-windowed op may request (#223). A window collects one
 # sample per frame, so an unbounded N would block the one-shot RPC for an unbounded
@@ -211,6 +219,16 @@ func _run(request) -> Variant:
 			return _handle_perf_monitors()
 		OP_PERF_MONITOR:
 			return _handle_perf_monitor(params)
+		OP_INPUT_KEY:
+			return _handle_input_key(params)
+		OP_INPUT_MOUSE_CLICK:
+			return _handle_input_mouse_click(params)
+		OP_INPUT_MOUSE_MOVE:
+			return _handle_input_mouse_move(params)
+		OP_INPUT_ACTION:
+			return _handle_input_action(params)
+		OP_INPUT_SEQUENCE:
+			return _handle_input_sequence(params)
 		_:
 			return _error("operation_failed", "unsupported live operation")
 
@@ -451,6 +469,261 @@ func _signal_arg_count(node: Node, signal_name: String) -> int:
 			var args: Variant = sig.get("args", [])
 			return (args as Array).size() if typeof(args) == TYPE_ARRAY else 0
 	return -1
+
+
+# --- input (runtime input simulation, #221) -----------------------------------
+#
+# Inject input into the RUNNING game on the main thread at a frame boundary
+# (ADR-0020). Key/mouse events ride the game's real input flow via the root
+# viewport's push_input (scene-aware); actions go through Input.action_press/
+# release against the running InputMap. The model bounds every request up front
+# (ADR-0015), so the harness only decides what needs the live engine: a key name
+# the engine cannot resolve (live_invalid_key) and an action the running InputMap
+# does not declare (live_unknown_action). `input sequence` reuses the time-windowed
+# multi-frame base (#223): each frame, the sampler applies the events due at that
+# frame index, and finalize returns the applied-events summary.
+
+
+# The root Viewport push_input targets, the same surface real OS input flows
+# through, so an injected event is dispatched to the game exactly as a genuine one
+# would be (scene-aware). One source of truth for every key/mouse injection.
+func _input_viewport() -> Viewport:
+	return get_tree().root
+
+
+# Resolve a key name to a Godot keycode via the engine's own name table. Returns
+# KEY_NONE (0) for a name the engine does not recognize — the one runtime failure
+# the model cannot pre-validate (the keycode table is the engine's), surfaced as
+# live_invalid_key.
+func _resolve_keycode(key: String) -> int:
+	return OS.find_keycode_from_string(key)
+
+
+# Build an InputEventKey for a resolved keycode, applying the modifier flags from
+# the request. The modifier set is already bounded model-side, so an unknown
+# modifier never reaches here; the loop maps each known name to its flag.
+func _make_key_event(keycode: int, modifiers: Array, pressed: bool) -> InputEventKey:
+	var event := InputEventKey.new()
+	event.keycode = keycode
+	event.physical_keycode = keycode
+	event.pressed = pressed
+	for modifier in modifiers:
+		match String(modifier):
+			"shift":
+				event.shift_pressed = true
+			"ctrl":
+				event.ctrl_pressed = true
+			"alt":
+				event.alt_pressed = true
+			"meta":
+				event.meta_pressed = true
+	return event
+
+
+# The Godot MOUSE_BUTTON_* index for a CLI button name. The model bounds the name
+# to the known enum, so the fallthrough is only reached by a request that bypassed
+# the model; it degrades to the left button rather than crashing.
+func _mouse_button_index(button: String) -> int:
+	match button:
+		"right":
+			return MOUSE_BUTTON_RIGHT
+		"middle":
+			return MOUSE_BUTTON_MIDDLE
+		_:
+			return MOUSE_BUTTON_LEFT
+
+
+# Push a mouse-button event at a viewport position. Shared by the single-frame
+# click op and a sequence mouse-click event.
+func _push_mouse_click(pos: Vector2, button: String, double: bool) -> void:
+	var event := InputEventMouseButton.new()
+	event.button_index = _mouse_button_index(button)
+	event.position = pos
+	event.pressed = true
+	event.double_click = double
+	_input_viewport().push_input(event)
+
+
+# Push a mouse-motion event to a viewport position. Shared by the single-frame move
+# op and a sequence mouse-move event.
+func _push_mouse_move(pos: Vector2) -> void:
+	var event := InputEventMouseMotion.new()
+	event.position = pos
+	_input_viewport().push_input(event)
+
+
+# input key: inject one InputEventKey (press or release) into the running game's
+# root viewport. Resolves the key name to a keycode via the engine table; an
+# unresolvable name is the typed live_invalid_key error.
+func _handle_input_key(params: Dictionary) -> String:
+	var key := _string_param(params, "key")
+	var keycode := _resolve_keycode(key)
+	if keycode == KEY_NONE:
+		return _error(LIVE_ERROR_INVALID_KEY,
+				"could not resolve key name to a keycode: " + key)
+	var modifiers: Array = params.get("modifiers", [])
+	if typeof(modifiers) != TYPE_ARRAY:
+		modifiers = []
+	var pressed := not bool(params.get("released", false))
+	_input_viewport().push_input(_make_key_event(keycode, modifiers, pressed))
+	return _ok({
+		"kind": "key",
+		"key": key,
+		"keycode": keycode,
+		"modifiers": modifiers,
+		"pressed": pressed,
+	})
+
+
+# input mouse click: inject an InputEventMouseButton at (x, y) into the root
+# viewport. A single-frame op (pushed at one frame boundary, ADR-0020).
+func _handle_input_mouse_click(params: Dictionary) -> String:
+	var x := _float_param(params, "x", 0.0)
+	var y := _float_param(params, "y", 0.0)
+	var button := _string_param(params, "button")
+	if button.is_empty():
+		button = "left"
+	var double := bool(params.get("double", false))
+	_push_mouse_click(Vector2(x, y), button, double)
+	return _ok({
+		"kind": "mouse_click",
+		"position": [x, y],
+		"button": button,
+		"double": double,
+	})
+
+
+# input mouse move: inject an InputEventMouseMotion to (x, y) into the root
+# viewport. A single-frame op.
+func _handle_input_mouse_move(params: Dictionary) -> String:
+	var x := _float_param(params, "x", 0.0)
+	var y := _float_param(params, "y", 0.0)
+	_push_mouse_move(Vector2(x, y))
+	return _ok({
+		"kind": "mouse_move",
+		"position": [x, y],
+		"button": null,
+		"double": null,
+	})
+
+
+# input action: press or release a named input action against the running
+# InputMap. The action MUST exist in the running InputMap — an unknown action is
+# the typed live_unknown_action error (validated via InputMap.has_action).
+func _handle_input_action(params: Dictionary) -> String:
+	var action := _string_param(params, "action")
+	if not InputMap.has_action(action):
+		return _error(LIVE_ERROR_UNKNOWN_ACTION,
+				"the running InputMap has no action: " + action)
+	var release := bool(params.get("release", false))
+	var strength := _float_param(params, "strength", 1.0)
+	if release:
+		Input.action_release(action)
+	else:
+		Input.action_press(action, strength)
+	return _ok({
+		"kind": "action",
+		"action": action,
+		"pressed": not release,
+		"strength": 0.0 if release else strength,
+	})
+
+
+# input sequence: inject a list of events across frames, returned as ONE blocking
+# result via the time-windowed multi-frame base (#223). The window spans one past
+# the largest event frame; each frame the sampler applies the events due at that
+# frame index. An event whose type the harness does not recognize aborts the window
+# with live_invalid_event_spec (the defensive arm — the model bounds the type).
+func _handle_input_sequence(params: Dictionary) -> Variant:
+	var raw_events: Variant = params.get("events", [])
+	if typeof(raw_events) != TYPE_ARRAY or (raw_events as Array).is_empty():
+		return _error(LIVE_ERROR_INVALID_EVENT_SPEC,
+				"input sequence needs a non-empty events list")
+	var events: Array = raw_events
+	# The window runs for as many frames as the largest event frame requires (at
+	# least one), so every event's relative frame index lands within the window.
+	var max_frame := 0
+	for event in events:
+		if typeof(event) == TYPE_DICTIONARY:
+			max_frame = maxi(max_frame, _int_param(event, "frame", 0))
+	var total_frames := max_frame + 1
+	var frame_box := {"n": 0}
+	# The sampler applies every event due at the current frame index, then advances
+	# the frame clock. A bad event type aborts the window with a typed error sample.
+	var sample := func() -> Variant:
+		var current := int(frame_box["n"])
+		for event in events:
+			if typeof(event) != TYPE_DICTIONARY:
+				continue
+			if _int_param(event, "frame", 0) != current:
+				continue
+			var err: Variant = _apply_sequence_event(event)
+			if err != null:
+				return {"error": err}
+		frame_box["n"] = current + 1
+		return current
+	var finalize := func(_samples: Array) -> String:
+		return _ok({
+			"kind": "sequence",
+			"events": events.size(),
+			"frames": total_frames,
+		})
+	return _begin_window(total_frames, sample, finalize)
+
+
+# Apply one sequence event at a frame boundary. Returns null on success, or a typed
+# {code, message} error envelope to abort the window. The event types mirror the
+# single-frame ops; an unrecognized type is live_invalid_event_spec.
+func _apply_sequence_event(event: Dictionary) -> Variant:
+	var type := _string_param(event, "type")
+	match type:
+		"key":
+			var key := _string_param(event, "key")
+			var keycode := _resolve_keycode(key)
+			if keycode == KEY_NONE:
+				return {"code": LIVE_ERROR_INVALID_KEY,
+						"message": "could not resolve key name to a keycode: " + key}
+			var modifiers: Array = event.get("modifiers", [])
+			if typeof(modifiers) != TYPE_ARRAY:
+				modifiers = []
+			var pressed := not bool(event.get("released", false))
+			_input_viewport().push_input(_make_key_event(keycode, modifiers, pressed))
+			return null
+		"mouse_click":
+			var button := _string_param(event, "button")
+			if button.is_empty():
+				button = "left"
+			_push_mouse_click(
+					Vector2(_float_param(event, "x", 0.0), _float_param(event, "y", 0.0)),
+					button, bool(event.get("double", false)))
+			return null
+		"mouse_move":
+			_push_mouse_move(
+					Vector2(_float_param(event, "x", 0.0), _float_param(event, "y", 0.0)))
+			return null
+		"action":
+			var action := _string_param(event, "action")
+			if not InputMap.has_action(action):
+				return {"code": LIVE_ERROR_UNKNOWN_ACTION,
+						"message": "the running InputMap has no action: " + action}
+			if bool(event.get("release", false)):
+				Input.action_release(action)
+			else:
+				Input.action_press(action, _float_param(event, "strength", 1.0))
+			return null
+		_:
+			return {"code": LIVE_ERROR_INVALID_EVENT_SPEC,
+					"message": "unsupported input sequence event type: " + type}
+
+
+# Read a float param defensively (the params arrive as arbitrary JSON): a missing
+# or non-numeric value falls back to `fallback` rather than crashing a typed
+# assignment, mirroring _int_param for the float-valued input params (x/y/strength).
+func _float_param(params: Dictionary, key: String, fallback: float) -> float:
+	var value: Variant = params.get(key, fallback)
+	if typeof(value) == TYPE_FLOAT or typeof(value) == TYPE_INT:
+		return float(value)
+	return fallback
 
 
 # Read an int param defensively (the params arrive as arbitrary JSON): a missing or

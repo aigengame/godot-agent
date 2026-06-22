@@ -56,6 +56,10 @@ from gda.models import (
     GameSetResult,
     GameTreeResult,
     GdaError,
+    InputActionResult,
+    InputKeyResult,
+    InputMouseResult,
+    InputSequenceResult,
     OperationErrorEnvelope,
     PerfMonitorResult,
     PerfMonitorsResult,
@@ -454,6 +458,26 @@ def classify_perf_monitors(result: RunResult, binary: Path) -> PerfMonitorsResul
 def classify_perf_monitor(result: RunResult, binary: Path) -> PerfMonitorResult | Failure:
     """The per-command live classifier for ``gda perf monitor`` (#223, mirrors ``classify_game_tree``)."""
     return classify_live(result, binary, PerfMonitorResult)
+
+
+def classify_input_key(result: RunResult, binary: Path) -> InputKeyResult | Failure:
+    """The per-command live classifier for ``gda input key`` (#221, mirrors ``classify_game_tree``)."""
+    return classify_live(result, binary, InputKeyResult)
+
+
+def classify_input_mouse(result: RunResult, binary: Path) -> InputMouseResult | Failure:
+    """The per-command live classifier for ``gda input mouse`` click/move (#221, mirrors ``classify_game_tree``)."""
+    return classify_live(result, binary, InputMouseResult)
+
+
+def classify_input_action(result: RunResult, binary: Path) -> InputActionResult | Failure:
+    """The per-command live classifier for ``gda input action`` (#221, mirrors ``classify_game_tree``)."""
+    return classify_live(result, binary, InputActionResult)
+
+
+def classify_input_sequence(result: RunResult, binary: Path) -> InputSequenceResult | Failure:
+    """The per-command live classifier for ``gda input sequence`` (#221, mirrors ``classify_game_tree``)."""
+    return classify_live(result, binary, InputSequenceResult)
 
 
 # A non-fatal export warning the engine prints to stderr. WARNING is Godot's
