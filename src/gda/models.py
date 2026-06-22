@@ -2497,7 +2497,10 @@ class GameSetResult(BaseModel):
 # the daemon reads the Session log it launched the engine with (`--log-file`),
 # not the harness, and serves it even after the session process has died so a
 # crash stays diagnosable (#224). The introspection-only counterpart to `perf`.
-_DIAG_LIMIT_DESC = "If set, tail only the most recent N entries (newest last)."
+_DIAG_LIMIT_DESC = (
+    "If set, tail only the most recent N entries (newest last); must be >= 1. "
+    "Omit for all entries."
+)
 
 
 class DiagError(BaseModel):
@@ -2528,10 +2531,11 @@ class DiagErrorsParams(BaseModel):
     """The params of ``gda diag errors``: read the running game's runtime errors (#224).
 
     Reads the current Engine session's captured errors. ``limit`` tails the most
-    recent N; v1 returns the current session's log with no incremental offset.
+    recent N (constrained ``>= 1``); v1 returns the current session's log with no
+    incremental offset. Omitting ``limit`` returns all entries.
     """
 
-    limit: int | None = Field(default=None, description=_DIAG_LIMIT_DESC)
+    limit: int | None = Field(default=None, ge=1, description=_DIAG_LIMIT_DESC)
 
 
 class DiagErrorsResult(BaseModel):
@@ -2547,11 +2551,12 @@ class DiagErrorsResult(BaseModel):
 class DiagLogParams(BaseModel):
     """The params of ``gda diag log``: read the running game's raw output log (#224).
 
-    ``limit`` tails the most recent N lines; v1 returns the current session's log
-    with no incremental offset.
+    ``limit`` tails the most recent N lines (constrained ``>= 1``); v1 returns the
+    current session's log with no incremental offset. Omitting ``limit`` returns
+    all lines.
     """
 
-    limit: int | None = Field(default=None, description=_DIAG_LIMIT_DESC)
+    limit: int | None = Field(default=None, ge=1, description=_DIAG_LIMIT_DESC)
 
 
 class DiagLogResult(BaseModel):

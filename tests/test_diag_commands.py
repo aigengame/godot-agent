@@ -62,6 +62,25 @@ def test_diag_errors_passes_limit_through(monkeypatch, tmp_path):
     assert fake.calls == [("diag-errors", {"limit": 5})]
 
 
+def test_diag_errors_rejects_a_non_positive_limit_on_the_argv_path(tmp_path):
+    # `--limit` is bound to >= 1 (Click min): a zero/negative limit is a usage
+    # error, not a silently-accepted "no limit". No live runner is needed — Click
+    # rejects before any dispatch.
+    for bad in ("0", "-1"):
+        result = CliRunner().invoke(
+            app, ["diag", "errors", "--limit", bad, "--project", str(_project(tmp_path)), "--json"]
+        )
+        assert result.exit_code == 2, (bad, result.stdout + result.stderr)
+
+
+def test_diag_log_rejects_a_non_positive_limit_on_the_argv_path(tmp_path):
+    for bad in ("0", "-1"):
+        result = CliRunner().invoke(
+            app, ["diag", "log", "--limit", bad, "--project", str(_project(tmp_path)), "--json"]
+        )
+        assert result.exit_code == 2, (bad, result.stdout + result.stderr)
+
+
 def test_diag_log_emits_raw_lines_json_through_the_live_channel(monkeypatch, tmp_path):
     fake = inject_live_runner(
         monkeypatch,
@@ -138,6 +157,34 @@ def test_diag_errors_log_unavailable_is_a_typed_live_error(monkeypatch, tmp_path
     error = json.loads(result.stdout)["error"]
     assert error["code"] == "live_log_unavailable"
     assert error["category"] == "live"
+
+
+def test_diag_params_json_rejects_a_non_positive_limit_as_invalid_params(monkeypatch, tmp_path):
+    # The `ge=1` bound on DiagErrorsParams / DiagLogParams: a zero/negative limit
+    # via --params-json is a structured `invalid_params` (reflected in --schema),
+    # not a silent "no limit". No dispatch happens — the model validation fails
+    # first, so no live runner is needed.
+    for op, key in (("errors", "errors"), ("log", "log")):  # both diag ops
+        for bad in (0, -1):
+            result = CliRunner().invoke(
+                app,
+                ["diag", op, "--params-json", json.dumps({"limit": bad}),
+                 "--project", str(_project(tmp_path)), "--json"],
+            )
+            assert result.exit_code != 0, (op, bad, result.stdout + result.stderr)
+            err = json.loads(result.stdout)["error"]
+            assert err["code"] == "invalid_params", (op, bad, err)
+
+
+def test_diag_errors_schema_reflects_the_limit_lower_bound():
+    result = CliRunner().invoke(app, ["diag", "errors", "--schema"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    schema = json.loads(result.stdout)
+    # The `ge=1` constraint surfaces in the input schema as a minimum on `limit`.
+    limit_schema = schema["input"]["properties"]["limit"]
+    minimums = [sub.get("minimum") for sub in limit_schema.get("anyOf", [limit_schema])]
+    assert 1 in minimums, limit_schema
 
 
 def test_diag_errors_schema_is_self_describing_and_live():
