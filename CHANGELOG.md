@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.32](https://github.com/aigengame/godot-agent/compare/v0.1.31...v0.1.32) (2026-06-22)
+
+
+### Features
+
+* diag — runtime diagnostics via a daemon-owned per-session log ([#224](https://github.com/aigengame/godot-agent/issues/224)) ([#240](https://github.com/aigengame/godot-agent/issues/240)) ([a773fc4](https://github.com/aigengame/godot-agent/commit/a773fc4b6df91ddcbbc6e57deb1d8862075ecb0d))
+
 ## [0.1.31](https://github.com/aigengame/godot-agent/compare/v0.1.30...v0.1.31) (2026-06-22)
 
 
