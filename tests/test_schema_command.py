@@ -1268,6 +1268,68 @@ def test_live_command_schema_reports_live_stack_constraints():
     }
 
 
+def test_daemon_start_schema_carries_constraints_despite_kind_headless():
+    # `daemon start` is kind=headless (it runs the process-management recipe, not
+    # the engine sentinel) but it launches the engine session, so it is
+    # live-stack-dependent and carries the FULL constraint — keying purely on
+    # kind==LIVE would have left it prose-only. (#233, PR #232 recheck.)
+    result = CliRunner().invoke(app, ["daemon", "start", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["kind"] == "headless"
+    assert doc["constraints"] == {
+        "platforms": ["linux", "macos"],
+        "min_godot_version": "4.6",
+    }
+
+
+def test_daemon_stop_and_status_schema_carry_platforms_but_null_version():
+    # `daemon stop` / `daemon status` only talk to an already-running daemon over
+    # UDS — they never launch the engine — so they carry the uniform platform set
+    # but a NULL min_godot_version: the version floor applies only where a command
+    # uses the engine (#233).
+    for command in (["daemon", "stop"], ["daemon", "status"]):
+        result = CliRunner().invoke(app, [*command, "--schema"])
+        assert result.exit_code == 0, result.stdout
+        doc = json.loads(result.stdout)
+        assert doc["constraints"] == {
+            "platforms": ["linux", "macos"],
+            "min_godot_version": None,
+        }
+
+
+def test_plain_headless_and_export_commands_carry_null_constraints():
+    # A plain headless domain op (`scene get`) and the EXPORT command (`export
+    # run`) have no live-stack dependence, so `constraints` is null — mirroring
+    # how `kind` is null for a backing-less self-description (#233).
+    for command in (["scene", "get"], ["export", "run"]):
+        result = CliRunner().invoke(app, [*command, "--schema"])
+        assert result.exit_code == 0, result.stdout
+        doc = json.loads(result.stdout)
+        assert doc["constraints"] is None, command
+
+
+def test_schema_constraints_are_identical_via_argv_and_params_json_forms():
+    # `--schema` is intercepted at the same single emission point for both the
+    # argv and the `--params-json` forms, so the emitted `constraints` must be
+    # byte-identical across the two — proving the one predicate is threaded
+    # through, not duplicated per path (#233). Use a LIVE command so the field is
+    # populated, not null.
+    argv_doc = json.loads(
+        CliRunner().invoke(app, ["game", "tree", "--schema"]).stdout
+    )
+    params_json_doc = json.loads(
+        CliRunner()
+        .invoke(app, ["game", "tree", "--params-json", "{}", "--schema"])
+        .stdout
+    )
+
+    assert argv_doc["constraints"] == params_json_doc["constraints"]
+    # The whole contract is identical across the two forms, not just constraints.
+    assert argv_doc == params_json_doc
+
+
 def test_extra_positional_args_are_a_usage_error_even_with_schema():
     # issue #36 (2): --schema must not swallow a malformed command line. Extra
     # positional args still fail with a usage error (exit 2), not exit 0 + schema.
