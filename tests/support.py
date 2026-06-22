@@ -388,3 +388,24 @@ GAME_TREE_RESULT = {
         ],
     }
 }
+
+# Sample ``gda game get`` / ``gda game set`` results — a running node's runtime
+# properties, addressed by the absolute runtime path (#220). Shared by the
+# game-command success/schema tests; the value projection mirrors NodeProperty,
+# the same shape ``node get`` reports.
+GAME_GET_RESULT = {
+    "path": "/root/Main/Player",
+    "name": "Player",
+    "type": "CharacterBody2D",
+    "properties": [
+        {"name": "position", "type": "Vector2", "value": [10.0, 20.0]},
+        {"name": "visible", "type": "bool", "value": True},
+    ],
+}
+
+GAME_SET_RESULT = {
+    "path": "/root/Main/Player",
+    "property": "position",
+    "type": "Vector2",
+    "value": [10.0, 20.0],
+}

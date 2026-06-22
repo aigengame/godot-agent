@@ -13,7 +13,14 @@ from typer.testing import CliRunner
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
-from tests.support import GAME_TREE_RESULT, inject_live_runner, sentinel
+from tests.support import (
+    GAME_GET_RESULT,
+    GAME_SET_RESULT,
+    GAME_TREE_RESULT,
+    error_sentinel,
+    inject_live_runner,
+    sentinel,
+)
 
 
 def _project(tmp_path):
@@ -86,3 +93,119 @@ def test_game_tree_on_non_unix_reports_live_unsupported_platform(monkeypatch, tm
 
     assert result.exit_code != 0, result.stdout
     assert json.loads(result.stdout)["error"]["code"] == "live_unsupported_platform"
+
+
+# --- game get (live runtime property read) -----------------------------------
+
+
+def test_game_get_emits_runtime_properties_through_the_live_channel(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_GET_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["game", "get", "/root/Main/Player", "--project", str(_project(tmp_path)), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["path"] == "/root/Main/Player"
+    assert data["type"] == "CharacterBody2D"
+    assert {p["name"] for p in data["properties"]} == {"position", "visible"}
+    # Routed through the LIVE seam, dispatching game-get with the node arg; the
+    # optional property is absent (read the whole surface).
+    assert fake.calls == [("game-get", {"node": "/root/Main/Player", "property": None})]
+
+
+def test_game_get_passes_the_property_filter_through_the_live_channel(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_GET_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game", "get", "/root/Main/Player",
+            "--property", "position",
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    # The filter is threaded to the operation params (the harness applies it).
+    assert fake.calls == [
+        ("game-get", {"node": "/root/Main/Player", "property": "position"})
+    ]
+
+
+def test_game_get_missing_node_reports_live_node_not_found(monkeypatch, tmp_path):
+    # The harness reports its op-error as an exit-0 sentinel envelope (Finding B);
+    # classify_live maps the LIVE-category code, so the exit is EXIT_LIVE — proving
+    # the routing keeps it off the contract_violation fallthrough.
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel("live_node_not_found", "no node at runtime path"),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["game", "get", "/root/Main/Ghost", "--project", str(_project(tmp_path)), "--json"],
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "live_node_not_found"
+    assert error["category"] == "live"
+
+
+def test_game_get_unknown_property_reports_live_unknown_property(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel("live_unknown_property", "no readable property"),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game", "get", "/root/Main/Player",
+            "--property", "nope",
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "live_unknown_property"
+    assert error["category"] == "live"
+
+
+def test_game_get_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+
+    result = CliRunner().invoke(
+        app,
+        ["game", "get", "/root/Main/Player", "--project", str(_project(tmp_path)), "--json"],
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "daemon_not_running"
+
+
+def test_game_get_schema_is_self_describing():
+    result = CliRunner().invoke(app, ["game", "get", "--schema"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    schema = json.loads(result.stdout)
+    assert "input" in schema and "output" in schema
+    assert schema["kind"] == "live"

@@ -1106,6 +1106,52 @@ def test_live_command_schema_reports_kind_live_without_a_daemon():
     assert doc["kind"] == "live"
 
 
+def test_game_get_set_schemas_report_kind_live_and_are_model_derived():
+    # The LIVE runtime property commands (#220) self-describe like any command —
+    # input/output from their typed models, the uniform error envelope, kind=live.
+    from gda.models import (
+        GameGetParams,
+        GameGetResult,
+        GameSetParams,
+        GameSetResult,
+    )
+
+    get_doc = json.loads(CliRunner().invoke(app, ["game", "get", "--schema"]).stdout)
+    set_doc = json.loads(CliRunner().invoke(app, ["game", "set", "--schema"]).stdout)
+
+    assert get_doc["kind"] == set_doc["kind"] == "live"
+    assert get_doc["input"] == GameGetParams.model_json_schema()
+    assert get_doc["output"] == GameGetResult.model_json_schema()
+    assert set_doc["input"] == GameSetParams.model_json_schema()
+    assert set_doc["output"] == GameSetResult.model_json_schema()
+    assert get_doc["error"] == set_doc["error"] == GdaErrorEnvelope.model_json_schema()
+    # The runtime-node param documents the absolute-path addressing agents must use.
+    assert "absolute" in get_doc["input"]["properties"]["node"]["description"]
+    assert "coerce" in set_doc["input"]["properties"]["value"]["description"].lower()
+    jsonschema.Draft202012Validator.check_schema(get_doc["input"])
+    jsonschema.Draft202012Validator.check_schema(get_doc["output"])
+    jsonschema.Draft202012Validator.check_schema(set_doc["input"])
+    jsonschema.Draft202012Validator.check_schema(set_doc["output"])
+
+
+def test_sample_game_results_validate_against_emitted_output_schemas():
+    # A sample --json payload of each game command satisfies the contract its
+    # --schema emits (the ADR-0004 hard gate for the LIVE game group, #220).
+    from tests.support import (
+        GAME_GET_RESULT,
+        GAME_SET_RESULT,
+        GAME_TREE_RESULT,
+    )
+
+    tree_doc = json.loads(CliRunner().invoke(app, ["game", "tree", "--schema"]).stdout)
+    get_doc = json.loads(CliRunner().invoke(app, ["game", "get", "--schema"]).stdout)
+    set_doc = json.loads(CliRunner().invoke(app, ["game", "set", "--schema"]).stdout)
+
+    jsonschema.validate(instance=GAME_TREE_RESULT, schema=tree_doc["output"])
+    jsonschema.validate(instance=GAME_GET_RESULT, schema=get_doc["output"])
+    jsonschema.validate(instance=GAME_SET_RESULT, schema=set_doc["output"])
+
+
 def test_schema_kind_is_identical_via_argv_and_params_json_forms():
     # `--schema` is intercepted at the same single emission point for both the
     # argv form and the `--params-json` form (the --schema check runs first), so

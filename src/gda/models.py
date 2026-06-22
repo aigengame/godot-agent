@@ -2415,6 +2415,83 @@ class GameTreeResult(BaseModel):
     root: GameNode
 
 
+# The runtime node address: ABSOLUTE, as ``game tree`` reports it via the live
+# tree's ``Node.get_path()``. This is the live counterpart of the node group's
+# root-relative ``node`` param — the headless resolver rejects absolute paths,
+# so the live layer addresses off the running SceneTree root instead (ADR-0019).
+_RUNTIME_NODE_DESC = (
+    "Runtime node path as `game tree` reports it (absolute, e.g. /root/Main/Player)."
+)
+
+
+class GameGetParams(BaseModel):
+    """The params of ``gda game get``: read a running node's runtime properties (#220).
+
+    The live counterpart of :class:`NodeGetParams`, addressed by the runtime
+    (absolute) node path rather than a ``.tscn`` file + root-relative node path:
+    there is no file, only the live SceneTree of the engine session. ``property``
+    optionally narrows the read to one property.
+    """
+
+    node: str = Field(description=_RUNTIME_NODE_DESC)
+    property: str | None = Field(
+        default=None,
+        description="If set, read only this one property instead of the whole storage surface.",
+    )
+
+
+class GameGetResult(BaseModel):
+    """The result of ``gda game get``: a running node's runtime properties (#220).
+
+    The live counterpart of :class:`NodeGetResult` (no ``scene_path`` — there is
+    no file): echoes the addressed node (runtime ``path``/``name``/``type``) and
+    its storage properties, each a typed :class:`NodeProperty`, so an agent reads
+    the running node's live state and can feed any property back into ``game set``.
+    """
+
+    path: str = Field(description="The addressed node's runtime (absolute) path.")
+    name: str
+    type: str = Field(description="The node's engine class (e.g. CharacterBody2D).")
+    properties: list[NodeProperty]
+
+
+class GameSetParams(BaseModel):
+    """The params of ``gda game set``: mutate a running node's runtime property (#220).
+
+    The live counterpart of :class:`NodeSetParams`, addressed by the runtime
+    (absolute) node path. ``property`` names the property; ``value`` is the CLI
+    string value, coerced to the property's declared Godot type by the gda harness
+    (the SAME coercion table headless ``node set`` uses) and applied at a frame
+    boundary (ADR-0020). The mutation is bound to the session, not persisted.
+    """
+
+    node: str = Field(description=_RUNTIME_NODE_DESC)
+    property: str = Field(description="The property to set (e.g. position, visible).")
+    value: str = Field(
+        description=(
+            "The value to set, as a string. The gda harness coerces it to the "
+            "property's declared Godot type (the same coercion the node group "
+            "established; see the command catalog's 'Property value coercion'); "
+            "an uncoercible value is a clean error."
+        )
+    )
+
+
+class GameSetResult(BaseModel):
+    """The result of ``gda game set``: the one runtime property it set (#220).
+
+    The live counterpart of :class:`NodeSetResult` (no ``scene_path``): echoes the
+    addressed node's runtime ``path``, the ``property`` set, the declared ``type``
+    the CLI value was coerced to, and the coerced ``value`` as JSON — the
+    projection ``game get`` reports, so a ``set`` round-trips through a ``get``.
+    """
+
+    path: str = Field(description="The addressed node's runtime (absolute) path.")
+    property: str
+    type: str = Field(description="The property's declared Godot type the value was coerced to.")
+    value: Any = Field(description="The coerced value as JSON, as the running node now holds it.")
+
+
 class DaemonStartParams(BaseModel):
     """The params of ``gda daemon start``: none (the project is the --project context)."""
 
