@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.30](https://github.com/aigengame/godot-agent/compare/v0.1.29...v0.1.30) (2026-06-22)
+
+
+### Features
+
+* game get/set — live runtime node property get/set ([#220](https://github.com/aigengame/godot-agent/issues/220)) ([#237](https://github.com/aigengame/godot-agent/issues/237)) ([bdee34f](https://github.com/aigengame/godot-agent/commit/bdee34f79d8bfb81368bf8323355615d32755d74))
+
 ## [0.1.29](https://github.com/aigengame/godot-agent/compare/v0.1.28...v0.1.29) (2026-06-22)
 
 
