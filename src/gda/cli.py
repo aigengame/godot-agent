@@ -298,20 +298,18 @@ app.add_typer(perf_app, name="perf")
 
 # The input command group (Phase 2, ADR-0019, #221): runtime input simulation into
 # the RUNNING game, served LIVE through gda-daemon (`kind = LIVE`). Single-frame
-# ops (`input key`, `input mouse click/move`, `input action`) inject one event at a
-# frame boundary; `input sequence` reuses #223's time-windowed multi-frame base to
-# apply events across frames in one blocking call. Like `game` / `perf`, a domain-
-# object group marked live by `kind`, not by the tree (ADR-0019). `input mouse` is a
-# sub-group of click/move.
+# ops (`input key`, `input mouse-click/mouse-move`, `input action`) inject one event
+# at a frame boundary; `input sequence` reuses #223's time-windowed multi-frame base
+# to apply events across frames in one blocking call. Like `game` / `perf`, a domain-
+# object group marked live by `kind`, not by the tree (ADR-0019). The mouse ops are
+# flat two-token commands (`mouse-click` / `mouse-move`) directly under `input`, not a
+# nested `mouse` sub-group: a 3-token name would break the mechanical
+# `gda <group> <command>` → `<group>_<command>` dispatch + gda-mcp tool-name mapping
+# (ADR-0005/0011/0012).
 input_app = typer.Typer(
     help="Inject input into the running game (live; macOS/Linux only).",
     no_args_is_help=True,
 )
-input_mouse_app = typer.Typer(
-    help="Inject mouse input into the running game (live).",
-    no_args_is_help=True,
-)
-input_app.add_typer(input_mouse_app, name="mouse")
 app.add_typer(input_app, name="input")
 
 # The daemon command group (Phase 2, ADR-0017): gda's own per-project daemon
@@ -904,7 +902,7 @@ INPUT_MOUSE_CLICK_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
 )
 
 
-@input_mouse_app.command(name="click", cls=INPUT_MOUSE_CLICK_COMMAND.command_class())
+@input_app.command(name="mouse-click", cls=INPUT_MOUSE_CLICK_COMMAND.command_class())
 def input_mouse_click(
     x: float = typer.Argument(..., help="The click's x position in the viewport."),
     y: float = typer.Argument(..., help="The click's y position in the viewport."),
@@ -946,7 +944,7 @@ INPUT_MOUSE_MOVE_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
 )
 
 
-@input_mouse_app.command(name="move", cls=INPUT_MOUSE_MOVE_COMMAND.command_class())
+@input_app.command(name="mouse-move", cls=INPUT_MOUSE_MOVE_COMMAND.command_class())
 def input_mouse_move(
     x: float = typer.Argument(..., help="The motion's target x position in the viewport."),
     y: float = typer.Argument(..., help="The motion's target y position in the viewport."),

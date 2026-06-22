@@ -575,7 +575,7 @@ func _handle_input_key(params: Dictionary) -> String:
 	})
 
 
-# input mouse click: inject an InputEventMouseButton at (x, y) into the root
+# input mouse-click: inject an InputEventMouseButton at (x, y) into the root
 # viewport. A single-frame op (pushed at one frame boundary, ADR-0020).
 func _handle_input_mouse_click(params: Dictionary) -> String:
 	var x := _float_param(params, "x", 0.0)
@@ -593,7 +593,7 @@ func _handle_input_mouse_click(params: Dictionary) -> String:
 	})
 
 
-# input mouse move: inject an InputEventMouseMotion to (x, y) into the root
+# input mouse-move: inject an InputEventMouseMotion to (x, y) into the root
 # viewport. A single-frame op.
 func _handle_input_mouse_move(params: Dictionary) -> String:
 	var x := _float_param(params, "x", 0.0)

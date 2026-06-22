@@ -124,7 +124,7 @@ def test_input_key_schema_reports_kind_live():
     assert schema["kind"] == "live"
 
 
-# --- input mouse click / move (single-frame) ----------------------------------
+# --- input mouse-click / mouse-move (single-frame) ----------------------------
 
 
 def test_input_mouse_click_injects_a_click_through_the_live_channel(monkeypatch, tmp_path):
@@ -136,7 +136,7 @@ def test_input_mouse_click_injects_a_click_through_the_live_channel(monkeypatch,
     result = CliRunner().invoke(
         app,
         [
-            "input", "mouse", "click", "100", "200",
+            "input", "mouse-click", "100", "200",
             "--button", "right", "--double",
             "--project", str(_project(tmp_path)), "--json",
         ],
@@ -164,7 +164,7 @@ def test_input_mouse_move_injects_a_motion_through_the_live_channel(monkeypatch,
     result = CliRunner().invoke(
         app,
         [
-            "input", "mouse", "move", "50", "60",
+            "input", "mouse-move", "50", "60",
             "--project", str(_project(tmp_path)), "--json",
         ],
     )
@@ -184,7 +184,7 @@ def test_input_mouse_click_default_button_is_left(monkeypatch, tmp_path):
 
     CliRunner().invoke(
         app,
-        ["input", "mouse", "click", "1", "2", "--project", str(_project(tmp_path)), "--json"],
+        ["input", "mouse-click", "1", "2", "--project", str(_project(tmp_path)), "--json"],
     )
 
     assert fake.calls[0][1]["button"] == "left"
@@ -200,7 +200,7 @@ def test_input_mouse_click_unknown_button_argv_is_a_usage_error(monkeypatch, tmp
     result = CliRunner().invoke(
         app,
         [
-            "input", "mouse", "click", "1", "2", "--button", "scroll",
+            "input", "mouse-click", "1", "2", "--button", "scroll",
             "--project", str(_project(tmp_path)), "--json",
         ],
     )
@@ -210,7 +210,7 @@ def test_input_mouse_click_unknown_button_argv_is_a_usage_error(monkeypatch, tmp
 
 
 def test_input_mouse_click_schema_reports_kind_live():
-    result = CliRunner().invoke(app, ["input", "mouse", "click", "--schema"])
+    result = CliRunner().invoke(app, ["input", "mouse-click", "--schema"])
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["kind"] == "live"

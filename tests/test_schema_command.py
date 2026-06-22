@@ -1187,8 +1187,8 @@ def test_input_commands_schema_report_kind_live_and_are_model_derived():
         json.loads(CliRunner().invoke(app, [*cmd, "--schema"]).stdout)
         for cmd in (
             ["input", "key"],
-            ["input", "mouse", "click"],
-            ["input", "mouse", "move"],
+            ["input", "mouse-click"],
+            ["input", "mouse-move"],
             ["input", "action"],
             ["input", "sequence"],
         )
@@ -1213,8 +1213,8 @@ def test_sample_input_results_validate_against_emitted_output_schemas():
     )
 
     key_doc = json.loads(CliRunner().invoke(app, ["input", "key", "--schema"]).stdout)
-    click_doc = json.loads(CliRunner().invoke(app, ["input", "mouse", "click", "--schema"]).stdout)
-    move_doc = json.loads(CliRunner().invoke(app, ["input", "mouse", "move", "--schema"]).stdout)
+    click_doc = json.loads(CliRunner().invoke(app, ["input", "mouse-click", "--schema"]).stdout)
+    move_doc = json.loads(CliRunner().invoke(app, ["input", "mouse-move", "--schema"]).stdout)
     action_doc = json.loads(CliRunner().invoke(app, ["input", "action", "--schema"]).stdout)
     seq_doc = json.loads(CliRunner().invoke(app, ["input", "sequence", "--schema"]).stdout)
 

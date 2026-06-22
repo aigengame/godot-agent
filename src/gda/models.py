@@ -2746,7 +2746,7 @@ INPUT_MODIFIERS = ("shift", "ctrl", "alt", "meta")
 
 
 class MouseButton(str, Enum):
-    """The mouse button a ``gda input mouse click`` targets (#221).
+    """The mouse button a ``gda input mouse-click`` targets (#221).
 
     The CLI-facing names map to Godot's ``MOUSE_BUTTON_*`` indices harness-side;
     bounding them as an enum makes an unknown button a usage/invalid_params error
@@ -2824,7 +2824,7 @@ class InputKeyResult(BaseModel):
 
 
 class InputMouseClickParams(BaseModel):
-    """The params of ``gda input mouse click``: inject a mouse button click (#221).
+    """The params of ``gda input mouse-click``: inject a mouse button click (#221).
 
     Pushes an ``InputEventMouseButton`` at viewport position ``(x, y)`` into the
     running game's root viewport. ``button`` selects which button (left/right/
@@ -2844,7 +2844,7 @@ class InputMouseClickParams(BaseModel):
 
 
 class InputMouseMoveParams(BaseModel):
-    """The params of ``gda input mouse move``: inject a mouse motion event (#221).
+    """The params of ``gda input mouse-move``: inject a mouse motion event (#221).
 
     Pushes an ``InputEventMouseMotion`` to viewport position ``(x, y)`` into the
     running game's root viewport — the runtime counterpart of moving the cursor
@@ -2856,7 +2856,7 @@ class InputMouseMoveParams(BaseModel):
 
 
 class InputMouseResult(BaseModel):
-    """The result of a ``gda input mouse`` op: the mouse event injected (#221).
+    """The result of a ``gda input mouse-click`` / ``mouse-move`` op: the mouse event injected (#221).
 
     Echoes the event ``kind`` (``mouse_click`` or ``mouse_move``), the viewport
     ``position`` it was pushed at as ``[x, y]``, and — for a click — the ``button``
