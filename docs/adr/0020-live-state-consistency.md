@@ -17,6 +17,17 @@ not reloaded by a running session, and the agent (re)launches the session to pic
 on-disk edits (ADR-0017). #5's question is only "within a session, what do live reads
 and writes guarantee".
 
+> **Outcome (2026-06-22, #223) — the multi-frame timeline of decision 3 is now
+> IMPLEMENTED.** Decision 3 (Frame-coherent) anticipated that "time-windowed ops
+> (monitor / capture over N frames) are explicitly multi-frame and return a per-frame
+> timeline." `perf monitor` realizes that: the gda harness collects one sample at each
+> frame boundary on the engine's main thread over the requested N frames, so every
+> sample is itself a coherent single-frame snapshot, and the whole per-frame timeline
+> is returned as one blocking result (per ADR-0017's one-shot RPC, whose Outcome note
+> records the harness multi-frame base). Frame-coherence thus holds per-sample within
+> a window exactly as it holds for a single-frame op; the window only sequences N such
+> coherent snapshots.
+
 ## Decision
 
 `state consistency` is the property [gda-daemon](../../CONTEXT.md) provides over one

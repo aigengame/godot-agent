@@ -47,6 +47,21 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > operations.gd OP_ERROR mirror; a separate test mirrors them against the harness
 > consts.
 
+> **Outcome (2026-06-22, #223) — the time-windowed multi-frame mechanism is now
+> IMPLEMENTED in the gda harness, realizing this ADR's one-shot RPC contract for a
+> multi-frame op.** Until now every live op replied on a single frame. `perf monitor`
+> (over N frames) needed a handler that spans frames, so the harness `_process` loop
+> gained a multi-frame base: a handler that cannot finish in one frame opens a
+> *window* (a frame budget + a per-frame sampler + a finalizer) instead of returning
+> a payload; the loop advances the window one frame per tick, accumulates one sample
+> per frame (frame-coherent, ADR-0020), and replies **once** with the whole timeline
+> when the budget is met. This keeps the **one-shot RPC** this ADR prescribes — the
+> client still issues one request and blocks for one reply — while the collection
+> itself is multi-frame. A bounded frame ceiling fails a stalled/crashed window with
+> `live_perf_timeout` (the time-windowed analogue of the boot guard), so a hung
+> engine cannot hang the RPC forever. The base is general: #222's viewport capture
+> reuses it by supplying its own sampler/finalizer, with no `_process` change.
+
 ## Decision
 
 **1. An execution-channel selector, chosen per command by a static `kind`.**

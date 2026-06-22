@@ -37,13 +37,17 @@ GDSCRIPT_HARNESS_LIVE_CODE = re.compile(
 )
 BARE_FAIL_CODE = re.compile(r'_fail\(\s*"[a-z_]+"')
 
-# The per-operation LIVE failures the gda harness reports in-band (#220). The
+# The per-operation LIVE failures the gda harness reports in-band (#220, #223). The
 # generic daemon-channel LIVE codes (daemon_not_running, …) are surfaced by the
 # Python daemon client, NOT the harness, so they are not mirrored in GDScript.
 HARNESS_LIVE_ERROR_CODES = (
     "live_node_not_found",
     "live_unknown_property",
     "live_uncoercible_value",
+    "live_perf_node_not_found",
+    "live_perf_property_not_found",
+    "live_perf_signal_not_found",
+    "live_perf_timeout",
 )
 
 
