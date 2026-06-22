@@ -31,8 +31,18 @@ from gda.daemon.discovery import (
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.server import STATUS_OP, STOP_OP
 from gda.errors import Failure, _failure, unresolvable_binary_failure
-from gda.harness.install import install_harness
-from gda.models import DaemonStartResult, DaemonStatusResult, DaemonStopResult
+from gda.harness.install import (
+    HARNESS_VERSION,
+    install_harness,
+    installed_harness_version,
+    uninstall_harness,
+)
+from gda.models import (
+    DaemonStartResult,
+    DaemonStatusResult,
+    DaemonStopResult,
+    DaemonUninstallResult,
+)
 
 _READY_TIMEOUT = 8.0
 _STOP_TIMEOUT = 8.0
@@ -157,11 +167,14 @@ def run_daemon_start_operation(
         )
     existing = daemon_pid(paths)
     if existing is not None:
-        # Idempotent: a daemon is already up for this project.
+        # Idempotent: a daemon is already up for this project. It syncs nothing —
+        # report the version already installed on disk (None when somehow absent).
         return DaemonStartResult(
             pid=existing,
             socket_path=str(paths.cli_socket),
             installed_harness=False,
+            harness_synced=False,
+            harness_version=installed_harness_version(project) or HARNESS_VERSION,
             already_running=True,
         )
 
@@ -194,7 +207,9 @@ def run_daemon_start_operation(
     return DaemonStartResult(
         pid=pid,
         socket_path=str(paths.cli_socket),
-        installed_harness=installed,
+        installed_harness=installed.changed,
+        harness_synced=installed.synced,
+        harness_version=installed.version,
         already_running=False,
     )
 
@@ -241,3 +256,39 @@ def run_daemon_status_operation(project: Optional[Path]) -> "DaemonStatusResult 
     return DaemonStatusResult(
         running=pid is not None, pid=pid, socket_path=str(paths.cli_socket)
     )
+
+
+def run_daemon_uninstall_operation(
+    project: Optional[Path],
+) -> "DaemonUninstallResult | Failure":
+    """Remove the harness autoload + files from the project (ADR-0018, #225).
+
+    A release-hygiene step (ADR-0018 point 3): removal is paired and crash-safe
+    (autoload entry first, then files — :func:`uninstall_harness`). It is **refused
+    while a daemon is running** (``daemon_running``): the daemon holds a live engine
+    session whose autoload this would yank out from under it. Idempotent: a no-op
+    success when nothing is installed (mirrors ``daemon stop``).
+    """
+    if not _is_unix():
+        return _failure(
+            "live_unsupported_platform",
+            "the gda-daemon requires a UNIX platform (macOS/Linux); it uses Unix "
+            "domain sockets, which are unavailable here",
+            "",
+        )
+    if project is None:
+        return _failure(
+            "project_not_found",
+            "gda daemon needs a Godot project; pass --project or run inside one",
+            "",
+        )
+    paths = daemon_paths(project)
+    if daemon_pid(paths) is not None:
+        return _failure(
+            "daemon_running",
+            "a gda-daemon is running for this project; stop it first with "
+            "`gda daemon stop` before uninstalling the harness",
+            "",
+        )
+    result = uninstall_harness(project)
+    return DaemonUninstallResult(removed=result.removed)

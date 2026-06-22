@@ -34,9 +34,11 @@ def _harness_file(project):
 def test_install_materializes_harness_and_writes_autoload_entry(tmp_path):
     (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
 
-    changed = install_harness(tmp_path)
+    result = install_harness(tmp_path)
 
-    assert changed is True
+    assert result.changed is True
+    assert result.synced is True  # the harness file was materialized
+    assert result.version == HARNESS_VERSION
     gd = tmp_path / "addons" / "gda_harness" / "gda_harness.gd"
     assert gd.exists()
     assert "extends Node" in gd.read_text(encoding="utf-8")
@@ -50,8 +52,8 @@ def test_install_materializes_harness_and_writes_autoload_entry(tmp_path):
 def test_install_is_idempotent(tmp_path):
     (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
 
-    assert install_harness(tmp_path) is True  # first install changes the project
-    assert install_harness(tmp_path) is False  # second is a no-op
+    assert install_harness(tmp_path).changed is True  # first install changes it
+    assert install_harness(tmp_path).changed is False  # second is a no-op
 
     text = (tmp_path / "project.godot").read_text(encoding="utf-8")
     assert text.count(_autoload_line()) == 1  # not duplicated
@@ -61,7 +63,7 @@ def test_install_preserves_existing_autoloads(tmp_path):
     existing = _NO_AUTOLOAD + '\n[autoload]\n\nOther="*res://other.gd"\n'
     (tmp_path / "project.godot").write_text(existing, encoding="utf-8")
 
-    assert install_harness(tmp_path) is True
+    assert install_harness(tmp_path).changed is True
 
     text = (tmp_path / "project.godot").read_text(encoding="utf-8")
     assert 'Other="*res://other.gd"' in text  # sibling autoload preserved
@@ -96,8 +98,8 @@ def test_version_mismatch_re_materializes(tmp_path, monkeypatch):
     # the change. The mismatch falls out of the existing content-compare, not a
     # separate branch.
     (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
-    assert install_harness(tmp_path) is True  # first install at current version
-    assert install_harness(tmp_path) is False  # idempotent at the same version
+    assert install_harness(tmp_path).changed is True  # first install
+    assert install_harness(tmp_path).changed is False  # idempotent same version
 
     # Simulate a previously-installed copy at an older version by rewriting only
     # the header to a stale value (the on-disk version no longer matches).
@@ -107,9 +109,11 @@ def test_version_mismatch_re_materializes(tmp_path, monkeypatch):
     gd.write_text("\n".join(lines) + "\n", encoding="utf-8")
     assert installed_harness_version(tmp_path) == "stale-old"
 
-    assert install_harness(tmp_path) is True  # version mismatch -> re-materialize
+    resynced = install_harness(tmp_path)  # version mismatch -> re-materialize
+    assert resynced.changed is True
+    assert resynced.synced is True  # the re-materialize is a real sync
     assert installed_harness_version(tmp_path) == HARNESS_VERSION  # synced
-    assert install_harness(tmp_path) is False  # idempotent again
+    assert install_harness(tmp_path).changed is False  # idempotent again
 
 
 def test_matched_version_does_not_rewrite_the_file(tmp_path):
@@ -121,7 +125,9 @@ def test_matched_version_does_not_rewrite_the_file(tmp_path):
     gd = _harness_file(tmp_path)
     before = gd.stat().st_mtime_ns
 
-    assert install_harness(tmp_path) is False
+    result = install_harness(tmp_path)
+    assert result.changed is False
+    assert result.synced is False  # nothing re-materialized
     assert gd.stat().st_mtime_ns == before  # not rewritten
 
 
@@ -133,9 +139,9 @@ def test_uninstall_removes_both_autoload_and_files(tmp_path):
     install_harness(tmp_path)
     assert _harness_file(tmp_path).exists()
 
-    removed = uninstall_harness(tmp_path)
+    result = uninstall_harness(tmp_path)
 
-    assert removed is True
+    assert result.removed is True
     text = (tmp_path / "project.godot").read_text(encoding="utf-8")
     assert _autoload_line() not in text  # autoload entry stripped
     assert HARNESS_AUTOLOAD_NAME not in text  # no dangling GdaHarness= line
@@ -184,9 +190,9 @@ def test_uninstall_is_idempotent_when_not_installed(tmp_path):
     # Uninstall when nothing is installed is a no-op success (mirrors daemon stop).
     (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
 
-    assert uninstall_harness(tmp_path) is False  # nothing to remove
+    assert uninstall_harness(tmp_path).removed is False  # nothing to remove
 
     # And a second uninstall after a real one is also a no-op.
     install_harness(tmp_path)
-    assert uninstall_harness(tmp_path) is True
-    assert uninstall_harness(tmp_path) is False
+    assert uninstall_harness(tmp_path).removed is True
+    assert uninstall_harness(tmp_path).removed is False

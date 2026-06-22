@@ -26,6 +26,7 @@ crashes an exported game, ADR-0018). It is idempotent: a no-op success when the
 harness is not installed (mirrors ``daemon stop``).
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -44,6 +45,33 @@ HARNESS_VERSION = "0"
 _VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"
 _BUNDLED_HARNESS = Path(__file__).parent / HARNESS_FILE
+
+
+@dataclass(frozen=True)
+class HarnessInstall:
+    """The outcome of an ``install_harness`` call (#225).
+
+    ``changed`` is the existing ``installed_harness`` signal the daemon reports —
+    True iff the file was (re)materialized OR the autoload entry was added/repointed.
+    ``synced`` is True only on a real version/body re-materialize (the
+    ``harness_synced`` the daemon reports — distinct from merely adding the autoload
+    entry). ``version`` is the version now installed on disk.
+    """
+
+    changed: bool
+    synced: bool
+    version: str
+
+
+@dataclass(frozen=True)
+class HarnessUninstall:
+    """The outcome of an ``uninstall_harness`` call (#225).
+
+    ``removed`` is True iff anything was removed (the autoload entry and/or the
+    files); False is the idempotent no-op when the harness was not installed.
+    """
+
+    removed: bool
 
 
 def _autoload_line() -> str:
@@ -123,12 +151,13 @@ def _ensure_autoload(text: str) -> tuple[str, bool]:
     return f"{base}\n{_AUTOLOAD_HEADER}\n\n{line}\n", True
 
 
-def install_harness(project: Path) -> bool:
-    """Idempotently install the harness autoload into ``project``.
+def install_harness(project: Path) -> HarnessInstall:
+    """Idempotently install the harness autoload into ``project`` (#225).
 
-    Returns whether anything changed (the ``installed_harness`` the daemon
-    reports): ``True`` on a first install or a re-materialize/re-point, ``False``
-    when the harness file and the autoload entry are already in place.
+    Returns a :class:`HarnessInstall`: ``changed`` (the ``installed_harness`` the
+    daemon reports — ``True`` on a first install or a re-materialize/re-point),
+    ``synced`` (``True`` only on a real version/body re-materialize, the
+    ``harness_synced`` the daemon reports), and the ``version`` now on disk.
     """
     materialized = _materialize(project)
     project_godot = project / "project.godot"
@@ -136,7 +165,11 @@ def install_harness(project: Path) -> bool:
     new_text, autoload_added = _ensure_autoload(text)
     if autoload_added:
         project_godot.write_text(new_text, encoding="utf-8")
-    return materialized or autoload_added
+    return HarnessInstall(
+        changed=materialized or autoload_added,
+        synced=materialized,
+        version=HARNESS_VERSION,
+    )
 
 
 def _remove_autoload(text: str) -> tuple[str, bool]:
@@ -166,15 +199,15 @@ def _remove_files(project: Path) -> bool:
     return removed
 
 
-def uninstall_harness(project: Path) -> bool:
+def uninstall_harness(project: Path) -> HarnessUninstall:
     """Idempotently remove the harness autoload and files from ``project`` (#225).
 
     Crash-safe ordering (ADR-0018, D2): strip the ``[autoload]`` entry **first**
     (a single atomic ``write_text``), then delete the files — so a mid-failure
     leaves only a harmless stray inert ``.gd``, never a dangling autoload pointing
-    at a missing script (which crashes an exported game). Returns whether anything
-    was removed; a no-op success (``False``) when nothing is installed (mirrors
-    ``daemon stop``).
+    at a missing script (which crashes an exported game). Returns a
+    :class:`HarnessUninstall`; ``removed`` is ``False`` (a no-op success) when
+    nothing is installed (mirrors ``daemon stop``).
     """
     project_godot = project / "project.godot"
     autoload_removed = False
@@ -184,4 +217,4 @@ def uninstall_harness(project: Path) -> bool:
         if autoload_removed:
             project_godot.write_text(new_text, encoding="utf-8")
     files_removed = _remove_files(project)
-    return autoload_removed or files_removed
+    return HarnessUninstall(removed=autoload_removed or files_removed)

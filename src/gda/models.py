@@ -3070,6 +3070,19 @@ class DaemonStartResult(BaseModel):
     installed_harness: bool = Field(
         description="Whether this start installed or updated the harness autoload (ADR-0018)."
     )
+    harness_synced: bool = Field(
+        default=False,
+        description=(
+            "Whether this start re-materialized the harness to the running gda's "
+            "version because the installed copy declared an older one — true only "
+            "on a real version-mismatch rewrite, not merely adding the autoload "
+            "entry (#225, ADR-0018)."
+        ),
+    )
+    harness_version: str = Field(
+        default="",
+        description="The gda harness version now installed in the project (#225).",
+    )
     already_running: bool = Field(
         description="Whether a daemon was already running, so start was a no-op."
     )
@@ -3104,3 +3117,18 @@ class DaemonStatusResult(BaseModel):
         default=None, description="The running daemon's pid, if any."
     )
     socket_path: str = Field(description="The per-project CLI socket path.")
+
+
+class DaemonUninstallParams(BaseModel):
+    """The params of ``gda daemon uninstall``: none (the project is the --project context)."""
+
+
+class DaemonUninstallResult(BaseModel):
+    """The result of ``gda daemon uninstall``: the paired harness removal (ADR-0018, #225)."""
+
+    removed: bool = Field(
+        description=(
+            "Whether the harness autoload and files were removed; False is the "
+            "idempotent no-op when no harness was installed (mirrors daemon stop)."
+        )
+    )
