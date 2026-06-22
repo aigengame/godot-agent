@@ -448,3 +448,41 @@ DIAG_LOG_RESULT = {
         "another line",
     ]
 }
+
+# Sample ``gda perf monitors`` / ``gda perf monitor`` results — the running game's
+# runtime performance, served LIVE through gda-daemon (#223). Shared by the
+# perf-command success/schema tests. ``monitors`` is keyed by monitor name; the
+# timeline carries one of ``samples`` (property watch) or ``emissions`` (signal).
+PERF_MONITORS_RESULT = {
+    "timestamp": 12345,
+    "monitors": {
+        "fps": {"name": "fps", "type": "float", "value": 60.0},
+        "static_memory": {"name": "static_memory", "type": "float", "value": 1048576.0},
+        "node_count": {"name": "node_count", "type": "float", "value": 3.0},
+    },
+}
+
+PERF_MONITOR_PROPERTY_RESULT = {
+    "node": "/root/Main/Player",
+    "kind": "property",
+    "property": "position",
+    "frames": 3,
+    "samples": [
+        {"frame": 0, "timestamp": 100, "value": [0.0, 0.0]},
+        {"frame": 1, "timestamp": 116, "value": [1.0, 0.0]},
+        {"frame": 2, "timestamp": 132, "value": [2.0, 0.0]},
+    ],
+    "emissions": [],
+}
+
+PERF_MONITOR_SIGNAL_RESULT = {
+    "node": "/root/Main/Player",
+    "kind": "signal",
+    "signal": "hit",
+    "frames": 3,
+    "samples": [],
+    "emissions": [
+        {"frame": 1, "timestamp": 116, "args": [42]},
+        {"frame": 2, "timestamp": 132, "args": []},
+    ],
+}

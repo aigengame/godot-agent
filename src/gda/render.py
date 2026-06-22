@@ -43,6 +43,8 @@ from gda.models import (
     NodeMoveResult,
     NodeRemoveResult,
     NodeSetResult,
+    PerfMonitorResult,
+    PerfMonitorsResult,
     ProjectAddAutoloadResult,
     ProjectGetResult,
     ProjectInfoResult,
@@ -201,6 +203,39 @@ def render_diag_log(diag: "DiagLogResult") -> str:
     if not diag.lines:
         return "no output"
     return "\n".join(diag.lines)
+
+
+def render_perf_monitors(snapshot: "PerfMonitorsResult") -> str:
+    """Render a performance-monitor snapshot as one ``name = value`` line each (#223).
+
+    A flat list of the running game's monitors, sorted by name for a stable
+    human-facing order, headed by the snapshot timestamp.
+    """
+    header = f"perf @ {snapshot.timestamp}ms"
+    lines = [
+        f"  {name} = {format_value(monitor.value)}"
+        for name, monitor in sorted(snapshot.monitors.items())
+    ]
+    return "\n".join([header, *lines])
+
+
+def render_perf_monitor(timeline: "PerfMonitorResult") -> str:
+    """Render a per-frame timeline (#223): a value line per frame, or an emission per row.
+
+    A property watch lists ``frame: value`` per sample; a signal watch lists
+    ``frame: args`` per recorded emission. Headed by the watched node and target.
+    """
+    if timeline.kind == "signal":
+        header = f"{timeline.node} signal {timeline.signal} ({timeline.frames} frames)"
+        rows = [
+            f"  frame {e.frame}: {format_value(e.args)}" for e in timeline.emissions
+        ]
+        return "\n".join([header, *rows])
+    header = f"{timeline.node} property {timeline.property} ({timeline.frames} frames)"
+    rows = [
+        f"  frame {s.frame}: {format_value(s.value)}" for s in timeline.samples
+    ]
+    return "\n".join([header, *rows])
 
 
 def render_daemon_start(started: "DaemonStartResult") -> str:
@@ -609,6 +644,8 @@ _RENDERERS = {
     GameSetResult: render_game_set,
     DiagErrorsResult: render_diag_errors,
     DiagLogResult: render_diag_log,
+    PerfMonitorsResult: render_perf_monitors,
+    PerfMonitorResult: render_perf_monitor,
     DaemonStartResult: render_daemon_start,
     DaemonStopResult: render_daemon_stop,
     DaemonStatusResult: render_daemon_status,

@@ -474,8 +474,18 @@ headless is unaffected (4.4+, cross-platform).
 - **`input` (input simulation):** key / mouse / action / sequence injection into the
   running game; record / replay.
 - **`screen` / capture:** running-game viewport screenshot, multi-frame capture.
-- **`perf` / monitor:** performance monitors, property monitoring over N frames,
-  signal watching.
+- **`perf` (runtime performance monitoring):** `perf monitors` snapshots the running
+  game's instantaneous Performance counters in one frame (shipped, #223); `perf
+  monitor --property … --frames N` / `--signal … --frames N` collects a per-frame
+  property/signal timeline over N frames and returns it as one blocking payload
+  (shipped, #223). The time-windowed collection runs on the gda harness's multi-frame
+  base — per-frame accumulation, replied once (ADR-0017 one-shot RPC, ADR-0020
+  multi-frame). The `--frames` count is bounded model-side (1..600, ADR-0015) and
+  exactly one of `--property`/`--signal` is required, so an over-range or ambiguous
+  request is a structured `invalid_params` before it reaches the harness. A missing
+  node is `live_perf_node_not_found`, an absent property `live_perf_property_not_found`,
+  an absent signal `live_perf_signal_not_found`; a genuinely stalled engine is caught
+  by the daemon-level `live_timeout`.
 - **`diag` (diagnostics):** runtime errors and output log of the running game (shipped, #224).
   `gda diag errors` reads the running game's runtime errors as structured `{level, message,
   function?, file?, line?}` (warnings included, distinguished by `level`); `gda diag log` reads

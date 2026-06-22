@@ -1152,6 +1152,34 @@ def test_sample_game_results_validate_against_emitted_output_schemas():
     jsonschema.validate(instance=GAME_SET_RESULT, schema=set_doc["output"])
 
 
+def test_perf_commands_schema_report_kind_live_and_are_model_derived():
+    # The LIVE perf commands (#223) self-describe like any command — input/output
+    # contracts derived from their models, plus the LIVE execution kind (ADR-0017).
+    monitors_doc = json.loads(CliRunner().invoke(app, ["perf", "monitors", "--schema"]).stdout)
+    monitor_doc = json.loads(CliRunner().invoke(app, ["perf", "monitor", "--schema"]).stdout)
+
+    for doc in (monitors_doc, monitor_doc):
+        assert "input" in doc and "output" in doc
+        assert doc["kind"] == "live"
+
+
+def test_sample_perf_results_validate_against_emitted_output_schemas():
+    # A sample --json payload of each perf command satisfies the contract its
+    # --schema emits (the ADR-0004 hard gate for the LIVE perf group, #223).
+    from tests.support import (
+        PERF_MONITOR_PROPERTY_RESULT,
+        PERF_MONITOR_SIGNAL_RESULT,
+        PERF_MONITORS_RESULT,
+    )
+
+    monitors_doc = json.loads(CliRunner().invoke(app, ["perf", "monitors", "--schema"]).stdout)
+    monitor_doc = json.loads(CliRunner().invoke(app, ["perf", "monitor", "--schema"]).stdout)
+
+    jsonschema.validate(instance=PERF_MONITORS_RESULT, schema=monitors_doc["output"])
+    jsonschema.validate(instance=PERF_MONITOR_PROPERTY_RESULT, schema=monitor_doc["output"])
+    jsonschema.validate(instance=PERF_MONITOR_SIGNAL_RESULT, schema=monitor_doc["output"])
+
+
 def test_schema_kind_is_identical_via_argv_and_params_json_forms():
     # `--schema` is intercepted at the same single emission point for both the
     # argv form and the `--params-json` form (the --schema check runs first), so

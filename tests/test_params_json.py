@@ -296,6 +296,66 @@ def test_script_set_params_json_rejects_inconsistent_edit_fields(monkeypatch):
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
 
 
+def test_perf_monitor_params_json_rejects_both_selectors(monkeypatch):
+    # Exactly one of property/signal is enforced model-side (PerfMonitorParams,
+    # ADR-0015), so --params-json cannot pass both (the harness would otherwise
+    # silently prefer signal) — it is structured invalid_params, not a silent pick.
+    result = CliRunner().invoke(
+        app,
+        [
+            "perf", "monitor",
+            "--params-json",
+            '{"node": "/root/Main/Player", "property": "position", "signal": "hit"}',
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+
+
+def test_perf_monitor_params_json_rejects_neither_selector(monkeypatch):
+    # Neither property nor signal is also invalid_params via --params-json: the
+    # request is ambiguous, not a default-to-something dispatch.
+    result = CliRunner().invoke(
+        app,
+        ["perf", "monitor", "--params-json", '{"node": "/root/Main/Player"}'],
+    )
+
+    assert result.exit_code != 0
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+
+
+def test_perf_monitor_params_json_rejects_frames_over_range(monkeypatch):
+    # frames is bounded 1..MAX_WINDOW_FRAMES model-side, so an over-range value is
+    # rejected (NOT silently clamped) as structured invalid_params via --params-json.
+    result = CliRunner().invoke(
+        app,
+        [
+            "perf", "monitor",
+            "--params-json",
+            '{"node": "/root/Main/Player", "property": "position", "frames": 601}',
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+
+
+def test_perf_monitor_params_json_rejects_frames_below_range(monkeypatch):
+    # The lower bound (>= 1) is enforced model-side too: frames 0 is invalid_params.
+    result = CliRunner().invoke(
+        app,
+        [
+            "perf", "monitor",
+            "--params-json",
+            '{"node": "/root/Main/Player", "property": "position", "frames": 0}',
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+
+
 def test_script_set_params_json_derives_mode_like_argv(monkeypatch):
     # Parity: the edit mode is derived from the supplied fields model-side, so a
     # --params-json caller need not (and should not) supply it.
