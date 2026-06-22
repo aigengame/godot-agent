@@ -14,6 +14,7 @@ import secrets
 import signal
 import socket
 
+from gda.daemon.diag import parse_errors, parse_log
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.session import EngineSession, launch_session
@@ -23,6 +24,14 @@ from gda.parser import RESULT_BEGIN, RESULT_END
 # Control ops on the CLI socket — daemon lifetime, not project domain ops.
 STATUS_OP = "__status__"
 STOP_OP = "__stop__"
+
+# `gda diag` ops (#224): daemon-served live ops. Unlike the other live ops, they
+# are NOT relayed to the harness — the daemon serves them directly from the
+# Session log it launched the engine with (`--log-file`). Served even after the
+# session process has died, so a crash stays diagnosable.
+DIAG_ERRORS_OP = "diag-errors"
+DIAG_LOG_OP = "diag-log"
+DIAG_OPS = (DIAG_ERRORS_OP, DIAG_LOG_OP)
 
 
 class DaemonServer:
@@ -96,6 +105,10 @@ class DaemonServer:
         if op == STOP_OP:
             self._stopping = True
             return {"ok": True, "pid": os.getpid()}
+        if op in DIAG_OPS:
+            # `gda diag` is daemon-served: the daemon reads the Session log it owns
+            # rather than relaying to the harness (#224).
+            return self._handle_diag(op, request.get("params", {}))
         # A project live op. Serialized against the one session (single writer).
         session = self._ensure_session()
         if session is None:
@@ -105,6 +118,42 @@ class DaemonServer:
                 "or the harness did not connect)",
             )
         return session.request(op, request.get("params", {}))
+
+    def _handle_diag(self, op: str, params: dict) -> dict:
+        """Serve a `gda diag` op from the Session log this daemon owns (#224).
+
+        Reads the running game's captured errors/output from the ``--log-file``
+        the daemon launched the engine with. Crucially served even when the
+        session process has DIED — diag does NOT relaunch (a relaunch truncates
+        the log and would lose the crash); it requires only that a session was
+        launched this daemon lifetime. With no session ever launched (and none
+        launchable) it is ``engine_session_not_running``; with a remembered
+        session whose log file is missing/unreadable it is ``live_log_unavailable``
+        (an empty log is an empty result, not an error).
+        """
+        session = self._session
+        if session is None:
+            # No session this lifetime yet — try to launch one so the first op can
+            # be diag (a fresh session whose game may already have errored).
+            session = self._ensure_session()
+        if session is None or session.log_file is None:
+            return _op_error_reply(
+                "engine_session_not_running",
+                "the gda-daemon holds no engine session to read runtime "
+                "diagnostics from; run a live op or `gda daemon start` first",
+            )
+        try:
+            raw = session.log_file.read_bytes()
+        except OSError:
+            return _op_error_reply(
+                "live_log_unavailable",
+                f"the engine session's diagnostics log at {session.log_file} is "
+                "missing or unreadable",
+            )
+        limit = params.get("limit")
+        if op == DIAG_ERRORS_OP:
+            return _ok_reply({"errors": parse_errors(raw, limit=limit)})
+        return _ok_reply({"lines": parse_log(raw, limit=limit)})
 
     def _ensure_session(self) -> EngineSession | None:
         if self._session is not None and self._session.alive():
@@ -121,8 +170,21 @@ class DaemonServer:
             self._harness_listener,
             self.paths.harness_socket,
             self._token,
+            log_file=self._session_log_path(),
         )
         return self._session
+
+    def _session_log_path(self):
+        """The daemon-owned Session-log path for this project (#224).
+
+        Under the daemon's private runtime dir (NOT ``user://logs`` — that shared
+        path caused #180), keyed by the same project slug the sockets/pidfile use,
+        so the engine's ``--log-file`` writes the running game's errors/output to a
+        path the daemon can read back to serve ``gda diag``. ``RotatedFileLogger``
+        truncates it each launch, making it session-bound (ADR-0020).
+        """
+        slug = self.paths.cli_socket.name.split(".", 1)[0]
+        return self.paths.runtime_dir / f"{slug}.session.log"
 
     def _cleanup(self) -> None:
         if self._session is not None:
@@ -156,4 +218,19 @@ def _op_error_reply(code: str, message: str) -> dict:
         "stdout": f"{RESULT_BEGIN}{body}{RESULT_END}\n",
         "stderr": "",
         "exit_code": EXIT_LIVE,
+    }
+
+
+def _ok_reply(payload: dict) -> dict:
+    """A CLI reply carrying a daemon-served success payload as the ADR-0002 sentinel.
+
+    The daemon-served ``gda diag`` ops build their result here rather than relaying
+    a harness reply; classification (``classify_live`` / ``parse_result``) treats
+    it exactly like an engine op's sentinel, so the CLI/model/render path is shared.
+    """
+    body = json.dumps(payload)
+    return {
+        "stdout": f"{RESULT_BEGIN}{body}{RESULT_END}\n",
+        "stderr": "",
+        "exit_code": 0,
     }
