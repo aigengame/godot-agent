@@ -1,4 +1,4 @@
-"""Install the gda harness autoload into a project (ADR-0018).
+"""Install / uninstall the gda harness autoload in a project (ADR-0018).
 
 ``gda daemon start`` performs this **one-time, install-time write** (never a
 per-launch mutation, which would race a concurrent editor and corrupt config):
@@ -9,10 +9,25 @@ and reports whether it changed anything (``installed_harness``).
 The write is Python-side because it happens *before* any engine session exists.
 It mirrors the autoload semantics ``operations.gd`` uses for ``project
 add-autoload`` (issue #119): the value is the ``res://`` path prefixed with ``*``
-(the enabled-singleton form). Version self-sync and paired uninstall are #225.
+(the enabled-singleton form).
+
+**Version self-sync (#225, D1).** ``_materialize`` prepends a leading GDScript
+comment header ``# gda-harness-version: <N>`` (sourced from ``HARNESS_VERSION``,
+NOT the package version — the harness changes far less often than ``gda`` ships).
+Because that header is part of the materialized content, the version check **falls
+out of the existing content-compare**: a mismatch re-materializes, a match is a
+no-op (never an unconditional overwrite, which would bump mtime and trip the
+concurrent-editor prompt). ``installed_harness_version`` reads the header back.
+
+**Paired uninstall (#225, D2).** ``uninstall_harness`` removes the ``[autoload]``
+entry **first**, then deletes the files — so a mid-failure leaves only a harmless
+stray inert ``.gd``, never a dangling autoload pointing at a missing script (which
+crashes an exported game, ADR-0018). It is idempotent: a no-op success when the
+harness is not installed (mirrors ``daemon stop``).
 """
 
 from pathlib import Path
+from typing import Optional
 
 # The autoload name and the res:// location the bundled harness is installed to.
 HARNESS_AUTOLOAD_NAME = "GdaHarness"
@@ -21,10 +36,12 @@ HARNESS_FILE = "gda_harness.gd"
 HARNESS_RES_PATH = f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}"
 
 # Bumped when the bundled harness changes; the daemon self-syncs the installed
-# copy to it (#225). Unused by the install logic now — only re-materialize on a
-# content difference — but the anchor lives here for #225.
+# copy to it (#225). The installed copy declares its version in a leading header
+# (`# gda-harness-version: <N>`); a mismatch re-materializes via the content
+# compare. NOT the package version — the harness changes far less often.
 HARNESS_VERSION = "0"
 
+_VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"
 _BUNDLED_HARNESS = Path(__file__).parent / HARNESS_FILE
 
@@ -34,14 +51,48 @@ def _autoload_line() -> str:
     return f'{HARNESS_AUTOLOAD_NAME}="*{HARNESS_RES_PATH}"'
 
 
+def _version_header() -> str:
+    return f"{_VERSION_HEADER_PREFIX} {HARNESS_VERSION}"
+
+
+def _materialized_content() -> str:
+    """The exact bytes the installed harness should hold: version header + body."""
+    return f"{_version_header()}\n{_BUNDLED_HARNESS.read_text(encoding='utf-8')}"
+
+
+def _harness_dest(project: Path) -> Path:
+    return project / HARNESS_RES_DIR / HARNESS_FILE
+
+
+def installed_harness_version(project: Path) -> Optional[str]:
+    """The version declared in the installed harness's header, or None if absent.
+
+    Reads the leading ``# gda-harness-version: <N>`` comment ``_materialize``
+    prepends. Returns None when no harness file is installed or its header is
+    missing/unrecognized (treated as a mismatch -> re-materialize).
+    """
+    dest = _harness_dest(project)
+    if not dest.exists():
+        return None
+    first = dest.read_text(encoding="utf-8").splitlines()[:1]
+    if first and first[0].startswith(_VERSION_HEADER_PREFIX):
+        return first[0][len(_VERSION_HEADER_PREFIX) :].strip()
+    return None
+
+
 def _materialize(project: Path) -> bool:
-    """Write the bundled harness under res://addons; True iff it changed on disk."""
-    dest = project / HARNESS_RES_DIR / HARNESS_FILE
-    bundled = _BUNDLED_HARNESS.read_text(encoding="utf-8")
-    if dest.exists() and dest.read_text(encoding="utf-8") == bundled:
+    """Write the bundled harness under res://addons; True iff it changed on disk.
+
+    The destination content is the version header + the bundled body, so a version
+    bump (or a body change) is a content difference — re-materialize only then,
+    never unconditionally (an mtime bump would trip the concurrent-editor prompt).
+    """
+    dest = _harness_dest(project)
+    content = _materialized_content()
+    if dest.exists() and dest.read_text(encoding="utf-8") == content:
         return False
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(bundled, encoding="utf-8")
+    dest.write_text(content, encoding="utf-8")
     return True
 
 
@@ -86,3 +137,51 @@ def install_harness(project: Path) -> bool:
     if autoload_added:
         project_godot.write_text(new_text, encoding="utf-8")
     return materialized or autoload_added
+
+
+def _remove_autoload(text: str) -> tuple[str, bool]:
+    """Drop the harness autoload line from ``project.godot`` text; (text, changed).
+
+    Removes only the ``GdaHarness=...`` line, leaving the ``[autoload]`` section
+    header and any sibling autoloads intact (the inverse of ``_ensure_autoload``).
+    """
+    lines = text.splitlines()
+    kept = [
+        raw for raw in lines if not raw.strip().startswith(f"{HARNESS_AUTOLOAD_NAME}=")
+    ]
+    if len(kept) == len(lines):
+        return text, False
+    trailing = "\n" if text.endswith("\n") else ""
+    return "\n".join(kept) + trailing, True
+
+
+def _remove_files(project: Path) -> bool:
+    """Delete the materialized harness file (and its now-empty addon dir); changed?"""
+    dest = _harness_dest(project)
+    removed = dest.exists()
+    dest.unlink(missing_ok=True)
+    addon_dir = project / HARNESS_RES_DIR
+    if addon_dir.is_dir() and not any(addon_dir.iterdir()):
+        addon_dir.rmdir()
+    return removed
+
+
+def uninstall_harness(project: Path) -> bool:
+    """Idempotently remove the harness autoload and files from ``project`` (#225).
+
+    Crash-safe ordering (ADR-0018, D2): strip the ``[autoload]`` entry **first**
+    (a single atomic ``write_text``), then delete the files — so a mid-failure
+    leaves only a harmless stray inert ``.gd``, never a dangling autoload pointing
+    at a missing script (which crashes an exported game). Returns whether anything
+    was removed; a no-op success (``False``) when nothing is installed (mirrors
+    ``daemon stop``).
+    """
+    project_godot = project / "project.godot"
+    autoload_removed = False
+    if project_godot.exists():
+        text = project_godot.read_text(encoding="utf-8")
+        new_text, autoload_removed = _remove_autoload(text)
+        if autoload_removed:
+            project_godot.write_text(new_text, encoding="utf-8")
+    files_removed = _remove_files(project)
+    return autoload_removed or files_removed
