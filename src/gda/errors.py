@@ -52,6 +52,8 @@ from gda.models import (
     EngineVersion,
     ExportRunMode,
     ExportRunResult,
+    GameGetResult,
+    GameSetResult,
     GameTreeResult,
     GdaError,
     OperationErrorEnvelope,
@@ -430,6 +432,16 @@ def classify_live(result: RunResult, binary: Path, output_model: type[M]) -> M |
 def classify_game_tree(result: RunResult, binary: Path) -> GameTreeResult | Failure:
     """The per-command live classifier for ``gda game tree`` (mirrors ``classify_info``)."""
     return classify_live(result, binary, GameTreeResult)
+
+
+def classify_game_get(result: RunResult, binary: Path) -> GameGetResult | Failure:
+    """The per-command live classifier for ``gda game get`` (mirrors ``classify_game_tree``)."""
+    return classify_live(result, binary, GameGetResult)
+
+
+def classify_game_set(result: RunResult, binary: Path) -> GameSetResult | Failure:
+    """The per-command live classifier for ``gda game set`` (mirrors ``classify_game_tree``)."""
+    return classify_live(result, binary, GameSetResult)
 
 
 # A non-fatal export warning the engine prints to stderr. WARNING is Godot's

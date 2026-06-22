@@ -21,6 +21,8 @@ from gda.daemon_ops import (
 )
 from gda.errors import (
     Failure,
+    classify_game_get,
+    classify_game_set,
     classify_game_tree,
     classify_info,
     classify_script_validate,
@@ -59,6 +61,10 @@ from gda.models import (
     ExportListParams,
     ExportListResult,
     ExportRunMode,
+    GameGetParams,
+    GameGetResult,
+    GameSetParams,
+    GameSetResult,
     GameTreeParams,
     GameTreeResult,
     InfoParams,
@@ -474,6 +480,103 @@ def game_tree(
     _dispatch(
         GAME_TREE_COMMAND,
         GameTreeParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+GAME_GET_COMMAND: HeadlessCommand[GameGetResult] = HeadlessCommand(
+    operation="game-get",
+    input_model=GameGetParams,
+    output_model=GameGetResult,
+    classify=classify_game_get,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@game_app.command(name="get", cls=GAME_GET_COMMAND.command_class())
+def game_get(
+    node: str = typer.Argument(
+        ...,
+        help="Runtime node path as `game tree` reports it (absolute, e.g. /root/Main/Player).",
+    ),
+    property: Optional[str] = typer.Option(
+        None,
+        "--property",
+        help="If set, read only this one property instead of the whole storage surface.",
+    ),
+    json_output: bool = json_option(),
+    schema: bool = GAME_GET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read a running node's runtime properties (live).
+
+    The live counterpart of `node get`: routes through gda-daemon to the engine
+    session's runtime SceneTree (kind = LIVE, ADR-0017), addressed by the runtime
+    (absolute) node path `game tree` reports — not a `.tscn` file. With no daemon
+    it reports `daemon_not_running`; a path that resolves to no running node is
+    `live_node_not_found`; `--property` naming an absent property is
+    `live_unknown_property`.
+    """
+    _dispatch(
+        GAME_GET_COMMAND,
+        GameGetParams(node=node, property=property),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+GAME_SET_COMMAND: HeadlessCommand[GameSetResult] = HeadlessCommand(
+    operation="game-set",
+    input_model=GameSetParams,
+    output_model=GameSetResult,
+    classify=classify_game_set,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@game_app.command(name="set", cls=GAME_SET_COMMAND.command_class())
+def game_set(
+    node: str = typer.Argument(
+        ...,
+        help="Runtime node path as `game tree` reports it (absolute, e.g. /root/Main/Player).",
+    ),
+    property: str = typer.Option(
+        ..., "--property", help="The property to set (e.g. position, visible)."
+    ),
+    value: str = typer.Option(
+        ...,
+        "--value",
+        help=(
+            "The value to set, as a string. Coerced to the property's declared "
+            "Godot type (the same coercion `node set` uses); an uncoercible value "
+            "is a clean error."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = GAME_SET_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Set a running node's runtime property, coercing the value to its type (live).
+
+    The live counterpart of `node set`: routes through gda-daemon to the engine
+    session (kind = LIVE, ADR-0017), addressed by the runtime (absolute) node path.
+    The gda harness coerces `--value` to the property's declared Godot type — the
+    SAME coercion table `node set` uses — and applies it at a frame boundary
+    (ADR-0020); the mutation is bound to the session, not persisted to disk. With
+    no daemon it reports `daemon_not_running`; an absent node is
+    `live_node_not_found`, an absent property `live_unknown_property`, an
+    uncoercible value `live_uncoercible_value`.
+    """
+    _dispatch(
+        GAME_SET_COMMAND,
+        GameSetParams(node=node, property=property, value=value),
         json_output=json_output,
         godot=godot,
         project=project,

@@ -28,10 +28,23 @@ LIVE_ERROR_CODES = (
 ROOT = Path(__file__).resolve().parents[1]
 ADR_0002 = ROOT / "docs" / "adr" / "0002-headless-structured-output-contract.md"
 OPERATIONS_GD = ROOT / "src" / "gda" / "ops" / "operations.gd"
+GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
 
 ADR_REGISTRY_ROW = re.compile(r"^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \| `(\d+)` \|")
 GDSCRIPT_OPERATION_CODE = re.compile(r'^const OP_ERROR_[A-Z_]+ := "([a-z_]+)"$', re.MULTILINE)
+GDSCRIPT_HARNESS_LIVE_CODE = re.compile(
+    r'^const LIVE_ERROR_[A-Z_]+ := "([a-z_]+)"$', re.MULTILINE
+)
 BARE_FAIL_CODE = re.compile(r'_fail\(\s*"[a-z_]+"')
+
+# The per-operation LIVE failures the gda harness reports in-band (#220). The
+# generic daemon-channel LIVE codes (daemon_not_running, …) are surfaced by the
+# Python daemon client, NOT the harness, so they are not mirrored in GDScript.
+HARNESS_LIVE_ERROR_CODES = (
+    "live_node_not_found",
+    "live_unknown_property",
+    "live_uncoercible_value",
+)
 
 
 def _adr_registry() -> dict[str, tuple[str, str, int]]:
@@ -105,3 +118,31 @@ def test_live_failures_are_registered_classifier_live_codes():
         assert spec.source is ErrorCodeSource.CLASSIFIER
         assert spec.exit_code == EXIT_LIVE
         assert spec.code not in OPERATION_ERROR_CODES
+
+
+def test_harness_live_error_codes_are_registered_live_codes():
+    # The per-op LIVE failures the gda harness reports (#220) are registered
+    # LIVE-category classifier-source codes: because their category is LIVE,
+    # ``LIVE_ERROR_CODES`` (and so ``classify_live``) maps them with no errors.py
+    # change — the keystone routing that keeps a harness exit-0 op error off the
+    # ``contract_violation`` fallthrough.
+    for code in HARNESS_LIVE_ERROR_CODES:
+        spec = ERROR_CODE_BY_CODE[code]
+        assert spec.category is ErrorCategory.LIVE
+        assert spec.source is ErrorCodeSource.CLASSIFIER
+        assert spec.exit_code == EXIT_LIVE
+
+
+def test_gdscript_harness_live_error_codes_mirror_python_harness_subset():
+    # The harness mints the per-op LIVE codes itself, so each must have a matching
+    # ``const LIVE_ERROR_* := "..."`` in gda_harness.gd. This is the harness twin
+    # of the operations.gd OP_ERROR mirror, kept separate so the operations.gd
+    # mirror test stays the operation-source set (the OP_ERROR drift test is
+    # unaffected). The generic daemon-channel LIVE codes are NOT harness-mirrored.
+    harness = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    mirrored_codes = set(GDSCRIPT_HARNESS_LIVE_CODE.findall(harness))
+
+    assert mirrored_codes == set(HARNESS_LIVE_ERROR_CODES)
+    for code in mirrored_codes:
+        spec = ERROR_CODE_BY_CODE[code]
+        assert spec.category is ErrorCategory.LIVE
