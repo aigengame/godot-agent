@@ -32,6 +32,26 @@ MAIN_TSCN = (
 )
 PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 
+# A Player that DECLARES a custom signal and emits it once per _process frame with
+# a single int argument (a monotonically increasing tick). The signal e2e watches
+# this signal over a window and asserts the recorded emissions — exercising the
+# real get_signal_list / connect / record / disconnect path in the harness (#239).
+SIGNAL_PLAYER_GD = (
+    "extends Node2D\n"
+    "signal ticked(n)\n"
+    "var _n := 0\n"
+    "func _process(_delta: float) -> void:\n"
+    "\t_n += 1\n"
+    "\tticked.emit(_n)\n"
+)
+SIGNAL_MAIN_TSCN = (
+    '[gd_scene load_steps=2 format=3]\n\n'
+    '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
+    '[node name="Main" type="Node2D"]\n\n'
+    '[node name="Player" type="Node2D" parent="."]\n'
+    'script = ExtResource("1")\n'
+)
+
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
 
@@ -113,6 +133,64 @@ def test_daemon_serves_a_property_timeline_over_a_window(tmp_path, daemon_runtim
         assert [s["frame"] for s in doc["samples"]] == [0, 1, 2, 3, 4]
         # Each sample carries the Vector2 position projection [x, y].
         assert all(len(s["value"]) == 2 for s in doc["samples"])
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_serves_a_signal_timeline_over_a_window(tmp_path, daemon_runtime_dir):
+    # `perf monitor --signal --frames N`: the time-windowed base connects a recorder
+    # to a REAL script-declared signal, records each emission over the window, then
+    # disconnects on finalize. The Player emits `ticked(n)` once per _process frame,
+    # so a window of N frames records emissions carrying the int tick arg — the real
+    # get_signal_list / connect / record / disconnect path (#239).
+    gda = shutil.which("gda")
+    assert gda, "the `gda` console script is not on PATH"
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SIGNAL_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(SIGNAL_PLAYER_GD, encoding="utf-8")
+
+    env = {**os.environ}
+
+    def run(*args):
+        return subprocess.run(
+            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=90,
+        )
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        timeline = run(
+            "perf", "monitor", "/root/Main/Player",
+            "--signal", "ticked", "--frames", "5",
+        )
+        assert timeline.returncode == 0, timeline.stdout + timeline.stderr
+        doc = json.loads(timeline.stdout)
+        assert doc["node"] == "/root/Main/Player"
+        assert doc["kind"] == "signal"
+        assert doc["signal"] == "ticked"
+        # The window collected its requested frame count (frames reports the ACTUAL
+        # window length, consistent with the property monitor).
+        assert doc["frames"] == 5
+        # A property timeline is empty for a signal watch (the harness reports one).
+        assert doc["samples"] == []
+        # The Player emits once per _process frame, so the window records emissions —
+        # at least one, each carrying the single int tick arg the signal declares.
+        emissions = doc["emissions"]
+        assert len(emissions) >= 1, doc
+        for emission in emissions:
+            assert len(emission["args"]) == 1
+            assert isinstance(emission["args"][0], int)
+            assert "frame" in emission and "timestamp" in emission
+        # The recorded tick args are strictly increasing (the Player increments _n
+        # each frame before emitting), proving real emission args were captured.
+        ticks = [e["args"][0] for e in emissions]
+        assert ticks == sorted(ticks) and len(set(ticks)) == len(ticks), ticks
     finally:
         run("daemon", "stop")
 

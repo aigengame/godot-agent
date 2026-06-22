@@ -37,19 +37,14 @@ const LIVE_ERROR_UNCOERCIBLE_VALUE := "live_uncoercible_value"
 const LIVE_ERROR_PERF_NODE_NOT_FOUND := "live_perf_node_not_found"
 const LIVE_ERROR_PERF_PROPERTY_NOT_FOUND := "live_perf_property_not_found"
 const LIVE_ERROR_PERF_SIGNAL_NOT_FOUND := "live_perf_signal_not_found"
-const LIVE_ERROR_PERF_TIMEOUT := "live_perf_timeout"
 
-# The frame count a time-windowed op may request before the harness clamps it
-# (#223). A window collects one sample per frame, so an unbounded N would block the
-# RPC for an unbounded time; this bounds the collection to a generous ceiling.
+# The frame count a time-windowed op may request (#223). A window collects one
+# sample per frame, so an unbounded N would block the one-shot RPC for an unbounded
+# time; this bounds the collection to a generous ceiling. The bound is ENFORCED
+# model-side (PerfMonitorParams.frames, ADR-0015), so an over-range request is
+# rejected before it reaches the harness — the harness no longer clamps. Mirrored
+# in src/gda/models.py (MAX_WINDOW_FRAMES); a test keeps the two in sync.
 const MAX_WINDOW_FRAMES := 600
-
-# A window's hard frame budget guard (#223). A window finalizes when it has
-# collected its requested frame count, but if the engine stalls (a crash mid-window,
-# a frame that never advances) the window must still fail rather than hang the RPC
-# forever — the time-windowed analogue of the _pending_frames > 300 boot guard. The
-# ceiling is the max requestable frames plus headroom for the few-frame settle.
-const WINDOW_FRAME_LIMIT := MAX_WINDOW_FRAMES + 60
 
 var _peer: StreamPeerUDS = null
 var _authed := false
@@ -146,18 +141,18 @@ func _send_frame(payload: PackedByteArray) -> void:
 # calls `sample` once (frame-coherent, ADR-0020) and accumulates its return into a
 # samples Array; once `frames` samples are collected (or an error sample is
 # returned) it calls `finalize(samples)` for the final payload and replies once.
-# A hard frame budget (WINDOW_FRAME_LIMIT) fails with live_perf_timeout so a
-# stalled/crashed engine cannot hang the RPC forever. #221's capture op reuses
-# this same base by adding its own sample/finalize Callables — no _process change.
+# A truly stalled engine never runs _advance_window at all, so the window has no
+# timeout of its own — the daemon-level `live_timeout` is the stalled-engine guard.
+# #221's capture op reuses this same base by adding its own sample/finalize
+# Callables — no _process change.
 
 # Open a window: store its frame budget, sampler, and finalizer, then let
-# _process drive it. `frames` is the number of per-frame samples to collect,
-# clamped to MAX_WINDOW_FRAMES. Returns null so _run's caller does not reply now.
+# _process drive it. `frames` is the number of per-frame samples to collect; it is
+# already bounded to 1..MAX_WINDOW_FRAMES model-side (PerfMonitorParams, ADR-0015),
+# so the harness does not clamp. Returns null so _run's caller does not reply now.
 func _begin_window(frames: int, sample: Callable, finalize: Callable) -> Variant:
-	var budget := clampi(frames, 1, MAX_WINDOW_FRAMES)
 	_window_state = {
-		"budget": budget,
-		"elapsed": 0,
+		"budget": frames,
 		"samples": [],
 		"sample": sample,
 		"finalize": finalize,
@@ -168,15 +163,9 @@ func _begin_window(frames: int, sample: Callable, finalize: Callable) -> Variant
 # Advance the active window one frame. Collects one sample; finalizes once the
 # frame budget is met. A sample handler may abort the window early by returning a
 # Dictionary carrying an "error" key (e.g. a node that vanished mid-window) — that
-# envelope is sent verbatim. The frame ceiling is the time-windowed boot-guard.
+# envelope is sent verbatim.
 func _advance_window() -> void:
 	var state: Dictionary = _window_state
-	state["elapsed"] = int(state["elapsed"]) + 1
-	if int(state["elapsed"]) > WINDOW_FRAME_LIMIT:
-		_finish_window(_error(LIVE_ERROR_PERF_TIMEOUT,
-				"time-windowed collection did not complete within "
-				+ str(WINDOW_FRAME_LIMIT) + " frames"))
-		return
 	var sampler: Callable = state["sample"]
 	var sampled: Variant = sampler.call()
 	# A sampler may abort the window by returning a Dictionary with an "error" key
@@ -434,15 +423,18 @@ func _begin_signal_monitor(node: Node, path: String, signal_name: String, frames
 	var sample := func() -> Variant:
 		frame_box["n"] = int(frame_box["n"]) + 1
 		return null
-	var finalize := func(_samples: Array) -> String:
+	var finalize := func(samples: Array) -> String:
 		var live: Node = node_ref.get_ref()
 		if live != null and live.is_connected(signal_name, recorder):
 			live.disconnect(signal_name, recorder)
+		# Report the ACTUAL window length (one per-frame sample was accumulated each
+		# tick), consistent with the property finalizer's samples.size() — not the
+		# originally-requested `frames`.
 		return _ok({
 			"node": path,
 			"kind": "signal",
 			"signal": signal_name,
-			"frames": frames,
+			"frames": samples.size(),
 			"emissions": emissions,
 		})
 	return _begin_window(frames, sample, finalize)
