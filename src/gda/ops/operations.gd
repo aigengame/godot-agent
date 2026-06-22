@@ -3456,27 +3456,6 @@ func _fail_node_not_found_labeled(label: String, node_path: String) -> void:
 				+ " — address the node exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 
 
-# Whether a property-list entry is a STORAGE property — the ones node get
-# reports and node set targets: the properties that serialize into the .tscn,
-# excluding the engine's category headers, group separators, and editor-only
-# (non-storage) entries. This is the same usage flag the scene serializer keys
-# on, so node get reports exactly the surface a saved scene can carry.
-func _is_storage_property(prop: Dictionary) -> bool:
-	var usage := int(prop.get("usage", 0))
-	return (usage & PROPERTY_USAGE_STORAGE) != 0
-
-
-# The declared Godot type of a settable property on the node, or TYPE_NIL if the
-# node has no storage property by that name. node set keys coercion off this:
-# the value's target type comes from the property the node actually declares,
-# never from guessing.
-func _property_type(node: Node, prop_name: String) -> int:
-	for prop in node.get_property_list():
-		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
-			return int(prop.get("type", TYPE_NIL))
-	return TYPE_NIL
-
-
 # Instantiate a node by type: a built-in Node class first, then a class_name
 # from the project's global class list (script classes register only once the
 # project has been imported/scanned). Records the failure itself and returns
@@ -3599,6 +3578,34 @@ func _tree_from_state(state: SceneState, with_paths := false) -> Dictionary:
 			if parent != null:
 				parent["children"].append(node)
 	return root
+
+
+# --- BEGIN shared coercion (keep byte-identical: operations.gd <-> gda_harness.gd) ---
+# These pure property-introspection / value-coercion helpers are DUPLICATED
+# verbatim into src/gda/harness/gda_harness.gd: operations.gd runs via
+# `godot --headless --script <abs-fs-path>` (often projectless) while the harness
+# is a res:// autoload, so no single preload() reaches both and install.py copies
+# one file. tests/test_harness_coercion_mirror.py asserts the two blocks are
+# byte-identical (modulo leading tabs), so an edit here must be mirrored there.
+# Whether a property-list entry is a STORAGE property — the ones node get
+# reports and node set targets: the properties that serialize into the .tscn,
+# excluding the engine's category headers, group separators, and editor-only
+# (non-storage) entries. This is the same usage flag the scene serializer keys
+# on, so node get reports exactly the surface a saved scene can carry.
+func _is_storage_property(prop: Dictionary) -> bool:
+	var usage := int(prop.get("usage", 0))
+	return (usage & PROPERTY_USAGE_STORAGE) != 0
+
+
+# The declared Godot type of a settable property on the node, or TYPE_NIL if the
+# node has no storage property by that name. node set keys coercion off this:
+# the value's target type comes from the property the node actually declares,
+# never from guessing.
+func _property_type(node: Node, prop_name: String) -> int:
+	for prop in node.get_property_list():
+		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
+			return int(prop.get("type", TYPE_NIL))
+	return TYPE_NIL
 
 
 # Read a string param defensively: a non-string value (the params arrive as
@@ -3745,6 +3752,7 @@ func _coerce_color(raw: String) -> Variant:
 	if out.size() == 3:
 		return Color(out[0], out[1], out[2])
 	return Color(out[0], out[1], out[2], out[3])
+# --- END shared coercion ---
 
 
 func _is_valid_node_name(node_name: String) -> bool:
