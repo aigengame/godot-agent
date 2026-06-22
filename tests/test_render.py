@@ -19,6 +19,11 @@ from gda.models import (
     NodeGetResult,
     NodeProperty,
     NodeSetResult,
+    PerfMonitor,
+    PerfMonitorResult,
+    PerfMonitorsResult,
+    PerfPropertySample,
+    PerfSignalEmission,
     SceneNode,
     ScriptCreateResult,
     ScriptDeleteResult,
@@ -155,6 +160,49 @@ def test_render_game_set_renders_the_set_runtime_property():
         value=[10.0, 20.0],
     )
     assert render(result) == "set /root/Main/Player.position (Vector2) = [10.0, 20.0]"
+
+
+def test_render_perf_monitors_renders_a_sorted_snapshot():
+    result = PerfMonitorsResult(
+        timestamp=500,
+        monitors={
+            "fps": PerfMonitor(name="fps", type="float", value=60.0),
+            "node_count": PerfMonitor(name="node_count", type="float", value=3.0),
+        },
+    )
+    # Monitors are listed in a stable (name-sorted) order under the timestamp header.
+    assert render(result) == "perf @ 500ms\n  fps = 60.0\n  node_count = 3.0"
+
+
+def test_render_perf_monitor_property_renders_a_per_frame_timeline():
+    result = PerfMonitorResult(
+        node="/root/Main/Player",
+        kind="property",
+        property="position",
+        frames=2,
+        samples=[
+            PerfPropertySample(frame=0, timestamp=100, value=[0.0, 0.0]),
+            PerfPropertySample(frame=1, timestamp=116, value=[1.0, 0.0]),
+        ],
+    )
+    assert render(result) == (
+        "/root/Main/Player property position (2 frames)\n"
+        "  frame 0: [0.0, 0.0]\n"
+        "  frame 1: [1.0, 0.0]"
+    )
+
+
+def test_render_perf_monitor_signal_renders_recorded_emissions():
+    result = PerfMonitorResult(
+        node="/root/Main/Player",
+        kind="signal",
+        signal="hit",
+        frames=2,
+        emissions=[PerfSignalEmission(frame=1, timestamp=116, args=[42])],
+    )
+    assert render(result) == (
+        "/root/Main/Player signal hit (2 frames)\n  frame 1: [42]"
+    )
 
 
 def test_render_is_keyed_by_result_type():

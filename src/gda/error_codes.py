@@ -468,6 +468,34 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.CLASSIFIER,
         "A live game set value cannot be coerced to the running property's declared Godot type.",
     ),
+    # Per live-operation failures the gda harness reports for `perf` (#223). Same
+    # shape as the #220 game op-errors above: LIVE-category, classifier-source,
+    # exit_code EXIT_LIVE, harness-mirrored (a test mirrors them against the harness
+    # LIVE_ERROR_* consts). A stalled/crashed engine is caught by the daemon-level
+    # `live_timeout`, not a perf-specific code: the time-windowed base finalizes on
+    # sample count (reached before any frame ceiling), so it never emits its own
+    # timeout — there is no `live_perf_timeout`.
+    ErrorCodeSpec(
+        "live_perf_node_not_found",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live perf monitor's node path does not resolve to a node in the running scene tree.",
+    ),
+    ErrorCodeSpec(
+        "live_perf_property_not_found",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live perf monitor targeted a property the running node does not expose for reading.",
+    ),
+    ErrorCodeSpec(
+        "live_perf_signal_not_found",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live perf monitor targeted a signal the running node does not declare.",
+    ),
     # A pre-launch platform precondition, not a live-runtime failure: live needs
     # Unix domain sockets, which are UNIX-only, so it is an ENVIRONMENT-category
     # code in the binary_not_found bucket (ADR-0021), decided before any engine
