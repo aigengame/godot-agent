@@ -18,6 +18,8 @@ from pydantic import (
     model_validator,
 )
 
+from gda.execution import ExecutionKind
+
 
 class ErrorCategory(str, Enum):
     """The coarse buckets a ``gda`` operation can fail into (issue #3).
@@ -127,35 +129,38 @@ class CommandSchema(BaseModel):
     separate ``isError`` channel, so the future adapter must not fold ``error``
     into ``outputSchema``.
 
-    ``kind`` carries the command's static execution channel — the lowercase
-    :class:`~gda.execution.ExecutionKind` value (``"headless"`` / ``"export"`` /
-    ``"live"``) — taken from the command descriptor's single source of truth
-    (``HeadlessCommand.kind``), so an agent can branch on a command's channel
-    without inferring it (issue #230, stories 14/15/24). It is additive and
-    optional: gda-mcp maps only ``input`` / ``output`` / ``description`` and
-    ignores it, so adding it is backward-compatible (ADR-0012). ``None`` only when
-    a self-description is emitted without a backing command (e.g. ``gda schema``).
+    ``kind`` carries the command's static execution channel as the typed
+    :class:`~gda.execution.ExecutionKind` (serialized as the lowercase value
+    ``"headless"`` / ``"export"`` / ``"live"``), taken from the command
+    descriptor's single source of truth (``HeadlessCommand.kind``), so an agent
+    can branch on a command's channel without inferring it (issue #230, stories
+    14/15/24). Typing it as the enum makes the value enum-constrained in any
+    derived schema. It is additive: gda-mcp maps only ``input`` / ``output`` /
+    ``description`` and ignores it, so adding it is backward-compatible
+    (ADR-0012). It is ``None`` only when a self-description is emitted without a
+    backing command (e.g. ``gda schema``); a real per-command ``--schema`` always
+    carries a kind.
     """
 
     input: dict[str, Any]
     output: dict[str, Any]
     error: dict[str, Any]
-    kind: str | None = None
+    kind: ExecutionKind | None = None
 
     @classmethod
     def of(
         cls,
         input_model: type[BaseModel],
         output_model: type[BaseModel],
-        kind: str | None = None,
+        kind: ExecutionKind | None = None,
     ) -> "CommandSchema":
         """Derive the contract from a command's params and result models.
 
         ``error`` is the shared failure-envelope schema, the same for every
         command, so it takes no per-command model argument. ``kind`` is the
-        command's static :class:`~gda.execution.ExecutionKind` value (issue
-        #230); an ``ExecutionKind`` passed in serializes to its lowercase string
-        because it subclasses ``str``.
+        command's static :class:`~gda.execution.ExecutionKind` (issue #230); it
+        serializes to its lowercase string because ``ExecutionKind`` subclasses
+        ``str``.
         """
         return cls(
             input=input_model.model_json_schema(),
@@ -176,10 +181,14 @@ class CommandManifestEntry(BaseModel):
     (its help text, which flows into the MCP tool description).
 
     ``kind`` mirrors :class:`CommandSchema`'s: the entry's static execution
-    channel (``"headless"`` / ``"export"`` / ``"live"``), taken from the same
-    descriptor source of truth so the aggregate and per-command forms agree
-    (issue #230). Additive and ignored by gda-mcp (ADR-0012). Every dispatchable
-    manifest entry has a backing command, so it is always populated here.
+    channel as the typed :class:`~gda.execution.ExecutionKind` (serialized
+    ``"headless"`` / ``"export"`` / ``"live"``), taken from the same descriptor
+    source of truth so the aggregate and per-command forms agree (issue #230).
+    Additive and ignored by gda-mcp (ADR-0012). Unlike :class:`CommandSchema`'s
+    optional ``kind``, here it is **required**: every aggregate entry is a
+    dispatchable command with a backing descriptor, so the self-described surface
+    schema (``gda schema --schema``) guarantees the field and constrains it to
+    the execution-kind enum — a consumer can rely on it always being present.
     """
 
     name: str
@@ -187,7 +196,7 @@ class CommandManifestEntry(BaseModel):
     input: dict[str, Any]
     output: dict[str, Any]
     error: dict[str, Any]
-    kind: str | None = None
+    kind: ExecutionKind
 
 
 class SurfaceManifest(BaseModel):

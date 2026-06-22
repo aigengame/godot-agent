@@ -96,6 +96,9 @@ def _collect(
             input=schema.input,
             output=schema.output,
             error=schema.error,
-            kind=schema.kind,
+            # The descriptor's ``kind`` directly (non-optional here), satisfying
+            # the entry's required ``kind`` field — a dispatchable command always
+            # has one (issue #230).
+            kind=gda_command.kind,
         )
     )

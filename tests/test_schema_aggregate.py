@@ -200,6 +200,28 @@ def test_schema_command_is_itself_self_describing():
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
 
 
+def test_self_described_manifest_guarantees_a_constrained_entry_kind():
+    # issue #230 / PR #232 review: the aggregate entry's `kind` must be a HARD
+    # part of the self-described surface schema, not optional — a consumer
+    # validating `gda schema --schema`'s manifest schema can rely on every
+    # dispatchable entry carrying an execution-kind from a fixed set. Assert it
+    # against the actual `gda schema --schema` self-description, not just the model.
+    result = CliRunner().invoke(app, ["schema", "--schema"])
+    assert result.exit_code == 0, result.stdout
+    manifest_schema = json.loads(result.stdout)["output"]
+
+    entry = manifest_schema["$defs"]["CommandManifestEntry"]
+    # Required, not nullable/defaulted.
+    assert "kind" in entry["required"], entry["required"]
+    # Constrained to the execution-kind enum (via a $ref to ExecutionKind).
+    assert entry["properties"]["kind"] == {"$ref": "#/$defs/ExecutionKind"}
+    assert manifest_schema["$defs"]["ExecutionKind"]["enum"] == [
+        "headless",
+        "export",
+        "live",
+    ]
+
+
 def test_real_console_script_manifest_covers_the_live_command_tree():
     # The real installed `gda` entry point — not the in-process CliRunner —
     # emits the manifest and covers the whole live command tree (issue #192).
