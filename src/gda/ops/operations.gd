@@ -1184,6 +1184,9 @@ func _op_script_set(params: Dictionary) -> void:
 	var source: Variant = _read_script_source(path)
 	if source == null:
 		return  # _read_script_source already recorded the failure
+	# Capture the staleness token right after the read (issue #226) — script-set writes
+	# raw text directly, not via the shared tail, so it wires capture/recheck itself.
+	_capture_staleness_token(path)
 
 	# Dispatch on the explicit mode discriminator the CLI resolved (issue #133):
 	# the edit mode is decided once, at the CLI's mutual-exclusion check, and rides
@@ -1207,6 +1210,10 @@ func _op_script_set(params: Dictionary) -> void:
 	if new_source == null:
 		return  # the apply helper already recorded the failure
 
+	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
+	# .gd in the read->write window.
+	if not _check_unchanged():
+		return
 	if not _write_script_file(path, new_source):
 		return  # _write_script_file already recorded the failure
 
@@ -1591,6 +1598,9 @@ func _op_resource_set(params: Dictionary) -> void:
 	if resource == null:
 		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a Resource: " + path)
 		return
+	# Capture the staleness token right after the read (issue #226) — resource-set
+	# does not use the shared pack-and-save tail, so it wires capture/recheck itself.
+	_capture_staleness_token(path)
 
 	var prop_name := _string_param(params, "property")
 	var declared_type := _resource_property_type(resource, prop_name)
@@ -1608,6 +1618,10 @@ func _op_resource_set(params: Dictionary) -> void:
 		return
 
 	resource.set(prop_name, coerced)
+	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
+	# .tres in the read->write window.
+	if not _check_unchanged():
+		return
 	var save_err := _atomic_save_resource(resource, path)
 	if save_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("resource", path, save_err))
@@ -1734,6 +1748,9 @@ func _op_shader_set(params: Dictionary) -> void:
 	var source: Variant = _read_text_file(path, "shader")
 	if source == null:
 		return  # _read_text_file already recorded the failure
+	# Capture the staleness token right after the read (issue #226) — shader-set writes
+	# raw text directly, not via the shared tail, so it wires capture/recheck itself.
+	_capture_staleness_token(path)
 
 	var mode := _string_param(params, "mode")
 	var new_source: Variant
@@ -1753,6 +1770,10 @@ func _op_shader_set(params: Dictionary) -> void:
 	if new_source == null:
 		return  # the apply helper already recorded the failure
 
+	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
+	# .gdshader in the read->write window.
+	if not _check_unchanged():
+		return
 	if not _write_text_file(path, new_source, "shader"):
 		return  # _write_text_file already recorded the failure
 
@@ -3125,6 +3146,10 @@ func _load_for_mutation(params: Dictionary) -> Node:
 	# instantiate, before any op-specific load can evict a sibling's script object
 	# (issue #164). _repack_and_save re-anchors from this snapshot on the way out.
 	_capture_external_scripts(root)
+	# Capture the staleness token for the .tscn we just read (issue #226), so the
+	# shared pack-and-save tail can refuse a write if a concurrent editor changed the
+	# file in the read->write window. Covers all 8 shared-tail mutating ops at once.
+	_capture_staleness_token(path)
 	return root
 
 
@@ -3163,6 +3188,13 @@ func _repack_and_save(root: Node, path: String) -> bool:
 	# intentionally re-scripted to a different non-empty path alone; and it skips
 	# nodes that vanished since capture (remove/move). `node add` is covered by
 	# test_node_add_preserves_sibling_script_on_repack_when_unimported.
+	#
+	# Optimistic staleness recheck (issue #226): refuse the write if the .tscn changed
+	# on disk since _load_for_mutation read it. Done BEFORE pack/save and after freeing
+	# the tree on refusal, so a clobbering write never lands and no scene leaks.
+	if not _check_unchanged():
+		root.free()
+		return false
 	_reanchor_external_scripts(root)
 	var repacked := PackedScene.new()
 	var pack_err := repacked.pack(root)
@@ -3189,6 +3221,85 @@ func _repack_and_save(root: Node, path: String) -> bool:
 # carry. A single member is safe here — operations.gd is a one-shot process that
 # runs exactly one operation, so there is no cross-operation state to leak.
 var _captured_external_scripts: Dictionary = {}
+
+
+# --- optimistic staleness guard for headless read-modify-write ops (issue #226) ---
+#
+# A file-mutating op reads a target (.tscn/.gd/.tres/.gdshader), transforms it, then
+# writes it back. If a concurrent external editor (ADR-0018) changes that file on disk
+# inside the in-process read->write window, a blind write would CLOBBER the external
+# edit. The guard captures a cheap change token (mtime + size) right after the read and
+# re-checks it right before the write; a difference is reported as
+# file_changed_externally and the write is refused, leaving the external edit intact.
+#
+# The token is mtime+size, not mtime alone: FileAccess.get_modified_time is
+# whole-SECONDS granularity, so a same-second external edit would be invisible to mtime;
+# the file size (which an edit almost always changes) catches that case. A single member
+# set is safe — operations.gd is a one-shot process running exactly one op — mirroring
+# the _captured_external_scripts pattern above. An op that captured no token (a create)
+# leaves _staleness_path empty, and _check_unchanged is then a no-op (returns true).
+var _staleness_mtime: int = -1
+var _staleness_size: int = -1
+var _staleness_path: String = ""
+
+
+# Capture the change token for `path` right after an op reads it. Uses the SAME path
+# string the op passed to ResourceLoader.load / FileAccess (no globalize_path), so the
+# recheck reads exactly the same file. Size is read via an explicit READ open + length;
+# -1 marks an unreadable file (the recheck will still fire if it later becomes readable
+# with a different token, which is the conservative outcome).
+func _capture_staleness_token(path: String) -> void:
+	_staleness_path = path
+	_staleness_mtime = int(FileAccess.get_modified_time(path))
+	_staleness_size = _file_size(path)
+
+
+func _file_size(path: String) -> int:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return -1
+	var size := file.get_length()
+	file.close()
+	return int(size)
+
+
+# Re-check the captured token right before an op writes. Returns true when the file is
+# unchanged (or when no token was captured, e.g. a create); returns false AFTER
+# recording file_changed_externally when mtime or size differs. The single emission
+# point for the guard — every wired op funnels its recheck through here.
+func _check_unchanged() -> bool:
+	# Production-inert test seam (issue #226): the in-process read->write window is
+	# sub-second, so a normal test cannot race a real external edit into it. When this
+	# env var is set, perturb the target's SIZE just before the comparison to simulate
+	# an external edit landing in the window. Gated by has_environment, so it is dead
+	# code in production — runner.py spawns Godot with no env= and never sets this var.
+	if OS.has_environment("GDA_TEST_PERTURB_BEFORE_SAVE"):
+		_test_perturb_target(_staleness_path)
+	if _staleness_path.is_empty():
+		return true  # no token captured (e.g. a create) — nothing to compare
+	var current_mtime := int(FileAccess.get_modified_time(_staleness_path))
+	var current_size := _file_size(_staleness_path)
+	if current_mtime != _staleness_mtime or current_size != _staleness_size:
+		_fail(OP_ERROR_FILE_CHANGED_EXTERNALLY,
+				"target file changed on disk since gda read it (a concurrent editor may have"
+				+ " edited it); refusing to overwrite: " + _staleness_path)
+		return false
+	return true
+
+
+# Test-only: simulate an external edit landing in the read->write window by appending a
+# byte to the target, guaranteeing a SIZE change so the guard fires regardless of mtime
+# second-granularity. Reached only through the GDA_TEST_PERTURB_BEFORE_SAVE branch in
+# _check_unchanged, so it never runs in production.
+func _test_perturb_target(path: String) -> void:
+	if path.is_empty():
+		return
+	var file := FileAccess.open(path, FileAccess.READ_WRITE)
+	if file == null:
+		return
+	file.seek_end()
+	file.store_8(10)  # a newline byte — any byte changes the size
+	file.close()
 
 
 # Record {NodePath -> script res:// path} for every node in the freshly

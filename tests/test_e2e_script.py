@@ -43,6 +43,18 @@ def _gda_project(project) -> "callable":
     return gda
 
 
+def _gda_env(extra_env: dict, *args: str) -> subprocess.CompletedProcess:
+    """``_gda`` with extra env vars in the child's environment (issue #226 seam)."""
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+    return subprocess.run(
+        [gda_bin, *args, "--godot", str(GODOT)],
+        capture_output=True,
+        text=True,
+        env={**os.environ, **extra_env},
+    )
+
+
 def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
     assert proc.returncode == 4, proc.stdout + proc.stderr
     err = json.loads(proc.stdout)["error"]
@@ -500,6 +512,35 @@ def test_script_set_search_replace_edits_in_place_and_round_trips_via_get(godot_
     # Both occurrences replaced; the edited source IS what get reports.
     assert json.loads(got.stdout)["source"] == "extends Node2D\nvar a := Node2D\n"
     assert script_path.read_text(encoding="utf-8") == "extends Node2D\nvar a := Node2D\n"
+
+
+@pytest.mark.e2e
+def test_script_set_with_external_edit_in_window_yields_file_changed_externally(
+    godot_project,
+):
+    # Staleness guard for the text-write path (issue #226): script set reads the .gd,
+    # transforms it, then writes it back; if the file changes on disk in that window a
+    # blind write would clobber the external edit. The production-inert seam
+    # (GDA_TEST_PERTURB_BEFORE_SAVE) simulates that edit, and the guard refuses.
+    script_path = godot_project / "hero.gd"
+    _gda(
+        "script", "create", str(script_path),
+        "--content", "extends Node\nvar a := 1\n", "--json",
+    )
+
+    edited = _gda_env(
+        {"GDA_TEST_PERTURB_BEFORE_SAVE": "1"},
+        "script", "set", str(script_path),
+        "--search", "1", "--replace", "2", "--json",
+    )
+
+    err = _assert_operation_error(edited, "file_changed_externally")
+    assert str(script_path) in err["message"]
+
+    # The edit did NOT land: the original "var a := 1" is still present (the seam only
+    # appends one byte, so assert the EFFECT — the search/replace did not apply).
+    assert "var a := 1" in script_path.read_text(encoding="utf-8")
+    assert not list(godot_project.rglob(".gda-*"))
 
 
 @pytest.mark.e2e

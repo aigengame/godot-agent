@@ -7,6 +7,7 @@ verification of ``node add``'s effect.
 """
 
 import json
+import os
 import shutil
 import subprocess
 
@@ -22,6 +23,23 @@ def _gda(*args: str) -> subprocess.CompletedProcess:
     assert gda_bin, "the `gda` console script is not on PATH"
     return subprocess.run(
         [gda_bin, *args, "--godot", str(GODOT)], capture_output=True, text=True
+    )
+
+
+def _gda_env(extra_env: dict, *args: str) -> subprocess.CompletedProcess:
+    """``_gda`` with extra env vars in the child's environment.
+
+    The CLI passes no ``env=`` to its Godot subprocess, so the engine inherits
+    this environment — the channel the production-inert
+    ``GDA_TEST_PERTURB_BEFORE_SAVE`` test seam rides on (issue #226).
+    """
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+    return subprocess.run(
+        [gda_bin, *args, "--godot", str(GODOT)],
+        capture_output=True,
+        text=True,
+        env={**os.environ, **extra_env},
     )
 
 
@@ -1570,6 +1588,43 @@ def test_node_add_leaves_no_temp_file_on_success(godot_project):
     )
 
     assert added.returncode == 0, added.stdout + added.stderr
+    assert _no_gda_temp_siblings(godot_project), sorted(
+        p.name for p in godot_project.rglob(".gda-*")
+    )
+
+
+@pytest.mark.e2e
+def test_node_add_with_external_edit_in_window_yields_file_changed_externally(
+    godot_project,
+):
+    # Staleness guard (issue #226): if the target .tscn changes on disk between
+    # gda's read and its write, the write is refused with file_changed_externally
+    # rather than clobbering the external edit. The read->write window is sub-second
+    # in one process, so a production-inert test seam (GDA_TEST_PERTURB_BEFORE_SAVE)
+    # simulates an external edit landing in the window by perturbing the target's
+    # size just before the recheck.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+
+    added = _gda_env(
+        {"GDA_TEST_PERTURB_BEFORE_SAVE": "1"},
+        "node", "add", str(scene_path),
+        "--type", "Sprite2D", "--name", "Hero", "--json",
+    )
+
+    err = _assert_operation_error(added, "file_changed_externally")
+    assert str(scene_path) in err["message"]
+
+    # The mutation did NOT land: a fresh list shows no "Hero" child. (The seam
+    # perturbs the file by one byte, so we assert the EFFECT — the node is absent —
+    # not byte-identical content.)
+    listed = _gda("node", "list", str(scene_path), "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    tree = json.loads(listed.stdout)
+    child_names = [c["name"] for c in tree["root"]["children"]]
+    assert "Hero" not in child_names, child_names
+
+    # No atomic-write temp orphan remains from the refused write.
     assert _no_gda_temp_siblings(godot_project), sorted(
         p.name for p in godot_project.rglob(".gda-*")
     )
