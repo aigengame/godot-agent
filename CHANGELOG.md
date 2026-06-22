@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.33](https://github.com/aigengame/godot-agent/compare/v0.1.32...v0.1.33) (2026-06-22)
+
+
+### Features
+
+* input — runtime input simulation into the running game ([#221](https://github.com/aigengame/godot-agent/issues/221)) ([#242](https://github.com/aigengame/godot-agent/issues/242)) ([13fcd91](https://github.com/aigengame/godot-agent/commit/13fcd91cd82d606eb7bfd12a84c9cb9f82fec60c))
+
 ## [0.1.32](https://github.com/aigengame/godot-agent/compare/v0.1.31...v0.1.32) (2026-06-22)
 
 
