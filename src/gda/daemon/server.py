@@ -124,23 +124,27 @@ class DaemonServer:
 
         Reads the running game's captured errors/output from the ``--log-file``
         the daemon launched the engine with. Crucially served even when the
-        session process has DIED — diag does NOT relaunch (a relaunch truncates
-        the log and would lose the crash); it requires only that a session was
-        launched this daemon lifetime. With no session ever launched (and none
-        launchable) it is ``engine_session_not_running``; with a remembered
-        session whose log file is missing/unreadable it is ``live_log_unavailable``
-        (an empty log is an empty result, not an error).
+        session process has DIED — diag does NOT launch or relaunch a session (a
+        read-only diagnostic must not run the project's code, ADR-0009; a relaunch
+        would also truncate the log and lose the crash). It requires only that a
+        session was launched this daemon lifetime (ADR-0022): it reads the one the
+        daemon already holds, alive OR dead. With NO session launched this lifetime
+        it is ``engine_session_not_running`` — diag does not create one; the user
+        launches a session by running a live op (e.g. ``gda game tree``), not by
+        diag. With a remembered session whose log file is missing/unreadable it is
+        ``live_log_unavailable`` (an empty log is an empty result, not an error).
         """
+        # Use the session the daemon already holds — never launch one here. diag is
+        # a read-only observer of an already-launched session (ADR-0022); launching
+        # would give it a hidden project-code-execution side effect (ADR-0009).
         session = self._session
-        if session is None:
-            # No session this lifetime yet — try to launch one so the first op can
-            # be diag (a fresh session whose game may already have errored).
-            session = self._ensure_session()
         if session is None or session.log_file is None:
             return _op_error_reply(
                 "engine_session_not_running",
                 "the gda-daemon holds no engine session to read runtime "
-                "diagnostics from; run a live op or `gda daemon start` first",
+                "diagnostics from; diag observes an already-launched session and "
+                "does not start one — launch a session first by running a live op "
+                "(e.g. `gda game tree`), then re-run diag",
             )
         try:
             raw = session.log_file.read_bytes()

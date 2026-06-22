@@ -166,13 +166,26 @@ def test_diag_empty_log_is_an_empty_result_not_an_error(tmp_path):
     assert parse_result(log_reply["stdout"])["lines"] == []
 
 
-def test_diag_with_no_session_launched_is_engine_session_not_running(tmp_path):
-    # No session was launched this daemon lifetime AND no Godot to launch one.
-    server = DaemonServer(daemon_paths(_project(tmp_path)), godot="")
+@pytest.mark.parametrize("op", ["diag-errors", "diag-log"])
+def test_diag_with_no_session_launched_is_engine_session_not_running(monkeypatch, tmp_path, op):
+    # ADR-0022: diag observes an already-launched session; it does NOT launch one.
+    # With NO session launched this daemon lifetime, BOTH diag ops return a
+    # structured `engine_session_not_running` (exit 6) — and crucially diag must
+    # NOT spawn an engine session as a side effect, even with a Godot binary set
+    # (that hidden project-code-execution side effect is the bug under ADR-0009).
+    server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
 
-    reply = server._handle({"op": "diag-errors", "params": {}})
+    # Trip-wire: if diag tries to launch a session, fail loudly.
+    def _boom(*args, **kwargs):
+        raise AssertionError("diag must not launch an engine session")
+
+    monkeypatch.setattr("gda.daemon.server.launch_session", _boom)
+
+    reply = server._handle({"op": op, "params": {}})
 
     assert parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    # No session was created as a side effect of the read-only diag.
+    assert server._session is None
 
 
 def test_diag_with_a_remembered_session_but_missing_file_is_live_log_unavailable(tmp_path):
