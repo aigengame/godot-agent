@@ -4,6 +4,15 @@ status: accepted
 
 # gda-mcp tool-surface generation: runtime introspection of a whole-surface schema dump, no hand-curated profiles
 
+> **Outcome (2026-06-22, #230 / PR #232):** each manifest entry gained an
+> additive `kind` field (the command's static `ExecutionKind` — `headless` /
+> `export` / `live`, ADR-0017), so `{name, description, input, output, error}`
+> below is now `{name, description, input, output, error, kind}`. gda-mcp's
+> mechanical mapping is unchanged — it still derives `inputSchema` ← `input` and
+> `outputSchema` ← `output` and simply ignores `kind` — so the addition is
+> backward compatible. On the aggregate entry `kind` is required and
+> enum-constrained, so a consumer of `gda schema --schema` can rely on it.
+
 ADR-0011 fixes [gda-mcp](../../CONTEXT.md) as a subprocess adapter that consumes
 `gda`'s public ABI. ADR-0004 / ADR-0005 make each command self-describing
 (`--schema` → `{input, output, error}`) and give a deterministic CLI→MCP name map

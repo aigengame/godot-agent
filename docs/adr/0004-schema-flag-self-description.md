@@ -4,6 +4,16 @@ status: accepted
 
 # `--schema` is self-description, not a caller-supplied contract
 
+> **Outcome (2026-06-22, #230 / PR #232):** the per-command `--schema` object
+> gained a fourth, additive key — `kind`, the command's static `ExecutionKind`
+> (`headless` / `export` / `live`, ADR-0017) — alongside `input` / `output` /
+> `error`. Like the `{input, output}` → `{input, output, error}` move described
+> below, this is a strict superset: `gda-mcp` still maps only `input` / `output`,
+> so it stays backward compatible (ADR-0012). `kind` is `null` only for a
+> self-description emitted without a backing command (e.g. `gda schema --schema`);
+> in the aggregate manifest (ADR-0012) every dispatchable entry's `kind` is
+> required and enum-constrained.
+
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
 
