@@ -23,6 +23,7 @@ dispatch (ADR-0011/0012).
 
 import typer
 
+from gda.headless import command_constraints
 from gda.models import CommandManifestEntry, CommandSchema, SurfaceManifest
 
 
@@ -87,7 +88,14 @@ def _collect(
     # ``HeadlessCommand.kind`` — so the aggregate and per-command forms agree
     # (issue #230). A dispatchable entry always has a backing command here, so
     # ``kind`` is always populated.
-    schema = CommandSchema.of(input_model, output_model, kind=gda_command.kind)
+    # The live-stack constraint (issue #233) comes from the same one predicate
+    # the per-command ``--schema`` uses, wrapped by the shared helper — so the
+    # aggregate and per-command forms cannot drift. ``None`` for a command with no
+    # live-stack dependence.
+    constraints = command_constraints(gda_command)
+    schema = CommandSchema.of(
+        input_model, output_model, kind=gda_command.kind, constraints=constraints
+    )
     description = (command.help or command.short_help or "").strip()
     entries.append(
         CommandManifestEntry(
@@ -100,5 +108,8 @@ def _collect(
             # the entry's required ``kind`` field — a dispatchable command always
             # has one (issue #230).
             kind=gda_command.kind,
+            # The entry's required ``constraints`` key (issue #233); its value is
+            # the command's live-stack precondition or ``None`` (nullable).
+            constraints=schema.constraints,
         )
     )

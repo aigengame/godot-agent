@@ -185,6 +185,35 @@ def test_all_three_execution_kinds_appear_in_the_aggregate():
     assert {"headless", "export", "live"} <= kinds
 
 
+def test_entry_constraints_match_the_commands_own_schema_constraints():
+    # issue #233: each entry's `constraints` is the same single source of truth
+    # the command emits under its own `--schema` — one predicate, not a parallel
+    # projection — so the aggregate and per-command forms must agree exactly,
+    # including the null case.
+    for entry in _manifest()["commands"]:
+        result = CliRunner().invoke(app, [*entry["name"].split(" "), "--schema"])
+        assert result.exit_code == 0, result.stdout
+        own = json.loads(result.stdout)
+        assert entry["constraints"] == own["constraints"], entry["name"]
+
+
+def test_live_stack_entries_carry_constraints_and_others_are_null():
+    # The live-stack set carries structured `constraints`; everything else is
+    # null (#233). `game tree` (LIVE) and `daemon start` launch the engine → the
+    # 4.6 floor; `daemon stop`/`status` are UDS-only → null version; `scene get`
+    # and `export run` have no live-stack dependence → null entirely.
+    by_name = {entry["name"]: entry for entry in _manifest()["commands"]}
+
+    full = {"platforms": ["linux", "macos"], "min_godot_version": "4.6"}
+    version_null = {"platforms": ["linux", "macos"], "min_godot_version": None}
+    assert by_name["game tree"]["constraints"] == full
+    assert by_name["daemon start"]["constraints"] == full
+    assert by_name["daemon stop"]["constraints"] == version_null
+    assert by_name["daemon status"]["constraints"] == version_null
+    assert by_name["scene get"]["constraints"] is None
+    assert by_name["export run"]["constraints"] is None
+
+
 def test_schema_command_is_itself_self_describing():
     # The meta command is under the same ADR-0004 gate as every other command:
     # `gda schema --schema` emits its own {input, output, error} contract, with
@@ -219,6 +248,37 @@ def test_self_described_manifest_guarantees_a_constrained_entry_kind():
         "headless",
         "export",
         "live",
+    ]
+
+
+def test_self_described_manifest_describes_the_nullable_constraints_field():
+    # issue #233: the aggregate entry's `constraints` is a HARD part of the
+    # self-described surface schema — the KEY is required (every dispatchable
+    # entry carries it) while the VALUE is nullable (a $ref to LiveStackConstraints
+    # or null for non-live-stack commands). Assert against the actual `gda schema
+    # --schema` self-description, not just the model, so a consumer validating the
+    # manifest schema can rely on the field's type/shape.
+    result = CliRunner().invoke(app, ["schema", "--schema"])
+    assert result.exit_code == 0, result.stdout
+    manifest_schema = json.loads(result.stdout)["output"]
+
+    entry = manifest_schema["$defs"]["CommandManifestEntry"]
+    # The key is required, not optional/defaulted.
+    assert "constraints" in entry["required"], entry["required"]
+    # The value is nullable: a $ref to LiveStackConstraints OR null.
+    assert entry["properties"]["constraints"] == {
+        "anyOf": [
+            {"$ref": "#/$defs/LiveStackConstraints"},
+            {"type": "null"},
+        ]
+    }
+    # The referenced model carries the two facets, with min_godot_version itself
+    # nullable (the daemon stop/status case).
+    lsc = manifest_schema["$defs"]["LiveStackConstraints"]
+    assert "platforms" in lsc["required"]
+    assert lsc["properties"]["min_godot_version"]["anyOf"] == [
+        {"type": "string"},
+        {"type": "null"},
     ]
 
 

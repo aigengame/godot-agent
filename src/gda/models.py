@@ -229,6 +229,16 @@ class CommandManifestEntry(BaseModel):
     dispatchable command with a backing descriptor, so the self-described surface
     schema (``gda schema --schema``) guarantees the field and constrains it to
     the execution-kind enum — a consumer can rely on it always being present.
+
+    ``constraints`` mirrors :class:`CommandSchema`'s: the entry's
+    :class:`LiveStackConstraints`, or ``None`` for a command with no live-stack
+    dependence (issue #233), from the same single
+    :func:`gda.execution.live_stack_constraints` authority so the aggregate and
+    per-command forms agree. Unlike :class:`CommandSchema`'s defaulted field, the
+    **key is required** here (every dispatchable entry is computed from a backing
+    descriptor, so the self-described surface schema guarantees the key is
+    present) while its **value is nullable** (``null`` for non-live-stack
+    commands) — a consumer can rely on the key always being there to read.
     """
 
     name: str
@@ -237,6 +247,7 @@ class CommandManifestEntry(BaseModel):
     output: dict[str, Any]
     error: dict[str, Any]
     kind: ExecutionKind
+    constraints: LiveStackConstraints | None
 
 
 class SurfaceManifest(BaseModel):
