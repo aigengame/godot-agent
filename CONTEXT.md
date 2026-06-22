@@ -84,6 +84,14 @@ that typed reason, not on the overloaded exit code. Both channels return the one
 `RunResult` shape.
 _Avoid_: run output, export output
 
+**Session log**:
+The per-`Engine session` capture of the running game's output and error stream,
+written by the engine to a daemon-owned path (via `--log-file`) and read by
+`gda-daemon` to serve runtime diagnostics; bound to the session (truncated each
+launch), survives the session process so a crash stays diagnosable until relaunch
+(ADR-0022).
+_Avoid_: console output, stdout dump
+
 ### Failure reporting
 
 **Gda error code**:

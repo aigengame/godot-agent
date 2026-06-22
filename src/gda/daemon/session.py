@@ -33,11 +33,24 @@ OP_TIMEOUT = 30.0
 
 
 class EngineSession:
-    """A launched engine run plus the daemon's connection to its harness."""
+    """A launched engine run plus the daemon's connection to its harness.
 
-    def __init__(self, proc: subprocess.Popen, conn: socket.socket) -> None:
+    The daemon launches the session with Godot's ``--log-file`` pointed at a
+    session-scoped path it owns (ADR: runtime-diagnostics-via-daemon-owned-session-
+    log), and the session REMEMBERS that path (``log_file``) so the daemon can read
+    the running game's captured errors/output to serve ``gda diag`` — even after
+    this process has died, keeping a crash diagnosable.
+    """
+
+    def __init__(
+        self,
+        proc: subprocess.Popen,
+        conn: socket.socket | None,
+        log_file: Optional[Path] = None,
+    ) -> None:
         self._proc = proc
         self._conn = conn
+        self.log_file = log_file
 
     def alive(self) -> bool:
         return self._proc.poll() is None
@@ -60,10 +73,11 @@ class EngineSession:
         return {"stdout": reply.decode("utf-8", "replace"), "stderr": "", "exit_code": 0}
 
     def close(self) -> None:
-        try:
-            self._conn.close()
-        except OSError:
-            pass
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except OSError:
+                pass
         _terminate(self._proc)
 
 
@@ -73,13 +87,26 @@ def launch_session(
     harness_listener: socket.socket,
     harness_socket: Path,
     token: str,
+    log_file: Optional[Path] = None,
     timeout: float = CONNECT_TIMEOUT,
 ) -> Optional[EngineSession]:
-    """Launch a headless engine session and wait for the harness to connect."""
+    """Launch a headless engine session and wait for the harness to connect.
+
+    When ``log_file`` is given, the engine is launched with Godot's
+    ``--log-file <abs path>`` so the session writes BOTH its output and its errors
+    to that one daemon-owned file (it forces file logging on even when the project
+    disables it, and truncates per launch — verified against the engine's
+    ``main/main.cpp`` / ``core/io/logger.cpp``). This sidesteps the shared
+    ``user://logs`` contention (#180) by isolation, and the session REMEMBERS the
+    path so the daemon can serve ``gda diag`` from it (ADR: runtime-diagnostics-
+    via-daemon-owned-session-log). The session still relays live ops to the harness.
+    """
+    log_args = ["--log-file", str(log_file)] if log_file is not None else []
     proc = subprocess.Popen(
         [
             str(binary),
             "--headless",
+            *log_args,
             "--path",
             str(project),
             "--",
@@ -111,7 +138,7 @@ def launch_session(
             pass
         _terminate(proc)
         return None
-    return EngineSession(proc, conn)
+    return EngineSession(proc, conn, log_file=log_file)
 
 
 def _terminate(proc: subprocess.Popen) -> None:

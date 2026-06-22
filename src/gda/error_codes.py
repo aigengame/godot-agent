@@ -468,6 +468,20 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.CLASSIFIER,
         "A live game set value cannot be coerced to the running property's declared Godot type.",
     ),
+    # `gda diag` is a daemon-served live op (#224): the daemon reads the Session log
+    # it launched the engine with (`--log-file`) and serves diagnostics from it,
+    # even after the session process dies. This names the one new failure — a
+    # session WAS launched but its log file is missing/unreadable. An empty log is
+    # an empty result, not this error. CLASSIFIER-source (the daemon emits it, not
+    # the harness), so it is NOT GDScript-mirrored.
+    ErrorCodeSpec(
+        "live_log_unavailable",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live engine session was launched but its diagnostics log file is missing"
+        " or unreadable, so `gda diag` cannot read the running game's errors/output.",
+    ),
     # Per live-operation failures the gda harness reports for `perf` (#223). Same
     # shape as the #220 game op-errors above: LIVE-category, classifier-source,
     # exit_code EXIT_LIVE, harness-mirrored (a test mirrors them against the harness
