@@ -3127,6 +3127,19 @@ func _load_for_mutation(params: Dictionary) -> Node:
 	if packed == null:
 		return null  # _load_scene already recorded the failure
 	var path := _string_param(params, "path")
+	# Capture the staleness token NOW — the instant after _load_scene's
+	# ResourceLoader.load read the .tscn, and BEFORE instantiate() (which runs the
+	# project's script _init and can take real time, ADR-0009) or any other work.
+	# Capturing here rather than after instantiate makes the baseline reflect the
+	# file gda actually read, so an external edit landing during instantiate is
+	# still caught by _check_unchanged at write time (issue #226; PR #234 review
+	# closed this read->capture window). Covers all 8 shared-tail mutating ops.
+	_capture_staleness_token(path)
+	# Test seam (issue #226): simulate an external edit that lands AFTER the read
+	# but DURING instantiate — the window this early capture closes. Gated by the
+	# env var, so it is dead code in production (mirrors GDA_TEST_PERTURB_BEFORE_SAVE).
+	if OS.has_environment("GDA_TEST_PERTURB_AFTER_LOAD"):
+		_test_perturb_target(path)
 	var root: Node = packed.instantiate()
 	if root == null:
 		# The engine returns null for a scene it cannot instantiate at all —
@@ -3146,10 +3159,6 @@ func _load_for_mutation(params: Dictionary) -> Node:
 	# instantiate, before any op-specific load can evict a sibling's script object
 	# (issue #164). _repack_and_save re-anchors from this snapshot on the way out.
 	_capture_external_scripts(root)
-	# Capture the staleness token for the .tscn we just read (issue #226), so the
-	# shared pack-and-save tail can refuse a write if a concurrent editor changed the
-	# file in the read->write window. Covers all 8 shared-tail mutating ops at once.
-	_capture_staleness_token(path)
 	return root
 
 

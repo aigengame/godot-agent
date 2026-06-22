@@ -1628,3 +1628,37 @@ def test_node_add_with_external_edit_in_window_yields_file_changed_externally(
     assert _no_gda_temp_siblings(godot_project), sorted(
         p.name for p in godot_project.rglob(".gda-*")
     )
+
+
+@pytest.mark.e2e
+def test_node_add_with_external_edit_during_instantiate_yields_file_changed_externally(
+    godot_project,
+):
+    # Earlier-window regression (issue #226; PR #234 review): the scene mutation path
+    # reads the .tscn (ResourceLoader.load), then instantiate()s it — which runs the
+    # project's script _init and takes real time — before the write. The staleness
+    # token must be captured right after the READ, not after instantiate, or an
+    # external edit landing DURING instantiate would become the baseline and be
+    # missed. The GDA_TEST_PERTURB_AFTER_LOAD seam perturbs the file after the read
+    # but before instantiate; with the token captured early, the recheck still fires.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+
+    added = _gda_env(
+        {"GDA_TEST_PERTURB_AFTER_LOAD": "1"},
+        "node", "add", str(scene_path),
+        "--type", "Sprite2D", "--name", "Hero", "--json",
+    )
+
+    err = _assert_operation_error(added, "file_changed_externally")
+    assert str(scene_path) in err["message"]
+
+    # The mutation did NOT land despite the edit landing in the earlier window.
+    listed = _gda("node", "list", str(scene_path), "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    child_names = [c["name"] for c in json.loads(listed.stdout)["root"]["children"]]
+    assert "Hero" not in child_names, child_names
+
+    assert _no_gda_temp_siblings(godot_project), sorted(
+        p.name for p in godot_project.rglob(".gda-*")
+    )
