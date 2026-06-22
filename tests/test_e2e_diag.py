@@ -1,12 +1,14 @@
 """S1 (e2e): `gda diag` reads a running game's real runtime diagnostics (#224).
 
-The #224 DoD: a real `gda daemon start` -> a real engine session the daemon
-launches with `--log-file` (its own Session log) -> a scene that `push_error`s and
-`print`s a KNOWN marker at `_ready` -> `gda diag errors` reads the error back
-STRUCTURED (with a normalized `level`) and `gda diag log` reads the printed line
-back. Daemon-served: the diag read works against the daemon-owned log even though
-`project_godot` disables the project's own file logging — the daemon's
-`--log-file` forces logging on regardless (ADR-0022).
+The #224 DoD: a real `gda daemon start` -> a NON-diag live op (`gda game tree`)
+LAUNCHES the engine session (the daemon spawns it with `--log-file`, its own
+Session log) and blocks until the main scene is current, so the scene's `_ready`
+(which `push_error`s and `print`s a KNOWN marker) has run and flushed -> THEN
+`gda diag errors` reads the error back STRUCTURED (with a normalized `level`) and
+`gda diag log` reads the printed line back. diag OBSERVES the already-launched
+session; it does NOT create one (ADR-0022). Daemon-served: the diag read works
+against the daemon-owned log even though `project_godot` disables the project's
+own file logging — the daemon's `--log-file` forces logging on regardless.
 
 Run e2e serially; not a fresh empty HOME (Godot first-run). The
 `daemon_runtime_dir` fixture keeps the daemon's UDS path within the OS `sun_path`
@@ -71,12 +73,16 @@ def test_diag_reads_back_a_known_runtime_error_and_log_line(tmp_path, daemon_run
             timeout=90,
         )
 
-    # `gda diag` is best-effort over the live Session log (ADR-0022): the FIRST diag
-    # call is what launches the (cold) session, and `daemon start` does not auto-spawn
-    # one, so the game's `_ready` (which push_errors / prints) has not necessarily run
-    # and flushed when the first read lands. Poll the daemon-owned log until the known
-    # marker appears — this mirrors the real "run the game, then observe" workflow.
-    def poll_diag(sub, key, needle, timeout=25.0):
+    # Correct lifecycle (ADR-0022): `gda diag` OBSERVES an already-launched session
+    # — it does NOT create one. So the session must be launched by a NON-diagnostic
+    # live op first, then diag reads it back. `gda game tree` is that op: the harness
+    # gates its reply on `current_scene != null` (ADR-0020 frame-coherence), so when
+    # it returns, the main scene's `_ready` — which push_errors / prints the known
+    # markers — has run and flushed into the daemon-owned Session log. (`daemon start`
+    # alone does NOT auto-spawn a session; a live op does.)
+    def poll_diag(sub, key, needle, timeout=15.0):
+        # The session is already launched + warmed by `game tree`; this short poll is
+        # a belt-and-suspenders for the log flush, NOT for launching the session.
         deadline = time.monotonic() + timeout
         last = []
         while time.monotonic() < deadline:
@@ -93,9 +99,15 @@ def test_diag_reads_back_a_known_runtime_error_and_log_line(tmp_path, daemon_run
         started = run("daemon", "start")
         assert started.returncode == 0, started.stdout + started.stderr
 
-        # diag errors: the daemon launches the session (with --log-file), the game
-        # push_errors at _ready, and the daemon reads the structured error back from
-        # the Session log it owns — even though the project disables file logging.
+        # Launch + warm the session with a NON-diag live op. `game tree` blocks until
+        # the main scene is current, so the game's `_ready` has push_errored / printed
+        # the known markers into the daemon's --log-file by the time this returns.
+        tree = run("game", "tree")
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+
+        # diag errors: the daemon reads the structured error back from the Session log
+        # it owns — even though the project disables file logging (the --log-file forces
+        # it on). diag did NOT launch the session; `game tree` did.
         error_docs = poll_diag("errors", "errors", "known error")
         known = [e for e in error_docs if "known error" in e["message"]]
         assert known, error_docs
