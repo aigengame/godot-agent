@@ -1180,6 +1180,51 @@ def test_sample_perf_results_validate_against_emitted_output_schemas():
     jsonschema.validate(instance=PERF_MONITOR_SIGNAL_RESULT, schema=monitor_doc["output"])
 
 
+def test_input_commands_schema_report_kind_live_and_are_model_derived():
+    # The LIVE input commands (#221) self-describe like any command — input/output
+    # contracts derived from their models, plus the LIVE execution kind (ADR-0017).
+    docs = [
+        json.loads(CliRunner().invoke(app, [*cmd, "--schema"]).stdout)
+        for cmd in (
+            ["input", "key"],
+            ["input", "mouse", "click"],
+            ["input", "mouse", "move"],
+            ["input", "action"],
+            ["input", "sequence"],
+        )
+    ]
+    for doc in docs:
+        assert "input" in doc and "output" in doc
+        assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+        assert doc["kind"] == "live"
+        jsonschema.Draft202012Validator.check_schema(doc["input"])
+        jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_sample_input_results_validate_against_emitted_output_schemas():
+    # A sample --json payload of each input command satisfies the contract its
+    # --schema emits (the ADR-0004 hard gate for the LIVE input group, #221).
+    from tests.support import (
+        INPUT_ACTION_RESULT,
+        INPUT_KEY_RESULT,
+        INPUT_MOUSE_CLICK_RESULT,
+        INPUT_MOUSE_MOVE_RESULT,
+        INPUT_SEQUENCE_RESULT,
+    )
+
+    key_doc = json.loads(CliRunner().invoke(app, ["input", "key", "--schema"]).stdout)
+    click_doc = json.loads(CliRunner().invoke(app, ["input", "mouse", "click", "--schema"]).stdout)
+    move_doc = json.loads(CliRunner().invoke(app, ["input", "mouse", "move", "--schema"]).stdout)
+    action_doc = json.loads(CliRunner().invoke(app, ["input", "action", "--schema"]).stdout)
+    seq_doc = json.loads(CliRunner().invoke(app, ["input", "sequence", "--schema"]).stdout)
+
+    jsonschema.validate(instance=INPUT_KEY_RESULT, schema=key_doc["output"])
+    jsonschema.validate(instance=INPUT_MOUSE_CLICK_RESULT, schema=click_doc["output"])
+    jsonschema.validate(instance=INPUT_MOUSE_MOVE_RESULT, schema=move_doc["output"])
+    jsonschema.validate(instance=INPUT_ACTION_RESULT, schema=action_doc["output"])
+    jsonschema.validate(instance=INPUT_SEQUENCE_RESULT, schema=seq_doc["output"])
+
+
 def test_schema_kind_is_identical_via_argv_and_params_json_forms():
     # `--schema` is intercepted at the same single emission point for both the
     # argv form and the `--params-json` form (the --schema check runs first), so
