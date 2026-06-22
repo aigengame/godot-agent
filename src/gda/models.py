@@ -3010,12 +3010,37 @@ class InputSequenceParams(BaseModel):
     window runs for as many frames as the largest event ``frame`` requires (at least
     one). ``events`` must be non-empty; each event is validated model-side
     (ADR-0015).
+
+    The window the sequence requests — ``max(frame) + 1`` frames — is bounded
+    model-side to ``MAX_WINDOW_FRAMES`` (#223). The time-windowed harness base has
+    no harness-side timeout (it relies on its driver's model bounds, as
+    ``PerfMonitorParams`` enforces via ``frames``), so an unbounded event ``frame``
+    would let a single valid request monopolise the serialised live session until
+    ``live_timeout``. Rejecting it here makes it a structured ``invalid_params`` on
+    ``--params-json`` and a usage error (exit 2) on argv, never a live stall
+    (ADR-0015).
     """
 
     events: list[InputSequenceEvent] = Field(
         min_length=1,
         description="The events to inject, each at its relative frame offset.",
     )
+
+    @model_validator(mode="after")
+    def _check_window(self) -> "InputSequenceParams":
+        # The window spans one past the largest event frame (mirrors the harness's
+        # `max_frame + 1`). Bounding it to MAX_WINDOW_FRAMES — the same per-window
+        # ceiling perf enforces — keeps a sequence from holding the single-writer
+        # live session for an unbounded number of frames.
+        window = max(event.frame for event in self.events) + 1
+        if window > MAX_WINDOW_FRAMES:
+            raise ValueError(
+                f"the sequence requests a {window}-frame window (one past its "
+                f"largest event frame), exceeding the maximum of "
+                f"{MAX_WINDOW_FRAMES} (the gda harness's per-window ceiling). "
+                "Use smaller relative frame offsets."
+            )
+        return self
 
 
 class InputSequenceResult(BaseModel):

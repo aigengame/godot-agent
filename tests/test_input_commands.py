@@ -16,6 +16,7 @@ from typer.testing import CliRunner
 
 from gda.cli import app
 from gda.exit_codes import EXIT_LIVE
+from gda.models import MAX_WINDOW_FRAMES
 from gda.runner import RunResult
 from tests.support import (
     INPUT_ACTION_RESULT,
@@ -435,6 +436,53 @@ def test_input_sequence_malformed_event_argv_is_a_usage_error(monkeypatch, tmp_p
     assert fake.calls == []
 
 
+def test_input_sequence_over_window_frame_argv_is_a_usage_error(monkeypatch, tmp_path):
+    # A sequence whose window (max frame + 1) exceeds MAX_WINDOW_FRAMES would
+    # monopolise the serialised live session (the time-windowed base has no
+    # harness-side timeout). The model bounds it, so the argv path is a usage error
+    # (exit 2) and the engine is never reached.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input", "sequence",
+            "--events", json.dumps([{"type": "key", "key": "Right", "frame": 999999}]),
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert fake.calls == []
+
+
+def test_input_sequence_at_the_window_boundary_argv_is_accepted(monkeypatch, tmp_path):
+    # The largest accepted relative frame is MAX_WINDOW_FRAMES - 1 (window ==
+    # MAX_WINDOW_FRAMES). It passes the model and reaches the live seam unchanged.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input", "sequence",
+            "--events", json.dumps(
+                [{"type": "key", "key": "Right", "frame": MAX_WINDOW_FRAMES - 1}]
+            ),
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls[0][0] == "input-sequence"
+    assert fake.calls[0][1]["events"][0]["frame"] == MAX_WINDOW_FRAMES - 1
+
+
 def test_input_sequence_schema_reports_kind_live():
     result = CliRunner().invoke(app, ["input", "sequence", "--schema"])
 
@@ -522,6 +570,53 @@ def test_input_sequence_params_json_malformed_event_is_invalid_params(monkeypatc
 
     assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
     assert fake.calls == []
+
+
+def test_input_sequence_params_json_over_window_frame_is_invalid_params(monkeypatch, tmp_path):
+    # The same window bound as the argv path, surfaced as the structured
+    # invalid_params on --params-json (ADR-0015): a frame whose window exceeds
+    # MAX_WINDOW_FRAMES never reaches the engine.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input", "sequence",
+            "--params-json",
+            json.dumps({"events": [{"type": "key", "key": "Right", "frame": 999999}]}),
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert fake.calls == []
+
+
+def test_input_sequence_params_json_at_the_window_boundary_dispatches(monkeypatch, tmp_path):
+    # The boundary frame (window == MAX_WINDOW_FRAMES) passes the model and
+    # dispatches through the same live seam the argv path uses.
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input", "sequence",
+            "--params-json",
+            json.dumps(
+                {"events": [{"type": "key", "key": "Right", "frame": MAX_WINDOW_FRAMES - 1}]}
+            ),
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert fake.calls[0][0] == "input-sequence"
 
 
 def test_input_key_params_json_dispatches_like_argv(monkeypatch, tmp_path):
