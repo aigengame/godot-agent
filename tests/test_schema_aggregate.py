@@ -214,6 +214,24 @@ def test_live_stack_entries_carry_constraints_and_others_are_null():
     assert by_name["export run"]["constraints"] is None
 
 
+def test_live_command_descriptions_do_not_restate_the_structured_constraint():
+    # issue #233 / PR #245 review: the live-stack precondition is the structured
+    # `constraints` field's job — the single source. The help/manifest description
+    # prose must NOT independently restate the platform set or the Godot floor, or
+    # it becomes the very drift source #233 set out to remove (a LIVE command's
+    # prose once said "macOS/Linux only" yet omitted the 4.6 floor its structured
+    # field carried). Guard a representative slice of the live-stack surface: the
+    # constraint is discoverable structurally, never duplicated in prose.
+    by_name = {entry["name"]: entry for entry in _manifest()["commands"]}
+    for name in ("game tree", "perf monitors", "daemon start", "daemon stop"):
+        description = by_name[name]["description"]
+        assert "macOS" not in description, (name, description)
+        assert "Linux" not in description, (name, description)
+        assert "4.6" not in description, (name, description)
+        # …yet the precondition is still discoverable, structurally.
+        assert by_name[name]["constraints"] is not None, name
+
+
 def test_schema_command_is_itself_self_describing():
     # The meta command is under the same ADR-0004 gate as every other command:
     # `gda schema --schema` emits its own {input, output, error} contract, with
@@ -276,6 +294,10 @@ def test_self_described_manifest_describes_the_nullable_constraints_field():
     # nullable (the daemon stop/status case).
     lsc = manifest_schema["$defs"]["LiveStackConstraints"]
     assert "platforms" in lsc["required"]
+    # Both facets are required KEYS (the emitted object always carries them);
+    # min_godot_version's VALUE is nullable for the daemon stop/status case
+    # (issue #233, PR #245 review — key always present, value nullable).
+    assert "min_godot_version" in lsc["required"]
     assert lsc["properties"]["min_godot_version"]["anyOf"] == [
         {"type": "string"},
         {"type": "null"},

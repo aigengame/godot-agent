@@ -14,6 +14,16 @@ status: accepted
 > in the aggregate manifest (ADR-0012) every dispatchable entry's `kind` is
 > required and enum-constrained.
 
+> **Outcome (2026-06-22, #233 / PR #245):** the per-command `--schema` object
+> gained a fifth, additive key — `constraints`, the command's
+> `LiveStackConstraints` (platform set + minimum Godot version) for
+> live-stack-dependent commands, `null` otherwise. The platform/version values
+> are decided in ADR-0021 and now surfaced **structurally** rather than in
+> `--help` / manifest prose, sourced from the single
+> `gda.execution.live_stack_constraints` predicate so the structured field and
+> the surrounding prose cannot drift. Like `kind`, gda-mcp ignores it (ADR-0012),
+> so it stays a strict superset — backward compatible.
+
 ADR-0000 lists `--schema` as a core capability without defining it. We fix its
 semantics here, and deliberately scope out an overloaded interpretation.
 

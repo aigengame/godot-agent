@@ -139,7 +139,11 @@ class LiveStackConstraints(BaseModel):
     """
 
     platforms: list[str]
-    min_godot_version: str | None = None
+    # Required key, nullable value: the wrapper always supplies it (``None`` for
+    # daemon stop/status), and the emitted objects always carry the key — so the
+    # self-described schema marks it required, matching the actual ABI (issue #233,
+    # PR #245 review). Not defaulted, or the schema would allow the key's omission.
+    min_godot_version: str | None
 
 
 class CommandSchema(BaseModel):
