@@ -126,25 +126,42 @@ class CommandSchema(BaseModel):
     half is kept OUT of ``output``: a non-zero-exit failure maps to MCP's
     separate ``isError`` channel, so the future adapter must not fold ``error``
     into ``outputSchema``.
+
+    ``kind`` carries the command's static execution channel — the lowercase
+    :class:`~gda.execution.ExecutionKind` value (``"headless"`` / ``"export"`` /
+    ``"live"``) — taken from the command descriptor's single source of truth
+    (``HeadlessCommand.kind``), so an agent can branch on a command's channel
+    without inferring it (issue #230, stories 14/15/24). It is additive and
+    optional: gda-mcp maps only ``input`` / ``output`` / ``description`` and
+    ignores it, so adding it is backward-compatible (ADR-0012). ``None`` only when
+    a self-description is emitted without a backing command (e.g. ``gda schema``).
     """
 
     input: dict[str, Any]
     output: dict[str, Any]
     error: dict[str, Any]
+    kind: str | None = None
 
     @classmethod
     def of(
-        cls, input_model: type[BaseModel], output_model: type[BaseModel]
+        cls,
+        input_model: type[BaseModel],
+        output_model: type[BaseModel],
+        kind: str | None = None,
     ) -> "CommandSchema":
         """Derive the contract from a command's params and result models.
 
         ``error`` is the shared failure-envelope schema, the same for every
-        command, so it takes no per-command model argument.
+        command, so it takes no per-command model argument. ``kind`` is the
+        command's static :class:`~gda.execution.ExecutionKind` value (issue
+        #230); an ``ExecutionKind`` passed in serializes to its lowercase string
+        because it subclasses ``str``.
         """
         return cls(
             input=input_model.model_json_schema(),
             output=output_model.model_json_schema(),
             error=GdaErrorEnvelope.model_json_schema(),
+            kind=kind,
         )
 
 
@@ -157,6 +174,12 @@ class CommandManifestEntry(BaseModel):
     ``<group> <command>`` MCP mapping basis, ADR-0005, e.g. ``scene create``;
     bare for a meta command such as ``info``) and the command's ``description``
     (its help text, which flows into the MCP tool description).
+
+    ``kind`` mirrors :class:`CommandSchema`'s: the entry's static execution
+    channel (``"headless"`` / ``"export"`` / ``"live"``), taken from the same
+    descriptor source of truth so the aggregate and per-command forms agree
+    (issue #230). Additive and ignored by gda-mcp (ADR-0012). Every dispatchable
+    manifest entry has a backing command, so it is always populated here.
     """
 
     name: str
@@ -164,6 +187,7 @@ class CommandManifestEntry(BaseModel):
     input: dict[str, Any]
     output: dict[str, Any]
     error: dict[str, Any]
+    kind: str | None = None
 
 
 class SurfaceManifest(BaseModel):

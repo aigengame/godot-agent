@@ -79,9 +79,15 @@ def _collect(
     # the command cannot be driven via ``--params-json`` (ADR-0015) and therefore
     # is not part of the dispatchable-operation surface gda-mcp serves. Reading it
     # off the command object reuses that one authority rather than re-deriving it.
-    if getattr(command, "gda_command", None) is None:
+    gda_command = getattr(command, "gda_command", None)
+    if gda_command is None:
         return
-    schema = CommandSchema.of(input_model, output_model)
+    # Carry the command's static execution channel (ADR-0017) from the same
+    # single source of truth the per-command ``--schema`` uses — the backing
+    # ``HeadlessCommand.kind`` — so the aggregate and per-command forms agree
+    # (issue #230). A dispatchable entry always has a backing command here, so
+    # ``kind`` is always populated.
+    schema = CommandSchema.of(input_model, output_model, kind=gda_command.kind)
     description = (command.help or command.short_help or "").strip()
     entries.append(
         CommandManifestEntry(
@@ -90,5 +96,6 @@ def _collect(
             input=schema.input,
             output=schema.output,
             error=schema.error,
+            kind=schema.kind,
         )
     )
