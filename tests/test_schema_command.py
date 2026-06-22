@@ -1244,6 +1244,30 @@ def test_schema_kind_is_identical_via_argv_and_params_json_forms():
     assert argv_doc == params_json_doc
 
 
+# --- live-stack constraints in --schema (issue #233, ADR-0004/ADR-0021) ------
+#
+# Every command that depends on gda's daemon/live stack carries a structured
+# `constraints` field — the platform set (macOS/Linux, UDS) and, where the
+# command launches/uses the engine, the Godot-4.6+ floor (ADR-0021) — sourced
+# from the single `live_stack_constraints` predicate both emission paths share,
+# so help/manifest prose and the structured field never drift. Commands with no
+# live-stack dependence carry `null`.
+
+
+def test_live_command_schema_reports_live_stack_constraints():
+    # `game tree` is a LIVE command (kind=live): it both runs on UDS-only
+    # platforms and uses the engine, so it carries the full constraint —
+    # platforms + the Godot-4.6+ floor.
+    result = CliRunner().invoke(app, ["game", "tree", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["constraints"] == {
+        "platforms": ["linux", "macos"],
+        "min_godot_version": "4.6",
+    }
+
+
 def test_extra_positional_args_are_a_usage_error_even_with_schema():
     # issue #36 (2): --schema must not swallow a malformed command line. Extra
     # positional args still fail with a usage error (exit 2), not exit 0 + schema.
