@@ -134,11 +134,19 @@ def test_mcp_live_game_tree_relays_daemon_not_running_verbatim(
         # The full GdaError envelope crossed verbatim as text content.
         assert result.content, "expected the GdaError envelope as text content"
         payload = json.loads(result.content[0].text)
+        # Assert the COMPLETE envelope shape, not a subset: lossless routing is the
+        # property #227 exists to prove, so a relay that silently dropped a field
+        # (most plausibly `diagnostics`) or wrapped it differently must fail here.
+        assert set(payload) == {"error"}, payload
         error = payload["error"]
+        assert set(error) == {"category", "code", "message", "diagnostics"}, error
         assert error["code"] == "daemon_not_running"
         assert error["category"] == "live"
         # The remediation message is preserved, not flattened to bare prose.
         assert "gda daemon start" in error["message"]
+        # `diagnostics` — the field a lossy relay would most plausibly drop — is
+        # present and its value crosses intact (empty for this synthesized error).
+        assert error["diagnostics"] == ""
     finally:
         anyio.run(_stop_daemon, server)
 

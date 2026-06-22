@@ -8,16 +8,19 @@ awareness of whether a command is headless or live. So its two core modules
 command's execution kind, no daemon channel, no live-ness in any form
 (``live`` / ``daemon`` / ``kind`` / ``ExecutionKind``).
 
-The guard scans the modules' executable **code tokens only** — comments and
-string literals (docstrings) are stripped first. The two modules legitimately
-say "a live session" in prose to mean an *active MCP session* (unrelated to the
-Phase-2 live channel); a literal text scan would false-fire on that and tempt an
-edit to clean generic code. Scanning code keeps the invariant honest: it trips
-on a real reference like ``cmd.kind`` or an ``import`` of the daemon channel —
-which is exactly the ADR-0011 violation to surface, not patch — while letting
-the prose stand.
+The guard scans the modules with only **comments and docstrings** stripped —
+every *executable* string literal is kept. The two modules legitimately say "a
+live session" in a *docstring* to mean an *active MCP session* (unrelated to the
+Phase-2 live channel), so docstrings are dropped to avoid a false fire; but a real
+per-phase reference — ``entry["kind"] == "live"``, an argv ``["daemon", …]``, an
+``import`` of the daemon channel — lives in *executable* tokens (a dict key, a
+call argument, a name), which the scan keeps visible. So it trips on exactly the
+ADR-0011 violation to surface, not patch, while letting the prose stand. Stripping
+*all* string literals, as a first cut did, would blind the guard to string-keyed
+branching — the gap PR #246 review caught.
 """
 
+import ast
 import io
 import re
 import tokenize
@@ -30,35 +33,55 @@ import gda.mcp.server
 # command's execution kind, the daemon channel, or live-ness in any form.
 _FORBIDDEN = ("live", "daemon", "kind", "ExecutionKind")
 
-# Token kinds that are documentation/structure, not executable code — stripped so
-# the scan sees only what the module *does*, never what it *says* about itself.
-_NON_CODE_TOKENS = frozenset(
-    {
-        tokenize.COMMENT,
-        tokenize.STRING,  # drops docstrings and every string literal
-        tokenize.NL,
-        tokenize.NEWLINE,
-        tokenize.INDENT,
-        tokenize.DEDENT,
-        tokenize.ENCODING,
-        tokenize.ENDMARKER,
-    }
-)
+
+def _docstring_starts(source: str) -> set[tuple[int, int]]:
+    """Start positions of every module/class/function docstring literal.
+
+    A docstring is the first string-expression statement of a module, class, or
+    function — the only string literal that is *documentation*. Every other string
+    literal is executable code (a dict key like ``entry["kind"]``, an argv element
+    like ``["daemon", …]``) and MUST stay visible to the scan, or the guard would
+    miss the very per-phase branching it forbids (PR #246 review). Identifying
+    docstrings by AST position lets us drop exactly those and keep the rest.
+    """
+    starts: set[tuple[int, int]] = set()
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
+            continue
+        body = getattr(node, "body", [])
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            const = body[0].value
+            starts.add((const.lineno, const.col_offset))
+    return starts
 
 
 def _code_text(module) -> str:
-    """The module's source with comments and string literals removed.
+    """The module's source with comments and docstrings removed — every
+    *executable* string literal kept.
 
-    Leaves only identifiers/keywords/operators, so a substring match cannot
-    false-fire on prose like the docstrings' "a live session".
+    So a real per-phase reference (``entry["kind"] == "live"``, an argv
+    ``["daemon", …]``, an import naming the daemon channel) stays visible to the
+    forbidden-vocabulary scan, while the modules' legitimate prose — a docstring
+    saying "a live session" to mean an active MCP session — is dropped and cannot
+    false-fire.
     """
     source = Path(module.__file__).read_text(encoding="utf-8")
-    readline = io.StringIO(source).readline
-    return " ".join(
-        tok.string
-        for tok in tokenize.generate_tokens(readline)
-        if tok.type not in _NON_CODE_TOKENS
-    )
+    docstrings = _docstring_starts(source)
+    kept: list[str] = []
+    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+        if tok.type == tokenize.COMMENT:
+            continue
+        if tok.type == tokenize.STRING and tok.start in docstrings:
+            continue  # a docstring — not executable code
+        kept.append(tok.string)
+    return " ".join(kept)
 
 
 def _phase_vocabulary_in(module) -> list[str]:
