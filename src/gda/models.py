@@ -2492,6 +2492,18 @@ class GameSetResult(BaseModel):
     value: Any = Field(description="The coerced value as JSON, as the running node now holds it.")
 
 
+# The per-window frame ceiling a time-windowed live op may request (#223). A
+# window collects exactly one sample per frame, so an unbounded N would block the
+# one-shot RPC for an unbounded time; this is the same generous ceiling the gda
+# harness enforces (``MAX_WINDOW_FRAMES`` in ``harness/gda_harness.gd``). Mirrored
+# here so ``PerfMonitorParams.frames`` rejects an over-range value model-side
+# (ADR-0015) — the model is the input source of truth for BOTH argv and
+# ``--params-json``, so the bound is checked before a request ever reaches the
+# harness, which therefore no longer clamps. The mirror is asserted by a harness-
+# const test (``tests/test_error_registry.py``).
+MAX_WINDOW_FRAMES = 600
+
+
 class PerfMonitor(BaseModel):
     """One performance monitor as ``gda perf monitors`` snapshots it (Phase 2, #223).
 
@@ -2541,6 +2553,11 @@ class PerfMonitorParams(BaseModel):
     ``property`` records the property's value each frame; ``signal`` records the
     signal's emissions over the window. The node is addressed by its runtime
     (absolute) path, as ``game tree`` reports it.
+
+    The selector rule and the ``frames`` bound are enforced model-side
+    (ADR-0015) so BOTH the argv path and ``--params-json`` reject a malformed
+    request with the structured ``invalid_params`` error rather than the harness
+    silently preferring one selector or clamping an over-range ``frames``.
     """
 
     node: str = Field(description=_RUNTIME_NODE_DESC)
@@ -2555,8 +2572,30 @@ class PerfMonitorParams(BaseModel):
     frames: int = Field(
         default=60,
         ge=1,
-        description="The number of frames to collect over (the harness clamps an excessive value).",
+        le=MAX_WINDOW_FRAMES,
+        description=(
+            "The number of frames to collect over, 1.."
+            f"{MAX_WINDOW_FRAMES} (the gda harness's per-window ceiling). An "
+            "over-range value is rejected, not clamped."
+        ),
     )
+
+    @model_validator(mode="after")
+    def _exactly_one_selector(self) -> "PerfMonitorParams":
+        # Exactly one of property/signal selects what to watch. Enforced model-side
+        # (ADR-0015) so the argv and --params-json paths agree and the harness is
+        # never handed an ambiguous request (it would otherwise silently prefer the
+        # signal). Neither set or both set is a usage/invalid-params error.
+        if self.property is None and self.signal is None:
+            raise ValueError(
+                "perf monitor needs exactly one of --property or --signal "
+                "(neither was given)."
+            )
+        if self.property is not None and self.signal is not None:
+            raise ValueError(
+                "--property and --signal are mutually exclusive; pass exactly one."
+            )
+        return self
 
 
 class PerfPropertySample(BaseModel):
