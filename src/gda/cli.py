@@ -22,6 +22,8 @@ from gda.daemon_ops import (
 )
 from gda.errors import (
     Failure,
+    classify_diag_errors,
+    classify_diag_log,
     classify_game_get,
     classify_game_set,
     classify_game_tree,
@@ -63,6 +65,10 @@ from gda.models import (
     DaemonStatusResult,
     DaemonStopParams,
     DaemonStopResult,
+    DiagErrorsParams,
+    DiagErrorsResult,
+    DiagLogParams,
+    DiagLogResult,
     EngineVersion,
     ExportGetParams,
     ExportListParams,
@@ -264,6 +270,19 @@ game_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(game_app, name="game")
+
+# The diag command group (Phase 2, ADR-0019, #224): the RUNNING game's runtime
+# diagnostics — its errors and its output log — served LIVE (`kind = LIVE`).
+# Unlike `game`, diag is daemon-served: the daemon reads the Session log it
+# launched the engine with (`--log-file`) rather than relaying to the harness,
+# and serves it even after the session process has died, so a crash stays
+# diagnosable. From the CLI's side it routes like any live command (kind = LIVE
+# -> the daemon socket); the daemon recognizes the diag op names.
+diag_app = typer.Typer(
+    help="Read the running game's runtime diagnostics (live; macOS/Linux only, needs `gda daemon start`).",
+    no_args_is_help=True,
+)
+app.add_typer(diag_app, name="diag")
 
 # The perf command group (Phase 2, ADR-0019, #223): runtime performance monitoring
 # of the RUNNING game, served LIVE through gda-daemon (`kind = LIVE`). `perf
@@ -629,6 +648,95 @@ def game_set(
     _dispatch(
         GAME_SET_COMMAND,
         GameSetParams(node=node, property=property, value=value),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+def _diag_limit_option() -> Optional[int]:
+    """The shared `--limit N` option for the `diag` group: tail the most recent N.
+
+    Bound to ``>= 1`` (Click ``min``) so a zero/negative limit is a usage error on
+    the argv path, mirroring the ``ge=1`` constraint on ``DiagErrorsParams`` /
+    ``DiagLogParams`` that the ``--params-json`` / ``--schema`` path enforces.
+    """
+    return typer.Option(
+        None,
+        "--limit",
+        min=1,
+        help="If set, tail only the most recent N entries (newest last); must be >= 1.",
+    )
+
+
+DIAG_ERRORS_COMMAND: HeadlessCommand[DiagErrorsResult] = HeadlessCommand(
+    operation="diag-errors",
+    input_model=DiagErrorsParams,
+    output_model=DiagErrorsResult,
+    classify=classify_diag_errors,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@diag_app.command(name="errors", cls=DIAG_ERRORS_COMMAND.command_class())
+def diag_errors(
+    limit: Optional[int] = _diag_limit_option(),
+    json_output: bool = json_option(),
+    schema: bool = DIAG_ERRORS_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read the running game's runtime errors as structured output (live).
+
+    Routes through gda-daemon (kind = LIVE, ADR-0017), but is daemon-served: the
+    daemon reads the Session log it launched the engine with (`--log-file`) — NOT
+    the harness — so it works even after the game has crashed, keeping the crash
+    diagnosable (#224). Each entry carries a normalized `level` (error / warning /
+    script_error / shader_error) and, when the log recorded it, the source
+    function/file/line. `--limit N` tails the most recent N. With no daemon it
+    reports `daemon_not_running`; with a daemon but no session ever launched,
+    `engine_session_not_running`; with a session whose log file is gone,
+    `live_log_unavailable`. An empty log is an empty result, not an error.
+    """
+    _dispatch(
+        DIAG_ERRORS_COMMAND,
+        DiagErrorsParams(limit=limit),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+DIAG_LOG_COMMAND: HeadlessCommand[DiagLogResult] = HeadlessCommand(
+    operation="diag-log",
+    input_model=DiagLogParams,
+    output_model=DiagLogResult,
+    classify=classify_diag_log,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@diag_app.command(name="log", cls=DIAG_LOG_COMMAND.command_class())
+def diag_log(
+    limit: Optional[int] = _diag_limit_option(),
+    json_output: bool = json_option(),
+    schema: bool = DIAG_LOG_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read the running game's raw output log (live).
+
+    The daemon-served counterpart of `diag errors`: the full captured output
+    stream (print output AND error lines) verbatim, one entry per line, read from
+    the same daemon-owned Session log (#224). `--limit N` tails the most recent N
+    lines. The same no-daemon / no-session / missing-log typed errors apply; an
+    empty log is an empty result.
+    """
+    _dispatch(
+        DIAG_LOG_COMMAND,
+        DiagLogParams(limit=limit),
         json_output=json_output,
         godot=godot,
         project=project,
