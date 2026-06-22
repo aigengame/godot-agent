@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.29](https://github.com/aigengame/godot-agent/compare/v0.1.28...v0.1.29) (2026-06-22)
+
+
+### Features
+
+* atomic headless writes with file_changed_externally guard ([#226](https://github.com/aigengame/godot-agent/issues/226)) ([#234](https://github.com/aigengame/godot-agent/issues/234)) ([86bc504](https://github.com/aigengame/godot-agent/commit/86bc50482d7f46b4389b4ed9d73209e078271434))
+
 ## [0.1.28](https://github.com/aigengame/godot-agent/compare/v0.1.27...v0.1.28) (2026-06-22)
 
 
