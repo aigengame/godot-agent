@@ -440,6 +440,20 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A live operation did not return from the engine session before the"
         " daemon's timeout.",
     ),
+    # The harness-lifecycle refusal (#225, ADR-0018): `gda daemon uninstall`
+    # removes the harness autoload + files, which would yank the autoload out from
+    # under a live engine session the daemon is holding — so it refuses while a
+    # daemon is running. Same shape as the other daemon-channel LIVE codes:
+    # LIVE-category, classifier-source (the uninstall recipe emits it, not a
+    # headless operation), exit EXIT_LIVE; NOT GDScript-mirrored.
+    ErrorCodeSpec(
+        "daemon_running",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A daemon-lifecycle command was refused because a gda-daemon is running"
+        " for the project; stop it first with `gda daemon stop`.",
+    ),
     # Per live-operation failures the gda harness reports in-band (#220). Harness
     # op-errors arrive with exit_code 0 (the daemon relays the sentinel verbatim),
     # so each MUST be a LIVE-category code for ``classify_live`` to map it before

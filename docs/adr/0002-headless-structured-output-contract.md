@@ -137,6 +137,7 @@ operation, and parse codes the CLI assigns).
 | `engine_session_not_running` | `live` | `classifier` | `6` | The daemon is running but holds no live engine session to serve the live operation (Phase 2). |
 | `engine_disconnected` | `live` | `classifier` | `6` | The engine session disconnected before the live operation returned — the game crashed or the harness connection dropped (Phase 2). |
 | `live_timeout` | `live` | `classifier` | `6` | A live operation did not return from the engine session before the daemon's timeout (Phase 2). |
+| `daemon_running` | `live` | `classifier` | `6` | A daemon-lifecycle command was refused because a gda-daemon is running for the project; stop it first with `gda daemon stop` (Phase 2, #225). |
 | `live_node_not_found` | `live` | `classifier` | `6` | A live game operation's node path does not resolve to a node in the running scene tree (Phase 2, #220). |
 | `live_unknown_property` | `live` | `classifier` | `6` | A live game get or set targeted a property the running node does not expose for the requested operation (no such readable storage property for get, or no such settable property for set) (Phase 2, #220). |
 | `live_uncoercible_value` | `live` | `classifier` | `6` | A live game set value cannot be coerced to the running property's declared Godot type (Phase 2, #220). |
