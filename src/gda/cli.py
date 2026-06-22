@@ -25,6 +25,8 @@ from gda.errors import (
     classify_game_set,
     classify_game_tree,
     classify_info,
+    classify_perf_monitor,
+    classify_perf_monitors,
     classify_script_validate,
 )
 from gda.execution import ExecutionKind
@@ -68,6 +70,10 @@ from gda.models import (
     GameTreeParams,
     GameTreeResult,
     InfoParams,
+    PerfMonitorParams,
+    PerfMonitorResult,
+    PerfMonitorsParams,
+    PerfMonitorsResult,
     ProjectDependenciesParams,
     ProjectDependenciesResult,
     ProjectFindReferencesParams,
@@ -242,6 +248,18 @@ game_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(game_app, name="game")
+
+# The perf command group (Phase 2, ADR-0019, #223): runtime performance monitoring
+# of the RUNNING game, served LIVE through gda-daemon (`kind = LIVE`). `perf
+# monitors` snapshots the engine's Performance counters in one frame; `perf monitor`
+# collects a per-frame property/signal timeline over N frames (the time-windowed
+# multi-frame harness base). Like `game`, a domain-object group marked live by
+# `kind`, not by the tree (ADR-0019).
+perf_app = typer.Typer(
+    help="Monitor the running game's runtime performance (live; macOS/Linux only).",
+    no_args_is_help=True,
+)
+app.add_typer(perf_app, name="perf")
 
 # The daemon command group (Phase 2, ADR-0017): gda's own per-project daemon
 # lifecycle — a deliberate extension of ADR-0005's domain-object grouping to an
@@ -577,6 +595,97 @@ def game_set(
     _dispatch(
         GAME_SET_COMMAND,
         GameSetParams(node=node, property=property, value=value),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+PERF_MONITORS_COMMAND: HeadlessCommand[PerfMonitorsResult] = HeadlessCommand(
+    operation="perf-monitors",
+    input_model=PerfMonitorsParams,
+    output_model=PerfMonitorsResult,
+    classify=classify_perf_monitors,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@perf_app.command(name="monitors", cls=PERF_MONITORS_COMMAND.command_class())
+def perf_monitors(
+    json_output: bool = json_option(),
+    schema: bool = PERF_MONITORS_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Snapshot the running game's performance monitors (live).
+
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017): the
+    instantaneous Performance counters — fps, frame timing, memory, object/node
+    counts, render stats, active physics/navigation objects — read in one frame, so
+    the values are mutually coherent (ADR-0020). Live ops are macOS/Linux only and
+    need a running daemon: with none, it reports `daemon_not_running`.
+    """
+    _dispatch(
+        PERF_MONITORS_COMMAND,
+        PerfMonitorsParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+PERF_MONITOR_COMMAND: HeadlessCommand[PerfMonitorResult] = HeadlessCommand(
+    operation="perf-monitor",
+    input_model=PerfMonitorParams,
+    output_model=PerfMonitorResult,
+    classify=classify_perf_monitor,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@perf_app.command(name="monitor", cls=PERF_MONITOR_COMMAND.command_class())
+def perf_monitor(
+    node: str = typer.Argument(
+        ...,
+        help="Runtime node path as `game tree` reports it (absolute, e.g. /root/Main/Player).",
+    ),
+    property: Optional[str] = typer.Option(
+        None,
+        "--property",
+        help="The property to sample each frame (mutually exclusive with --signal).",
+    ),
+    signal: Optional[str] = typer.Option(
+        None,
+        "--signal",
+        help="The signal whose emissions to record over the window (mutually exclusive with --property).",
+    ),
+    frames: int = typer.Option(
+        60,
+        "--frames",
+        min=1,
+        help="The number of frames to collect over (the harness clamps an excessive value).",
+    ),
+    json_output: bool = json_option(),
+    schema: bool = PERF_MONITOR_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Watch one running node over a frame window (live, time-windowed).
+
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
+    collects a per-frame timeline over `--frames` frames, returned as one blocking
+    payload (ADR-0017 one-shot RPC, ADR-0020 multi-frame). Pass exactly one of
+    `--property` (records the property's value each frame) or `--signal` (records
+    the signal's emissions over the window). With no daemon it reports
+    `daemon_not_running`; an absent node is `live_perf_node_not_found`, an absent
+    property `live_perf_property_not_found`, an absent signal
+    `live_perf_signal_not_found`.
+    """
+    _dispatch(
+        PERF_MONITOR_COMMAND,
+        PerfMonitorParams(node=node, property=property, signal=signal, frames=frames),
         json_output=json_output,
         godot=godot,
         project=project,

@@ -2492,6 +2492,120 @@ class GameSetResult(BaseModel):
     value: Any = Field(description="The coerced value as JSON, as the running node now holds it.")
 
 
+class PerfMonitor(BaseModel):
+    """One performance monitor as ``gda perf monitors`` snapshots it (Phase 2, #223).
+
+    A single counter from the running game's ``Performance`` singleton: its public
+    ``name`` (e.g. ``fps``, ``static_memory``), the Godot ``type`` of the sampled
+    value (``float``, as ``Performance.get_monitor`` returns), and its ``value`` as
+    JSON. Carried uniformly so an agent reads every monitor through one shape.
+    """
+
+    name: str
+    type: str = Field(description="The sampled value's Godot type (e.g. float).")
+    value: Any = Field(description="The monitor's value as JSON.")
+
+
+class PerfMonitorsParams(BaseModel):
+    """The params of ``gda perf monitors``: none — snapshot all monitors at once.
+
+    Empty: ``perf monitors`` reads the whole instantaneous monitor set of the
+    engine session held by ``gda-daemon`` in a single frame (frame-coherent,
+    ADR-0020); there is nothing to select.
+    """
+
+
+class PerfMonitorsResult(BaseModel):
+    """The result of ``gda perf monitors``: a one-frame performance snapshot (#223).
+
+    The running game's instantaneous ``Performance`` counters — timing, memory,
+    object/node counts, render stats, active physics/navigation objects — keyed by
+    monitor name, plus the engine ``timestamp`` (ms since session start) the
+    snapshot was taken at. Read in one frame, so the values are mutually coherent.
+    """
+
+    timestamp: int = Field(
+        description="Engine time the snapshot was taken (ms, Time.get_ticks_msec)."
+    )
+    monitors: dict[str, PerfMonitor] = Field(
+        description="The performance monitors, keyed by name."
+    )
+
+
+class PerfMonitorParams(BaseModel):
+    """The params of ``gda perf monitor``: watch one node over a frame window (#223).
+
+    Time-windowed: the gda harness collects a per-frame timeline over ``frames``
+    frames and returns it as one blocking payload (ADR-0017 one-shot RPC, ADR-0020
+    multi-frame). Exactly one of ``property`` / ``signal`` selects what to watch:
+    ``property`` records the property's value each frame; ``signal`` records the
+    signal's emissions over the window. The node is addressed by its runtime
+    (absolute) path, as ``game tree`` reports it.
+    """
+
+    node: str = Field(description=_RUNTIME_NODE_DESC)
+    property: str | None = Field(
+        default=None,
+        description="The property to sample each frame (mutually exclusive with --signal).",
+    )
+    signal: str | None = Field(
+        default=None,
+        description="The signal whose emissions to record over the window (mutually exclusive with --property).",
+    )
+    frames: int = Field(
+        default=60,
+        ge=1,
+        description="The number of frames to collect over (the harness clamps an excessive value).",
+    )
+
+
+class PerfPropertySample(BaseModel):
+    """One per-frame sample of a watched property (``gda perf monitor --property``, #223)."""
+
+    frame: int = Field(description="The 0-based frame index within the window.")
+    timestamp: int = Field(description="Engine time the sample was taken (ms).")
+    value: Any = Field(description="The property's value as JSON at that frame.")
+
+
+class PerfSignalEmission(BaseModel):
+    """One recorded emission of a watched signal (``gda perf monitor --signal``, #223)."""
+
+    frame: int = Field(description="The frame index the emission landed in.")
+    timestamp: int = Field(description="Engine time the emission was recorded (ms).")
+    args: list[Any] = Field(
+        default_factory=list, description="The emission's arguments as JSON."
+    )
+
+
+class PerfMonitorResult(BaseModel):
+    """The result of ``gda perf monitor``: a collected per-frame timeline (#223).
+
+    Carries the watched ``node`` (runtime path), the ``kind`` of timeline
+    (``property`` or ``signal``), and the number of ``frames`` collected. For a
+    property watch, ``samples`` is the per-frame value timeline and ``emissions``
+    is empty; for a signal watch, ``emissions`` is the recorded emissions over the
+    window and ``samples`` is empty. The harness reports exactly one of the two.
+    """
+
+    node: str = Field(description="The watched node's runtime (absolute) path.")
+    kind: str = Field(description="The timeline kind: 'property' or 'signal'.")
+    frames: int = Field(description="The number of frames the window collected over.")
+    property: str | None = Field(
+        default=None, description="The watched property (a property watch only)."
+    )
+    signal: str | None = Field(
+        default=None, description="The watched signal (a signal watch only)."
+    )
+    samples: list[PerfPropertySample] = Field(
+        default_factory=list,
+        description="The per-frame property timeline (a property watch only).",
+    )
+    emissions: list[PerfSignalEmission] = Field(
+        default_factory=list,
+        description="The recorded signal emissions over the window (a signal watch only).",
+    )
+
+
 class DaemonStartParams(BaseModel):
     """The params of ``gda daemon start``: none (the project is the --project context)."""
 
