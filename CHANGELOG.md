@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.28](https://github.com/aigengame/godot-agent/compare/v0.1.27...v0.1.28) (2026-06-22)
+
+
+### Features
+
+* surface execution kind in --schema ([#230](https://github.com/aigengame/godot-agent/issues/230)) ([#232](https://github.com/aigengame/godot-agent/issues/232)) ([b2b0ea8](https://github.com/aigengame/godot-agent/commit/b2b0ea865f973d0240ee1ca8f188b51298e11d7d))
+
 ## [0.1.27](https://github.com/aigengame/godot-agent/compare/v0.1.26...v0.1.27) (2026-06-21)
 
 
