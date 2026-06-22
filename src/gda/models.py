@@ -2492,6 +2492,78 @@ class GameSetResult(BaseModel):
     value: Any = Field(description="The coerced value as JSON, as the running node now holds it.")
 
 
+# The `diag` command group (Phase 2, ADR-0019): the RUNNING game's runtime
+# diagnostics — its errors and its output log — served LIVE but daemon-served:
+# the daemon reads the Session log it launched the engine with (`--log-file`),
+# not the harness, and serves it even after the session process has died so a
+# crash stays diagnosable (#224). The introspection-only counterpart to `perf`.
+_DIAG_LIMIT_DESC = "If set, tail only the most recent N entries (newest last)."
+
+
+class DiagError(BaseModel):
+    """One structured runtime error/warning of the running game (#224).
+
+    Parsed from Godot's two-line log format. ``level`` normalizes the engine's
+    ``<TYPE>`` (``error`` / ``warning`` / ``script_error`` / ``shader_error``) so
+    an agent branches on the severity without parsing prose — warnings are
+    included, told apart by ``level``. The location (``function``/``file``/
+    ``line``) is filled from the ``   at:`` follow-on when present; a bare error
+    leaves them ``null`` (best-effort, never a parse failure).
+    """
+
+    level: str = Field(
+        description="Normalized severity: error / warning / script_error / shader_error."
+    )
+    message: str = Field(description="The error/warning message the engine logged.")
+    function: str | None = Field(
+        default=None, description="The reporting function, if the log had an `at:` line."
+    )
+    file: str | None = Field(
+        default=None, description="The source path (e.g. res://main.gd), if known."
+    )
+    line: int | None = Field(default=None, description="The source line, if known.")
+
+
+class DiagErrorsParams(BaseModel):
+    """The params of ``gda diag errors``: read the running game's runtime errors (#224).
+
+    Reads the current Engine session's captured errors. ``limit`` tails the most
+    recent N; v1 returns the current session's log with no incremental offset.
+    """
+
+    limit: int | None = Field(default=None, description=_DIAG_LIMIT_DESC)
+
+
+class DiagErrorsResult(BaseModel):
+    """The result of ``gda diag errors``: the running game's structured errors (#224).
+
+    An empty ``errors`` list is a successful empty read (the game logged nothing),
+    not an error.
+    """
+
+    errors: list[DiagError]
+
+
+class DiagLogParams(BaseModel):
+    """The params of ``gda diag log``: read the running game's raw output log (#224).
+
+    ``limit`` tails the most recent N lines; v1 returns the current session's log
+    with no incremental offset.
+    """
+
+    limit: int | None = Field(default=None, description=_DIAG_LIMIT_DESC)
+
+
+class DiagLogResult(BaseModel):
+    """The result of ``gda diag log``: the running game's raw output lines (#224).
+
+    The full captured stream (print output AND error lines) verbatim, one entry
+    per line; an empty ``lines`` list is a successful empty read.
+    """
+
+    lines: list[str]
+
+
 class DaemonStartParams(BaseModel):
     """The params of ``gda daemon start``: none (the project is the --project context)."""
 

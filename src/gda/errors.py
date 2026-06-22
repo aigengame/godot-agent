@@ -49,6 +49,8 @@ from gda.error_codes import (
     OPERATION_ERROR_CODES,
 )
 from gda.models import (
+    DiagErrorsResult,
+    DiagLogResult,
     EngineVersion,
     ExportRunMode,
     ExportRunResult,
@@ -442,6 +444,22 @@ def classify_game_get(result: RunResult, binary: Path) -> GameGetResult | Failur
 def classify_game_set(result: RunResult, binary: Path) -> GameSetResult | Failure:
     """The per-command live classifier for ``gda game set`` (mirrors ``classify_game_tree``)."""
     return classify_live(result, binary, GameSetResult)
+
+
+def classify_diag_errors(result: RunResult, binary: Path) -> DiagErrorsResult | Failure:
+    """The per-command live classifier for ``gda diag errors`` (mirrors ``classify_game_tree``).
+
+    ``diag`` is daemon-served (the daemon reads its own Session log), but the
+    reply rides the same ADR-0002 sentinel envelope as any live op, so the live
+    error codes (``daemon_not_running``, ``engine_session_not_running``,
+    ``live_log_unavailable``) flow through the shared ``classify_live`` (#224).
+    """
+    return classify_live(result, binary, DiagErrorsResult)
+
+
+def classify_diag_log(result: RunResult, binary: Path) -> DiagLogResult | Failure:
+    """The per-command live classifier for ``gda diag log`` (mirrors ``classify_diag_errors``)."""
+    return classify_live(result, binary, DiagLogResult)
 
 
 # A non-fatal export warning the engine prints to stderr. WARNING is Godot's

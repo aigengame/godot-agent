@@ -25,6 +25,8 @@ from gda.models import (
     DaemonStartResult,
     DaemonStatusResult,
     DaemonStopResult,
+    DiagErrorsResult,
+    DiagLogResult,
     EngineVersion,
     ExportGetResult,
     ExportListResult,
@@ -172,6 +174,33 @@ def render_game_set(was_set: "GameSetResult") -> str:
         f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
         f"{format_value(was_set.value)}"
     )
+
+
+def render_diag_errors(diag: "DiagErrorsResult") -> str:
+    """Render the running game's runtime errors as `LEVEL: message (at: loc)` lines (#224).
+
+    One line per error/warning; the location is appended when known (a bare error
+    omits it). An empty read renders a short `no runtime errors` note rather than
+    a blank string, so the human output is never ambiguous.
+    """
+    if not diag.errors:
+        return "no runtime errors"
+    lines = []
+    for err in diag.errors:
+        line = f"{err.level.upper()}: {err.message}"
+        if err.file is not None:
+            loc = f"{err.file}:{err.line}" if err.line is not None else err.file
+            at = f" (at: {err.function} {loc})" if err.function else f" (at: {loc})"
+            line += at
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def render_diag_log(diag: "DiagLogResult") -> str:
+    """Render the running game's raw output log — its lines verbatim, one per line (#224)."""
+    if not diag.lines:
+        return "no output"
+    return "\n".join(diag.lines)
 
 
 def render_daemon_start(started: "DaemonStartResult") -> str:
@@ -578,6 +607,8 @@ _RENDERERS = {
     GameTreeResult: render_game_tree,
     GameGetResult: render_game_get,
     GameSetResult: render_game_set,
+    DiagErrorsResult: render_diag_errors,
+    DiagLogResult: render_diag_log,
     DaemonStartResult: render_daemon_start,
     DaemonStopResult: render_daemon_stop,
     DaemonStatusResult: render_daemon_status,

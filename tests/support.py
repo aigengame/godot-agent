@@ -409,3 +409,42 @@ GAME_SET_RESULT = {
     "type": "Vector2",
     "value": [10.0, 20.0],
 }
+
+# Sample ``gda diag errors`` / ``gda diag log`` results — the running game's
+# runtime diagnostics, daemon-served from the Session log (#224). Shared by the
+# diag-command success/schema/render tests. ``errors`` carries warnings too,
+# distinguished by ``level``; a bare error may omit the location fields.
+DIAG_ERRORS_RESULT = {
+    "errors": [
+        {
+            "level": "error",
+            "message": "boom",
+            "function": "_ready",
+            "file": "res://main.gd",
+            "line": 9,
+        },
+        {
+            "level": "warning",
+            "message": "careful",
+            "function": "_process",
+            "file": "res://main.gd",
+            "line": 20,
+        },
+        {
+            "level": "error",
+            "message": "no location here",
+            "function": None,
+            "file": None,
+            "line": None,
+        },
+    ]
+}
+
+DIAG_LOG_RESULT = {
+    "lines": [
+        "known line",
+        "ERROR: boom",
+        "   at: _ready (res://main.gd:9)",
+        "another line",
+    ]
+}
