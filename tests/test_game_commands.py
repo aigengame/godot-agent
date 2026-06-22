@@ -209,3 +209,139 @@ def test_game_get_schema_is_self_describing():
     schema = json.loads(result.stdout)
     assert "input" in schema and "output" in schema
     assert schema["kind"] == "live"
+
+
+# --- game set (live runtime property write) ----------------------------------
+
+
+def test_game_set_mutates_and_echoes_coerced_value_through_the_live_channel(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_SET_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game", "set", "/root/Main/Player",
+            "--property", "position", "--value", "10,20",
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["path"] == "/root/Main/Player"
+    assert data["property"] == "position"
+    # The harness echoes the coerced value in the node get projection.
+    assert data["value"] == [10.0, 20.0]
+    # The node arg, property and raw value are threaded to the operation params;
+    # the harness coerces the string to the declared type.
+    assert fake.calls == [
+        (
+            "game-set",
+            {"node": "/root/Main/Player", "property": "position", "value": "10,20"},
+        )
+    ]
+
+
+def test_game_set_missing_node_reports_live_node_not_found(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel("live_node_not_found", "no node at runtime path"),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game", "set", "/root/Main/Ghost",
+            "--property", "position", "--value", "1,2",
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "live_node_not_found"
+    assert error["category"] == "live"
+
+
+def test_game_set_unknown_property_reports_live_unknown_property(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel("live_unknown_property", "no settable property"),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game", "set", "/root/Main/Player",
+            "--property", "nope", "--value", "1",
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "live_unknown_property"
+    assert error["category"] == "live"
+
+
+def test_game_set_uncoercible_value_reports_live_uncoercible_value(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel("live_uncoercible_value", "cannot coerce value"),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game", "set", "/root/Main/Player",
+            "--property", "position", "--value", "not-a-vector",
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "live_uncoercible_value"
+    assert error["category"] == "live"
+
+
+def test_game_set_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game", "set", "/root/Main/Player",
+            "--property", "position", "--value", "1,2",
+            "--project", str(_project(tmp_path)), "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    assert json.loads(result.stdout)["error"]["code"] == "daemon_not_running"
+
+
+def test_game_set_schema_is_self_describing():
+    result = CliRunner().invoke(app, ["game", "set", "--schema"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    schema = json.loads(result.stdout)
+    assert "input" in schema and "output" in schema
+    assert schema["kind"] == "live"
