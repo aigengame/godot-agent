@@ -151,6 +151,40 @@ def test_every_input_field_has_a_non_empty_description():
     assert not missing, "input fields missing a description:\n" + "\n".join(missing)
 
 
+def test_every_entry_carries_an_execution_kind():
+    # issue #230: each manifest entry advertises its static execution `kind`
+    # (HEADLESS / EXPORT / LIVE) so gda-mcp / an agent can branch on a command's
+    # channel without inferring it. The enum subclasses `str`, so the value is the
+    # lowercase string, never the Python enum repr.
+    entries = _manifest()["commands"]
+    assert entries
+    for entry in entries:
+        assert entry["kind"] in {"headless", "export", "live"}, entry["name"]
+
+
+def test_entry_kind_matches_the_commands_own_schema_kind():
+    # Each entry's `kind` is the same single source of truth the command emits
+    # under its own `--schema` (ADR-0004 / ADR-0012): one descriptor field, not a
+    # parallel projection — so the aggregate and per-command forms must agree.
+    for entry in _manifest()["commands"]:
+        result = CliRunner().invoke(app, [*entry["name"].split(" "), "--schema"])
+        assert result.exit_code == 0, result.stdout
+        own = json.loads(result.stdout)
+        assert entry["kind"] == own["kind"], entry["name"]
+
+
+def test_all_three_execution_kinds_appear_in_the_aggregate():
+    # The surface spans all three channels: the default HEADLESS commands, the
+    # one EXPORT command (`export run`), and the LIVE commands (`game tree`).
+    by_name = {entry["name"]: entry for entry in _manifest()["commands"]}
+    assert by_name["scene get"]["kind"] == "headless"
+    assert by_name["export run"]["kind"] == "export"
+    assert by_name["game tree"]["kind"] == "live"
+    # All three kinds are represented in the aggregate as a whole.
+    kinds = {entry["kind"] for entry in by_name.values()}
+    assert {"headless", "export", "live"} <= kinds
+
+
 def test_schema_command_is_itself_self_describing():
     # The meta command is under the same ADR-0004 gate as every other command:
     # `gda schema --schema` emits its own {input, output, error} contract, with

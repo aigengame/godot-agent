@@ -1056,6 +1056,75 @@ def test_help_takes_precedence_over_schema_regardless_of_argv_order():
         assert not result.stdout.lstrip().startswith("{")
 
 
+# --- execution kind in --schema (issue #230, ADR-0004/ADR-0012) --------------
+#
+# Each command's `--schema` carries its static execution `kind` (HEADLESS /
+# EXPORT / LIVE), taken from the one source of truth — the command descriptor's
+# `HeadlessCommand.kind` — so an agent (and gda-mcp) can branch on a command's
+# channel without inferring it. The enum subclasses `str`, so the emitted JSON
+# value is the lowercase string ("headless" / "export" / "live"), never the
+# Python repr "ExecutionKind.HEADLESS".
+
+
+def test_headless_command_schema_reports_kind_headless():
+    # A default HEADLESS command (scene get routes through operations.gd) reports
+    # its channel as the lowercase enum value, not the Python enum repr.
+    result = CliRunner().invoke(app, ["scene", "get", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["kind"] == "headless"
+
+
+def test_export_run_command_schema_reports_kind_export():
+    # `export run` is the EXPORT channel (native --export-<mode>, not the
+    # operations.gd sentinel) — its schema must say so. Sibling export commands
+    # (get/list) stay HEADLESS.
+    result = CliRunner().invoke(app, ["export", "run", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["kind"] == "export"
+
+
+def test_export_get_and_list_commands_schema_report_kind_headless():
+    # Only `export run` is EXPORT; the read-only export commands are HEADLESS.
+    for command in (["export", "get"], ["export", "list"]):
+        result = CliRunner().invoke(app, [*command, "--schema"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout)["kind"] == "headless"
+
+
+def test_live_command_schema_reports_kind_live_without_a_daemon():
+    # `game tree` is a LIVE command served through gda-daemon — but `--schema` is
+    # intercepted in parse_args before any execution, so it self-describes with
+    # NO daemon running, reporting its channel as "live".
+    result = CliRunner().invoke(app, ["game", "tree", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["kind"] == "live"
+
+
+def test_schema_kind_is_identical_via_argv_and_params_json_forms():
+    # `--schema` is intercepted at the same single emission point for both the
+    # argv form and the `--params-json` form (the --schema check runs first), so
+    # the emitted `kind` must be byte-identical between the two — proving the one
+    # source of truth is threaded through, not duplicated per path.
+    argv_doc = json.loads(
+        CliRunner().invoke(app, ["scene", "get", "--schema"]).stdout
+    )
+    params_json_doc = json.loads(
+        CliRunner()
+        .invoke(app, ["scene", "get", "--params-json", "{}", "--schema"])
+        .stdout
+    )
+
+    assert argv_doc["kind"] == params_json_doc["kind"] == "headless"
+    # The whole contract is identical across the two forms, not just `kind`.
+    assert argv_doc == params_json_doc
+
+
 def test_extra_positional_args_are_a_usage_error_even_with_schema():
     # issue #36 (2): --schema must not swallow a malformed command line. Extra
     # positional args still fail with a usage error (exit 2), not exit 0 + schema.
