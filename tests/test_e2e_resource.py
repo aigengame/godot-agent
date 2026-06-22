@@ -23,6 +23,7 @@ modes, are exercised end to end.
 """
 
 import json
+import os
 import shutil
 import subprocess
 
@@ -73,6 +74,18 @@ def _gda_project(project) -> "callable":
         )
 
     return gda
+
+
+def _gda_env(extra_env: dict, *args: str) -> subprocess.CompletedProcess:
+    """``_gda`` with extra env vars in the child's environment (issue #226 seam)."""
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+    return subprocess.run(
+        [gda_bin, *args, "--godot", str(GODOT)],
+        capture_output=True,
+        text=True,
+        env={**os.environ, **extra_env},
+    )
 
 
 def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
@@ -283,6 +296,37 @@ def test_resource_set_string_property_round_trips(godot_project):
     got = _gda("resource", "get", str(resource_path), "--json")
     by_name = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
     assert by_name["resource_name"]["value"] == "Sunset"
+
+
+@pytest.mark.e2e
+def test_resource_set_with_external_edit_in_window_yields_file_changed_externally(
+    godot_project,
+):
+    # Staleness guard for the ResourceSaver path (issue #226): resource set loads the
+    # .tres, coerces and sets a property, then re-saves; if the file changes on disk in
+    # that window a blind save would clobber the external edit. The production-inert seam
+    # (GDA_TEST_PERTURB_BEFORE_SAVE) simulates that edit, and the guard refuses.
+    resource_path = godot_project / "palette.tres"
+    created = _gda(
+        "resource", "create", str(resource_path), "--type", "Gradient", "--json"
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+
+    was_set = _gda_env(
+        {"GDA_TEST_PERTURB_BEFORE_SAVE": "1"},
+        "resource", "set", str(resource_path),
+        "--property", "resource_name", "--value", "Sunset", "--json",
+    )
+
+    err = _assert_operation_error(was_set, "file_changed_externally")
+    assert str(resource_path) in err["message"]
+
+    # The set did NOT land: resource_name is still empty (the default), not "Sunset".
+    got = _gda("resource", "get", str(resource_path), "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    by_name = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+    assert by_name["resource_name"]["value"] != "Sunset"
+    assert not list(godot_project.rglob(".gda-*"))
 
 
 @pytest.mark.e2e

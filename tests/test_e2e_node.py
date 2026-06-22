@@ -7,6 +7,7 @@ verification of ``node add``'s effect.
 """
 
 import json
+import os
 import shutil
 import subprocess
 
@@ -23,6 +24,28 @@ def _gda(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [gda_bin, *args, "--godot", str(GODOT)], capture_output=True, text=True
     )
+
+
+def _gda_env(extra_env: dict, *args: str) -> subprocess.CompletedProcess:
+    """``_gda`` with extra env vars in the child's environment.
+
+    The CLI passes no ``env=`` to its Godot subprocess, so the engine inherits
+    this environment — the channel the production-inert
+    ``GDA_TEST_PERTURB_BEFORE_SAVE`` test seam rides on (issue #226).
+    """
+    gda_bin = shutil.which("gda")
+    assert gda_bin, "the `gda` console script is not on PATH"
+    return subprocess.run(
+        [gda_bin, *args, "--godot", str(GODOT)],
+        capture_output=True,
+        text=True,
+        env={**os.environ, **extra_env},
+    )
+
+
+def _no_gda_temp_siblings(project) -> bool:
+    """No ``.gda-*`` atomic-write temp file remains in the project tree."""
+    return not list(project.rglob(".gda-*"))
 
 
 def _create_scene(scene_path) -> None:
@@ -1550,3 +1573,92 @@ def test_node_connect_signal_to_missing_scene_yields_path_not_found(godot_projec
 
     err = _assert_operation_error(connected, "path_not_found")
     assert str(missing) in err["message"]
+
+
+@pytest.mark.e2e
+def test_node_add_leaves_no_temp_file_on_success(godot_project):
+    # Atomicity (issue #226): a successful node add writes through a sibling temp
+    # then renames it over the target, so no .gda-*.tmp orphan is left behind.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+
+    added = _gda(
+        "node", "add", str(scene_path),
+        "--type", "Sprite2D", "--name", "Hero", "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    assert _no_gda_temp_siblings(godot_project), sorted(
+        p.name for p in godot_project.rglob(".gda-*")
+    )
+
+
+@pytest.mark.e2e
+def test_node_add_with_external_edit_in_window_yields_file_changed_externally(
+    godot_project,
+):
+    # Staleness guard (issue #226): if the target .tscn changes on disk between
+    # gda's read and its write, the write is refused with file_changed_externally
+    # rather than clobbering the external edit. The read->write window is sub-second
+    # in one process, so a production-inert test seam (GDA_TEST_PERTURB_BEFORE_SAVE)
+    # simulates an external edit landing in the window by perturbing the target's
+    # size just before the recheck.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+
+    added = _gda_env(
+        {"GDA_TEST_PERTURB_BEFORE_SAVE": "1"},
+        "node", "add", str(scene_path),
+        "--type", "Sprite2D", "--name", "Hero", "--json",
+    )
+
+    err = _assert_operation_error(added, "file_changed_externally")
+    assert str(scene_path) in err["message"]
+
+    # The mutation did NOT land: a fresh list shows no "Hero" child. (The seam
+    # perturbs the file by one byte, so we assert the EFFECT — the node is absent —
+    # not byte-identical content.)
+    listed = _gda("node", "list", str(scene_path), "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    tree = json.loads(listed.stdout)
+    child_names = [c["name"] for c in tree["root"]["children"]]
+    assert "Hero" not in child_names, child_names
+
+    # No atomic-write temp orphan remains from the refused write.
+    assert _no_gda_temp_siblings(godot_project), sorted(
+        p.name for p in godot_project.rglob(".gda-*")
+    )
+
+
+@pytest.mark.e2e
+def test_node_add_with_external_edit_during_instantiate_yields_file_changed_externally(
+    godot_project,
+):
+    # Earlier-window regression (issue #226; PR #234 review): the scene mutation path
+    # reads the .tscn (ResourceLoader.load), then instantiate()s it — which runs the
+    # project's script _init and takes real time — before the write. The staleness
+    # token must be captured right after the READ, not after instantiate, or an
+    # external edit landing DURING instantiate would become the baseline and be
+    # missed. The GDA_TEST_PERTURB_AFTER_LOAD seam perturbs the file after the read
+    # but before instantiate; with the token captured early, the recheck still fires.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+
+    added = _gda_env(
+        {"GDA_TEST_PERTURB_AFTER_LOAD": "1"},
+        "node", "add", str(scene_path),
+        "--type", "Sprite2D", "--name", "Hero", "--json",
+    )
+
+    err = _assert_operation_error(added, "file_changed_externally")
+    assert str(scene_path) in err["message"]
+
+    # The mutation did NOT land despite the edit landing in the earlier window.
+    listed = _gda("node", "list", str(scene_path), "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    child_names = [c["name"] for c in json.loads(listed.stdout)["root"]["children"]]
+    assert "Hero" not in child_names, child_names
+
+    assert _no_gda_temp_siblings(godot_project), sorted(
+        p.name for p in godot_project.rglob(".gda-*")
+    )

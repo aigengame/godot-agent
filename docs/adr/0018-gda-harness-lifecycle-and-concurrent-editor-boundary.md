@@ -81,8 +81,10 @@ external editor's writes out of scope, with two cheap safeguards:
 - ADR-0009's trust boundary gains a second axis: from "trusted project" to also
   "**single driver**". New glossary terms: `gda harness`, `engine session`
   (ADR-0017), `concurrent external editor`.
-- `file_changed_externally` is a **candidate** classifier-source code — registered in
+- `file_changed_externally` is a **candidate** operation-source code — registered in
   the `src/gda/error_codes.py` registry and the ADR-0002 table by the slice that
-  implements it, not by this ADR.
+  implements it, not by this ADR. (Realized as an operation-source code by #226: the
+  guard is engine-side, emitted from `operations.gd` via `_fail(...)`, not assigned by
+  the classifier.)
 - `.godot/` import-cache races between a concurrent editor and an engine session
   remain possible but are recoverable (md5-keyed reimport); not defended, documented.

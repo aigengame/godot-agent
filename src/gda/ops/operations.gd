@@ -33,6 +33,7 @@ const OP_ERROR_INVALID_ROOT_NAME := "invalid_root_name"
 const OP_ERROR_ALREADY_EXISTS := "already_exists"
 const OP_ERROR_SAVE_FAILED := "save_failed"
 const OP_ERROR_DELETE_FAILED := "delete_failed"
+const OP_ERROR_FILE_CHANGED_EXTERNALLY := "file_changed_externally"
 const OP_ERROR_PROJECT_NOT_FOUND := "project_not_found"
 const OP_ERROR_PATH_NOT_FOUND := "path_not_found"
 const OP_ERROR_NOT_A_SCENE := "not_a_scene"
@@ -1183,6 +1184,9 @@ func _op_script_set(params: Dictionary) -> void:
 	var source: Variant = _read_script_source(path)
 	if source == null:
 		return  # _read_script_source already recorded the failure
+	# Capture the staleness token right after the read (issue #226) — script-set writes
+	# raw text directly, not via the shared tail, so it wires capture/recheck itself.
+	_capture_staleness_token(path)
 
 	# Dispatch on the explicit mode discriminator the CLI resolved (issue #133):
 	# the edit mode is decided once, at the CLI's mutual-exclusion check, and rides
@@ -1206,6 +1210,10 @@ func _op_script_set(params: Dictionary) -> void:
 	if new_source == null:
 		return  # the apply helper already recorded the failure
 
+	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
+	# .gd in the read->write window.
+	if not _check_unchanged():
+		return
 	if not _write_script_file(path, new_source):
 		return  # _write_script_file already recorded the failure
 
@@ -1473,7 +1481,7 @@ func _op_resource_create(params: Dictionary) -> void:
 	var created_dirs: Variant = _ensure_parent_dirs(path)
 	if created_dirs == null:
 		return  # _ensure_parent_dirs already recorded the failure
-	var save_err := ResourceSaver.save(resource, path)
+	var save_err := _atomic_save_resource(resource, path)
 	if save_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("resource", path, save_err))
 		return
@@ -1590,6 +1598,9 @@ func _op_resource_set(params: Dictionary) -> void:
 	if resource == null:
 		_fail(OP_ERROR_INVALID_PATH, "file could not be loaded as a Resource: " + path)
 		return
+	# Capture the staleness token right after the read (issue #226) — resource-set
+	# does not use the shared pack-and-save tail, so it wires capture/recheck itself.
+	_capture_staleness_token(path)
 
 	var prop_name := _string_param(params, "property")
 	var declared_type := _resource_property_type(resource, prop_name)
@@ -1607,7 +1618,11 @@ func _op_resource_set(params: Dictionary) -> void:
 		return
 
 	resource.set(prop_name, coerced)
-	var save_err := ResourceSaver.save(resource, path)
+	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
+	# .tres in the read->write window.
+	if not _check_unchanged():
+		return
+	var save_err := _atomic_save_resource(resource, path)
 	if save_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("resource", path, save_err))
 		return
@@ -1733,6 +1748,9 @@ func _op_shader_set(params: Dictionary) -> void:
 	var source: Variant = _read_text_file(path, "shader")
 	if source == null:
 		return  # _read_text_file already recorded the failure
+	# Capture the staleness token right after the read (issue #226) — shader-set writes
+	# raw text directly, not via the shared tail, so it wires capture/recheck itself.
+	_capture_staleness_token(path)
 
 	var mode := _string_param(params, "mode")
 	var new_source: Variant
@@ -1752,6 +1770,10 @@ func _op_shader_set(params: Dictionary) -> void:
 	if new_source == null:
 		return  # the apply helper already recorded the failure
 
+	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
+	# .gdshader in the read->write window.
+	if not _check_unchanged():
+		return
 	if not _write_text_file(path, new_source, "shader"):
 		return  # _write_text_file already recorded the failure
 
@@ -1786,7 +1808,7 @@ func _op_theme_create(params: Dictionary) -> void:
 	var created_dirs: Variant = _ensure_parent_dirs(path)
 	if created_dirs == null:
 		return  # _ensure_parent_dirs already recorded the failure
-	var save_err := ResourceSaver.save(theme, path)
+	var save_err := _atomic_save_resource(theme, path)
 	if save_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("theme", path, save_err))
 		return
@@ -2271,13 +2293,7 @@ func _read_text_file(path: String, noun: String) -> Variant:
 # in its diagnostic). Returns true on a clean write, or false after recording the
 # failure (the caller must stop). `noun` names the asset in the diagnostic.
 func _write_text_file(path: String, source: String, noun: String) -> bool:
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(noun, path, FileAccess.get_open_error()))
-		return false
-	file.store_string(source)
-	var write_err := file.get_error()
-	file.close()
+	var write_err := _atomic_write_text(path, source)
 	if write_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message(noun, path, write_err))
 		return false
@@ -3111,6 +3127,19 @@ func _load_for_mutation(params: Dictionary) -> Node:
 	if packed == null:
 		return null  # _load_scene already recorded the failure
 	var path := _string_param(params, "path")
+	# Capture the staleness token NOW — the instant after _load_scene's
+	# ResourceLoader.load read the .tscn, and BEFORE instantiate() (which runs the
+	# project's script _init and can take real time, ADR-0009) or any other work.
+	# Capturing here rather than after instantiate makes the baseline reflect the
+	# file gda actually read, so an external edit landing during instantiate is
+	# still caught by _check_unchanged at write time (issue #226; PR #234 review
+	# closed this read->capture window). Covers all 8 shared-tail mutating ops.
+	_capture_staleness_token(path)
+	# Test seam (issue #226): simulate an external edit that lands AFTER the read
+	# but DURING instantiate — the window this early capture closes. Gated by the
+	# env var, so it is dead code in production (mirrors GDA_TEST_PERTURB_BEFORE_SAVE).
+	if OS.has_environment("GDA_TEST_PERTURB_AFTER_LOAD"):
+		_test_perturb_target(path)
 	var root: Node = packed.instantiate()
 	if root == null:
 		# The engine returns null for a scene it cannot instantiate at all —
@@ -3168,6 +3197,13 @@ func _repack_and_save(root: Node, path: String) -> bool:
 	# intentionally re-scripted to a different non-empty path alone; and it skips
 	# nodes that vanished since capture (remove/move). `node add` is covered by
 	# test_node_add_preserves_sibling_script_on_repack_when_unimported.
+	#
+	# Optimistic staleness recheck (issue #226): refuse the write if the .tscn changed
+	# on disk since _load_for_mutation read it. Done BEFORE pack/save and after freeing
+	# the tree on refusal, so a clobbering write never lands and no scene leaks.
+	if not _check_unchanged():
+		root.free()
+		return false
 	_reanchor_external_scripts(root)
 	var repacked := PackedScene.new()
 	var pack_err := repacked.pack(root)
@@ -3175,7 +3211,7 @@ func _repack_and_save(root: Node, path: String) -> bool:
 		root.free()
 		_fail(OP_ERROR_SAVE_FAILED, "failed to pack scene: " + error_string(pack_err))
 		return false
-	var save_err := ResourceSaver.save(repacked, path)
+	var save_err := _atomic_save_resource(repacked, path)
 	root.free()
 	if save_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("scene", path, save_err))
@@ -3194,6 +3230,85 @@ func _repack_and_save(root: Node, path: String) -> bool:
 # carry. A single member is safe here — operations.gd is a one-shot process that
 # runs exactly one operation, so there is no cross-operation state to leak.
 var _captured_external_scripts: Dictionary = {}
+
+
+# --- optimistic staleness guard for headless read-modify-write ops (issue #226) ---
+#
+# A file-mutating op reads a target (.tscn/.gd/.tres/.gdshader), transforms it, then
+# writes it back. If a concurrent external editor (ADR-0018) changes that file on disk
+# inside the in-process read->write window, a blind write would CLOBBER the external
+# edit. The guard captures a cheap change token (mtime + size) right after the read and
+# re-checks it right before the write; a difference is reported as
+# file_changed_externally and the write is refused, leaving the external edit intact.
+#
+# The token is mtime+size, not mtime alone: FileAccess.get_modified_time is
+# whole-SECONDS granularity, so a same-second external edit would be invisible to mtime;
+# the file size (which an edit almost always changes) catches that case. A single member
+# set is safe — operations.gd is a one-shot process running exactly one op — mirroring
+# the _captured_external_scripts pattern above. An op that captured no token (a create)
+# leaves _staleness_path empty, and _check_unchanged is then a no-op (returns true).
+var _staleness_mtime: int = -1
+var _staleness_size: int = -1
+var _staleness_path: String = ""
+
+
+# Capture the change token for `path` right after an op reads it. Uses the SAME path
+# string the op passed to ResourceLoader.load / FileAccess (no globalize_path), so the
+# recheck reads exactly the same file. Size is read via an explicit READ open + length;
+# -1 marks an unreadable file (the recheck will still fire if it later becomes readable
+# with a different token, which is the conservative outcome).
+func _capture_staleness_token(path: String) -> void:
+	_staleness_path = path
+	_staleness_mtime = int(FileAccess.get_modified_time(path))
+	_staleness_size = _file_size(path)
+
+
+func _file_size(path: String) -> int:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return -1
+	var size := file.get_length()
+	file.close()
+	return int(size)
+
+
+# Re-check the captured token right before an op writes. Returns true when the file is
+# unchanged (or when no token was captured, e.g. a create); returns false AFTER
+# recording file_changed_externally when mtime or size differs. The single emission
+# point for the guard — every wired op funnels its recheck through here.
+func _check_unchanged() -> bool:
+	# Production-inert test seam (issue #226): the in-process read->write window is
+	# sub-second, so a normal test cannot race a real external edit into it. When this
+	# env var is set, perturb the target's SIZE just before the comparison to simulate
+	# an external edit landing in the window. Gated by has_environment, so it is dead
+	# code in production — runner.py spawns Godot with no env= and never sets this var.
+	if OS.has_environment("GDA_TEST_PERTURB_BEFORE_SAVE"):
+		_test_perturb_target(_staleness_path)
+	if _staleness_path.is_empty():
+		return true  # no token captured (e.g. a create) — nothing to compare
+	var current_mtime := int(FileAccess.get_modified_time(_staleness_path))
+	var current_size := _file_size(_staleness_path)
+	if current_mtime != _staleness_mtime or current_size != _staleness_size:
+		_fail(OP_ERROR_FILE_CHANGED_EXTERNALLY,
+				"target file changed on disk since gda read it (a concurrent editor may have"
+				+ " edited it); refusing to overwrite: " + _staleness_path)
+		return false
+	return true
+
+
+# Test-only: simulate an external edit landing in the read->write window by appending a
+# byte to the target, guaranteeing a SIZE change so the guard fires regardless of mtime
+# second-granularity. Reached only through the GDA_TEST_PERTURB_BEFORE_SAVE branch in
+# _check_unchanged, so it never runs in production.
+func _test_perturb_target(path: String) -> void:
+	if path.is_empty():
+		return
+	var file := FileAccess.open(path, FileAccess.READ_WRITE)
+	if file == null:
+		return
+	file.seek_end()
+	file.store_8(10)  # a newline byte — any byte changes the size
+	file.close()
 
 
 # Record {NodePath -> script res:// path} for every node in the freshly
@@ -3695,19 +3810,92 @@ func _save_failure_message(noun: String, path: String, save_err: Error) -> Strin
 # successful write: a disk-full/I/O error surfaces at get_error(), not at open,
 # so capture it BEFORE close() invalidates the handle — a failed write is
 # save_failed, never a phantom success over a partial or empty file. Shared by
-# script create and script set, the two ops that write script text.
+# script create and script set, the two ops that write script text. The write
+# itself goes through _atomic_write_text so a torn/failed write never tears the
+# original .gd (issue #226): a non-OK return leaves the target untouched, and we
+# translate it into the same save_failed ladder this op has always reported.
 func _write_script_file(path: String, source: String) -> bool:
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, FileAccess.get_open_error()))
-		return false
-	file.store_string(source)
-	var write_err := file.get_error()
-	file.close()
+	var write_err := _atomic_write_text(path, source)
 	if write_err != OK:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("script", path, write_err))
 		return false
 	return true
+
+
+# --- atomic write primitives (issue #226) -----------------------------------
+#
+# Godot's text savers (ResourceSaver for .tscn/.tres, FileAccess for .gd/.gdshader)
+# open the destination directly and truncate-in-place, so a failed save TEARS the
+# original. The engine has an atomic mode (FileAccess::set_backup_save(true)) but it
+# is not bound to GDScript, so we replicate it: write to a SAME-DIRECTORY sibling
+# temp, then DirAccess.rename_absolute(tmp, path) — a same-filesystem POSIX rename,
+# which IS bound and IS atomic. On any failure the target is left byte-untouched and
+# the temp is removed, so a concurrent reader (or our own staleness guard) never sees
+# a half-written file. Returns an Error code (OK on success); the caller keeps its
+# existing save_failed ladder and only translates a non-OK return.
+
+
+# A sibling temp path in the target's own directory (so rename is same-filesystem
+# and therefore atomic). The PID disambiguates parallel one-shot headless processes
+# writing the same target, so their temps never collide. Pure string ops, so it
+# works for res:// paths as well as absolute/user:// paths.
+#
+# The target's ORIGINAL extension is PRESERVED as the temp's trailing extension
+# (".gda-<pid>-<file>.tmp.<ext>") because ResourceSaver.save picks its saver by the
+# destination's recognized extension — a ".tmp" tail would be "File unrecognized"
+# and fail every .tscn/.tres save. FileAccess writes (.gd/.gdshader) don't care, so
+# preserving the extension is harmless there and correct for the resource path.
+func _atomic_temp_path(path: String) -> String:
+	var ext := path.get_extension()
+	var suffix := ".tmp" if ext.is_empty() else ".tmp." + ext
+	return path.get_base_dir().path_join(".gda-" + str(OS.get_process_id()) + "-" + path.get_file() + suffix)
+
+
+# Remove a file if it exists, swallowing the outcome — used to clean up a temp on a
+# failed atomic write, where the write error is what we want to report, not a
+# secondary cleanup error.
+func _remove_quiet(path: String) -> void:
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
+
+
+# Save `res` to `path` atomically: ResourceSaver.save to a sibling temp, then rename
+# the temp over the target. Returns OK on success, or the first non-OK Error (with
+# the temp removed and the target untouched).
+func _atomic_save_resource(res: Resource, path: String) -> int:
+	var tmp := _atomic_temp_path(path)
+	var save_err := ResourceSaver.save(res, tmp)
+	if save_err != OK:
+		_remove_quiet(tmp)
+		return save_err
+	var rename_err := DirAccess.rename_absolute(tmp, path)
+	if rename_err != OK:
+		_remove_quiet(tmp)
+		return rename_err
+	return OK
+
+
+# Write `content` to `path` atomically as RAW TEXT: store into a sibling temp,
+# capture the write error BEFORE close() invalidates the handle (a disk-full/I/O
+# error surfaces at get_error(), not at open), then rename the temp over the target.
+# Returns OK on success, or the first non-OK Error (with the temp removed and the
+# target untouched).
+func _atomic_write_text(path: String, content: String) -> int:
+	var tmp := _atomic_temp_path(path)
+	var file := FileAccess.open(tmp, FileAccess.WRITE)
+	if file == null:
+		return FileAccess.get_open_error()
+	file.store_string(content)
+	var write_err := file.get_error()
+	file.close()
+	if write_err != OK:
+		_remove_quiet(tmp)
+		return write_err
+	var rename_err := DirAccess.rename_absolute(tmp, path)
+	if rename_err != OK:
+		_remove_quiet(tmp)
+		return rename_err
+	return OK
 
 
 # Record a successful result: emit it through the sentinel contract and mark
