@@ -43,6 +43,26 @@ KEY_MAIN_TSCN = (
     'script = ExtResource("1")\n'
 )
 
+# A Player whose `_input` reacts to a LEFT mouse button press by snapping its
+# position to the click coordinates — so an injected `input mouse-click <x> <y>`
+# rides the real `push_input(InputEventMouseButton)` viewport path into `_input`
+# and sets `position`, observed via `game get`. The click position is exact so the
+# assertion is exact.
+MOUSE_PLAYER_GD = (
+    "extends Node2D\n"
+    "func _input(event: InputEvent) -> void:\n"
+    "\tif event is InputEventMouseButton and event.pressed:\n"
+    "\t\tif event.button_index == MOUSE_BUTTON_LEFT:\n"
+    "\t\t\tposition = event.position\n"
+)
+MOUSE_MAIN_TSCN = (
+    '[gd_scene load_steps=2 format=3]\n\n'
+    '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
+    '[node name="Main" type="Node2D"]\n\n'
+    '[node name="Player" type="Node2D" parent="."]\n'
+    'script = ExtResource("1")\n'
+)
+
 # A Player that polls a `move_right` input action each frame: while the action is
 # pressed it advances, so an injected `input action move_right` (a press held until
 # released) moves the node. The action is registered in project.godot's input map.
@@ -125,6 +145,60 @@ def test_daemon_serves_input_key_observed_via_game_get(tmp_path, daemon_runtime_
             p for p in json.loads(after.stdout)["properties"] if p["name"] == "position"
         )["value"][0]
         assert after_x == before_x + 10.0
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_serves_input_mouse_click_observed_via_game_get(tmp_path, daemon_runtime_dir):
+    # The mouse leg of the #221 DoD: a real daemon -> engine session ->
+    # `input mouse-click <x> <y>` (post-flatten two-token name) pushes an
+    # InputEventMouseButton through the real `push_input` viewport path into the
+    # running game's `_input`, which snaps the Player to the click position —
+    # observed via `game get` (ADR-0020).
+    gda = shutil.which("gda")
+    assert gda, "the `gda` console script is not on PATH"
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MOUSE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(MOUSE_PLAYER_GD, encoding="utf-8")
+
+    env = {**os.environ}
+
+    def run(*args):
+        return subprocess.run(
+            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=90,
+        )
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        # Baseline: the Player starts at the origin.
+        before = run("game", "get", "/root/Main/Player", "--property", "position")
+        assert before.returncode == 0, before.stdout + before.stderr
+        before_pos = next(
+            p for p in json.loads(before.stdout)["properties"] if p["name"] == "position"
+        )["value"]
+        assert before_pos == [0.0, 0.0]
+
+        # Inject a LEFT click at (123, 45); the game's _input snaps position there.
+        injected = run("input", "mouse-click", "123", "45")
+        assert injected.returncode == 0, injected.stdout + injected.stderr
+        click_doc = json.loads(injected.stdout)
+        assert click_doc["kind"] == "mouse_click"
+        assert click_doc["position"] == [123.0, 45.0]
+        assert click_doc["button"] == "left"
+
+        # Observe the effect via game get (single writer, frame-coherent, ADR-0020).
+        after = run("game", "get", "/root/Main/Player", "--property", "position")
+        assert after.returncode == 0, after.stdout + after.stderr
+        after_pos = next(
+            p for p in json.loads(after.stdout)["properties"] if p["name"] == "position"
+        )["value"]
+        assert after_pos == [123.0, 45.0]
     finally:
         run("daemon", "stop")
 
