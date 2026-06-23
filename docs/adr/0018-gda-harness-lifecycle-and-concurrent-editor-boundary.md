@@ -39,6 +39,22 @@ so two instances can touch the project at once.
 > grows, the treatment to revisit is per-module fragments + an automatic summary
 > (the same direction RULES.md flags for central registries), under its own ADR.
 
+> **Outcome (2026-06-22, #225 / PR #247) — the harness lifecycle is complete:
+> version self-sync and paired uninstall.** Point 1's "self-syncs the harness to the
+> running `gda` version" is realized: `_materialize` prepends a `# gda-harness-version:
+> <N>` header (from a `HARNESS_VERSION` const — NOT the package version, since the
+> harness changes far less often than `gda` ships), so the version check rides the
+> existing idempotent content-compare: a mismatch re-materializes, a match is a no-op
+> (never an unconditional overwrite, which would bump mtime and trip the concurrent-
+> editor prompt of point 4). `gda daemon start` runs this self-sync **whether or not a
+> daemon is already up** (PR #247 review), so upgrading `gda` never strands a stale
+> harness; `harness_synced` is true only on a real stale→current rewrite, distinct from
+> a first install (`installed_harness`). The paired `gda daemon uninstall` strips the
+> `[autoload]` entry **first**, then deletes the files — crash-safe ordering, so a
+> mid-failure leaves a harmless stray inert `.gd`, never a dangling autoload (point 3);
+> the autoload edit is scoped to the `[autoload]` section so a same-named key elsewhere
+> is never touched. Verified resident-inert in a plain run and an exported PCK.
+
 ## Decision
 
 **1. The harness is an installed autoload, not a runtime injection.** `gda` bundles
