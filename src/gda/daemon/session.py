@@ -89,8 +89,16 @@ def launch_session(
     token: str,
     log_file: Optional[Path] = None,
     timeout: float = CONNECT_TIMEOUT,
+    windowed: bool = False,
 ) -> Optional[EngineSession]:
-    """Launch a headless engine session and wait for the harness to connect.
+    """Launch an engine session and wait for the harness to connect.
+
+    The session is ``--headless`` by default — the cheap non-visual sessions
+    (``game tree``, ``perf``, ``diag``) need no viewport. When ``windowed`` is set
+    (``gda daemon start --windowed``, #222) ``--headless`` is OMITTED so the session
+    runs with a real ``DisplayServer`` whose viewport a ``screen`` capture op can
+    read pixels from; ``--headless``'s dummy ``DisplayServer`` cannot (ADR-0017).
+    The mode is start-time declared and fixed for the session's life (ADR-0020).
 
     When ``log_file`` is given, the engine is launched with Godot's
     ``--log-file <abs path>`` so the session writes BOTH its output and its errors
@@ -102,10 +110,11 @@ def launch_session(
     via-daemon-owned-session-log). The session still relays live ops to the harness.
     """
     log_args = ["--log-file", str(log_file)] if log_file is not None else []
+    headless_args = [] if windowed else ["--headless"]
     proc = subprocess.Popen(
         [
             str(binary),
-            "--headless",
+            *headless_args,
             *log_args,
             "--path",
             str(project),

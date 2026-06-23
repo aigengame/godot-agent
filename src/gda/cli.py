@@ -146,6 +146,10 @@ from gda.models import (
     ResourceUidParams,
     ResourceUidResult,
     SchemaAllParams,
+    ScreenCaptureParams,
+    ScreenCaptureResult,
+    ScreenFramesParams,
+    ScreenFramesResult,
     SceneCreateParams,
     SceneCreateResult,
     SceneDeleteParams,
@@ -185,6 +189,10 @@ from gda.models import (
 )
 from gda.project import resolve_project_dir
 from gda.runner import GodotRunner
+from gda.screen_ops import (
+    run_screen_capture_operation,
+    run_screen_frames_operation,
+)
 from gda.surface import build_surface_manifest
 
 app = typer.Typer(
@@ -314,6 +322,17 @@ input_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(input_app, name="input")
+
+# The screen command group (Phase 2, ADR-0019): the running game's VIEWPORT is the
+# domain object (not under `game`, whose object is the runtime scene graph). Both
+# commands are LIVE (kind = LIVE), routed through gda-daemon to a WINDOWED engine
+# session (`gda daemon start --windowed`); on a headless session a capture is the
+# typed `live_display_unavailable` (#222).
+screen_app = typer.Typer(
+    help="Capture the running game's viewport (live; macOS/Linux only, windowed session).",
+    no_args_is_help=True,
+)
+app.add_typer(screen_app, name="screen")
 
 # The daemon command group (Phase 2, ADR-0017): gda's own per-project daemon
 # lifecycle — a deliberate extension of ADR-0005's domain-object grouping to an
@@ -496,10 +515,40 @@ def _run_params_json(
     if cmd in _DAEMON_COMMANDS:
         # daemon lifecycle commands run their process recipe (gda.daemon_ops),
         # not the sentinel pipeline; route --params-json to the SAME recipe the
-        # argv body uses (their params are empty, so nothing else is needed).
+        # argv body uses. `daemon start` carries the `windowed` mode in its params
+        # model (#222); the other lifecycle commands have empty params.
         _daemon_dispatch(
-            cmd, json_output=json_output, godot=godot, project=options.get("project")
+            cmd,
+            json_output=json_output,
+            godot=godot,
+            project=options.get("project"),
+            windowed=bool(getattr(params, "windowed", False)),
         )
+        return
+    if cmd in _SCREEN_COMMANDS:
+        # screen commands run the gda.screen_ops recipe, not the sentinel pipeline;
+        # route --params-json to the SAME recipe the argv body uses. The output
+        # path(s) are now part of the params model (#222, PR #248 review), so they
+        # come from `params` — the single source of truth (ADR-0015), supplied
+        # entirely by the JSON object, never recovered from ctx.params.
+        resolved = resolve_project_dir(options.get("project"))
+        if cmd is SCREEN_CAPTURE_COMMAND:
+            outcome = run_screen_capture_operation(
+                resolved,
+                Path(params.output),
+                inline=params.inline,
+                make_runner=_make_live_runner,
+            )
+        else:
+            outcome = run_screen_frames_operation(
+                resolved,
+                params.frames,
+                Path(params.output_dir),
+                make_runner=_make_live_runner,
+            )
+        if isinstance(outcome, Failure):
+            emit_failure(outcome)
+        emit_result(outcome, json_output)
         return
     if "project" in options:
         _dispatch(
@@ -1126,11 +1175,14 @@ def _daemon_dispatch(
     json_output: bool,
     godot: Optional[str],
     project: Optional[str],
+    windowed: bool = False,
 ) -> None:
     """Run a ``daemon`` lifecycle command through its process-management recipe."""
     resolved = resolve_project_dir(project)
     if cmd is DAEMON_START_COMMAND:
-        outcome = run_daemon_start_operation(resolved, godot)
+        # `daemon start --windowed` declares the engine session's display mode at
+        # launch (#222); other lifecycle commands ignore it.
+        outcome = run_daemon_start_operation(resolved, godot, windowed=windowed)
     elif cmd is DAEMON_STOP_COMMAND:
         outcome = run_daemon_stop_operation(resolved)
     elif cmd is DAEMON_UNINSTALL_COMMAND:
@@ -1144,6 +1196,15 @@ def _daemon_dispatch(
 
 @daemon_app.command(name="start", cls=DAEMON_START_COMMAND.command_class())
 def daemon_start(
+    windowed: bool = typer.Option(
+        False,
+        "--windowed",
+        help=(
+            "Launch the engine session windowed (no --headless) so `screen` capture "
+            "ops have a display; default headless. Needs a display/Xvfb on a "
+            "headless host (#222)."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = DAEMON_START_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -1156,10 +1217,15 @@ def daemon_start(
     idempotent harness install (ADR-0018). Never auto-spawned by a live call —
     launching the engine is a deliberate, declared effect (ADR-0017). The
     platform/Godot-version precondition is the structured `constraints` field of
-    `--schema` (ADR-0021), not restated here.
+    `--schema` (ADR-0021), not restated here. `--windowed` is a start-time declared
+    mode for the engine session a `screen` capture op needs (#222).
     """
     _daemon_dispatch(
-        DAEMON_START_COMMAND, json_output=json_output, godot=godot, project=project
+        DAEMON_START_COMMAND,
+        json_output=json_output,
+        godot=godot,
+        project=project,
+        windowed=windowed,
     )
 
 
@@ -1219,6 +1285,120 @@ def daemon_uninstall(
     _daemon_dispatch(
         DAEMON_UNINSTALL_COMMAND, json_output=json_output, godot=godot, project=project
     )
+
+
+# The `screen` commands are LIVE but run a CLI-side recipe (gda.screen_ops), not
+# the sentinel pipeline: the harness returns the PNG as base64 in the sentinel and
+# the CLI must DECODE + WRITE a file before it has the path-based public result. So
+# — like `export run` and the daemon lifecycle commands — each carries a descriptor
+# for its --schema/--params-json wiring (kind = LIVE makes "kind":"live" appear,
+# #230) but dispatches through its recipe. They are selected by command identity in
+# the --params-json path, the same as the daemon commands.
+SCREEN_CAPTURE_COMMAND: HeadlessCommand[ScreenCaptureResult] = HeadlessCommand(
+    operation="screen-capture",
+    input_model=ScreenCaptureParams,
+    output_model=ScreenCaptureResult,
+    kind=ExecutionKind.LIVE,
+)
+
+SCREEN_FRAMES_COMMAND: HeadlessCommand[ScreenFramesResult] = HeadlessCommand(
+    operation="screen-frames",
+    input_model=ScreenFramesParams,
+    output_model=ScreenFramesResult,
+    kind=ExecutionKind.LIVE,
+)
+
+_SCREEN_COMMANDS = frozenset({SCREEN_CAPTURE_COMMAND, SCREEN_FRAMES_COMMAND})
+
+
+@screen_app.command(name="capture", cls=SCREEN_CAPTURE_COMMAND.command_class())
+def screen_capture(
+    output: Path = typer.Option(
+        ...,
+        "--output",
+        "-o",
+        help="The file path to write the captured PNG frame to.",
+    ),
+    inline: bool = typer.Option(
+        False,
+        "--inline",
+        help="Also embed the base64-encoded PNG in the result (default: path only).",
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SCREEN_CAPTURE_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Capture a single frame of the running game's viewport (live).
+
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017): the
+    harness reads the viewport texture, PNG-encodes it, and returns it base64 in the
+    sentinel; the CLI decodes it and WRITES the PNG to `--output`, returning the path
+    + dims + bytes + format. `--inline` also embeds the base64. Needs a WINDOWED
+    session (`gda daemon start --windowed`); a headless one is
+    `live_display_unavailable`. With no daemon it reports `daemon_not_running`.
+    """
+    # Build the params model from the argv options so `output` is validated and
+    # ~-normalized through the SAME single source of truth the --params-json path
+    # uses (ADR-0015/ADR-0006) — not a raw, un-normalized Path.
+    params = ScreenCaptureParams(output=str(output), inline=inline)
+    outcome = run_screen_capture_operation(
+        resolve_project_dir(project),
+        Path(params.output),
+        inline=params.inline,
+        make_runner=_make_live_runner,
+    )
+    if isinstance(outcome, Failure):
+        emit_failure(outcome)
+    emit_result(outcome, json_output)
+
+
+@screen_app.command(name="frames", cls=SCREEN_FRAMES_COMMAND.command_class())
+def screen_frames(
+    frames: int = typer.Option(
+        2,
+        "--frames",
+        min=1,
+        max=MAX_WINDOW_FRAMES,
+        help=(
+            f"The number of viewport frames to capture, 1..{MAX_WINDOW_FRAMES} (the "
+            "gda harness's per-window ceiling)."
+        ),
+    ),
+    output_dir: Path = typer.Option(
+        ...,
+        "--output-dir",
+        "-d",
+        help="The directory to write the captured PNG frames into (frame_NNNN.png).",
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SCREEN_FRAMES_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Capture a window of viewport frames in one blocking call (live, time-windowed).
+
+    Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
+    collects one frame per frame boundary over `--frames` frames, returned as one
+    blocking payload (ADR-0017 one-shot RPC, ADR-0020 multi-frame). Each frame's PNG
+    is written into `--output-dir` (path-only — an N-frame base64 sequence would blow
+    the agent's context). Needs a WINDOWED session; a headless one is
+    `live_display_unavailable`. With no daemon it reports `daemon_not_running`.
+    """
+    # Same params model the --params-json path builds (ADR-0015): `output_dir` is
+    # validated and ~-normalized through it, not passed as a raw Path.
+    params = ScreenFramesParams(frames=frames, output_dir=str(output_dir))
+    outcome = run_screen_frames_operation(
+        resolve_project_dir(project),
+        params.frames,
+        Path(params.output_dir),
+        make_runner=_make_live_runner,
+    )
+    if isinstance(outcome, Failure):
+        emit_failure(outcome)
+    emit_result(outcome, json_output)
 
 
 SCENE_CREATE_COMMAND: HeadlessCommand[SceneCreateResult] = HeadlessCommand(

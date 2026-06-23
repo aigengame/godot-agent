@@ -54,7 +54,7 @@ _POLL = 0.05
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)")
 
 # Seams tests override to avoid launching a real process / running the engine.
-SpawnDaemon = Callable[[Path, str], None]
+SpawnDaemon = Callable[[Path, str, bool], None]
 VersionCheck = Callable[[str], Optional[tuple]]
 
 
@@ -77,8 +77,13 @@ def _engine_version(binary: str) -> Optional[tuple]:
     return (int(match.group(1)), int(match.group(2))) if match else None
 
 
-def _spawn_daemon(project: Path, binary: str) -> None:
-    """Spawn the detached, per-project daemon (its own session, no std streams)."""
+def _spawn_daemon(project: Path, binary: str, windowed: bool) -> None:
+    """Spawn the detached, per-project daemon (its own session, no std streams).
+
+    ``windowed`` is forwarded as ``--windowed`` so the daemon launches its engine
+    session with a real ``DisplayServer`` (no ``--headless``) — the start-time
+    declared display mode a ``screen`` capture op needs (ADR-0017 refined, #222).
+    """
     subprocess.Popen(
         [
             sys.executable,
@@ -88,6 +93,7 @@ def _spawn_daemon(project: Path, binary: str) -> None:
             str(project),
             "--godot",
             str(binary),
+            *(["--windowed"] if windowed else []),
         ],
         start_new_session=True,
         stdin=subprocess.DEVNULL,
@@ -138,6 +144,7 @@ def run_daemon_start_operation(
     project: Optional[Path],
     godot: Optional[str],
     *,
+    windowed: bool = False,
     spawn: Optional[SpawnDaemon] = None,
     version_check: Optional[VersionCheck] = None,
 ) -> "DaemonStartResult | Failure":
@@ -183,6 +190,11 @@ def run_daemon_start_operation(
             installed_harness=installed.changed,
             harness_synced=installed.synced,
             harness_version=installed.version,
+            # An idempotent start does not relaunch the session and cannot re-derive
+            # the running daemon's display mode from the pidfile, so report `None`
+            # ("not determined here") rather than a misleading `False` — a daemon
+            # launched windowed would otherwise read as headless (#222, PR #248 review).
+            windowed=None,
             already_running=True,
         )
 
@@ -204,7 +216,7 @@ def run_daemon_start_operation(
         )
 
     installed = install_harness(project)
-    (spawn or _spawn_daemon)(project, str(binary))
+    (spawn or _spawn_daemon)(project, str(binary), windowed)
     pid = _await_ready(paths)
     if pid is None:
         return _failure(
@@ -218,6 +230,7 @@ def run_daemon_start_operation(
         installed_harness=installed.changed,
         harness_synced=installed.synced,
         harness_version=installed.version,
+        windowed=windowed,
         already_running=False,
     )
 

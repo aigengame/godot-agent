@@ -55,6 +55,9 @@ HARNESS_LIVE_ERROR_CODES = (
     "live_invalid_key",
     "live_unknown_action",
     "live_invalid_event_spec",
+    # #222: a `screen` capture op on a headless engine session — the dummy
+    # DisplayServer cannot read pixels (the session was not started --windowed).
+    "live_display_unavailable",
 )
 
 

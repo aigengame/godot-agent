@@ -85,6 +85,50 @@ def inject_live_runner(monkeypatch, result: RunResult) -> FakeRunner:
     return fake
 
 
+def screen_capture_reply(png_base64: str, *, width: int, height: int) -> dict:
+    """A canned ``screen capture`` HARNESS reply payload (#222).
+
+    The wire shape the gda harness emits in the ADR-0002 sentinel for a single
+    frame: the PNG bytes base64-encoded plus the frame's dims and format. The CLI
+    recipe decodes ``png_base64`` and WRITES a file, so a command test drives the
+    real decode/write path with a tiny real PNG.
+    """
+    import base64
+
+    raw = base64.b64decode(png_base64)
+    return {
+        "width": width,
+        "height": height,
+        "format": "png",
+        "bytes": len(raw),
+        "png_base64": png_base64,
+    }
+
+
+def screen_frames_reply(
+    png_base64s: list[str], *, width: int = 16, height: int = 16
+) -> dict:
+    """A canned ``screen frames`` HARNESS reply payload (#222).
+
+    The wire shape the gda harness emits for a multi-frame window: a list of
+    per-frame entries, each carrying its PNG base64 + dims + format, plus the
+    window's frame ``count``. The CLI recipe writes one PNG file per frame.
+    """
+    import base64
+
+    frames = [
+        {
+            "width": width,
+            "height": height,
+            "format": "png",
+            "bytes": len(base64.b64decode(b64)),
+            "png_base64": b64,
+        }
+        for b64 in png_base64s
+    ]
+    return {"count": len(frames), "frames": frames}
+
+
 # A sample ``gda info`` result, shaped as ``Engine.get_version_info()`` reports
 # it. Shared by the info success/schema tests so the canned engine version has a
 # single source of truth (issue #39).

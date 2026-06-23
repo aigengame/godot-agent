@@ -3111,8 +3111,137 @@ class InputSequenceResult(BaseModel):
     frames: int = Field(description="The number of frames the window spanned.")
 
 
+# --- screen (runtime viewport capture, #222) ----------------------------------
+# Capture the running game's viewport over the LIVE channel. The harness reads
+# `get_viewport().get_texture().get_image()`, PNG-encodes it, and base64s the PNG
+# into the ADR-0002 UTF-8 sentinel reply; the CLI decodes it and WRITES the PNG
+# under the agent's control. The default return is a written file PATH + dims +
+# bytes + format — a 1080p base64 inline is ~MBs of JSON and an N-frame sequence
+# would blow the agent's context — so `screen capture` adds `--inline` for the
+# base64 and `screen frames` is path-only. The capture needs a windowed session
+# (`gda daemon start --windowed`); a headless one is `live_display_unavailable`.
+
+
+class ScreenCaptureParams(BaseModel):
+    """The params of ``gda screen capture``: where to write one viewport frame (#222).
+
+    Captures the running game's current viewport in one frame (frame-coherent,
+    ADR-0020). ``output`` is part of the public input contract (ADR-0004) and the
+    single source of truth for both the emitted ``input`` schema and ``--params-json``
+    parsing (ADR-0015): the CLI decodes the harness's encoded pixels and writes them
+    there. It is ``~``-normalized once at the boundary (ADR-0006). The harness op
+    itself carries none of these fields — the recipe writes the file CLI-side.
+    """
+
+    output: NormalizedPath = Field(
+        description="The filesystem path to write the captured PNG frame to."
+    )
+    inline: bool = Field(
+        default=False,
+        description="Also embed the base64-encoded PNG in the result (default: path only).",
+    )
+
+
+class ScreenCaptureResult(BaseModel):
+    """The result of ``gda screen capture``: a written PNG frame (#222).
+
+    The default return: the ``path`` the decoded PNG was written to, its ``width`` /
+    ``height`` in pixels, the on-disk ``bytes``, and the ``format`` (``png``).
+    ``inline`` carries the base64 PNG only when ``--inline`` was passed (otherwise
+    null) — a single capture may be embedded for an in-context preview, but it is
+    opt-in so the default reply stays small.
+    """
+
+    path: str = Field(description="The filesystem path the PNG frame was written to.")
+    width: int = Field(description="The captured frame's width in pixels.")
+    height: int = Field(description="The captured frame's height in pixels.")
+    bytes: int = Field(description="The written PNG's size in bytes.")
+    format: str = Field(default="png", description="The image format (png).")
+    inline: str | None = Field(
+        default=None,
+        description="The base64-encoded PNG, present only when --inline was passed.",
+    )
+
+
+class ScreenFramesParams(BaseModel):
+    """The params of ``gda screen frames``: capture a window of viewport frames (#222).
+
+    Time-windowed (the gda harness's multi-frame base, #223): one viewport frame is
+    captured at each of ``frames`` frame boundaries and the whole sequence returns
+    as one blocking payload (ADR-0017 one-shot RPC, ADR-0020 multi-frame).
+    ``frames`` is bounded to ``MAX_WINDOW_FRAMES`` model-side (ADR-0015) — the same
+    per-window ceiling ``perf monitor`` enforces — so an over-range request is a
+    structured ``invalid_params`` on both the argv and ``--params-json`` paths, never
+    a request the harness must clamp.
+    """
+
+    frames: int = Field(
+        default=2,
+        ge=1,
+        le=MAX_WINDOW_FRAMES,
+        description=(
+            "The number of viewport frames to capture, 1.."
+            f"{MAX_WINDOW_FRAMES} (the gda harness's per-window ceiling). An "
+            "over-range value is rejected, not clamped."
+        ),
+    )
+    output_dir: NormalizedPath = Field(
+        description=(
+            "The directory to write the captured PNG frames into (frame_NNNN.png). "
+            "Part of the input contract (ADR-0004/ADR-0015), ~-normalized (ADR-0006)."
+        )
+    )
+
+
+class ScreenFrame(BaseModel):
+    """One captured frame in a ``gda screen frames`` sequence (#222).
+
+    The path-only per-frame projection: the ``path`` the decoded PNG was written
+    to, its ``width`` / ``height``, on-disk ``bytes``, and ``format``. No base64 —
+    an N-frame sequence is path-only so it never blows the agent's context.
+    """
+
+    path: str = Field(description="The filesystem path this frame's PNG was written to.")
+    width: int = Field(description="The frame's width in pixels.")
+    height: int = Field(description="The frame's height in pixels.")
+    bytes: int = Field(description="The written PNG's size in bytes.")
+    format: str = Field(default="png", description="The image format (png).")
+
+
+class ScreenFramesResult(BaseModel):
+    """The result of ``gda screen frames``: the written PNG sequence (#222).
+
+    Carries the ``count`` of frames captured and the per-frame ``frames`` list, each
+    a written PNG path (path-only, ADR-0019 distinct output schema from the single
+    ``screen capture``). The window collects one frame per frame boundary over the
+    requested count (ADR-0020 multi-frame).
+    """
+
+    count: int = Field(description="The number of frames captured over the window.")
+    frames: list[ScreenFrame] = Field(
+        description="The captured frames, in window order, each a written PNG path."
+    )
+
+
 class DaemonStartParams(BaseModel):
-    """The params of ``gda daemon start``: none (the project is the --project context)."""
+    """The params of ``gda daemon start``: the display mode of its engine session (#222).
+
+    Empty but for ``windowed``: the project is the ``--project`` context. ``windowed``
+    is a START-TIME declared mode (ADR-0017 refined by #222) — the daemon launches its
+    engine session windowed (no ``--headless``) so a ``screen`` capture op has a real
+    ``DisplayServer`` to read pixels from; default false keeps the cheap non-visual
+    sessions (``game tree``, ``perf``, ``diag``) headless. The mode is fixed for the
+    session's life (ADR-0020 single session) — it is NOT switched mid-session.
+    """
+
+    windowed: bool = Field(
+        default=False,
+        description=(
+            "Launch the engine session windowed (no --headless) so `screen` capture "
+            "ops have a display; default headless. Requires a display/Xvfb on a "
+            "headless host."
+        ),
+    )
 
 
 class DaemonStartResult(BaseModel):
@@ -3137,6 +3266,17 @@ class DaemonStartResult(BaseModel):
     harness_version: str = Field(
         default="",
         description="The gda harness version now installed in the project (#225).",
+    )
+    windowed: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the engine session was launched windowed (no --headless), the "
+            "mode a `screen` capture op requires. The launched mode on a fresh start; "
+            "**null** on an idempotent already-running start, which does not relaunch "
+            "the session and cannot re-derive the running daemon's launch-time mode "
+            "from the pidfile — null means 'not determined here', not 'headless' "
+            "(#222, PR #248 review)."
+        ),
     )
     already_running: bool = Field(
         description="Whether a daemon was already running, so start was a no-op."
