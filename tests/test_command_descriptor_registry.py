@@ -80,3 +80,43 @@ def test_no_renderer_is_orphaned():
     )
     # And nothing claims to be bound that the module does not define (a stale import).
     assert not (bound - defined), f"descriptors bind undefined renderers: {sorted(bound - defined)}"
+
+
+# The recipe-bearing commands — those fulfilled by a CLI-side recipe (export run /
+# the daemon lifecycle / screen) instead of the sentinel `cmd.emit` (ADR-0023). This
+# set is the modern, descriptor-driven replacement for the old `_DAEMON_COMMANDS` /
+# `_SCREEN_COMMANDS` identity frozensets + the export `kind` special-case: now it is
+# an asserted INVARIANT over the descriptors, not a dispatch mechanism.
+_RECIPE_OPERATIONS = {
+    "export-run",
+    "daemon-start",
+    "daemon-stop",
+    "daemon-status",
+    "daemon-uninstall",
+    "screen-capture",
+    "screen-frames",
+}
+
+
+def test_recipe_commands_are_exactly_the_known_recipe_set():
+    # Guards both regressions the frozensets used to risk: a recipe command silently
+    # losing its recipe (→ routed to the sentinel runner) or a sentinel command
+    # gaining one. The dispatch reads `cmd.recipe`; this pins which commands have it.
+    have_recipe = {
+        cmd.operation for _, cmd in _dispatchable() if cmd.recipe is not None
+    }
+    assert have_recipe == _RECIPE_OPERATIONS
+
+
+def test_every_dispatchable_command_resolves_to_exactly_one_channel():
+    # The single-channel invariant (ADR-0023): a command is dispatched EITHER by its
+    # recipe OR by `cmd.emit` with its kind-selected runner — never both, never
+    # neither. The two are mutually exclusive by `recipe is None`; both paths emit
+    # through `cmd.render`, so every command (recipe or not) still needs a renderer.
+    for name, cmd in _dispatchable():
+        if cmd.recipe is not None:
+            assert callable(cmd.recipe), f"{name}: recipe is set but not callable"
+        # render is the shared emission tail for BOTH channels (asserted non-None by
+        # test_every_dispatchable_command_carries_a_renderer); restated here as the
+        # reason a recipe command needs no separate emission path.
+        assert cmd.render is not None, f"{name}: no renderer for its emission tail"

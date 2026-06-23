@@ -8,6 +8,7 @@ binary resolution → runner → sentinel parse → typed model → JSON.
 """
 
 import json
+from dataclasses import replace
 from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Optional
@@ -77,6 +78,7 @@ from gda.models import (
     ExportListParams,
     ExportListResult,
     ExportRunMode,
+    ExportRunParams,
     GameGetParams,
     GameGetResult,
     GameSetParams,
@@ -184,7 +186,6 @@ from gda.models import (
     SurfaceManifest,
     ThemeCreateParams,
     ThemeCreateResult,
-    normalize_path,
     resolve_set_mode,
 )
 from gda.project import resolve_project_dir
@@ -457,6 +458,74 @@ def _make_live_runner(binary: Optional[Path], project: Optional[Path]) -> GodotR
     return make_daemon_runner(project)
 
 
+# --- Recipe channels (ADR-0023) -----------------------------------------------
+# Each recipe command (export run / the daemon lifecycle / screen) carries one of
+# these on its descriptor (``recipe=``). A recipe PRODUCES the outcome — resolve the
+# project (kept CLI-side, ADR-0006) + run the CLI-side operation — and RETURNS the
+# typed result or a Failure; emission stays the shared tail (:func:`_dispatch_recipe`
+# → ``cmd.render``), so a recipe command renders exactly like a sentinel one. The
+# runner seams (``_make_*``) are referenced at call time so test monkeypatches on
+# ``gda.cli._make_runner`` / ``_make_live_runner`` still bind. ``params`` is the
+# built model — the single source of truth (ADR-0015), identical on the argv and
+# ``--params-json`` paths — so windowed/output/etc. are read off it, never special-cased.
+
+
+def _daemon_start_recipe(params, *, project, godot):
+    return run_daemon_start_operation(
+        resolve_project_dir(project), godot, windowed=params.windowed
+    )
+
+
+def _daemon_stop_recipe(params, *, project, godot):
+    return run_daemon_stop_operation(resolve_project_dir(project))
+
+
+def _daemon_status_recipe(params, *, project, godot):
+    return run_daemon_status_operation(resolve_project_dir(project))
+
+
+def _daemon_uninstall_recipe(params, *, project, godot):
+    return run_daemon_uninstall_operation(resolve_project_dir(project))
+
+
+def _screen_capture_recipe(params, *, project, godot):
+    return run_screen_capture_operation(
+        resolve_project_dir(project),
+        Path(params.output),
+        inline=params.inline,
+        make_runner=_make_live_runner,
+    )
+
+
+def _screen_frames_recipe(params, *, project, godot):
+    return run_screen_frames_operation(
+        resolve_project_dir(project),
+        params.frames,
+        Path(params.output_dir),
+        make_runner=_make_live_runner,
+    )
+
+
+def _export_run_recipe(params, *, project, godot):
+    return run_export_operation(
+        preset=params.preset,
+        mode=params.mode,
+        output_override=params.output,
+        godot=godot,
+        project=resolve_project_dir(project),
+        make_runner=_make_runner,
+        make_export_runner=_make_export_runner,
+    )
+
+
+# ``EXPORT_RUN_COMMAND`` is defined in ``gda.export_run`` (its descriptor sits beside
+# ``run_export_operation`` to avoid an export_run↔cli import cycle), but its recipe
+# needs cli's runner seams, which live here. cli.py is the composition root for
+# dispatch, so it completes the registration: rebind the imported descriptor with its
+# recipe. (export GET stays a plain sentinel command — no recipe.)
+EXPORT_RUN_COMMAND = replace(EXPORT_RUN_COMMAND, recipe=_export_run_recipe)
+
+
 def _emit(
     cmd: HeadlessCommand[M],
     params: BaseModel,
@@ -536,6 +605,31 @@ def _dispatch_meta(
     )
 
 
+def _dispatch_recipe(
+    cmd: HeadlessCommand[M],
+    params: BaseModel,
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    project: Optional[str],
+) -> None:
+    """Run a recipe command through its descriptor's ``recipe``, then emit (ADR-0023).
+
+    A recipe command (``export run`` / the ``daemon`` lifecycle / ``screen``) is
+    fulfilled by a CLI-side recipe that PRODUCES the outcome, not the sentinel
+    ``cmd.emit``. Emission is the SAME shared tail every command uses —
+    :func:`emit_result` with the command's own ``cmd.render`` — so a recipe command
+    renders identically to a sentinel one; only outcome production differs. Shared by
+    the argv bodies and the ``--params-json`` path, so the two forms are
+    indistinguishable downstream (ADR-0015). Project resolution stays CLI-side
+    (ADR-0006), owned by each recipe.
+    """
+    outcome = cmd.recipe(params, project=project, godot=godot)
+    if isinstance(outcome, Failure):
+        emit_failure(outcome)
+    emit_result(outcome, json_output, cmd.render)
+
+
 def _run_params_json(
     cmd: HeadlessCommand[M], params: BaseModel, ctx: typer.Context
 ) -> None:
@@ -552,63 +646,19 @@ def _run_params_json(
     options = ctx.params
     json_output = bool(options.get("json_output", False))
     godot = options.get("godot")
-    if cmd.kind is ExecutionKind.EXPORT:
-        # export run is the native-export recipe (#187), not the sentinel
-        # pipeline, so it cannot go through cmd.emit. Selected by its static
-        # execution channel (ADR-0017), not command identity. Mirror its body so
-        # --params-json drives the SAME run_export_operation path as the argv
-        # form. params.output is already normalized (ExportRunParams.output is a
-        # NormalizedPath), so no extra normalization is needed here.
-        outcome = run_export_operation(
-            preset=params.preset,
-            mode=params.mode,
-            output_override=params.output,
-            godot=godot,
-            project=resolve_project_dir(options.get("project")),
-            make_runner=_make_runner,
-            make_export_runner=_make_export_runner,
-        )
-        if isinstance(outcome, Failure):
-            emit_failure(outcome)
-        emit_result(outcome, json_output, cmd.render)
-        return
-    if cmd in _DAEMON_COMMANDS:
-        # daemon lifecycle commands run their process recipe (gda.daemon_ops),
-        # not the sentinel pipeline; route --params-json to the SAME recipe the
-        # argv body uses. `daemon start` carries the `windowed` mode in its params
-        # model (#222); the other lifecycle commands have empty params.
-        _daemon_dispatch(
+    if cmd.recipe is not None:
+        # A recipe command (export run / daemon lifecycle / screen) is fulfilled by
+        # its descriptor's recipe, not the sentinel cmd.emit — ONE descriptor-driven
+        # branch, no kind/identity selection (ADR-0023). The recipe reads everything
+        # from the built params model (windowed/output/…), so --params-json drives the
+        # SAME path as the argv body.
+        _dispatch_recipe(
             cmd,
+            params,
             json_output=json_output,
             godot=godot,
             project=options.get("project"),
-            windowed=bool(getattr(params, "windowed", False)),
         )
-        return
-    if cmd in _SCREEN_COMMANDS:
-        # screen commands run the gda.screen_ops recipe, not the sentinel pipeline;
-        # route --params-json to the SAME recipe the argv body uses. The output
-        # path(s) are now part of the params model (#222, PR #248 review), so they
-        # come from `params` — the single source of truth (ADR-0015), supplied
-        # entirely by the JSON object, never recovered from ctx.params.
-        resolved = resolve_project_dir(options.get("project"))
-        if cmd is SCREEN_CAPTURE_COMMAND:
-            outcome = run_screen_capture_operation(
-                resolved,
-                Path(params.output),
-                inline=params.inline,
-                make_runner=_make_live_runner,
-            )
-        else:
-            outcome = run_screen_frames_operation(
-                resolved,
-                params.frames,
-                Path(params.output_dir),
-                make_runner=_make_live_runner,
-            )
-        if isinstance(outcome, Failure):
-            emit_failure(outcome)
-        emit_result(outcome, json_output, cmd.render)
         return
     if "project" in options:
         _dispatch(
@@ -1209,6 +1259,7 @@ DAEMON_START_COMMAND: HeadlessCommand[DaemonStartResult] = HeadlessCommand(
     input_model=DaemonStartParams,
     output_model=DaemonStartResult,
     render=render_daemon_start,
+    recipe=_daemon_start_recipe,
 )
 
 DAEMON_STOP_COMMAND: HeadlessCommand[DaemonStopResult] = HeadlessCommand(
@@ -1216,6 +1267,7 @@ DAEMON_STOP_COMMAND: HeadlessCommand[DaemonStopResult] = HeadlessCommand(
     input_model=DaemonStopParams,
     output_model=DaemonStopResult,
     render=render_daemon_stop,
+    recipe=_daemon_stop_recipe,
 )
 
 DAEMON_STATUS_COMMAND: HeadlessCommand[DaemonStatusResult] = HeadlessCommand(
@@ -1223,6 +1275,7 @@ DAEMON_STATUS_COMMAND: HeadlessCommand[DaemonStatusResult] = HeadlessCommand(
     input_model=DaemonStatusParams,
     output_model=DaemonStatusResult,
     render=render_daemon_status,
+    recipe=_daemon_status_recipe,
 )
 
 DAEMON_UNINSTALL_COMMAND: HeadlessCommand[DaemonUninstallResult] = HeadlessCommand(
@@ -1230,45 +1283,8 @@ DAEMON_UNINSTALL_COMMAND: HeadlessCommand[DaemonUninstallResult] = HeadlessComma
     input_model=DaemonUninstallParams,
     output_model=DaemonUninstallResult,
     render=render_daemon_uninstall,
+    recipe=_daemon_uninstall_recipe,
 )
-
-# The daemon lifecycle commands run a process-management recipe (gda.daemon_ops),
-# not the sentinel pipeline — the same shape as `export run`. They carry no Godot
-# execution channel, so they are routed by command identity, shared by the argv
-# bodies and the --params-json path so both forms drive the SAME recipe.
-_DAEMON_COMMANDS = frozenset(
-    {
-        DAEMON_START_COMMAND,
-        DAEMON_STOP_COMMAND,
-        DAEMON_STATUS_COMMAND,
-        DAEMON_UNINSTALL_COMMAND,
-    }
-)
-
-
-def _daemon_dispatch(
-    cmd: HeadlessCommand[M],
-    *,
-    json_output: bool,
-    godot: Optional[str],
-    project: Optional[str],
-    windowed: bool = False,
-) -> None:
-    """Run a ``daemon`` lifecycle command through its process-management recipe."""
-    resolved = resolve_project_dir(project)
-    if cmd is DAEMON_START_COMMAND:
-        # `daemon start --windowed` declares the engine session's display mode at
-        # launch (#222); other lifecycle commands ignore it.
-        outcome = run_daemon_start_operation(resolved, godot, windowed=windowed)
-    elif cmd is DAEMON_STOP_COMMAND:
-        outcome = run_daemon_stop_operation(resolved)
-    elif cmd is DAEMON_UNINSTALL_COMMAND:
-        outcome = run_daemon_uninstall_operation(resolved)
-    else:
-        outcome = run_daemon_status_operation(resolved)
-    if isinstance(outcome, Failure):
-        emit_failure(outcome)
-    emit_result(outcome, json_output, cmd.render)
 
 
 @daemon_app.command(name="start", cls=DAEMON_START_COMMAND.command_class())
@@ -1297,12 +1313,15 @@ def daemon_start(
     `--schema` (ADR-0021), not restated here. `--windowed` is a start-time declared
     mode for the engine session a `screen` capture op needs (#222).
     """
-    _daemon_dispatch(
+    # Build the params model from the argv option (the single source of truth,
+    # ADR-0015) so the recipe reads `windowed` off it on BOTH the argv and
+    # --params-json paths — no special-casing.
+    _dispatch_recipe(
         DAEMON_START_COMMAND,
+        DaemonStartParams(windowed=windowed),
         json_output=json_output,
         godot=godot,
         project=project,
-        windowed=windowed,
     )
 
 
@@ -1319,8 +1338,12 @@ def daemon_stop(
     On an unsupported platform this reports `live_unsupported_platform`; the
     platform precondition is the structured `constraints` field of `--schema`.
     """
-    _daemon_dispatch(
-        DAEMON_STOP_COMMAND, json_output=json_output, godot=godot, project=project
+    _dispatch_recipe(
+        DAEMON_STOP_COMMAND,
+        DaemonStopParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
     )
 
 
@@ -1337,8 +1360,12 @@ def daemon_status(
     On an unsupported platform this reports `live_unsupported_platform`; the
     platform precondition is the structured `constraints` field of `--schema`.
     """
-    _daemon_dispatch(
-        DAEMON_STATUS_COMMAND, json_output=json_output, godot=godot, project=project
+    _dispatch_recipe(
+        DAEMON_STATUS_COMMAND,
+        DaemonStatusParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
     )
 
 
@@ -1359,24 +1386,29 @@ def daemon_uninstall(
     with `gda daemon stop`. Live is macOS/Linux only; elsewhere reports
     `live_unsupported_platform`.
     """
-    _daemon_dispatch(
-        DAEMON_UNINSTALL_COMMAND, json_output=json_output, godot=godot, project=project
+    _dispatch_recipe(
+        DAEMON_UNINSTALL_COMMAND,
+        DaemonUninstallParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
     )
 
 
 # The `screen` commands are LIVE but run a CLI-side recipe (gda.screen_ops), not
 # the sentinel pipeline: the harness returns the PNG as base64 in the sentinel and
 # the CLI must DECODE + WRITE a file before it has the path-based public result. So
-# — like `export run` and the daemon lifecycle commands — each carries a descriptor
-# for its --schema/--params-json wiring (kind = LIVE makes "kind":"live" appear,
-# #230) but dispatches through its recipe. They are selected by command identity in
-# the --params-json path, the same as the daemon commands.
+# — like `export run` and the daemon lifecycle commands — each carries a `recipe` on
+# its descriptor (ADR-0023): dispatch runs it instead of cmd.emit, selected by the
+# single `recipe is not None` test, not command identity. `kind = LIVE` is kept as a
+# descriptor fact so "kind":"live" still appears in --schema (#230).
 SCREEN_CAPTURE_COMMAND: HeadlessCommand[ScreenCaptureResult] = HeadlessCommand(
     operation="screen-capture",
     input_model=ScreenCaptureParams,
     output_model=ScreenCaptureResult,
     render=render_screen_capture,
     kind=ExecutionKind.LIVE,
+    recipe=_screen_capture_recipe,
 )
 
 SCREEN_FRAMES_COMMAND: HeadlessCommand[ScreenFramesResult] = HeadlessCommand(
@@ -1385,9 +1417,8 @@ SCREEN_FRAMES_COMMAND: HeadlessCommand[ScreenFramesResult] = HeadlessCommand(
     output_model=ScreenFramesResult,
     render=render_screen_frames,
     kind=ExecutionKind.LIVE,
+    recipe=_screen_frames_recipe,
 )
-
-_SCREEN_COMMANDS = frozenset({SCREEN_CAPTURE_COMMAND, SCREEN_FRAMES_COMMAND})
 
 
 @screen_app.command(name="capture", cls=SCREEN_CAPTURE_COMMAND.command_class())
@@ -1420,17 +1451,15 @@ def screen_capture(
     """
     # Build the params model from the argv options so `output` is validated and
     # ~-normalized through the SAME single source of truth the --params-json path
-    # uses (ADR-0015/ADR-0006) — not a raw, un-normalized Path.
-    params = ScreenCaptureParams(output=str(output), inline=inline)
-    outcome = run_screen_capture_operation(
-        resolve_project_dir(project),
-        Path(params.output),
-        inline=params.inline,
-        make_runner=_make_live_runner,
+    # uses (ADR-0015/ADR-0006) — not a raw, un-normalized Path. Dispatch through the
+    # descriptor's recipe, exactly as the --params-json path does (ADR-0023).
+    _dispatch_recipe(
+        SCREEN_CAPTURE_COMMAND,
+        ScreenCaptureParams(output=str(output), inline=inline),
+        json_output=json_output,
+        godot=godot,
+        project=project,
     )
-    if isinstance(outcome, Failure):
-        emit_failure(outcome)
-    emit_result(outcome, json_output, SCREEN_CAPTURE_COMMAND.render)
 
 
 @screen_app.command(name="frames", cls=SCREEN_FRAMES_COMMAND.command_class())
@@ -1467,17 +1496,15 @@ def screen_frames(
     `live_display_unavailable`. With no daemon it reports `daemon_not_running`.
     """
     # Same params model the --params-json path builds (ADR-0015): `output_dir` is
-    # validated and ~-normalized through it, not passed as a raw Path.
-    params = ScreenFramesParams(frames=frames, output_dir=str(output_dir))
-    outcome = run_screen_frames_operation(
-        resolve_project_dir(project),
-        params.frames,
-        Path(params.output_dir),
-        make_runner=_make_live_runner,
+    # validated and ~-normalized through it, not passed as a raw Path. Dispatch
+    # through the descriptor's recipe, exactly as the --params-json path (ADR-0023).
+    _dispatch_recipe(
+        SCREEN_FRAMES_COMMAND,
+        ScreenFramesParams(frames=frames, output_dir=str(output_dir)),
+        json_output=json_output,
+        godot=godot,
+        project=project,
     )
-    if isinstance(outcome, Failure):
-        emit_failure(outcome)
-    emit_result(outcome, json_output, SCREEN_FRAMES_COMMAND.render)
 
 
 SCENE_CREATE_COMMAND: HeadlessCommand[SceneCreateResult] = HeadlessCommand(
@@ -1777,15 +1804,11 @@ PROJECT_STATISTICS_COMMAND: HeadlessCommand[ProjectStatisticsResult] = HeadlessC
 )
 
 
-# Path normalization now lives in the models (ADR-0015) via the NormalizedPath
-# field type, the single home shared by the argv and ``--params-json`` paths —
-# every domain command's body passes its raw path straight to the params model.
-# The one exception is ``export run`` (issue #187): its argv body does NOT build
-# an ``ExportRunParams`` (it passes preset/mode/output straight to
-# ``run_export_operation``), so the model's NormalizedPath on ``output`` only
-# fires on the ``--params-json`` path. The argv ``--output`` is therefore still
-# normalized here, via this alias, to keep both export-run paths consistent.
-_normalize_path = normalize_path
+# Path normalization lives in the models (ADR-0015) via the NormalizedPath field
+# type, the single home shared by the argv and ``--params-json`` paths — every
+# command's body (``export run`` included, since ADR-0023 routed it through a built
+# ``ExportRunParams``) passes its raw path straight to the params model, which
+# ~-expands it. There is no CLI-layer normalization step left to share.
 
 
 @scene_app.command(cls=SCENE_CREATE_COMMAND.command_class())
@@ -2802,22 +2825,17 @@ def run_export(
     ``--output`` overrides the preset's configured ``export_path``; both are
     reflected in the native invocation and the reported result (#170).
     """
-    # --output is a filesystem path: normalize it ONCE here (ADR-0006, ~-expanded)
-    # at the CLI layer before it reaches the operation, like every other
-    # path-taking command. The operation receives the already-normalized override.
-    override_output = _normalize_path(output) if output is not None else None
-    outcome = run_export_operation(
-        preset=preset,
-        mode=mode,
-        output_override=override_output,
+    # Build the params model from the argv options (the single source of truth,
+    # ADR-0015): ExportRunParams.output is a NormalizedPath, so the model ~-expands
+    # it (ADR-0006) — argv and --params-json normalize identically. Dispatch through
+    # the descriptor's recipe (ADR-0023), exactly like every other recipe command.
+    _dispatch_recipe(
+        EXPORT_RUN_COMMAND,
+        ExportRunParams(preset=preset, mode=mode, output=output),
+        json_output=json_output,
         godot=godot,
-        project=resolve_project_dir(project),
-        make_runner=_make_runner,
-        make_export_runner=_make_export_runner,
+        project=project,
     )
-    if isinstance(outcome, Failure):
-        emit_failure(outcome)
-    emit_result(outcome, json_output, EXPORT_RUN_COMMAND.render)
 
 
 @resource_app.command(name="uid", cls=RESOURCE_UID_COMMAND.command_class())

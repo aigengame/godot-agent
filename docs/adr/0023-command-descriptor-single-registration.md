@@ -44,12 +44,18 @@ absorbs the two missing facts.**
   `render`; the type-keyed `_RENDERERS` dict in `render.py` is **removed**. (The
   renderer *functions* stay in `render.py`; only the dispatch dict goes.)
 - **`recipe`** — an optional execution-channel seam. A command **with** a `recipe`
-  is fulfilled by that recipe (the `export` / `daemon` / `screen` paths that bypass
-  the sentinel `cmd.emit`); a command **without** one goes through `cmd.emit` with
-  the `kind`-selected runner (sentinel `operations.gd` for `HEADLESS`, daemon IPC
-  for `LIVE`). This collapses the tri-modal selection — export-by-`kind`,
-  daemon-by-identity, screen-by-identity — into **one** descriptor-driven branch and
-  **dissolves both identity frozensets**.
+  is fulfilled by it (the `export` / `daemon` / `screen` paths that bypass the
+  sentinel `cmd.emit`): the recipe **produces the outcome** (resolve the project +
+  run the CLI-side operation, returning the result model or a `Failure`), and a
+  shared dispatch tail emits it through the descriptor's **own `render`** — so a
+  recipe command renders identically to a sentinel one and emission stays
+  single-sourced, never duplicated per recipe. A command **without** a recipe goes
+  through `cmd.emit` with the `kind`-selected runner (sentinel `operations.gd` for
+  `HEADLESS`, daemon IPC for `LIVE`). This collapses the tri-modal selection —
+  export-by-`kind`, daemon-by-identity, screen-by-identity — into **one**
+  descriptor-driven branch (`recipe is None`?) and **dissolves both identity
+  frozensets** and the per-command identity-branching inside the old daemon
+  dispatch (each daemon command now carries its own recipe).
 
 **2. The render map and dispatch routing are projections of the descriptor, not
 parallel registries.** On the `cmd.emit` path the descriptor is already in hand, so
@@ -95,10 +101,12 @@ no renderer is orphaned. The "command wired without a renderer" failure
 - **One place per command.** The render map and dispatch are derived, so the two
   append hot-spots dissolve and the silent-misroute frozenset risk is gone.
 - **`recipe` signature unification is the one-time cost.** The three recipes
-  (`run_export_operation`, the `daemon` lifecycle dispatch, `run_screen_*`) must
-  present a single shape — `recipe(params, *, project, godot, json_output)` owning
-  its own emission — so the dispatcher can call them uniformly. Contained, and paid
-  once.
+  (`run_export_operation`, the per-command `run_daemon_*_operation`, `run_screen_*`)
+  are wrapped as thin per-command closures of one shape — `recipe(params, *,
+  project, godot)` returning the result model or a `Failure` — so the dispatcher
+  calls them uniformly and a shared tail emits the outcome via `cmd.render`.
+  Emission is **not** duplicated in each recipe; it stays the one shared path both
+  channels use. Contained, and paid once.
 - **`emit_result` gains a renderer argument**; `render(result)`'s type dispatch is
   removed (or retained only as a thin internal fallback). `render.py` keeps the
   renderer functions and loses the 61-entry table.

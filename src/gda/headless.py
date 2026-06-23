@@ -36,6 +36,15 @@ Classifier = Callable[[RunResult, Path], M | Failure]
 # (ADR-0023) so a command renders through its own registration, not a central
 # type-keyed table.
 Renderer = Callable[[M], str]
+# A recipe command's CLI-side execution channel (ADR-0023): given the built params
+# model and the CLI context, it PRODUCES the outcome (resolve + run), returning the
+# result model or a Failure. Carried on the descriptor so a command with a recipe
+# is fulfilled by it instead of the sentinel `emit`; emission stays the shared tail
+# (the descriptor's `render`), so a recipe command renders identically to a
+# sentinel one. ``export run`` / the ``daemon`` lifecycle / ``screen`` are recipes.
+# Not parameterized over ``M``: the recipe's keyword-only context means an Ellipsis
+# parameter spec (``Callable[..., …]``), which is not a subscriptable generic alias.
+Recipe = Callable[..., "BaseModel | Failure"]
 RunnerFactory = Callable[[Path, Optional[Path]], GodotRunner]
 
 
@@ -327,6 +336,12 @@ class HeadlessCommand(Generic[M]):
     # keep in sync. Defaults to ``None`` to keep direct-construction fixtures valid;
     # every dispatchable command sets it, enforced by the registration invariant test.
     render: Renderer[M] | None = None
+    # The command's CLI-side execution channel (ADR-0023). When set, the command is a
+    # recipe (``export run`` / ``daemon`` lifecycle / ``screen``): dispatch runs this
+    # to produce the outcome instead of the sentinel ``emit``. ``None`` (the default)
+    # means the command runs through ``emit`` with its ``kind``-selected runner — so a
+    # single ``recipe is None`` test selects the channel, no identity table.
+    recipe: "Recipe | None" = None
 
     def schema_option(self) -> bool:
         """Return the Typer ``--schema`` flag for this command."""
