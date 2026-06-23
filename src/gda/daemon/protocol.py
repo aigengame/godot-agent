@@ -63,15 +63,15 @@ def _recv_exactly(sock: socket.socket, count: int) -> bytes | None:
     return b"".join(chunks)
 
 
-def result_reply(payload: Any, *, exit_code: int = 0) -> dict:
-    """A daemon→CLI reply carrying ``payload`` as the ADR-0002 sentinel result.
+def result_reply(payload: Any) -> dict:
+    """A daemon→CLI reply carrying a SUCCESS ``payload`` as the ADR-0002 sentinel (exit 0).
 
-    The reply dict the CLI socket leg sends back: the sentinel-wrapped payload in
-    ``stdout`` (built once by :func:`gda.parser.build_result`), empty ``stderr``, and
-    ``exit_code`` — so ``classify_run`` / ``parse_result`` handle a daemon-served or
-    relayed result exactly like a headless engine run's.
+    The reply dict the CLI socket leg sends back for a daemon-served or relayed
+    success: the sentinel-wrapped payload in ``stdout`` (built once by
+    :func:`gda.parser.build_result`), empty ``stderr``, and exit ``0`` — so
+    ``classify_run`` / ``parse_result`` handle it exactly like a headless engine run's.
     """
-    return {"stdout": build_result(payload), "stderr": "", "exit_code": exit_code}
+    return _reply(payload, 0)
 
 
 def error_reply(code: str, message: str) -> dict:
@@ -81,4 +81,14 @@ def error_reply(code: str, message: str) -> dict:
     dropped connection, timeout, op error): the same ADR-0002 envelope a real op
     error uses, so ``classify_live`` maps the ``code`` through the normal pipeline.
     """
-    return result_reply(error_envelope(code, message), exit_code=EXIT_LIVE)
+    return _reply(error_envelope(code, message), EXIT_LIVE)
+
+
+def _reply(payload: Any, exit_code: int) -> dict:
+    """The shared reply-dict shape: a sentinel-wrapped ``payload`` + ``exit_code``.
+
+    Private so the two public builders own the ADR-0002 exit invariant —
+    :func:`result_reply` is exit ``0`` (success), :func:`error_reply` is ``EXIT_LIVE``
+    (live error) — and no caller can pair a success payload with a non-zero exit.
+    """
+    return {"stdout": build_result(payload), "stderr": "", "exit_code": exit_code}

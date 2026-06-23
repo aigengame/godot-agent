@@ -49,8 +49,12 @@ def test_result_reply_carries_the_sentinel_payload_at_exit_zero():
     }
 
 
-def test_result_reply_honors_an_explicit_exit_code():
-    assert result_reply({"ok": True}, exit_code=EXIT_LIVE)["exit_code"] == EXIT_LIVE
+def test_the_exit_invariant_is_owned_by_the_builders_not_the_caller():
+    # result_reply is success-only (exit 0) and error_reply is the only live-error
+    # path (EXIT_LIVE): the public seam has no exit_code knob, so a caller cannot
+    # pair a success payload with a non-zero exit (#261 review hardening).
+    assert result_reply({"ok": True})["exit_code"] == 0
+    assert error_reply("engine_disconnected", "dropped")["exit_code"] == EXIT_LIVE
 
 
 def test_error_reply_is_a_live_error_envelope_at_exit_live():
