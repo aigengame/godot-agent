@@ -52,6 +52,7 @@ from gda.models import (
     ExportRunParams,
     ExportRunResult,
 )
+from gda.render import render_export_get, render_export_run
 
 # The factory seam for the native export runner — the ``export run``-only twin of
 # the sentinel channel's ``RunnerFactory``. Spelled here (not in ``headless``)
@@ -62,6 +63,7 @@ EXPORT_GET_COMMAND: HeadlessCommand[ExportGetResult] = HeadlessCommand(
     operation="export-get",
     input_model=ExportGetParams,
     output_model=ExportGetResult,
+    render=render_export_get,
 )
 
 # export run is the one command that does NOT route through operations.gd: the
@@ -76,6 +78,7 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
     operation="export-run",
     input_model=ExportRunParams,
     output_model=ExportRunResult,
+    render=render_export_run,
     kind=ExecutionKind.EXPORT,
 )
 

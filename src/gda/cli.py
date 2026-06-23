@@ -188,6 +188,66 @@ from gda.models import (
     resolve_set_mode,
 )
 from gda.project import resolve_project_dir
+from gda.render import (
+    render_daemon_start,
+    render_daemon_status,
+    render_daemon_stop,
+    render_daemon_uninstall,
+    render_diag_errors,
+    render_diag_log,
+    render_engine_version,
+    render_export_list,
+    render_game_get,
+    render_game_set,
+    render_game_tree,
+    render_input_action,
+    render_input_key,
+    render_input_mouse,
+    render_input_sequence,
+    render_node_add,
+    render_node_connect_signal,
+    render_node_disconnect_signal,
+    render_node_duplicate,
+    render_node_list,
+    render_node_move,
+    render_node_properties,
+    render_node_remove,
+    render_node_set,
+    render_perf_monitor,
+    render_perf_monitors,
+    render_project_add_autoload,
+    render_project_dependencies,
+    render_project_find_references,
+    render_project_find_unused_resources,
+    render_project_get,
+    render_project_info,
+    render_project_remove_autoload,
+    render_project_set,
+    render_project_statistics,
+    render_resource_create,
+    render_resource_delete,
+    render_resource_properties,
+    render_resource_set,
+    render_resource_uid,
+    render_scene_delete,
+    render_scene_exports,
+    render_scene_list,
+    render_scene_metadata,
+    render_scene_tree,
+    render_screen_capture,
+    render_screen_frames,
+    render_script_attach,
+    render_script_create,
+    render_script_delete,
+    render_script_get,
+    render_script_list,
+    render_script_set,
+    render_script_validate,
+    render_shader_create,
+    render_shader_get,
+    render_shader_set,
+    render_theme_create,
+)
 from gda.runner import GodotRunner
 from gda.screen_ops import (
     run_screen_capture_operation,
@@ -442,8 +502,8 @@ def _dispatch(
     seam, the ``json_output`` pass-through, and the JSON-vs-text branch. Each
     command keeps its own Typer signature, params construction, and
     pre-dispatch validation; only this execution tail is shared. Human
-    rendering is type-dispatched by :func:`gda.render.render` inside
-    ``cmd.emit`` (issue #186), so no renderer is threaded here.
+    rendering is done by the command's own renderer (``cmd.render``, ADR-0023)
+    inside ``cmd.emit``, so no renderer is threaded here.
     """
     _emit(
         cmd,
@@ -510,7 +570,7 @@ def _run_params_json(
         )
         if isinstance(outcome, Failure):
             emit_failure(outcome)
-        emit_result(outcome, json_output)
+        emit_result(outcome, json_output, cmd.render)
         return
     if cmd in _DAEMON_COMMANDS:
         # daemon lifecycle commands run their process recipe (gda.daemon_ops),
@@ -548,7 +608,7 @@ def _run_params_json(
             )
         if isinstance(outcome, Failure):
             emit_failure(outcome)
-        emit_result(outcome, json_output)
+        emit_result(outcome, json_output, cmd.render)
         return
     if "project" in options:
         _dispatch(
@@ -569,6 +629,7 @@ INFO_COMMAND: HeadlessCommand[EngineVersion] = HeadlessCommand(
     operation="info",
     input_model=InfoParams,
     output_model=EngineVersion,
+    render=render_engine_version,
     classify=classify_info,
 )
 
@@ -576,6 +637,7 @@ GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(
     operation="game-tree",
     input_model=GameTreeParams,
     output_model=GameTreeResult,
+    render=render_game_tree,
     classify=classify_game_tree,
     kind=ExecutionKind.LIVE,
 )
@@ -612,6 +674,7 @@ GAME_GET_COMMAND: HeadlessCommand[GameGetResult] = HeadlessCommand(
     operation="game-get",
     input_model=GameGetParams,
     output_model=GameGetResult,
+    render=render_game_get,
     classify=classify_game_get,
     kind=ExecutionKind.LIVE,
 )
@@ -656,6 +719,7 @@ GAME_SET_COMMAND: HeadlessCommand[GameSetResult] = HeadlessCommand(
     operation="game-set",
     input_model=GameSetParams,
     output_model=GameSetResult,
+    render=render_game_set,
     classify=classify_game_set,
     kind=ExecutionKind.LIVE,
 )
@@ -724,6 +788,7 @@ DIAG_ERRORS_COMMAND: HeadlessCommand[DiagErrorsResult] = HeadlessCommand(
     operation="diag-errors",
     input_model=DiagErrorsParams,
     output_model=DiagErrorsResult,
+    render=render_diag_errors,
     classify=classify_diag_errors,
     kind=ExecutionKind.LIVE,
 )
@@ -763,6 +828,7 @@ DIAG_LOG_COMMAND: HeadlessCommand[DiagLogResult] = HeadlessCommand(
     operation="diag-log",
     input_model=DiagLogParams,
     output_model=DiagLogResult,
+    render=render_diag_log,
     classify=classify_diag_log,
     kind=ExecutionKind.LIVE,
 )
@@ -798,6 +864,7 @@ PERF_MONITORS_COMMAND: HeadlessCommand[PerfMonitorsResult] = HeadlessCommand(
     operation="perf-monitors",
     input_model=PerfMonitorsParams,
     output_model=PerfMonitorsResult,
+    render=render_perf_monitors,
     classify=classify_perf_monitors,
     kind=ExecutionKind.LIVE,
 )
@@ -832,6 +899,7 @@ PERF_MONITOR_COMMAND: HeadlessCommand[PerfMonitorResult] = HeadlessCommand(
     operation="perf-monitor",
     input_model=PerfMonitorParams,
     output_model=PerfMonitorResult,
+    render=render_perf_monitor,
     classify=classify_perf_monitor,
     kind=ExecutionKind.LIVE,
 )
@@ -901,6 +969,7 @@ INPUT_KEY_COMMAND: HeadlessCommand[InputKeyResult] = HeadlessCommand(
     operation="input-key",
     input_model=InputKeyParams,
     output_model=InputKeyResult,
+    render=render_input_key,
     classify=classify_input_key,
     kind=ExecutionKind.LIVE,
 )
@@ -950,6 +1019,7 @@ INPUT_MOUSE_CLICK_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
     operation="input-mouse-click",
     input_model=InputMouseClickParams,
     output_model=InputMouseResult,
+    render=render_input_mouse,
     classify=classify_input_mouse,
     kind=ExecutionKind.LIVE,
 )
@@ -992,6 +1062,7 @@ INPUT_MOUSE_MOVE_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
     operation="input-mouse-move",
     input_model=InputMouseMoveParams,
     output_model=InputMouseResult,
+    render=render_input_mouse,
     classify=classify_input_mouse,
     kind=ExecutionKind.LIVE,
 )
@@ -1026,6 +1097,7 @@ INPUT_ACTION_COMMAND: HeadlessCommand[InputActionResult] = HeadlessCommand(
     operation="input-action",
     input_model=InputActionParams,
     output_model=InputActionResult,
+    render=render_input_action,
     classify=classify_input_action,
     kind=ExecutionKind.LIVE,
 )
@@ -1077,6 +1149,7 @@ INPUT_SEQUENCE_COMMAND: HeadlessCommand[InputSequenceResult] = HeadlessCommand(
     operation="input-sequence",
     input_model=InputSequenceParams,
     output_model=InputSequenceResult,
+    render=render_input_sequence,
     classify=classify_input_sequence,
     kind=ExecutionKind.LIVE,
 )
@@ -1135,24 +1208,28 @@ DAEMON_START_COMMAND: HeadlessCommand[DaemonStartResult] = HeadlessCommand(
     operation="daemon-start",
     input_model=DaemonStartParams,
     output_model=DaemonStartResult,
+    render=render_daemon_start,
 )
 
 DAEMON_STOP_COMMAND: HeadlessCommand[DaemonStopResult] = HeadlessCommand(
     operation="daemon-stop",
     input_model=DaemonStopParams,
     output_model=DaemonStopResult,
+    render=render_daemon_stop,
 )
 
 DAEMON_STATUS_COMMAND: HeadlessCommand[DaemonStatusResult] = HeadlessCommand(
     operation="daemon-status",
     input_model=DaemonStatusParams,
     output_model=DaemonStatusResult,
+    render=render_daemon_status,
 )
 
 DAEMON_UNINSTALL_COMMAND: HeadlessCommand[DaemonUninstallResult] = HeadlessCommand(
     operation="daemon-uninstall",
     input_model=DaemonUninstallParams,
     output_model=DaemonUninstallResult,
+    render=render_daemon_uninstall,
 )
 
 # The daemon lifecycle commands run a process-management recipe (gda.daemon_ops),
@@ -1191,7 +1268,7 @@ def _daemon_dispatch(
         outcome = run_daemon_status_operation(resolved)
     if isinstance(outcome, Failure):
         emit_failure(outcome)
-    emit_result(outcome, json_output)
+    emit_result(outcome, json_output, cmd.render)
 
 
 @daemon_app.command(name="start", cls=DAEMON_START_COMMAND.command_class())
@@ -1298,6 +1375,7 @@ SCREEN_CAPTURE_COMMAND: HeadlessCommand[ScreenCaptureResult] = HeadlessCommand(
     operation="screen-capture",
     input_model=ScreenCaptureParams,
     output_model=ScreenCaptureResult,
+    render=render_screen_capture,
     kind=ExecutionKind.LIVE,
 )
 
@@ -1305,6 +1383,7 @@ SCREEN_FRAMES_COMMAND: HeadlessCommand[ScreenFramesResult] = HeadlessCommand(
     operation="screen-frames",
     input_model=ScreenFramesParams,
     output_model=ScreenFramesResult,
+    render=render_screen_frames,
     kind=ExecutionKind.LIVE,
 )
 
@@ -1351,7 +1430,7 @@ def screen_capture(
     )
     if isinstance(outcome, Failure):
         emit_failure(outcome)
-    emit_result(outcome, json_output)
+    emit_result(outcome, json_output, SCREEN_CAPTURE_COMMAND.render)
 
 
 @screen_app.command(name="frames", cls=SCREEN_FRAMES_COMMAND.command_class())
@@ -1398,85 +1477,98 @@ def screen_frames(
     )
     if isinstance(outcome, Failure):
         emit_failure(outcome)
-    emit_result(outcome, json_output)
+    emit_result(outcome, json_output, SCREEN_FRAMES_COMMAND.render)
 
 
 SCENE_CREATE_COMMAND: HeadlessCommand[SceneCreateResult] = HeadlessCommand(
     operation="scene-create",
     input_model=SceneCreateParams,
     output_model=SceneCreateResult,
+    render=render_scene_metadata,
 )
 
 SCENE_GET_COMMAND: HeadlessCommand[SceneGetResult] = HeadlessCommand(
     operation="scene-get",
     input_model=SceneGetParams,
     output_model=SceneGetResult,
+    render=render_scene_tree,
 )
 
 SCENE_GET_EXPORTS_COMMAND: HeadlessCommand[SceneGetExportsResult] = HeadlessCommand(
     operation="scene-get-exports",
     input_model=SceneGetExportsParams,
     output_model=SceneGetExportsResult,
+    render=render_scene_exports,
 )
 
 SCENE_LIST_COMMAND: HeadlessCommand[SceneListResult] = HeadlessCommand(
     operation="scene-list",
     input_model=SceneListParams,
     output_model=SceneListResult,
+    render=render_scene_list,
 )
 
 SCENE_DELETE_COMMAND: HeadlessCommand[SceneDeleteResult] = HeadlessCommand(
     operation="scene-delete",
     input_model=SceneDeleteParams,
     output_model=SceneDeleteResult,
+    render=render_scene_delete,
 )
 
 NODE_ADD_COMMAND: HeadlessCommand[NodeAddResult] = HeadlessCommand(
     operation="node-add",
     input_model=NodeAddParams,
     output_model=NodeAddResult,
+    render=render_node_add,
 )
 
 NODE_LIST_COMMAND: HeadlessCommand[NodeListResult] = HeadlessCommand(
     operation="node-list",
     input_model=NodeListParams,
     output_model=NodeListResult,
+    render=render_node_list,
 )
 
 NODE_GET_COMMAND: HeadlessCommand[NodeGetResult] = HeadlessCommand(
     operation="node-get",
     input_model=NodeGetParams,
     output_model=NodeGetResult,
+    render=render_node_properties,
 )
 
 NODE_SET_COMMAND: HeadlessCommand[NodeSetResult] = HeadlessCommand(
     operation="node-set",
     input_model=NodeSetParams,
     output_model=NodeSetResult,
+    render=render_node_set,
 )
 
 NODE_REMOVE_COMMAND: HeadlessCommand[NodeRemoveResult] = HeadlessCommand(
     operation="node-remove",
     input_model=NodeRemoveParams,
     output_model=NodeRemoveResult,
+    render=render_node_remove,
 )
 
 NODE_DUPLICATE_COMMAND: HeadlessCommand[NodeDuplicateResult] = HeadlessCommand(
     operation="node-duplicate",
     input_model=NodeDuplicateParams,
     output_model=NodeDuplicateResult,
+    render=render_node_duplicate,
 )
 
 NODE_MOVE_COMMAND: HeadlessCommand[NodeMoveResult] = HeadlessCommand(
     operation="node-move",
     input_model=NodeMoveParams,
     output_model=NodeMoveResult,
+    render=render_node_move,
 )
 
 NODE_CONNECT_SIGNAL_COMMAND: HeadlessCommand[NodeConnectSignalResult] = HeadlessCommand(
     operation="node-connect-signal",
     input_model=NodeConnectSignalParams,
     output_model=NodeConnectSignalResult,
+    render=render_node_connect_signal,
 )
 
 NODE_DISCONNECT_SIGNAL_COMMAND: HeadlessCommand[NodeDisconnectSignalResult] = (
@@ -1484,6 +1576,7 @@ NODE_DISCONNECT_SIGNAL_COMMAND: HeadlessCommand[NodeDisconnectSignalResult] = (
         operation="node-disconnect-signal",
         input_model=NodeDisconnectSignalParams,
         output_model=NodeDisconnectSignalResult,
+        render=render_node_disconnect_signal,
     )
 )
 
@@ -1491,42 +1584,49 @@ SCRIPT_CREATE_COMMAND: HeadlessCommand[ScriptCreateResult] = HeadlessCommand(
     operation="script-create",
     input_model=ScriptCreateParams,
     output_model=ScriptCreateResult,
+    render=render_script_create,
 )
 
 SCRIPT_GET_COMMAND: HeadlessCommand[ScriptGetResult] = HeadlessCommand(
     operation="script-get",
     input_model=ScriptGetParams,
     output_model=ScriptGetResult,
+    render=render_script_get,
 )
 
 SCRIPT_LIST_COMMAND: HeadlessCommand[ScriptListResult] = HeadlessCommand(
     operation="script-list",
     input_model=ScriptListParams,
     output_model=ScriptListResult,
+    render=render_script_list,
 )
 
 SCRIPT_DELETE_COMMAND: HeadlessCommand[ScriptDeleteResult] = HeadlessCommand(
     operation="script-delete",
     input_model=ScriptDeleteParams,
     output_model=ScriptDeleteResult,
+    render=render_script_delete,
 )
 
 SCRIPT_SET_COMMAND: HeadlessCommand[ScriptSetResult] = HeadlessCommand(
     operation="script-set",
     input_model=ScriptSetParams,
     output_model=ScriptSetResult,
+    render=render_script_set,
 )
 
 SCRIPT_ATTACH_COMMAND: HeadlessCommand[ScriptAttachResult] = HeadlessCommand(
     operation="script-attach",
     input_model=ScriptAttachParams,
     output_model=ScriptAttachResult,
+    render=render_script_attach,
 )
 
 SCRIPT_VALIDATE_COMMAND: HeadlessCommand[ScriptValidateResult] = HeadlessCommand(
     operation="script-validate",
     input_model=ScriptValidateParams,
     output_model=ScriptValidateResult,
+    render=render_script_validate,
     classify=classify_script_validate,
 )
 
@@ -1534,30 +1634,35 @@ RESOURCE_CREATE_COMMAND: HeadlessCommand[ResourceCreateResult] = HeadlessCommand
     operation="resource-create",
     input_model=ResourceCreateParams,
     output_model=ResourceCreateResult,
+    render=render_resource_create,
 )
 
 RESOURCE_GET_COMMAND: HeadlessCommand[ResourceGetResult] = HeadlessCommand(
     operation="resource-get",
     input_model=ResourceGetParams,
     output_model=ResourceGetResult,
+    render=render_resource_properties,
 )
 
 RESOURCE_SET_COMMAND: HeadlessCommand[ResourceSetResult] = HeadlessCommand(
     operation="resource-set",
     input_model=ResourceSetParams,
     output_model=ResourceSetResult,
+    render=render_resource_set,
 )
 
 RESOURCE_DELETE_COMMAND: HeadlessCommand[ResourceDeleteResult] = HeadlessCommand(
     operation="resource-delete",
     input_model=ResourceDeleteParams,
     output_model=ResourceDeleteResult,
+    render=render_resource_delete,
 )
 
 EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
     operation="export-list",
     input_model=ExportListParams,
     output_model=ExportListResult,
+    render=render_export_list,
 )
 
 # EXPORT_GET_COMMAND / EXPORT_RUN_COMMAND live in gda.export_run (imported above):
@@ -1569,30 +1674,35 @@ RESOURCE_UID_COMMAND: HeadlessCommand[ResourceUidResult] = HeadlessCommand(
     operation="resource-uid",
     input_model=ResourceUidParams,
     output_model=ResourceUidResult,
+    render=render_resource_uid,
 )
 
 PROJECT_INFO_COMMAND: HeadlessCommand[ProjectInfoResult] = HeadlessCommand(
     operation="project-info",
     input_model=ProjectInfoParams,
     output_model=ProjectInfoResult,
+    render=render_project_info,
 )
 
 PROJECT_GET_COMMAND: HeadlessCommand[ProjectGetResult] = HeadlessCommand(
     operation="project-get",
     input_model=ProjectGetParams,
     output_model=ProjectGetResult,
+    render=render_project_get,
 )
 
 PROJECT_SET_COMMAND: HeadlessCommand[ProjectSetResult] = HeadlessCommand(
     operation="project-set",
     input_model=ProjectSetParams,
     output_model=ProjectSetResult,
+    render=render_project_set,
 )
 
 PROJECT_ADD_AUTOLOAD_COMMAND: HeadlessCommand[ProjectAddAutoloadResult] = HeadlessCommand(
     operation="project-add-autoload",
     input_model=ProjectAddAutoloadParams,
     output_model=ProjectAddAutoloadResult,
+    render=render_project_add_autoload,
 )
 
 PROJECT_REMOVE_AUTOLOAD_COMMAND: HeadlessCommand[ProjectRemoveAutoloadResult] = (
@@ -1600,6 +1710,7 @@ PROJECT_REMOVE_AUTOLOAD_COMMAND: HeadlessCommand[ProjectRemoveAutoloadResult] = 
         operation="project-remove-autoload",
         input_model=ProjectRemoveAutoloadParams,
         output_model=ProjectRemoveAutoloadResult,
+        render=render_project_remove_autoload,
     )
 )
 
@@ -1607,24 +1718,28 @@ SHADER_CREATE_COMMAND: HeadlessCommand[ShaderCreateResult] = HeadlessCommand(
     operation="shader-create",
     input_model=ShaderCreateParams,
     output_model=ShaderCreateResult,
+    render=render_shader_create,
 )
 
 SHADER_GET_COMMAND: HeadlessCommand[ShaderGetResult] = HeadlessCommand(
     operation="shader-get",
     input_model=ShaderGetParams,
     output_model=ShaderGetResult,
+    render=render_shader_get,
 )
 
 SHADER_SET_COMMAND: HeadlessCommand[ShaderSetResult] = HeadlessCommand(
     operation="shader-set",
     input_model=ShaderSetParams,
     output_model=ShaderSetResult,
+    render=render_shader_set,
 )
 
 THEME_CREATE_COMMAND: HeadlessCommand[ThemeCreateResult] = HeadlessCommand(
     operation="theme-create",
     input_model=ThemeCreateParams,
     output_model=ThemeCreateResult,
+    render=render_theme_create,
 )
 
 PROJECT_FIND_REFERENCES_COMMAND: HeadlessCommand[ProjectFindReferencesResult] = (
@@ -1632,6 +1747,7 @@ PROJECT_FIND_REFERENCES_COMMAND: HeadlessCommand[ProjectFindReferencesResult] = 
         operation="project-find-references",
         input_model=ProjectFindReferencesParams,
         output_model=ProjectFindReferencesResult,
+        render=render_project_find_references,
     )
 )
 
@@ -1640,6 +1756,7 @@ PROJECT_DEPENDENCIES_COMMAND: HeadlessCommand[ProjectDependenciesResult] = (
         operation="project-dependencies",
         input_model=ProjectDependenciesParams,
         output_model=ProjectDependenciesResult,
+        render=render_project_dependencies,
     )
 )
 
@@ -1649,12 +1766,14 @@ PROJECT_FIND_UNUSED_RESOURCES_COMMAND: HeadlessCommand[
     operation="project-find-unused-resources",
     input_model=ProjectFindUnusedResourcesParams,
     output_model=ProjectFindUnusedResourcesResult,
+    render=render_project_find_unused_resources,
 )
 
 PROJECT_STATISTICS_COMMAND: HeadlessCommand[ProjectStatisticsResult] = HeadlessCommand(
     operation="project-statistics",
     input_model=ProjectStatisticsParams,
     output_model=ProjectStatisticsResult,
+    render=render_project_statistics,
 )
 
 
@@ -2698,7 +2817,7 @@ def run_export(
     )
     if isinstance(outcome, Failure):
         emit_failure(outcome)
-    emit_result(outcome, json_output)
+    emit_result(outcome, json_output, EXPORT_RUN_COMMAND.render)
 
 
 @resource_app.command(name="uid", cls=RESOURCE_UID_COMMAND.command_class())

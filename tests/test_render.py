@@ -1,15 +1,21 @@
 """The presentation layer (``gda.render``) — issue #140.
 
-Human rendering lives in a dedicated module, selected by result type, and reads
+Human rendering lives in a dedicated module, one renderer per result type, reading
 typed surfaces (a value helper, a shared script-metadata interface) rather than
 reaching into a model's ``.value`` or across a union of result types. These are
-unit tests on the presentation module itself; the end-to-end human-output text
-per command is pinned by the existing command tests, which still pass unchanged.
+unit tests on the renderers themselves; the end-to-end human-output text per
+command is pinned by ``test_human_output.py``, and the descriptor-carried
+renderer invariant (every command has one, none orphaned — ADR-0023) by
+``test_command_descriptor_registry.py``.
+
+Since ADR-0023 each command binds its renderer on its ``HeadlessCommand``
+descriptor and there is no central ``render()`` type-dispatch, so these tests call
+the renderer functions directly — the assertions (a renderer's exact text) are
+unchanged.
 """
 
 import pytest
 
-from gda import render as render_mod
 from gda.models import (
     DaemonStartResult,
     DaemonStatusResult,
@@ -33,7 +39,21 @@ from gda.models import (
     ScriptGetResult,
     ScriptSetResult,
 )
-from gda.render import ScriptMetadata, format_value, render, render_node_tree
+from gda.render import (
+    ScriptMetadata,
+    format_value,
+    render_daemon_start,
+    render_daemon_status,
+    render_daemon_uninstall,
+    render_engine_version,
+    render_game_get,
+    render_game_set,
+    render_node_properties,
+    render_node_set,
+    render_node_tree,
+    render_perf_monitor,
+    render_perf_monitors,
+)
 
 # The five script result types the metadata renderer used to read as a union.
 SCRIPT_METADATA_MODELS = [
@@ -129,7 +149,7 @@ def test_render_node_properties_routes_value_through_the_helper():
         type="Node2D",
         properties=[NodeProperty(name="position", type="Vector2", value=[1.0, 2.0])],
     )
-    rendered = render(result)
+    rendered = render_node_properties(result)
     assert rendered == ". (Node2D)\n  position (Vector2) = [1.0, 2.0]"
 
 
@@ -141,7 +161,7 @@ def test_render_node_set_routes_value_through_the_helper():
         type="bool",
         value=False,
     )
-    assert render(result) == "set ..visible (bool) = false"
+    assert render_node_set(result) == "set ..visible (bool) = false"
 
 
 def test_render_game_get_renders_runtime_properties_by_absolute_path():
@@ -151,7 +171,7 @@ def test_render_game_get_renders_runtime_properties_by_absolute_path():
         type="Node2D",
         properties=[NodeProperty(name="position", type="Vector2", value=[10.0, 20.0])],
     )
-    rendered = render(result)
+    rendered = render_game_get(result)
     assert rendered == "/root/Main/Player (Node2D)\n  position (Vector2) = [10.0, 20.0]"
 
 
@@ -162,7 +182,7 @@ def test_render_game_set_renders_the_set_runtime_property():
         type="Vector2",
         value=[10.0, 20.0],
     )
-    assert render(result) == "set /root/Main/Player.position (Vector2) = [10.0, 20.0]"
+    assert render_game_set(result) == "set /root/Main/Player.position (Vector2) = [10.0, 20.0]"
 
 
 def test_render_perf_monitors_renders_a_sorted_snapshot():
@@ -174,7 +194,7 @@ def test_render_perf_monitors_renders_a_sorted_snapshot():
         },
     )
     # Monitors are listed in a stable (name-sorted) order under the timestamp header.
-    assert render(result) == "perf @ 500ms\n  fps = 60.0\n  node_count = 3.0"
+    assert render_perf_monitors(result) == "perf @ 500ms\n  fps = 60.0\n  node_count = 3.0"
 
 
 def test_render_perf_monitor_property_renders_a_per_frame_timeline():
@@ -188,7 +208,7 @@ def test_render_perf_monitor_property_renders_a_per_frame_timeline():
             PerfPropertySample(frame=1, timestamp=116, value=[1.0, 0.0]),
         ],
     )
-    assert render(result) == (
+    assert render_perf_monitor(result) == (
         "/root/Main/Player property position (2 frames)\n"
         "  frame 0: [0.0, 0.0]\n"
         "  frame 1: [1.0, 0.0]"
@@ -203,7 +223,7 @@ def test_render_perf_monitor_signal_renders_recorded_emissions():
         frames=2,
         emissions=[PerfSignalEmission(frame=1, timestamp=116, args=[42])],
     )
-    assert render(result) == (
+    assert render_perf_monitor(result) == (
         "/root/Main/Player signal hit (2 frames)\n  frame 1: [42]"
     )
 
@@ -219,11 +239,11 @@ def test_render_daemon_start_surfaces_a_version_sync(tmp_path):
         harness_version="3",
         already_running=False,
     )
-    assert render(synced) == "daemon started: pid 42 on /tmp/x.sock (synced harness to v3)"
+    assert render_daemon_start(synced) == "daemon started: pid 42 on /tmp/x.sock (synced harness to v3)"
 
     # A first install (changed but not a version-mismatch resync) reads as install.
     installed = synced.model_copy(update={"harness_synced": False})
-    assert render(installed) == "daemon started: pid 42 on /tmp/x.sock (installed harness)"
+    assert render_daemon_start(installed) == "daemon started: pid 42 on /tmp/x.sock (installed harness)"
 
 
 def test_render_daemon_status_notes_the_windowed_session(tmp_path):
@@ -232,28 +252,26 @@ def test_render_daemon_status_notes_the_windowed_session(tmp_path):
     windowed = DaemonStatusResult(
         running=True, pid=42, socket_path="/tmp/x.sock", windowed=True
     )
-    assert render(windowed) == "daemon running: pid 42 on /tmp/x.sock [windowed]"
+    assert render_daemon_status(windowed) == "daemon running: pid 42 on /tmp/x.sock [windowed]"
 
     headless = windowed.model_copy(update={"windowed": False})
-    assert render(headless) == "daemon running: pid 42 on /tmp/x.sock"
+    assert render_daemon_status(headless) == "daemon running: pid 42 on /tmp/x.sock"
 
     # An unknown mode (e.g. a transient round-trip miss) renders no marker either.
     unknown = windowed.model_copy(update={"windowed": None})
-    assert render(unknown) == "daemon running: pid 42 on /tmp/x.sock"
+    assert render_daemon_status(unknown) == "daemon running: pid 42 on /tmp/x.sock"
 
     stopped = DaemonStatusResult(running=False, socket_path="/tmp/x.sock")
-    assert render(stopped) == "daemon not running"
+    assert render_daemon_status(stopped) == "daemon not running"
 
 
 def test_render_daemon_uninstall_reports_removal(tmp_path):
     # #225: uninstall renders the paired removal, with the idempotent no-op form.
-    assert render(DaemonUninstallResult(removed=True)) == "harness uninstalled"
-    assert render(DaemonUninstallResult(removed=False)) == "no harness was installed"
+    assert render_daemon_uninstall(DaemonUninstallResult(removed=True)) == "harness uninstalled"
+    assert render_daemon_uninstall(DaemonUninstallResult(removed=False)) == "no harness was installed"
 
 
-def test_render_is_keyed_by_result_type():
-    # render() selects the renderer by the result's concrete type, so a command
-    # sources its renderer from the module by result type, not an inline closure.
+def test_render_engine_version_renders_the_one_line_version_string():
     version = EngineVersion(
         major=4,
         minor=6,
@@ -265,26 +283,4 @@ def test_render_is_keyed_by_result_type():
         string="4.6.3-stable (official)",
         timestamp=0,
     )
-    assert render(version) == "4.6.3-stable (official)"
-
-
-def test_render_rejects_an_unregistered_result_type():
-    # An unrecognized result type is a programming error (a command wired with no
-    # renderer), surfaced loudly rather than silently mis-formatted.
-    with pytest.raises(KeyError):
-        render(object())
-
-
-def test_every_command_result_type_has_a_renderer():
-    # The type → renderer table covers every result type a command emits, so the
-    # keyed dispatch never falls through for a real command.
-    from gda import cli
-
-    output_models = {
-        cmd.output_model
-        for name in dir(cli)
-        if name.endswith("_COMMAND")
-        for cmd in [getattr(cli, name)]
-    }
-    registered = set(render_mod._RENDERERS)
-    assert output_models <= registered
+    assert render_engine_version(version) == "4.6.3-stable (official)"

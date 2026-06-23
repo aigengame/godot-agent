@@ -11,7 +11,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generic, NoReturn, Optional, TypeVar
+from typing import Any, Generic, NoReturn, Optional, TypeVar
 
 import typer
 from pydantic import BaseModel, ValidationError
@@ -27,12 +27,15 @@ from gda.errors import (
 )
 from gda.execution import ExecutionKind, live_stack_constraints
 from gda.models import CommandSchema, GdaErrorEnvelope, LiveStackConstraints
-from gda.render import render
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
 
 M = TypeVar("M", bound=BaseModel)
 
 Classifier = Callable[[RunResult, Path], M | Failure]
+# A command's human renderer: its result model -> text. Carried on the descriptor
+# (ADR-0023) so a command renders through its own registration, not a central
+# type-keyed table.
+Renderer = Callable[[M], str]
 RunnerFactory = Callable[[Path, Optional[Path]], GodotRunner]
 
 
@@ -274,17 +277,29 @@ def emit_failure(failure: Failure) -> NoReturn:
 _fail = emit_failure
 
 
-def emit_result(result: BaseModel, json_output: bool) -> None:
+def emit_result(
+    result: BaseModel, json_output: bool, render: "Optional[Callable[[Any], str]]"
+) -> None:
     """Emit a typed success result as JSON or human-readable text.
 
     The single home for the public success channel: a result model becomes its
-    ``--json`` serialization when ``json_output``, else the type-dispatched
-    human rendering by :func:`gda.render.render` (issue #186). Shared by the
-    sentinel-pipeline commands (via :meth:`HeadlessCommand.emit`) and the
-    native-export command (``export run``), so both render success identically.
+    ``--json`` serialization when ``json_output``, else the human text produced by
+    the command's own ``render`` (its descriptor's renderer, ADR-0023). Shared by
+    the sentinel-pipeline commands (via :meth:`HeadlessCommand.emit`) and the
+    recipe commands (``export run``, the ``daemon`` lifecycle, ``screen``), which
+    pass their descriptor's renderer so every command renders success identically.
+
+    ``render`` is ``None`` only for a misregistered command (one whose descriptor
+    set no renderer); the registration invariant test (ADR-0023) keeps that off the
+    dispatchable surface, so it is a programming error rather than a user-facing one.
     """
     if json_output:
         typer.echo(result.model_dump_json())
+    elif render is None:  # pragma: no cover - guarded by the registration test
+        raise RuntimeError(
+            f"no renderer for result type {type(result)!r}; the command's "
+            "HeadlessCommand must set render= (ADR-0023)"
+        )
     else:
         typer.echo(render(result))
 
@@ -307,6 +322,11 @@ class HeadlessCommand(Generic[M]):
     # existing command keeps its channel without restating it; EXPORT and LIVE
     # commands declare their channel explicitly.
     kind: ExecutionKind = ExecutionKind.HEADLESS
+    # The command's human renderer — its result model -> text (ADR-0023). A command
+    # renders through its own descriptor, so there is no central type-keyed table to
+    # keep in sync. Defaults to ``None`` to keep direct-construction fixtures valid;
+    # every dispatchable command sets it, enforced by the registration invariant test.
+    render: Renderer[M] | None = None
 
     def schema_option(self) -> bool:
         """Return the Typer ``--schema`` flag for this command."""
@@ -396,12 +416,11 @@ class HeadlessCommand(Generic[M]):
     ) -> None:
         """Run the command and emit either JSON or human-readable output.
 
-        Human output is rendered by the module-level :func:`gda.render.render`,
-        which dispatches on the result type — there is no per-command renderer
-        seam to thread, since every command renders through the same type-keyed
-        table (issue #186).
+        Human output is rendered by the command's own ``render`` (its descriptor's
+        renderer, ADR-0023) — the descriptor is in hand here, so there is no
+        type-keyed table to consult.
         """
         result = self.run(
             params, godot=godot, project=project, make_runner=make_runner
         )
-        emit_result(result, json_output)
+        emit_result(result, json_output, self.render)
