@@ -17,6 +17,7 @@ from gda.daemon_ops import (
     run_daemon_status_operation,
     run_daemon_stop_operation,
 )
+from gda.harness.install import HARNESS_VERSION
 from gda.models import DaemonStartResult, DaemonStatusResult, DaemonStopResult
 
 pytestmark = [
@@ -44,6 +45,9 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
         assert isinstance(started, DaemonStartResult), started
         assert started.already_running is False
         assert started.installed_harness is True  # harness installed + reported
+        # #225/#247: a first install is reported by installed_harness, not as a sync.
+        assert started.harness_synced is False
+        assert started.harness_version == HARNESS_VERSION
         assert daemon_pid(paths) == started.pid
 
         # Idempotent: a second start finds the running daemon.
@@ -52,6 +56,8 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
         assert again.already_running is True
         assert again.pid == started.pid
         assert again.installed_harness is False
+        assert again.harness_synced is False  # syncs nothing
+        assert again.harness_version == HARNESS_VERSION
 
         status = run_daemon_status_operation(project)
         assert isinstance(status, DaemonStatusResult)

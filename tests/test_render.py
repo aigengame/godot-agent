@@ -11,6 +11,8 @@ import pytest
 
 from gda import render as render_mod
 from gda.models import (
+    DaemonStartResult,
+    DaemonUninstallResult,
     EngineVersion,
     GameGetResult,
     GameSetResult,
@@ -203,6 +205,30 @@ def test_render_perf_monitor_signal_renders_recorded_emissions():
     assert render(result) == (
         "/root/Main/Player signal hit (2 frames)\n  frame 1: [42]"
     )
+
+
+def test_render_daemon_start_surfaces_a_version_sync(tmp_path):
+    # #225: a real version-mismatch re-materialize is surfaced as a sync to the
+    # installed version (distinct from merely adding the autoload entry).
+    synced = DaemonStartResult(
+        pid=42,
+        socket_path="/tmp/x.sock",
+        installed_harness=True,
+        harness_synced=True,
+        harness_version="3",
+        already_running=False,
+    )
+    assert render(synced) == "daemon started: pid 42 on /tmp/x.sock (synced harness to v3)"
+
+    # A first install (changed but not a version-mismatch resync) reads as install.
+    installed = synced.model_copy(update={"harness_synced": False})
+    assert render(installed) == "daemon started: pid 42 on /tmp/x.sock (installed harness)"
+
+
+def test_render_daemon_uninstall_reports_removal(tmp_path):
+    # #225: uninstall renders the paired removal, with the idempotent no-op form.
+    assert render(DaemonUninstallResult(removed=True)) == "harness uninstalled"
+    assert render(DaemonUninstallResult(removed=False)) == "no harness was installed"
 
 
 def test_render_is_keyed_by_result_type():

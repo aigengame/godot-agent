@@ -19,6 +19,7 @@ from gda.daemon_ops import (
     run_daemon_start_operation,
     run_daemon_status_operation,
     run_daemon_stop_operation,
+    run_daemon_uninstall_operation,
 )
 from gda.errors import (
     Failure,
@@ -65,6 +66,8 @@ from gda.models import (
     DaemonStatusResult,
     DaemonStopParams,
     DaemonStopResult,
+    DaemonUninstallParams,
+    DaemonUninstallResult,
     DiagErrorsParams,
     DiagErrorsResult,
     DiagLogParams,
@@ -1097,12 +1100,23 @@ DAEMON_STATUS_COMMAND: HeadlessCommand[DaemonStatusResult] = HeadlessCommand(
     output_model=DaemonStatusResult,
 )
 
+DAEMON_UNINSTALL_COMMAND: HeadlessCommand[DaemonUninstallResult] = HeadlessCommand(
+    operation="daemon-uninstall",
+    input_model=DaemonUninstallParams,
+    output_model=DaemonUninstallResult,
+)
+
 # The daemon lifecycle commands run a process-management recipe (gda.daemon_ops),
 # not the sentinel pipeline — the same shape as `export run`. They carry no Godot
 # execution channel, so they are routed by command identity, shared by the argv
 # bodies and the --params-json path so both forms drive the SAME recipe.
 _DAEMON_COMMANDS = frozenset(
-    {DAEMON_START_COMMAND, DAEMON_STOP_COMMAND, DAEMON_STATUS_COMMAND}
+    {
+        DAEMON_START_COMMAND,
+        DAEMON_STOP_COMMAND,
+        DAEMON_STATUS_COMMAND,
+        DAEMON_UNINSTALL_COMMAND,
+    }
 )
 
 
@@ -1119,6 +1133,8 @@ def _daemon_dispatch(
         outcome = run_daemon_start_operation(resolved, godot)
     elif cmd is DAEMON_STOP_COMMAND:
         outcome = run_daemon_stop_operation(resolved)
+    elif cmd is DAEMON_UNINSTALL_COMMAND:
+        outcome = run_daemon_uninstall_operation(resolved)
     else:
         outcome = run_daemon_status_operation(resolved)
     if isinstance(outcome, Failure):
@@ -1181,6 +1197,29 @@ def daemon_status(
     _daemon_dispatch(
         DAEMON_STATUS_COMMAND, json_output=json_output, godot=godot, project=project
     )
+
+
+@daemon_app.command(name="uninstall", cls=DAEMON_UNINSTALL_COMMAND.command_class())
+def daemon_uninstall(
+    json_output: bool = json_option(),
+    schema: bool = DAEMON_UNINSTALL_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Remove the gda harness autoload and files from the project (ADR-0018).
+
+    A release-hygiene step: removal is paired and crash-safe — the [autoload] entry
+    is stripped first, then the files — so a mid-failure never leaves a dangling
+    autoload that would crash an exported game. Idempotent (a no-op if not
+    installed). Refused while a daemon is running (`daemon_running`); stop it first
+    with `gda daemon stop`. Live is macOS/Linux only; elsewhere reports
+    `live_unsupported_platform`.
+    """
+    _daemon_dispatch(
+        DAEMON_UNINSTALL_COMMAND, json_output=json_output, godot=godot, project=project
+    )
+
 
 SCENE_CREATE_COMMAND: HeadlessCommand[SceneCreateResult] = HeadlessCommand(
     operation="scene-create",

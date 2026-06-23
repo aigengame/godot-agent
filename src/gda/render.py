@@ -25,6 +25,7 @@ from gda.models import (
     DaemonStartResult,
     DaemonStatusResult,
     DaemonStopResult,
+    DaemonUninstallResult,
     DiagErrorsResult,
     DiagLogResult,
     EngineVersion,
@@ -273,7 +274,12 @@ def render_input_sequence(injected: "InputSequenceResult") -> str:
 def render_daemon_start(started: "DaemonStartResult") -> str:
     """Render a `gda daemon start` outcome for humans."""
     state = "already running" if started.already_running else "started"
-    harness = " (installed harness)" if started.installed_harness else ""
+    if started.harness_synced:
+        harness = f" (synced harness to v{started.harness_version})"
+    elif started.installed_harness:
+        harness = " (installed harness)"
+    else:
+        harness = ""
     return f"daemon {state}: pid {started.pid} on {started.socket_path}{harness}"
 
 
@@ -289,6 +295,13 @@ def render_daemon_status(status: "DaemonStatusResult") -> str:
     if status.running:
         return f"daemon running: pid {status.pid} on {status.socket_path}"
     return "daemon not running"
+
+
+def render_daemon_uninstall(uninstalled: "DaemonUninstallResult") -> str:
+    """Render a `gda daemon uninstall` outcome for humans."""
+    if uninstalled.removed:
+        return "harness uninstalled"
+    return "no harness was installed"
 
 
 def render_scene_exports(scene: "SceneGetExportsResult") -> str:
@@ -685,6 +698,7 @@ _RENDERERS = {
     DaemonStartResult: render_daemon_start,
     DaemonStopResult: render_daemon_stop,
     DaemonStatusResult: render_daemon_status,
+    DaemonUninstallResult: render_daemon_uninstall,
     SceneGetExportsResult: render_scene_exports,
     SceneListResult: render_scene_list,
     SceneDeleteResult: render_scene_delete,

@@ -23,6 +23,11 @@ LIVE_ERROR_CODES = (
     "engine_session_not_running",
     "engine_disconnected",
     "live_timeout",
+    # The harness-lifecycle refusal (#225): `daemon uninstall` is refused while a
+    # daemon is running. Same shape as the other daemon-channel LIVE codes —
+    # LIVE-category, classifier-source (the uninstall recipe emits it), exit 6,
+    # NOT GDScript-mirrored.
+    "daemon_running",
 )
 
 ROOT = Path(__file__).resolve().parents[1]
