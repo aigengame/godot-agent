@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.34](https://github.com/aigengame/godot-agent/compare/v0.1.33...v0.1.34) (2026-06-23)
+
+
+### Features
+
+* gda harness lifecycle — version self-sync and paired uninstall ([#225](https://github.com/aigengame/godot-agent/issues/225)) ([#247](https://github.com/aigengame/godot-agent/issues/247)) ([967b679](https://github.com/aigengame/godot-agent/commit/967b679946b396f613af2228f808d7f08ed75db6))
+* screen — runtime viewport capture of the running game ([#222](https://github.com/aigengame/godot-agent/issues/222)) ([#248](https://github.com/aigengame/godot-agent/issues/248)) ([4c7eab3](https://github.com/aigengame/godot-agent/commit/4c7eab38fab817ff84c3712582042aa585cd2c35))
+* surface live-stack constraints in --schema ([#233](https://github.com/aigengame/godot-agent/issues/233)) ([#245](https://github.com/aigengame/godot-agent/issues/245)) ([430f9f6](https://github.com/aigengame/godot-agent/commit/430f9f67da4f477fc8185105de6c934b72eb0253))
+
 ## [0.1.33](https://github.com/aigengame/godot-agent/compare/v0.1.32...v0.1.33) (2026-06-22)
 
 
