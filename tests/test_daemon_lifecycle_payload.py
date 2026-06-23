@@ -64,7 +64,7 @@ def _start(project, **kw):
 # --- start reports harness_synced / harness_version (#225, D1) ----------------
 
 
-def test_start_reports_harness_version_and_first_install_is_a_sync(
+def test_start_reports_harness_version_and_first_install_is_not_a_sync(
     tmp_path, short_runtime, fake_ready, monkeypatch
 ):
     project = _project(tmp_path)
@@ -73,10 +73,10 @@ def test_start_reports_harness_version_and_first_install_is_a_sync(
     started = _start(project)
 
     assert isinstance(started, DaemonStartResult), started
-    # The existing field still reports a change (a first install).
+    # A first install is reported by installed_harness, NOT as a sync (#247 review):
+    # harness_synced is reserved for correcting an already-installed stale harness.
     assert started.installed_harness is True
-    # The two additive fields THIS issue owns.
-    assert started.harness_synced is True  # a real version-mismatch (re)write
+    assert started.harness_synced is False
     assert started.harness_version == HARNESS_VERSION
     assert installed_harness_version(project) == HARNESS_VERSION
 
@@ -88,7 +88,8 @@ def test_start_reports_not_synced_when_version_already_matches(
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
 
     first = _start(project)
-    assert first.harness_synced is True
+    assert first.installed_harness is True
+    assert first.harness_synced is False  # first install is not a resync (#247)
 
     # A second start at the same HARNESS_VERSION must NOT re-sync (no rewrite), but
     # still reports the installed version.
@@ -98,11 +99,11 @@ def test_start_reports_not_synced_when_version_already_matches(
     assert again.harness_version == HARNESS_VERSION
 
 
-def test_already_running_start_reports_installed_version_without_syncing(
+def test_already_running_start_is_a_noop_when_harness_is_current(
     tmp_path, short_runtime, monkeypatch
 ):
     project = _project(tmp_path)
-    # Install once so a version is on disk, then simulate a live daemon.
+    # A current harness on disk, then a live daemon already up.
     install_harness(project)
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
 
@@ -112,8 +113,39 @@ def test_already_running_start_reports_installed_version_without_syncing(
 
     assert isinstance(started, DaemonStartResult)
     assert started.already_running is True
-    assert started.harness_synced is False  # an idempotent start syncs nothing
+    # An already-running start re-checks the harness; a CURRENT one is a no-op (no
+    # rewrite, no mtime bump), so it neither installs nor syncs.
+    assert started.installed_harness is False
+    assert started.harness_synced is False
     assert started.harness_version == HARNESS_VERSION
+
+
+def test_already_running_start_resyncs_a_stale_harness(
+    tmp_path, short_runtime, monkeypatch
+):
+    # PR #247 review: a daemon already up must NOT skip the harness self-sync. If
+    # `gda` is upgraded while the old daemon stays running, an already-running start
+    # still re-materializes a stale installed harness — so the next engine session
+    # the daemon launches picks up the current copy, never a stale mismatch.
+    project = _project(tmp_path)
+    install_harness(project)
+    # Simulate an older gda's harness left on disk: rewrite the version header stale.
+    harness = project / HARNESS_RES_DIR / HARNESS_FILE
+    lines = harness.read_text(encoding="utf-8").splitlines()
+    lines[0] = "# gda-harness-version: stale-old"
+    harness.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert installed_harness_version(project) == "stale-old"
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+
+    started = daemon_ops.run_daemon_start_operation(
+        project, None, version_check=_OK_VERSION
+    )
+
+    assert isinstance(started, DaemonStartResult)
+    assert started.already_running is True
+    assert started.harness_synced is True  # stale -> re-materialized despite running
+    assert started.harness_version == HARNESS_VERSION
+    assert installed_harness_version(project) == HARNESS_VERSION  # rewritten on disk
 
 
 # --- uninstall recipe (#225, D2) ----------------------------------------------

@@ -53,9 +53,11 @@ class HarnessInstall:
 
     ``changed`` is the existing ``installed_harness`` signal the daemon reports —
     True iff the file was (re)materialized OR the autoload entry was added/repointed.
-    ``synced`` is True only on a real version/body re-materialize (the
-    ``harness_synced`` the daemon reports — distinct from merely adding the autoload
-    entry). ``version`` is the version now installed on disk.
+    ``synced`` is True ONLY when an **already-installed** harness was rewritten to a
+    new version/body (a stale→current resync — the ``harness_synced`` the daemon
+    reports). A first install is NOT a sync: it is already visible via ``changed`` /
+    ``installed_harness``, so ``synced`` stays False there. ``version`` is the
+    version now installed on disk.
     """
 
     changed: bool
@@ -133,18 +135,28 @@ def _ensure_autoload(text: str) -> tuple[str, bool]:
     lines = text.splitlines()
     trailing = "\n" if text.endswith("\n") else ""
 
-    # A GdaHarness entry pointing somewhere else — re-point it in place.
+    # Re-point an existing GdaHarness entry, or insert a fresh one — both scoped to
+    # the [autoload] section, so a same-named key in another section is never
+    # touched (PR #247 review; symmetric with _remove_autoload).
+    section: Optional[str] = None
+    autoload_header_index: Optional[int] = None
     for i, raw in enumerate(lines):
-        if raw.strip().startswith(f"{HARNESS_AUTOLOAD_NAME}="):
+        stripped = raw.strip()
+        section = _section_of(stripped, section)
+        if section != _AUTOLOAD_HEADER:
+            continue
+        if stripped == _AUTOLOAD_HEADER:
+            if autoload_header_index is None:
+                autoload_header_index = i
+        elif stripped.startswith(f"{HARNESS_AUTOLOAD_NAME}="):
             lines[i] = line
             return "\n".join(lines) + trailing, True
 
-    # An existing [autoload] section — insert right after its header, preserving
-    # any sibling autoloads.
-    for i, raw in enumerate(lines):
-        if raw.strip() == _AUTOLOAD_HEADER:
-            lines.insert(i + 1, line)
-            return "\n".join(lines) + trailing, True
+    # An existing [autoload] section with no GdaHarness entry — insert right after
+    # its header, preserving any sibling autoloads.
+    if autoload_header_index is not None:
+        lines.insert(autoload_header_index + 1, line)
+        return "\n".join(lines) + trailing, True
 
     # No [autoload] section — append one at EOF (sections may appear in any order).
     base = text if text.endswith("\n") else text + "\n"
@@ -156,9 +168,11 @@ def install_harness(project: Path) -> HarnessInstall:
 
     Returns a :class:`HarnessInstall`: ``changed`` (the ``installed_harness`` the
     daemon reports — ``True`` on a first install or a re-materialize/re-point),
-    ``synced`` (``True`` only on a real version/body re-materialize, the
-    ``harness_synced`` the daemon reports), and the ``version`` now on disk.
+    ``synced`` (``True`` only when an **already-installed** harness was rewritten to
+    a new version/body — the ``harness_synced`` the daemon reports), and the
+    ``version`` now on disk.
     """
+    existed = _harness_dest(project).exists()
     materialized = _materialize(project)
     project_godot = project / "project.godot"
     text = project_godot.read_text(encoding="utf-8")
@@ -167,21 +181,44 @@ def install_harness(project: Path) -> HarnessInstall:
         project_godot.write_text(new_text, encoding="utf-8")
     return HarnessInstall(
         changed=materialized or autoload_added,
-        synced=materialized,
+        # A *resync*, not a first install: the file must have already existed AND
+        # been rewritten (stale version/body → current). A first install rewrites
+        # too, but is reported by ``changed`` / ``installed_harness`` (PR #247 review).
+        synced=existed and materialized,
         version=HARNESS_VERSION,
     )
+
+
+def _section_of(stripped: str, current: Optional[str]) -> Optional[str]:
+    """The active INI section after a stripped line, or ``current`` if unchanged.
+
+    A section header is ``[name]``; any other line leaves the section as-is. Used to
+    scope harness-key edits to ``[autoload]`` so a same-named key in another section
+    of ``project.godot`` is never touched (PR #247 review).
+    """
+    if stripped.startswith("[") and stripped.endswith("]"):
+        return stripped
+    return current
 
 
 def _remove_autoload(text: str) -> tuple[str, bool]:
     """Drop the harness autoload line from ``project.godot`` text; (text, changed).
 
-    Removes only the ``GdaHarness=...`` line, leaving the ``[autoload]`` section
-    header and any sibling autoloads intact (the inverse of ``_ensure_autoload``).
+    Removes only the ``GdaHarness=...`` line **inside the ``[autoload]`` section**,
+    leaving the section header and any sibling autoloads intact (the inverse of
+    ``_ensure_autoload``). A same-named key in another section is left untouched.
     """
     lines = text.splitlines()
-    kept = [
-        raw for raw in lines if not raw.strip().startswith(f"{HARNESS_AUTOLOAD_NAME}=")
-    ]
+    section: Optional[str] = None
+    kept: list[str] = []
+    for raw in lines:
+        stripped = raw.strip()
+        section = _section_of(stripped, section)
+        if section == _AUTOLOAD_HEADER and stripped.startswith(
+            f"{HARNESS_AUTOLOAD_NAME}="
+        ):
+            continue  # drop the autoload entry only
+        kept.append(raw)
     if len(kept) == len(lines):
         return text, False
     trailing = "\n" if text.endswith("\n") else ""

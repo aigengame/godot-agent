@@ -45,8 +45,8 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
         assert isinstance(started, DaemonStartResult), started
         assert started.already_running is False
         assert started.installed_harness is True  # harness installed + reported
-        # #225: a first install is a real version-sync, reporting the version.
-        assert started.harness_synced is True
+        # #225/#247: a first install is reported by installed_harness, not as a sync.
+        assert started.harness_synced is False
         assert started.harness_version == HARNESS_VERSION
         assert daemon_pid(paths) == started.pid
 

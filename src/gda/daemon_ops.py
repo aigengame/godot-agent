@@ -32,9 +32,7 @@ from gda.daemon.protocol import read_message, write_message
 from gda.daemon.server import STATUS_OP, STOP_OP
 from gda.errors import Failure, _failure, unresolvable_binary_failure
 from gda.harness.install import (
-    HARNESS_VERSION,
     install_harness,
-    installed_harness_version,
     uninstall_harness,
 )
 from gda.models import (
@@ -167,14 +165,21 @@ def run_daemon_start_operation(
         )
     existing = daemon_pid(paths)
     if existing is not None:
-        # Idempotent: a daemon is already up for this project. It syncs nothing —
-        # report the version already installed on disk (None when somehow absent).
+        # Idempotent: a daemon is already up for this project — but still self-sync
+        # the installed harness (#225), so upgrading `gda` while an old daemon stays
+        # up never leaves a stale harness on disk. The next engine session the
+        # daemon launches reads the synced copy (sessions launch lazily and relaunch
+        # once the prior one dies, ADR-0017), so a `daemon start` before any live op
+        # — the common flow — is fully resynced. `harness_synced` is true only on a
+        # real stale→current rewrite, so a steady-state repeat start still reports
+        # false and writes nothing (no mtime bump, no concurrent-editor prompt).
+        installed = install_harness(project)
         return DaemonStartResult(
             pid=existing,
             socket_path=str(paths.cli_socket),
-            installed_harness=False,
-            harness_synced=False,
-            harness_version=installed_harness_version(project) or HARNESS_VERSION,
+            installed_harness=installed.changed,
+            harness_synced=installed.synced,
+            harness_version=installed.version,
             already_running=True,
         )
 

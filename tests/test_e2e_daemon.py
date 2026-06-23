@@ -168,7 +168,7 @@ def test_daemon_start_re_syncs_harness_after_a_version_bump(tmp_path, daemon_run
         first = run("daemon", "start")
         assert first.returncode == 0, first.stdout + first.stderr
         first_doc = json.loads(first.stdout)
-        assert first_doc["harness_synced"] is True  # a first install IS a sync
+        assert first_doc["harness_synced"] is False  # a first install is NOT a sync (#247)
         assert first_doc["harness_version"] == HARNESS_VERSION
         assert installed_harness_version(tmp_path) == HARNESS_VERSION
 

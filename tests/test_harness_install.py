@@ -37,7 +37,7 @@ def test_install_materializes_harness_and_writes_autoload_entry(tmp_path):
     result = install_harness(tmp_path)
 
     assert result.changed is True
-    assert result.synced is True  # the harness file was materialized
+    assert result.synced is False  # a first install is NOT a resync (#247 review)
     assert result.version == HARNESS_VERSION
     gd = tmp_path / "addons" / "gda_harness" / "gda_harness.gd"
     assert gd.exists()
@@ -147,6 +147,26 @@ def test_uninstall_removes_both_autoload_and_files(tmp_path):
     assert HARNESS_AUTOLOAD_NAME not in text  # no dangling GdaHarness= line
     assert not _harness_file(tmp_path).exists()  # files deleted
     assert not (tmp_path / HARNESS_RES_DIR).exists()  # the addon dir too
+
+
+def test_uninstall_scopes_removal_to_the_autoload_section(tmp_path):
+    # PR #247 review: uninstall must strip the GdaHarness row from [autoload] ONLY,
+    # never a same-named key in another section of project.godot.
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(_NO_AUTOLOAD, encoding="utf-8")
+    install_harness(tmp_path)  # writes the real autoload entry into [autoload]
+    # Inject a same-named decoy key in an unrelated section.
+    project_godot.write_text(
+        '[some_plugin]\n\nGdaHarness="keep-me"\n\n'
+        + project_godot.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    uninstall_harness(tmp_path)
+
+    text = project_godot.read_text(encoding="utf-8")
+    assert 'GdaHarness="keep-me"' in text  # the unrelated section key is untouched
+    assert _autoload_line() not in text  # the [autoload] entry is gone
 
 
 def test_uninstall_removes_autoload_before_files(tmp_path, monkeypatch):
