@@ -4,6 +4,13 @@ status: accepted
 
 # gda-daemon transport and discovery: Unix domain sockets end-to-end, per-project socket + pidfile discovery, and a Phase-2 live floor of Godot 4.6
 
+> **Outcome (2026-06-22, #233 / PR #245):** the Phase-2 live floor decided here
+> (macOS/Linux via Unix domain sockets, Godot 4.6+) is now surfaced as a
+> structured `constraints` field in per-command `--schema` and the aggregate
+> manifest (ADR-0004, ADR-0012) — machine-discoverable, no longer `--help` prose.
+> `gda.execution.MIN_LIVE_VERSION` is the single source the daemon-start version
+> gate and the schema predicate share.
+
 ADR-0017 fixed [gda-daemon](../../CONTEXT.md)'s shape — a per-project supervisor + IPC
 broker holding a transient [engine session](../../CONTEXT.md) with the
 [gda harness](../../CONTEXT.md), routed by a static `kind` channel selector — but

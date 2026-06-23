@@ -25,8 +25,8 @@ from gda.errors import (
     invalid_params_json_failure,
     unresolvable_binary_failure,
 )
-from gda.execution import ExecutionKind
-from gda.models import CommandSchema, GdaErrorEnvelope
+from gda.execution import ExecutionKind, live_stack_constraints
+from gda.models import CommandSchema, GdaErrorEnvelope, LiveStackConstraints
 from gda.render import render
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
 
@@ -39,6 +39,30 @@ RunnerFactory = Callable[[Path, Optional[Path]], GodotRunner]
 def make_subprocess_runner(binary: Path, project: Optional[Path] = None) -> GodotRunner:
     """Build the default real Godot runner for ``binary`` and ``project``."""
     return SubprocessGodotRunner(binary, project=project)
+
+
+def command_constraints(
+    command: "Optional[HeadlessCommand]",
+) -> Optional[LiveStackConstraints]:
+    """Wrap a command's live-stack constraint into the model, or ``None``.
+
+    The one place the leaf :func:`gda.execution.live_stack_constraints`
+    predicate's primitives are lifted into the :class:`LiveStackConstraints`
+    model, shared by the per-command ``--schema`` path here and the aggregate
+    manifest builder (``gda.surface``) so the two forms cannot drift (issue
+    #233). ``None`` for a command with no backing descriptor (the bare ``gda
+    schema`` meta command) and for any command the predicate reports no live-stack
+    dependence for.
+    """
+    if command is None:
+        return None
+    constraint = live_stack_constraints(command.kind, command.operation)
+    if constraint is None:
+        return None
+    platforms, min_godot_version = constraint
+    return LiveStackConstraints(
+        platforms=platforms, min_godot_version=min_godot_version
+    )
 
 
 def json_option() -> bool:
@@ -182,9 +206,17 @@ def schema_command_class(
                 # ("headless"/"export"/"live"). ``None`` for the bare ``gda
                 # schema`` meta command, which has no backing command to run.
                 kind = command.kind if command is not None else None
+                # The live-stack constraint (issue #233) comes from the same one
+                # source of truth — the predicate keyed on the backing command's
+                # ``kind`` + ``operation`` — wrapped into the model here so the
+                # per-command ``--schema`` and the aggregate manifest agree.
+                constraints = command_constraints(command)
                 typer.echo(
                     CommandSchema.of(
-                        input_model, output_model, kind=kind
+                        input_model,
+                        output_model,
+                        kind=kind,
+                        constraints=constraints,
                     ).model_dump_json()
                 )
                 raise typer.Exit()

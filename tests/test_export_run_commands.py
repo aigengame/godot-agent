@@ -441,8 +441,9 @@ def test_export_run_unknown_preset_reuses_export_get_error(monkeypatch, tmp_path
 
 def test_export_run_schema_emits_contract_without_engine(monkeypatch):
     # ADR-0004 hard gate: --schema emits the {input, output, error} contract
-    # (plus the additive #230 `kind`), spawns no Godot (both seams would raise if
-    # touched), and never requires the operational --preset.
+    # (plus the additive #230 `kind` and #233 `constraints`), spawns no Godot
+    # (both seams would raise if touched), and never requires the operational
+    # --preset.
     def _boom(*args, **kwargs):
         raise AssertionError("--schema must not spawn any engine")
 
@@ -453,10 +454,12 @@ def test_export_run_schema_emits_contract_without_engine(monkeypatch):
 
     assert result.exit_code == 0, result.stdout + result.stderr
     schema = json.loads(result.stdout)
-    assert set(schema) == {"input", "output", "error", "kind"}
+    assert set(schema) == {"input", "output", "error", "kind", "constraints"}
     # export run is the one EXPORT-channel command (issue #230); its sibling
     # read-only export commands stay HEADLESS.
     assert schema["kind"] == "export"
+    # export run is not a live-stack command, so it carries no constraint (#233).
+    assert schema["constraints"] is None
     # The input schema carries the command's params, now including the #170
     # --mode and --output overrides; the output schema carries the result.
     assert "preset" in schema["input"]["properties"]
