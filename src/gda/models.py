@@ -3318,8 +3318,9 @@ class DaemonStatusResult(BaseModel):
             "Whether the running daemon was launched windowed (no --headless), the "
             "mode a `screen` capture op requires — read over the daemon's STATUS_OP, "
             "the running daemon being the authority for its launch-time mode (#251). "
-            "**null** when no daemon is running (alongside `running: false`), since "
-            "there is no mode to report."
+            "**null** when the mode is undetermined: either no daemon is running "
+            "(alongside `running: false`), or a daemon is running (`running: true`) "
+            "but its bounded STATUS_OP round trip missed transiently."
         ),
     )
 
