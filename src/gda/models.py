@@ -113,6 +113,39 @@ class SchemaAllParams(BaseModel):
     """
 
 
+class LiveStackConstraints(BaseModel):
+    """The platform / Godot-version precondition a live-stack command needs (issue #233).
+
+    A structured, machine-discoverable form of the constraint that ``gda``'s
+    daemon/live stack carries — macOS/Linux only (Unix domain sockets) and, where
+    a command launches/uses the engine, Godot 4.6+ (ADR-0021) — replacing the
+    prose that used to live only in ``--help`` text and the manifest description.
+    Present (non-``null``) only on commands that depend on the live stack: the
+    LIVE-channel domain commands (``game …``) and the ``daemon`` lifecycle group;
+    every other command's ``constraints`` is ``null``.
+
+    Both facets come from the single :func:`gda.execution.live_stack_constraints`
+    authority, so the structured field and the help/manifest prose cannot drift:
+
+    - ``platforms`` is the uniform ``["linux", "macos"]`` (UDS) across the whole
+      live-stack set.
+    - ``min_godot_version`` is the dotted floor (``"4.6"``) only where a command
+      launches/uses the engine (``game …``, ``daemon start``); ``None`` for
+      ``daemon stop`` / ``daemon status``, which only talk to a running daemon
+      over UDS and never touch the engine.
+
+    Additive and ignored by gda-mcp, which maps only ``input`` / ``output`` /
+    ``description`` (ADR-0012), so adding it is backward-compatible (ADR-0004).
+    """
+
+    platforms: list[str]
+    # Required key, nullable value: the wrapper always supplies it (``None`` for
+    # daemon stop/status), and the emitted objects always carry the key — so the
+    # self-described schema marks it required, matching the actual ABI (issue #233,
+    # PR #245 review). Not defaulted, or the schema would allow the key's omission.
+    min_godot_version: str | None
+
+
 class CommandSchema(BaseModel):
     """A command's self-description: its ``input``, ``output`` and ``error`` JSON Schemas (ADR-0004).
 
@@ -140,12 +173,19 @@ class CommandSchema(BaseModel):
     (ADR-0012). It is ``None`` only when a self-description is emitted without a
     backing command (e.g. ``gda schema``); a real per-command ``--schema`` always
     carries a kind.
+
+    ``constraints`` carries the command's :class:`LiveStackConstraints` — the
+    platform / Godot-version precondition for gda's daemon/live stack — or
+    ``None`` for a command with no live-stack dependence (issue #233). Both forms
+    are sourced from the single :func:`gda.execution.live_stack_constraints`
+    authority. Additive and ignored by gda-mcp (ADR-0012, ADR-0004).
     """
 
     input: dict[str, Any]
     output: dict[str, Any]
     error: dict[str, Any]
     kind: ExecutionKind | None = None
+    constraints: LiveStackConstraints | None = None
 
     @classmethod
     def of(
@@ -153,6 +193,7 @@ class CommandSchema(BaseModel):
         input_model: type[BaseModel],
         output_model: type[BaseModel],
         kind: ExecutionKind | None = None,
+        constraints: LiveStackConstraints | None = None,
     ) -> "CommandSchema":
         """Derive the contract from a command's params and result models.
 
@@ -160,13 +201,16 @@ class CommandSchema(BaseModel):
         command, so it takes no per-command model argument. ``kind`` is the
         command's static :class:`~gda.execution.ExecutionKind` (issue #230); it
         serializes to its lowercase string because ``ExecutionKind`` subclasses
-        ``str``.
+        ``str``. ``constraints`` is the command's live-stack precondition or
+        ``None`` (issue #233), computed by the caller from the single
+        :func:`gda.execution.live_stack_constraints` authority.
         """
         return cls(
             input=input_model.model_json_schema(),
             output=output_model.model_json_schema(),
             error=GdaErrorEnvelope.model_json_schema(),
             kind=kind,
+            constraints=constraints,
         )
 
 
@@ -189,6 +233,16 @@ class CommandManifestEntry(BaseModel):
     dispatchable command with a backing descriptor, so the self-described surface
     schema (``gda schema --schema``) guarantees the field and constrains it to
     the execution-kind enum — a consumer can rely on it always being present.
+
+    ``constraints`` mirrors :class:`CommandSchema`'s: the entry's
+    :class:`LiveStackConstraints`, or ``None`` for a command with no live-stack
+    dependence (issue #233), from the same single
+    :func:`gda.execution.live_stack_constraints` authority so the aggregate and
+    per-command forms agree. Unlike :class:`CommandSchema`'s defaulted field, the
+    **key is required** here (every dispatchable entry is computed from a backing
+    descriptor, so the self-described surface schema guarantees the key is
+    present) while its **value is nullable** (``null`` for non-live-stack
+    commands) — a consumer can rely on the key always being there to read.
     """
 
     name: str
@@ -197,6 +251,7 @@ class CommandManifestEntry(BaseModel):
     output: dict[str, Any]
     error: dict[str, Any]
     kind: ExecutionKind
+    constraints: LiveStackConstraints | None
 
 
 class SurfaceManifest(BaseModel):

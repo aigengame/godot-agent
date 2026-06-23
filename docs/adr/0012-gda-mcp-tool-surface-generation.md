@@ -13,6 +13,14 @@ status: accepted
 > backward compatible. On the aggregate entry `kind` is required and
 > enum-constrained, so a consumer of `gda schema --schema` can rely on it.
 
+> **Outcome (2026-06-22, #233 / PR #245):** each manifest entry gained an
+> additive `constraints` field (the command's `LiveStackConstraints` — platform
+> set + minimum Godot version, ADR-0021; `null` for non-live-stack commands), so
+> the entry above is now `{name, description, input, output, error, kind,
+> constraints}`. gda-mcp's mapping is unchanged — it ignores `kind` /
+> `constraints` — so the addition is backward compatible. On the aggregate entry
+> the `constraints` key is always present, its value nullable.
+
 ADR-0011 fixes [gda-mcp](../../CONTEXT.md) as a subprocess adapter that consumes
 `gda`'s public ABI. ADR-0004 / ADR-0005 make each command self-describing
 (`--schema` → `{input, output, error}`) and give a deterministic CLI→MCP name map

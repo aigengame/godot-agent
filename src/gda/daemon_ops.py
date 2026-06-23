@@ -31,6 +31,7 @@ from gda.daemon.discovery import (
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.server import STATUS_OP, STOP_OP
 from gda.errors import Failure, _failure, unresolvable_binary_failure
+from gda.execution import MIN_LIVE_VERSION
 from gda.harness.install import (
     install_harness,
     uninstall_harness,
@@ -47,7 +48,9 @@ _STOP_TIMEOUT = 8.0
 _POLL = 0.05
 
 # Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).
-MIN_LIVE_VERSION = (4, 6)
+# The floor itself lives in ``gda.execution`` as the single source of truth — the
+# ``live_stack_constraints`` predicate that surfaces it in ``--schema`` (issue
+# #233) shares it — and is imported back here for the version gate.
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)")
 
 # Seams tests override to avoid launching a real process / running the engine.

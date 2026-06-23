@@ -269,7 +269,7 @@ app.add_typer(theme_app, name="theme")
 # `node`. It is a domain-object group named after the running game, not a phase
 # group — the headless/live split is carried by `kind`, never by the tree.
 game_app = typer.Typer(
-    help="Act on the running game (live; macOS/Linux only, needs `gda daemon start`).",
+    help="Act on the running game (live; needs `gda daemon start`).",
     no_args_is_help=True,
 )
 app.add_typer(game_app, name="game")
@@ -282,7 +282,7 @@ app.add_typer(game_app, name="game")
 # diagnosable. From the CLI's side it routes like any live command (kind = LIVE
 # -> the daemon socket); the daemon recognizes the diag op names.
 diag_app = typer.Typer(
-    help="Read the running game's runtime diagnostics (live; macOS/Linux only, needs `gda daemon start`).",
+    help="Read the running game's runtime diagnostics (live; needs `gda daemon start`).",
     no_args_is_help=True,
 )
 app.add_typer(diag_app, name="diag")
@@ -294,7 +294,7 @@ app.add_typer(diag_app, name="diag")
 # multi-frame harness base). Like `game`, a domain-object group marked live by
 # `kind`, not by the tree (ADR-0019).
 perf_app = typer.Typer(
-    help="Monitor the running game's runtime performance (live; macOS/Linux only).",
+    help="Monitor the running game's runtime performance (live).",
     no_args_is_help=True,
 )
 app.add_typer(perf_app, name="perf")
@@ -310,7 +310,7 @@ app.add_typer(perf_app, name="perf")
 # `gda <group> <command>` → `<group>_<command>` dispatch + gda-mcp tool-name mapping
 # (ADR-0005/0011/0012).
 input_app = typer.Typer(
-    help="Inject input into the running game (live; macOS/Linux only).",
+    help="Inject input into the running game (live).",
     no_args_is_help=True,
 )
 app.add_typer(input_app, name="input")
@@ -321,7 +321,7 @@ app.add_typer(input_app, name="input")
 # stop / status manage the daemon PROCESS, so — like `export run` — they run a
 # recipe (gda.daemon_ops) rather than the sentinel pipeline.
 daemon_app = typer.Typer(
-    help="Manage the per-project gda-daemon (live ops; macOS/Linux only, Godot 4.6+).",
+    help="Manage the per-project gda-daemon (live ops).",
     no_args_is_help=True,
 )
 app.add_typer(daemon_app, name="daemon")
@@ -544,10 +544,11 @@ def game_tree(
 
     Routes through gda-daemon to the engine session it holds (kind = LIVE,
     ADR-0017): the runtime SceneTree after _ready and dynamic instantiation,
-    distinct from the on-disk .tscn read by `scene get` (ADR-0019). Live ops are
-    macOS/Linux only (Unix domain sockets) and need a running daemon: with none,
-    it reports the typed `daemon_not_running` error naming the remediation
-    (`gda daemon start`); on a non-UNIX platform, `live_unsupported_platform`.
+    distinct from the on-disk .tscn read by `scene get` (ADR-0019). Live ops need
+    a running daemon: with none, it reports the typed `daemon_not_running` error
+    naming the remediation (`gda daemon start`); on an unsupported platform,
+    `live_unsupported_platform`. The platform/Godot-version precondition is the
+    structured `constraints` field of `--schema` (ADR-0021), not restated here.
     """
     _dispatch(
         GAME_TREE_COMMAND,
@@ -766,8 +767,8 @@ def perf_monitors(
     Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017): the
     instantaneous Performance counters — fps, frame timing, memory, object/node
     counts, render stats, active physics/navigation objects — read in one frame, so
-    the values are mutually coherent (ADR-0020). Live ops are macOS/Linux only and
-    need a running daemon: with none, it reports `daemon_not_running`.
+    the values are mutually coherent (ADR-0020). Live ops need a running daemon:
+    with none, it reports `daemon_not_running`.
     """
     _dispatch(
         PERF_MONITORS_COMMAND,
@@ -1153,8 +1154,9 @@ def daemon_start(
 
     Brings up the live context: a long-lived, per-project daemon, after a reported
     idempotent harness install (ADR-0018). Never auto-spawned by a live call —
-    launching the engine is a deliberate, declared effect (ADR-0017). Live is
-    UNIX-only and needs Godot 4.6+ (ADR-0021).
+    launching the engine is a deliberate, declared effect (ADR-0017). The
+    platform/Godot-version precondition is the structured `constraints` field of
+    `--schema` (ADR-0021), not restated here.
     """
     _daemon_dispatch(
         DAEMON_START_COMMAND, json_output=json_output, godot=godot, project=project
@@ -1171,8 +1173,8 @@ def daemon_stop(
 ) -> None:
     """Stop the per-project gda-daemon (a no-op if none is running).
 
-    Live operations are macOS/Linux only (Unix domain sockets); on a non-UNIX
-    platform this reports `live_unsupported_platform`.
+    On an unsupported platform this reports `live_unsupported_platform`; the
+    platform precondition is the structured `constraints` field of `--schema`.
     """
     _daemon_dispatch(
         DAEMON_STOP_COMMAND, json_output=json_output, godot=godot, project=project
@@ -1189,8 +1191,8 @@ def daemon_status(
 ) -> None:
     """Report whether a per-project gda-daemon is running.
 
-    Live operations are macOS/Linux only (Unix domain sockets); on a non-UNIX
-    platform this reports `live_unsupported_platform`.
+    On an unsupported platform this reports `live_unsupported_platform`; the
+    platform precondition is the structured `constraints` field of `--schema`.
     """
     _daemon_dispatch(
         DAEMON_STATUS_COMMAND, json_output=json_output, godot=godot, project=project
