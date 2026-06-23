@@ -106,7 +106,10 @@ class DaemonServer:
     def _handle(self, request: dict) -> dict | None:
         op = request.get("op")
         if op == STATUS_OP:
-            return {"ok": True, "pid": os.getpid()}
+            # `windowed` lets `gda daemon status` report the daemon's launch-time
+            # display mode (#251): the running daemon is the only authority for the
+            # mode it was started with, so it travels back on the control reply.
+            return {"ok": True, "pid": os.getpid(), "windowed": self.windowed}
         if op == STOP_OP:
             self._stopping = True
             return {"ok": True, "pid": os.getpid()}

@@ -47,6 +47,17 @@ def test_control_ops_report_liveness_and_request_stop(tmp_path):
     assert server._stopping is True
 
 
+def test_status_op_reports_the_declared_display_mode(tmp_path):
+    # `daemon status` reads the running daemon's launch-time display mode over
+    # STATUS_OP (#251) — the daemon is the only authority for the mode it was
+    # started with — so the control reply must carry `windowed`.
+    headless = DaemonServer(daemon_paths(tmp_path), godot="")
+    assert headless._handle({"op": "__status__"})["windowed"] is False
+
+    windowed = DaemonServer(daemon_paths(tmp_path), godot="", windowed=True)
+    assert windowed._handle({"op": "__status__"})["windowed"] is True
+
+
 def test_engine_session_request_times_out_as_live_timeout(monkeypatch):
     # A harness that never replies must surface the registered live_timeout, not
     # hang the daemon forever (ADR-0021).

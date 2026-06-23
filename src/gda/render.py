@@ -316,7 +316,10 @@ def render_daemon_stop(stopped: "DaemonStopResult") -> str:
 def render_daemon_status(status: "DaemonStatusResult") -> str:
     """Render a `gda daemon status` outcome for humans."""
     if status.running:
-        return f"daemon running: pid {status.pid} on {status.socket_path}"
+        # Mirror `daemon start`: note the display mode only when windowed (#251),
+        # since headless is the default and an unknown mode (null) has nothing to say.
+        mode = " [windowed]" if status.windowed else ""
+        return f"daemon running: pid {status.pid} on {status.socket_path}{mode}"
     return "daemon not running"
 
 
