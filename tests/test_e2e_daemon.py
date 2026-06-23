@@ -242,3 +242,37 @@ def test_daemon_uninstall_is_refused_while_running(tmp_path, daemon_runtime_dir)
         assert harness.exists()  # refusal left the install intact
     finally:
         run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_status_surfaces_the_windowed_display_mode(tmp_path, daemon_runtime_dir):
+    # #251: `daemon status` reports the running daemon's launch-time display mode,
+    # read over STATUS_OP through the console script, so an agent can tell whether a
+    # live session can serve a `screen` capture before issuing one. No daemon ->
+    # `windowed` null (clean, hang-free fallback); a default start -> false; a
+    # `--windowed` start -> true. The daemon records the mode at start; no engine
+    # session is launched here (lazy launch, ADR-0017), so this needs no display.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    # No daemon running yet: running False, windowed null.
+    before = json.loads(run("daemon", "status").stdout)
+    assert before["running"] is False
+    assert before["windowed"] is None
+
+    try:
+        # The default start is headless -> status reports windowed False.
+        assert run("daemon", "start").returncode == 0
+        headless = json.loads(run("daemon", "status").stdout)
+        assert headless["running"] is True
+        assert headless["windowed"] is False
+        assert run("daemon", "stop").returncode == 0
+
+        # A `--windowed` start -> status reports windowed True.
+        assert run("daemon", "start", "--windowed").returncode == 0
+        windowed = json.loads(run("daemon", "status").stdout)
+        assert windowed["running"] is True
+        assert windowed["windowed"] is True
+    finally:
+        run("daemon", "stop")

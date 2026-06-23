@@ -62,6 +62,9 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
         status = run_daemon_status_operation(project)
         assert isinstance(status, DaemonStatusResult)
         assert status.running is True and status.pid == started.pid
+        # #251: status round-trips STATUS_OP to read the daemon's launch-time mode.
+        # This daemon was started headless (the default), so it reports windowed.
+        assert status.windowed is False
     finally:
         stopped = run_daemon_stop_operation(project)
         assert isinstance(stopped, DaemonStopResult)
@@ -69,6 +72,28 @@ def test_daemon_start_status_stop_lifecycle(tmp_path, daemon_runtime_dir):
     # Torn down: pidfile dead, socket gone.
     assert daemon_pid(paths) is None
     assert not paths.cli_socket.exists()
+
+
+def test_daemon_status_reports_a_windowed_daemons_mode(tmp_path, daemon_runtime_dir):
+    # #251: a daemon started `--windowed` reports `windowed: True` over STATUS_OP,
+    # read back by `daemon status`. No engine session is launched here (lazy launch,
+    # ADR-0017) — the daemon process merely records the declared mode — so this needs
+    # no display and is headless-CI safe.
+    project = _project(tmp_path)
+
+    try:
+        started = run_daemon_start_operation(
+            project, None, windowed=True, version_check=_OK_VERSION
+        )
+        assert isinstance(started, DaemonStartResult), started
+        assert started.windowed is True
+
+        status = run_daemon_status_operation(project)
+        assert isinstance(status, DaemonStatusResult)
+        assert status.running is True
+        assert status.windowed is True
+    finally:
+        run_daemon_stop_operation(project)
 
 
 def test_live_version_gate_rejects_below_4_6(tmp_path, daemon_runtime_dir):
@@ -88,6 +113,8 @@ def test_daemon_status_and_stop_when_not_running(tmp_path, daemon_runtime_dir):
 
     status = run_daemon_status_operation(project)
     assert isinstance(status, DaemonStatusResult) and status.running is False
+    # No daemon -> no mode to read; `windowed` is None (no round trip, no hang, #251).
+    assert status.windowed is None
 
     stopped = run_daemon_stop_operation(project)
     assert isinstance(stopped, DaemonStopResult) and stopped.stopped is False

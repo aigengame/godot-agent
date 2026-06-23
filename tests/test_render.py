@@ -12,6 +12,7 @@ import pytest
 from gda import render as render_mod
 from gda.models import (
     DaemonStartResult,
+    DaemonStatusResult,
     DaemonUninstallResult,
     EngineVersion,
     GameGetResult,
@@ -223,6 +224,25 @@ def test_render_daemon_start_surfaces_a_version_sync(tmp_path):
     # A first install (changed but not a version-mismatch resync) reads as install.
     installed = synced.model_copy(update={"harness_synced": False})
     assert render(installed) == "daemon started: pid 42 on /tmp/x.sock (installed harness)"
+
+
+def test_render_daemon_status_notes_the_windowed_session(tmp_path):
+    # #251: `daemon status` surfaces the running daemon's display mode. Like
+    # `daemon start`, the marker shows only when windowed (headless is the default).
+    windowed = DaemonStatusResult(
+        running=True, pid=42, socket_path="/tmp/x.sock", windowed=True
+    )
+    assert render(windowed) == "daemon running: pid 42 on /tmp/x.sock [windowed]"
+
+    headless = windowed.model_copy(update={"windowed": False})
+    assert render(headless) == "daemon running: pid 42 on /tmp/x.sock"
+
+    # An unknown mode (e.g. a transient round-trip miss) renders no marker either.
+    unknown = windowed.model_copy(update={"windowed": None})
+    assert render(unknown) == "daemon running: pid 42 on /tmp/x.sock"
+
+    stopped = DaemonStatusResult(running=False, socket_path="/tmp/x.sock")
+    assert render(stopped) == "daemon not running"
 
 
 def test_render_daemon_uninstall_reports_removal(tmp_path):

@@ -274,8 +274,21 @@ def run_daemon_status_operation(project: Optional[Path]) -> "DaemonStatusResult 
         )
     paths = daemon_paths(project)
     pid = daemon_pid(paths)
+    # Liveness stays the pidfile's call (ADR-0021). When a daemon is up, round-trip
+    # its STATUS_OP to read the launch-time display mode — the running daemon is the
+    # only authority for the mode it was started with, which a pidfile cannot record
+    # (#251). No daemon -> no round trip; a transient round-trip miss on a dying
+    # daemon -> `windowed` stays None. `_control`'s bounded timeout means no hang.
+    windowed = None
+    if pid is not None:
+        reply = _control(paths.cli_socket, STATUS_OP)
+        if reply and reply.get("ok"):
+            windowed = reply.get("windowed")
     return DaemonStatusResult(
-        running=pid is not None, pid=pid, socket_path=str(paths.cli_socket)
+        running=pid is not None,
+        pid=pid,
+        socket_path=str(paths.cli_socket),
+        windowed=windowed,
     )
 
 

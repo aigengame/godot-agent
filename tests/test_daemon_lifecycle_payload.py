@@ -25,7 +25,11 @@ from gda.harness.install import (
     install_harness,
     installed_harness_version,
 )
-from gda.models import DaemonStartResult, DaemonUninstallResult
+from gda.models import (
+    DaemonStartResult,
+    DaemonStatusResult,
+    DaemonUninstallResult,
+)
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
@@ -272,6 +276,81 @@ def test_cli_daemon_start_defaults_to_headless(tmp_path, short_runtime, monkeypa
     assert result.exit_code == 0, result.output
     assert captured["windowed"] is False
     assert json.loads(result.stdout)["windowed"] is False
+
+
+# --- status surfaces the running daemon's display mode (#251) -----------------
+# `daemon status` is no longer pidfile-only: when a daemon is up it round-trips the
+# STATUS_OP control op to read the daemon's launch-time `windowed` mode, so an agent
+# can tell whether a live session can serve a `screen` capture before issuing one.
+# No daemon -> `running: False` and `windowed: None`, with no round trip and no hang.
+
+
+def test_status_reports_windowed_read_over_the_control_op(
+    tmp_path, short_runtime, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    # Stub the IPC round trip: a windowed daemon answers STATUS_OP with windowed=True.
+    monkeypatch.setattr(
+        daemon_ops, "_control", lambda sock, op, **kw: {"ok": True, "windowed": True}
+    )
+
+    status = daemon_ops.run_daemon_status_operation(project)
+
+    assert isinstance(status, DaemonStatusResult), status
+    assert status.running is True and status.pid == 4242
+    assert status.windowed is True
+
+
+def test_status_reports_headless_when_the_daemon_is_headless(
+    tmp_path, short_runtime, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr(
+        daemon_ops, "_control", lambda sock, op, **kw: {"ok": True, "windowed": False}
+    )
+
+    status = daemon_ops.run_daemon_status_operation(project)
+
+    assert isinstance(status, DaemonStatusResult)
+    assert status.running is True and status.windowed is False
+
+
+def test_status_windowed_is_null_when_no_daemon_is_running(
+    tmp_path, short_runtime, monkeypatch
+):
+    # No daemon: `running` is False and `windowed` is None, and crucially the status
+    # path must NOT round-trip (nothing to connect to) — a clean, hang-free fallback.
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+
+    def _must_not_connect(*a, **k):
+        raise AssertionError("status must not round-trip when no daemon is running")
+
+    monkeypatch.setattr(daemon_ops, "_control", _must_not_connect)
+
+    status = daemon_ops.run_daemon_status_operation(project)
+
+    assert isinstance(status, DaemonStatusResult)
+    assert status.running is False
+    assert status.windowed is None
+
+
+def test_status_windowed_is_null_when_the_control_round_trip_fails(
+    tmp_path, short_runtime, monkeypatch
+):
+    # Pidfile says alive but the control round trip yields nothing (a transient race
+    # on a dying daemon): `windowed` falls back to None rather than erroring.
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 4242)
+    monkeypatch.setattr(daemon_ops, "_control", lambda sock, op, **kw: None)
+
+    status = daemon_ops.run_daemon_status_operation(project)
+
+    assert isinstance(status, DaemonStatusResult)
+    assert status.running is True
+    assert status.windowed is None
 
 
 # --- uninstall recipe (#225, D2) ----------------------------------------------

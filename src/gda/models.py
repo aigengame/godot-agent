@@ -3312,6 +3312,16 @@ class DaemonStatusResult(BaseModel):
         default=None, description="The running daemon's pid, if any."
     )
     socket_path: str = Field(description="The per-project CLI socket path.")
+    windowed: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the running daemon was launched windowed (no --headless), the "
+            "mode a `screen` capture op requires — read over the daemon's STATUS_OP, "
+            "the running daemon being the authority for its launch-time mode (#251). "
+            "**null** when no daemon is running (alongside `running: false`), since "
+            "there is no mode to report."
+        ),
+    )
 
 
 class DaemonUninstallParams(BaseModel):
