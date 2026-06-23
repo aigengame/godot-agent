@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.35](https://github.com/aigengame/godot-agent/compare/v0.1.34...v0.1.35) (2026-06-23)
+
+
+### Features
+
+* **daemon:** report running daemon's windowed mode via `daemon status` ([#251](https://github.com/aigengame/godot-agent/issues/251)) ([#255](https://github.com/aigengame/godot-agent/issues/255)) ([73e15ab](https://github.com/aigengame/godot-agent/commit/73e15abaad9dec1a7fb44fb9a38d471af41d0950))
+
 ## [0.1.34](https://github.com/aigengame/godot-agent/compare/v0.1.33...v0.1.34) (2026-06-23)
 
 
