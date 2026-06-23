@@ -555,6 +555,22 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.CLASSIFIER,
         "A live input sequence event has a type the harness does not recognize.",
     ),
+    # The `screen` capture failure the gda harness reports for #222. Same shape as
+    # the other per-op LIVE codes (LIVE-category, classifier-source, exit_code
+    # EXIT_LIVE, harness-mirrored): a viewport capture needs a real DisplayServer,
+    # which the dummy headless one is not — so a screen op on a session NOT started
+    # `gda daemon start --windowed` reports this, the self-revealing remediation
+    # (start the daemon windowed). The harness guards on
+    # `DisplayServer.get_name() == "headless"` before touching the viewport.
+    ErrorCodeSpec(
+        "live_display_unavailable",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live screen capture ran on a headless engine session (the dummy "
+        "DisplayServer cannot read pixels); start the daemon with `gda daemon start "
+        "--windowed`.",
+    ),
     # A pre-launch platform precondition, not a live-runtime failure: live needs
     # Unix domain sockets, which are UNIX-only, so it is an ENVIRONMENT-category
     # code in the binary_not_found bucket (ADR-0021), decided before any engine

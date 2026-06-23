@@ -64,6 +64,20 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > stalled-engine guard. The base is general: #222's viewport capture reuses it by
 > supplying its own sampler/finalizer, with no `_process` change.
 
+> **Outcome (2026-06-22, #222 / PR #248) — the windowed session is a start-time
+> declared mode, refining the #7 note above.** #222 adds `screen capture` / `screen
+> frames` (viewport capture), the first ops needing a real `DisplayServer`. The #7 note
+> anticipated the daemon "switches to a windowed session when the first capturing op
+> lands"; #222 does **not** switch mid-session. A relaunch would discard the session's
+> accumulated runtime state and silently re-run autoloads, breaking ADR-0020's
+> session-bound consistency and this ADR's "deliberate, declared effect". Instead the
+> display mode is declared once at `gda daemon start --windowed`; the `--headless`
+> session stays the cheap default (decision 2's "windowed by default" becomes an
+> explicit per-session opt-in), and a capture op on a headless session fails with the
+> typed `live_display_unavailable` naming the remediation. The capture handlers reuse
+> the #223 time-windowed base — a 1-frame window for a single shot, an N-frame window
+> for a sequence — so the one-shot RPC contract holds.
+
 ## Decision
 
 **1. An execution-channel selector, chosen per command by a static `kind`.**

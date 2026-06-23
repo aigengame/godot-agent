@@ -31,6 +31,8 @@ const OP_INPUT_MOUSE_CLICK := "input-mouse-click"
 const OP_INPUT_MOUSE_MOVE := "input-mouse-move"
 const OP_INPUT_ACTION := "input-action"
 const OP_INPUT_SEQUENCE := "input-sequence"
+const OP_SCREEN_CAPTURE := "screen-capture"
+const OP_SCREEN_FRAMES := "screen-frames"
 
 # The per-op LIVE failure codes the harness reports in-band (#220, #223). Each MUST
 # be a registered LIVE-category code (src/gda/error_codes.py) so the daemon's exit-0
@@ -45,6 +47,7 @@ const LIVE_ERROR_PERF_SIGNAL_NOT_FOUND := "live_perf_signal_not_found"
 const LIVE_ERROR_INVALID_KEY := "live_invalid_key"
 const LIVE_ERROR_UNKNOWN_ACTION := "live_unknown_action"
 const LIVE_ERROR_INVALID_EVENT_SPEC := "live_invalid_event_spec"
+const LIVE_ERROR_DISPLAY_UNAVAILABLE := "live_display_unavailable"
 
 # The frame count a time-windowed op may request (#223). A window collects one
 # sample per frame, so an unbounded N would block the one-shot RPC for an unbounded
@@ -229,6 +232,10 @@ func _run(request) -> Variant:
 			return _handle_input_action(params)
 		OP_INPUT_SEQUENCE:
 			return _handle_input_sequence(params)
+		OP_SCREEN_CAPTURE:
+			return _handle_screen_capture(params)
+		OP_SCREEN_FRAMES:
+			return _handle_screen_frames(params)
 		_:
 			return _error("operation_failed", "unsupported live operation")
 
@@ -714,6 +721,104 @@ func _apply_sequence_event(event: Dictionary) -> Variant:
 		_:
 			return {"code": LIVE_ERROR_INVALID_EVENT_SPEC,
 					"message": "unsupported input sequence event type: " + type}
+
+
+# --- screen (runtime viewport capture, #222) ----------------------------------
+#
+# Capture the running game's VIEWPORT over the LIVE channel: read the viewport's
+# rendered texture as an Image, PNG-encode it, and base64 the PNG into the ADR-0002
+# sentinel reply (a UTF-8-safe wire). The CLI decodes it and writes the file.
+#
+# Display guard: a viewport capture needs a real DisplayServer to have rendered
+# pixels. Under `--headless` Godot uses the dummy "headless" DisplayServer whose
+# texture is empty, so a capture there is the typed `live_display_unavailable`
+# (start the daemon `--windowed`). Checked up front, before opening any window.
+#
+# GPU-framebuffer timing: `get_viewport().get_texture().get_image()` reads the
+# texture for the LAST rendered frame, which can be empty if read before the first
+# real frame has rendered (the harness's _ready runs before the main scene is even
+# instantiated). Both ops therefore capture INSIDE a window tick — reusing the #223
+# time-windowed base — so the sample runs on a _process frame boundary AFTER the
+# scene is up (the _process loop only dispatches once current_scene != null), by
+# which point a frame has rendered. `screen capture` is a 1-frame window; `screen
+# frames` an N-frame one. No _process change — same sampler/finalizer base as perf.
+
+
+# True when the running session has no real display — the dummy "headless"
+# DisplayServer (`--headless`, i.e. the daemon was NOT started --windowed), whose
+# viewport renders no pixels. The one runtime fact the model cannot pre-check.
+func _display_is_headless() -> bool:
+	return DisplayServer.get_name() == "headless"
+
+
+# Capture the current viewport frame as a base64 PNG + its dims. Returns a frame
+# Dictionary on success, or an {"error": {...}} envelope (window-aborting form) if
+# the image could not be read/encoded. Shared by both screen ops' samplers so the
+# single-frame and multi-frame captures encode identically.
+func _capture_frame() -> Dictionary:
+	var texture := get_viewport().get_texture()
+	if texture == null:
+		return {"error": {
+			"code": LIVE_ERROR_DISPLAY_UNAVAILABLE,
+			"message": "the running viewport has no texture to capture",
+		}}
+	var image: Image = texture.get_image()
+	if image == null or image.is_empty():
+		return {"error": {
+			"code": LIVE_ERROR_DISPLAY_UNAVAILABLE,
+			"message": "the running viewport rendered no image to capture",
+		}}
+	var png := image.save_png_to_buffer()
+	return {
+		"width": image.get_width(),
+		"height": image.get_height(),
+		"format": "png",
+		"bytes": png.size(),
+		"png_base64": Marshalls.raw_to_base64(png),
+	}
+
+
+# screen capture: capture ONE viewport frame, returned as a base64 PNG + dims (the
+# CLI writes the file). A 1-frame window so the capture lands on a _process tick
+# after the scene is up and a frame has rendered (the GPU-timing fix). A headless
+# session is the typed live_display_unavailable, refused up front.
+func _handle_screen_capture(_params: Dictionary) -> Variant:
+	if _display_is_headless():
+		return _error(LIVE_ERROR_DISPLAY_UNAVAILABLE,
+				"the engine session is headless (no DisplayServer to render pixels); "
+				+ "start the daemon with `gda daemon start --windowed`")
+	var sample := func() -> Variant:
+		var frame := _capture_frame()
+		if frame.has("error"):
+			return frame  # abort the window with the typed error envelope
+		return frame
+	var finalize := func(samples: Array) -> String:
+		# A 1-frame window: the single sample is the captured frame, returned flat.
+		return _ok(samples[0])
+	return _begin_window(1, sample, finalize)
+
+
+# screen frames: capture a WINDOW of N viewport frames, one per frame boundary,
+# returned as the per-frame base64 PNG list (the CLI writes one file per frame).
+# Reuses the #223 time-windowed base with its own capture sampler/finalizer — no
+# _process change. A headless session is the typed live_display_unavailable.
+func _handle_screen_frames(params: Dictionary) -> Variant:
+	if _display_is_headless():
+		return _error(LIVE_ERROR_DISPLAY_UNAVAILABLE,
+				"the engine session is headless (no DisplayServer to render pixels); "
+				+ "start the daemon with `gda daemon start --windowed`")
+	var frames := _int_param(params, "frames", 1)
+	var sample := func() -> Variant:
+		var frame := _capture_frame()
+		if frame.has("error"):
+			return frame  # abort the window with the typed error envelope
+		return frame
+	var finalize := func(samples: Array) -> String:
+		return _ok({
+			"count": samples.size(),
+			"frames": samples,
+		})
+	return _begin_window(frames, sample, finalize)
 
 
 # Read a float param defensively (the params arrive as arbitrary JSON): a missing

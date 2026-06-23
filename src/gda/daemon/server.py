@@ -37,9 +37,14 @@ DIAG_OPS = (DIAG_ERRORS_OP, DIAG_LOG_OP)
 class DaemonServer:
     """Binds the per-project sockets and serves requests until stopped."""
 
-    def __init__(self, paths: DaemonPaths, godot: str = "") -> None:
+    def __init__(self, paths: DaemonPaths, godot: str = "", windowed: bool = False) -> None:
         self.paths = paths
         self.godot = godot
+        # The start-time declared display mode (ADR-0017 refined, #222): when true the
+        # engine session is launched windowed (no --headless) so a `screen` capture op
+        # has a real DisplayServer; fixed for the daemon's life (ADR-0020 single
+        # session), never switched mid-session.
+        self.windowed = windowed
         self._token = secrets.token_hex(16)
         self._stopping = False
         self._listener: socket.socket | None = None
@@ -175,6 +180,7 @@ class DaemonServer:
             self.paths.harness_socket,
             self._token,
             log_file=self._session_log_path(),
+            windowed=self.windowed,
         )
         return self._session
 

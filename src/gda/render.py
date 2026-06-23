@@ -66,6 +66,8 @@ from gda.models import (
     SceneGetResult,
     SceneListResult,
     SceneNode,
+    ScreenCaptureResult,
+    ScreenFramesResult,
     ScriptAttachResult,
     ScriptCreateResult,
     ScriptDeleteResult,
@@ -280,7 +282,28 @@ def render_daemon_start(started: "DaemonStartResult") -> str:
         harness = " (installed harness)"
     else:
         harness = ""
-    return f"daemon {state}: pid {started.pid} on {started.socket_path}{harness}"
+    # The session's display mode is part of the live context the start brought up
+    # (#222) — note it only when windowed, since headless is the default.
+    mode = " [windowed]" if started.windowed else ""
+    return f"daemon {state}: pid {started.pid} on {started.socket_path}{mode}{harness}"
+
+
+def render_screen_capture(captured: "ScreenCaptureResult") -> str:
+    """Render a captured viewport frame as ``captured WxH -> path`` (#222)."""
+    inline = " (+inline)" if captured.inline else ""
+    return (
+        f"captured {captured.width}x{captured.height} "
+        f"({captured.bytes} bytes) -> {captured.path}{inline}"
+    )
+
+
+def render_screen_frames(captured: "ScreenFramesResult") -> str:
+    """Render a captured frame sequence: a header + one ``WxH -> path`` per frame (#222)."""
+    header = f"captured {captured.count} frames"
+    rows = [
+        f"  {frame.width}x{frame.height} -> {frame.path}" for frame in captured.frames
+    ]
+    return "\n".join([header, *rows])
 
 
 def render_daemon_stop(stopped: "DaemonStopResult") -> str:
@@ -695,6 +718,8 @@ _RENDERERS = {
     InputMouseResult: render_input_mouse,
     InputActionResult: render_input_action,
     InputSequenceResult: render_input_sequence,
+    ScreenCaptureResult: render_screen_capture,
+    ScreenFramesResult: render_screen_frames,
     DaemonStartResult: render_daemon_start,
     DaemonStopResult: render_daemon_stop,
     DaemonStatusResult: render_daemon_status,

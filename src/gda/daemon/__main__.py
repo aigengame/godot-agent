@@ -19,10 +19,15 @@ def main() -> None:
     parser.add_argument(
         "--godot", default="", help="The resolved Godot binary for engine sessions."
     )
+    parser.add_argument(
+        "--windowed",
+        action="store_true",
+        help="Launch engine sessions windowed (no --headless), for `screen` capture (#222).",
+    )
     args = parser.parse_args()
 
     paths = daemon_paths(Path(args.project))
-    DaemonServer(paths, godot=args.godot).serve()
+    DaemonServer(paths, godot=args.godot, windowed=args.windowed).serve()
 
 
 if __name__ == "__main__":

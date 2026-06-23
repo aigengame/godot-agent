@@ -57,7 +57,7 @@ def fake_ready(monkeypatch):
 
 def _start(project, **kw):
     return daemon_ops.run_daemon_start_operation(
-        project, None, spawn=lambda p, b: None, version_check=_OK_VERSION, **kw
+        project, None, spawn=lambda p, b, w: None, version_check=_OK_VERSION, **kw
     )
 
 
@@ -146,6 +146,132 @@ def test_already_running_start_resyncs_a_stale_harness(
     assert started.harness_synced is True  # stale -> re-materialized despite running
     assert started.harness_version == HARNESS_VERSION
     assert installed_harness_version(project) == HARNESS_VERSION  # rewritten on disk
+
+
+# --- start declares the display mode (#222, D1) -------------------------------
+# `daemon start --windowed` is a START-TIME declared mode: the daemon launches a
+# windowed engine session (no `--headless`) so a `screen` op can capture pixels
+# (ADR-0017 refined; ADR-0020 single session). The recipe threads `windowed` into
+# the spawn (the daemon argv) and surfaces it on the result so an agent sees the
+# mode. Default is headless (the cheap non-visual sessions).
+
+
+def test_start_defaults_to_headless_and_reports_windowed_false(
+    tmp_path, short_runtime, fake_ready, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    spawned: list[tuple] = []
+
+    started = daemon_ops.run_daemon_start_operation(
+        project,
+        None,
+        spawn=lambda p, b, windowed: spawned.append((p, b, windowed)),
+        version_check=_OK_VERSION,
+    )
+
+    assert isinstance(started, DaemonStartResult), started
+    assert started.windowed is False
+    # The default (headless) mode is threaded into the spawn.
+    assert spawned == [(project, str(daemon_ops.resolve_godot_binary(None)), False)]
+
+
+def test_start_windowed_threads_mode_into_spawn_and_result(
+    tmp_path, short_runtime, fake_ready, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    spawned: list[tuple] = []
+
+    started = daemon_ops.run_daemon_start_operation(
+        project,
+        None,
+        windowed=True,
+        spawn=lambda p, b, windowed: spawned.append((p, b, windowed)),
+        version_check=_OK_VERSION,
+    )
+
+    assert isinstance(started, DaemonStartResult), started
+    assert started.windowed is True
+    # The windowed mode is threaded into the spawn (the daemon argv carries it).
+    assert spawned[0][2] is True
+
+
+def test_already_running_start_reports_windowed_unknown(
+    tmp_path, short_runtime, monkeypatch
+):
+    # PR #248 review: an idempotent start does not relaunch the session and cannot
+    # re-derive the running daemon's launch-time display mode from the pidfile, so it
+    # reports `None` ("not determined here"), NOT a misleading `False` — even though
+    # `--windowed=True` was requested, a running daemon's mode is whatever it was
+    # launched with, which this start neither knows nor changes.
+    project = _project(tmp_path)
+    install_harness(project)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+
+    started = daemon_ops.run_daemon_start_operation(
+        project, None, windowed=True, version_check=_OK_VERSION
+    )
+
+    assert isinstance(started, DaemonStartResult)
+    assert started.already_running is True
+    assert started.windowed is None
+
+
+def test_cli_daemon_start_windowed_threads_the_flag_to_the_recipe(
+    tmp_path, short_runtime, monkeypatch
+):
+    # `gda daemon start --windowed` reaches the recipe with windowed=True; the argv
+    # flag is the start-time declared display mode (#222).
+    project = _project(tmp_path)
+    captured: dict = {}
+
+    def fake_start(proj, godot, *, windowed=False, **kw):
+        captured["windowed"] = windowed
+        return DaemonStartResult(
+            pid=1,
+            socket_path="/tmp/x.sock",
+            installed_harness=False,
+            harness_version=HARNESS_VERSION,
+            windowed=windowed,
+            already_running=False,
+        )
+
+    monkeypatch.setattr("gda.cli.run_daemon_start_operation", fake_start)
+
+    result = CliRunner().invoke(
+        app, ["daemon", "start", "--windowed", "--project", str(project), "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["windowed"] is True
+    assert json.loads(result.stdout)["windowed"] is True
+
+
+def test_cli_daemon_start_defaults_to_headless(tmp_path, short_runtime, monkeypatch):
+    project = _project(tmp_path)
+    captured: dict = {}
+
+    def fake_start(proj, godot, *, windowed=False, **kw):
+        captured["windowed"] = windowed
+        return DaemonStartResult(
+            pid=1,
+            socket_path="/tmp/x.sock",
+            installed_harness=False,
+            harness_version=HARNESS_VERSION,
+            windowed=windowed,
+            already_running=False,
+        )
+
+    monkeypatch.setattr("gda.cli.run_daemon_start_operation", fake_start)
+
+    result = CliRunner().invoke(
+        app, ["daemon", "start", "--project", str(project), "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["windowed"] is False
+    assert json.loads(result.stdout)["windowed"] is False
 
 
 # --- uninstall recipe (#225, D2) ----------------------------------------------
