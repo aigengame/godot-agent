@@ -5,12 +5,20 @@ so messages sent back-to-back on one connection stay distinct. The CLI↔daemon 
 and the daemon→harness *request* carry JSON (``write_message`` / ``read_message``);
 the harness→daemon *response* carries the raw ADR-0002 sentinel string as bytes
 (``write_frame`` / ``read_frame``), so the existing parser is reused unchanged.
+
+It also provides the standard daemon→CLI reply-content builders (``result_reply`` /
+``error_reply``) — the one place the daemon and the live client shape a reply dict
+around a sentinel payload, so a relayed, daemon-served, or synthesized reply is
+classified exactly like a headless engine run's.
 """
 
 import json
 import socket
 import struct
 from typing import Any
+
+from gda.exit_codes import EXIT_LIVE
+from gda.parser import build_result, error_envelope
 
 _LENGTH = struct.Struct(">I")  # 4-byte big-endian frame length
 
@@ -53,3 +61,24 @@ def _recv_exactly(sock: socket.socket, count: int) -> bytes | None:
         chunks.append(chunk)
         remaining -= len(chunk)
     return b"".join(chunks)
+
+
+def result_reply(payload: Any, *, exit_code: int = 0) -> dict:
+    """A daemon→CLI reply carrying ``payload`` as the ADR-0002 sentinel result.
+
+    The reply dict the CLI socket leg sends back: the sentinel-wrapped payload in
+    ``stdout`` (built once by :func:`gda.parser.build_result`), empty ``stderr``, and
+    ``exit_code`` — so ``classify_run`` / ``parse_result`` handle a daemon-served or
+    relayed result exactly like a headless engine run's.
+    """
+    return {"stdout": build_result(payload), "stderr": "", "exit_code": exit_code}
+
+
+def error_reply(code: str, message: str) -> dict:
+    """A daemon→CLI reply carrying a LIVE error envelope (exit ``EXIT_LIVE``).
+
+    The single builder for a daemon- or client-synthesized live failure (no session,
+    dropped connection, timeout, op error): the same ADR-0002 envelope a real op
+    error uses, so ``classify_live`` maps the ``code`` through the normal pipeline.
+    """
+    return result_reply(error_envelope(code, message), exit_code=EXIT_LIVE)

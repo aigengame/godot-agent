@@ -4,6 +4,14 @@ status: accepted
 
 # Headless structured output: sentinel-delimited JSON on stdout
 
+> **Outcome (2026-06-23, #260):** the sentinel result format now has a single home
+> for both directions — `gda.parser.build_result` (write) is the inverse of
+> `gda.parser.parse_result` (read) — and a daemon- or live-client-synthesized reply
+> is built once through `gda.daemon.protocol.result_reply` / `error_reply` (the
+> latter over the shared `gda.parser.error_envelope`), replacing four hand-rolled
+> copies of the `<<<GDA:RESULT>>>…<<<GDA:END>>>` wrapping. No contract change — the
+> emitted bytes, exit codes, and envelope shape are identical.
+
 Structured output is `gda`'s core differentiator (ADR-0000), but a headless Godot
 process mixes its version banner, warnings, errors, and `print()` output into
 stdout/stderr. `godot-mcp` does not solve this — it returns the raw stdout blob as

@@ -14,7 +14,6 @@ becomes ``engine_disconnected``. Both ride the normal classify pipeline via
 ``classify_live``.
 """
 
-import json
 import os
 import socket
 from dataclasses import dataclass
@@ -22,9 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from gda.daemon.discovery import daemon_paths, daemon_pid
-from gda.daemon.protocol import read_message, write_message
-from gda.exit_codes import EXIT_LIVE
-from gda.parser import RESULT_BEGIN, RESULT_END
+from gda.daemon.protocol import error_reply, read_message, write_message
 from gda.runner import GodotRunner, RunResult
 
 # Bounds a live call so it never hangs the CLI forever; generous because the
@@ -109,8 +106,9 @@ def _live_error_result(code: str, message: str) -> RunResult:
     """A synthesized RunResult carrying a LIVE error envelope in the sentinel.
 
     The client surfaces its own failures (no daemon, dropped connection) through
-    the SAME ADR-0002 envelope a real op error uses, so ``classify_live`` maps
-    them to the registered code through the normal pipeline — no special path.
+    the SAME ADR-0002 envelope a real op error uses — built once by
+    :func:`gda.daemon.protocol.error_reply` (the daemon synthesizes the identical
+    reply dict) — so ``classify_live`` maps them to the registered code through the
+    normal pipeline, no special path.
     """
-    body = json.dumps({"error": {"code": code, "message": message}})
-    return RunResult(stdout=f"{RESULT_BEGIN}{body}{RESULT_END}\n", stderr="", exit_code=EXIT_LIVE)
+    return RunResult(**error_reply(code, message))

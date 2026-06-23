@@ -12,7 +12,6 @@ viewport-capturing op (ADR-0017). The session is (re)launched per feedback-loop
 iteration so it observes the project's current on-disk state.
 """
 
-import json
 import os
 import signal
 import socket
@@ -20,9 +19,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from gda.daemon.protocol import read_frame, write_message
-from gda.exit_codes import EXIT_LIVE
-from gda.parser import RESULT_BEGIN, RESULT_END
+from gda.daemon.protocol import error_reply, read_frame, write_message
 
 LAUNCH_MARKER = "gda-daemon"
 # Engine boot + autoload + harness connect; a windowed/cold start can be slow.
@@ -62,14 +59,14 @@ class EngineSession:
             write_message(self._conn, {"op": operation, "params": params})
             reply = read_frame(self._conn)  # the raw ADR-0002 sentinel string
         except TimeoutError:
-            return _live_reply(
+            return error_reply(
                 "live_timeout",
                 f"the engine session did not return within {int(OP_TIMEOUT)}s",
             )
         except OSError:
-            return _live_reply("engine_disconnected", "the engine session dropped the connection")
+            return error_reply("engine_disconnected", "the engine session dropped the connection")
         if reply is None:
-            return _live_reply("engine_disconnected", "the engine session closed before replying")
+            return error_reply("engine_disconnected", "the engine session closed before replying")
         return {"stdout": reply.decode("utf-8", "replace"), "stderr": "", "exit_code": 0}
 
     def close(self) -> None:
@@ -169,10 +166,3 @@ def _terminate(proc: subprocess.Popen) -> None:
             pass
 
 
-def _live_reply(code: str, message: str) -> dict:
-    body = json.dumps({"error": {"code": code, "message": message}})
-    return {
-        "stdout": f"{RESULT_BEGIN}{body}{RESULT_END}\n",
-        "stderr": "",
-        "exit_code": EXIT_LIVE,
-    }
