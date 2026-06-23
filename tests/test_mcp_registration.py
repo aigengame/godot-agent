@@ -79,6 +79,23 @@ def test_non_dispatchable_meta_commands_are_not_registered():
     assert "schema" not in names
 
 
+def test_live_command_game_tree_appears_as_a_tool_mirroring_the_dump():
+    # ADR-0011 verification (#227): a LIVE command reaches the tool surface with
+    # NO per-phase code — it goes through the exact same generic schema→tool
+    # transform as a headless command. `game tree` (the #7 tracer) must register
+    # as the `game_tree` tool, and its description/input/output must mirror the
+    # dump entry field-for-field, indistinguishably from any headless tool.
+    by_name = {tool_name(e["name"]): e for e in _manifest_entries()}
+    assert "game_tree" in by_name  # the aggregate dump (ADR-0012) carries the live cmd
+    tools = {t.name: t for t in list_tools(_server()).tools}
+    assert "game_tree" in tools, "the live `game tree` command was not registered"
+    tool = tools["game_tree"]
+    entry = by_name["game_tree"]
+    assert tool.description == entry["description"]
+    assert tool.inputSchema == entry["input"]
+    assert tool.outputSchema == entry["output"]
+
+
 def test_startup_introspects_the_dump_through_the_seam_once():
     # The surface comes from one `gda schema` run through the shared seam
     # (ADR-0012's single startup subprocess), not a per-command fan-out.
