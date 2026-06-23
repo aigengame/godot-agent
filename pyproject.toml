@@ -1,6 +1,6 @@
 [project]
 name = "gda"
-version = "0.1.35"
+version = "0.1.36"
 description = "Agent-first CLI and MCP server for the Godot engine, with structured output for AI agents"
 readme = "README.md"
 authors = [
