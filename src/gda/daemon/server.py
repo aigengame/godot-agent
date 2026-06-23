@@ -8,7 +8,6 @@ liveness, ``__stop__`` graceful shutdown); any other op is a project live op,
 served by the engine session, which is (re)launched lazily on demand.
 """
 
-import json
 import os
 import secrets
 import signal
@@ -16,10 +15,8 @@ import socket
 
 from gda.daemon.diag import parse_errors, parse_log
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
-from gda.daemon.protocol import read_message, write_message
+from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
 from gda.daemon.session import EngineSession, launch_session
-from gda.exit_codes import EXIT_LIVE
-from gda.parser import RESULT_BEGIN, RESULT_END
 
 # Control ops on the CLI socket — daemon lifetime, not project domain ops.
 STATUS_OP = "__status__"
@@ -120,7 +117,7 @@ class DaemonServer:
         # A project live op. Serialized against the one session (single writer).
         session = self._ensure_session()
         if session is None:
-            return _op_error_reply(
+            return error_reply(
                 "engine_session_not_running",
                 "the gda-daemon could not launch an engine session (no Godot binary, "
                 "or the harness did not connect)",
@@ -147,7 +144,7 @@ class DaemonServer:
         # would give it a hidden project-code-execution side effect (ADR-0009).
         session = self._session
         if session is None or session.log_file is None:
-            return _op_error_reply(
+            return error_reply(
                 "engine_session_not_running",
                 "the gda-daemon holds no engine session to read runtime "
                 "diagnostics from; diag observes an already-launched session and "
@@ -157,15 +154,15 @@ class DaemonServer:
         try:
             raw = session.log_file.read_bytes()
         except OSError:
-            return _op_error_reply(
+            return error_reply(
                 "live_log_unavailable",
                 f"the engine session's diagnostics log at {session.log_file} is "
                 "missing or unreadable",
             )
         limit = params.get("limit")
         if op == DIAG_ERRORS_OP:
-            return _ok_reply({"errors": parse_errors(raw, limit=limit)})
-        return _ok_reply({"lines": parse_log(raw, limit=limit)})
+            return result_reply({"errors": parse_errors(raw, limit=limit)})
+        return result_reply({"lines": parse_log(raw, limit=limit)})
 
     def _ensure_session(self) -> EngineSession | None:
         if self._session is not None and self._session.alive():
@@ -222,28 +219,3 @@ class DaemonServer:
                 os.unlink(path)
             except FileNotFoundError:
                 pass
-
-
-def _op_error_reply(code: str, message: str) -> dict:
-    """A CLI reply carrying a LIVE error envelope as the ADR-0002 sentinel payload."""
-    body = json.dumps({"error": {"code": code, "message": message}})
-    return {
-        "stdout": f"{RESULT_BEGIN}{body}{RESULT_END}\n",
-        "stderr": "",
-        "exit_code": EXIT_LIVE,
-    }
-
-
-def _ok_reply(payload: dict) -> dict:
-    """A CLI reply carrying a daemon-served success payload as the ADR-0002 sentinel.
-
-    The daemon-served ``gda diag`` ops build their result here rather than relaying
-    a harness reply; classification (``classify_live`` / ``parse_result``) treats
-    it exactly like an engine op's sentinel, so the CLI/model/render path is shared.
-    """
-    body = json.dumps(payload)
-    return {
-        "stdout": f"{RESULT_BEGIN}{body}{RESULT_END}\n",
-        "stderr": "",
-        "exit_code": 0,
-    }

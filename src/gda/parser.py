@@ -36,3 +36,25 @@ def parse_result(stdout: str) -> Any:
     if not payload:
         raise ValueError("empty GDA result payload between sentinels")
     return json.loads(payload)
+
+
+def build_result(payload: Any) -> str:
+    """Wrap ``payload`` as the ADR-0002 sentinel result string — the inverse of
+    :func:`parse_result`.
+
+    The single place the sentinel string is constructed. The engine op, the daemon,
+    and the live client all emit ``<<<GDA:RESULT>>>{json}<<<GDA:END>>>`` followed by
+    a trailing newline (matching what every emitter wrote before this was shared), so
+    a relayed or synthesized result is byte-identical to a real engine run's.
+    """
+    return f"{RESULT_BEGIN}{json.dumps(payload)}{RESULT_END}\n"
+
+
+def error_envelope(code: str, message: str) -> dict:
+    """The ADR-0002 operation-error payload — ``{"error": {"code", "message"}}``.
+
+    The one place that envelope dict is built (it mirrors
+    :class:`~gda.models.OperationErrorEnvelope`); wrap it with :func:`build_result`
+    to synthesize a sentinel error result.
+    """
+    return {"error": {"code": code, "message": message}}
