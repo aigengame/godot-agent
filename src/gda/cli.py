@@ -40,7 +40,6 @@ from gda.errors import (
 from gda.execution import ExecutionKind
 from gda.export_run import (
     EXPORT_GET_COMMAND,
-    EXPORT_RUN_COMMAND,
     run_export_operation,
 )
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
@@ -77,6 +76,8 @@ from gda.models import (
     ExportListParams,
     ExportListResult,
     ExportRunMode,
+    ExportRunParams,
+    ExportRunResult,
     GameGetParams,
     GameGetResult,
     GameSetParams,
@@ -184,10 +185,70 @@ from gda.models import (
     SurfaceManifest,
     ThemeCreateParams,
     ThemeCreateResult,
-    normalize_path,
     resolve_set_mode,
 )
 from gda.project import resolve_project_dir
+from gda.render import (
+    render_daemon_start,
+    render_daemon_status,
+    render_daemon_stop,
+    render_daemon_uninstall,
+    render_diag_errors,
+    render_diag_log,
+    render_engine_version,
+    render_export_list,
+    render_export_run,
+    render_game_get,
+    render_game_set,
+    render_game_tree,
+    render_input_action,
+    render_input_key,
+    render_input_mouse,
+    render_input_sequence,
+    render_node_add,
+    render_node_connect_signal,
+    render_node_disconnect_signal,
+    render_node_duplicate,
+    render_node_list,
+    render_node_move,
+    render_node_properties,
+    render_node_remove,
+    render_node_set,
+    render_perf_monitor,
+    render_perf_monitors,
+    render_project_add_autoload,
+    render_project_dependencies,
+    render_project_find_references,
+    render_project_find_unused_resources,
+    render_project_get,
+    render_project_info,
+    render_project_remove_autoload,
+    render_project_set,
+    render_project_statistics,
+    render_resource_create,
+    render_resource_delete,
+    render_resource_properties,
+    render_resource_set,
+    render_resource_uid,
+    render_scene_delete,
+    render_scene_exports,
+    render_scene_list,
+    render_scene_metadata,
+    render_scene_tree,
+    render_screen_capture,
+    render_screen_frames,
+    render_script_attach,
+    render_script_create,
+    render_script_delete,
+    render_script_get,
+    render_script_list,
+    render_script_set,
+    render_script_validate,
+    render_shader_create,
+    render_shader_get,
+    render_shader_set,
+    render_theme_create,
+)
 from gda.runner import GodotRunner
 from gda.screen_ops import (
     run_screen_capture_operation,
@@ -397,6 +458,83 @@ def _make_live_runner(binary: Optional[Path], project: Optional[Path]) -> GodotR
     return make_daemon_runner(project)
 
 
+# --- Recipe channels (ADR-0023) -----------------------------------------------
+# Each recipe command (export run / the daemon lifecycle / screen) carries one of
+# these on its descriptor (``recipe=``). A recipe PRODUCES the outcome — resolve the
+# project (kept CLI-side, ADR-0006) + run the CLI-side operation — and RETURNS the
+# typed result or a Failure; emission stays the shared tail (:func:`_dispatch_recipe`
+# → ``cmd.render``), so a recipe command renders exactly like a sentinel one. The
+# runner seams (``_make_*``) are referenced at call time so test monkeypatches on
+# ``gda.cli._make_runner`` / ``_make_live_runner`` still bind. ``params`` is the
+# built model — the single source of truth (ADR-0015), identical on the argv and
+# ``--params-json`` paths — so windowed/output/etc. are read off it, never special-cased.
+
+
+def _daemon_start_recipe(params, *, project, godot):
+    return run_daemon_start_operation(
+        resolve_project_dir(project), godot, windowed=params.windowed
+    )
+
+
+def _daemon_stop_recipe(params, *, project, godot):
+    return run_daemon_stop_operation(resolve_project_dir(project))
+
+
+def _daemon_status_recipe(params, *, project, godot):
+    return run_daemon_status_operation(resolve_project_dir(project))
+
+
+def _daemon_uninstall_recipe(params, *, project, godot):
+    return run_daemon_uninstall_operation(resolve_project_dir(project))
+
+
+def _screen_capture_recipe(params, *, project, godot):
+    return run_screen_capture_operation(
+        resolve_project_dir(project),
+        Path(params.output),
+        inline=params.inline,
+        make_runner=_make_live_runner,
+    )
+
+
+def _screen_frames_recipe(params, *, project, godot):
+    return run_screen_frames_operation(
+        resolve_project_dir(project),
+        params.frames,
+        Path(params.output_dir),
+        make_runner=_make_live_runner,
+    )
+
+
+def _export_run_recipe(params, *, project, godot):
+    return run_export_operation(
+        preset=params.preset,
+        mode=params.mode,
+        output_override=params.output,
+        godot=godot,
+        project=resolve_project_dir(project),
+        make_runner=_make_runner,
+        make_export_runner=_make_export_runner,
+    )
+
+
+# ``export-run`` does NOT route through operations.gd: the Godot export subsystem is
+# editor-only C++, so the export is a native --export-<mode> invocation driven by
+# ``run_export_operation`` (gda.export_run). Its descriptor is the single fully-bound
+# registration (ADR-0023) and is defined HERE — not beside the operation — because its
+# recipe needs cli's runner seams, and cli.py is the dispatch composition root. (Its
+# sibling ``EXPORT_GET_COMMAND`` is a plain sentinel command and stays in gda.export_run,
+# which consumes it directly.)
+EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
+    operation="export-run",
+    input_model=ExportRunParams,
+    output_model=ExportRunResult,
+    kind=ExecutionKind.EXPORT,
+    render=render_export_run,
+    recipe=_export_run_recipe,
+)
+
+
 def _emit(
     cmd: HeadlessCommand[M],
     params: BaseModel,
@@ -442,8 +580,8 @@ def _dispatch(
     seam, the ``json_output`` pass-through, and the JSON-vs-text branch. Each
     command keeps its own Typer signature, params construction, and
     pre-dispatch validation; only this execution tail is shared. Human
-    rendering is type-dispatched by :func:`gda.render.render` inside
-    ``cmd.emit`` (issue #186), so no renderer is threaded here.
+    rendering is done by the command's own renderer (``cmd.render``, ADR-0023)
+    inside ``cmd.emit``, so no renderer is threaded here.
     """
     _emit(
         cmd,
@@ -476,6 +614,31 @@ def _dispatch_meta(
     )
 
 
+def _dispatch_recipe(
+    cmd: HeadlessCommand[M],
+    params: BaseModel,
+    *,
+    json_output: bool,
+    godot: Optional[str],
+    project: Optional[str],
+) -> None:
+    """Run a recipe command through its descriptor's ``recipe``, then emit (ADR-0023).
+
+    A recipe command (``export run`` / the ``daemon`` lifecycle / ``screen``) is
+    fulfilled by a CLI-side recipe that PRODUCES the outcome, not the sentinel
+    ``cmd.emit``. Emission is the SAME shared tail every command uses —
+    :func:`emit_result` with the command's own ``cmd.render`` — so a recipe command
+    renders identically to a sentinel one; only outcome production differs. Shared by
+    the argv bodies and the ``--params-json`` path, so the two forms are
+    indistinguishable downstream (ADR-0015). Project resolution stays CLI-side
+    (ADR-0006), owned by each recipe.
+    """
+    outcome = cmd.recipe(params, project=project, godot=godot)
+    if isinstance(outcome, Failure):
+        emit_failure(outcome)
+    emit_result(outcome, json_output, cmd.render)
+
+
 def _run_params_json(
     cmd: HeadlessCommand[M], params: BaseModel, ctx: typer.Context
 ) -> None:
@@ -492,63 +655,19 @@ def _run_params_json(
     options = ctx.params
     json_output = bool(options.get("json_output", False))
     godot = options.get("godot")
-    if cmd.kind is ExecutionKind.EXPORT:
-        # export run is the native-export recipe (#187), not the sentinel
-        # pipeline, so it cannot go through cmd.emit. Selected by its static
-        # execution channel (ADR-0017), not command identity. Mirror its body so
-        # --params-json drives the SAME run_export_operation path as the argv
-        # form. params.output is already normalized (ExportRunParams.output is a
-        # NormalizedPath), so no extra normalization is needed here.
-        outcome = run_export_operation(
-            preset=params.preset,
-            mode=params.mode,
-            output_override=params.output,
-            godot=godot,
-            project=resolve_project_dir(options.get("project")),
-            make_runner=_make_runner,
-            make_export_runner=_make_export_runner,
-        )
-        if isinstance(outcome, Failure):
-            emit_failure(outcome)
-        emit_result(outcome, json_output)
-        return
-    if cmd in _DAEMON_COMMANDS:
-        # daemon lifecycle commands run their process recipe (gda.daemon_ops),
-        # not the sentinel pipeline; route --params-json to the SAME recipe the
-        # argv body uses. `daemon start` carries the `windowed` mode in its params
-        # model (#222); the other lifecycle commands have empty params.
-        _daemon_dispatch(
+    if cmd.recipe is not None:
+        # A recipe command (export run / daemon lifecycle / screen) is fulfilled by
+        # its descriptor's recipe, not the sentinel cmd.emit — ONE descriptor-driven
+        # branch, no kind/identity selection (ADR-0023). The recipe reads everything
+        # from the built params model (windowed/output/…), so --params-json drives the
+        # SAME path as the argv body.
+        _dispatch_recipe(
             cmd,
+            params,
             json_output=json_output,
             godot=godot,
             project=options.get("project"),
-            windowed=bool(getattr(params, "windowed", False)),
         )
-        return
-    if cmd in _SCREEN_COMMANDS:
-        # screen commands run the gda.screen_ops recipe, not the sentinel pipeline;
-        # route --params-json to the SAME recipe the argv body uses. The output
-        # path(s) are now part of the params model (#222, PR #248 review), so they
-        # come from `params` — the single source of truth (ADR-0015), supplied
-        # entirely by the JSON object, never recovered from ctx.params.
-        resolved = resolve_project_dir(options.get("project"))
-        if cmd is SCREEN_CAPTURE_COMMAND:
-            outcome = run_screen_capture_operation(
-                resolved,
-                Path(params.output),
-                inline=params.inline,
-                make_runner=_make_live_runner,
-            )
-        else:
-            outcome = run_screen_frames_operation(
-                resolved,
-                params.frames,
-                Path(params.output_dir),
-                make_runner=_make_live_runner,
-            )
-        if isinstance(outcome, Failure):
-            emit_failure(outcome)
-        emit_result(outcome, json_output)
         return
     if "project" in options:
         _dispatch(
@@ -569,6 +688,7 @@ INFO_COMMAND: HeadlessCommand[EngineVersion] = HeadlessCommand(
     operation="info",
     input_model=InfoParams,
     output_model=EngineVersion,
+    render=render_engine_version,
     classify=classify_info,
 )
 
@@ -576,6 +696,7 @@ GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(
     operation="game-tree",
     input_model=GameTreeParams,
     output_model=GameTreeResult,
+    render=render_game_tree,
     classify=classify_game_tree,
     kind=ExecutionKind.LIVE,
 )
@@ -612,6 +733,7 @@ GAME_GET_COMMAND: HeadlessCommand[GameGetResult] = HeadlessCommand(
     operation="game-get",
     input_model=GameGetParams,
     output_model=GameGetResult,
+    render=render_game_get,
     classify=classify_game_get,
     kind=ExecutionKind.LIVE,
 )
@@ -656,6 +778,7 @@ GAME_SET_COMMAND: HeadlessCommand[GameSetResult] = HeadlessCommand(
     operation="game-set",
     input_model=GameSetParams,
     output_model=GameSetResult,
+    render=render_game_set,
     classify=classify_game_set,
     kind=ExecutionKind.LIVE,
 )
@@ -724,6 +847,7 @@ DIAG_ERRORS_COMMAND: HeadlessCommand[DiagErrorsResult] = HeadlessCommand(
     operation="diag-errors",
     input_model=DiagErrorsParams,
     output_model=DiagErrorsResult,
+    render=render_diag_errors,
     classify=classify_diag_errors,
     kind=ExecutionKind.LIVE,
 )
@@ -763,6 +887,7 @@ DIAG_LOG_COMMAND: HeadlessCommand[DiagLogResult] = HeadlessCommand(
     operation="diag-log",
     input_model=DiagLogParams,
     output_model=DiagLogResult,
+    render=render_diag_log,
     classify=classify_diag_log,
     kind=ExecutionKind.LIVE,
 )
@@ -798,6 +923,7 @@ PERF_MONITORS_COMMAND: HeadlessCommand[PerfMonitorsResult] = HeadlessCommand(
     operation="perf-monitors",
     input_model=PerfMonitorsParams,
     output_model=PerfMonitorsResult,
+    render=render_perf_monitors,
     classify=classify_perf_monitors,
     kind=ExecutionKind.LIVE,
 )
@@ -832,6 +958,7 @@ PERF_MONITOR_COMMAND: HeadlessCommand[PerfMonitorResult] = HeadlessCommand(
     operation="perf-monitor",
     input_model=PerfMonitorParams,
     output_model=PerfMonitorResult,
+    render=render_perf_monitor,
     classify=classify_perf_monitor,
     kind=ExecutionKind.LIVE,
 )
@@ -901,6 +1028,7 @@ INPUT_KEY_COMMAND: HeadlessCommand[InputKeyResult] = HeadlessCommand(
     operation="input-key",
     input_model=InputKeyParams,
     output_model=InputKeyResult,
+    render=render_input_key,
     classify=classify_input_key,
     kind=ExecutionKind.LIVE,
 )
@@ -950,6 +1078,7 @@ INPUT_MOUSE_CLICK_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
     operation="input-mouse-click",
     input_model=InputMouseClickParams,
     output_model=InputMouseResult,
+    render=render_input_mouse,
     classify=classify_input_mouse,
     kind=ExecutionKind.LIVE,
 )
@@ -992,6 +1121,7 @@ INPUT_MOUSE_MOVE_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
     operation="input-mouse-move",
     input_model=InputMouseMoveParams,
     output_model=InputMouseResult,
+    render=render_input_mouse,
     classify=classify_input_mouse,
     kind=ExecutionKind.LIVE,
 )
@@ -1026,6 +1156,7 @@ INPUT_ACTION_COMMAND: HeadlessCommand[InputActionResult] = HeadlessCommand(
     operation="input-action",
     input_model=InputActionParams,
     output_model=InputActionResult,
+    render=render_input_action,
     classify=classify_input_action,
     kind=ExecutionKind.LIVE,
 )
@@ -1077,6 +1208,7 @@ INPUT_SEQUENCE_COMMAND: HeadlessCommand[InputSequenceResult] = HeadlessCommand(
     operation="input-sequence",
     input_model=InputSequenceParams,
     output_model=InputSequenceResult,
+    render=render_input_sequence,
     classify=classify_input_sequence,
     kind=ExecutionKind.LIVE,
 )
@@ -1135,63 +1267,33 @@ DAEMON_START_COMMAND: HeadlessCommand[DaemonStartResult] = HeadlessCommand(
     operation="daemon-start",
     input_model=DaemonStartParams,
     output_model=DaemonStartResult,
+    render=render_daemon_start,
+    recipe=_daemon_start_recipe,
 )
 
 DAEMON_STOP_COMMAND: HeadlessCommand[DaemonStopResult] = HeadlessCommand(
     operation="daemon-stop",
     input_model=DaemonStopParams,
     output_model=DaemonStopResult,
+    render=render_daemon_stop,
+    recipe=_daemon_stop_recipe,
 )
 
 DAEMON_STATUS_COMMAND: HeadlessCommand[DaemonStatusResult] = HeadlessCommand(
     operation="daemon-status",
     input_model=DaemonStatusParams,
     output_model=DaemonStatusResult,
+    render=render_daemon_status,
+    recipe=_daemon_status_recipe,
 )
 
 DAEMON_UNINSTALL_COMMAND: HeadlessCommand[DaemonUninstallResult] = HeadlessCommand(
     operation="daemon-uninstall",
     input_model=DaemonUninstallParams,
     output_model=DaemonUninstallResult,
+    render=render_daemon_uninstall,
+    recipe=_daemon_uninstall_recipe,
 )
-
-# The daemon lifecycle commands run a process-management recipe (gda.daemon_ops),
-# not the sentinel pipeline — the same shape as `export run`. They carry no Godot
-# execution channel, so they are routed by command identity, shared by the argv
-# bodies and the --params-json path so both forms drive the SAME recipe.
-_DAEMON_COMMANDS = frozenset(
-    {
-        DAEMON_START_COMMAND,
-        DAEMON_STOP_COMMAND,
-        DAEMON_STATUS_COMMAND,
-        DAEMON_UNINSTALL_COMMAND,
-    }
-)
-
-
-def _daemon_dispatch(
-    cmd: HeadlessCommand[M],
-    *,
-    json_output: bool,
-    godot: Optional[str],
-    project: Optional[str],
-    windowed: bool = False,
-) -> None:
-    """Run a ``daemon`` lifecycle command through its process-management recipe."""
-    resolved = resolve_project_dir(project)
-    if cmd is DAEMON_START_COMMAND:
-        # `daemon start --windowed` declares the engine session's display mode at
-        # launch (#222); other lifecycle commands ignore it.
-        outcome = run_daemon_start_operation(resolved, godot, windowed=windowed)
-    elif cmd is DAEMON_STOP_COMMAND:
-        outcome = run_daemon_stop_operation(resolved)
-    elif cmd is DAEMON_UNINSTALL_COMMAND:
-        outcome = run_daemon_uninstall_operation(resolved)
-    else:
-        outcome = run_daemon_status_operation(resolved)
-    if isinstance(outcome, Failure):
-        emit_failure(outcome)
-    emit_result(outcome, json_output)
 
 
 @daemon_app.command(name="start", cls=DAEMON_START_COMMAND.command_class())
@@ -1220,12 +1322,15 @@ def daemon_start(
     `--schema` (ADR-0021), not restated here. `--windowed` is a start-time declared
     mode for the engine session a `screen` capture op needs (#222).
     """
-    _daemon_dispatch(
+    # Build the params model from the argv option (the single source of truth,
+    # ADR-0015) so the recipe reads `windowed` off it on BOTH the argv and
+    # --params-json paths — no special-casing.
+    _dispatch_recipe(
         DAEMON_START_COMMAND,
+        DaemonStartParams(windowed=windowed),
         json_output=json_output,
         godot=godot,
         project=project,
-        windowed=windowed,
     )
 
 
@@ -1242,8 +1347,12 @@ def daemon_stop(
     On an unsupported platform this reports `live_unsupported_platform`; the
     platform precondition is the structured `constraints` field of `--schema`.
     """
-    _daemon_dispatch(
-        DAEMON_STOP_COMMAND, json_output=json_output, godot=godot, project=project
+    _dispatch_recipe(
+        DAEMON_STOP_COMMAND,
+        DaemonStopParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
     )
 
 
@@ -1260,8 +1369,12 @@ def daemon_status(
     On an unsupported platform this reports `live_unsupported_platform`; the
     platform precondition is the structured `constraints` field of `--schema`.
     """
-    _daemon_dispatch(
-        DAEMON_STATUS_COMMAND, json_output=json_output, godot=godot, project=project
+    _dispatch_recipe(
+        DAEMON_STATUS_COMMAND,
+        DaemonStatusParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
     )
 
 
@@ -1282,33 +1395,39 @@ def daemon_uninstall(
     with `gda daemon stop`. Live is macOS/Linux only; elsewhere reports
     `live_unsupported_platform`.
     """
-    _daemon_dispatch(
-        DAEMON_UNINSTALL_COMMAND, json_output=json_output, godot=godot, project=project
+    _dispatch_recipe(
+        DAEMON_UNINSTALL_COMMAND,
+        DaemonUninstallParams(),
+        json_output=json_output,
+        godot=godot,
+        project=project,
     )
 
 
 # The `screen` commands are LIVE but run a CLI-side recipe (gda.screen_ops), not
 # the sentinel pipeline: the harness returns the PNG as base64 in the sentinel and
 # the CLI must DECODE + WRITE a file before it has the path-based public result. So
-# — like `export run` and the daemon lifecycle commands — each carries a descriptor
-# for its --schema/--params-json wiring (kind = LIVE makes "kind":"live" appear,
-# #230) but dispatches through its recipe. They are selected by command identity in
-# the --params-json path, the same as the daemon commands.
+# — like `export run` and the daemon lifecycle commands — each carries a `recipe` on
+# its descriptor (ADR-0023): dispatch runs it instead of cmd.emit, selected by the
+# single `recipe is not None` test, not command identity. `kind = LIVE` is kept as a
+# descriptor fact so "kind":"live" still appears in --schema (#230).
 SCREEN_CAPTURE_COMMAND: HeadlessCommand[ScreenCaptureResult] = HeadlessCommand(
     operation="screen-capture",
     input_model=ScreenCaptureParams,
     output_model=ScreenCaptureResult,
+    render=render_screen_capture,
     kind=ExecutionKind.LIVE,
+    recipe=_screen_capture_recipe,
 )
 
 SCREEN_FRAMES_COMMAND: HeadlessCommand[ScreenFramesResult] = HeadlessCommand(
     operation="screen-frames",
     input_model=ScreenFramesParams,
     output_model=ScreenFramesResult,
+    render=render_screen_frames,
     kind=ExecutionKind.LIVE,
+    recipe=_screen_frames_recipe,
 )
-
-_SCREEN_COMMANDS = frozenset({SCREEN_CAPTURE_COMMAND, SCREEN_FRAMES_COMMAND})
 
 
 @screen_app.command(name="capture", cls=SCREEN_CAPTURE_COMMAND.command_class())
@@ -1341,17 +1460,15 @@ def screen_capture(
     """
     # Build the params model from the argv options so `output` is validated and
     # ~-normalized through the SAME single source of truth the --params-json path
-    # uses (ADR-0015/ADR-0006) — not a raw, un-normalized Path.
-    params = ScreenCaptureParams(output=str(output), inline=inline)
-    outcome = run_screen_capture_operation(
-        resolve_project_dir(project),
-        Path(params.output),
-        inline=params.inline,
-        make_runner=_make_live_runner,
+    # uses (ADR-0015/ADR-0006) — not a raw, un-normalized Path. Dispatch through the
+    # descriptor's recipe, exactly as the --params-json path does (ADR-0023).
+    _dispatch_recipe(
+        SCREEN_CAPTURE_COMMAND,
+        ScreenCaptureParams(output=str(output), inline=inline),
+        json_output=json_output,
+        godot=godot,
+        project=project,
     )
-    if isinstance(outcome, Failure):
-        emit_failure(outcome)
-    emit_result(outcome, json_output)
 
 
 @screen_app.command(name="frames", cls=SCREEN_FRAMES_COMMAND.command_class())
@@ -1388,95 +1505,106 @@ def screen_frames(
     `live_display_unavailable`. With no daemon it reports `daemon_not_running`.
     """
     # Same params model the --params-json path builds (ADR-0015): `output_dir` is
-    # validated and ~-normalized through it, not passed as a raw Path.
-    params = ScreenFramesParams(frames=frames, output_dir=str(output_dir))
-    outcome = run_screen_frames_operation(
-        resolve_project_dir(project),
-        params.frames,
-        Path(params.output_dir),
-        make_runner=_make_live_runner,
+    # validated and ~-normalized through it, not passed as a raw Path. Dispatch
+    # through the descriptor's recipe, exactly as the --params-json path (ADR-0023).
+    _dispatch_recipe(
+        SCREEN_FRAMES_COMMAND,
+        ScreenFramesParams(frames=frames, output_dir=str(output_dir)),
+        json_output=json_output,
+        godot=godot,
+        project=project,
     )
-    if isinstance(outcome, Failure):
-        emit_failure(outcome)
-    emit_result(outcome, json_output)
 
 
 SCENE_CREATE_COMMAND: HeadlessCommand[SceneCreateResult] = HeadlessCommand(
     operation="scene-create",
     input_model=SceneCreateParams,
     output_model=SceneCreateResult,
+    render=render_scene_metadata,
 )
 
 SCENE_GET_COMMAND: HeadlessCommand[SceneGetResult] = HeadlessCommand(
     operation="scene-get",
     input_model=SceneGetParams,
     output_model=SceneGetResult,
+    render=render_scene_tree,
 )
 
 SCENE_GET_EXPORTS_COMMAND: HeadlessCommand[SceneGetExportsResult] = HeadlessCommand(
     operation="scene-get-exports",
     input_model=SceneGetExportsParams,
     output_model=SceneGetExportsResult,
+    render=render_scene_exports,
 )
 
 SCENE_LIST_COMMAND: HeadlessCommand[SceneListResult] = HeadlessCommand(
     operation="scene-list",
     input_model=SceneListParams,
     output_model=SceneListResult,
+    render=render_scene_list,
 )
 
 SCENE_DELETE_COMMAND: HeadlessCommand[SceneDeleteResult] = HeadlessCommand(
     operation="scene-delete",
     input_model=SceneDeleteParams,
     output_model=SceneDeleteResult,
+    render=render_scene_delete,
 )
 
 NODE_ADD_COMMAND: HeadlessCommand[NodeAddResult] = HeadlessCommand(
     operation="node-add",
     input_model=NodeAddParams,
     output_model=NodeAddResult,
+    render=render_node_add,
 )
 
 NODE_LIST_COMMAND: HeadlessCommand[NodeListResult] = HeadlessCommand(
     operation="node-list",
     input_model=NodeListParams,
     output_model=NodeListResult,
+    render=render_node_list,
 )
 
 NODE_GET_COMMAND: HeadlessCommand[NodeGetResult] = HeadlessCommand(
     operation="node-get",
     input_model=NodeGetParams,
     output_model=NodeGetResult,
+    render=render_node_properties,
 )
 
 NODE_SET_COMMAND: HeadlessCommand[NodeSetResult] = HeadlessCommand(
     operation="node-set",
     input_model=NodeSetParams,
     output_model=NodeSetResult,
+    render=render_node_set,
 )
 
 NODE_REMOVE_COMMAND: HeadlessCommand[NodeRemoveResult] = HeadlessCommand(
     operation="node-remove",
     input_model=NodeRemoveParams,
     output_model=NodeRemoveResult,
+    render=render_node_remove,
 )
 
 NODE_DUPLICATE_COMMAND: HeadlessCommand[NodeDuplicateResult] = HeadlessCommand(
     operation="node-duplicate",
     input_model=NodeDuplicateParams,
     output_model=NodeDuplicateResult,
+    render=render_node_duplicate,
 )
 
 NODE_MOVE_COMMAND: HeadlessCommand[NodeMoveResult] = HeadlessCommand(
     operation="node-move",
     input_model=NodeMoveParams,
     output_model=NodeMoveResult,
+    render=render_node_move,
 )
 
 NODE_CONNECT_SIGNAL_COMMAND: HeadlessCommand[NodeConnectSignalResult] = HeadlessCommand(
     operation="node-connect-signal",
     input_model=NodeConnectSignalParams,
     output_model=NodeConnectSignalResult,
+    render=render_node_connect_signal,
 )
 
 NODE_DISCONNECT_SIGNAL_COMMAND: HeadlessCommand[NodeDisconnectSignalResult] = (
@@ -1484,6 +1612,7 @@ NODE_DISCONNECT_SIGNAL_COMMAND: HeadlessCommand[NodeDisconnectSignalResult] = (
         operation="node-disconnect-signal",
         input_model=NodeDisconnectSignalParams,
         output_model=NodeDisconnectSignalResult,
+        render=render_node_disconnect_signal,
     )
 )
 
@@ -1491,42 +1620,49 @@ SCRIPT_CREATE_COMMAND: HeadlessCommand[ScriptCreateResult] = HeadlessCommand(
     operation="script-create",
     input_model=ScriptCreateParams,
     output_model=ScriptCreateResult,
+    render=render_script_create,
 )
 
 SCRIPT_GET_COMMAND: HeadlessCommand[ScriptGetResult] = HeadlessCommand(
     operation="script-get",
     input_model=ScriptGetParams,
     output_model=ScriptGetResult,
+    render=render_script_get,
 )
 
 SCRIPT_LIST_COMMAND: HeadlessCommand[ScriptListResult] = HeadlessCommand(
     operation="script-list",
     input_model=ScriptListParams,
     output_model=ScriptListResult,
+    render=render_script_list,
 )
 
 SCRIPT_DELETE_COMMAND: HeadlessCommand[ScriptDeleteResult] = HeadlessCommand(
     operation="script-delete",
     input_model=ScriptDeleteParams,
     output_model=ScriptDeleteResult,
+    render=render_script_delete,
 )
 
 SCRIPT_SET_COMMAND: HeadlessCommand[ScriptSetResult] = HeadlessCommand(
     operation="script-set",
     input_model=ScriptSetParams,
     output_model=ScriptSetResult,
+    render=render_script_set,
 )
 
 SCRIPT_ATTACH_COMMAND: HeadlessCommand[ScriptAttachResult] = HeadlessCommand(
     operation="script-attach",
     input_model=ScriptAttachParams,
     output_model=ScriptAttachResult,
+    render=render_script_attach,
 )
 
 SCRIPT_VALIDATE_COMMAND: HeadlessCommand[ScriptValidateResult] = HeadlessCommand(
     operation="script-validate",
     input_model=ScriptValidateParams,
     output_model=ScriptValidateResult,
+    render=render_script_validate,
     classify=classify_script_validate,
 )
 
@@ -1534,65 +1670,75 @@ RESOURCE_CREATE_COMMAND: HeadlessCommand[ResourceCreateResult] = HeadlessCommand
     operation="resource-create",
     input_model=ResourceCreateParams,
     output_model=ResourceCreateResult,
+    render=render_resource_create,
 )
 
 RESOURCE_GET_COMMAND: HeadlessCommand[ResourceGetResult] = HeadlessCommand(
     operation="resource-get",
     input_model=ResourceGetParams,
     output_model=ResourceGetResult,
+    render=render_resource_properties,
 )
 
 RESOURCE_SET_COMMAND: HeadlessCommand[ResourceSetResult] = HeadlessCommand(
     operation="resource-set",
     input_model=ResourceSetParams,
     output_model=ResourceSetResult,
+    render=render_resource_set,
 )
 
 RESOURCE_DELETE_COMMAND: HeadlessCommand[ResourceDeleteResult] = HeadlessCommand(
     operation="resource-delete",
     input_model=ResourceDeleteParams,
     output_model=ResourceDeleteResult,
+    render=render_resource_delete,
 )
 
 EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
     operation="export-list",
     input_model=ExportListParams,
     output_model=ExportListResult,
+    render=render_export_list,
 )
 
-# EXPORT_GET_COMMAND / EXPORT_RUN_COMMAND live in gda.export_run (imported above):
-# they are co-located with run_export_operation, which drives export-get to
-# resolve the preset, so the recipe can reuse them without an export_run ↔ cli
-# import cycle (issue #187).
+# EXPORT_GET_COMMAND lives in gda.export_run (imported above), co-located with
+# run_export_operation, which drives export-get to resolve the preset without an
+# export_run ↔ cli import cycle (issue #187). EXPORT_RUN_COMMAND is defined above in
+# this module instead (its recipe needs cli's runner seams, ADR-0023).
 
 RESOURCE_UID_COMMAND: HeadlessCommand[ResourceUidResult] = HeadlessCommand(
     operation="resource-uid",
     input_model=ResourceUidParams,
     output_model=ResourceUidResult,
+    render=render_resource_uid,
 )
 
 PROJECT_INFO_COMMAND: HeadlessCommand[ProjectInfoResult] = HeadlessCommand(
     operation="project-info",
     input_model=ProjectInfoParams,
     output_model=ProjectInfoResult,
+    render=render_project_info,
 )
 
 PROJECT_GET_COMMAND: HeadlessCommand[ProjectGetResult] = HeadlessCommand(
     operation="project-get",
     input_model=ProjectGetParams,
     output_model=ProjectGetResult,
+    render=render_project_get,
 )
 
 PROJECT_SET_COMMAND: HeadlessCommand[ProjectSetResult] = HeadlessCommand(
     operation="project-set",
     input_model=ProjectSetParams,
     output_model=ProjectSetResult,
+    render=render_project_set,
 )
 
 PROJECT_ADD_AUTOLOAD_COMMAND: HeadlessCommand[ProjectAddAutoloadResult] = HeadlessCommand(
     operation="project-add-autoload",
     input_model=ProjectAddAutoloadParams,
     output_model=ProjectAddAutoloadResult,
+    render=render_project_add_autoload,
 )
 
 PROJECT_REMOVE_AUTOLOAD_COMMAND: HeadlessCommand[ProjectRemoveAutoloadResult] = (
@@ -1600,6 +1746,7 @@ PROJECT_REMOVE_AUTOLOAD_COMMAND: HeadlessCommand[ProjectRemoveAutoloadResult] = 
         operation="project-remove-autoload",
         input_model=ProjectRemoveAutoloadParams,
         output_model=ProjectRemoveAutoloadResult,
+        render=render_project_remove_autoload,
     )
 )
 
@@ -1607,24 +1754,28 @@ SHADER_CREATE_COMMAND: HeadlessCommand[ShaderCreateResult] = HeadlessCommand(
     operation="shader-create",
     input_model=ShaderCreateParams,
     output_model=ShaderCreateResult,
+    render=render_shader_create,
 )
 
 SHADER_GET_COMMAND: HeadlessCommand[ShaderGetResult] = HeadlessCommand(
     operation="shader-get",
     input_model=ShaderGetParams,
     output_model=ShaderGetResult,
+    render=render_shader_get,
 )
 
 SHADER_SET_COMMAND: HeadlessCommand[ShaderSetResult] = HeadlessCommand(
     operation="shader-set",
     input_model=ShaderSetParams,
     output_model=ShaderSetResult,
+    render=render_shader_set,
 )
 
 THEME_CREATE_COMMAND: HeadlessCommand[ThemeCreateResult] = HeadlessCommand(
     operation="theme-create",
     input_model=ThemeCreateParams,
     output_model=ThemeCreateResult,
+    render=render_theme_create,
 )
 
 PROJECT_FIND_REFERENCES_COMMAND: HeadlessCommand[ProjectFindReferencesResult] = (
@@ -1632,6 +1783,7 @@ PROJECT_FIND_REFERENCES_COMMAND: HeadlessCommand[ProjectFindReferencesResult] = 
         operation="project-find-references",
         input_model=ProjectFindReferencesParams,
         output_model=ProjectFindReferencesResult,
+        render=render_project_find_references,
     )
 )
 
@@ -1640,6 +1792,7 @@ PROJECT_DEPENDENCIES_COMMAND: HeadlessCommand[ProjectDependenciesResult] = (
         operation="project-dependencies",
         input_model=ProjectDependenciesParams,
         output_model=ProjectDependenciesResult,
+        render=render_project_dependencies,
     )
 )
 
@@ -1649,24 +1802,22 @@ PROJECT_FIND_UNUSED_RESOURCES_COMMAND: HeadlessCommand[
     operation="project-find-unused-resources",
     input_model=ProjectFindUnusedResourcesParams,
     output_model=ProjectFindUnusedResourcesResult,
+    render=render_project_find_unused_resources,
 )
 
 PROJECT_STATISTICS_COMMAND: HeadlessCommand[ProjectStatisticsResult] = HeadlessCommand(
     operation="project-statistics",
     input_model=ProjectStatisticsParams,
     output_model=ProjectStatisticsResult,
+    render=render_project_statistics,
 )
 
 
-# Path normalization now lives in the models (ADR-0015) via the NormalizedPath
-# field type, the single home shared by the argv and ``--params-json`` paths —
-# every domain command's body passes its raw path straight to the params model.
-# The one exception is ``export run`` (issue #187): its argv body does NOT build
-# an ``ExportRunParams`` (it passes preset/mode/output straight to
-# ``run_export_operation``), so the model's NormalizedPath on ``output`` only
-# fires on the ``--params-json`` path. The argv ``--output`` is therefore still
-# normalized here, via this alias, to keep both export-run paths consistent.
-_normalize_path = normalize_path
+# Path normalization lives in the models (ADR-0015) via the NormalizedPath field
+# type, the single home shared by the argv and ``--params-json`` paths — every
+# command's body (``export run`` included, since ADR-0023 routed it through a built
+# ``ExportRunParams``) passes its raw path straight to the params model, which
+# ~-expands it. There is no CLI-layer normalization step left to share.
 
 
 @scene_app.command(cls=SCENE_CREATE_COMMAND.command_class())
@@ -2683,22 +2834,17 @@ def run_export(
     ``--output`` overrides the preset's configured ``export_path``; both are
     reflected in the native invocation and the reported result (#170).
     """
-    # --output is a filesystem path: normalize it ONCE here (ADR-0006, ~-expanded)
-    # at the CLI layer before it reaches the operation, like every other
-    # path-taking command. The operation receives the already-normalized override.
-    override_output = _normalize_path(output) if output is not None else None
-    outcome = run_export_operation(
-        preset=preset,
-        mode=mode,
-        output_override=override_output,
+    # Build the params model from the argv options (the single source of truth,
+    # ADR-0015): ExportRunParams.output is a NormalizedPath, so the model ~-expands
+    # it (ADR-0006) — argv and --params-json normalize identically. Dispatch through
+    # the descriptor's recipe (ADR-0023), exactly like every other recipe command.
+    _dispatch_recipe(
+        EXPORT_RUN_COMMAND,
+        ExportRunParams(preset=preset, mode=mode, output=output),
+        json_output=json_output,
         godot=godot,
-        project=resolve_project_dir(project),
-        make_runner=_make_runner,
-        make_export_runner=_make_export_runner,
+        project=project,
     )
-    if isinstance(outcome, Failure):
-        emit_failure(outcome)
-    emit_result(outcome, json_output)
 
 
 @resource_app.command(name="uid", cls=RESOURCE_UID_COMMAND.command_class())

@@ -170,3 +170,13 @@ _Avoid_: tool, action
 A top-level command about `gda` or the engine itself rather than a domain object
 (`gda info`, `gda version`, `gda help`); exempt from grouping.
 _Avoid_: global command, system command
+
+**Command descriptor**:
+The single per-command registration object (`HeadlessCommand`) naming everything
+`gda` needs to run, render, and self-describe one command: its `operation` name,
+input/params and result models, execution `kind`, failure `classify`r, human
+`render`er, and optional `recipe` channel. The render map, dispatch routing, and
+`--schema` are **projections derived from it** — read off the descriptor on the
+dispatch path, or built by walking the live Typer tree (ADR-0012) for a
+whole-surface view — never parallel registries to keep in sync (ADR-0023).
+_Avoid_: command spec, command config, command registry entry

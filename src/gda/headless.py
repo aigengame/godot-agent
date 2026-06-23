@@ -11,7 +11,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generic, NoReturn, Optional, TypeVar
+from typing import Any, Generic, NoReturn, Optional, TypeVar
 
 import typer
 from pydantic import BaseModel, ValidationError
@@ -27,12 +27,24 @@ from gda.errors import (
 )
 from gda.execution import ExecutionKind, live_stack_constraints
 from gda.models import CommandSchema, GdaErrorEnvelope, LiveStackConstraints
-from gda.render import render
 from gda.runner import GodotRunner, RunResult, SubprocessGodotRunner
 
 M = TypeVar("M", bound=BaseModel)
 
 Classifier = Callable[[RunResult, Path], M | Failure]
+# A command's human renderer: its result model -> text. Carried on the descriptor
+# (ADR-0023) so a command renders through its own registration, not a central
+# type-keyed table.
+Renderer = Callable[[M], str]
+# A recipe command's CLI-side execution channel (ADR-0023): given the built params
+# model and the CLI context, it PRODUCES the outcome (resolve + run), returning the
+# result model or a Failure. Carried on the descriptor so a command with a recipe
+# is fulfilled by it instead of the sentinel `emit`; emission stays the shared tail
+# (the descriptor's `render`), so a recipe command renders identically to a
+# sentinel one. ``export run`` / the ``daemon`` lifecycle / ``screen`` are recipes.
+# Not parameterized over ``M``: the recipe's keyword-only context means an Ellipsis
+# parameter spec (``Callable[..., …]``), which is not a subscriptable generic alias.
+Recipe = Callable[..., "BaseModel | Failure"]
 RunnerFactory = Callable[[Path, Optional[Path]], GodotRunner]
 
 
@@ -274,14 +286,20 @@ def emit_failure(failure: Failure) -> NoReturn:
 _fail = emit_failure
 
 
-def emit_result(result: BaseModel, json_output: bool) -> None:
+def emit_result(
+    result: BaseModel, json_output: bool, render: "Callable[[Any], str]"
+) -> None:
     """Emit a typed success result as JSON or human-readable text.
 
     The single home for the public success channel: a result model becomes its
-    ``--json`` serialization when ``json_output``, else the type-dispatched
-    human rendering by :func:`gda.render.render` (issue #186). Shared by the
-    sentinel-pipeline commands (via :meth:`HeadlessCommand.emit`) and the
-    native-export command (``export run``), so both render success identically.
+    ``--json`` serialization when ``json_output``, else the human text produced by
+    the command's own ``render`` (its descriptor's renderer, ADR-0023). Shared by
+    the sentinel-pipeline commands (via :meth:`HeadlessCommand.emit`) and the
+    recipe commands (``export run``, the ``daemon`` lifecycle, ``screen``), which
+    pass their descriptor's renderer so every command renders success identically.
+
+    ``render`` is always present: it is a required descriptor field (ADR-0023), and
+    both ``emit`` and the recipe dispatch pass ``cmd.render``.
     """
     if json_output:
         typer.echo(result.model_dump_json())
@@ -301,12 +319,24 @@ class HeadlessCommand(Generic[M]):
     operation: str
     input_model: type[BaseModel]
     output_model: type[M]
+    # The command's human renderer — its result model -> text (ADR-0023). A command
+    # renders through its own descriptor, so there is no central type-keyed table to
+    # keep in sync. REQUIRED (no default): every command renders, so the type system
+    # carries the guarantee; the registration invariant test also enforces it on the
+    # live command tree.
+    render: Renderer[M]
     classify: Classifier[M] | None = None
     # The static execution channel this command is fulfilled through (ADR-0017).
     # Defaults to HEADLESS — the sentinel ``operations.gd`` pipeline — so every
     # existing command keeps its channel without restating it; EXPORT and LIVE
     # commands declare their channel explicitly.
     kind: ExecutionKind = ExecutionKind.HEADLESS
+    # The command's CLI-side execution channel (ADR-0023). When set, the command is a
+    # recipe (``export run`` / ``daemon`` lifecycle / ``screen``): dispatch runs this
+    # to produce the outcome instead of the sentinel ``emit``. ``None`` (the default)
+    # means the command runs through ``emit`` with its ``kind``-selected runner — so a
+    # single ``recipe is None`` test selects the channel, no identity table.
+    recipe: "Recipe | None" = None
 
     def schema_option(self) -> bool:
         """Return the Typer ``--schema`` flag for this command."""
@@ -396,12 +426,11 @@ class HeadlessCommand(Generic[M]):
     ) -> None:
         """Run the command and emit either JSON or human-readable output.
 
-        Human output is rendered by the module-level :func:`gda.render.render`,
-        which dispatches on the result type — there is no per-command renderer
-        seam to thread, since every command renders through the same type-keyed
-        table (issue #186).
+        Human output is rendered by the command's own ``render`` (its descriptor's
+        renderer, ADR-0023) — the descriptor is in hand here, so there is no
+        type-keyed table to consult.
         """
         result = self.run(
             params, godot=godot, project=project, make_runner=make_runner
         )
-        emit_result(result, json_output)
+        emit_result(result, json_output, self.render)

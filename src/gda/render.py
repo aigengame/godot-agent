@@ -2,9 +2,11 @@
 
 The result models (``gda.models``) are pure ``--schema`` / ``--json`` data
 contracts (ADR-0004); presentation does not live in them. This module owns the
-human-readable text path: one renderer per result type, selected by result type
-via :func:`render`, plus the typed helpers that keep the presentation layer from
-reaching into a model's value shape or across a union of result types.
+human-readable text path: one renderer per result type, plus the typed helpers
+that keep the presentation layer from reaching into a model's value shape or
+across a union of result types. A command binds its renderer on its own
+``HeadlessCommand`` descriptor (``render=``, ADR-0023) — there is no central
+type-keyed dispatch table here; emission calls the descriptor's renderer.
 
 Two seams are deliberately funnelled through one place here:
 
@@ -19,70 +21,74 @@ Two seams are deliberately funnelled through one place here:
 """
 
 import json
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from gda.models import (
-    DaemonStartResult,
-    DaemonStatusResult,
-    DaemonStopResult,
-    DaemonUninstallResult,
-    DiagErrorsResult,
-    DiagLogResult,
-    EngineVersion,
-    ExportGetResult,
-    ExportListResult,
-    ExportRunResult,
-    GameGetResult,
-    GameSetResult,
-    GameTreeResult,
-    InputActionResult,
-    InputKeyResult,
-    InputMouseResult,
-    InputSequenceResult,
-    NodeAddResult,
-    NodeConnectSignalResult,
-    NodeDisconnectSignalResult,
-    NodeDuplicateResult,
-    NodeGetResult,
-    NodeListResult,
-    NodeMoveResult,
-    NodeRemoveResult,
-    NodeSetResult,
-    PerfMonitorResult,
-    PerfMonitorsResult,
-    ProjectAddAutoloadResult,
-    ProjectGetResult,
-    ProjectInfoResult,
-    ProjectRemoveAutoloadResult,
-    ProjectSetResult,
-    ResourceCreateResult,
-    ResourceDeleteResult,
-    ResourceGetResult,
-    ResourceSetResult,
-    ResourceUidResult,
-    SceneCreateResult,
-    SceneDeleteResult,
-    SceneGetExportsResult,
-    SceneGetResult,
-    SceneListResult,
-    SceneNode,
-    ScreenCaptureResult,
-    ScreenFramesResult,
-    ScriptAttachResult,
-    ScriptCreateResult,
-    ScriptDeleteResult,
-    ScriptGetResult,
-    ScriptListResult,
-    ScriptSetResult,
-    ScriptValidateResult,
-    ShaderCreateResult,
-    ShaderGetResult,
-    ShaderSetResult,
-    ThemeCreateResult,
-    ProjectDependenciesResult,
-    ProjectFindReferencesResult,
-    ProjectFindUnusedResourcesResult,
-    ProjectStatisticsResult,
+if TYPE_CHECKING:
+    # The result models are referenced only in string annotations on the renderers
+    # below; since ADR-0023 removed the type-keyed dispatch table, nothing here
+    # needs them at runtime. Keep them import-time only for type-checkers.
+    from gda.models import (
+        DaemonStartResult,
+        DaemonStatusResult,
+        DaemonStopResult,
+        DaemonUninstallResult,
+        DiagErrorsResult,
+        DiagLogResult,
+        EngineVersion,
+        ExportGetResult,
+        ExportListResult,
+        ExportRunResult,
+        GameGetResult,
+        GameSetResult,
+        GameTreeResult,
+        InputActionResult,
+        InputKeyResult,
+        InputMouseResult,
+        InputSequenceResult,
+        NodeAddResult,
+        NodeConnectSignalResult,
+        NodeDisconnectSignalResult,
+        NodeDuplicateResult,
+        NodeGetResult,
+        NodeListResult,
+        NodeMoveResult,
+        NodeRemoveResult,
+        NodeSetResult,
+        PerfMonitorResult,
+        PerfMonitorsResult,
+        ProjectAddAutoloadResult,
+        ProjectGetResult,
+        ProjectInfoResult,
+        ProjectRemoveAutoloadResult,
+        ProjectSetResult,
+        ResourceCreateResult,
+        ResourceDeleteResult,
+        ResourceGetResult,
+        ResourceSetResult,
+        ResourceUidResult,
+        SceneCreateResult,
+        SceneDeleteResult,
+        SceneGetExportsResult,
+        SceneGetResult,
+        SceneListResult,
+        SceneNode,
+        ScreenCaptureResult,
+        ScreenFramesResult,
+        ScriptAttachResult,
+        ScriptCreateResult,
+        ScriptDeleteResult,
+        ScriptGetResult,
+        ScriptListResult,
+        ScriptSetResult,
+        ScriptValidateResult,
+        ShaderCreateResult,
+        ShaderGetResult,
+        ShaderSetResult,
+        ThemeCreateResult,
+        ProjectDependenciesResult,
+        ProjectFindReferencesResult,
+        ProjectFindUnusedResourcesResult,
+        ProjectStatisticsResult,
 )
 
 
@@ -700,86 +706,3 @@ def render_project_statistics(stats: "ProjectStatisticsResult") -> str:
 def render_engine_version(version: "EngineVersion") -> str:
     """Render the engine version as its one-line version string."""
     return version.string
-
-
-# Renderer selection keyed by result type: each result model maps to the one
-# renderer that turns it into human-readable text. :func:`render` dispatches on
-# ``type(result)``, so a command sources its renderer from this module by its
-# result type rather than carrying an inline closure (composes with #139's
-# ``render`` dispatch parameter).
-_RENDERERS = {
-    SceneCreateResult: render_scene_metadata,
-    SceneGetResult: render_scene_tree,
-    GameTreeResult: render_game_tree,
-    GameGetResult: render_game_get,
-    GameSetResult: render_game_set,
-    DiagErrorsResult: render_diag_errors,
-    DiagLogResult: render_diag_log,
-    PerfMonitorsResult: render_perf_monitors,
-    PerfMonitorResult: render_perf_monitor,
-    InputKeyResult: render_input_key,
-    InputMouseResult: render_input_mouse,
-    InputActionResult: render_input_action,
-    InputSequenceResult: render_input_sequence,
-    ScreenCaptureResult: render_screen_capture,
-    ScreenFramesResult: render_screen_frames,
-    DaemonStartResult: render_daemon_start,
-    DaemonStopResult: render_daemon_stop,
-    DaemonStatusResult: render_daemon_status,
-    DaemonUninstallResult: render_daemon_uninstall,
-    SceneGetExportsResult: render_scene_exports,
-    SceneListResult: render_scene_list,
-    SceneDeleteResult: render_scene_delete,
-    NodeAddResult: render_node_add,
-    NodeListResult: render_node_list,
-    NodeGetResult: render_node_properties,
-    NodeSetResult: render_node_set,
-    NodeRemoveResult: render_node_remove,
-    NodeDuplicateResult: render_node_duplicate,
-    NodeMoveResult: render_node_move,
-    NodeConnectSignalResult: render_node_connect_signal,
-    NodeDisconnectSignalResult: render_node_disconnect_signal,
-    ScriptCreateResult: render_script_create,
-    ScriptGetResult: render_script_get,
-    ScriptListResult: render_script_list,
-    ScriptDeleteResult: render_script_delete,
-    ScriptSetResult: render_script_set,
-    ScriptAttachResult: render_script_attach,
-    ScriptValidateResult: render_script_validate,
-    ResourceCreateResult: render_resource_create,
-    ResourceGetResult: render_resource_properties,
-    ResourceSetResult: render_resource_set,
-    ResourceDeleteResult: render_resource_delete,
-    ExportListResult: render_export_list,
-    ExportGetResult: render_export_get,
-    ExportRunResult: render_export_run,
-    ResourceUidResult: render_resource_uid,
-    ProjectInfoResult: render_project_info,
-    ProjectGetResult: render_project_get,
-    ProjectSetResult: render_project_set,
-    ProjectAddAutoloadResult: render_project_add_autoload,
-    ProjectRemoveAutoloadResult: render_project_remove_autoload,
-    ShaderCreateResult: render_shader_create,
-    ShaderGetResult: render_shader_get,
-    ShaderSetResult: render_shader_set,
-    ThemeCreateResult: render_theme_create,
-    ProjectFindReferencesResult: render_project_find_references,
-    ProjectDependenciesResult: render_project_dependencies,
-    ProjectFindUnusedResourcesResult: render_project_find_unused_resources,
-    ProjectStatisticsResult: render_project_statistics,
-    EngineVersion: render_engine_version,
-}
-
-
-def render(result: Any) -> str:
-    """Render any ``gda`` result to human-readable text, keyed by its type.
-
-    Looks the result's concrete type up in the type → renderer table and applies
-    the matching renderer. A result type with no registered renderer is a
-    programming error (a new command wired without a renderer), not a runtime
-    user error, so it raises rather than guessing a format.
-    """
-    renderer = _RENDERERS.get(type(result))
-    if renderer is None:
-        raise KeyError(f"no renderer registered for result type {type(result)!r}")
-    return renderer(result)
