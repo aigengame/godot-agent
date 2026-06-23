@@ -55,6 +55,17 @@ so two instances can touch the project at once.
 > the autoload edit is scoped to the `[autoload]` section so a same-named key elsewhere
 > is never touched. Verified resident-inert in a plain run and an exported PCK.
 
+> **Outcome (2026-06-23, Phase-2 completion) — there is no standalone `gda daemon
+> install`; install is folded into `gda daemon start`.** Decision 1 below names an
+> agent-runnable `gda daemon install`; the delivered command surface has none. The
+> harness is only useful with a running daemon, so there is no install-without-start
+> use case: `gda daemon start` performs the idempotent install (reporting
+> `installed_harness`, and self-syncing a stale copy per the #225 note above), while
+> teardown is the explicit `gda daemon uninstall` (a release build must be able to
+> remove the dev tooling deliberately). The lifecycle is thus deliberately
+> **asymmetric** — implicit install on `start`, explicit `uninstall` — not a symmetric
+> install/uninstall pair. Decision 1's wording is preserved as the point-in-time record.
+
 ## Decision
 
 **1. The harness is an installed autoload, not a runtime injection.** `gda` bundles
