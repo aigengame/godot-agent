@@ -8,7 +8,6 @@ binary resolution → runner → sentinel parse → typed model → JSON.
 """
 
 import json
-from dataclasses import replace
 from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Optional
@@ -41,7 +40,6 @@ from gda.errors import (
 from gda.execution import ExecutionKind
 from gda.export_run import (
     EXPORT_GET_COMMAND,
-    EXPORT_RUN_COMMAND,
     run_export_operation,
 )
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
@@ -79,6 +77,7 @@ from gda.models import (
     ExportListResult,
     ExportRunMode,
     ExportRunParams,
+    ExportRunResult,
     GameGetParams,
     GameGetResult,
     GameSetParams,
@@ -198,6 +197,7 @@ from gda.render import (
     render_diag_log,
     render_engine_version,
     render_export_list,
+    render_export_run,
     render_game_get,
     render_game_set,
     render_game_tree,
@@ -518,12 +518,21 @@ def _export_run_recipe(params, *, project, godot):
     )
 
 
-# ``EXPORT_RUN_COMMAND`` is defined in ``gda.export_run`` (its descriptor sits beside
-# ``run_export_operation`` to avoid an export_run↔cli import cycle), but its recipe
-# needs cli's runner seams, which live here. cli.py is the composition root for
-# dispatch, so it completes the registration: rebind the imported descriptor with its
-# recipe. (export GET stays a plain sentinel command — no recipe.)
-EXPORT_RUN_COMMAND = replace(EXPORT_RUN_COMMAND, recipe=_export_run_recipe)
+# ``export-run`` does NOT route through operations.gd: the Godot export subsystem is
+# editor-only C++, so the export is a native --export-<mode> invocation driven by
+# ``run_export_operation`` (gda.export_run). Its descriptor is the single fully-bound
+# registration (ADR-0023) and is defined HERE — not beside the operation — because its
+# recipe needs cli's runner seams, and cli.py is the dispatch composition root. (Its
+# sibling ``EXPORT_GET_COMMAND`` is a plain sentinel command and stays in gda.export_run,
+# which consumes it directly.)
+EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
+    operation="export-run",
+    input_model=ExportRunParams,
+    output_model=ExportRunResult,
+    kind=ExecutionKind.EXPORT,
+    render=render_export_run,
+    recipe=_export_run_recipe,
+)
 
 
 def _emit(
@@ -1692,10 +1701,10 @@ EXPORT_LIST_COMMAND: HeadlessCommand[ExportListResult] = HeadlessCommand(
     render=render_export_list,
 )
 
-# EXPORT_GET_COMMAND / EXPORT_RUN_COMMAND live in gda.export_run (imported above):
-# they are co-located with run_export_operation, which drives export-get to
-# resolve the preset, so the recipe can reuse them without an export_run ↔ cli
-# import cycle (issue #187).
+# EXPORT_GET_COMMAND lives in gda.export_run (imported above), co-located with
+# run_export_operation, which drives export-get to resolve the preset without an
+# export_run ↔ cli import cycle (issue #187). EXPORT_RUN_COMMAND is defined above in
+# this module instead (its recipe needs cli's runner seams, ADR-0023).
 
 RESOURCE_UID_COMMAND: HeadlessCommand[ResourceUidResult] = HeadlessCommand(
     operation="resource-uid",

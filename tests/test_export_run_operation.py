@@ -17,11 +17,11 @@ surface, complementary to the command tests in
 
 from pathlib import Path
 
+from gda.cli import EXPORT_RUN_COMMAND  # the single fully-bound descriptor (ADR-0023)
 from gda.errors import Failure
 from gda.execution import ExecutionKind
 from gda.export_run import (
     EXPORT_GET_COMMAND,
-    EXPORT_RUN_COMMAND,
     run_export_operation,
 )
 from gda.models import ExportRunMode, ExportRunResult

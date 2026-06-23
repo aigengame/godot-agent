@@ -25,10 +25,12 @@ surface (driven with the two injected seams; see
 this process's stderr as advisory diagnostics; only the public result/error
 envelope and the process exit are deferred to the CLI caller.
 
-The two ``EXPORT_GET_COMMAND`` / ``EXPORT_RUN_COMMAND`` :class:`HeadlessCommand`
-definitions live here, not in ``cli.py``, so the operation can drive ``export
-get`` without an ``export_run ↔ cli`` import cycle; ``cli.py`` imports both from
-here.
+``EXPORT_GET_COMMAND`` lives here — a plain sentinel command this operation drives
+directly (``export get`` resolves the preset), so co-locating it avoids an
+``export_run ↔ cli`` import cycle. ``EXPORT_RUN_COMMAND`` does NOT: its recipe needs
+the CLI runner seams, so it is registered in ``gda.cli`` (the dispatch composition
+root) beside that recipe, where it is the command's single fully-bound descriptor
+(ADR-0023).
 """
 
 from collections.abc import Callable
@@ -42,17 +44,15 @@ from gda.errors import (
     export_path_unset_failure,
     export_templates_missing_failure,
 )
-from gda.execution import ExecutionKind
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
 from gda.headless import HeadlessCommand, RunnerFactory, make_subprocess_runner
 from gda.models import (
     ExportGetParams,
     ExportGetResult,
     ExportRunMode,
-    ExportRunParams,
     ExportRunResult,
 )
-from gda.render import render_export_get, render_export_run
+from gda.render import render_export_get
 
 # The factory seam for the native export runner — the ``export run``-only twin of
 # the sentinel channel's ``RunnerFactory``. Spelled here (not in ``headless``)
@@ -64,22 +64,6 @@ EXPORT_GET_COMMAND: HeadlessCommand[ExportGetResult] = HeadlessCommand(
     input_model=ExportGetParams,
     output_model=ExportGetResult,
     render=render_export_get,
-)
-
-# export run is the one command that does NOT route through operations.gd: the
-# Godot export subsystem is editor-only C++, unreachable from a --script
-# SceneTree run, so the export itself is a native --export-<mode> invocation
-# (gda.export_runner). This HeadlessCommand is used only for its --schema /
-# --json model plumbing; the recipe is run by run_export_operation below —
-# export-get resolves the preset + path, the native ExportRunner exports,
-# classify_export_run turns the subprocess outcome into the typed result —
-# rather than the shared sentinel pipeline.
-EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
-    operation="export-run",
-    input_model=ExportRunParams,
-    output_model=ExportRunResult,
-    render=render_export_run,
-    kind=ExecutionKind.EXPORT,
 )
 
 
