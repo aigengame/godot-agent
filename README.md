@@ -11,7 +11,7 @@
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
 [![Python](https://img.shields.io/badge/python-3.13%2B-blue)](https://www.python.org/)
 [![Godot](https://img.shields.io/badge/godot-4.4%2B%20(live%204.6%2B)-478CBF)](https://godotengine.org)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux-lightgrey)](#how-it-works)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-lightgrey)](#how-it-works)
 [![MCP](https://img.shields.io/badge/MCP-server-000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -189,14 +189,18 @@ gda scene get game/main.tscn --json
 # {"path":"game/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
 ```
 
-Now run the game and inspect it **live** (macOS/Linux, Godot 4.6+):
+Now drive a **running game live** — `game/` must be a Godot project (a directory with
+`project.godot`); macOS/Linux, Godot 4.6+:
 
 ```bash
-gda daemon start --project game           # launch the game + supervise it
-gda game tree --project game --json       # the runtime scene tree, after _ready
-gda screen capture --output shot.png --project game --json   # screenshot the running game
+gda daemon start --project game            # start the daemon (installs the harness)
+gda game tree --project game --json        # the runtime scene tree, after _ready
+gda perf monitors --project game --json    # live engine counters: fps, memory, node count
 gda daemon stop --project game
 ```
+
+(`gda screen capture` works live too, but needs a windowed session — start the daemon
+with `gda daemon start --windowed`.)
 
 ---
 
@@ -220,11 +224,11 @@ gda daemon stop --project game
 
 | Mode | Godot | Platforms |
 | ---- | ----- | --------- |
-| **Headless** | 4.4+ | macOS · Linux¹ |
+| **Headless** | 4.4+ | macOS · Linux · Windows¹ |
 | **Live** (via `gda-daemon`) | 4.6+ | macOS · Linux² |
 
-¹ Headless has no platform-specific dependency and should run on Windows too, but that
-  isn't exercised by CI/tests yet.
+¹ Headless is cross-platform by design (one-shot processes, no platform-specific
+  dependency) — Windows keeps the full headless surface, though CI does not exercise it yet.
 ² Live operations use Unix domain sockets, so Windows is not supported yet.
 
 ---
@@ -242,9 +246,10 @@ vocabulary, so the same verb means the same thing in every group:
 | `set`               | Mutate a property.                                                |
 | domain verbs        | `play`, `run`, `export`, `import`, … kept with their natural meaning. |
 
-Every command supports `--json` and `--schema`; commands that read or mutate a `res://`
-path resolve a [project context](#configuration). Run `gda <group> <command> --help` for
-full flags — `gda --help` is the authoritative list of what is installed.
+Every command supports `--json` and `--schema` — except `gda schema` itself, which emits
+the aggregate manifest as JSON directly. Commands that read or mutate a `res://` path
+resolve a [project context](#configuration). Run `gda <group> <command> --help` for full
+flags — `gda --help` is the authoritative list of what is installed.
 
 **Meta** — about `gda` / the engine itself
 
@@ -253,7 +258,7 @@ full flags — `gda --help` is the authoritative list of what is installed.
 | `gda info`   | Report the Godot engine version info. |
 | `gda schema` | Emit the whole command surface as one machine-readable JSON manifest. |
 
-### Headless commands — Godot 4.4+, macOS/Linux
+### Headless commands — Godot 4.4+, all platforms
 
 **`scene`** — scene files (`.tscn`)
 
@@ -343,8 +348,8 @@ full flags — `gda --help` is the authoritative list of what is installed.
 
 | Command | What it does |
 | ------- | ------------ |
-| `daemon start` | Launch the per-project daemon and a running game for live operations. |
-| `daemon stop` | Stop the project's daemon and its game session. |
+| `daemon start` | Start the per-project daemon and install the harness; the engine session launches on the first live op (`--windowed` for `screen` capture). |
+| `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |
 | `daemon uninstall` | Remove the in-game `gda` harness autoload from the project. |
 
