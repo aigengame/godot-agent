@@ -131,6 +131,25 @@ def test_matched_version_does_not_rewrite_the_file(tmp_path):
     assert gd.stat().st_mtime_ns == before  # not rewritten
 
 
+def test_install_is_not_fooled_by_the_exact_line_outside_autoload(tmp_path):
+    # PR #247 review (round 2): the "already present" check is scoped to [autoload].
+    # The EXACT GdaHarness line sitting in another section must NOT make install
+    # think the entry exists (the old global early return did) — it still adds a
+    # real entry under [autoload].
+    project_godot = tmp_path / "project.godot"
+    project_godot.write_text(
+        f"config_version=5\n\n[decoy]\n\n{_autoload_line()}\n", encoding="utf-8"
+    )
+
+    result = install_harness(tmp_path)
+
+    assert result.changed is True
+    text = project_godot.read_text(encoding="utf-8")
+    assert "[autoload]" in text  # a real [autoload] section was added
+    # The line now appears twice: the untouched decoy + the real [autoload] entry.
+    assert text.count(_autoload_line()) == 2
+
+
 # --- Paired uninstall (#225, D2) ----------------------------------------------
 
 

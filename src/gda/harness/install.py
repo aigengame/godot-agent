@@ -127,11 +127,14 @@ def _materialize(project: Path) -> bool:
 
 
 def _ensure_autoload(text: str) -> tuple[str, bool]:
-    """Ensure the harness autoload line is present; return (text, changed)."""
-    line = _autoload_line()
-    if line in text:
-        return text, False
+    """Ensure the harness autoload line is present in ``[autoload]``; (text, changed).
 
+    The "already present" decision is scoped to the ``[autoload]`` section: only an
+    EXACT GdaHarness line *inside* ``[autoload]`` is a no-op. There is no global
+    early return on the line appearing anywhere in the file, so a same-named key in
+    another section is never consulted, re-pointed, or removed (PR #247 review).
+    """
+    line = _autoload_line()
     lines = text.splitlines()
     trailing = "\n" if text.endswith("\n") else ""
 
@@ -149,6 +152,10 @@ def _ensure_autoload(text: str) -> tuple[str, bool]:
             if autoload_header_index is None:
                 autoload_header_index = i
         elif stripped.startswith(f"{HARNESS_AUTOLOAD_NAME}="):
+            # A GdaHarness entry inside [autoload]: a no-op when already exact,
+            # otherwise re-point it in place.
+            if stripped == line:
+                return text, False
             lines[i] = line
             return "\n".join(lines) + trailing, True
 
