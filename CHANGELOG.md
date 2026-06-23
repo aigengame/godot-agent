@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.36](https://github.com/aigengame/godot-agent/compare/v0.1.35...v0.1.36) (2026-06-23)
+
+
+### Bug Fixes
+
+* correct outdated README and refresh package description ([#262](https://github.com/aigengame/godot-agent/issues/262)) ([2fb7d0d](https://github.com/aigengame/godot-agent/commit/2fb7d0d20b57eba329ec13d47591f4bf6d509d22))
+
 ## [0.1.35](https://github.com/aigengame/godot-agent/compare/v0.1.34...v0.1.35) (2026-06-23)
 
 
