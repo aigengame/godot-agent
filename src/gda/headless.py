@@ -287,7 +287,7 @@ _fail = emit_failure
 
 
 def emit_result(
-    result: BaseModel, json_output: bool, render: "Optional[Callable[[Any], str]]"
+    result: BaseModel, json_output: bool, render: "Callable[[Any], str]"
 ) -> None:
     """Emit a typed success result as JSON or human-readable text.
 
@@ -298,17 +298,11 @@ def emit_result(
     recipe commands (``export run``, the ``daemon`` lifecycle, ``screen``), which
     pass their descriptor's renderer so every command renders success identically.
 
-    ``render`` is ``None`` only for a misregistered command (one whose descriptor
-    set no renderer); the registration invariant test (ADR-0023) keeps that off the
-    dispatchable surface, so it is a programming error rather than a user-facing one.
+    ``render`` is always present: it is a required descriptor field (ADR-0023), and
+    both ``emit`` and the recipe dispatch pass ``cmd.render``.
     """
     if json_output:
         typer.echo(result.model_dump_json())
-    elif render is None:  # pragma: no cover - guarded by the registration test
-        raise RuntimeError(
-            f"no renderer for result type {type(result)!r}; the command's "
-            "HeadlessCommand must set render= (ADR-0023)"
-        )
     else:
         typer.echo(render(result))
 
@@ -325,17 +319,18 @@ class HeadlessCommand(Generic[M]):
     operation: str
     input_model: type[BaseModel]
     output_model: type[M]
+    # The command's human renderer — its result model -> text (ADR-0023). A command
+    # renders through its own descriptor, so there is no central type-keyed table to
+    # keep in sync. REQUIRED (no default): every command renders, so the type system
+    # carries the guarantee; the registration invariant test also enforces it on the
+    # live command tree.
+    render: Renderer[M]
     classify: Classifier[M] | None = None
     # The static execution channel this command is fulfilled through (ADR-0017).
     # Defaults to HEADLESS — the sentinel ``operations.gd`` pipeline — so every
     # existing command keeps its channel without restating it; EXPORT and LIVE
     # commands declare their channel explicitly.
     kind: ExecutionKind = ExecutionKind.HEADLESS
-    # The command's human renderer — its result model -> text (ADR-0023). A command
-    # renders through its own descriptor, so there is no central type-keyed table to
-    # keep in sync. Defaults to ``None`` to keep direct-construction fixtures valid;
-    # every dispatchable command sets it, enforced by the registration invariant test.
-    render: Renderer[M] | None = None
     # The command's CLI-side execution channel (ADR-0023). When set, the command is a
     # recipe (``export run`` / ``daemon`` lifecycle / ``screen``): dispatch runs this
     # to produce the outcome instead of the sentinel ``emit``. ``None`` (the default)

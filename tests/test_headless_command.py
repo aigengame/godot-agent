@@ -9,6 +9,7 @@ import typer
 from gda.execution import ExecutionKind
 from gda.headless import HeadlessCommand
 from gda.models import EngineVersion, InfoParams
+from gda.render import render_engine_version
 from gda.runner import LaunchFailure, RunResult
 from tests.support import VERSION_INFO, FakeRunner, sentinel
 
@@ -20,6 +21,7 @@ def test_headless_command_classifies_its_execution_channel_as_headless_by_defaul
         operation="info",
         input_model=InfoParams,
         output_model=EngineVersion,
+        render=render_engine_version,
     )
 
     assert command.kind is ExecutionKind.HEADLESS
@@ -40,6 +42,7 @@ def test_headless_command_emit_owns_runner_classification_and_json_output(capsys
         operation="info",
         input_model=InfoParams,
         output_model=EngineVersion,
+        render=render_engine_version,
     )
 
     command.emit(
@@ -74,6 +77,7 @@ def test_headless_command_emit_owns_structured_failure_output(capsys):
         operation="info",
         input_model=InfoParams,
         output_model=EngineVersion,
+        render=render_engine_version,
     )
 
     with pytest.raises(typer.Exit) as raised:
@@ -102,6 +106,7 @@ def test_empty_godot_path_maps_to_structured_binary_not_found(capsys):
         operation="info",
         input_model=InfoParams,
         output_model=EngineVersion,
+        render=render_engine_version,
     )
 
     with pytest.raises(typer.Exit) as raised:
