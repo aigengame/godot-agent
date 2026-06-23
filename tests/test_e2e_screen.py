@@ -23,6 +23,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -51,6 +52,20 @@ PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
+# A WINDOWED engine session needs a real DisplayServer. macOS always has one (Aqua);
+# headless Linux CI does not — the release/scheduled e2e runners are headless, where
+# launching a windowed session fails with `engine_session_not_running`. So the
+# windowed-capture tests skip there unless run under a virtual framebuffer
+# (`xvfb-run`, which sets DISPLAY); the headless-guard and no-daemon screen tests
+# below still run. The check is forward-compatible: wire Xvfb into CI and DISPLAY is
+# set, so these run rather than skip. (PR #248 follow-up — the release-gate fix that
+# unblocked PyPI publishing; the macOS run already exercises the real windowed path.)
+_needs_display = pytest.mark.skipif(
+    sys.platform.startswith("linux") and not os.environ.get("DISPLAY"),
+    reason="windowed capture needs a DisplayServer; headless Linux has none — run "
+    "under xvfb-run, which sets DISPLAY",
+)
+
 
 def _scaffold(tmp_path):
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
@@ -73,6 +88,7 @@ def _runner(gda, tmp_path):
 
 
 @pytest.mark.e2e
+@_needs_display
 def test_windowed_daemon_captures_a_single_viewport_frame(tmp_path, daemon_runtime_dir):
     # `daemon start --windowed` -> a WINDOWED engine session -> `screen capture`
     # writes a real PNG of the running viewport (magic + dims > 0).
@@ -105,6 +121,7 @@ def test_windowed_daemon_captures_a_single_viewport_frame(tmp_path, daemon_runti
 
 
 @pytest.mark.e2e
+@_needs_display
 def test_windowed_daemon_inline_embeds_the_base64(tmp_path, daemon_runtime_dir):
     # `screen capture --inline` additionally embeds the base64 PNG in the reply.
     gda = shutil.which("gda")
@@ -126,6 +143,7 @@ def test_windowed_daemon_inline_embeds_the_base64(tmp_path, daemon_runtime_dir):
 
 
 @pytest.mark.e2e
+@_needs_display
 def test_windowed_daemon_captures_a_frame_window(tmp_path, daemon_runtime_dir):
     # `screen frames --frames 3`: the time-windowed multi-frame base (#223) collects
     # 3 viewport frames over the engine session and returns them in one blocking
