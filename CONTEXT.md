@@ -189,3 +189,23 @@ input/params and result models, execution `kind`, failure `classify`r, human
 dispatch path, or built by walking the live Typer tree (ADR-0012) for a
 whole-surface view — never parallel registries to keep in sync (ADR-0023).
 _Avoid_: command spec, command config, command registry entry
+
+### Public-facing copy
+
+**Positioning descriptor**:
+The single authoritative one-line phrase naming what `gda` *is* — currently "Godot AI
+agent CLI, Skill, and MCP server" — front-loading the primary search terms (Godot · AI
+agent · CLI/Skill/MCP). One positioning source, mirrored across three surfaces that change
+together and must not drift: the README **H1** (Title Case), the `pyproject` `description`,
+and the GitHub repository `description` (the metadata pair in sentence case, optionally
+extended with "… with structured JSON/schema output, headless automation, and live runtime
+control"). Its head noun stays "CLI, Skill, and MCP server", so it names a *tool* — not a
+claim that `gda` is itself an agent.
+_Avoid_: tagline, slogan, hero, the value sentence
+
+**Hero**:
+The README's opening *value* statement — what `gda` does for you ("`gda` gives your AI
+coding agent … structured, machine-readable control of the Godot Engine", headless then
+live). README-only and free to evolve there; it does **not** mirror the `Positioning
+descriptor` and is never replicated into `pyproject` or the repo metadata.
+_Avoid_: tagline, subtitle, positioning descriptor
