@@ -166,8 +166,7 @@ tracks the open project):
       "command": "uvx",
       "args": ["--from", "gda[mcp]", "gda-mcp"],
       "env": {
-        "GDA_PROJECT": "${workspaceFolder}",
-        "PATH": "/opt/homebrew/bin:/usr/local/bin:${userHome}/.local/bin:${env:PATH}"
+        "GDA_PROJECT": "${workspaceFolder}"
       }
     }
   }
@@ -179,9 +178,9 @@ to an absolute path (`${workspaceFolder}` is only reliable in the project-level 
 Cursor has no `mcp add` command — register via the JSON above or the Settings → MCP UI.
 
 > GUI-launched clients (Cursor, Claude Desktop) start with a minimal `PATH`, so a bare
-> `uvx` may not resolve — the Cursor snippet repairs it in `env`; if `uvx` is still not
-> found (or for Claude Desktop), use an absolute path (`which uvx`) for `command`. Full
-> recipes — user vs project scope, Claude Desktop, per-agent project pinning — are in the
+> `uvx` may not resolve. The simplest fix is an absolute `command` — run `which uvx` and
+> use its output. Full recipes — absolute paths, PATH injection, user vs project scope,
+> Claude Desktop, per-agent project pinning — are in the
 > [registration recipes](docs/gda-mcp-registration.md).
 </details>
 
