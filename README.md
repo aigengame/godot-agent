@@ -292,6 +292,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 | ------- | ------------ |
 | `gda info`   | Report the Godot engine version info. |
 | `gda schema` | Emit the whole command surface as one machine-readable JSON manifest. |
+| `gda skill`  | Emit or install the bundled Agent Skill (`SKILL.md`) that teaches an agent how to drive `gda`. |
 
 ### Headless commands — Godot 4.4+, all platforms
 
