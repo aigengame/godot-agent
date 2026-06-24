@@ -101,9 +101,8 @@ uvx --from "gda[mcp]" gda-mcp
 workspace `roots`, otherwise the working directory. An explicitly set
 `GDA_PROJECT` that is not a valid project is reported as an error, not silently replaced.
 
-It finds the Godot engine the same way the CLI does — add `GDA_GODOT` to a recipe's `env`
-(MCP has no per-call `--godot` flag) unless your engine is at the default location, e.g.
-`"GDA_GODOT": "/path/to/Godot"`.
+Point the server at your Godot binary with `GDA_GODOT` in a recipe's `env` (MCP has no
+per-call `--godot` flag) — e.g. `"GDA_GODOT": "/path/to/Godot"`.
 
 
 #### Register with Coding Agents
