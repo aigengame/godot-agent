@@ -2,10 +2,10 @@
 
 ![godot-agent title image](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)
 
-> **The Godot AI Agent CLI, Skill, and MCP Server.** Give your AI coding agent — or your
-> shell scripts and CI — structured, machine-readable control of the [Godot Engine](https://godotengine.org):
-> create scenes, edit nodes & scripts, and export builds headlessly, then drive a *running*
-> game live (runtime tree, input, screenshots, performance) — one command surface, three ways in.
+> **`gda` gives your AI coding agent — or your shell scripts and CI — structured, machine-readable
+> control of the [Godot Engine](https://godotengine.org).** Create scenes, edit nodes & scripts,
+> and export builds headlessly, then drive a *running* game live: runtime tree, input,
+> screenshots, performance — one command surface, three ways in.
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
