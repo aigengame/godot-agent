@@ -8,17 +8,21 @@ the installed CLI (ADR-0024).
 
 ## Get the Skill
 
-One canonical file, two equivalent sources:
+One canonical file, two ways to obtain it:
 
-- **From an installed `gda`** — `gda skill` prints the manifest; `gda skill --json` wraps it as
-  `{name, version, content}` (the `version` is the installed `gda` version) for programmatic use.
+- **From an installed `gda`** (recommended) — `gda skill` prints the manifest; `gda skill --json`
+  wraps it as `{name, version, content}`. This is **version-locked** to your installed `gda`, so
+  the guidance always matches the CLI it describes (ADR-0024).
 - **From the repo** — [`src/gda/skill/SKILL.md`](../src/gda/skill/SKILL.md), raw at
-  `https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md`.
+  `https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md`. This
+  tracks `main`, so it may differ from an older installed `gda` — prefer `gda skill` if you
+  already have `gda`.
 
 ## Install it where your agent loads skills
 
-`gda skill --install --dir <dir>` writes `<dir>/SKILL.md` (creating parent dirs). There is **no
-built-in default location** — point `--dir` at your agent's skills directory:
+Agent Skills (a `SKILL.md`) are loaded natively by **Claude Code** (and other agents in the Claude
+ecosystem). `gda skill --install --dir <dir>` writes `<dir>/SKILL.md` (creating parent dirs); there
+is **no built-in default location**, so point `--dir` at the agent's skills directory:
 
 - **Claude Code** — personal (every project): `~/.claude/skills/gda/`; project scope (committed,
   shared with your team): your project's skills directory, e.g. `.claude/skills/gda/`.
@@ -30,9 +34,9 @@ built-in default location** — point `--dir` at your agent's skills directory:
     https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
   ```
 
-- **Other agents (Codex, Cursor, …)** — if your agent loads `SKILL.md` files, install into its
-  skills directory the same way. If it does not, the Skill is still useful as pasted context, or
-  drive `gda` through the [MCP server](gda-mcp-registration.md) or the raw CLI instead.
+- **Agents that don't load `SKILL.md` (e.g. Codex, Cursor)** — drive `gda` through the
+  [MCP server](gda-mcp-registration.md) or the raw CLI instead; the Skill's content can also be
+  pasted in as context.
 
 ## What the Skill assumes
 
