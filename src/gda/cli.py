@@ -24,7 +24,6 @@ from gda.daemon_ops import (
 from gda.errors import (
     Failure,
     classify_diag_errors,
-    classify_diag_log,
     classify_game_get,
     classify_game_set,
     classify_game_tree,
@@ -33,6 +32,7 @@ from gda.errors import (
     classify_input_key,
     classify_input_mouse,
     classify_input_sequence,
+    classify_logger_tail,
     classify_perf_monitor,
     classify_perf_monitors,
     classify_script_validate,
@@ -69,8 +69,6 @@ from gda.models import (
     DaemonUninstallResult,
     DiagErrorsParams,
     DiagErrorsResult,
-    DiagLogParams,
-    DiagLogResult,
     EngineVersion,
     ExportGetParams,
     ExportListParams,
@@ -94,6 +92,9 @@ from gda.models import (
     InputMouseResult,
     InputSequenceParams,
     InputSequenceResult,
+    LogLevel,
+    LoggerTailParams,
+    LoggerTailResult,
     MAX_WINDOW_FRAMES,
     MouseButton,
     PerfMonitorParams,
@@ -196,7 +197,6 @@ from gda.render import (
     render_daemon_stop,
     render_daemon_uninstall,
     render_diag_errors,
-    render_diag_log,
     render_engine_version,
     render_export_list,
     render_export_run,
@@ -207,6 +207,7 @@ from gda.render import (
     render_input_key,
     render_input_mouse,
     render_input_sequence,
+    render_logger_tail,
     render_node_add,
     render_node_connect_signal,
     render_node_disconnect_signal,
@@ -359,6 +360,18 @@ diag_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(diag_app, name="diag")
+
+# The logger command group (Phase 2, ADR-0019, ADR-0026, #281): the running game's
+# STRUCTURED runtime-log stream as a domain object, marked LIVE by `kind`. Like
+# `diag`, it is daemon-served — the daemon parses the Session log it owns
+# (`--log-file`) into typed `LogRecord`s rather than relaying to the harness, so a
+# crash stays diagnosable. `logger tail` is the passive, non-invasive floor of the
+# structured-log protocol; the raw `diag log` is superseded by `logger tail --raw`.
+logger_app = typer.Typer(
+    help="Read the running game's structured runtime log (live; needs `gda daemon start`).",
+    no_args_is_help=True,
+)
+app.add_typer(logger_app, name="logger")
 
 # The perf command group (Phase 2, ADR-0019, #223): runtime performance monitoring
 # of the RUNNING game, served LIVE through gda-daemon (`kind = LIVE`). `perf
@@ -907,36 +920,76 @@ def diag_errors(
     )
 
 
-DIAG_LOG_COMMAND: HeadlessCommand[DiagLogResult] = HeadlessCommand(
-    operation="diag-log",
-    input_model=DiagLogParams,
-    output_model=DiagLogResult,
-    render=render_diag_log,
-    classify=classify_diag_log,
+def _logger_level_option() -> Optional[LogLevel]:
+    """The `--level <min>` option for `gda logger tail`: a minimum-severity filter.
+
+    Bound to the closed :class:`~gda.models.LogLevel` enum (Click choices), so an
+    out-of-set value is a usage error on the argv path, mirroring the enum-typed
+    field on ``LoggerTailParams`` that the ``--params-json`` / ``--schema`` path
+    enforces. Omitting it returns all severities.
+    """
+    return typer.Option(
+        None,
+        "--level",
+        help=(
+            "If set, return only records at or above this minimum severity over the "
+            "closed ordering debug < info < warning < error. Omit for all."
+        ),
+    )
+
+
+def _logger_raw_option() -> bool:
+    """The `--raw` flag for `gda logger tail`: verbatim lines instead of records.
+
+    The superseded `diag log` view: with it, the result carries the verbatim
+    captured lines (`lines`) and no structured records.
+    """
+    return typer.Option(
+        False,
+        "--raw",
+        help="Return the verbatim captured log lines instead of structured records.",
+    )
+
+
+LOGGER_TAIL_COMMAND: HeadlessCommand[LoggerTailResult] = HeadlessCommand(
+    operation="logger-tail",
+    input_model=LoggerTailParams,
+    output_model=LoggerTailResult,
+    render=render_logger_tail,
+    classify=classify_logger_tail,
     kind=ExecutionKind.LIVE,
 )
 
 
-@diag_app.command(name="log", cls=DIAG_LOG_COMMAND.command_class())
-def diag_log(
+@logger_app.command(name="tail", cls=LOGGER_TAIL_COMMAND.command_class())
+def logger_tail(
+    level: Optional[LogLevel] = _logger_level_option(),
     limit: Optional[int] = _diag_limit_option(),
+    raw: bool = _logger_raw_option(),
     json_output: bool = json_option(),
-    schema: bool = DIAG_LOG_COMMAND.schema_option(),
+    schema: bool = LOGGER_TAIL_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Read the running game's raw output log (live).
+    """Read the running game's structured runtime log (live).
 
-    The daemon-served counterpart of `diag errors`: the full captured output
-    stream (print output AND error lines) verbatim, one entry per line, read from
-    the same daemon-owned Session log (#224). `--limit N` tails the most recent N
-    lines. The same no-daemon / no-session / missing-log typed errors apply; an
-    empty log is an empty result.
+    The passive, non-invasive structured runtime-log channel (#281, ADR-0026): the
+    daemon parses the whole daemon-owned Session log into typed `LogRecord`s —
+    engine errors/warnings via the diag parser (carrying `source` + an `origin`
+    sub-kind), every other line a plain `info` record. So an un-instrumented
+    project gets structured logs for free. `--level <min>` filters by minimum
+    severity over the closed ordering debug < info < warning < error; `--limit N`
+    tails the most recent N (after the filter); `--raw` returns the verbatim lines
+    instead (the superseded `diag log` view). Daemon-served like `diag`: read from
+    the `--log-file` the daemon owns, so it works even after the game has crashed.
+    With no daemon it reports `daemon_not_running`; with a daemon but no session
+    ever launched, `engine_session_not_running`; with a session whose log file is
+    gone, `live_log_unavailable`. An empty log is an empty result, not an error.
     """
     _dispatch(
-        DIAG_LOG_COMMAND,
-        DiagLogParams(limit=limit),
+        LOGGER_TAIL_COMMAND,
+        LoggerTailParams(level=level, limit=limit, raw=raw),
         json_output=json_output,
         godot=godot,
         project=project,

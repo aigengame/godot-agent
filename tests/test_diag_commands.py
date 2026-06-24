@@ -17,7 +17,6 @@ from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
 from tests.support import (
     DIAG_ERRORS_RESULT,
-    DIAG_LOG_RESULT,
     error_sentinel,
     inject_live_runner,
     sentinel,
@@ -73,30 +72,6 @@ def test_diag_errors_rejects_a_non_positive_limit_on_the_argv_path(tmp_path):
         assert result.exit_code == 2, (bad, result.stdout + result.stderr)
 
 
-def test_diag_log_rejects_a_non_positive_limit_on_the_argv_path(tmp_path):
-    for bad in ("0", "-1"):
-        result = CliRunner().invoke(
-            app, ["diag", "log", "--limit", bad, "--project", str(_project(tmp_path)), "--json"]
-        )
-        assert result.exit_code == 2, (bad, result.stdout + result.stderr)
-
-
-def test_diag_log_emits_raw_lines_json_through_the_live_channel(monkeypatch, tmp_path):
-    fake = inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(DIAG_LOG_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(
-        app, ["diag", "log", "--project", str(_project(tmp_path)), "--json"]
-    )
-
-    assert result.exit_code == 0, result.stdout + result.stderr
-    data = json.loads(result.stdout)
-    assert "known line" in data["lines"]
-    assert fake.calls == [("diag-log", {"limit": None})]
-
-
 def test_diag_errors_human_output_renders_levels(monkeypatch, tmp_path):
     inject_live_runner(
         monkeypatch,
@@ -109,18 +84,6 @@ def test_diag_errors_human_output_renders_levels(monkeypatch, tmp_path):
     # Human output names the level and message; the location is shown when present.
     assert "boom" in result.stdout
     assert "res://main.gd:9" in result.stdout
-
-
-def test_diag_log_human_output_renders_lines(monkeypatch, tmp_path):
-    inject_live_runner(
-        monkeypatch,
-        RunResult(stdout=sentinel(DIAG_LOG_RESULT), stderr="", exit_code=0),
-    )
-
-    result = CliRunner().invoke(app, ["diag", "log", "--project", str(_project(tmp_path))])
-
-    assert result.exit_code == 0, result.stdout + result.stderr
-    assert "known line" in result.stdout
 
 
 def test_diag_errors_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
@@ -160,20 +123,19 @@ def test_diag_errors_log_unavailable_is_a_typed_live_error(monkeypatch, tmp_path
 
 
 def test_diag_params_json_rejects_a_non_positive_limit_as_invalid_params(monkeypatch, tmp_path):
-    # The `ge=1` bound on DiagErrorsParams / DiagLogParams: a zero/negative limit
-    # via --params-json is a structured `invalid_params` (reflected in --schema),
-    # not a silent "no limit". No dispatch happens — the model validation fails
-    # first, so no live runner is needed.
-    for op, key in (("errors", "errors"), ("log", "log")):  # both diag ops
-        for bad in (0, -1):
-            result = CliRunner().invoke(
-                app,
-                ["diag", op, "--params-json", json.dumps({"limit": bad}),
-                 "--project", str(_project(tmp_path)), "--json"],
-            )
-            assert result.exit_code != 0, (op, bad, result.stdout + result.stderr)
-            err = json.loads(result.stdout)["error"]
-            assert err["code"] == "invalid_params", (op, bad, err)
+    # The `ge=1` bound on DiagErrorsParams: a zero/negative limit via --params-json
+    # is a structured `invalid_params` (reflected in --schema), not a silent "no
+    # limit". No dispatch happens — model validation fails first, so no live runner
+    # is needed.
+    for bad in (0, -1):
+        result = CliRunner().invoke(
+            app,
+            ["diag", "errors", "--params-json", json.dumps({"limit": bad}),
+             "--project", str(_project(tmp_path)), "--json"],
+        )
+        assert result.exit_code != 0, (bad, result.stdout + result.stderr)
+        err = json.loads(result.stdout)["error"]
+        assert err["code"] == "invalid_params", (bad, err)
 
 
 def test_diag_errors_schema_reflects_the_limit_lower_bound():
@@ -193,14 +155,5 @@ def test_diag_errors_schema_is_self_describing_and_live():
     assert result.exit_code == 0, result.stdout + result.stderr
     schema = json.loads(result.stdout)
     # Self-describes its input/output contract and its LIVE execution kind.
-    assert "input" in schema and "output" in schema
-    assert schema["kind"] == "live"
-
-
-def test_diag_log_schema_is_self_describing_and_live():
-    result = CliRunner().invoke(app, ["diag", "log", "--schema"])
-
-    assert result.exit_code == 0, result.stdout + result.stderr
-    schema = json.loads(result.stdout)
     assert "input" in schema and "output" in schema
     assert schema["kind"] == "live"

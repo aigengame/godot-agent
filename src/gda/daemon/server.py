@@ -13,7 +13,7 @@ import secrets
 import signal
 import socket
 
-from gda.daemon.diag import parse_errors, parse_log
+from gda.daemon.diag import parse_errors, parse_log, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
 from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
 from gda.daemon.session import EngineSession, launch_session
@@ -22,13 +22,14 @@ from gda.daemon.session import EngineSession, launch_session
 STATUS_OP = "__status__"
 STOP_OP = "__stop__"
 
-# `gda diag` ops (#224): daemon-served live ops. Unlike the other live ops, they
-# are NOT relayed to the harness — the daemon serves them directly from the
-# Session log it launched the engine with (`--log-file`). Served even after the
-# session process has died, so a crash stays diagnosable.
+# Daemon-served log ops (#224, #281): the `gda diag errors` and `gda logger tail`
+# ops. Unlike the other live ops, they are NOT relayed to the harness — the daemon
+# serves them directly from the Session log it launched the engine with
+# (`--log-file`). Served even after the session process has died, so a crash stays
+# diagnosable. (`diag log` is SUPERSEDED by `logger tail --raw`, ADR-0026.)
 DIAG_ERRORS_OP = "diag-errors"
-DIAG_LOG_OP = "diag-log"
-DIAG_OPS = (DIAG_ERRORS_OP, DIAG_LOG_OP)
+LOGGER_TAIL_OP = "logger-tail"
+LOG_OPS = (DIAG_ERRORS_OP, LOGGER_TAIL_OP)
 
 
 class DaemonServer:
@@ -110,10 +111,11 @@ class DaemonServer:
         if op == STOP_OP:
             self._stopping = True
             return {"ok": True, "pid": os.getpid()}
-        if op in DIAG_OPS:
-            # `gda diag` is daemon-served: the daemon reads the Session log it owns
-            # rather than relaying to the harness (#224).
-            return self._handle_diag(op, request.get("params", {}))
+        if op in LOG_OPS:
+            # `gda diag errors` / `gda logger tail` are daemon-served: the daemon
+            # reads the Session log it owns rather than relaying to the harness
+            # (#224, #281).
+            return self._handle_log(op, request.get("params", {}))
         # A project live op. Serialized against the one session (single writer).
         session = self._ensure_session()
         if session is None:
@@ -124,22 +126,24 @@ class DaemonServer:
             )
         return session.request(op, request.get("params", {}))
 
-    def _handle_diag(self, op: str, params: dict) -> dict:
-        """Serve a `gda diag` op from the Session log this daemon owns (#224).
+    def _handle_log(self, op: str, params: dict) -> dict:
+        """Serve a daemon-side log op from the Session log this daemon owns (#224, #281).
 
         Reads the running game's captured errors/output from the ``--log-file``
-        the daemon launched the engine with. Crucially served even when the
-        session process has DIED — diag does NOT launch or relaunch a session (a
-        read-only diagnostic must not run the project's code, ADR-0009; a relaunch
-        would also truncate the log and lose the crash). It requires only that a
-        session was launched this daemon lifetime (ADR-0022): it reads the one the
-        daemon already holds, alive OR dead. With NO session launched this lifetime
-        it is ``engine_session_not_running`` — diag does not create one; the user
-        launches a session by running a live op (e.g. ``gda game tree``), not by
-        diag. With a remembered session whose log file is missing/unreadable it is
-        ``live_log_unavailable`` (an empty log is an empty result, not an error).
+        the daemon launched the engine with, for ``diag errors`` (structured engine
+        errors) and ``logger tail`` (the whole log as structured ``LogRecord``s, or
+        verbatim lines with ``--raw``). Crucially served even when the session
+        process has DIED — it does NOT launch or relaunch a session (a read-only
+        diagnostic must not run the project's code, ADR-0009; a relaunch would also
+        truncate the log and lose the crash). It requires only that a session was
+        launched this daemon lifetime (ADR-0022): it reads the one the daemon
+        already holds, alive OR dead. With NO session launched this lifetime it is
+        ``engine_session_not_running`` — the user launches a session by running a
+        live op (e.g. ``gda game tree``). With a remembered session whose log file
+        is missing/unreadable it is ``live_log_unavailable`` (an empty log is an
+        empty result, not an error).
         """
-        # Use the session the daemon already holds — never launch one here. diag is
+        # Use the session the daemon already holds — never launch one here. This is
         # a read-only observer of an already-launched session (ADR-0022); launching
         # would give it a hidden project-code-execution side effect (ADR-0009).
         session = self._session
@@ -147,9 +151,9 @@ class DaemonServer:
             return error_reply(
                 "engine_session_not_running",
                 "the gda-daemon holds no engine session to read runtime "
-                "diagnostics from; diag observes an already-launched session and "
+                "diagnostics from; it observes an already-launched session and "
                 "does not start one — launch a session first by running a live op "
-                "(e.g. `gda game tree`), then re-run diag",
+                "(e.g. `gda game tree`), then re-run the read",
             )
         try:
             raw = session.log_file.read_bytes()
@@ -162,7 +166,11 @@ class DaemonServer:
         limit = params.get("limit")
         if op == DIAG_ERRORS_OP:
             return result_reply({"errors": parse_errors(raw, limit=limit)})
-        return result_reply({"lines": parse_log(raw, limit=limit)})
+        # logger-tail: structured LogRecords by default; verbatim lines with --raw.
+        if params.get("raw"):
+            return result_reply({"records": [], "lines": parse_log(raw, limit=limit)})
+        records = parse_log_records(raw, level=params.get("level"), limit=limit)
+        return result_reply({"records": records, "lines": []})
 
     def _ensure_session(self) -> EngineSession | None:
         if self._session is not None and self._session.alive():

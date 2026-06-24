@@ -33,7 +33,6 @@ if TYPE_CHECKING:
         DaemonStopResult,
         DaemonUninstallResult,
         DiagErrorsResult,
-        DiagLogResult,
         EngineVersion,
         ExportGetResult,
         ExportListResult,
@@ -45,6 +44,7 @@ if TYPE_CHECKING:
         InputKeyResult,
         InputMouseResult,
         InputSequenceResult,
+        LoggerTailResult,
         NodeAddResult,
         NodeConnectSignalResult,
         NodeDisconnectSignalResult,
@@ -212,11 +212,36 @@ def render_diag_errors(diag: "DiagErrorsResult") -> str:
     return "\n".join(lines)
 
 
-def render_diag_log(diag: "DiagLogResult") -> str:
-    """Render the running game's raw output log — its lines verbatim, one per line (#224)."""
-    if not diag.lines:
-        return "no output"
-    return "\n".join(diag.lines)
+def render_logger_tail(tail: "LoggerTailResult") -> str:
+    """Render the running game's structured runtime log (#281, ADR-0026).
+
+    Default: one ``LEVEL: message (at: loc)`` line per record, the location
+    appended when known (a plain info line omits it). With ``--raw`` the result
+    carries verbatim ``lines`` instead, rendered one per line (the superseded
+    ``diag log`` view). An empty read renders a short note rather than a blank
+    string, so the human output is never ambiguous.
+    """
+    if tail.lines:
+        return "\n".join(tail.lines)
+    if not tail.records:
+        return "no log records"
+    lines = []
+    for rec in tail.records:
+        line = f"{rec.level.value.upper()}: {rec.message}"
+        if rec.source is not None and rec.source.file is not None:
+            loc = (
+                f"{rec.source.file}:{rec.source.line}"
+                if rec.source.line is not None
+                else rec.source.file
+            )
+            at = (
+                f" (at: {rec.source.function} {loc})"
+                if rec.source.function
+                else f" (at: {loc})"
+            )
+            line += at
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def render_perf_monitors(snapshot: "PerfMonitorsResult") -> str:
