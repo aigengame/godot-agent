@@ -119,3 +119,85 @@ def test_parse_log_accepts_bytes_and_is_empty_on_empty():
     assert parse_log(b"a\nb\n") == ["a", "b"]
     assert parse_log("") == []
     assert parse_log(b"") == []
+
+
+# A real Godot 4.6 runtime GDScript error: the `at:` follow-on is succeeded by a
+# `GDScript backtrace (most recent call first):` marker, then one `[N] func
+# (file:line)` frame line per stack frame (verified against Godot 4.6.3). The
+# `at:` frame equals frame `[0]`; frames are ordered most-recent-first.
+BACKTRACE_LOG = """\
+SCRIPT ERROR: Invalid call. Nonexistent function 'do_thing' in base 'Nil'.
+   at: b (res://main.gd:9)
+   GDScript backtrace (most recent call first):
+       [0] b (res://main.gd:9)
+       [1] a (res://main.gd:6)
+       [2] _ready (res://main.gd:3)
+"""
+
+
+def test_parse_errors_extracts_the_ordered_callstack_frames():
+    errors = parse_errors(BACKTRACE_LOG)
+    assert len(errors) == 1
+    callstack = errors[0]["callstack"]
+    assert callstack == [
+        {"function": "b", "file": "res://main.gd", "line": 9},
+        {"function": "a", "file": "res://main.gd", "line": 6},
+        {"function": "_ready", "file": "res://main.gd", "line": 3},
+    ]
+
+
+def test_parse_errors_top_frame_fields_match_the_at_line_unchanged():
+    # The existing single-frame {function,file,line} fields stay the top frame —
+    # equal to frame [0] — and are unchanged by the callstack enrichment.
+    error = parse_errors(BACKTRACE_LOG)[0]
+    assert error["function"] == "b"
+    assert error["file"] == "res://main.gd"
+    assert error["line"] == 9
+    assert error["callstack"][0] == {
+        "function": error["function"],
+        "file": error["file"],
+        "line": error["line"],
+    }
+
+
+def test_parse_errors_callstack_is_empty_for_a_bare_push_error():
+    # A plain push_error / warning carries NO GDScript backtrace; its callstack is
+    # an empty list (not an error, not a one-frame synthesis).
+    errors = parse_errors("ERROR: bare error\n   at: f (res://a.gd:1)\n")
+    assert errors[0]["callstack"] == []
+
+
+def test_parse_errors_callstack_empty_when_no_at_line_either():
+    errors = parse_errors("ERROR: trailing error with no at line\n")
+    assert errors[0]["callstack"] == []
+
+
+def test_parse_errors_backtrace_consumption_stops_before_the_next_error():
+    # An error WITH a backtrace immediately followed by ANOTHER error header: the
+    # frame-consuming loop must stop at the next header and not swallow it, so the
+    # second error is parsed independently with its own (empty) callstack.
+    log = BACKTRACE_LOG + "ERROR: second error\n   at: g (res://b.gd:2)\n"
+    errors = parse_errors(log)
+    assert len(errors) == 2
+    assert errors[0]["message"] == "Invalid call. Nonexistent function 'do_thing' in base 'Nil'."
+    assert len(errors[0]["callstack"]) == 3
+    assert errors[1]["message"] == "second error"
+    assert errors[1]["function"] == "g"
+    assert errors[1]["callstack"] == []
+
+
+def test_parse_errors_backtrace_consumption_stops_before_a_print_line():
+    # An interleaved print line after the frames ends the backtrace; it is neither
+    # a frame nor an error and must not be folded into the callstack.
+    log = BACKTRACE_LOG + "an ordinary print line\n"
+    errors = parse_errors(log)
+    assert len(errors) == 1
+    assert len(errors[0]["callstack"]) == 3
+    assert all("print" not in (f["function"] or "") for f in errors[0]["callstack"])
+
+
+def test_parse_errors_existing_entries_gain_an_empty_callstack_key():
+    # Every entry from the original (backtrace-free) SAMPLE_LOG now carries a
+    # callstack key — empty, since none of those errors has a GDScript backtrace.
+    for error in parse_errors(SAMPLE_LOG):
+        assert error["callstack"] == []
