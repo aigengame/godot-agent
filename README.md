@@ -97,16 +97,18 @@ so any MCP agent (Claude Code, Codex, Cursor, …) can drive Godot. Try it with 
 uvx --from "gda[mcp]" gda-mcp
 ```
 
-The server takes two things from the recipe's `env` — which Godot **project** to drive and
-which Godot **binary** to run (MCP can't pass per-call flags; see
+The server resolves two pieces of context — which Godot **project** to drive and which Godot
+**binary** to run (MCP can't pass per-call flags; see
 [Configuration](#configuration) for what `GDA_PROJECT` and `GDA_GODOT` do):
 
 - **Project** — `gda-mcp` uses `GDA_PROJECT` if set; otherwise the **workspace roots** the
-  client advertises (the folder you have open in your editor/agent, for clients that
-  support MCP roots); otherwise the server's **working directory** (where the `gda-mcp` process
-  was launched). A set-but-invalid `GDA_PROJECT` is a reported error, not a silent fallback.
-  *(Same idea as the CLI's `--project` → `GDA_PROJECT` → cwd order — MCP just has no
-  `--project` flag, so the client's roots are the auto-detected stand-in for it.)*
+  client advertises (the folder you have open, for clients that support MCP roots); otherwise
+  the server's **working directory** (where the `gda-mcp` process was launched). A roots or cwd
+  candidate is used only if it is a real Godot project (has `project.godot`), else resolution
+  moves on; a *set-but-invalid* `GDA_PROJECT`, by contrast, is a reported error, not a silent
+  fallback. *(The CLI resolves a project differently — `--project` → `GDA_PROJECT` → cwd; the
+  MCP server has no flags, so `GDA_PROJECT` is the explicit override and the protocol's
+  workspace `roots` are the auto-detected fallback.)*
 - **Engine** — set `GDA_GODOT` to your Godot binary, e.g. `"GDA_GODOT": "/path/to/Godot"`.
 
 
@@ -150,8 +152,9 @@ args = ["--from", "gda[mcp]", "gda-mcp"]
 GDA_PROJECT = "/absolute/path/to/your/godot/project"
 ```
 
-User scope (every project) — the same table in `~/.codex/config.toml`, or add it with the
-CLI (Codex has no workspace variable, so `GDA_PROJECT` stays an absolute path):
+User scope (available everywhere, but pinned to one project) — the same table in
+`~/.codex/config.toml`, or add it with the CLI. Codex has no workspace variable, so
+`GDA_PROJECT` is an absolute path; use project scope if you work across several projects:
 
 ```bash
 codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- \
@@ -171,7 +174,7 @@ tracks the open project):
   "mcpServers": {
     "gda-mcp": {
       "type": "stdio",
-      "command": "uvx",
+      "command": "/path/to/uvx",
       "args": ["--from", "gda[mcp]", "gda-mcp"],
       "env": {
         "GDA_PROJECT": "${workspaceFolder}"
@@ -181,14 +184,14 @@ tracks the open project):
 }
 ```
 
-User scope (every project) — the same config in `~/.cursor/mcp.json`, but set `GDA_PROJECT`
-to an absolute path (`${workspaceFolder}` is only reliable in the project-level file).
-Cursor has no `mcp add` command — register via the JSON above or the Settings → MCP UI.
+User scope (available everywhere, but pinned to one project) — the same config in
+`~/.cursor/mcp.json` with `GDA_PROJECT` set to an absolute path (`${workspaceFolder}` only
+works in project scope; use project scope for several projects). Cursor has no `mcp add`
+command — register via the JSON above or the Settings → MCP UI.
 
-> GUI-launched clients (Cursor, Claude Desktop) start with a minimal `PATH`, so a bare
-> `uvx` may not resolve. The simplest fix is an absolute `command` — run `which uvx` and
-> use its output. Full recipes — absolute paths, PATH injection, user vs project scope,
-> Claude Desktop, per-agent project pinning — are in the
+> Cursor is GUI-launched with a minimal `PATH`, so a bare `uvx` may not resolve — hence the
+> absolute `command` above; fill it with the output of `which uvx`. Full recipes — PATH
+> injection, Claude Desktop, user vs project scope, per-agent project pinning — are in the
 > [registration recipes](docs/gda-mcp-registration.md).
 </details>
 
