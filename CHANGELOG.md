@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.38](https://github.com/aigengame/godot-agent/compare/v0.1.37...v0.1.38) (2026-06-24)
+
+
+### Bug Fixes
+
+* correct the exit-code ABI table (missing exit 6) + reframe positioning ([#274](https://github.com/aigengame/godot-agent/issues/274)) ([79003a1](https://github.com/aigengame/godot-agent/commit/79003a16147a479c4fa48a8a67d83dbc4b312f28))
+
 ## [0.1.37](https://github.com/aigengame/godot-agent/compare/v0.1.36...v0.1.37) (2026-06-24)
 
 
