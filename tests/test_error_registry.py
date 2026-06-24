@@ -28,6 +28,11 @@ LIVE_ERROR_CODES = (
     # LIVE-category, classifier-source (the uninstall recipe emits it), exit 6,
     # NOT GDScript-mirrored.
     "daemon_running",
+    # The session-scene-selection failure (#278): `daemon start --scene <bad>`
+    # surfaces a typed not-found rather than silently running main_scene. The daemon
+    # mints it (validating the res:// selector before launch), so it is a
+    # daemon-channel classifier-source LIVE code, NOT GDScript-mirrored.
+    "live_scene_not_found",
 )
 
 ROOT = Path(__file__).resolve().parents[1]

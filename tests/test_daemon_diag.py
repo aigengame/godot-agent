@@ -91,6 +91,74 @@ def test_engine_session_exposes_its_log_file_path(tmp_path):
     assert session.log_file == log_file
 
 
+# --- #278: launch carries `--scene <path|UID>` BEFORE `--path`, omitted by default ---
+
+
+def _capture_launch_argv(monkeypatch, project, **launch_kw):
+    """Drive ``launch_session`` engine-free and return the argv it built."""
+    captured = {}
+
+    class _ImmediatePopen:
+        def __init__(self, argv, **kwargs):
+            captured["argv"] = argv
+            self.pid = 4242
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(subprocess, "Popen", _ImmediatePopen)
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+
+    class _NoAcceptListener:
+        def settimeout(self, _):
+            pass
+
+        def accept(self):
+            raise TimeoutError
+
+    launch_session(
+        project,
+        "godot",
+        _NoAcceptListener(),
+        project / "h.sock",
+        "tok",
+        timeout=0.1,
+        **launch_kw,
+    )
+    return captured["argv"]
+
+
+def test_launch_session_inserts_scene_before_path_when_set(monkeypatch, tmp_path):
+    project = _project(tmp_path)
+    argv = _capture_launch_argv(monkeypatch, project, scene="res://B.tscn")
+
+    # `--scene <path>` is an ENGINE option: present, paired, and BEFORE `--path`
+    # (and so before the `--` payload separator too).
+    assert "--scene" in argv
+    assert argv[argv.index("--scene") + 1] == "res://B.tscn"
+    assert argv.index("--scene") < argv.index("--path")
+    assert argv.index("--scene") < argv.index("--")
+
+
+def test_launch_session_accepts_a_uid_scene_selector(monkeypatch, tmp_path):
+    # Godot's `--scene` accepts a `uid://…` value too; the launch passes it through
+    # verbatim in the same engine-option slot.
+    project = _project(tmp_path)
+    argv = _capture_launch_argv(monkeypatch, project, scene="uid://abc123")
+
+    assert argv[argv.index("--scene") + 1] == "uid://abc123"
+    assert argv.index("--scene") < argv.index("--path")
+
+
+def test_launch_session_omits_scene_by_default(monkeypatch, tmp_path):
+    # No selector: behaviour unchanged — the engine runs the project's main_scene,
+    # so no `--scene` engine option appears in the argv.
+    project = _project(tmp_path)
+    argv = _capture_launch_argv(monkeypatch, project)
+
+    assert "--scene" not in argv
+
+
 # --- Slice 2: the daemon serves diag from the remembered log file ---
 
 

@@ -11,6 +11,7 @@ readiness / liveness seams are stubbed so the focus is the additive
 
 import json
 import os
+from pathlib import Path as _Path
 
 import pytest
 from typer.testing import CliRunner
@@ -61,7 +62,11 @@ def fake_ready(monkeypatch):
 
 def _start(project, **kw):
     return daemon_ops.run_daemon_start_operation(
-        project, None, spawn=lambda p, b, w: None, version_check=_OK_VERSION, **kw
+        project,
+        None,
+        spawn=lambda p, b, w, s: None,
+        version_check=_OK_VERSION,
+        **kw,
     )
 
 
@@ -170,7 +175,7 @@ def test_start_defaults_to_headless_and_reports_windowed_false(
     started = daemon_ops.run_daemon_start_operation(
         project,
         None,
-        spawn=lambda p, b, windowed: spawned.append((p, b, windowed)),
+        spawn=lambda p, b, windowed, scene: spawned.append((p, b, windowed)),
         version_check=_OK_VERSION,
     )
 
@@ -191,7 +196,7 @@ def test_start_windowed_threads_mode_into_spawn_and_result(
         project,
         None,
         windowed=True,
-        spawn=lambda p, b, windowed: spawned.append((p, b, windowed)),
+        spawn=lambda p, b, windowed, scene: spawned.append((p, b, windowed)),
         version_check=_OK_VERSION,
     )
 
@@ -199,6 +204,133 @@ def test_start_windowed_threads_mode_into_spawn_and_result(
     assert started.windowed is True
     # The windowed mode is threaded into the spawn (the daemon argv carries it).
     assert spawned[0][2] is True
+
+
+# `daemon start --scene <path|UID>` is a START-TIME selector: the daemon holds it
+# and passes it to the engine session as `--scene` (before `--path`). The recipe
+# threads the value into the spawn (the daemon argv) — like `windowed`. With no
+# `--scene`, the spawn carries `None` and the session runs the project's main_scene
+# unchanged (#278, ADR-0017 amendment).
+
+
+def test_start_threads_scene_into_spawn_when_set(
+    tmp_path, short_runtime, fake_ready, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    spawned: list[tuple] = []
+
+    started = daemon_ops.run_daemon_start_operation(
+        project,
+        None,
+        scene="res://B.tscn",
+        spawn=lambda p, b, windowed, scene: spawned.append((p, b, windowed, scene)),
+        version_check=_OK_VERSION,
+    )
+
+    assert isinstance(started, DaemonStartResult), started
+    # The selector is threaded into the spawn (the daemon argv carries it).
+    assert spawned[0][3] == "res://B.tscn"
+
+
+def test_start_defaults_to_no_scene_selector(
+    tmp_path, short_runtime, fake_ready, monkeypatch
+):
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    spawned: list[tuple] = []
+
+    started = daemon_ops.run_daemon_start_operation(
+        project,
+        None,
+        spawn=lambda p, b, windowed, scene: spawned.append((p, b, windowed, scene)),
+        version_check=_OK_VERSION,
+    )
+
+    assert isinstance(started, DaemonStartResult), started
+    # No selector: the spawn carries None — the session runs main_scene unchanged.
+    assert spawned[0][3] is None
+
+
+def test_spawn_daemon_forwards_scene_into_the_daemon_argv(monkeypatch):
+    # `_spawn_daemon` builds the detached `python -m gda.daemon` argv; the selector
+    # is forwarded as `--scene <value>` so the daemon process holds it (#278).
+    import subprocess as _subprocess
+
+    captured: dict = {}
+
+    class _FakePopen:
+        def __init__(self, argv, **kwargs):
+            captured["argv"] = argv
+
+    monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
+
+    daemon_ops._spawn_daemon(_Path("/proj"), "godot", False, "res://B.tscn")
+
+    argv = captured["argv"]
+    assert "--scene" in argv
+    assert argv[argv.index("--scene") + 1] == "res://B.tscn"
+
+
+def test_spawn_daemon_omits_scene_when_none(monkeypatch):
+    import subprocess as _subprocess
+
+    captured: dict = {}
+
+    class _FakePopen:
+        def __init__(self, argv, **kwargs):
+            captured["argv"] = argv
+
+    monkeypatch.setattr(_subprocess, "Popen", _FakePopen)
+
+    daemon_ops._spawn_daemon(_Path("/proj"), "godot", False, None)
+
+    assert "--scene" not in captured["argv"]
+
+
+def test_daemon_main_parses_scene_into_the_server(monkeypatch):
+    # `python -m gda.daemon --scene res://B.tscn` parses the selector and constructs
+    # the DaemonServer with it, so a launched session boots that scene (#278).
+    import gda.daemon.__main__ as daemon_main
+
+    captured: dict = {}
+
+    class _FakeServer:
+        def __init__(self, paths, godot="", windowed=False, scene=None):
+            captured["scene"] = scene
+
+        def serve(self):
+            pass
+
+    monkeypatch.setattr(daemon_main, "DaemonServer", _FakeServer)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["gda.daemon", "--project", "/proj", "--scene", "res://B.tscn"],
+    )
+
+    daemon_main.main()
+
+    assert captured["scene"] == "res://B.tscn"
+
+
+def test_daemon_main_scene_defaults_to_none(monkeypatch):
+    import gda.daemon.__main__ as daemon_main
+
+    captured: dict = {}
+
+    class _FakeServer:
+        def __init__(self, paths, godot="", windowed=False, scene=None):
+            captured["scene"] = scene
+
+        def serve(self):
+            pass
+
+    monkeypatch.setattr(daemon_main, "DaemonServer", _FakeServer)
+    monkeypatch.setattr("sys.argv", ["gda.daemon", "--project", "/proj"])
+
+    daemon_main.main()
+
+    assert captured["scene"] is None
 
 
 def test_already_running_start_reports_windowed_unknown(
@@ -276,6 +408,69 @@ def test_cli_daemon_start_defaults_to_headless(tmp_path, short_runtime, monkeypa
     assert result.exit_code == 0, result.output
     assert captured["windowed"] is False
     assert json.loads(result.stdout)["windowed"] is False
+
+
+def test_cli_daemon_start_scene_threads_the_selector_to_the_recipe(
+    tmp_path, short_runtime, monkeypatch
+):
+    # `gda daemon start --scene res://B.tscn` reaches the recipe with the selector;
+    # the argv option is the start-time scene the session boots (#278).
+    project = _project(tmp_path)
+    captured: dict = {}
+
+    def fake_start(proj, godot, *, windowed=False, scene=None, **kw):
+        captured["scene"] = scene
+        return DaemonStartResult(
+            pid=1,
+            socket_path="/tmp/x.sock",
+            installed_harness=False,
+            harness_version=HARNESS_VERSION,
+            windowed=windowed,
+            already_running=False,
+        )
+
+    monkeypatch.setattr("gda.cli.run_daemon_start_operation", fake_start)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "daemon",
+            "start",
+            "--scene",
+            "res://B.tscn",
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["scene"] == "res://B.tscn"
+
+
+def test_cli_daemon_start_defaults_to_no_scene(tmp_path, short_runtime, monkeypatch):
+    project = _project(tmp_path)
+    captured: dict = {}
+
+    def fake_start(proj, godot, *, windowed=False, scene=None, **kw):
+        captured["scene"] = scene
+        return DaemonStartResult(
+            pid=1,
+            socket_path="/tmp/x.sock",
+            installed_harness=False,
+            harness_version=HARNESS_VERSION,
+            windowed=windowed,
+            already_running=False,
+        )
+
+    monkeypatch.setattr("gda.cli.run_daemon_start_operation", fake_start)
+
+    result = CliRunner().invoke(
+        app, ["daemon", "start", "--project", str(project), "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["scene"] is None
 
 
 # --- status surfaces the running daemon's display mode (#251) -----------------

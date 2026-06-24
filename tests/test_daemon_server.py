@@ -37,6 +37,66 @@ def test_live_op_without_a_launchable_session_is_engine_session_not_running(tmp_
     assert parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
 
 
+def test_a_nonexistent_scene_selector_is_a_typed_live_scene_not_found(tmp_path):
+    # #278 / ADR-0017 amendment: a missing/non-existent `--scene` selector MUST
+    # surface a typed `live_scene_not_found` — NEVER a silent fall back to
+    # main_scene. The daemon validates the res:// selector against the project
+    # before launching, so the failure is precise (not a vague launch error).
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    server = DaemonServer(
+        daemon_paths(tmp_path), godot="godot", scene="res://nope.tscn"
+    )
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+
+    assert parse_result(reply["stdout"])["error"]["code"] == "live_scene_not_found"
+
+
+def test_an_existing_scene_selector_passes_the_validation_gate(tmp_path):
+    # An existing res:// scene passes scene validation; with no real Godot binary
+    # the launch then fails as engine_session_not_running (not scene_not_found) —
+    # proving the gate let a real scene through.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    (tmp_path / "B.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
+    server = DaemonServer(daemon_paths(tmp_path), godot="", scene="res://B.tscn")
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+
+    assert (
+        parse_result(reply["stdout"])["error"]["code"]
+        == "engine_session_not_running"
+    )
+
+
+def test_a_uid_scene_selector_passes_the_validation_gate(tmp_path):
+    # A `uid://…` selector cannot be checked by file existence daemon-side; it is
+    # passed through to the engine, so it clears the gate (and then fails to launch
+    # here with no real binary) rather than being wrongly rejected as not-found.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    server = DaemonServer(daemon_paths(tmp_path), godot="", scene="uid://abc123")
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+
+    assert (
+        parse_result(reply["stdout"])["error"]["code"]
+        == "engine_session_not_running"
+    )
+
+
+def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
+    # The selector-less default is unchanged: no scene validation, straight to the
+    # launch path (which here is engine_session_not_running with no real binary).
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    server = DaemonServer(daemon_paths(tmp_path), godot="")
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+
+    assert (
+        parse_result(reply["stdout"])["error"]["code"]
+        == "engine_session_not_running"
+    )
+
+
 def test_control_ops_report_liveness_and_request_stop(tmp_path):
     server = DaemonServer(daemon_paths(tmp_path), godot="")
 
