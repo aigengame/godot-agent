@@ -1048,3 +1048,48 @@ def test_theme_create_result_round_trips_path_type_and_dirs():
     assert created.type == "Theme"
     assert created.created_dirs == []
     assert json.loads(created.model_dump_json()) == payload
+
+
+def test_diag_errors_result_round_trips_a_multi_frame_callstack():
+    # A runtime GDScript error carries its ordered call stack (#283): each frame
+    # is {function, file, line}, most-recent-first, with frame [0] equal to the
+    # top {function,file,line}. The whole result round-trips byte-identical.
+    from gda.models import DiagErrorsResult
+
+    payload = {
+        "errors": [
+            {
+                "level": "script_error",
+                "message": "Invalid call. Nonexistent function 'do_thing' in base 'Nil'.",
+                "function": "b",
+                "file": "res://main.gd",
+                "line": 9,
+                "callstack": [
+                    {"function": "b", "file": "res://main.gd", "line": 9},
+                    {"function": "a", "file": "res://main.gd", "line": 6},
+                    {"function": "_ready", "file": "res://main.gd", "line": 3},
+                ],
+            }
+        ]
+    }
+
+    result = DiagErrorsResult.model_validate(payload)
+
+    error = result.errors[0]
+    assert [f.function for f in error.callstack] == ["b", "a", "_ready"]
+    assert error.callstack[0].file == "res://main.gd"
+    assert error.callstack[0].line == 9
+    assert json.loads(result.model_dump_json()) == payload
+
+
+def test_diag_error_callstack_defaults_to_empty_for_a_bare_error():
+    # A bare push_error carries no backtrace: callstack defaults to [] and the
+    # existing single-frame fields stay None — no callstack key required on input.
+    from gda.models import DiagError
+
+    error = DiagError.model_validate(
+        {"level": "error", "message": "boom", "function": None, "file": None, "line": None}
+    )
+
+    assert error.callstack == []
+    assert error.function is None

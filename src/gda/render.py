@@ -196,8 +196,11 @@ def render_diag_errors(diag: "DiagErrorsResult") -> str:
     """Render the running game's runtime errors as `LEVEL: message (at: loc)` lines (#224).
 
     One line per error/warning; the location is appended when known (a bare error
-    omits it). An empty read renders a short `no runtime errors` note rather than
-    a blank string, so the human output is never ambiguous.
+    omits it). A runtime GDScript error's ordered ``callstack`` (#283) renders as
+    indented ``function (file:line)`` frame lines below the headline (most-recent-
+    first); a bare error with no backtrace shows just its one line. An empty read
+    renders a short `no runtime errors` note rather than a blank string, so the
+    human output is never ambiguous.
     """
     if not diag.errors:
         return "no runtime errors"
@@ -209,6 +212,10 @@ def render_diag_errors(diag: "DiagErrorsResult") -> str:
             at = f" (at: {err.function} {loc})" if err.function else f" (at: {loc})"
             line += at
         lines.append(line)
+        for frame in err.callstack:
+            loc = f"{frame.file}:{frame.line}" if frame.line is not None else frame.file
+            where = f"({loc})" if loc is not None else ""
+            lines.append(f"  {frame.function or '<unknown>'} {where}".rstrip())
     return "\n".join(lines)
 
 

@@ -467,6 +467,12 @@ DIAG_ERRORS_RESULT = {
             "function": "_ready",
             "file": "res://main.gd",
             "line": 9,
+            # A runtime GDScript error carries its ordered call stack (#283),
+            # most-recent-first; frame [0] equals the top {function,file,line}.
+            "callstack": [
+                {"function": "_ready", "file": "res://main.gd", "line": 9},
+                {"function": "a", "file": "res://main.gd", "line": 6},
+            ],
         },
         {
             "level": "warning",
@@ -474,6 +480,7 @@ DIAG_ERRORS_RESULT = {
             "function": "_process",
             "file": "res://main.gd",
             "line": 20,
+            "callstack": [],  # a warning has no backtrace
         },
         {
             "level": "error",
@@ -481,6 +488,7 @@ DIAG_ERRORS_RESULT = {
             "function": None,
             "file": None,
             "line": None,
+            "callstack": [],
         },
     ]
 }

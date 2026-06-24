@@ -2608,6 +2608,22 @@ _DIAG_LIMIT_DESC = (
 )
 
 
+class SourceFrame(BaseModel):
+    """One frame of a GDScript call stack: a ``{function, file, line}`` location.
+
+    The ordered unit of a runtime error's ``callstack`` (#283) — the function the
+    engine was in, the source file it lives in, and the line within it. Each
+    facet is nullable so a frame the engine reported only partially still parses
+    (best-effort, never a parse failure).
+    """
+
+    function: str | None = Field(default=None, description="The frame's function name, if known.")
+    file: str | None = Field(
+        default=None, description="The frame's source path (e.g. res://main.gd), if known."
+    )
+    line: int | None = Field(default=None, description="The frame's source line, if known.")
+
+
 class DiagError(BaseModel):
     """One structured runtime error/warning of the running game (#224).
 
@@ -2616,7 +2632,9 @@ class DiagError(BaseModel):
     an agent branches on the severity without parsing prose — warnings are
     included, told apart by ``level``. The location (``function``/``file``/
     ``line``) is filled from the ``   at:`` follow-on when present; a bare error
-    leaves them ``null`` (best-effort, never a parse failure).
+    leaves them ``null`` (best-effort, never a parse failure). A runtime GDScript
+    error additionally carries its ordered ``callstack`` of frames (#283); a bare
+    push_error / warning has no backtrace, so ``callstack`` is empty.
     """
 
     level: str = Field(
@@ -2630,6 +2648,14 @@ class DiagError(BaseModel):
         default=None, description="The source path (e.g. res://main.gd), if known."
     )
     line: int | None = Field(default=None, description="The source line, if known.")
+    callstack: list[SourceFrame] = Field(
+        default_factory=list,
+        description=(
+            "The ordered call stack (most-recent-first) when the engine emitted a "
+            "GDScript backtrace; frame [0] equals the top {function,file,line}. "
+            "Empty for a bare push_error / warning."
+        ),
+    )
 
 
 class DiagErrorsParams(BaseModel):
