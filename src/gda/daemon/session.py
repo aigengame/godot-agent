@@ -87,6 +87,7 @@ def launch_session(
     log_file: Optional[Path] = None,
     timeout: float = CONNECT_TIMEOUT,
     windowed: bool = False,
+    scene: Optional[str] = None,
 ) -> Optional[EngineSession]:
     """Launch an engine session and wait for the harness to connect.
 
@@ -96,6 +97,14 @@ def launch_session(
     runs with a real ``DisplayServer`` whose viewport a ``screen`` capture op can
     read pixels from; ``--headless``'s dummy ``DisplayServer`` cannot (ADR-0017).
     The mode is start-time declared and fixed for the session's life (ADR-0020).
+
+    When ``scene`` is set (``gda daemon start --scene <path|UID>``, #278) the engine
+    is launched with Godot's ``--scene <path|UID>`` engine option — placed BEFORE
+    ``--path`` alongside ``--headless``/``--log-file`` — so the session boots that
+    chosen scene instead of the project's ``main_scene`` (verified to run the scene
+    without mutating ``main_scene``). Omitted when ``scene`` is ``None`` (the default,
+    runs ``main_scene`` unchanged). The selector accepts a scene path or UID and is
+    start-time declared, fixed for the session's life (ADR-0017 amendment, ADR-0020).
 
     When ``log_file`` is given, the engine is launched with Godot's
     ``--log-file <abs path>`` so the session writes BOTH its output and its errors
@@ -108,11 +117,15 @@ def launch_session(
     """
     log_args = ["--log-file", str(log_file)] if log_file is not None else []
     headless_args = [] if windowed else ["--headless"]
+    # `--scene <path|UID>` is an ENGINE option, so it sits before `--path` (and so
+    # before the `--` payload separator) alongside the other engine args (#278).
+    scene_args = ["--scene", scene] if scene is not None else []
     proc = subprocess.Popen(
         [
             str(binary),
             *headless_args,
             *log_args,
+            *scene_args,
             "--path",
             str(project),
             "--",

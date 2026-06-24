@@ -496,6 +496,21 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A live engine session was launched but its diagnostics log file is missing"
         " or unreadable, so `gda diag` cannot read the running game's errors/output.",
     ),
+    # `gda daemon start --scene <path|UID>` boots the session on a CHOSEN scene
+    # (#278, ADR-0017 amendment). A missing/non-existent selector must surface this
+    # TYPED failure rather than silently falling back to the project's main_scene:
+    # the daemon validates a res:// selector against the project before launching.
+    # CLASSIFIER-source (the daemon mints it, not the harness), so it is NOT
+    # GDScript-mirrored.
+    ErrorCodeSpec(
+        "live_scene_not_found",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A `gda daemon start --scene` selector names a scene that does not exist in"
+        " the project, so no engine session can be launched on it (it is never"
+        " silently replaced by the project's main_scene).",
+    ),
     # Per live-operation failures the gda harness reports for `perf` (#223). Same
     # shape as the #220 game op-errors above: LIVE-category, classifier-source,
     # exit_code EXIT_LIVE, harness-mirrored (a test mirrors them against the harness

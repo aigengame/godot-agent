@@ -35,7 +35,13 @@ LOG_OPS = (DIAG_ERRORS_OP, LOGGER_TAIL_OP)
 class DaemonServer:
     """Binds the per-project sockets and serves requests until stopped."""
 
-    def __init__(self, paths: DaemonPaths, godot: str = "", windowed: bool = False) -> None:
+    def __init__(
+        self,
+        paths: DaemonPaths,
+        godot: str = "",
+        windowed: bool = False,
+        scene: str | None = None,
+    ) -> None:
         self.paths = paths
         self.godot = godot
         # The start-time declared display mode (ADR-0017 refined, #222): when true the
@@ -43,6 +49,11 @@ class DaemonServer:
         # has a real DisplayServer; fixed for the daemon's life (ADR-0020 single
         # session), never switched mid-session.
         self.windowed = windowed
+        # The start-time scene selector (ADR-0017 amendment, #278): when set the engine
+        # session boots this chosen scene (a `res://…` path or `uid://…` value) via
+        # Godot's `--scene` engine option instead of the project's main_scene; None
+        # runs main_scene unchanged. Fixed for the daemon's life (ADR-0020).
+        self.scene = scene
         self._token = secrets.token_hex(16)
         self._stopping = False
         self._listener: socket.socket | None = None
@@ -117,6 +128,11 @@ class DaemonServer:
             # (#224, #281).
             return self._handle_log(op, request.get("params", {}))
         # A project live op. Serialized against the one session (single writer).
+        # A non-existent `--scene` selector is a TYPED failure caught BEFORE launch —
+        # never a silent fall back to main_scene (#278, ADR-0017 amendment).
+        scene_error = self._scene_not_found_reply()
+        if scene_error is not None:
+            return scene_error
         session = self._ensure_session()
         if session is None:
             return error_reply(
@@ -173,6 +189,34 @@ class DaemonServer:
         )
         return result_reply({"records": records})
 
+    def _scene_not_found_reply(self) -> dict | None:
+        """Reject a non-existent ``--scene`` selector with a typed error (#278).
+
+        Validates a ``res://``/filesystem scene selector against the project on disk
+        BEFORE a launch, so a missing scene is a precise ``live_scene_not_found``
+        rather than a vague launch failure — and is NEVER silently replaced by the
+        project's ``main_scene`` (ADR-0017 amendment). A ``uid://…`` selector cannot
+        be resolved daemon-side without the engine's UID cache, so it is passed
+        through to the engine (the engine validates it). ``None`` (no selector) is
+        the unchanged default. Returns an error reply when the path is missing, else
+        ``None``.
+        """
+        scene = self.scene
+        if scene is None or scene.startswith("uid://"):
+            return None
+        # Map a `res://…` selector to its on-disk path under the project root; a bare
+        # filesystem path is taken relative to the project (or absolute as given).
+        rel = scene[len("res://") :] if scene.startswith("res://") else scene
+        candidate = (self.paths.project / rel).expanduser()
+        if candidate.is_file():
+            return None
+        return error_reply(
+            "live_scene_not_found",
+            f"the --scene selector {scene!r} does not name a scene that exists in the "
+            f"project at {self.paths.project}; gda never falls back to main_scene — "
+            "fix the path/UID or omit --scene to run the project's main_scene",
+        )
+
     def _ensure_session(self) -> EngineSession | None:
         if self._session is not None and self._session.alive():
             return self._session
@@ -190,6 +234,7 @@ class DaemonServer:
             self._token,
             log_file=self._session_log_path(),
             windowed=self.windowed,
+            scene=self.scene,
         )
         return self._session
 

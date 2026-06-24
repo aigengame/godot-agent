@@ -3396,14 +3396,17 @@ class ScreenFramesResult(BaseModel):
 
 
 class DaemonStartParams(BaseModel):
-    """The params of ``gda daemon start``: the display mode of its engine session (#222).
+    """The params of ``gda daemon start``: its engine session's display mode and scene.
 
-    Empty but for ``windowed``: the project is the ``--project`` context. ``windowed``
-    is a START-TIME declared mode (ADR-0017 refined by #222) — the daemon launches its
-    engine session windowed (no ``--headless``) so a ``screen`` capture op has a real
-    ``DisplayServer`` to read pixels from; default false keeps the cheap non-visual
-    sessions (``game tree``, ``perf``, ``diag``) headless. The mode is fixed for the
-    session's life (ADR-0020 single session) — it is NOT switched mid-session.
+    The project is the ``--project`` context. ``windowed`` is a START-TIME declared
+    mode (ADR-0017 refined by #222) — the daemon launches its engine session windowed
+    (no ``--headless``) so a ``screen`` capture op has a real ``DisplayServer`` to read
+    pixels from; default false keeps the cheap non-visual sessions (``game tree``,
+    ``perf``, ``diag``) headless. ``scene`` is a START-TIME selector (ADR-0017 amended
+    by #278): when set the daemon boots the session on that chosen scene via Godot's
+    ``--scene`` engine option (before ``--path``) instead of the project's
+    ``main_scene``; default null runs ``main_scene`` unchanged. Both modes are fixed
+    for the session's life (ADR-0020 single session) — NOT switched mid-session.
     """
 
     windowed: bool = Field(
@@ -3412,6 +3415,15 @@ class DaemonStartParams(BaseModel):
             "Launch the engine session windowed (no --headless) so `screen` capture "
             "ops have a display; default headless. Requires a display/Xvfb on a "
             "headless host."
+        ),
+    )
+    scene: str | None = Field(
+        default=None,
+        description=(
+            "Boot the engine session on this scene (a `res://…` path or a `uid://…` "
+            "value, per Godot's `--scene`) instead of the project's main_scene; "
+            "default null runs main_scene unchanged. A non-existent scene is a typed "
+            "`live_scene_not_found` error, never a silent fall back to main_scene."
         ),
     )
 
