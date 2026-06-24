@@ -20,6 +20,15 @@ orthogonal to the delivery phases: first delivered on top of Phase 1, it follows
 never itself a phase. Its order relative to other components follows ADR-0000.
 _Avoid_: the server, mcp wrapper
 
+**gda skill**:
+The Agent Skill (a `SKILL.md`) that teaches an AI agent how and when to drive `gda`
+through the CLI — a third agent-facing channel alongside `gda-mcp`. Where `gda-mcp`
+exposes the surface as generated tools, the skill points the agent at the CLI itself plus
+the guidance to use it; an agent uses whichever channel its runtime supports. It ships
+in-package and is emitted by the `gda skill` command, so its guidance stays version-locked
+to the installed CLI (ADR-0024).
+_Avoid_: plugin, addon, the SKILL.md file
+
 **gda-daemon**:
 A long-lived, per-project process that supervises transient `Engine session`s and
 brokers IPC to them, serving operations that require a live engine rather than a
