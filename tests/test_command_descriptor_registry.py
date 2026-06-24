@@ -95,6 +95,10 @@ _RECIPE_OPERATIONS = {
     "daemon-uninstall",
     "screen-capture",
     "screen-frames",
+    # `gda skill` is a pure local emitter meta command (ADR-0024): it reads the
+    # in-package SKILL.md and emits/installs it, spawning no Godot, so it is
+    # fulfilled by a CLI-side recipe like export run / the daemon lifecycle.
+    "skill",
 }
 
 

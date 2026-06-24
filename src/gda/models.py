@@ -2256,6 +2256,56 @@ class EngineVersion(BaseModel):
     timestamp: int
 
 
+class SkillParams(BaseModel):
+    """The operation params of ``gda skill`` (ADR-0024).
+
+    ``gda skill`` is a pure emitter meta command: it reads the bundled
+    ``SKILL.md`` from the package and emits or installs it — no Godot is spawned.
+    Its only param is ``install``: when set, the manifest is written to the
+    caller-supplied ``install_dir`` instead of being printed. There is no
+    agent-specific default location in core (ADR-0024); ``install_dir`` is required
+    for an install. It is carried as a string so the ``--params-json`` and ``--schema``
+    paths describe it the same way the argv ``--dir`` option supplies it.
+    """
+
+    install: bool = Field(
+        default=False,
+        description="If true, WRITE the bundled SKILL.md to install_dir "
+        "instead of returning it; the result then reports the written path.",
+    )
+    install_dir: str | None = Field(
+        default=None,
+        description="The skills directory to install into (caller-supplied; required "
+        "for an install, no default). Parent dirs are created and an existing file is "
+        "overwritten. Providing it implies an install (ADR-0015 parity with argv --dir).",
+    )
+
+    @model_validator(mode="after")
+    def _dir_implies_install(self) -> "SkillParams":
+        # Single source of truth (ADR-0015): naming a target directory means "install
+        # there", whether the params arrive from argv (``--dir``) or a ``--params-json``
+        # object — normalized here in the model, not in the CLI body, so both agree.
+        if self.install_dir is not None:
+            self.install = True
+        return self
+
+
+class SkillResult(BaseModel):
+    """The result of ``gda skill``: the bundled Skill, version-locked (ADR-0024).
+
+    ``name``/``version``/``content`` carry the manifest's identity, the installed
+    ``gda`` version (from ``importlib.metadata``, so the guidance cannot skew from
+    the CLI it describes), and the full ``SKILL.md`` text. ``installed_path`` is the
+    path written on ``--install`` and ``None`` for a plain emit, so one model serves
+    both the emit and install paths.
+    """
+
+    name: str
+    version: str
+    content: str
+    installed_path: Path | None = None
+
+
 class ProjectInfoParams(BaseModel):
     """The operation params of ``gda project info`` — none (ADR-0004).
 
