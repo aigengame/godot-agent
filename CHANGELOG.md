@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.37](https://github.com/aigengame/godot-agent/compare/v0.1.36...v0.1.37) (2026-06-24)
+
+
+### Features
+
+* add the gda skill command and bundled SKILL.md ([#270](https://github.com/aigengame/godot-agent/issues/270)) ([17b380c](https://github.com/aigengame/godot-agent/commit/17b380c6736be2bc24a4f5619a5dab06685e24d9))
+
 ## [0.1.36](https://github.com/aigengame/godot-agent/compare/v0.1.35...v0.1.36) (2026-06-23)
 
 
