@@ -65,7 +65,7 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate` (`.gd` files) |
 | `project` | `info`, `get`, `set`, `add-autoload`, `remove-autoload`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` |
 | `resource` | `create`, `get`, `set`, `delete`, `uid` (`.tres` files) |
-| `export` | `list`, `get`, `run` (presets → `release`/`debug`/`pack` artifacts) |
+| `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack) |
 | `shader` | `create`, `get`, `set` (`.gdshader` files) |
 | `theme` | `create` (a loadable `.tres` Theme) |
 
@@ -93,7 +93,7 @@ export GDA_GODOT="/path/to/Godot"
 gda scene create game/main.tscn --root-type Node2D --project game --json
 gda node add  game/main.tscn --type Sprite2D --name Hero --project game --json
 gda node set  game/main.tscn --node Hero --property position --value "100,50" --project game --json
-gda export run release --output build/game.zip --project game --json
+gda export run --preset "Linux/X11" --output build/game.zip --project game --json  # --preset: a name from 'gda export list'
 ```
 
 Live: observe the running game, then tear down.
