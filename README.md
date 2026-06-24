@@ -2,10 +2,11 @@
 
 ![godot-agent title image](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)
 
-> **The agent-first CLI, Skill, and MCP server for the [Godot Engine](https://godotengine.org).**
-> Give your AI coding agent structured, machine-readable control of Godot — create
-> scenes, edit nodes & scripts, and export builds headlessly, then drive a *running*
-> game live: runtime tree, input, screenshots, performance.
+> **Godot for AI agents.** Give your AI coding agent — or your shell scripts and CI —
+> structured, machine-readable control of the [Godot Engine](https://godotengine.org):
+> create scenes, edit nodes & scripts, and export builds headlessly, then drive a
+> *running* game live (runtime tree, input, screenshots, performance). One command
+> surface, three ways in: a **CLI**, an agent **Skill**, and an **MCP server**.
 
 [![pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange)](https://pypi.org/project/gda/)
 [![CI](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/aigengame/godot-agent/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush)
@@ -25,10 +26,6 @@ result it can act on — never engine logs it has to scrape. It runs in **two mo
 - **Live** — drive a *running* game through a background daemon for everything only a
   live engine can do: read the runtime scene tree, get/set runtime properties, simulate
   input, capture screenshots, and sample performance.
-
-Drive it **three ways**, all the same command surface: the raw **`gda`** CLI, an agent
-**Skill** (a `SKILL.md` that teaches your agent how and when to use it), or the **`gda-mcp`**
-MCP server (tools generated from `gda`'s own schemas). See [How it works](#how-it-works).
 
 > `gda` is **pre-1.0**: every command works end-to-end today, but the CLI surface may
 > still change before 1.0.
@@ -59,7 +56,22 @@ MCP server (tools generated from `gda`'s own schemas). See [How it works](#how-i
 
 ---
 
+## Capabilities at a glance
+
+| What you need | Reach for |
+| --- | --- |
+| Build project files from an agent or script | `scene` / `node` / `script` / `resource` / `shader` / `theme` — create & edit headlessly |
+| Parse results instead of scraping engine logs | `--json` (one clean object) and `--schema` (a JSON-Schema contract) |
+| Hand an agent Godot tools | the bundled **Skill** (`gda skill`) or the **`gda-mcp`** server |
+| Automate CI, exports, and project analysis | headless commands — no editor, no plugin, just a Godot binary |
+| Debug a *running* game's runtime behavior | `gda daemon start`, then `game` / `diag` / `perf` / `input` / `screen` |
+
+---
+
 ## Installation
+
+**Requirements:** Python 3.13+, and a [Godot](https://godotengine.org) binary — 4.4+ for
+headless commands, 4.6+ on macOS/Linux for live (daemon) commands.
 
 Install the CLI from PyPI onto your `PATH`:
 
@@ -86,6 +98,64 @@ uv sync                  # create the environment + install dependencies
 uv run gda --help
 ```
 </details>
+
+---
+
+## Quick start
+
+**Point `gda` at your Godot binary**, then ask the engine its version — no project needed:
+
+```bash
+export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command
+gda info --json
+# {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
+```
+
+stdout is always clean JSON you can pipe; all engine and script diagnostics go to stderr:
+
+```bash
+gda info --json | jq .major   # → 4
+```
+
+**Build a scene headlessly.** Point `gda` at a Godot project (a directory with `project.godot`)
+once; relative paths then resolve *inside* it, and nodes are addressed by their path relative to
+the scene root:
+
+```bash
+export GDA_PROJECT="/path/to/your/godot-project"   # or pass --project to any command
+gda scene create scenes/main.tscn --root-type Node2D --json
+gda node add  scenes/main.tscn --type Sprite2D --name Hero --json
+gda node set  scenes/main.tscn --node Hero --property position --value 10,20 --json
+gda scene get scenes/main.tscn --json
+# {"path":"scenes/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
+```
+
+> No project? `gda` still runs **projectless** on plain filesystem paths (relative to your current
+> directory) — only `res://` resolution needs a project. See [Configuration](#configuration).
+
+**Drive a *running* game live** — the same project, now observed at runtime (macOS/Linux, Godot 4.6+):
+
+```bash
+gda daemon start             # start the daemon for $GDA_PROJECT (installs the harness)
+gda game tree --json         # the runtime scene tree, after _ready
+gda perf monitors --json     # live engine counters: fps, memory, node count
+gda daemon stop
+```
+
+(`gda screen capture` works live too, but needs a windowed session — start the daemon
+with `gda daemon start --windowed`.)
+
+---
+
+## Choose your integration
+
+`gda` exposes the **same command surface** three ways — pick whichever your agent (or you) supports:
+
+| Entry point | Best for | How |
+| --- | --- | --- |
+| **CLI** (`gda`) | humans, shell scripts, CI, and agents that can run commands | `gda <group> <command> --json` |
+| **Skill** (`gda skill`) | coding agents that support Agent Skills and prefer a token-light CLI workflow | print/install `SKILL.md` (below) |
+| **MCP** (`gda-mcp`) | agents that call tools over the Model Context Protocol | run the stdio server (below) |
 
 ### Use it as a Skill
 
@@ -118,17 +188,12 @@ uvx --from "gda[mcp]" gda-mcp
 ```
 
 The server resolves two pieces of context — which Godot **project** to drive and which Godot
-**binary** to run (MCP can't pass per-call flags; see
-[Configuration](#configuration) for what `GDA_PROJECT` and `GDA_GODOT` do):
+**binary** to run (MCP can't pass per-call flags):
 
-- **Project** — `gda-mcp` uses `GDA_PROJECT` if set; otherwise the **workspace roots** the
-  client advertises (the folder you have open, for clients that support MCP roots); otherwise
-  the server's **working directory** (where the `gda-mcp` process was launched). A roots or cwd
-  candidate is used only if it is a real Godot project (has `project.godot`), else resolution
-  moves on; a *set-but-invalid* `GDA_PROJECT`, by contrast, is a reported error, not a silent
-  fallback. *(The CLI resolves a project differently — `--project` → `GDA_PROJECT` → cwd; the
-  MCP server has no flags, so `GDA_PROJECT` is the explicit override and the protocol's
-  workspace `roots` are the auto-detected fallback.)*
+- **Project** — set `GDA_PROJECT` when your client can't advertise workspace **roots**; otherwise
+  `gda-mcp` auto-detects the project from the roots the client sends (the folder you have open). A
+  *set-but-invalid* `GDA_PROJECT` is a reported error, not a silent fallback. See
+  [Configuration](#configuration) for the full CLI-vs-MCP resolution order.
 - **Engine** — set `GDA_GODOT` to your Godot binary, e.g. `"GDA_GODOT": "/path/to/Godot"`.
 
 
@@ -217,48 +282,6 @@ command — register via the JSON above or the Settings → MCP UI.
 
 ---
 
-## Quick start
-
-Point `gda` at your Godot binary, then ask the engine its version:
-
-```bash
-export GDA_GODOT="/path/to/Godot"   # or pass --godot to any command
-gda info --json
-# {"major":4,"minor":6,"patch":3,"status":"stable","string":"4.6.3-stable (official)",…}
-```
-
-stdout is always clean JSON you can pipe; all engine and script diagnostics go to stderr:
-
-```bash
-gda info --json | jq .major   # → 4
-```
-
-Build a scene headlessly and read it back as a structured tree (nodes are addressed by
-their path relative to the scene root):
-
-```bash
-gda scene create game/main.tscn --root-type Node2D --json
-gda node add  game/main.tscn --type Sprite2D --name Hero --json
-gda node set  game/main.tscn --node Hero --property position --value 10,20 --json
-gda scene get game/main.tscn --json
-# {"path":"game/main.tscn","root":{"name":"main","type":"Node2D","children":[{"name":"Hero",…}]}}
-```
-
-Now drive a **running game live** — `game/` must be a Godot project (a directory with
-`project.godot`); macOS/Linux, Godot 4.6+:
-
-```bash
-gda daemon start --project game            # start the daemon (installs the harness)
-gda game tree --project game --json        # the runtime scene tree, after _ready
-gda perf monitors --project game --json    # live engine counters: fps, memory, node count
-gda daemon stop --project game
-```
-
-(`gda screen capture` works live too, but needs a windowed session — start the daemon
-with `gda daemon start --windowed`.)
-
----
-
 ## How it works
 
 `gda` is three components serving operations in two modes:
@@ -305,6 +328,9 @@ Every command supports `--json` and `--schema` — except `gda schema` itself, w
 the aggregate manifest as JSON directly. Commands that read or mutate a `res://` path
 resolve a [project context](#configuration). Run `gda <group> <command> --help` for full
 flags — `gda --help` is the authoritative list of what is installed.
+
+**New here?** A good first path: `gda info` → `gda scene create` → `gda node add` →
+`gda script validate` → `gda export run`; then go live with `gda daemon start` → `gda game tree`.
 
 **Meta** — about `gda` / the engine itself
 
@@ -474,7 +500,12 @@ references resolve deterministically) in this order:
 
 A named directory must be a project, or `gda` reports it as an error. When none resolves,
 `gda` runs **projectless** — only filesystem paths (absolute or cwd-relative) resolve, not
-`res://`.
+`res://`. The **MCP server** has no flags, so it resolves a project a little differently:
+
+| Context | Project resolution order |
+| --- | --- |
+| **CLI** | `--project` → `GDA_PROJECT` → cwd (if it holds `project.godot`), else projectless |
+| **MCP** (`gda-mcp`) | `GDA_PROJECT` → client workspace `roots` → server cwd — each used only if it holds `project.godot` |
 
 <details>
 <summary>Project code execution — what runs when you point at a project</summary>
