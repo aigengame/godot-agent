@@ -97,12 +97,17 @@ so any MCP agent (Claude Code, Codex, Cursor, …) can drive Godot. Try it with 
 uvx --from "gda[mcp]" gda-mcp
 ```
 
-`gda-mcp` picks your Godot project from `GDA_PROJECT` if set, otherwise the client's
-workspace `roots`, otherwise the working directory. An explicitly set
-`GDA_PROJECT` that is not a valid project is reported as an error, not silently replaced.
+The server takes two things from the recipe's `env` — which Godot **project** to drive and
+which Godot **binary** to run (MCP can't pass per-call flags; see
+[Configuration](#configuration) for what `GDA_PROJECT` and `GDA_GODOT` do):
 
-Point the server at your Godot binary with `GDA_GODOT` in a recipe's `env` (MCP has no
-per-call `--godot` flag) — e.g. `"GDA_GODOT": "/path/to/Godot"`.
+- **Project** — `gda-mcp` uses `GDA_PROJECT` if set; otherwise the **workspace roots** the
+  client advertises (the folder you have open in your editor/agent — Claude Code sends this
+  automatically); otherwise the server's **working directory** (where the `gda-mcp` process
+  was launched). A set-but-invalid `GDA_PROJECT` is a reported error, not a silent fallback.
+  *(Same idea as the CLI's `--project` → `GDA_PROJECT` → cwd order — MCP just has no
+  `--project` flag, so the client's roots are the auto-detected stand-in for it.)*
+- **Engine** — set `GDA_GODOT` to your Godot binary, e.g. `"GDA_GODOT": "/path/to/Godot"`.
 
 
 #### Register with Coding Agents
