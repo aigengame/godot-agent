@@ -97,14 +97,27 @@ so any MCP agent (Claude Code, Codex, Cursor, …) can drive Godot. Try it with 
 uvx --from "gda[mcp]" gda-mcp
 ```
 
-`gda-mcp` picks your Godot project from `GDA_PROJECT` if set, otherwise the client's
-workspace `roots`, otherwise the working directory. An explicitly set
-`GDA_PROJECT` that is not a valid project is reported as an error, not silently replaced.
+The server resolves two pieces of context — which Godot **project** to drive and which Godot
+**binary** to run (MCP can't pass per-call flags; see
+[Configuration](#configuration) for what `GDA_PROJECT` and `GDA_GODOT` do):
+
+- **Project** — `gda-mcp` uses `GDA_PROJECT` if set; otherwise the **workspace roots** the
+  client advertises (the folder you have open, for clients that support MCP roots); otherwise
+  the server's **working directory** (where the `gda-mcp` process was launched). A roots or cwd
+  candidate is used only if it is a real Godot project (has `project.godot`), else resolution
+  moves on; a *set-but-invalid* `GDA_PROJECT`, by contrast, is a reported error, not a silent
+  fallback. *(The CLI resolves a project differently — `--project` → `GDA_PROJECT` → cwd; the
+  MCP server has no flags, so `GDA_PROJECT` is the explicit override and the protocol's
+  workspace `roots` are the auto-detected fallback.)*
+- **Engine** — set `GDA_GODOT` to your Godot binary, e.g. `"GDA_GODOT": "/path/to/Godot"`.
+
+
+#### Register with Coding Agents
 
 <details>
-<summary>Register with Claude Code / Codex / Cursor</summary>
+<summary>Claude Code</summary>
 
-**Claude Code** — project scope, `.mcp.json` at the repo root (auto-detects the project via `roots`):
+Project scope, `.mcp.json` at the repo root (auto-detects the project via `roots`):
 
 ```json
 {
@@ -123,7 +136,12 @@ User scope (every project) — the CLI, which writes `~/.claude.json`:
 claude mcp add --scope user gda-mcp -- uvx --from "gda[mcp]" gda-mcp
 ```
 
-**Codex** — project scope, `.codex/config.toml` at the repo root (the project must be trusted):
+</details>
+
+<details>
+<summary>Codex</summary>
+
+Project scope, `.codex/config.toml` at the repo root (the project must be trusted):
 
 ```toml
 [mcp_servers.gda-mcp]
@@ -134,7 +152,21 @@ args = ["--from", "gda[mcp]", "gda-mcp"]
 GDA_PROJECT = "/absolute/path/to/your/godot/project"
 ```
 
-**Cursor** — project scope, `.cursor/mcp.json` at the repo root (`${workspaceFolder}`
+User scope (available everywhere, but pinned to one project) — the same table in
+`~/.codex/config.toml`, or add it with the CLI. Codex has no workspace variable, so
+`GDA_PROJECT` is an absolute path; use project scope if you work across several projects:
+
+```bash
+codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- \
+  uvx --from "gda[mcp]" gda-mcp
+```
+
+</details>
+
+<details>
+<summary>Cursor</summary>
+
+Project scope, `.cursor/mcp.json` at the repo root (`${workspaceFolder}`
 tracks the open project):
 
 ```json
@@ -142,21 +174,24 @@ tracks the open project):
   "mcpServers": {
     "gda-mcp": {
       "type": "stdio",
-      "command": "uvx",
+      "command": "/path/to/uvx",
       "args": ["--from", "gda[mcp]", "gda-mcp"],
       "env": {
-        "GDA_PROJECT": "${workspaceFolder}",
-        "PATH": "/opt/homebrew/bin:/usr/local/bin:${userHome}/.local/bin:${env:PATH}"
+        "GDA_PROJECT": "${workspaceFolder}"
       }
     }
   }
 }
 ```
 
-> GUI-launched clients (Cursor, Claude Desktop) start with a minimal `PATH`, so a bare
-> `uvx` may not resolve — the Cursor snippet repairs it in `env`; if `uvx` is still not
-> found (or for Claude Desktop), use an absolute path (`which uvx`) for `command`. Full
-> recipes — user vs project scope, Claude Desktop, per-agent project pinning — are in the
+User scope (available everywhere, but pinned to one project) — the same config in
+`~/.cursor/mcp.json` with `GDA_PROJECT` set to an absolute path (`${workspaceFolder}` only
+works in project scope; use project scope for several projects). Cursor has no `mcp add`
+command — register via the JSON above or the Settings → MCP UI.
+
+> Cursor is GUI-launched with a minimal `PATH`, so a bare `uvx` may not resolve — hence the
+> absolute `command` above; fill it with the output of `which uvx`. Full recipes — PATH
+> injection, Claude Desktop, user vs project scope, per-agent project pinning — are in the
 > [registration recipes](docs/gda-mcp-registration.md).
 </details>
 
