@@ -132,9 +132,11 @@ gda scene get scenes/main.tscn --json
 > No project? `gda` still runs **projectless** on plain filesystem paths (relative to your current
 > directory) — only `res://` resolution needs a project. See [Configuration](#configuration).
 
-**Drive a *running* game live** — the same project, now observed at runtime (macOS/Linux, Godot 4.6+):
+**Drive a *running* game live.** Live ops run the project's **main scene**, so point it at the
+one you just built, then start the daemon (macOS/Linux, Godot 4.6+):
 
 ```bash
+gda project set application/run/main_scene --value res://scenes/main.tscn --json
 gda daemon start             # start the daemon for $GDA_PROJECT (installs the harness)
 gda game tree --json         # the runtime scene tree, after _ready
 gda perf monitors --json     # live engine counters: fps, memory, node count
@@ -503,8 +505,8 @@ A named directory must be a project, or `gda` reports it as an error. When none 
 
 | Context | Project resolution order |
 | --- | --- |
-| **CLI** | `--project` → `GDA_PROJECT` → cwd (if it holds `project.godot`), else projectless |
-| **MCP** (`gda-mcp`) | `GDA_PROJECT` → client workspace `roots` → server cwd — each used only if it holds `project.godot` |
+| **CLI** | `--project` → `GDA_PROJECT` (both strict — invalid is reported) → cwd if it holds `project.godot`, else projectless |
+| **MCP** (`gda-mcp`) | `GDA_PROJECT` (strict — set-but-invalid is reported, not skipped) → a *valid* client workspace `root` → a *valid* server cwd, else projectless |
 
 <details>
 <summary>Project code execution — what runs when you point at a project</summary>
