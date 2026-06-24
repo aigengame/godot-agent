@@ -866,11 +866,12 @@ def game_set(
 
 
 def _diag_limit_option() -> Optional[int]:
-    """The shared `--limit N` option for the `diag` group: tail the most recent N.
+    """The shared `--limit N` option for the log-reading live commands: tail N.
 
-    Bound to ``>= 1`` (Click ``min``) so a zero/negative limit is a usage error on
-    the argv path, mirroring the ``ge=1`` constraint on ``DiagErrorsParams`` /
-    ``DiagLogParams`` that the ``--params-json`` / ``--schema`` path enforces.
+    Used by both ``gda diag errors`` and ``gda logger tail``. Bound to ``>= 1``
+    (Click ``min``) so a zero/negative limit is a usage error on the argv path,
+    mirroring the ``ge=1`` constraint on ``DiagErrorsParams`` / ``LoggerTailParams``
+    that the ``--params-json`` / ``--schema`` path enforces.
     """
     return typer.Option(
         None,
