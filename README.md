@@ -88,6 +88,25 @@ uv run gda --help
 ```
 </details>
 
+### Use it as a Skill
+
+`gda` ships an agent **Skill** — a `SKILL.md` that teaches an AI agent *how and when* to drive
+Godot from the CLI. It's the lightest way in (no server to register), bundled in the package and
+version-locked to your install. Print it, or install it into your agent's skills directory:
+
+```bash
+gda skill                                       # print SKILL.md (redirect it anywhere)
+gda skill --install --dir ~/.claude/skills/gda  # write it into a skills directory
+```
+
+`--dir` is caller-supplied — there's no built-in default; the [skill recipes](docs/gda-skill.md)
+list the per-agent paths. Prefer not to install `gda`? Take the canonical file from the repo:
+
+```bash
+curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
+  https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
+```
+
 ### Use it as an MCP server
 
 `gda` ships a stdio [MCP](https://modelcontextprotocol.io) server behind a `[mcp]` extra,
