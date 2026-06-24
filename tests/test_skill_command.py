@@ -133,6 +133,14 @@ def test_skill_dir_implies_install(tmp_path):
     assert json.loads(result.stdout)["installed_path"] == str(tmp_path / "SKILL.md")
 
 
+def test_skill_install_without_dir_is_a_usage_error():
+    # ADR-0024: core has no default skills dir; --install requires an explicit --dir.
+    result = CliRunner().invoke(app, ["skill", "--install"])
+
+    assert result.exit_code != 0
+    assert "--dir" in result.output
+
+
 def test_skill_install_creates_missing_parent_dirs(tmp_path):
     nested = tmp_path / "a" / "b" / "gda"
     result = CliRunner().invoke(app, ["skill", "--install", "--dir", str(nested)])

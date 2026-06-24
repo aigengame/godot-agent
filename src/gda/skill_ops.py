@@ -18,10 +18,6 @@ from gda.models import SkillResult
 # pattern ``gda.runner.OPERATIONS_GD`` uses for the GDScript payload.
 SKILL_MD = Path(__file__).parent / "skill" / "SKILL.md"
 
-# The default skills directory a ``--install`` writes into. Agent-specific (Claude
-# Code's layout); the manifest content itself stays agent-neutral (ADR-0024).
-DEFAULT_INSTALL_DIR = Path("~/.claude/skills/gda")
-
 
 def read_skill_text() -> str:
     """Return the bundled ``SKILL.md`` text."""
@@ -37,8 +33,9 @@ def build_skill_result(
     installed ``gda`` ``version`` (so the guidance is version-locked, ADR-0024), and
     the full ``content``. On ``install`` the bundled ``SKILL.md`` is written to
     ``<install_dir>/SKILL.md`` (parents created, overwrite is fine), and the written
-    path is reported on ``installed_path``; ``install_dir`` defaults to
-    ``~/.claude/skills/gda``. ``~`` is expanded so a tilde path resolves.
+    path is reported on ``installed_path``. ``install_dir`` is **required** for an
+    install — core carries no agent-specific default location (ADR-0024); the caller
+    supplies the per-agent path. ``~`` is expanded so a tilde path resolves.
     """
     content = read_skill_text()
     result = SkillResult(
@@ -48,7 +45,9 @@ def build_skill_result(
     )
     if not install:
         return result
-    target_dir = Path(install_dir).expanduser() if install_dir else DEFAULT_INSTALL_DIR.expanduser()
+    if not install_dir:
+        raise ValueError("an install needs an explicit target directory (--dir)")
+    target_dir = Path(install_dir).expanduser()
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / "SKILL.md"
     target.write_text(content, encoding="utf-8")

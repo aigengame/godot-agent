@@ -2261,22 +2261,23 @@ class SkillParams(BaseModel):
 
     ``gda skill`` is a pure emitter meta command: it reads the bundled
     ``SKILL.md`` from the package and emits or installs it — no Godot is spawned.
-    Its only param is ``install``: when set, the manifest is written to
-    ``install_dir`` (default ``~/.claude/skills/gda``) instead of being printed.
-    ``install_dir`` is carried as a string so the ``--params-json`` and ``--schema``
+    Its only param is ``install``: when set, the manifest is written to the
+    caller-supplied ``install_dir`` instead of being printed. There is no
+    agent-specific default location in core (ADR-0024); ``install_dir`` is required
+    for an install. It is carried as a string so the ``--params-json`` and ``--schema``
     paths describe it the same way the argv ``--dir`` option supplies it.
     """
 
     install: bool = Field(
         default=False,
-        description="If true, WRITE the bundled SKILL.md to the skills directory "
+        description="If true, WRITE the bundled SKILL.md to install_dir "
         "instead of returning it; the result then reports the written path.",
     )
     install_dir: str | None = Field(
         default=None,
-        description="The skills directory to install into when installing "
-        "(default ~/.claude/skills/gda); parent dirs are created and an existing "
-        "file is overwritten. Ignored unless installing.",
+        description="The skills directory to install into (caller-supplied; required "
+        "for an install, no default). Parent dirs are created and an existing file is "
+        "overwritten. Ignored unless installing.",
     )
 
 

@@ -3105,8 +3105,8 @@ def skill(
     dir: Optional[str] = typer.Option(
         None,
         "--dir",
-        help="The skills directory to install into (default ~/.claude/skills/gda); "
-        "implies --install.",
+        help="The skills directory to install into (caller-supplied; no default). "
+        "Implies --install.",
     ),
     json_output: bool = json_option(),
     schema: bool = SKILL_COMMAND.schema_option(),
@@ -3117,12 +3117,16 @@ def skill(
     The canonical `SKILL.md` ships inside the `gda` package and is version-locked to
     the install (ADR-0024): a plain run prints it verbatim (so
     `gda skill > .../SKILL.md` drops it to disk), `--json` emits
-    `{name, version, content}`, and `--install` (or any `--dir`) writes it to the
-    skills directory (default `~/.claude/skills/gda/SKILL.md`), creating parents and
-    overwriting, then reports the path. A sibling of `info`/`schema`, carrying
-    `--schema` like them.
+    `{name, version, content}`, and `--install --dir <path>` writes it to a
+    caller-supplied directory, creating parents and overwriting, then reports the path.
+    Core carries no agent-specific default location — the caller supplies the per-agent
+    skills dir (ADR-0024). A sibling of `info`/`schema`, carrying `--schema` like them.
     """
-    # --dir implies --install: naming a target directory means "install there".
+    # --dir implies --install; an install needs an explicit target dir (ADR-0024).
+    if install and dir is None:
+        raise typer.BadParameter(
+            "`--install` requires `--dir` (the skills directory to write into)"
+        )
     _dispatch_recipe(
         SKILL_COMMAND,
         SkillParams(install=install or dir is not None, install_dir=dir),
