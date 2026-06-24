@@ -182,6 +182,8 @@ from gda.models import (
     ShaderGetResult,
     ShaderSetParams,
     ShaderSetResult,
+    SkillParams,
+    SkillResult,
     SurfaceManifest,
     ThemeCreateParams,
     ThemeCreateResult,
@@ -247,6 +249,7 @@ from gda.render import (
     render_shader_create,
     render_shader_get,
     render_shader_set,
+    render_skill,
     render_theme_create,
 )
 from gda.runner import GodotRunner
@@ -254,6 +257,7 @@ from gda.screen_ops import (
     run_screen_capture_operation,
     run_screen_frames_operation,
 )
+from gda.skill_ops import build_skill_result
 from gda.surface import build_surface_manifest
 
 app = typer.Typer(
@@ -506,6 +510,13 @@ def _screen_frames_recipe(params, *, project, godot):
     )
 
 
+def _skill_recipe(params, *, project, godot):
+    # A pure local emitter (ADR-0024): no project, no Godot — it reads the bundled
+    # SKILL.md and either returns it (version-locked) or installs it. ``project`` /
+    # ``godot`` are part of the recipe contract but unused here (a meta command).
+    return build_skill_result(install=params.install, install_dir=params.install_dir)
+
+
 def _export_run_recipe(params, *, project, godot):
     return run_export_operation(
         preset=params.preset,
@@ -690,6 +701,19 @@ INFO_COMMAND: HeadlessCommand[EngineVersion] = HeadlessCommand(
     output_model=EngineVersion,
     render=render_engine_version,
     classify=classify_info,
+)
+
+# `gda skill` is a pure emitter meta command (ADR-0024): it reads the in-package
+# SKILL.md and emits or installs it, spawning no Godot — so, like `export run` and
+# the daemon lifecycle, it carries a `recipe` on its descriptor and dispatches
+# through it (`_dispatch_recipe`) rather than the sentinel pipeline. It stays
+# HEADLESS `kind` (the default) and meta (no --project), a sibling of info/schema.
+SKILL_COMMAND: HeadlessCommand[SkillResult] = HeadlessCommand(
+    operation="skill",
+    input_model=SkillParams,
+    output_model=SkillResult,
+    render=render_skill,
+    recipe=_skill_recipe,
 )
 
 GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(
@@ -3068,6 +3092,43 @@ def info(
         InfoParams(),
         json_output=json_output,
         godot=godot,
+    )
+
+
+@app.command(cls=SKILL_COMMAND.command_class())
+def skill(
+    install: bool = typer.Option(
+        False,
+        "--install",
+        help="Write the bundled SKILL.md into the skills directory instead of printing it.",
+    ),
+    dir: Optional[str] = typer.Option(
+        None,
+        "--dir",
+        help="The skills directory to install into (default ~/.claude/skills/gda); "
+        "implies --install.",
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SKILL_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+) -> None:
+    """Emit or install the bundled gda Agent Skill (no Godot is spawned).
+
+    The canonical `SKILL.md` ships inside the `gda` package and is version-locked to
+    the install (ADR-0024): a plain run prints it verbatim (so
+    `gda skill > .../SKILL.md` drops it to disk), `--json` emits
+    `{name, version, content}`, and `--install` (or any `--dir`) writes it to the
+    skills directory (default `~/.claude/skills/gda/SKILL.md`), creating parents and
+    overwriting, then reports the path. A sibling of `info`/`schema`, carrying
+    `--schema` like them.
+    """
+    # --dir implies --install: naming a target directory means "install there".
+    _dispatch_recipe(
+        SKILL_COMMAND,
+        SkillParams(install=install or dir is not None, install_dir=dir),
+        json_output=json_output,
+        godot=None,
+        project=None,
     )
 
 

@@ -2256,6 +2256,46 @@ class EngineVersion(BaseModel):
     timestamp: int
 
 
+class SkillParams(BaseModel):
+    """The operation params of ``gda skill`` (ADR-0024).
+
+    ``gda skill`` is a pure emitter meta command: it reads the bundled
+    ``SKILL.md`` from the package and emits or installs it — no Godot is spawned.
+    Its only param is ``install``: when set, the manifest is written to
+    ``install_dir`` (default ``~/.claude/skills/gda``) instead of being printed.
+    ``install_dir`` is carried as a string so the ``--params-json`` and ``--schema``
+    paths describe it the same way the argv ``--dir`` option supplies it.
+    """
+
+    install: bool = Field(
+        default=False,
+        description="If true, WRITE the bundled SKILL.md to the skills directory "
+        "instead of returning it; the result then reports the written path.",
+    )
+    install_dir: str | None = Field(
+        default=None,
+        description="The skills directory to install into when installing "
+        "(default ~/.claude/skills/gda); parent dirs are created and an existing "
+        "file is overwritten. Ignored unless installing.",
+    )
+
+
+class SkillResult(BaseModel):
+    """The result of ``gda skill``: the bundled Skill, version-locked (ADR-0024).
+
+    ``name``/``version``/``content`` carry the manifest's identity, the installed
+    ``gda`` version (from ``importlib.metadata``, so the guidance cannot skew from
+    the CLI it describes), and the full ``SKILL.md`` text. ``installed_path`` is the
+    path written on ``--install`` and ``None`` for a plain emit, so one model serves
+    both the emit and install paths.
+    """
+
+    name: str
+    version: str
+    content: str
+    installed_path: Path | None = None
+
+
 class ProjectInfoParams(BaseModel):
     """The operation params of ``gda project info`` — none (ADR-0004).
 

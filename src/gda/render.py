@@ -84,6 +84,7 @@ if TYPE_CHECKING:
         ShaderCreateResult,
         ShaderGetResult,
         ShaderSetResult,
+        SkillResult,
         ThemeCreateResult,
         ProjectDependenciesResult,
         ProjectFindReferencesResult,
@@ -706,3 +707,16 @@ def render_project_statistics(stats: "ProjectStatisticsResult") -> str:
 def render_engine_version(version: "EngineVersion") -> str:
     """Render the engine version as its one-line version string."""
     return version.string
+
+
+def render_skill(skill: "SkillResult") -> str:
+    """Render ``gda skill`` as text (ADR-0024).
+
+    A plain emit prints the raw ``SKILL.md`` verbatim, so
+    ``gda skill > .../SKILL.md`` drops the manifest straight to disk; an
+    ``--install`` instead reports the written path (the file already holds the
+    same content) rather than echoing it twice.
+    """
+    if skill.installed_path is not None:
+        return f"Installed the gda Skill to {skill.installed_path}"
+    return skill.content
