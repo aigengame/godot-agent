@@ -12,6 +12,7 @@ from importlib.metadata import version as package_version
 from pathlib import Path
 
 import jsonschema
+import pytest
 from typer.testing import CliRunner
 
 from gda.cli import app
@@ -134,11 +135,22 @@ def test_skill_dir_implies_install(tmp_path):
 
 
 def test_skill_install_without_dir_is_a_usage_error():
-    # ADR-0024: core has no default skills dir; --install requires an explicit --dir.
+    # ADR-0024: core has no default skills dir; --install requires an explicit --dir,
+    # so an install with no target is rejected (a non-zero usage exit; the exact
+    # error rendering/stream varies by tty width, so assert on the exit code).
     result = CliRunner().invoke(app, ["skill", "--install"])
 
     assert result.exit_code != 0
-    assert "--dir" in result.output
+    # Nothing was written: a plain `gda skill` (no install) still succeeds.
+    assert CliRunner().invoke(app, ["skill"]).exit_code == 0
+
+
+def test_skill_build_result_install_without_dir_raises():
+    # The core backstop behind the CLI guard: no default install location.
+    from gda.skill_ops import build_skill_result
+
+    with pytest.raises(ValueError):
+        build_skill_result(install=True, install_dir=None)
 
 
 def test_skill_install_creates_missing_parent_dirs(tmp_path):
