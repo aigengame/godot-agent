@@ -3122,14 +3122,16 @@ def skill(
     Core carries no agent-specific default location — the caller supplies the per-agent
     skills dir (ADR-0024). A sibling of `info`/`schema`, carrying `--schema` like them.
     """
-    # --dir implies --install; an install needs an explicit target dir (ADR-0024).
+    # An install needs an explicit target dir (ADR-0024). `--dir` implying an install is
+    # normalized inside SkillParams so argv and --params-json produce identical params
+    # (ADR-0015) — the CLI just forwards the raw flags.
     if install and dir is None:
         raise typer.BadParameter(
             "`--install` requires `--dir` (the skills directory to write into)"
         )
     _dispatch_recipe(
         SKILL_COMMAND,
-        SkillParams(install=install or dir is not None, install_dir=dir),
+        SkillParams(install=install, install_dir=dir),
         json_output=json_output,
         godot=None,
         project=None,

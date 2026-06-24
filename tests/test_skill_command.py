@@ -205,6 +205,19 @@ def test_skill_params_json_drives_the_same_path(tmp_path):
     assert (tmp_path / "SKILL.md").read_text(encoding="utf-8") == BUNDLED
 
 
+def test_skill_params_json_dir_alone_installs(tmp_path):
+    # ADR-0015 parity: install_dir alone (no explicit install) installs, exactly as
+    # argv `--dir` does — the model normalizes both to the same params.
+    result = CliRunner().invoke(
+        app,
+        ["skill", "--params-json", json.dumps({"install_dir": str(tmp_path)}), "--json"],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["installed_path"] == str(tmp_path / "SKILL.md")
+    assert (tmp_path / "SKILL.md").is_file()
+
+
 # --- packaging: the bundled SKILL.md must resolve at runtime AND ship in the wheel ---
 
 
@@ -217,20 +230,25 @@ def test_bundled_skill_resolves_at_runtime():
     assert SKILL_MD.read_text(encoding="utf-8").startswith("---")
 
 
-def test_bundled_skill_is_included_in_the_built_wheel():
+def test_bundled_skill_is_included_in_the_built_wheel(tmp_path):
     # The wheel must carry the manifest under gda/skill/SKILL.md, the same way it
     # carries the GDScript payload — otherwise an installed `gda skill` would have
-    # nothing to emit. Skipped (not failed) when no wheel has been built yet, so
-    # the suite stays runnable without a build step; CI builds and runs it.
-    import pytest
+    # nothing to emit. Build a wheel on demand (into a tmp dir) so this actually GATES
+    # in PR CI regardless of whether `uv build` has run yet — it does not depend on dist/.
+    import subprocess
 
     repo_root = Path(__file__).resolve().parents[1]
-    wheels = sorted((repo_root / "dist").glob("gda-*.whl"))
-    if not wheels:
-        pytest.skip("no built wheel in dist/ — run `uv build` first")
-    newest = wheels[-1]
-    with zipfile.ZipFile(newest) as zf:
+    proc = subprocess.run(
+        ["uv", "build", "--wheel", "--out-dir", str(tmp_path)],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    wheels = sorted(tmp_path.glob("gda-*.whl"))
+    assert wheels, f"no wheel built:\n{proc.stdout}{proc.stderr}"
+    with zipfile.ZipFile(wheels[-1]) as zf:
         names = zf.namelist()
     assert any(
         name.endswith("gda/skill/SKILL.md") for name in names
-    ), f"gda/skill/SKILL.md missing from {newest.name}: {names}"
+    ), f"gda/skill/SKILL.md missing from {wheels[-1].name}: {names}"

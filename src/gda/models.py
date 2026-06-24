@@ -2277,8 +2277,17 @@ class SkillParams(BaseModel):
         default=None,
         description="The skills directory to install into (caller-supplied; required "
         "for an install, no default). Parent dirs are created and an existing file is "
-        "overwritten. Ignored unless installing.",
+        "overwritten. Providing it implies an install (ADR-0015 parity with argv --dir).",
     )
+
+    @model_validator(mode="after")
+    def _dir_implies_install(self) -> "SkillParams":
+        # Single source of truth (ADR-0015): naming a target directory means "install
+        # there", whether the params arrive from argv (``--dir``) or a ``--params-json``
+        # object — normalized here in the model, not in the CLI body, so both agree.
+        if self.install_dir is not None:
+            self.install = True
+        return self
 
 
 class SkillResult(BaseModel):
