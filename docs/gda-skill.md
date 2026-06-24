@@ -20,23 +20,25 @@ One canonical file, two ways to obtain it:
 
 ## Install it where your agent loads skills
 
-Agent Skills (a `SKILL.md`) are loaded natively by **Claude Code** (and other agents in the Claude
-ecosystem). `gda skill --install --dir <dir>` writes `<dir>/SKILL.md` (creating parent dirs); there
-is **no built-in default location**, so point `--dir` at the agent's skills directory:
+A `SKILL.md` is loaded by most coding agents — only the **discovery directory** differs.
+`gda skill --install --dir <dir>` writes `<dir>/SKILL.md` (creating parent dirs); there is **no
+built-in default location**, so point `--dir` at the directory your agent scans:
 
-- **Claude Code** — personal (every project): `~/.claude/skills/gda/`; project scope (committed,
-  shared with your team): your project's skills directory, e.g. `.claude/skills/gda/`.
+| Agent | Personal (all projects) | Project scope (committed) |
+| --- | --- | --- |
+| **Claude Code** | `~/.claude/skills/gda/` | `.claude/skills/gda/` |
+| **Codex and other agents** | `~/.agents/skills/gda/` | `.agents/skills/gda/` |
 
-  ```bash
-  gda skill --install --dir ~/.claude/skills/gda
-  # …or fetch the same file directly, instead of going through `gda skill`:
-  curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
-    https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
-  ```
+```bash
+gda skill --install --dir ~/.claude/skills/gda    # Claude Code (personal scope)
+gda skill --install --dir ~/.agents/skills/gda    # Codex & others (personal scope)
+# …or fetch the same file directly, instead of going through `gda skill`:
+curl --create-dirs -o ~/.agents/skills/gda/SKILL.md \
+  https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
+```
 
-- **Agents that don't load `SKILL.md` (e.g. Codex, Cursor)** — drive `gda` through the
-  [MCP server](gda-mcp-registration.md) or the raw CLI instead; the Skill's content can also be
-  pasted in as context.
+Check your agent's docs if its skills directory differs; whichever directory it scans, the
+manifest is the same file.
 
 ## What the Skill assumes
 

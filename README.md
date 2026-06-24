@@ -100,8 +100,9 @@ gda skill --install --dir ~/.claude/skills/gda  # write it into a skills directo
 ```
 
 `--dir` is caller-supplied — there's no built-in default; the [skill recipes](docs/gda-skill.md)
-cover the install locations and which agents load Skills. Or fetch the same file straight from the
-repo, if you'd rather not go through `gda skill` — you still install `gda`, since the Skill drives it:
+list each agent's skills directory (Claude Code's `~/.claude/skills/`, Codex's `~/.agents/skills/`,
+…). Or fetch the same file straight from the repo, if you'd rather not go through `gda skill` — you
+still install `gda`, since the Skill drives it:
 
 ```bash
 curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
