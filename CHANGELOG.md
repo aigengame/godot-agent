@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.39](https://github.com/aigengame/godot-agent/compare/v0.1.38...v0.1.39) (2026-06-24)
+
+
+### Bug Fixes
+
+* restructure README & package metadata around the user's fastest path ([#276](https://github.com/aigengame/godot-agent/issues/276)) ([a029da7](https://github.com/aigengame/godot-agent/commit/a029da72b1c2bce10c9e7e7c02e6e219547089c6))
+
 ## [0.1.38](https://github.com/aigengame/godot-agent/compare/v0.1.37...v0.1.38) (2026-06-24)
 
 
