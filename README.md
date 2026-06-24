@@ -102,8 +102,8 @@ which Godot **binary** to run (MCP can't pass per-call flags; see
 [Configuration](#configuration) for what `GDA_PROJECT` and `GDA_GODOT` do):
 
 - **Project** — `gda-mcp` uses `GDA_PROJECT` if set; otherwise the **workspace roots** the
-  client advertises (the folder you have open in your editor/agent — Claude Code sends this
-  automatically); otherwise the server's **working directory** (where the `gda-mcp` process
+  client advertises (the folder you have open in your editor/agent, for clients that
+  support MCP roots); otherwise the server's **working directory** (where the `gda-mcp` process
   was launched). A set-but-invalid `GDA_PROJECT` is a reported error, not a silent fallback.
   *(Same idea as the CLI's `--project` → `GDA_PROJECT` → cwd order — MCP just has no
   `--project` flag, so the client's roots are the auto-detected stand-in for it.)*
