@@ -2,7 +2,7 @@
 
 ![godot-agent title image](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)
 
-> **The agent-first CLI + MCP server for the [Godot Engine](https://godotengine.org).**
+> **The agent-first CLI, Skill, and MCP server for the [Godot Engine](https://godotengine.org).**
 > Give your AI coding agent structured, machine-readable control of Godot — create
 > scenes, edit nodes & scripts, and export builds headlessly, then drive a *running*
 > game live: runtime tree, input, screenshots, performance.
@@ -17,7 +17,7 @@
 
 AI agents are great at writing GDScript and terrible at *seeing what happened*. `gda`
 closes that loop: your agent issues one operation and gets back a single clean JSON
-result it can act on — never engine logs it has to scrape. It works **two ways**:
+result it can act on — never engine logs it has to scrape. It runs in **two modes**:
 
 - **Headless** — one-shot and stateless, zero setup. No editor plugin, no daemon,
   nothing to install in your project. Create and edit scenes, nodes, scripts, resources,
@@ -26,10 +26,9 @@ result it can act on — never engine logs it has to scrape. It works **two ways
   live engine can do: read the runtime scene tree, get/set runtime properties, simulate
   input, capture screenshots, and sample performance.
 
-`gda` ships as three pieces: **`gda`** (the CLI), **`gda-mcp`** (an MCP server that
-exposes the same operations as tools, generated from `gda`'s own schemas), and
-**`gda-daemon`** (the per-project process behind live operations). See
-[How it works](#how-it-works).
+Drive it **three ways**, all the same command surface: the raw **`gda`** CLI, an agent
+**Skill** (a `SKILL.md` that teaches your agent how and when to use it), or the **`gda-mcp`**
+MCP server (tools generated from `gda`'s own schemas). See [How it works](#how-it-works).
 
 > `gda` is **pre-1.0**: every command works end-to-end today, but the CLI surface may
 > still change before 1.0.
@@ -44,10 +43,10 @@ exposes the same operations as tools, generated from `gda`'s own schemas), and
 - **📐 Typed & self-describing.** Every command's input and output are typed models that
   also back a machine-readable `--schema` (a JSON-Schema contract), so an agent can
   discover and validate the whole surface programmatically instead of guessing.
-- **🔀 CLI and MCP, fully interchangeable.** Run `gda …` in a terminal or CI, or call the
-  same operation as an MCP tool from your agent — `gda-mcp` is generated from the CLI's own
-  schemas, so the two surfaces stay identical, command for command. Use whichever fits the
-  moment, with no feature gap between them.
+- **🔀 CLI, Skill, and MCP — your agent's choice.** Drive Godot from a terminal or CI with the
+  raw `gda` CLI, hand your agent a bundled **Skill** (`gda skill`) that teaches it how and when
+  to use the CLI, or expose the same operations as **MCP** tools (`gda-mcp`, generated from the
+  CLI's own schemas). One command surface, three ways in — pick whatever your agent supports.
 - **🧩 Godot-native commands.** Grouped by Godot object (`gda scene create`,
   `gda node add`, `gda game set`) with a tiny, consistent verb vocabulary — zero learning
   curve if you already know Godot.
@@ -533,6 +532,7 @@ or agent can branch on the failure **category without parsing the JSON error**:
 | `3`       | `version`     | The detected Godot version is below the supported minimum.            |
 | `4`       | `operation`   | The engine ran but the operation failed — a registered operation error, an engine crash, or an unstructured non-zero exit. |
 | `5`       | `parse`       | The process claimed success but violated the structured-output contract. |
+| `6`       | `live`        | A live operation failed — e.g. no running daemon/session, or a live timeout (Phase-2 live). |
 
 These values are the public ABI; their authoritative source is
 [`src/gda/exit_codes.py`](src/gda/exit_codes.py). The `{"error": {category, code, …}}`

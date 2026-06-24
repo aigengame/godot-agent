@@ -1,14 +1,14 @@
 [project]
 name = "gda"
 version = "0.1.37"
-description = "Agent-first CLI and MCP server for the Godot engine, with structured output for AI agents"
+description = "Agent-first CLI, Skill, and MCP server for the Godot engine, with structured output for AI agents"
 readme = "README.md"
 authors = [
     { name = "haihong.qin", email = "haihongqin@gmail.com" }
 ]
 license = "MIT"
 license-files = ["LICENSE"]
-keywords = ["godot", "godot-engine", "cli", "mcp", "model-context-protocol", "ai-agent", "agent", "structured-output", "game-development", "automation", "llm"]
+keywords = ["godot", "godot-engine", "cli", "mcp", "model-context-protocol", "ai-agent", "agent", "agent-skill", "skill", "structured-output", "game-development", "automation", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
