@@ -3,12 +3,13 @@
 The #224 DoD: a real `gda daemon start` -> a NON-diag live op (`gda game tree`)
 LAUNCHES the engine session (the daemon spawns it with `--log-file`, its own
 Session log) and blocks until the main scene is current, so the scene's `_ready`
-(which `push_error`s and `print`s a KNOWN marker) has run and flushed -> THEN
-`gda diag errors` reads the error back STRUCTURED (with a normalized `level`) and
-`gda diag log` reads the printed line back. diag OBSERVES the already-launched
-session; it does NOT create one (ADR-0022). Daemon-served: the diag read works
-against the daemon-owned log even though `project_godot` disables the project's
-own file logging — the daemon's `--log-file` forces logging on regardless.
+(which `push_error`s a KNOWN marker) has run and flushed -> THEN `gda diag errors`
+reads the error back STRUCTURED (with a normalized `level`). diag OBSERVES the
+already-launched session; it does NOT create one (ADR-0022). Daemon-served: the
+diag read works against the daemon-owned log even though `project_godot` disables
+the project's own file logging — the daemon's `--log-file` forces logging on
+regardless. (The raw output-log read-back moved to `gda logger tail` — see
+`test_e2e_logger.py`, #281.)
 
 Run e2e serially; not a fresh empty HOME (Godot first-run). The
 `daemon_runtime_dir` fixture keeps the daemon's UDS path within the OS `sun_path`
@@ -113,9 +114,5 @@ def test_diag_reads_back_a_known_runtime_error_and_log_line(tmp_path, daemon_run
         assert known, error_docs
         # push_error surfaces as an error-class diagnostic (ERROR / SCRIPT ERROR).
         assert known[0]["level"] in ("error", "script_error"), known[0]
-
-        # diag log: the SAME session's captured output stream carries the print line.
-        lines = poll_diag("log", "lines", "known line")
-        assert any("known line" in line for line in lines), lines
     finally:
         run("daemon", "stop")

@@ -4,6 +4,16 @@ status: accepted
 
 # Runtime diagnostics via a daemon-owned session log
 
+> Outcome (2026-06-24, #281): the raw **`diag log`** described below is
+> **superseded by `gda logger tail`** — the structured runtime-log channel
+> (ADR-0026). `gda logger tail` parses the *same* daemon-owned Session log into
+> typed `LogRecord`s by default (and preserves the verbatim lines under `--raw`),
+> while **`diag` retains `errors` only**. The daemon-side read path this ADR
+> established is unchanged — `logger tail` is a second daemon-served log op
+> reading `session.log_file`, exactly like `diag errors`; only the surface and the
+> default output shape changed. References below to `diag log` / the `diag-log` op
+> name describe the original `diag`-only state and are kept point-in-time.
+
 `gda diag` reads the running game's runtime diagnostics — its errors and its
 output log — over the live channel (story group, #224). This needs the running
 game's error stream and its `print()` output, but Godot exposes neither to

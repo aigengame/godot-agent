@@ -3,10 +3,11 @@
 In-process, engine-free. ``diag`` is a daemon-served live op (ADR: runtime-
 diagnostics-via-daemon-owned-session-log): the daemon launches the Engine session
 with ``--log-file <session path>``, remembers that path, and serves ``diag-errors``
-/ ``diag-log`` by reading the file directly — NOT by relaying to the harness, and
-even after the session process has died (so a crash stays diagnosable). These
-tests exercise the launch argv, the remembered path, and the daemon's ``_handle``
-read path against a temp log file.
+by reading the file directly — NOT by relaying to the harness, and even after the
+session process has died (so a crash stays diagnosable). These tests exercise the
+launch argv, the remembered path, and the daemon's ``_handle`` read path against a
+temp log file. (The raw ``diag-log`` op is superseded by ``logger-tail`` — see
+``test_daemon_logger.py``, #281.)
 """
 
 import os

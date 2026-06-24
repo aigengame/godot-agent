@@ -506,13 +506,22 @@ headless is unaffected (4.4+, cross-platform).
   node is `live_perf_node_not_found`, an absent property `live_perf_property_not_found`,
   an absent signal `live_perf_signal_not_found`; a genuinely stalled engine is caught
   by the daemon-level `live_timeout`.
-- **`diag` (diagnostics):** runtime errors and output log of the running game (shipped, #224).
-  `gda diag errors` reads the running game's runtime errors as structured `{level, message,
-  function?, file?, line?}` (warnings included, distinguished by `level`); `gda diag log` reads
-  its raw output lines; both take `--limit N`. Daemon-served, not harness-relayed: the daemon
-  reads the `Session log` it launched the engine with (`--log-file`), so it works even after the
-  game has crashed — a remembered session with a missing log is `live_log_unavailable`, an empty
-  log is an empty result (ADR-0022).
+- **`diag` (diagnostics):** runtime errors of the running game (shipped, #224). `gda diag errors`
+  reads the running game's runtime errors as structured `{level, message, function?, file?, line?}`
+  (warnings included, distinguished by `level`), with `--limit N`. Daemon-served, not
+  harness-relayed: the daemon reads the `Session log` it launched the engine with (`--log-file`),
+  so it works even after the game has crashed — a remembered session with a missing log is
+  `live_log_unavailable`, an empty log is an empty result (ADR-0022). (The raw `diag log` is
+  **superseded by `gda logger tail`** below.)
+- **`logger` (structured runtime log):** the running game's whole runtime log as structured
+  records (shipped, #281, ADR-0026). `gda logger tail [--level <min>] [--limit <N>] [--raw]` parses
+  the same daemon-owned `Session log` into typed `LogRecord`s — engine errors/warnings via the diag
+  parser (carrying `source` + an `origin` sub-kind), every other line a plain `info` record — so an
+  un-instrumented project gets structured logs for free. `level` is the closed, ordered enum
+  `debug < info < warning < error` (`--level` filters by minimum severity); `--limit N` tails the
+  most-recent-N; `--raw` returns the verbatim lines the superseded `diag log` returned. Daemon-served
+  and crash-survivable like `diag` (ADR-0022). The opt-in rich `gda_log()` protocol layers on in a
+  follow-up slice (#282).
 - **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status`, and `gda daemon
   install` / `uninstall` for the `gda harness` (ADR-0018).
 

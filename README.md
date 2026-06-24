@@ -63,7 +63,7 @@ result it can act on — never engine logs it has to scrape. It runs in **two mo
 | Parse results instead of scraping engine logs | `--json` (one clean object) and `--schema` (a JSON-Schema contract) |
 | Hand an agent Godot tools | the bundled **Skill** (`gda skill`) or the **`gda-mcp`** server |
 | Automate CI, exports, and project analysis | headless commands — no editor, no plugin, just a Godot binary |
-| Debug a *running* game's runtime behavior | `gda daemon start`, then `game` / `diag` / `perf` / `input` / `screen` |
+| Debug a *running* game's runtime behavior | `gda daemon start`, then `game` / `diag` / `logger` / `perf` / `input` / `screen` |
 
 ---
 
@@ -449,7 +449,12 @@ flags — `gda --help` is the authoritative list of what is installed.
 | Command | What it does |
 | ------- | ------------ |
 | `diag errors` | Tail the running game's runtime errors (categorized). |
-| `diag log` | Tail the running game's raw output log (`print` + stderr). |
+
+**`logger`** — structured runtime log
+
+| Command | What it does |
+| ------- | ------------ |
+| `logger tail` | Tail the running game's whole runtime log as structured records (`--level`, `--limit`, `--raw`). |
 
 **`perf`** — performance monitoring
 

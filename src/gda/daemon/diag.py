@@ -224,13 +224,14 @@ def _info_record(seq: int, message: str) -> dict:
 def _error_record(seq: int, entry: dict) -> dict:
     """A ``parse_errors`` entry as a typed error/warning ``LogRecord`` (#281)."""
     rec_level, origin = _DIAG_LEVEL_TO_RECORD.get(entry["level"], ("error", "engine"))
-    source = None
-    if entry.get("file") is not None or entry.get("function") is not None or entry.get("line") is not None:
-        source = {
-            "function": entry.get("function"),
-            "file": entry.get("file"),
-            "line": entry.get("line"),
-        }
+    # A `source` frame only when the engine logged an `at:` location; a bare error
+    # (no follow-on) leaves `source` null rather than an all-null frame.
+    has_location = any(entry.get(k) is not None for k in ("function", "file", "line"))
+    source = (
+        {"function": entry.get("function"), "file": entry.get("file"), "line": entry.get("line")}
+        if has_location
+        else None
+    )
     return {
         "seq": seq,
         "level": rec_level,
