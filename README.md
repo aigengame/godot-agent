@@ -101,10 +101,13 @@ uvx --from "gda[mcp]" gda-mcp
 workspace `roots`, otherwise the working directory. An explicitly set
 `GDA_PROJECT` that is not a valid project is reported as an error, not silently replaced.
 
-<details>
-<summary>Register with Claude Code / Codex / Cursor</summary>
 
-**Claude Code** — project scope, `.mcp.json` at the repo root (auto-detects the project via `roots`):
+#### Register with Coding Agents
+
+<details>
+<summary>Claude Code</summary>
+
+Project scope, `.mcp.json` at the repo root (auto-detects the project via `roots`):
 
 ```json
 {
@@ -123,7 +126,12 @@ User scope (every project) — the CLI, which writes `~/.claude.json`:
 claude mcp add --scope user gda-mcp -- uvx --from "gda[mcp]" gda-mcp
 ```
 
-**Codex** — project scope, `.codex/config.toml` at the repo root (the project must be trusted):
+</details>
+
+<details>
+<summary>Codex</summary>
+
+Project scope, `.codex/config.toml` at the repo root (the project must be trusted):
 
 ```toml
 [mcp_servers.gda-mcp]
@@ -134,7 +142,20 @@ args = ["--from", "gda[mcp]", "gda-mcp"]
 GDA_PROJECT = "/absolute/path/to/your/godot/project"
 ```
 
-**Cursor** — project scope, `.cursor/mcp.json` at the repo root (`${workspaceFolder}`
+User scope (every project) — the same table in `~/.codex/config.toml`, or add it with the
+CLI (Codex has no workspace variable, so `GDA_PROJECT` stays an absolute path):
+
+```bash
+codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- \
+  uvx --from "gda[mcp]" gda-mcp
+```
+
+</details>
+
+<details>
+<summary>Cursor</summary>
+
+Project scope, `.cursor/mcp.json` at the repo root (`${workspaceFolder}`
 tracks the open project):
 
 ```json
@@ -152,6 +173,10 @@ tracks the open project):
   }
 }
 ```
+
+User scope (every project) — the same config in `~/.cursor/mcp.json`, but set `GDA_PROJECT`
+to an absolute path (`${workspaceFolder}` is only reliable in the project-level file).
+Cursor has no `mcp add` command — register via the JSON above or the Settings → MCP UI.
 
 > GUI-launched clients (Cursor, Claude Desktop) start with a minimal `PATH`, so a bare
 > `uvx` may not resolve — the Cursor snippet repairs it in `env`; if `uvx` is still not
