@@ -28,15 +28,18 @@ advance the agent loop (gaps). This ADR records the inclusion criterion.
 
 A capability failing either test stays out, regardless of how prominent the engine flag is.
 
-**Worked classification (Godot 4.6 `--help`):**
+**Worked classification (Godot 4.6 `--help`) — illustrative, not a roadmap.** The lists below show
+the criterion *applied*; they are **non-binding examples**, not surface decisions made by this ADR.
+Only "run a project / a specific scene" is **committed** here (via #278); `export` is already shipped.
+Every other entry remains its own future decision under this same criterion.
 
-- *In, by this criterion:* running a project / a specific scene (the missing piece of the loop —
-  see the ADR-0017 amendment and #278), export (already `gda export run`), and — case by case —
+- *In, by this criterion:* running a project / a specific scene (committed — ADR-0017 amendment, #278),
+  export (already `gda export run`), and — case by case, **only if a concrete agent need appears** —
   `--script` one-shot, `--check-only`, `--import`.
-- *Out:* editor / project-manager GUI, debugger / LSP / DAP servers, rendering / display / audio
-  drivers, GPU / profiling internals, `--doctool` / `--gdscript-docs` / `--dump-extension-api`
-  codegen, `--build-solutions`, `--convert-3to4`, debug visualizers — no agent value and/or no
-  structured-operation fit.
+- *Out, by this criterion:* editor / project-manager GUI, debugger / LSP / DAP servers, rendering /
+  display / audio drivers, GPU / profiling internals, `--doctool` / `--gdscript-docs` /
+  `--dump-extension-api` codegen, `--build-solutions`, `--convert-3to4`, debug visualizers — no agent
+  value and/or no structured-operation fit.
 
 **Corollary — interactive debugging is out; observability is in.** Godot's remote-debug protocol
 (`--remote-debug`) offers rich data, but its variable inspection / breakpoints / step / eval require
@@ -60,4 +63,10 @@ ADR.
 - Engine dev-tooling flags stay out unless a concrete agent need re-qualifies one, each as a typed op.
 - Interactive debugging stays out; structured observability (errors + callstacks, perf) is the model.
   Tapping Godot's remote-debug protocol for the read-only parts is deferred to its own ADR.
-- This criterion governs `gda`'s scope only; it does not change command naming/grouping (ADR-0005).
+- This criterion governs `gda`'s scope only; it does not change command naming/grouping (ADR-0005 /
+  ADR-0019). The concrete entry point for the accepted run surface is `gda daemon start --scene`
+  (#278); any `scene play` / `game run` wrapper is a separate follow-up.
+- The concrete command placement and any `docs/command-catalog.md` entry for the run surface land
+  with the implementation slice (#278), **not** this principle ADR — the catalog is a non-binding
+  feature map and committed status is tracked in the issue tracker (the milestone), so the accepted
+  surface is intentionally not pre-catalogued here.

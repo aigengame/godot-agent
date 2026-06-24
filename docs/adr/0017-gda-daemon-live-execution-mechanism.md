@@ -82,14 +82,29 @@ tracked by the Phase-2 PRD (#6) and the gda-daemon feature (#7).
 > `main_scene`.** Decision 2 holds the running *game* but never fixed *which* scene it boots; the
 > session has so far run the project's configured `main_scene`. To serve "run a specific scene" —
 > the F6-equivalent the engine exposes natively as `godot --scene <path|UID>` (verified to run that
-> scene without mutating `main_scene`) — the session launch gains an **optional scene selector**,
-> threaded from the CLI to the daemon's session launch and passed to the engine as
-> `--scene <path|UID>` (an engine option, before `--path`). This is a deliberate **extension** of
-> Decision 2's running-game scope, not a reversal: still a gda-owned game, still headless by
-> default, still the same harness and live surface (ADR-0019 / 0020), only with a chosen entry
-> scene. It does **not** reach the out-of-scope editor context (there is no editor "current
-> scene"). The selector-less default is unchanged. Realized by the run-a-scene slice (#278); the
-> surface-inclusion rationale (why `run` is in scope at all) is recorded in ADR-0025.
+> scene without mutating `main_scene`) — the session launch gains an **optional scene selector**.
+>
+> **Public surface — `gda daemon start --scene <path|UID>`.** It is a **start-time daemon option**:
+> the daemon holds the value and passes it to the engine as `--scene <path|UID>` (an engine option,
+> before `--path`) when the session is **lazily launched on the first live op** (the #7 note above).
+> With no `--scene`, behaviour is unchanged (runs `main_scene`). The selector accepts a scene **path
+> or UID** (per Godot's `--scene`). Any `scene play` / `game run` ergonomic wrapper is a **separate
+> follow-up**, not part of this amendment.
+>
+> **Failure semantics — typed error, never a silent fallback.** A missing or non-existent scene
+> selector **must** surface a typed `GdaError` (a `LIVE` classifier-source code minted by the slice,
+> per decision 6 below); it must **not** silently fall back to `main_scene`. A typed failure beats a
+> wrong positive path the agent cannot detect.
+>
+> **Trust boundary unchanged.** Launching a chosen scene runs that scene's `_ready` and game code —
+> the **same trusted-project / project-code execution surface** that running `main_scene` and every
+> mutating op already cross (ADR-0009, ADR-0018), not a new boundary. It does **not** reach the
+> out-of-scope editor context (there is no editor "current scene").
+>
+> This is a deliberate **extension** of Decision 2's running-game scope, not a reversal: still a
+> gda-owned game, headless by default, same harness and live surface (ADR-0019 / 0020), only with a
+> chosen entry scene. The selector-less default is unchanged. Realized by the run-a-scene slice
+> (#278); the surface-inclusion rationale (why `run` is in scope at all) is recorded in ADR-0025.
 
 ## Decision
 
