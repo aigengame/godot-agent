@@ -25,7 +25,7 @@ built-in default location** — point `--dir` at your agent's skills directory:
 
   ```bash
   gda skill --install --dir ~/.claude/skills/gda
-  # …or without installing gda, take the file straight from the repo:
+  # …or fetch the same file directly, instead of going through `gda skill`:
   curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \
     https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
   ```
