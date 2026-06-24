@@ -1,4 +1,4 @@
-# godot-agent (`gda`)
+# godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
 ![godot-agent title image](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)
 
