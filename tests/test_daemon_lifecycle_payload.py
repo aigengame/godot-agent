@@ -354,6 +354,41 @@ def test_already_running_start_reports_windowed_unknown(
     assert started.windowed is None
 
 
+def test_already_running_start_with_scene_is_a_typed_refusal(
+    tmp_path, short_runtime, monkeypatch
+):
+    # Finding 3: `--scene` only takes effect at daemon START. Requesting it against a
+    # daemon that is already running would otherwise be a SILENT no-op (the chosen
+    # scene never reaches the daemon). It is instead a typed `daemon_already_running`
+    # refusal naming the remediation (stop, then start --scene).
+    project = _project(tmp_path)
+    install_harness(project)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+
+    failure = daemon_ops.run_daemon_start_operation(
+        project, None, scene="res://B.tscn", version_check=_OK_VERSION
+    )
+
+    assert isinstance(failure, Failure), failure
+    assert failure.error.code == "daemon_already_running"
+
+
+def test_already_running_start_without_scene_stays_idempotent_success(
+    tmp_path, short_runtime, monkeypatch
+):
+    # The already-running + NO `--scene` path is unchanged: idempotent success.
+    project = _project(tmp_path)
+    install_harness(project)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)
+
+    started = daemon_ops.run_daemon_start_operation(
+        project, None, version_check=_OK_VERSION
+    )
+
+    assert isinstance(started, DaemonStartResult)
+    assert started.already_running is True
+
+
 def test_cli_daemon_start_windowed_threads_the_flag_to_the_recipe(
     tmp_path, short_runtime, monkeypatch
 ):

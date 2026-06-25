@@ -10,14 +10,17 @@ temp log file. (The raw ``diag-log`` op is superseded by ``logger-tail`` — see
 ``test_daemon_logger.py``, #281.)
 """
 
+import json
 import os
+import socket
 import subprocess
 
 import pytest
 
 from gda.daemon.discovery import daemon_paths
+from gda.daemon.protocol import read_frame, write_frame
 from gda.daemon.server import DaemonServer
-from gda.daemon.session import EngineSession, launch_session
+from gda.daemon.session import EngineSession, SceneMismatch, launch_session
 from gda.parser import parse_result
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
@@ -138,25 +141,144 @@ def test_launch_session_inserts_scene_before_path_when_set(monkeypatch, tmp_path
     assert argv[argv.index("--scene") + 1] == "res://B.tscn"
     assert argv.index("--scene") < argv.index("--path")
     assert argv.index("--scene") < argv.index("--")
+    # The selector ALSO threads into the harness arg tail (after the launch marker,
+    # socket, token) so the harness can verify the ACTUALLY-loaded scene at launch.
+    assert argv[-1] == "res://B.tscn"
+    assert argv.index("--scene") < argv.index("--") < argv.index(argv[-1])
 
 
 def test_launch_session_accepts_a_uid_scene_selector(monkeypatch, tmp_path):
     # Godot's `--scene` accepts a `uid://…` value too; the launch passes it through
-    # verbatim in the same engine-option slot.
+    # verbatim in the same engine-option slot AND in the harness tail.
     project = _project(tmp_path)
     argv = _capture_launch_argv(monkeypatch, project, scene="uid://abc123")
 
     assert argv[argv.index("--scene") + 1] == "uid://abc123"
     assert argv.index("--scene") < argv.index("--path")
+    assert argv[-1] == "uid://abc123"
 
 
 def test_launch_session_omits_scene_by_default(monkeypatch, tmp_path):
     # No selector: behaviour unchanged — the engine runs the project's main_scene,
-    # so no `--scene` engine option appears in the argv.
+    # so no `--scene` engine option appears in the argv. The harness tail still
+    # carries a slot for the selector — an EMPTY string (no selector requested).
     project = _project(tmp_path)
     argv = _capture_launch_argv(monkeypatch, project)
 
     assert "--scene" not in argv
+    # The trailing harness-tail selector slot is the empty string (no selector).
+    assert argv[-1] == ""
+
+
+# --- #278 (review): launch-time scene verification handshake ------------------
+# After the auth token, the harness sends a SECOND frame: the scene-verification
+# result {"scene_ok": bool, "current": "res://…"}. launch_session reads it and
+# returns a verified session, raises SceneMismatch, or returns None (generic fail).
+
+
+class _OneShotListener:
+    """A harness listener whose accept() hands back a pre-connected socket once."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def settimeout(self, _):
+        pass
+
+    def accept(self):
+        if self._conn is None:
+            raise TimeoutError
+        conn, self._conn = self._conn, None
+        return conn, None
+
+
+def _launch_with_fake_harness(monkeypatch, tmp_path, *, token, verify, scene):
+    """Drive launch_session against a socketpair playing the harness side.
+
+    The "harness" end presents ``token`` then sends the ``verify`` dict as the
+    second frame. Returns the launch_session outcome (or the raised exception class
+    via pytest.raises in the caller).
+    """
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc())
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    daemon_end, harness_end = socket.socketpair()
+    # The harness presents its token, then the scene-verification frame.
+    write_frame(harness_end, token.to_utf8_buffer() if hasattr(token, "to_utf8_buffer") else token.encode("utf-8"))
+    if verify is not None:
+        write_frame(harness_end, json.dumps(verify).encode("utf-8"))
+    try:
+        return launch_session(
+            tmp_path,
+            "godot",
+            _OneShotListener(daemon_end),
+            tmp_path / "h.sock",
+            token,
+            timeout=1.0,
+            scene=scene,
+        )
+    finally:
+        harness_end.close()
+
+
+def test_launch_returns_verified_session_when_scene_ok(monkeypatch, tmp_path):
+    _project(tmp_path)
+    session = _launch_with_fake_harness(
+        monkeypatch,
+        tmp_path,
+        token="tok",
+        verify={"scene_ok": True, "current": "res://B.tscn"},
+        scene="res://B.tscn",
+    )
+    assert isinstance(session, EngineSession)
+
+
+def test_launch_raises_scene_mismatch_when_loaded_scene_differs(monkeypatch, tmp_path):
+    _project(tmp_path)
+    with pytest.raises(SceneMismatch):
+        _launch_with_fake_harness(
+            monkeypatch,
+            tmp_path,
+            token="tok",
+            verify={"scene_ok": False, "current": "res://main.tscn"},
+            scene="res://B.tscn",
+        )
+
+
+def test_launch_with_no_selector_does_not_require_a_verification_frame(monkeypatch, tmp_path):
+    # No selector: scene_ok is trivially true (the harness sends it as ok), and the
+    # session is verified — the main_scene default is unchanged.
+    _project(tmp_path)
+    session = _launch_with_fake_harness(
+        monkeypatch,
+        tmp_path,
+        token="tok",
+        verify={"scene_ok": True, "current": "res://main.tscn"},
+        scene=None,
+    )
+    assert isinstance(session, EngineSession)
+
+
+def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
+    _project(tmp_path)
+    # A wrong token aborts the handshake BEFORE the verification frame: a generic
+    # launch failure (None), distinct from a scene mismatch.
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc())
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    daemon_end, harness_end = socket.socketpair()
+    write_frame(harness_end, b"WRONG")
+    try:
+        outcome = launch_session(
+            tmp_path,
+            "godot",
+            _OneShotListener(daemon_end),
+            tmp_path / "h.sock",
+            "tok",
+            timeout=1.0,
+            scene="res://B.tscn",
+        )
+    finally:
+        harness_end.close()
+    assert outcome is None
 
 
 # --- Slice 2: the daemon serves diag from the remembered log file ---

@@ -29,10 +29,16 @@ LIVE_ERROR_CODES = (
     # NOT GDScript-mirrored.
     "daemon_running",
     # The session-scene-selection failure (#278): `daemon start --scene <bad>`
-    # surfaces a typed not-found rather than silently running main_scene. The daemon
-    # mints it (validating the res:// selector before launch), so it is a
-    # daemon-channel classifier-source LIVE code, NOT GDScript-mirrored.
+    # surfaces a typed not-found rather than silently running main_scene. The
+    # harness verifies the ACTUALLY-LOADED scene against the requested selector at
+    # launch; a mismatch is surfaced by the daemon as this daemon-channel
+    # classifier-source LIVE code, NOT GDScript-mirrored.
     "live_scene_not_found",
+    # The already-running + `--scene` refusal (#278 review): `--scene` only takes
+    # effect at daemon start, so requesting it against a daemon that is already
+    # running is a typed refusal rather than a silent no-op. Classifier-source (the
+    # start recipe emits it), NOT GDScript-mirrored.
+    "daemon_already_running",
 )
 
 ROOT = Path(__file__).resolve().parents[1]

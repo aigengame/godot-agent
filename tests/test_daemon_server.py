@@ -37,55 +37,76 @@ def test_live_op_without_a_launchable_session_is_engine_session_not_running(tmp_
     assert parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
 
 
-def test_a_nonexistent_scene_selector_is_a_typed_live_scene_not_found(tmp_path):
-    # #278 / ADR-0017 amendment: a missing/non-existent `--scene` selector MUST
-    # surface a typed `live_scene_not_found` — NEVER a silent fall back to
-    # main_scene. The daemon validates the res:// selector against the project
-    # before launching, so the failure is precise (not a vague launch error).
+# --- #278 (review): scene verification happens at LAUNCH (in the harness), never
+# per-request. The daemon maps the launch outcome: a verified session is cached and
+# reused without re-checking (so deleting the scene file mid-session does NOT break
+# live ops); a scene MISMATCH (loaded scene != requested selector, incl. a bad uid
+# that Godot fell back from) tears the session down and is a typed live_scene_not_found.
+
+
+def _project_with_marker(tmp_path):
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    server = DaemonServer(
-        daemon_paths(tmp_path), godot="godot", scene="res://nope.tscn"
-    )
+    return tmp_path
+
+
+def test_scene_mismatch_at_launch_is_a_typed_live_scene_not_found(tmp_path, monkeypatch):
+    # The harness reported the loaded scene != the requested selector (the no-silent-
+    # fallback guarantee, incl. a bad uid Godot replaced with main_scene): the daemon
+    # surfaces a typed live_scene_not_found, not a vague launch error.
+    from gda.daemon.session import SceneMismatch
+
+    def _mismatch(*a, **k):
+        raise SceneMismatch("res://B.tscn", "res://main.tscn")
+
+    monkeypatch.setattr("gda.daemon.server.launch_session", _mismatch)
+    server = DaemonServer(_project_with_marker(tmp_path), godot="godot", scene="res://B.tscn")
 
     reply = server._handle({"op": "game-tree", "params": {}})
 
     assert parse_result(reply["stdout"])["error"]["code"] == "live_scene_not_found"
+    # The half-alive (wrong-scene) session was NOT cached for reuse.
+    assert server._session is None
 
 
-def test_an_existing_scene_selector_passes_the_validation_gate(tmp_path):
-    # An existing res:// scene passes scene validation; with no real Godot binary
-    # the launch then fails as engine_session_not_running (not scene_not_found) —
-    # proving the gate let a real scene through.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    (tmp_path / "B.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
-    server = DaemonServer(daemon_paths(tmp_path), godot="", scene="res://B.tscn")
+def test_a_verified_session_is_reused_without_re_checking_the_scene(tmp_path, monkeypatch):
+    # Finding 1 fix: scene is verified ONCE at launch. A verified session is cached
+    # and reused on later ops — launch_session is called exactly once even across
+    # multiple live ops (no per-request disk/scene re-validation), so deleting the
+    # scene file after launch cannot break a live op.
+    calls = {"n": 0}
+    served = EngineSession(_FakeProc(), conn=None)
+    served.request = lambda op, params: {"stdout": "ok", "stderr": "", "exit_code": 0}
+
+    def _launch_once(*a, **k):
+        calls["n"] += 1
+        return served
+
+    monkeypatch.setattr("gda.daemon.server.launch_session", _launch_once)
+    server = DaemonServer(_project_with_marker(tmp_path), godot="godot", scene="res://B.tscn")
+
+    server._handle({"op": "game-tree", "params": {}})
+    server._handle({"op": "game-tree", "params": {}})
+    server._handle({"op": "game-tree", "params": {}})
+
+    assert calls["n"] == 1  # launched (and verified) once, reused thereafter
+
+
+def test_a_generic_launch_failure_is_engine_session_not_running(tmp_path, monkeypatch):
+    # A None launch outcome (no connect / bad token / timeout) stays the generic
+    # engine_session_not_running — distinct from a scene mismatch.
+    monkeypatch.setattr("gda.daemon.server.launch_session", lambda *a, **k: None)
+    server = DaemonServer(_project_with_marker(tmp_path), godot="godot", scene="res://B.tscn")
 
     reply = server._handle({"op": "game-tree", "params": {}})
 
     assert (
-        parse_result(reply["stdout"])["error"]["code"]
-        == "engine_session_not_running"
-    )
-
-
-def test_a_uid_scene_selector_passes_the_validation_gate(tmp_path):
-    # A `uid://…` selector cannot be checked by file existence daemon-side; it is
-    # passed through to the engine, so it clears the gate (and then fails to launch
-    # here with no real binary) rather than being wrongly rejected as not-found.
-    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    server = DaemonServer(daemon_paths(tmp_path), godot="", scene="uid://abc123")
-
-    reply = server._handle({"op": "game-tree", "params": {}})
-
-    assert (
-        parse_result(reply["stdout"])["error"]["code"]
-        == "engine_session_not_running"
+        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
     )
 
 
 def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
-    # The selector-less default is unchanged: no scene validation, straight to the
-    # launch path (which here is engine_session_not_running with no real binary).
+    # The selector-less default is unchanged: straight to the launch path (which here
+    # is engine_session_not_running with no real binary), no scene verification.
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
     server = DaemonServer(daemon_paths(tmp_path), godot="")
 
