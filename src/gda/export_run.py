@@ -45,6 +45,7 @@ from gda.errors import (
     export_templates_missing_failure,
 )
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
+from gda.harness.install import install_harness, uninstall_harness
 from gda.headless import HeadlessCommand, RunnerFactory, make_subprocess_runner
 from gda.models import (
     ExportGetParams,
@@ -143,7 +144,22 @@ def run_export_operation(
     # invocation, not the raw --preset string, is keyed on it.
     binary = resolve_godot_binary(godot)
     export_runner = make_export_runner(binary, project)
-    export_output = export_runner.run(got.name, mode.value, output_path)
+    # The dev-only harness must never reach the artifact (ADR-0018): an export
+    # cannot strip a project.godot autoload after the fact (it is serialized whole
+    # into project.binary), so the only reliable guarantee is that the harness is
+    # already gone before the native export reads the project. Paired-uninstall it
+    # first (autoload entry + files, crash-safe ordering) and restore it after, so
+    # the gda export path is harness-free yet the dev project is left untouched.
+    # This is forget-proof: it needs no `gda daemon uninstall` step. A no-op when no
+    # harness is installed; if gda dies mid-export the project is left harness-ABSENT
+    # (the safe direction — no dangling autoload), and the next `daemon start`
+    # reinstalls it.
+    strip = uninstall_harness(project) if project is not None else None
+    try:
+        export_output = export_runner.run(got.name, mode.value, output_path)
+    finally:
+        if strip is not None and strip.removed:
+            install_harness(project)
     return classify_export_run(
         export_output,
         binary,
