@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.40](https://github.com/aigengame/godot-agent/compare/v0.1.39...v0.1.40) (2026-06-25)
+
+
+### Features
+
+* **logger:** structured runtime log channel via gda logger tail ([#284](https://github.com/aigengame/godot-agent/issues/284)) ([64226e9](https://github.com/aigengame/godot-agent/commit/64226e9b1c4ed69931ff5b4bbe88bf97b503d8bf))
+
 ## [0.1.39](https://github.com/aigengame/godot-agent/compare/v0.1.38...v0.1.39) (2026-06-24)
 
 
