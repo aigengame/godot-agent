@@ -65,7 +65,7 @@ def test_logger_tail_passes_level_and_limit_through(monkeypatch, tmp_path):
     assert fake.calls == [("logger-tail", {"level": "warning", "limit": 5, "raw": False})]
 
 
-def test_logger_tail_raw_passes_raw_flag_and_returns_verbatim_lines(monkeypatch, tmp_path):
+def test_logger_tail_raw_passes_raw_flag_and_returns_verbatim_info_records(monkeypatch, tmp_path):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(LOGGER_TAIL_RAW_RESULT), stderr="", exit_code=0),
@@ -77,8 +77,12 @@ def test_logger_tail_raw_passes_raw_flag_and_returns_verbatim_lines(monkeypatch,
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
-    assert "known line" in data["lines"]
-    assert data["records"] == []
+    # --raw returns LogRecord[] too: every line a verbatim, unclassified info record.
+    assert "lines" not in data
+    messages = [r["message"] for r in data["records"]]
+    assert "known line" in messages
+    assert "ERROR: boom" in messages  # the header is verbatim, not classified
+    assert all(r["level"] == "info" for r in data["records"])
     assert fake.calls == [("logger-tail", {"level": None, "limit": None, "raw": True})]
 
 

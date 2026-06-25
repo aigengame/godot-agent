@@ -108,11 +108,28 @@ def test_the_two_line_error_pair_yields_one_record_not_two():
     assert not any(r["message"].lstrip().startswith("at:") for r in records)
 
 
-def test_continuation_backtrace_line_is_dropped_not_an_info_record():
-    # The `<Stack trace>` line follows a parsed error; it is engine backtrace noise,
-    # not game output, so it is skipped (it is consumed as part of the error block).
+def test_continuation_backtrace_line_becomes_an_info_record():
+    # ADR-0026 decision 2 (amended #281): the WHOLE Session log is represented. The
+    # `<Stack trace>` continuation line after an error is NOT dropped — it becomes a
+    # plain `info` record. The error's `at:` is still folded into its `source`, but
+    # the backtrace lines stay in the stream so `logger tail` is the full log.
     records = parse_log_records(SAMPLE_LOG)
-    assert not any("Stack trace" in r["message"] for r in records)
+    trace = _by_message(records, "Stack trace")
+    assert trace["level"] == "info"
+    assert trace["source"] is None
+    assert trace["origin"] is None
+
+
+def test_raw_returns_every_line_as_a_verbatim_info_record():
+    # `raw=True` skips classification entirely: every captured line — even an
+    # `ERROR:`/`WARNING:` header — is a verbatim `info` record (still LogRecord[]),
+    # the uniformly-typed form of the superseded `diag log` view.
+    records = parse_log_records(SAMPLE_LOG, raw=True)
+    assert all(r["level"] == "info" and r["source"] is None for r in records)
+    messages = [r["message"] for r in records]
+    assert "ERROR: known error" in messages  # the header is verbatim, not classified
+    assert "known line" in messages
+    assert len(records) == len(SAMPLE_LOG.splitlines())
 
 
 def test_level_filter_excludes_lower_severities():

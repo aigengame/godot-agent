@@ -2754,9 +2754,9 @@ class LoggerTailParams(BaseModel):
     ``level`` filters by minimum severity over the closed ordering
     ``debug < info < warning < error`` (e.g. ``warning`` excludes ``info`` /
     ``debug``); omit for all severities. ``limit`` tails the most recent N records
-    (constrained ``>= 1``) AFTER the level filter; omit for all. ``raw`` returns
-    the verbatim log lines instead (the behaviour the superseded ``diag log``
-    returned), bypassing structuring.
+    (constrained ``>= 1``) AFTER the level filter; omit for all. ``raw`` skips
+    classification, returning every captured line as a verbatim ``info`` record
+    (the view the superseded ``diag log`` returned), still as ``LogRecord[]``.
     """
 
     level: LogLevel | None = Field(
@@ -2770,9 +2770,9 @@ class LoggerTailParams(BaseModel):
     raw: bool = Field(
         default=False,
         description=(
-            "If set, return the verbatim captured log lines instead of structured "
-            "records (the superseded `diag log` behaviour). `records` is then empty "
-            "and `lines` carries the raw lines."
+            "If set, skip classification: return every captured line as a verbatim "
+            "`info` record (the superseded `diag log` view), still as LogRecord[]. "
+            "Otherwise lines are classified into typed records."
         ),
     )
 
@@ -2780,19 +2780,19 @@ class LoggerTailParams(BaseModel):
 class LoggerTailResult(BaseModel):
     """The result of ``gda logger tail``: the running game's structured log (#281).
 
-    By default ``records`` carries the structured :class:`LogRecord`s (and
-    ``lines`` is empty). With ``--raw`` the channels swap: ``lines`` carries the
-    verbatim captured lines and ``records`` is empty. Either way an empty read is a
-    successful empty result, not an error.
+    ``records`` is the whole captured Session log as ``LogRecord[]`` — one record
+    per line: engine errors/warnings typed (their ``at:`` folded into ``source``),
+    every other line a plain ``info`` record (ADR-0026 decision 2, amended #281).
+    With ``--raw`` the same shape carries every line as an unclassified ``info``
+    record holding its verbatim text (the view the superseded ``diag log``
+    returned). It mirrors how ``diag errors`` delivers ``DiagError[]`` as
+    ``DiagErrorsResult.errors``. An empty read is a successful empty result, not an
+    error.
     """
 
     records: list[LogRecord] = Field(
         default_factory=list,
-        description="The structured log records; empty when `--raw` was requested.",
-    )
-    lines: list[str] = Field(
-        default_factory=list,
-        description="The verbatim captured lines; populated only when `--raw` was requested.",
+        description="The whole Session log as structured records (LogRecord[]).",
     )
 
 

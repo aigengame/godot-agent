@@ -88,8 +88,8 @@ def test_logger_tail_reads_back_structured_records_and_raw_lines(tmp_path, daemo
             proc = run("logger", "tail", *extra_args)
             assert proc.returncode == 0, proc.stdout + proc.stderr
             doc = json.loads(proc.stdout)
-            last = doc["records"] or doc["lines"]
-            texts = [r["message"] if isinstance(r, dict) else r for r in last]
+            last = doc["records"]
+            texts = [r["message"] for r in last]
             if any(needle in t for t in texts):
                 return last
             time.sleep(1.0)
@@ -133,11 +133,14 @@ def test_logger_tail_reads_back_structured_records_and_raw_lines(tmp_path, daemo
         assert errors_only, "expected the error to survive --level error"
         assert all(r["level"] == "error" for r in errors_only)
 
-        # `--raw` returns the same content as verbatim lines (the superseded
-        # `diag log` view): the print line and the ERROR header are present.
-        raw_lines = poll_records(["--raw"], "known line")
-        assert any("known line" in line for line in raw_lines), raw_lines
-        assert any("known error" in line for line in raw_lines), raw_lines
+        # `--raw` returns the same content as verbatim, unclassified `info` records
+        # (the superseded `diag log` view, now LogRecord[]): the print line and the
+        # ERROR header are both present, both as plain info records.
+        raw_records = poll_records(["--raw"], "known line")
+        raw_messages = [r["message"] for r in raw_records]
+        assert any("known line" in m for m in raw_messages), raw_records
+        assert any("known error" in m for m in raw_messages), raw_records
+        assert all(r["level"] == "info" for r in raw_records)
 
         # The structured read survives after the session ends: stop the daemon's
         # session implicitly is not exposed, but the persisted log is still served

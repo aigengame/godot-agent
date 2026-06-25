@@ -489,7 +489,8 @@ DIAG_ERRORS_RESULT = {
 # daemon-served from the Session log (#281, ADR-0026). Shared by the
 # logger-command success/schema/render tests. The default carries typed
 # ``records`` (the closed level enum, sub-kind in ``origin``, ``source`` when
-# known, ``fields`` present-but-empty); ``--raw`` swaps to verbatim ``lines``.
+# known, ``fields`` present-but-empty); ``--raw`` is the SAME ``records`` shape
+# with every line an unclassified ``info`` record (verbatim message).
 LOGGER_TAIL_RESULT = {
     "records": [
         {
@@ -517,16 +518,20 @@ LOGGER_TAIL_RESULT = {
             "fields": {},
         },
     ],
-    "lines": [],
 }
 
+# ``--raw``: the same ``records`` shape, every line an unclassified ``info`` record
+# carrying its verbatim text (even an ``ERROR:`` header stays a plain info line).
 LOGGER_TAIL_RAW_RESULT = {
-    "records": [],
-    "lines": [
-        "known line",
-        "ERROR: boom",
-        "   at: _ready (res://main.gd:9)",
-        "another line",
+    "records": [
+        {"seq": 0, "level": "info", "message": "known line",
+         "source": None, "origin": None, "fields": {}},
+        {"seq": 1, "level": "info", "message": "ERROR: boom",
+         "source": None, "origin": None, "fields": {}},
+        {"seq": 2, "level": "info", "message": "   at: _ready (res://main.gd:9)",
+         "source": None, "origin": None, "fields": {}},
+        {"seq": 3, "level": "info", "message": "another line",
+         "source": None, "origin": None, "fields": {}},
     ],
 }
 

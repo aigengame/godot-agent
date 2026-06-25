@@ -137,20 +137,30 @@ _DIAG_LEVEL_TO_RECORD = {
 
 
 def parse_log_records(
-    data: str | bytes, level: str | None = None, limit: int | None = None
+    data: str | bytes,
+    level: str | None = None,
+    limit: int | None = None,
+    raw: bool = False,
 ) -> list[dict]:
     """The whole Session log as structured ``LogRecord`` dicts (#281, ADR-0026).
 
-    The passive structured runtime-log channel: every captured line becomes a
-    typed record. An engine error/warning (recognized by the same two-line format
-    :func:`parse_errors` reads) yields a typed record carrying its normalized
-    ``level`` (mapped onto the closed enum), an ``origin`` sub-kind
+    The passive structured runtime-log channel: EVERY captured line becomes a
+    typed record, so the structured stream represents the whole Session log
+    losslessly (ADR-0026 decision 2). An engine error/warning (recognized by the
+    same two-line format :func:`parse_errors` reads) yields a typed record carrying
+    its normalized ``level`` (mapped onto the closed enum), an ``origin`` sub-kind
     (``engine`` / ``script`` / ``shader``), and a ``source`` ``{function, file,
-    line}`` frame when the log recorded an ``at:`` line; its ``at:`` follow-on (and
-    any continuation backtrace) is folded in, never re-emitted as its own record.
-    Every OTHER line becomes a plain ``info`` record. Each record carries a
-    monotonic ``seq`` in capture order and a present-but-empty ``fields`` object
-    (populated only by the opt-in #282 protocol).
+    line}`` frame when the log recorded an ``at:`` line; the ``at:`` follow-on is
+    folded into ``source`` rather than re-emitted. Every OTHER line — game output,
+    the engine banner, AND the indented ``GDScript backtrace`` continuation lines
+    that follow an error — becomes a plain ``info`` record (nothing is dropped).
+    Each record carries a monotonic ``seq`` in capture order and a present-but-
+    empty ``fields`` object (populated only by the opt-in #282 protocol).
+
+    With ``raw`` set, classification is skipped entirely: every captured line
+    becomes a plain ``info`` record carrying its verbatim text (the view the
+    superseded ``diag log`` returned, now uniformly typed as ``LogRecord[]``) —
+    even an error header stays a verbatim ``info`` line.
 
     ``level`` filters by minimum severity over the closed ordering
     ``debug < info < warning < error`` (e.g. ``"warning"`` drops ``info`` and
@@ -159,46 +169,38 @@ def parse_log_records(
     -> ``[]``; it never raises on a malformed/continuation line or bad UTF-8.
     """
     lines = _lines(data)
-
-    # First pass: identify which line indices belong to an engine error block (the
-    # `<TYPE>:` header, its optional `at:` follow-on, and any continuation
-    # backtrace lines up to the next header / blank boundary). Those are rendered
-    # as ONE typed record from `parse_errors`; everything else is an info line.
     records: list[dict] = []
     seq = 0
-    i = 0
-    n = len(lines)
-    while i < n:
-        header = _ERROR_HEADER.match(lines[i])
-        if header is None:
-            # A plain captured line -> an `info` record (game output, banner, …).
-            records.append(_info_record(seq, lines[i]))
+
+    if raw:
+        # `--raw`: no classification — each captured line is a verbatim `info`
+        # record (the superseded `diag log` view, uniformly typed as LogRecord[]).
+        for line in lines:
+            records.append(_info_record(seq, line))
             seq += 1
-            i += 1
-            continue
-        # An engine error block. Reuse `parse_errors` on just this header (+ its
-        # optional at-line) so the level/source extraction stays single-sourced.
-        block = lines[i]
-        consumed = 1
-        if i + 1 < n and _AT_LINE.match(lines[i + 1]) is not None:
-            block += "\n" + lines[i + 1]
-            consumed += 1
-        parsed = parse_errors(block)
-        # `parse_errors` yields exactly one entry for a single header.
-        records.append(_error_record(seq, parsed[0]))
-        seq += 1
-        # Skip the indented continuation backtrace the engine appends after the
-        # error (e.g. `   <Stack trace> …`): it is engine noise tied to this error,
-        # not game output, so the structured channel drops it. A non-indented line
-        # is fresh output and ends the block.
-        j = i + consumed
-        while (
-            j < n
-            and _ERROR_HEADER.match(lines[j]) is None
-            and _is_backtrace_continuation(lines[j])
-        ):
-            j += 1
-        i = j
+    else:
+        # An engine error/warning header (+ its optional `at:` follow-on) becomes
+        # ONE typed record via `parse_errors` (single-sourced level/source); the
+        # `at:` line is folded into `source`. EVERY other line — including the
+        # `GDScript backtrace` continuation lines after an error — becomes a plain
+        # `info` record, so the whole log is represented (ADR-0026 decision 2).
+        i = 0
+        n = len(lines)
+        while i < n:
+            if _ERROR_HEADER.match(lines[i]) is None:
+                records.append(_info_record(seq, lines[i]))
+                seq += 1
+                i += 1
+                continue
+            block = lines[i]
+            consumed = 1
+            if i + 1 < n and _AT_LINE.match(lines[i + 1]) is not None:
+                block += "\n" + lines[i + 1]
+                consumed += 1
+            # `parse_errors` yields exactly one entry for a single header.
+            records.append(_error_record(seq, parse_errors(block)[0]))
+            seq += 1
+            i += consumed
 
     if level is not None and level in _LEVEL_RANK:
         floor = _LEVEL_RANK[level]
@@ -240,15 +242,3 @@ def _error_record(seq: int, entry: dict) -> dict:
         "origin": origin,
         "fields": {},
     }
-
-
-def _is_backtrace_continuation(line: str) -> bool:
-    """True for an engine backtrace/continuation line that belongs to an error.
-
-    A continuation line is the indented backtrace the engine appends after an
-    error's ``at:`` line (e.g. ``   <Stack trace> …``). It is engine noise tied to
-    the preceding error, not game output, so the structured channel drops it. A
-    non-indented line is treated as fresh output (an ``info`` record), so a
-    ``print`` that happens to follow an error is never swallowed.
-    """
-    return line[:1].isspace() and line.strip() != ""

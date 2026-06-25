@@ -516,10 +516,12 @@ headless is unaffected (4.4+, cross-platform).
 - **`logger` (structured runtime log):** the running game's whole runtime log as structured
   records (shipped, #281, ADR-0026). `gda logger tail [--level <min>] [--limit <N>] [--raw]` parses
   the same daemon-owned `Session log` into typed `LogRecord`s — engine errors/warnings via the diag
-  parser (carrying `source` + an `origin` sub-kind), every other line a plain `info` record — so an
-  un-instrumented project gets structured logs for free. `level` is the closed, ordered enum
-  `debug < info < warning < error` (`--level` filters by minimum severity); `--limit N` tails the
-  most-recent-N; `--raw` returns the verbatim lines the superseded `diag log` returned. Daemon-served
+  parser (carrying `source` + an `origin` sub-kind), **every other line a plain `info` record (the
+  whole log, nothing dropped)** — so an un-instrumented project gets structured logs for free. The
+  result is `LoggerTailResult { records: LogRecord[] }` (mirroring `diag errors`' `{errors: […]}`).
+  `level` is the closed, ordered enum `debug < info < warning < error` (`--level` filters by minimum
+  severity); `--limit N` tails the most-recent-N; `--raw` skips classification, returning every line
+  as a verbatim `info` record (the superseded `diag log` view, still `LogRecord[]`). Daemon-served
   and crash-survivable like `diag` (ADR-0022). The opt-in rich `gda_log()` protocol layers on in a
   follow-up slice (#282).
 - **lifecycle (the `daemon` command group):** `gda daemon start` / `stop` / `status`, and `gda daemon

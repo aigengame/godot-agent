@@ -215,14 +215,12 @@ def render_diag_errors(diag: "DiagErrorsResult") -> str:
 def render_logger_tail(tail: "LoggerTailResult") -> str:
     """Render the running game's structured runtime log (#281, ADR-0026).
 
-    Default: one ``LEVEL: message (at: loc)`` line per record, the location
-    appended when known (a plain info line omits it). With ``--raw`` the result
-    carries verbatim ``lines`` instead, rendered one per line (the superseded
-    ``diag log`` view). An empty read renders a short note rather than a blank
-    string, so the human output is never ambiguous.
+    One ``LEVEL: message (at: loc)`` line per record, the location appended when
+    known (a plain info line omits it). Under ``--raw`` records are unclassified
+    ``info`` lines carrying verbatim text, so they render as the message alone (the
+    superseded ``diag log`` view). An empty read renders a short note rather than a
+    blank string, so the human output is never ambiguous.
     """
-    if tail.lines:
-        return "\n".join(tail.lines)
     if not tail.records:
         return "no log records"
     lines = []

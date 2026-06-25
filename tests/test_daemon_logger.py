@@ -56,11 +56,11 @@ def test_logger_tail_reads_structured_records_from_the_log(tmp_path):
     assert err["message"] == "boom"
     assert err["origin"] == "engine"
     assert err["source"] == {"function": "_ready", "file": "res://main.gd", "line": 9}
-    # Default is structured: the raw `lines` channel is empty.
-    assert payload["lines"] == []
 
 
-def test_logger_tail_raw_returns_verbatim_lines(tmp_path):
+def test_logger_tail_raw_returns_verbatim_info_records(tmp_path):
+    # --raw skips classification: every line is a verbatim `info` record (still
+    # LogRecord[]), so even an `ERROR:` header stays an unclassified info line.
     log_file = tmp_path / "session.log"
     log_file.write_text("known line\nERROR: boom\n", encoding="utf-8")
     server = _server_with_session(tmp_path, log_file)
@@ -68,8 +68,9 @@ def test_logger_tail_raw_returns_verbatim_lines(tmp_path):
     reply = server._handle({"op": "logger-tail", "params": {"raw": True}})
     payload = parse_result(reply["stdout"])
 
-    assert "known line" in payload["lines"]
-    assert payload["records"] == []
+    messages = [r["message"] for r in payload["records"]]
+    assert messages == ["known line", "ERROR: boom"]
+    assert all(r["level"] == "info" and r["source"] is None for r in payload["records"])
 
 
 def test_logger_tail_level_filters_by_minimum_severity(tmp_path):
@@ -124,7 +125,6 @@ def test_logger_tail_empty_log_is_an_empty_result_not_an_error(tmp_path):
     payload = parse_result(reply["stdout"])
 
     assert payload["records"] == []
-    assert payload["lines"] == []
 
 
 def test_logger_tail_with_no_session_is_engine_session_not_running(tmp_path):

@@ -13,7 +13,7 @@ import secrets
 import signal
 import socket
 
-from gda.daemon.diag import parse_errors, parse_log, parse_log_records
+from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
 from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
 from gda.daemon.session import EngineSession, launch_session
@@ -166,11 +166,12 @@ class DaemonServer:
         limit = params.get("limit")
         if op == DIAG_ERRORS_OP:
             return result_reply({"errors": parse_errors(raw, limit=limit)})
-        # logger-tail: structured LogRecords by default; verbatim lines with --raw.
-        if params.get("raw"):
-            return result_reply({"records": [], "lines": parse_log(raw, limit=limit)})
-        records = parse_log_records(raw, level=params.get("level"), limit=limit)
-        return result_reply({"records": records, "lines": []})
+        # logger-tail: the whole Session log as structured LogRecord[] (records-only
+        # result); `--raw` returns every line as a verbatim `info` record.
+        records = parse_log_records(
+            raw, level=params.get("level"), limit=limit, raw=bool(params.get("raw"))
+        )
+        return result_reply({"records": records})
 
     def _ensure_session(self) -> EngineSession | None:
         if self._session is not None and self._session.alive():
