@@ -2609,12 +2609,13 @@ _DIAG_LIMIT_DESC = (
 
 
 class SourceFrame(BaseModel):
-    """One frame of a GDScript call stack: a ``{function, file, line}`` location.
+    """A source location ``{function, file, line}`` (ADR-0026, #283).
 
-    The ordered unit of a runtime error's ``callstack`` (#283) — the function the
-    engine was in, the source file it lives in, and the line within it. Each
-    facet is nullable so a frame the engine reported only partially still parses
-    (best-effort, never a parse failure).
+    A small, generic frame model: a function name, the source path it lives in,
+    and the line, each ``null`` when the source did not carry it. Shared by a
+    :class:`LogRecord`'s ``source`` (the engine's ``at:`` follow-on) and the
+    ordered ``callstack`` frames of a :class:`DiagError` (best-effort, never a
+    parse failure).
     """
 
     function: str | None = Field(default=None, description="The frame's function name, if known.")
@@ -2684,25 +2685,6 @@ class DiagErrorsResult(BaseModel):
 # `diag` (`--log-file`, ADR-0022) and so crash-survivable. The passive,
 # non-invasive floor of the structured-log protocol — `diag log` (raw) is
 # SUPERSEDED by `gda logger tail`, whose default output is structured records.
-
-
-class SourceFrame(BaseModel):
-    """A source location ``{function, file, line}`` (ADR-0026).
-
-    A small, generic frame model: a function name, the source path it lives in,
-    and the line, each ``null`` when the source did not carry it. Used for a
-    :class:`LogRecord`'s ``source`` (the ``at:`` follow-on the engine logs after an
-    error); named generically because the error-callstack slice (#283) reuses it
-    for an error's call frames.
-    """
-
-    function: str | None = Field(
-        default=None, description="The reporting function, or null when unknown."
-    )
-    file: str | None = Field(
-        default=None, description="The source path (e.g. res://main.gd), or null when unknown."
-    )
-    line: int | None = Field(default=None, description="The 1-based source line, or null when unknown.")
 
 
 class LogLevel(str, Enum):
