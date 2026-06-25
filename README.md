@@ -302,6 +302,10 @@ command — register via the JSON above or the Settings → MCP UI.
   in-game harness, and brokers requests over a Unix domain socket (runtime tree, input,
   screenshots, performance, diagnostics).
 
+The harness is **dev-only**: `gda export run` strips it from the exported artifact, and it
+self-disables in any exported build — so a shipped game carries and runs nothing
+daemon-related.
+
 **Platform & version support:**
 
 | Mode | Godot | Platforms |
@@ -437,7 +441,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 | `daemon start` | Start the per-project daemon and install the harness; the engine session launches on the first live op (`--windowed` for `screen` capture). |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |
-| `daemon uninstall` | Remove the in-game `gda` harness autoload from the project. |
+| `daemon uninstall` | Remove the in-game `gda` harness (autoload entry + files) from the project — an explicit dev-tooling teardown; `gda export run` already strips it from exported artifacts automatically. |
 
 **`game`** — the running game's runtime scene graph
 
