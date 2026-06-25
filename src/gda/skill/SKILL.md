@@ -1,6 +1,6 @@
 ---
 name: gda
-description: Drive the Godot game engine from the command line with `gda`, an agent-first CLI with structured JSON output. Use when building, editing, or inspecting a Godot project — create/edit scenes, nodes, GDScript, resources, shaders, themes; run static analysis; export builds (all headless, no editor) — or to control a running game live (runtime scene tree, input simulation, screenshots, performance) via the gda daemon. Use when the user mentions gda, Godot automation, headless Godot, or asks an agent to make/modify a Godot game. Always pass `--json` and read the single result object; run `gda --help` or `gda schema` to discover the full command surface.
+description: Drive the Godot game engine from the command line with `gda`, an agent-first CLI with structured JSON output. Use when building, editing, or inspecting a Godot project — create/edit scenes, nodes, GDScript, resources, shaders, themes; run static analysis; export builds (all headless, no editor) — or to control a running game live (runtime scene tree, input simulation, screenshots, performance, runtime logs/errors) via the gda daemon. Use when the user mentions gda, Godot automation, headless Godot, or asks an agent to make/modify a Godot game. Always pass `--json` and read the single result object; run `gda --help` or `gda schema` to discover the full command surface.
 ---
 
 `gda` is an agent-first CLI for the Godot engine: every operation is one command
@@ -71,7 +71,8 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 
 ## Live operations (via the daemon; Godot 4.6+, macOS/Linux)
 
-Prerequisites: run `gda daemon start` first; the engine session launches lazily on
+Prerequisites: run `gda daemon start` first (optionally `--scene <res://...>` to boot a
+specific scene instead of the project's main scene); the engine session launches lazily on
 the first live op. `screen capture` needs a windowed session
 (`gda daemon start --windowed`).
 
@@ -79,7 +80,8 @@ the first live op. `screen capture` needs a windowed session
 | ----- | -------- |
 | `daemon` | `start`, `stop`, `status`, `uninstall` (lifecycle; installs the in-game harness) |
 | `game` | `tree`, `get`, `set` (the running game's runtime scene graph) |
-| `diag` | `errors`, `log` (runtime errors / output log; survive a crash) |
+| `diag` | `errors` (structured runtime errors with callstacks; survive a crash) |
+| `logger` | `tail` (the running game's structured log stream; `--raw` for verbatim lines, `--level <min>` to filter by severity, `--limit N`) |
 | `perf` | `monitors`, `monitor` (counters now / a property-or-signal timeline) |
 | `input` | `key`, `mouse-click`, `mouse-move`, `action`, `sequence` |
 | `screen` | `capture`, `frames` (viewport PNGs; needs `--windowed`) |
