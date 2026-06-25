@@ -61,6 +61,16 @@ apart by `level`). It is best-effort: an unrecognized or continuation line (a
 multi-line backtrace, interleaved print output) is skipped and never fails the
 parse.
 
+> **Outcome (2026-06-25, #283) — `diag errors` now captures the backtrace as a `callstack`.**
+> The "a multi-line backtrace … is skipped" above held while a `DiagError` was a single
+> `{level, message, function?, file?, line?}` frame. The error-callstack slice (#283) extends
+> `parse_errors`: the `GDScript backtrace (most recent call first):` block following the `at:`
+> line is consumed into an ordered `callstack` of `{function, file, line}` frames on each
+> `DiagError` (empty when the engine logged none), surfaced on `gda diag errors` `--json` /
+> `--schema`. Other interleaved lines (non-backtrace print output) are still skipped for
+> `errors`; the *whole* log — backtrace lines included — is available structurally via
+> `gda logger tail` (ADR-0026).
+
 ## Considered options
 
 - **Daemon launches with `--log-file` and reads the file daemon-side** (chosen) —
