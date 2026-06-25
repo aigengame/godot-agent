@@ -46,7 +46,7 @@ def test_live_op_without_a_launchable_session_is_engine_session_not_running(tmp_
 
 def _project_with_marker(tmp_path):
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    return tmp_path
+    return daemon_paths(tmp_path)
 
 
 def test_scene_mismatch_at_launch_is_a_typed_live_scene_not_found(tmp_path, monkeypatch):
@@ -60,6 +60,7 @@ def test_scene_mismatch_at_launch_is_a_typed_live_scene_not_found(tmp_path, monk
 
     monkeypatch.setattr("gda.daemon.server.launch_session", _mismatch)
     server = DaemonServer(_project_with_marker(tmp_path), godot="godot", scene="res://B.tscn")
+    server._harness_listener = object()  # launch_session is patched; value unused
 
     reply = server._handle({"op": "game-tree", "params": {}})
 
@@ -83,6 +84,7 @@ def test_a_verified_session_is_reused_without_re_checking_the_scene(tmp_path, mo
 
     monkeypatch.setattr("gda.daemon.server.launch_session", _launch_once)
     server = DaemonServer(_project_with_marker(tmp_path), godot="godot", scene="res://B.tscn")
+    server._harness_listener = object()  # launch_session is patched; value unused
 
     server._handle({"op": "game-tree", "params": {}})
     server._handle({"op": "game-tree", "params": {}})
@@ -96,6 +98,7 @@ def test_a_generic_launch_failure_is_engine_session_not_running(tmp_path, monkey
     # engine_session_not_running — distinct from a scene mismatch.
     monkeypatch.setattr("gda.daemon.server.launch_session", lambda *a, **k: None)
     server = DaemonServer(_project_with_marker(tmp_path), godot="godot", scene="res://B.tscn")
+    server._harness_listener = object()  # launch_session is patched; value unused
 
     reply = server._handle({"op": "game-tree", "params": {}})
 

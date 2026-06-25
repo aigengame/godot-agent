@@ -146,11 +146,12 @@ operation, and parse codes the CLI assigns).
 | `engine_disconnected` | `live` | `classifier` | `6` | The engine session disconnected before the live operation returned — the game crashed or the harness connection dropped (Phase 2). |
 | `live_timeout` | `live` | `classifier` | `6` | A live operation did not return from the engine session before the daemon's timeout (Phase 2). |
 | `daemon_running` | `live` | `classifier` | `6` | A daemon-lifecycle command was refused because a gda-daemon is running for the project; stop it first with `gda daemon stop` (Phase 2, #225). |
+| `daemon_already_running` | `live` | `classifier` | `6` | A `gda daemon start --scene` was refused because a gda-daemon is already running for the project; `--scene` only takes effect at start, so stop it with `gda daemon stop` then start again with `--scene` (Phase 2, #278). |
 | `live_node_not_found` | `live` | `classifier` | `6` | A live game operation's node path does not resolve to a node in the running scene tree (Phase 2, #220). |
 | `live_unknown_property` | `live` | `classifier` | `6` | A live game get or set targeted a property the running node does not expose for the requested operation (no such readable storage property for get, or no such settable property for set) (Phase 2, #220). |
 | `live_uncoercible_value` | `live` | `classifier` | `6` | A live game set value cannot be coerced to the running property's declared Godot type (Phase 2, #220). |
 | `live_log_unavailable` | `live` | `classifier` | `6` | A live engine session was launched but its diagnostics log file is missing or unreadable, so `gda diag` cannot read the running game's errors/output (Phase 2, #224). |
-| `live_scene_not_found` | `live` | `classifier` | `6` | A `gda daemon start --scene` selector names a scene that does not exist in the project, so no engine session can be launched on it (it is never silently replaced by the project's main_scene) (Phase 2, #278). |
+| `live_scene_not_found` | `live` | `classifier` | `6` | A `gda daemon start --scene` selector did not load: the launched session ran a different scene (Godot silently falls back to main_scene for a missing/invalid path or UID), verified by the harness at launch — gda never falls back (Phase 2, #278). |
 | `live_perf_node_not_found` | `live` | `classifier` | `6` | A live perf monitor's node path does not resolve to a node in the running scene tree (Phase 2, #223). |
 | `live_perf_property_not_found` | `live` | `classifier` | `6` | A live perf monitor targeted a property the running node does not expose for reading (Phase 2, #223). |
 | `live_perf_signal_not_found` | `live` | `classifier` | `6` | A live perf monitor targeted a signal the running node does not declare (Phase 2, #223). |

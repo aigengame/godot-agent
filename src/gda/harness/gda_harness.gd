@@ -59,6 +59,13 @@ const MAX_WINDOW_FRAMES := 600
 
 var _peer: StreamPeerUDS = null
 var _authed := false
+# The scene selector the daemon requested (`gda daemon start --scene`, #278), or ""
+# for none. The harness verifies the ACTUALLY-loaded scene against it ONCE at launch
+# and sends the result as the second handshake frame; _scene_verified gates serving
+# ops until that frame is sent (so a mismatch is caught before any op runs).
+var _requested_scene := ""
+var _scene_verified := false
+var _verify_frames := 0
 var _pending = null
 var _pending_frames := 0
 # The active time-windowed collection, or null when none is running (#223). A
@@ -94,6 +101,9 @@ func _ready() -> void:
 		return
 	var socket_path: String = user_args[idx + 1]
 	var token: String = user_args[idx + 2]
+	# The requested scene selector (#278) follows the token; "" (or absent) = none.
+	if idx + 3 < user_args.size():
+		_requested_scene = user_args[idx + 3]
 
 	var peer := StreamPeerUDS.new()
 	peer.big_endian = true
@@ -109,6 +119,18 @@ func _process(_delta: float) -> void:
 	if _peer == null or not _authed:
 		return
 	_peer.poll()
+	# Launch-time scene verification (#278): before serving ANY op, send the second
+	# handshake frame reporting whether the scene the session ACTUALLY loaded matches
+	# the requested `--scene` selector. current_scene is null at autoload _ready (the
+	# main scene loads after autoloads), so wait for it on a frame boundary — the same
+	# wait the op loop uses — with a bounded fallback so a sceneless project never
+	# hangs the handshake. Verified ONCE, never re-checked per op.
+	if not _scene_verified:
+		_verify_frames += 1
+		if get_tree().current_scene != null or _verify_frames > 300:
+			_send_scene_verification()
+			_scene_verified = true
+		return
 	# A time-windowed op owns the connection until it finalizes (#223): advance it
 	# one frame and serve nothing else this tick, so per-frame samples stay
 	# frame-coherent (ADR-0020) and the single-writer order is preserved (one op at
@@ -143,6 +165,38 @@ func _process(_delta: float) -> void:
 func _send_frame(payload: PackedByteArray) -> void:
 	_peer.put_u32(payload.size())
 	_peer.put_data(payload)
+
+
+# Send the launch-time scene-verification frame (#278): the JSON
+# {"scene_ok": bool, "current": "res://…"} the daemon reads after the token. With no
+# selector requested (_requested_scene == ""), scene_ok is trivially true (the
+# main_scene default is unchanged). Otherwise scene_ok is whether the ACTUALLY-loaded
+# scene matches the requested selector — the no-silent-fallback guarantee, including
+# a bad uid:// that Godot replaced with main_scene.
+func _send_scene_verification() -> void:
+	var current: Node = get_tree().current_scene
+	var current_path := String(current.scene_file_path) if current != null else ""
+	var ok := true
+	if not _requested_scene.is_empty():
+		ok = _scene_matches(_requested_scene, current_path)
+	var frame := {"scene_ok": ok, "current": current_path}
+	_send_frame(JSON.stringify(frame).to_utf8_buffer())
+
+
+# Whether the loaded scene path matches the requested selector (#278). A `res://…`
+# (or filesystem) selector compares directly to the loaded scene_file_path. A
+# `uid://…` selector is resolved to its res:// path via ResourceUID and compared; a
+# uid the project does not know resolves to nothing, so it never matches — which is
+# exactly how a bad uid (that Godot silently replaced with main_scene) is caught.
+func _scene_matches(requested: String, current_path: String) -> bool:
+	if current_path.is_empty():
+		return false
+	if requested.begins_with("uid://"):
+		var id := ResourceUID.text_to_id(requested)
+		if id == -1 or not ResourceUID.has_id(id):
+			return false
+		return ResourceUID.get_id_path(id) == current_path
+	return requested == current_path
 
 
 # --- Time-windowed multi-frame base (#223) ------------------------------------

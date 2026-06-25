@@ -182,6 +182,18 @@ def run_daemon_start_operation(
         )
     existing = daemon_pid(paths)
     if existing is not None:
+        if scene is not None:
+            # `--scene` only takes effect at daemon START (the daemon holds it for the
+            # session it launches). A daemon is already up, so the chosen scene would
+            # be silently ignored — surface a typed refusal instead of a quiet no-op
+            # (#278 review finding 3). The remediation: stop, then start --scene.
+            return _failure(
+                "daemon_already_running",
+                "a gda-daemon is already running for this project, so `--scene` would "
+                "be ignored — it only takes effect when the daemon starts. Run "
+                "`gda daemon stop`, then `gda daemon start --scene <path|UID>`",
+                "",
+            )
         # Idempotent: a daemon is already up for this project — but still self-sync
         # the installed harness (#225), so upgrading `gda` while an old daemon stays
         # up never leaves a stale harness on disk. The next engine session the

@@ -141,10 +141,11 @@ def test_launch_session_inserts_scene_before_path_when_set(monkeypatch, tmp_path
     assert argv[argv.index("--scene") + 1] == "res://B.tscn"
     assert argv.index("--scene") < argv.index("--path")
     assert argv.index("--scene") < argv.index("--")
-    # The selector ALSO threads into the harness arg tail (after the launch marker,
-    # socket, token) so the harness can verify the ACTUALLY-loaded scene at launch.
+    # The selector ALSO threads into the harness arg tail (the LAST arg, after the
+    # launch marker, socket, token) so the harness can verify the loaded scene.
     assert argv[-1] == "res://B.tscn"
-    assert argv.index("--scene") < argv.index("--") < argv.index(argv[-1])
+    # The trailing selector slot sits after the `--` payload separator.
+    assert len(argv) - 1 > argv.index("--")
 
 
 def test_launch_session_accepts_a_uid_scene_selector(monkeypatch, tmp_path):
