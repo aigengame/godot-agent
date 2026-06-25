@@ -296,8 +296,8 @@ command — register via the JSON above or the Settings → MCP UI.
 | **`gda-mcp`**    | An MCP server exposing the same operations as tools, from `--schema`. |
 | **`gda-daemon`** | A per-project process supervising a running game for live operations. |
 
-- **Headless operations** need no running engine — `gda` runs them one-shot with nothing
-  to install (create a scene, edit a script, export, analyze).
+- **Headless operations** run one-shot — no daemon, nothing to install (create a scene, edit
+  a script, export, analyze).
 - **Live operations** require a running game — `gda-daemon` launches it, injects an inert
   in-game harness, and brokers requests over a Unix domain socket (runtime tree, input,
   screenshots, performance, diagnostics).
@@ -572,7 +572,7 @@ or agent can branch on the failure **category without parsing the JSON error**:
 | `3`       | `version`     | The detected Godot version is below the supported minimum.            |
 | `4`       | `operation`   | The engine ran but the operation failed — a registered operation error, an engine crash, or an unstructured non-zero exit. |
 | `5`       | `parse`       | The process claimed success but violated the structured-output contract. |
-| `6`       | `live`        | A live operation failed — e.g. no running daemon/session, or a live timeout (Phase-2 live). |
+| `6`       | `live`        | A live operation failed — e.g. no running daemon/session, or a live timeout. |
 
 These values are the public ABI; their authoritative source is
 [`src/gda/exit_codes.py`](src/gda/exit_codes.py). The `{"error": {category, code, …}}`
