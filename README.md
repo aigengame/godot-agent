@@ -302,9 +302,9 @@ command — register via the JSON above or the Settings → MCP UI.
   in-game harness, and brokers requests over a Unix domain socket (runtime tree, input,
   screenshots, performance, diagnostics).
 
-The harness is **dev-only**: `gda export run` strips it from the exported artifact, and it
-self-disables in any exported build — so a shipped game carries and runs nothing
-daemon-related.
+The in-game harness `gda-daemon` injects is **dev-only**: `gda export run` strips it from the
+exported artifact, and it self-disables in any exported build — so a shipped game carries and
+runs nothing daemon-related.
 
 **Platform & version support:**
 
