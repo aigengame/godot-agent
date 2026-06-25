@@ -13,6 +13,12 @@ is unstructured. This ADR adds `gda logger`: a structured runtime-log channel an
 that backs it. It is in scope under ADR-0025 (read-only observability is in; interactive debugging
 is out) and deliberately does **not** tap Godot's remote-debug protocol.
 
+> **Outcome (2026-06-25, #283) — `diag errors` gained the `callstack`.** The baseline shape above
+> (`{level, message, function, file, line}`) is the pre-#283 state; `diag errors` now additionally
+> carries an ordered `callstack: SourceFrame[]` of `{function, file, line}` frames (decision 4's
+> "callstack-enriched view"), parsed from the Session-log `GDScript backtrace`. Realized by the
+> error-callstack slice #283; see ADR-0022's #283 outcome note.
+
 > **Amendment (2026-06-25, #281) — the read result is `LoggerTailResult { records: LogRecord[] }`,
 > the passive parse is whole-log lossless, and `--raw` returns info records.** Decision 3 wrote the
 > read contract as "→ `LogRecord[]`"; it is delivered as a single-field result object

@@ -2608,6 +2608,23 @@ _DIAG_LIMIT_DESC = (
 )
 
 
+class SourceFrame(BaseModel):
+    """A source location ``{function, file, line}`` (ADR-0026, #283).
+
+    A small, generic frame model: a function name, the source path it lives in,
+    and the line, each ``null`` when the source did not carry it. Shared by a
+    :class:`LogRecord`'s ``source`` (the engine's ``at:`` follow-on) and the
+    ordered ``callstack`` frames of a :class:`DiagError` (best-effort, never a
+    parse failure).
+    """
+
+    function: str | None = Field(default=None, description="The frame's function name, if known.")
+    file: str | None = Field(
+        default=None, description="The frame's source path (e.g. res://main.gd), if known."
+    )
+    line: int | None = Field(default=None, description="The frame's source line, if known.")
+
+
 class DiagError(BaseModel):
     """One structured runtime error/warning of the running game (#224).
 
@@ -2616,7 +2633,9 @@ class DiagError(BaseModel):
     an agent branches on the severity without parsing prose — warnings are
     included, told apart by ``level``. The location (``function``/``file``/
     ``line``) is filled from the ``   at:`` follow-on when present; a bare error
-    leaves them ``null`` (best-effort, never a parse failure).
+    leaves them ``null`` (best-effort, never a parse failure). A runtime GDScript
+    error additionally carries its ordered ``callstack`` of frames (#283); a bare
+    push_error / warning has no backtrace, so ``callstack`` is empty.
     """
 
     level: str = Field(
@@ -2630,6 +2649,14 @@ class DiagError(BaseModel):
         default=None, description="The source path (e.g. res://main.gd), if known."
     )
     line: int | None = Field(default=None, description="The source line, if known.")
+    callstack: list[SourceFrame] = Field(
+        default_factory=list,
+        description=(
+            "The ordered call stack (most-recent-first) when the engine emitted a "
+            "GDScript backtrace; frame [0] equals the top {function,file,line}. "
+            "Empty for a bare push_error / warning."
+        ),
+    )
 
 
 class DiagErrorsParams(BaseModel):
@@ -2658,25 +2685,6 @@ class DiagErrorsResult(BaseModel):
 # `diag` (`--log-file`, ADR-0022) and so crash-survivable. The passive,
 # non-invasive floor of the structured-log protocol — `diag log` (raw) is
 # SUPERSEDED by `gda logger tail`, whose default output is structured records.
-
-
-class SourceFrame(BaseModel):
-    """A source location ``{function, file, line}`` (ADR-0026).
-
-    A small, generic frame model: a function name, the source path it lives in,
-    and the line, each ``null`` when the source did not carry it. Used for a
-    :class:`LogRecord`'s ``source`` (the ``at:`` follow-on the engine logs after an
-    error); named generically because the error-callstack slice (#283) reuses it
-    for an error's call frames.
-    """
-
-    function: str | None = Field(
-        default=None, description="The reporting function, or null when unknown."
-    )
-    file: str | None = Field(
-        default=None, description="The source path (e.g. res://main.gd), or null when unknown."
-    )
-    line: int | None = Field(default=None, description="The 1-based source line, or null when unknown.")
 
 
 class LogLevel(str, Enum):

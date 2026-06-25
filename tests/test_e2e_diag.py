@@ -52,6 +52,24 @@ MAIN_TSCN = (
 )
 PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 
+# A main scene whose `_ready` calls a chain a() -> b() that triggers a runtime
+# GDScript error (calling a method on a null), so the engine emits a `GDScript
+# backtrace` with three frames (b, a, _ready) — most-recent-first — that `gda
+# diag errors` reads back as a multi-frame `callstack` (#283).
+CALLSTACK_MAIN_GD = """\
+extends Node2D
+
+func _ready() -> void:
+	a()
+
+func a() -> void:
+	b()
+
+func b() -> void:
+	var n = null
+	n.do_thing()
+"""
+
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
 
@@ -114,5 +132,70 @@ def test_diag_reads_back_a_known_runtime_error_and_log_line(tmp_path, daemon_run
         assert known, error_docs
         # push_error surfaces as an error-class diagnostic (ERROR / SCRIPT ERROR).
         assert known[0]["level"] in ("error", "script_error"), known[0]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_diag_reads_back_a_multi_frame_callstack(tmp_path, daemon_runtime_dir):
+    # #283: a deliberately-thrown runtime error whose `_ready` calls a chain
+    # a() -> b() that errors (a null method call). The engine emits a GDScript
+    # backtrace, so `gda diag errors` reports an ordered, multi-frame `callstack`
+    # — not just the top `file:line`. Same lifecycle as the sibling test: a
+    # NON-diag live op (`game tree`) launches + warms the session, THEN diag
+    # observes the daemon-owned Session log.
+    gda = shutil.which("gda")
+    assert gda, "the `gda` console script is not on PATH"
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "main.gd").write_text(CALLSTACK_MAIN_GD, encoding="utf-8")
+
+    env = {**os.environ}
+
+    def run(*args):
+        return subprocess.run(
+            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=90,
+        )
+
+    def poll_errors(needle, timeout=15.0):
+        deadline = time.monotonic() + timeout
+        last = []
+        while time.monotonic() < deadline:
+            proc = run("diag", "errors")
+            assert proc.returncode == 0, proc.stdout + proc.stderr
+            last = json.loads(proc.stdout)["errors"]
+            if any(needle in e["message"] for e in last):
+                return last
+            time.sleep(1.0)
+        return last
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        # Launch + warm the session; by the time `game tree` returns, the chained
+        # error has been logged with its GDScript backtrace.
+        tree = run("game", "tree")
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+
+        # The null method call surfaces as a script error naming `do_thing`.
+        errors = poll_errors("do_thing")
+        offending = [e for e in errors if "do_thing" in e["message"]]
+        assert offending, errors
+        error = offending[0]
+
+        # The callstack is the ORDERED chain, most-recent-first: b -> a -> _ready.
+        functions = [frame["function"] for frame in error["callstack"]]
+        assert functions == ["b", "a", "_ready"], error
+        # Frame [0] equals the top single-frame location (unchanged behaviour).
+        assert error["callstack"][0]["function"] == error["function"]
+        assert error["callstack"][0]["file"] == error["file"]
+        assert error["callstack"][0]["line"] == error["line"]
+        # Every frame points back into the one script.
+        assert all(frame["file"] == "res://main.gd" for frame in error["callstack"]), error
     finally:
         run("daemon", "stop")

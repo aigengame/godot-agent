@@ -284,3 +284,52 @@ def test_render_engine_version_renders_the_one_line_version_string():
         timestamp=0,
     )
     assert render_engine_version(version) == "4.6.3-stable (official)"
+
+
+def test_render_diag_errors_shows_the_callstack_frames_under_the_error():
+    # A runtime error with a multi-frame call stack (#283): the human view lists
+    # the ordered frames (most-recent-first) under the error's headline line, so
+    # an agent reading the text sees where it originated, not just the top frame.
+    from gda.models import DiagError, DiagErrorsResult, SourceFrame
+    from gda.render import render_diag_errors
+
+    result = DiagErrorsResult(
+        errors=[
+            DiagError(
+                level="script_error",
+                message="Nonexistent function 'do_thing' in base 'Nil'.",
+                function="b",
+                file="res://main.gd",
+                line=9,
+                callstack=[
+                    SourceFrame(function="b", file="res://main.gd", line=9),
+                    SourceFrame(function="a", file="res://main.gd", line=6),
+                    SourceFrame(function="_ready", file="res://main.gd", line=3),
+                ],
+            )
+        ]
+    )
+
+    rendered = render_diag_errors(result)
+
+    # The headline still carries the top location.
+    assert "res://main.gd:9" in rendered
+    # Every frame appears, ordered, naming function and location.
+    assert "a (res://main.gd:6)" in rendered
+    assert "_ready (res://main.gd:3)" in rendered
+    # Frames render below the headline, in order.
+    assert rendered.index("b (res://main.gd:9)") < rendered.index("a (res://main.gd:6)")
+    assert rendered.index("a (res://main.gd:6)") < rendered.index("_ready (res://main.gd:3)")
+
+
+def test_render_diag_errors_omits_a_callstack_block_for_a_bare_error():
+    # A bare error has an empty callstack: the renderer shows just its one line,
+    # with no empty backtrace block.
+    from gda.models import DiagError, DiagErrorsResult
+    from gda.render import render_diag_errors
+
+    rendered = render_diag_errors(
+        DiagErrorsResult(errors=[DiagError(level="error", message="boom")])
+    )
+
+    assert rendered == "ERROR: boom"

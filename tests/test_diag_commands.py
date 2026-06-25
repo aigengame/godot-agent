@@ -42,7 +42,13 @@ def test_diag_errors_emits_structured_errors_json_through_the_live_channel(monke
     data = json.loads(result.stdout)
     assert data["errors"][0]["level"] == "error"
     assert data["errors"][0]["message"] == "boom"
+    # The error carries its ordered call stack (#283); a warning's is empty.
+    assert data["errors"][0]["callstack"] == [
+        {"function": "_ready", "file": "res://main.gd", "line": 9},
+        {"function": "a", "file": "res://main.gd", "line": 6},
+    ]
     assert data["errors"][1]["level"] == "warning"  # warnings included
+    assert data["errors"][1]["callstack"] == []
     # Routed through the LIVE seam, dispatching the diag-errors op (no limit).
     assert fake.calls == [("diag-errors", {"limit": None})]
 
@@ -84,6 +90,9 @@ def test_diag_errors_human_output_renders_levels(monkeypatch, tmp_path):
     # Human output names the level and message; the location is shown when present.
     assert "boom" in result.stdout
     assert "res://main.gd:9" in result.stdout
+    # The call-stack frames render under the error (#283), naming the originating
+    # frame, not just the top location.
+    assert "a (res://main.gd:6)" in result.stdout
 
 
 def test_diag_errors_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):

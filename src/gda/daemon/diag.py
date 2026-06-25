@@ -13,8 +13,11 @@ Godot writes an error as a two-line pair (verified against the engine's
        at: <function> (<file>:<line>)
 
 where ``<TYPE>`` is one of ``ERROR`` / ``WARNING`` / ``SCRIPT ERROR`` /
-``SHADER ERROR``. Print output is plain lines. Some errors carry a multi-line
-script backtrace after the ``at:`` line.
+``SHADER ERROR``. Print output is plain lines. A runtime GDScript error carries
+a multi-line call stack after the ``at:`` line — a ``GDScript backtrace (most
+recent call first):`` marker then one ``[N] <function> (<file>:<line>)`` frame
+line per stack frame (#283); ``parse_errors`` folds those frames into the
+error's ordered ``callstack`` (frame ``[0]`` equals the ``at:`` location).
 
 The parsing is **best-effort**: a line that is neither a recognized ``<TYPE>:``
 header nor the ``   at:`` follow-on (a backtrace, an interleaved print line) is
@@ -31,6 +34,16 @@ _ERROR_HEADER = re.compile(r"^(ERROR|WARNING|SCRIPT ERROR|SHADER ERROR): (.*)$")
 # The engine's follow-on location line: ``   at: <function> (<file>:<line>)``.
 # Leading whitespace varies by ErrorType indent, so it is matched loosely.
 _AT_LINE = re.compile(r"^\s*at:\s*(?P<function>.*?)\s*\((?P<file>.*):(?P<line>\d+)\)\s*$")
+
+# After the ``at:`` line, a runtime GDScript error MAY carry a full call stack:
+# a marker line ``GDScript backtrace (most recent call first):`` then one frame
+# line per stack frame, ``       [N] <function> (<file>:<line>)`` (verified
+# against Godot 4.6.3). Frames are ordered most-recent-first; frame ``[0]``
+# equals the ``at:`` location. push_error / warnings carry no backtrace.
+_BACKTRACE_MARKER = re.compile(r"^\s*GDScript backtrace\b.*:\s*$")
+_FRAME_LINE = re.compile(
+    r"^\s*\[\d+\]\s*(?P<function>.*?)\s*\((?P<file>.*):(?P<line>\d+)\)\s*$"
+)
 
 # The engine ``<TYPE>`` string -> the normalized, machine-stable ``level``.
 _LEVEL_BY_TYPE = {
@@ -58,12 +71,15 @@ def _lines(data: str | bytes) -> list[str]:
 def parse_errors(data: str | bytes, limit: int | None = None) -> list[dict]:
     """Structured errors from a Session log's text — best-effort (#224).
 
-    Returns ``{level, message, function, file, line}`` per recognized error
-    header (warnings included, distinguished by ``level``). The optional ``at:``
-    follow-on fills ``function``/``file``/``line``; absent, they are ``None`` (a
-    bare error without a location is not a failure). Unrecognized/continuation
-    lines (backtraces, interleaved print output) are skipped. ``limit`` tails the
-    most recent ``N`` errors. Empty input -> ``[]``.
+    Returns ``{level, message, function, file, line, callstack}`` per recognized
+    error header (warnings included, distinguished by ``level``). The optional
+    ``at:`` follow-on fills ``function``/``file``/``line``; absent, they are
+    ``None`` (a bare error without a location is not a failure). ``callstack`` is
+    the ordered ``{function, file, line}`` frames from the optional ``GDScript
+    backtrace`` block (most-recent-first; frame ``[0]`` equals the ``at:``
+    location); a push_error / warning carries no backtrace, so ``callstack`` is
+    ``[]``. Unrecognized/continuation lines (interleaved print output) are
+    skipped. ``limit`` tails the most recent ``N`` errors. Empty input -> ``[]``.
     """
     lines = _lines(data)
     errors: list[dict] = []
@@ -80,16 +96,36 @@ def parse_errors(data: str | bytes, limit: int | None = None) -> list[dict]:
             "function": None,
             "file": None,
             "line": None,
+            "callstack": [],
         }
         # The next line MAY be the engine's ``at:`` location follow-on; if so,
-        # consume it. Anything else (a backtrace, the next header, an output
-        # line) is left for the next iteration.
+        # consume it. Anything else (the next header, an output line) is left for
+        # the next iteration.
         if i + 1 < len(lines):
             at = _AT_LINE.match(lines[i + 1])
             if at is not None:
                 entry["function"] = at.group("function") or None
                 entry["file"] = at.group("file") or None
                 entry["line"] = int(at.group("line"))
+                i += 1
+        # After the ``at:`` line, the engine MAY emit a ``GDScript backtrace``
+        # marker followed by ``[N] func (file:line)`` frame lines. Consume the
+        # marker and every contiguous frame line into ``callstack``; a non-frame
+        # line (the next header, a print line) ends the block, left for the next
+        # iteration.
+        if i + 1 < len(lines) and _BACKTRACE_MARKER.match(lines[i + 1]):
+            i += 1
+            while i + 1 < len(lines):
+                frame = _FRAME_LINE.match(lines[i + 1])
+                if frame is None:
+                    break
+                entry["callstack"].append(
+                    {
+                        "function": frame.group("function") or None,
+                        "file": frame.group("file") or None,
+                        "line": int(frame.group("line")),
+                    }
+                )
                 i += 1
         errors.append(entry)
         i += 1

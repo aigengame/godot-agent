@@ -506,9 +506,11 @@ headless is unaffected (4.4+, cross-platform).
   node is `live_perf_node_not_found`, an absent property `live_perf_property_not_found`,
   an absent signal `live_perf_signal_not_found`; a genuinely stalled engine is caught
   by the daemon-level `live_timeout`.
-- **`diag` (diagnostics):** runtime errors of the running game (shipped, #224). `gda diag errors`
-  reads the running game's runtime errors as structured `{level, message, function?, file?, line?}`
-  (warnings included, distinguished by `level`), with `--limit N`. Daemon-served, not
+- **`diag` (diagnostics):** runtime errors of the running game (shipped, #224; callstacks #283). `gda diag errors`
+  reads the running game's runtime errors as structured `{level, message, function?, file?, line?, callstack}`
+  (warnings included, distinguished by `level`), with `--limit N`. `callstack` is an ordered
+  `SourceFrame[]` of `{function, file, line}` frames parsed from the engine's `GDScript backtrace`
+  block in the Session log — empty when the error logged none (#283). Daemon-served, not
   harness-relayed: the daemon reads the `Session log` it launched the engine with (`--log-file`),
   so it works even after the game has crashed — a remembered session with a missing log is
   `live_log_unavailable`, an empty log is an empty result (ADR-0022). (The raw `diag log` is
