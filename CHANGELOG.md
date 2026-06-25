@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.41](https://github.com/aigengame/godot-agent/compare/v0.1.40...v0.1.41) (2026-06-25)
+
+
+### Features
+
+* **daemon:** run a chosen scene via daemon start --scene ([#285](https://github.com/aigengame/godot-agent/issues/285)) ([b24191d](https://github.com/aigengame/godot-agent/commit/b24191d0282891e0e663b368ec44a5bf8c98c979))
+* **diag:** error callstacks in diag errors ([#286](https://github.com/aigengame/godot-agent/issues/286)) ([ae0c41c](https://github.com/aigengame/godot-agent/commit/ae0c41ce434db7eb7e5b354f4b89f889c235e9a0))
+
 ## [0.1.40](https://github.com/aigengame/godot-agent/compare/v0.1.39...v0.1.40) (2026-06-25)
 
 
