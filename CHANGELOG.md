@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.44](https://github.com/aigengame/godot-agent/compare/v0.1.43...v0.1.44) (2026-06-25)
+
+
+### Bug Fixes
+
+* **skill:** sync SKILL.md live-ops tables to the surface, add a drift gate ([#294](https://github.com/aigengame/godot-agent/issues/294)) ([cdaf8c2](https://github.com/aigengame/godot-agent/commit/cdaf8c258eb19c3aafdb2d9ee1aadf43d73126c3))
+
 ## [0.1.43](https://github.com/aigengame/godot-agent/compare/v0.1.42...v0.1.43) (2026-06-25)
 
 
