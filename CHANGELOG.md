@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.42](https://github.com/aigengame/godot-agent/compare/v0.1.41...v0.1.42) (2026-06-25)
+
+
+### Features
+
+* **logger:** gda_log() opt-in rich record protocol ([#288](https://github.com/aigengame/godot-agent/issues/288)) ([14293da](https://github.com/aigengame/godot-agent/commit/14293da088bc48af2f18c460e7e60676fca61dd5))
+
 ## [0.1.41](https://github.com/aigengame/godot-agent/compare/v0.1.40...v0.1.41) (2026-06-25)
 
 
