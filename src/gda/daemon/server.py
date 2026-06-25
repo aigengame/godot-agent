@@ -16,7 +16,7 @@ import socket
 from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
 from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
-from gda.daemon.session import EngineSession, launch_session
+from gda.daemon.session import EngineSession, SceneMismatch, launch_session
 
 # Control ops on the CLI socket — daemon lifetime, not project domain ops.
 STATUS_OP = "__status__"
@@ -35,7 +35,13 @@ LOG_OPS = (DIAG_ERRORS_OP, LOGGER_TAIL_OP)
 class DaemonServer:
     """Binds the per-project sockets and serves requests until stopped."""
 
-    def __init__(self, paths: DaemonPaths, godot: str = "", windowed: bool = False) -> None:
+    def __init__(
+        self,
+        paths: DaemonPaths,
+        godot: str = "",
+        windowed: bool = False,
+        scene: str | None = None,
+    ) -> None:
         self.paths = paths
         self.godot = godot
         # The start-time declared display mode (ADR-0017 refined, #222): when true the
@@ -43,6 +49,11 @@ class DaemonServer:
         # has a real DisplayServer; fixed for the daemon's life (ADR-0020 single
         # session), never switched mid-session.
         self.windowed = windowed
+        # The start-time scene selector (ADR-0017 amendment, #278): when set the engine
+        # session boots this chosen scene (a `res://…` path or `uid://…` value) via
+        # Godot's `--scene` engine option instead of the project's main_scene; None
+        # runs main_scene unchanged. Fixed for the daemon's life (ADR-0020).
+        self.scene = scene
         self._token = secrets.token_hex(16)
         self._stopping = False
         self._listener: socket.socket | None = None
@@ -117,7 +128,24 @@ class DaemonServer:
             # (#224, #281).
             return self._handle_log(op, request.get("params", {}))
         # A project live op. Serialized against the one session (single writer).
-        session = self._ensure_session()
+        # The scene selector is verified ONCE at launch (in the harness): a mismatch
+        # is a typed live_scene_not_found, never a silent fall back to main_scene and
+        # never a per-request re-check (#278, ADR-0017 amendment, ADR-0020).
+        try:
+            session = self._ensure_session()
+        except SceneMismatch as mismatch:
+            detail = (
+                f"no scene named {mismatch.requested!r} exists in the project"
+                if mismatch.current is None
+                else f"the session ran {mismatch.current!r} instead (Godot silently "
+                "falls back to main_scene for an invalid scene)"
+            )
+            return error_reply(
+                "live_scene_not_found",
+                f"the --scene selector {mismatch.requested!r} did not load: {detail}. "
+                "gda never falls back — fix the path/UID or omit --scene to run the "
+                "project's main_scene",
+            )
         if session is None:
             return error_reply(
                 "engine_session_not_running",
@@ -181,6 +209,18 @@ class DaemonServer:
             self._session = None
         if not self.godot:
             return None
+        # A res:// / filesystem scene selector that names no file is rejected HERE,
+        # at the launch boundary (NOT per-request — finding 1), as a typed
+        # SceneMismatch. Godot does not fall-back-and-run for a missing res:// path:
+        # it fails to launch and the harness never connects, so the launch-time
+        # harness verification can't see it. A bad uid:// (which Godot DOES silently
+        # run as main_scene) is caught by that verification inside launch_session
+        # instead. Both surface live_scene_not_found (#278, ADR-0017 amendment).
+        scene = self.scene
+        if scene is not None and not scene.startswith("uid://"):
+            rel = scene[len("res://") :] if scene.startswith("res://") else scene
+            if not (self.paths.project / rel).expanduser().is_file():
+                raise SceneMismatch(scene)
         assert self._harness_listener is not None
         self._session = launch_session(
             self.paths.project,
@@ -190,6 +230,7 @@ class DaemonServer:
             self._token,
             log_file=self._session_log_path(),
             windowed=self.windowed,
+            scene=self.scene,
         )
         return self._session
 

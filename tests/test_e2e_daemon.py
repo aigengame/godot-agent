@@ -276,3 +276,145 @@ def test_daemon_status_surfaces_the_windowed_display_mode(tmp_path, daemon_runti
         assert windowed["windowed"] is True
     finally:
         run("daemon", "stop")
+
+
+# A SECOND scene the session can boot via `--scene`, distinct from main.tscn so the
+# runtime tree's root name proves WHICH scene ran. Its root is "B" (not "Main").
+B_TSCN = (
+    "[gd_scene format=3]\n\n"
+    '[node name="B" type="Node2D"]\n\n'
+    '[node name="Marker" type="Node2D" parent="."]\n'
+)
+
+
+@pytest.mark.e2e
+def test_daemon_start_scene_runs_the_chosen_scene_not_main(tmp_path, daemon_runtime_dir):
+    # #278 (ADR-0017 amendment): `daemon start --scene res://B.tscn` boots the chosen
+    # scene B — `game tree` reports B's root (not Main's), proving the engine received
+    # `--scene` (before `--path`) — and `project.godot`'s `main_scene` is UNCHANGED
+    # (no mutation, F6-equivalent). With scenes A (main) + B present.
+    project_text = PROJECT_GODOT
+    (tmp_path / "project.godot").write_text(project_text, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "B.tscn").write_text(B_TSCN, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start", "--scene", "res://B.tscn")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        tree = run("game", "tree")
+        assert tree.returncode == 0, tree.stdout + tree.stderr
+        root = json.loads(tree.stdout)["root"]
+        # The chosen scene B ran — NOT the project's main_scene (Main).
+        assert root["name"] == "B"
+        assert any(c["name"] == "Marker" for c in root.get("children", []))
+
+        # main_scene is untouched on disk (running a scene is not setting it).
+        assert (
+            'run/main_scene="res://main.tscn"'
+            in (tmp_path / "project.godot").read_text(encoding="utf-8")
+        )
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_start_nonexistent_scene_is_typed_live_scene_not_found(
+    tmp_path, daemon_runtime_dir
+):
+    # #278: a non-existent `--scene` selector surfaces a TYPED `live_scene_not_found`
+    # (LIVE exit 6) on the first live op — NEVER a silent fall back to main_scene.
+    # Detected at launch by the harness (the loaded scene != the requested selector),
+    # surfaced when the lazy launch is triggered by `game tree`.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start", "--scene", "res://does_not_exist.tscn")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        tree = run("game", "tree")
+        assert tree.returncode == 6, tree.stdout + tree.stderr
+        assert json.loads(tree.stdout)["error"]["code"] == "live_scene_not_found"
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_start_nonexistent_uid_is_typed_not_silent_main_scene(
+    tmp_path, daemon_runtime_dir
+):
+    # #278 review finding 2: Godot given a BAD `uid://` selector silently falls back
+    # to main_scene. Launch-time harness verification catches this — the loaded scene
+    # (main) != the requested uid — and surfaces a typed `live_scene_not_found`, NOT a
+    # silent success on main_scene.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start", "--scene", "uid://doesnotexist000")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        tree = run("game", "tree")
+        assert tree.returncode == 6, tree.stdout + tree.stderr
+        assert json.loads(tree.stdout)["error"]["code"] == "live_scene_not_found"
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_start_scene_against_a_running_daemon_is_a_typed_refusal(
+    tmp_path, daemon_runtime_dir
+):
+    # #278 review finding 3: `--scene` only takes effect at daemon START. Against a
+    # daemon that is already running it is a typed `daemon_already_running` refusal,
+    # NOT a silent no-op that quietly ignores the chosen scene.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "B.tscn").write_text(B_TSCN, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        refused = run("daemon", "start", "--scene", "res://B.tscn")
+        assert refused.returncode == 6, refused.stdout + refused.stderr
+        assert json.loads(refused.stdout)["error"]["code"] == "daemon_already_running"
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_scene_verified_once_at_launch_survives_deleting_the_file(
+    tmp_path, daemon_runtime_dir
+):
+    # #278 review finding 1: scene is verified ONCE at launch, never per-request. A
+    # live session bound to scene B keeps serving B after B.tscn is deleted on disk —
+    # the running game does not reload disk edits (ADR-0017/0020 session-bound state),
+    # so a later `game tree` STILL reports B, not `live_scene_not_found`.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    b_scene = tmp_path / "B.tscn"
+    b_scene.write_text(B_TSCN, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        assert run("daemon", "start", "--scene", "res://B.tscn").returncode == 0
+
+        first = run("game", "tree")
+        assert first.returncode == 0, first.stdout + first.stderr
+        assert json.loads(first.stdout)["root"]["name"] == "B"
+
+        # Delete the scene file out from under the LIVE session.
+        b_scene.unlink()
+
+        # The session is bound to B and verified once at launch — it STILL serves B
+        # (no per-request disk re-validation).
+        again = run("game", "tree")
+        assert again.returncode == 0, again.stdout + again.stderr
+        assert json.loads(again.stdout)["root"]["name"] == "B"
+    finally:
+        run("daemon", "stop")

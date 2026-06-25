@@ -454,6 +454,20 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A daemon-lifecycle command was refused because a gda-daemon is running"
         " for the project; stop it first with `gda daemon stop`.",
     ),
+    # The `daemon start --scene` refusal (#278 review): `--scene` only takes effect
+    # at daemon start, so requesting it against a daemon that is already running is a
+    # typed refusal rather than a silent no-op that ignores the chosen scene. Same
+    # daemon-channel shape: LIVE-category, classifier-source (the start recipe emits
+    # it), exit EXIT_LIVE; NOT GDScript-mirrored.
+    ErrorCodeSpec(
+        "daemon_already_running",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A `gda daemon start --scene` was refused because a gda-daemon is already"
+        " running for the project; `--scene` only takes effect at start, so stop it"
+        " with `gda daemon stop` then start again with `--scene`.",
+    ),
     # Per live-operation failures the gda harness reports in-band (#220). Harness
     # op-errors arrive with exit_code 0 (the daemon relays the sentinel verbatim),
     # so each MUST be a LIVE-category code for ``classify_live`` to map it before
@@ -495,6 +509,24 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.CLASSIFIER,
         "A live engine session was launched but its diagnostics log file is missing"
         " or unreadable, so `gda diag` cannot read the running game's errors/output.",
+    ),
+    # `gda daemon start --scene <path|UID>` boots the session on a CHOSEN scene
+    # (#278, ADR-0017 amendment). A missing/non-existent selector must surface this
+    # TYPED failure rather than silently falling back to the project's main_scene.
+    # The harness verifies the ACTUALLY-loaded scene against the requested selector
+    # at launch (the only way to catch a bad uid, which Godot silently replaces with
+    # main_scene); a mismatch is surfaced by the daemon as this code. CLASSIFIER-
+    # source (the daemon mints it from the harness verification frame), so it is NOT
+    # GDScript-mirrored.
+    ErrorCodeSpec(
+        "live_scene_not_found",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A `gda daemon start --scene` selector did not load: the launched session ran"
+        " a different scene (Godot silently falls back to main_scene for a"
+        " missing/invalid path or UID), verified by the harness at launch — gda never"
+        " falls back.",
     ),
     # Per live-operation failures the gda harness reports for `perf` (#223). Same
     # shape as the #220 game op-errors above: LIVE-category, classifier-source,

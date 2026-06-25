@@ -24,10 +24,20 @@ def main() -> None:
         action="store_true",
         help="Launch engine sessions windowed (no --headless), for `screen` capture (#222).",
     )
+    parser.add_argument(
+        "--scene",
+        default=None,
+        help=(
+            "Boot the engine session on this scene (a res:// path or uid:// value) "
+            "instead of the project's main_scene (#278)."
+        ),
+    )
     args = parser.parse_args()
 
     paths = daemon_paths(Path(args.project))
-    DaemonServer(paths, godot=args.godot, windowed=args.windowed).serve()
+    DaemonServer(
+        paths, godot=args.godot, windowed=args.windowed, scene=args.scene
+    ).serve()
 
 
 if __name__ == "__main__":

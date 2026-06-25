@@ -489,7 +489,10 @@ def _make_live_runner(binary: Optional[Path], project: Optional[Path]) -> GodotR
 
 def _daemon_start_recipe(params, *, project, godot):
     return run_daemon_start_operation(
-        resolve_project_dir(project), godot, windowed=params.windowed
+        resolve_project_dir(project),
+        godot,
+        windowed=params.windowed,
+        scene=params.scene,
     )
 
 
@@ -1385,6 +1388,16 @@ def daemon_start(
             "headless host (#222)."
         ),
     ),
+    scene: Optional[str] = typer.Option(
+        None,
+        "--scene",
+        help=(
+            "Boot the engine session on this scene (a res:// path or uid:// value) "
+            "instead of the project's main_scene; default runs main_scene. A "
+            "non-existent scene is a typed `live_scene_not_found` error, never a "
+            "silent fall back (#278)."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = DAEMON_START_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -1398,14 +1411,15 @@ def daemon_start(
     launching the engine is a deliberate, declared effect (ADR-0017). The
     platform/Godot-version precondition is the structured `constraints` field of
     `--schema` (ADR-0021), not restated here. `--windowed` is a start-time declared
-    mode for the engine session a `screen` capture op needs (#222).
+    mode for the engine session a `screen` capture op needs (#222); `--scene` boots
+    the session on a chosen scene instead of the project's main_scene (#278).
     """
-    # Build the params model from the argv option (the single source of truth,
-    # ADR-0015) so the recipe reads `windowed` off it on BOTH the argv and
+    # Build the params model from the argv options (the single source of truth,
+    # ADR-0015) so the recipe reads `windowed`/`scene` off it on BOTH the argv and
     # --params-json paths — no special-casing.
     _dispatch_recipe(
         DAEMON_START_COMMAND,
-        DaemonStartParams(windowed=windowed),
+        DaemonStartParams(windowed=windowed, scene=scene),
         json_output=json_output,
         godot=godot,
         project=project,

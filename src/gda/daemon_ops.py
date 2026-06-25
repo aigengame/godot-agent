@@ -54,7 +54,7 @@ _POLL = 0.05
 _VERSION_RE = re.compile(r"(\d+)\.(\d+)")
 
 # Seams tests override to avoid launching a real process / running the engine.
-SpawnDaemon = Callable[[Path, str, bool], None]
+SpawnDaemon = Callable[[Path, str, bool, Optional[str]], None]
 VersionCheck = Callable[[str], Optional[tuple]]
 
 
@@ -77,12 +77,17 @@ def _engine_version(binary: str) -> Optional[tuple]:
     return (int(match.group(1)), int(match.group(2))) if match else None
 
 
-def _spawn_daemon(project: Path, binary: str, windowed: bool) -> None:
+def _spawn_daemon(
+    project: Path, binary: str, windowed: bool, scene: Optional[str]
+) -> None:
     """Spawn the detached, per-project daemon (its own session, no std streams).
 
     ``windowed`` is forwarded as ``--windowed`` so the daemon launches its engine
     session with a real ``DisplayServer`` (no ``--headless``) — the start-time
     declared display mode a ``screen`` capture op needs (ADR-0017 refined, #222).
+    ``scene`` is forwarded as ``--scene <path|UID>`` so the daemon boots the session
+    on that chosen scene instead of the project's main_scene (ADR-0017 amendment,
+    #278); omitted when ``None``.
     """
     subprocess.Popen(
         [
@@ -94,6 +99,7 @@ def _spawn_daemon(project: Path, binary: str, windowed: bool) -> None:
             "--godot",
             str(binary),
             *(["--windowed"] if windowed else []),
+            *(["--scene", scene] if scene is not None else []),
         ],
         start_new_session=True,
         stdin=subprocess.DEVNULL,
@@ -145,6 +151,7 @@ def run_daemon_start_operation(
     godot: Optional[str],
     *,
     windowed: bool = False,
+    scene: Optional[str] = None,
     spawn: Optional[SpawnDaemon] = None,
     version_check: Optional[VersionCheck] = None,
 ) -> "DaemonStartResult | Failure":
@@ -175,6 +182,18 @@ def run_daemon_start_operation(
         )
     existing = daemon_pid(paths)
     if existing is not None:
+        if scene is not None:
+            # `--scene` only takes effect at daemon START (the daemon holds it for the
+            # session it launches). A daemon is already up, so the chosen scene would
+            # be silently ignored — surface a typed refusal instead of a quiet no-op
+            # (#278 review finding 3). The remediation: stop, then start --scene.
+            return _failure(
+                "daemon_already_running",
+                "a gda-daemon is already running for this project, so `--scene` would "
+                "be ignored — it only takes effect when the daemon starts. Run "
+                "`gda daemon stop`, then `gda daemon start --scene <path|UID>`",
+                "",
+            )
         # Idempotent: a daemon is already up for this project — but still self-sync
         # the installed harness (#225), so upgrading `gda` while an old daemon stays
         # up never leaves a stale harness on disk. The next engine session the
@@ -216,7 +235,7 @@ def run_daemon_start_operation(
         )
 
     installed = install_harness(project)
-    (spawn or _spawn_daemon)(project, str(binary), windowed)
+    (spawn or _spawn_daemon)(project, str(binary), windowed, scene)
     pid = _await_ready(paths)
     if pid is None:
         return _failure(

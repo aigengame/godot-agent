@@ -12,6 +12,7 @@ viewport-capturing op (ADR-0017). The session is (re)launched per feedback-loop
 iteration so it observes the project's current on-disk state.
 """
 
+import json
 import os
 import signal
 import socket
@@ -27,6 +28,29 @@ CONNECT_TIMEOUT = 25.0
 # Bounds one live op against the harness so a stuck op cannot hang the daemon
 # forever; surfaced as the registered ``live_timeout`` (ADR-0021).
 OP_TIMEOUT = 30.0
+
+
+class SceneMismatch(Exception):
+    """The launched session loaded a scene other than the requested ``--scene``.
+
+    Raised at the launch boundary when the requested ``--scene`` cannot be honoured:
+    either the daemon's pre-launch check finds a ``res://`` selector that names no
+    file (``current`` is ``None`` — Godot would fail to launch rather than run it),
+    or the harness's launch-time verification reports the ACTUALLY-loaded scene
+    differs from the selector (Godot silently ran ``main_scene`` for a bad
+    ``uid://``). Either way it is the no-silent-fallback guarantee's signal (#278);
+    the daemon maps it to the typed ``live_scene_not_found`` (ADR-0017 amendment),
+    distinct from a generic launch failure (``launch_session`` returns ``None``).
+    """
+
+    def __init__(self, requested: str, current: str | None = None) -> None:
+        super().__init__(
+            f"requested scene {requested!r} but the session loaded {current!r}"
+            if current is not None
+            else f"requested scene {requested!r} does not exist in the project"
+        )
+        self.requested = requested
+        self.current = current
 
 
 class EngineSession:
@@ -87,6 +111,7 @@ def launch_session(
     log_file: Optional[Path] = None,
     timeout: float = CONNECT_TIMEOUT,
     windowed: bool = False,
+    scene: Optional[str] = None,
 ) -> Optional[EngineSession]:
     """Launch an engine session and wait for the harness to connect.
 
@@ -96,6 +121,25 @@ def launch_session(
     runs with a real ``DisplayServer`` whose viewport a ``screen`` capture op can
     read pixels from; ``--headless``'s dummy ``DisplayServer`` cannot (ADR-0017).
     The mode is start-time declared and fixed for the session's life (ADR-0020).
+
+    When ``scene`` is set (``gda daemon start --scene <path|UID>``, #278) the engine
+    is launched with Godot's ``--scene <path|UID>`` engine option — placed BEFORE
+    ``--path`` alongside ``--headless``/``--log-file`` — so the session boots that
+    chosen scene instead of the project's ``main_scene`` (verified to run the scene
+    without mutating ``main_scene``). Omitted when ``scene`` is ``None`` (the default,
+    runs ``main_scene`` unchanged). The selector accepts a scene path or UID and is
+    start-time declared, fixed for the session's life (ADR-0017 amendment, ADR-0020).
+
+    The selector is ALSO threaded into the harness arg tail (after the launch
+    marker, socket, and token; the empty string when ``None``) so the harness can
+    verify the ACTUALLY-loaded scene against it at launch — the only way to honor
+    "no silent fallback" for a ``uid://`` selector (the harness resolves uids; Godot
+    silently falls back to ``main_scene`` for a bad one). After the token, the
+    harness sends a SECOND frame, the verification result
+    ``{"scene_ok": bool, "current": "res://…"}``. This function returns the verified
+    :class:`EngineSession` when ``scene_ok``, raises :class:`SceneMismatch` when the
+    loaded scene differs from the requested selector, and returns ``None`` on a
+    generic launch failure (no connect / bad token / timeout).
 
     When ``log_file`` is given, the engine is launched with Godot's
     ``--log-file <abs path>`` so the session writes BOTH its output and its errors
@@ -108,17 +152,25 @@ def launch_session(
     """
     log_args = ["--log-file", str(log_file)] if log_file is not None else []
     headless_args = [] if windowed else ["--headless"]
+    # `--scene <path|UID>` is an ENGINE option, so it sits before `--path` (and so
+    # before the `--` payload separator) alongside the other engine args (#278).
+    scene_args = ["--scene", scene] if scene is not None else []
+    # The harness tail also carries the selector (empty string when none) so the
+    # harness can verify the loaded scene against it at launch (#278).
+    requested_scene = scene if scene is not None else ""
     proc = subprocess.Popen(
         [
             str(binary),
             *headless_args,
             *log_args,
+            *scene_args,
             "--path",
             str(project),
             "--",
             LAUNCH_MARKER,
             str(harness_socket),
             token,
+            requested_scene,
         ],
         start_new_session=True,
         stdin=subprocess.DEVNULL,
@@ -144,7 +196,37 @@ def launch_session(
             pass
         _terminate(proc)
         return None
+
+    # The harness's second frame is the launch-time scene verification: it reports
+    # whether the scene the session ACTUALLY loaded matches the requested selector
+    # (#278). A mismatch — including Godot's silent main_scene fallback for a bad
+    # uid — tears the session down and raises SceneMismatch so the daemon surfaces a
+    # typed live_scene_not_found rather than serving the wrong scene.
+    try:
+        verify_frame = read_frame(conn)
+    except OSError:
+        verify_frame = None
+    if verify_frame is None:
+        _close(conn)
+        _terminate(proc)
+        return None
+    try:
+        verify = json.loads(verify_frame.decode("utf-8", "replace"))
+    except (ValueError, TypeError):
+        verify = {}
+    if not isinstance(verify, dict) or not verify.get("scene_ok", False):
+        current = verify.get("current", "") if isinstance(verify, dict) else ""
+        _close(conn)
+        _terminate(proc)
+        raise SceneMismatch(scene if scene is not None else "", str(current))
     return EngineSession(proc, conn, log_file=log_file)
+
+
+def _close(conn: socket.socket) -> None:
+    try:
+        conn.close()
+    except OSError:
+        pass
 
 
 def _terminate(proc: subprocess.Popen) -> None:
