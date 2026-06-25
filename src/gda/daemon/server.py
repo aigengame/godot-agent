@@ -134,13 +134,17 @@ class DaemonServer:
         try:
             session = self._ensure_session()
         except SceneMismatch as mismatch:
+            detail = (
+                f"no scene named {mismatch.requested!r} exists in the project"
+                if mismatch.current is None
+                else f"the session ran {mismatch.current!r} instead (Godot silently "
+                "falls back to main_scene for an invalid scene)"
+            )
             return error_reply(
                 "live_scene_not_found",
-                f"the --scene selector {mismatch.requested!r} did not load: the "
-                f"session ran {mismatch.current!r} instead (Godot silently falls "
-                "back to main_scene for a missing/invalid scene). gda never falls "
-                "back — fix the path/UID or omit --scene to run the project's "
-                "main_scene",
+                f"the --scene selector {mismatch.requested!r} did not load: {detail}. "
+                "gda never falls back — fix the path/UID or omit --scene to run the "
+                "project's main_scene",
             )
         if session is None:
             return error_reply(
@@ -205,6 +209,18 @@ class DaemonServer:
             self._session = None
         if not self.godot:
             return None
+        # A res:// / filesystem scene selector that names no file is rejected HERE,
+        # at the launch boundary (NOT per-request — finding 1), as a typed
+        # SceneMismatch. Godot does not fall-back-and-run for a missing res:// path:
+        # it fails to launch and the harness never connects, so the launch-time
+        # harness verification can't see it. A bad uid:// (which Godot DOES silently
+        # run as main_scene) is caught by that verification inside launch_session
+        # instead. Both surface live_scene_not_found (#278, ADR-0017 amendment).
+        scene = self.scene
+        if scene is not None and not scene.startswith("uid://"):
+            rel = scene[len("res://") :] if scene.startswith("res://") else scene
+            if not (self.paths.project / rel).expanduser().is_file():
+                raise SceneMismatch(scene)
         assert self._harness_listener is not None
         self._session = launch_session(
             self.paths.project,

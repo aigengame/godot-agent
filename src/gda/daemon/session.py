@@ -33,17 +33,21 @@ OP_TIMEOUT = 30.0
 class SceneMismatch(Exception):
     """The launched session loaded a scene other than the requested ``--scene``.
 
-    Raised by :func:`launch_session` when the harness's launch-time verification
-    reports the ACTUALLY-loaded scene differs from the requested selector — Godot
-    silently falls back to ``main_scene`` for a bad ``uid://`` (and a stale/missing
-    selector), so this is the no-silent-fallback guarantee's signal (#278). The
-    daemon maps it to the typed ``live_scene_not_found`` (ADR-0017 amendment). It is
+    Raised at the launch boundary when the requested ``--scene`` cannot be honoured:
+    either the daemon's pre-launch check finds a ``res://`` selector that names no
+    file (``current`` is ``None`` — Godot would fail to launch rather than run it),
+    or the harness's launch-time verification reports the ACTUALLY-loaded scene
+    differs from the selector (Godot silently ran ``main_scene`` for a bad
+    ``uid://``). Either way it is the no-silent-fallback guarantee's signal (#278);
+    the daemon maps it to the typed ``live_scene_not_found`` (ADR-0017 amendment),
     distinct from a generic launch failure (``launch_session`` returns ``None``).
     """
 
-    def __init__(self, requested: str, current: str) -> None:
+    def __init__(self, requested: str, current: str | None = None) -> None:
         super().__init__(
             f"requested scene {requested!r} but the session loaded {current!r}"
+            if current is not None
+            else f"requested scene {requested!r} does not exist in the project"
         )
         self.requested = requested
         self.current = current

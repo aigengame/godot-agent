@@ -82,6 +82,9 @@ def test_a_verified_session_is_reused_without_re_checking_the_scene(tmp_path, mo
         calls["n"] += 1
         return served
 
+    # The selector names a scene that EXISTS, so the launch-boundary res:// pre-check
+    # passes and the (patched) launch proceeds; the point is it launches only ONCE.
+    (tmp_path / "B.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
     monkeypatch.setattr("gda.daemon.server.launch_session", _launch_once)
     server = DaemonServer(_project_with_marker(tmp_path), godot="godot", scene="res://B.tscn")
     server._harness_listener = object()  # launch_session is patched; value unused
@@ -95,7 +98,9 @@ def test_a_verified_session_is_reused_without_re_checking_the_scene(tmp_path, mo
 
 def test_a_generic_launch_failure_is_engine_session_not_running(tmp_path, monkeypatch):
     # A None launch outcome (no connect / bad token / timeout) stays the generic
-    # engine_session_not_running — distinct from a scene mismatch.
+    # engine_session_not_running — distinct from a scene mismatch. The selector
+    # exists, so the res:// pre-check passes and the (patched) launch is reached.
+    (tmp_path / "B.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
     monkeypatch.setattr("gda.daemon.server.launch_session", lambda *a, **k: None)
     server = DaemonServer(_project_with_marker(tmp_path), godot="godot", scene="res://B.tscn")
     server._harness_listener = object()  # launch_session is patched; value unused
@@ -105,6 +110,24 @@ def test_a_generic_launch_failure_is_engine_session_not_running(tmp_path, monkey
     assert (
         parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
     )
+
+
+def test_missing_res_scene_is_live_scene_not_found_before_launch(tmp_path, monkeypatch):
+    # A res:// selector that names NO file is rejected at the launch boundary, BEFORE
+    # launching — Godot would fail to launch (not fall-back-and-run) for a missing
+    # res:// path, so the harness verification can't see it; the daemon's pre-check
+    # surfaces the typed live_scene_not_found and never spawns the engine (#278).
+    def _must_not_launch(*a, **k):
+        raise AssertionError("launch_session must not be called for a missing res:// scene")
+
+    monkeypatch.setattr("gda.daemon.server.launch_session", _must_not_launch)
+    server = DaemonServer(_project_with_marker(tmp_path), godot="godot", scene="res://nope.tscn")
+    server._harness_listener = object()
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+
+    assert parse_result(reply["stdout"])["error"]["code"] == "live_scene_not_found"
+    assert server._session is None
 
 
 def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
