@@ -189,3 +189,32 @@ def test_max_window_frames_mirrors_the_harness_const():
     match = HARNESS_MAX_WINDOW_FRAMES.search(harness)
     assert match is not None, "MAX_WINDOW_FRAMES const missing from gda_harness.gd"
     assert int(match.group(1)) == MAX_WINDOW_FRAMES
+
+
+HARNESS_LOG_MARKER = re.compile(r'^const LOG_MARKER := "(.*)"$', re.MULTILINE)
+
+
+def test_log_marker_mirrors_the_harness_const():
+    # The opt-in `gda_log()` protocol (#282, ADR-0026) emits a `<<<GDA:LOG>>>`
+    # sentinel; the harness mints it (LOG_MARKER) and the Python parser recognises
+    # it (gda.daemon.diag.LOG_BEGIN). Keep the two byte-identical so a real harness
+    # line is always recognised by the parser.
+    from gda.daemon.diag import LOG_BEGIN
+
+    harness = GDA_HARNESS_GD.read_text(encoding="utf-8")
+    match = HARNESS_LOG_MARKER.search(harness)
+    assert match is not None, "LOG_MARKER const missing from gda_harness.gd"
+    assert match.group(1) == LOG_BEGIN
+
+
+def test_log_marker_is_distinct_from_the_result_sentinel():
+    # ADR-0026: the `<<<GDA:LOG>>>` marker is a separate marker family from
+    # ADR-0002's single `<<<GDA:RESULT>>>`, so a log line can never be mistaken for
+    # an op result (and vice versa).
+    from gda.daemon.diag import LOG_BEGIN
+    from gda.parser import RESULT_BEGIN, RESULT_END
+
+    assert LOG_BEGIN != RESULT_BEGIN
+    assert LOG_BEGIN != RESULT_END
+    assert RESULT_BEGIN not in LOG_BEGIN
+    assert LOG_BEGIN not in RESULT_BEGIN

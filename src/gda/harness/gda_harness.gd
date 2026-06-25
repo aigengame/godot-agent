@@ -20,6 +20,15 @@ const LAUNCH_MARKER := "gda-daemon"
 const RESULT_BEGIN := "<<<GDA:RESULT>>>"
 const RESULT_END := "<<<GDA:END>>>"
 
+# The active opt-in log marker (#282, ADR-0026 decision 2). `gda_log()` emits one
+# `<<<GDA:LOG>>>{json}` line into the Session log (the daemon's --log-file); the
+# Python parser (gda.daemon.diag.LOG_BEGIN) recognises the prefix and decodes the
+# JSON into a field-carrying LogRecord. A SEPARATE marker family from RESULT_BEGIN
+# above, so a log line is never mistaken for an op result. Mirrored in Python
+# (gda.daemon.diag.LOG_BEGIN); a const test (tests/test_error_registry.py) keeps
+# the two byte-identical.
+const LOG_MARKER := "<<<GDA:LOG>>>"
+
 # The live operations this harness serves, keyed by their wire op name (#220, #223).
 const OP_GAME_TREE := "game-tree"
 const OP_GAME_GET := "game-get"
@@ -59,6 +68,11 @@ const MAX_WINDOW_FRAMES := 600
 
 var _peer: StreamPeerUDS = null
 var _authed := false
+# True once this run was launched by gda-daemon (the LAUNCH_MARKER is present in the
+# user args), independent of whether the IPC connection then succeeded. Gates the
+# opt-in `gda_log()` so the harness stays inert — no `<<<GDA:LOG>>>` output — in a
+# human editor run, a plain run, and a shipped build (CONTEXT.md, ADR-0018).
+var _daemon_launched := false
 # The scene selector the daemon requested (`gda daemon start --scene`, #278), or ""
 # for none. The harness verifies the ACTUALLY-loaded scene against it ONCE at launch
 # and sends the result as the second handshake frame; _scene_verified gates serving
@@ -99,6 +113,10 @@ func _ready() -> void:
 	if idx == -1 or idx + 2 >= user_args.size():
 		# Inert: not launched by gda-daemon. Stay resident and do nothing.
 		return
+	# Launched by the daemon (with a daemon-owned --log-file): the opt-in gda_log()
+	# protocol is now active. Set before the connect attempt — the log file is
+	# daemon-owned regardless of whether the live-op IPC connection then succeeds.
+	_daemon_launched = true
 	var socket_path: String = user_args[idx + 1]
 	var token: String = user_args[idx + 2]
 	# The requested scene selector (#278) follows the token; "" (or absent) = none.
@@ -923,6 +941,29 @@ func _ok(payload: Dictionary) -> String:
 
 func _error(code: String, message: String) -> String:
 	return RESULT_BEGIN + JSON.stringify({"error": {"code": code, "message": message}}) + RESULT_END
+
+
+# The active opt-in rich-log protocol (#282, ADR-0026). Project code in a live
+# session calls `GdaHarness.gda_log(level, message, fields)` to emit ONE fully
+# structured, field-carrying log record. It prints a single `<<<GDA:LOG>>>{json}`
+# line into the engine log — which the daemon captures via --log-file (ADR-0022) —
+# so the daemon's parser turns it into a rich LogRecord (`gda logger tail`).
+# JSON.stringify keeps the payload single-line (newlines in `message`/`fields` are
+# escaped), so one call is always one log line. It uses a marker DISTINCT from
+# RESULT_BEGIN, so a log line can never be mistaken for an op result. Unlike the
+# live ops above, this is a plain stdout print, NOT an IPC reply — but it is GATED on a
+# daemon-launched session: outside one (a human editor run, a plain run, a shipped
+# build) the harness is inert (CONTEXT.md, ADR-0018) and gda_log() is a no-op, so the
+# `<<<GDA:LOG>>>` protocol never leaks into ordinary game output. In a daemon-launched
+# session it is OBSERVED through the daemon-owned Session log (--log-file, ADR-0022).
+func gda_log(level: String, message: String, fields: Dictionary = {}) -> void:
+	if not _daemon_launched:
+		return
+	print(LOG_MARKER + JSON.stringify({
+		"level": level,
+		"message": message,
+		"fields": fields,
+	}))
 
 
 # --- BEGIN shared coercion (keep byte-identical: operations.gd <-> gda_harness.gd) ---

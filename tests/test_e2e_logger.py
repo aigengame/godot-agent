@@ -1,18 +1,20 @@
-"""S1 (e2e): `gda logger tail` reads a running game's real structured log (#281).
+"""S1 (e2e): `gda logger tail` reads a running game's real structured log (#281/#282).
 
 The #281 DoD: a real `gda daemon start` -> a NON-diag live op (`gda game tree`)
 LAUNCHES the engine session (the daemon spawns it with `--log-file`, its own
 Session log) and blocks until the main scene is current, so the scene's `_ready`
-(which `print`s a KNOWN line, `push_warning`s a KNOWN warning, and `push_error`s a
-KNOWN error) has run and flushed -> THEN `gda logger tail --json` reads them back
-as STRUCTURED `LogRecord`s (the print as an `info` record, the push_warning as a
-`warning`, the push_error as an `error` carrying an engine `source`), and
-`gda logger tail --raw` reads the same content back as verbatim lines. `logger
-tail` OBSERVES the already-launched session; it does NOT create one (ADR-0022).
-Daemon-served: the read works against the daemon-owned log even though
-`project_godot` disables the project's own file logging — the daemon's
-`--log-file` forces logging on regardless. The structured read survives after the
-session ends (the persisted log, ADR-0022).
+(which calls `GdaHarness.gda_log(...)`, `print`s a KNOWN line, `push_warning`s a
+KNOWN warning, and `push_error`s a KNOWN error) has run and flushed -> THEN
+`gda logger tail --json` reads them back as STRUCTURED `LogRecord`s: the opt-in
+`gda_log()` call (#282) as a RICH record (its supplied level/message/fields and
+origin=gda_log), the print as an `info` record, the push_warning as a `warning`,
+the push_error as an `error` carrying an engine `source`; and `gda logger tail
+--raw` reads the same content back as verbatim lines. `logger tail` OBSERVES the
+already-launched session; it does NOT create one (ADR-0022). Daemon-served: the
+read works against the daemon-owned log even though `project_godot` disables the
+project's own file logging — the daemon's `--log-file` forces logging on
+regardless. The structured read survives after the session ends (the persisted
+log, ADR-0022).
 
 Run e2e serially; not a fresh empty HOME (Godot first-run). The
 `daemon_runtime_dir` fixture keeps the daemon's UDS path within the OS `sun_path`
@@ -44,6 +46,7 @@ MAIN_GD = """\
 extends Node2D
 
 func _ready() -> void:
+	GdaHarness.gda_log("warning", "known gda_log", {"k": 1})
 	print("known line")
 	push_warning("known warning")
 	push_error("known error")
@@ -106,6 +109,16 @@ def test_logger_tail_reads_back_structured_records_and_raw_lines(tmp_path, daemo
         tree = run("game", "tree")
         assert tree.returncode == 0, tree.stdout + tree.stderr
 
+        # The opt-in `gda_log()` call (#282) is a RICH record: the supplied level
+        # and message, origin=gda_log, and the app-supplied `fields` carried through.
+        records = poll_records([], "known gda_log")
+        rich = [r for r in records if "known gda_log" in r["message"]]
+        assert rich, records
+        assert rich[0]["level"] == "warning"
+        assert rich[0]["origin"] == "gda_log"
+        assert rich[0]["fields"] == {"k": 1}
+        assert rich[0]["source"] is None
+
         # Default: structured records. The known print is a plain `info` record.
         records = poll_records([], "known line")
         info = [r for r in records if "known line" in r["message"]]
@@ -134,12 +147,14 @@ def test_logger_tail_reads_back_structured_records_and_raw_lines(tmp_path, daemo
         assert all(r["level"] == "error" for r in errors_only)
 
         # `--raw` returns the same content as verbatim, unclassified `info` records
-        # (the superseded `diag log` view, now LogRecord[]): the print line and the
-        # ERROR header are both present, both as plain info records.
+        # (the superseded `diag log` view, now LogRecord[]): the print line, the
+        # ERROR header, AND the `<<<GDA:LOG>>>` line are all present as plain info
+        # records (#282: a gda_log line stays verbatim under --raw, never decoded).
         raw_records = poll_records(["--raw"], "known line")
         raw_messages = [r["message"] for r in raw_records]
         assert any("known line" in m for m in raw_messages), raw_records
         assert any("known error" in m for m in raw_messages), raw_records
+        assert any("<<<GDA:LOG>>>" in m for m in raw_messages), raw_records
         assert all(r["level"] == "info" for r in raw_records)
 
         # The structured read survives after the session ends: stop the daemon's
@@ -152,3 +167,41 @@ def test_logger_tail_reads_back_structured_records_and_raw_lines(tmp_path, daemo
         assert any("known error" in r["message"] for r in again_records), again_records
     finally:
         run("daemon", "stop")
+
+
+# A main scene that calls gda_log() in a PLAIN run (no daemon). It prints a marker so
+# the test can confirm the game actually ran, then quits so the headless run returns.
+PLAIN_MAIN_GD = """\
+extends Node2D
+
+func _ready() -> void:
+	GdaHarness.gda_log("warning", "should-not-leak", {"k": 1})
+	print("PLAIN-RUN-RAN")
+	get_tree().quit()
+"""
+
+
+@pytest.mark.e2e
+def test_gda_log_is_inert_outside_a_daemon_launched_session(tmp_path):
+    # The harness boundary (CONTEXT.md, ADR-0018): the autoload is inert in a human
+    # editor run, a plain run, and a shipped build. So `gda_log()` MUST be a no-op
+    # when the engine was NOT launched by gda-daemon — it must never leak the
+    # `<<<GDA:LOG>>>` protocol sentinel into ordinary game output (PR #288 review).
+    # Run Godot DIRECTLY (no daemon, no LAUNCH_MARKER) on a project whose `_ready`
+    # calls GdaHarness.gda_log(...), and assert the sentinel is absent.
+    from gda.harness.install import install_harness
+
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "main.gd").write_text(PLAIN_MAIN_GD, encoding="utf-8")
+    install_harness(tmp_path)  # the GdaHarness autoload, exactly as a real project carries it
+
+    proc = subprocess.run(
+        [str(GODOT), "--headless", "--path", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    out = proc.stdout + proc.stderr
+    assert "PLAIN-RUN-RAN" in out, out  # the game actually ran its _ready
+    assert "<<<GDA:LOG>>>" not in out, out  # gda_log() was inert (no daemon) — no leak
