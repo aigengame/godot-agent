@@ -19,6 +19,7 @@ from pydantic import (
 )
 
 from gda.execution import ExecutionKind
+from gda.skill_targets import SkillProvider, SkillScope, resolve_skill_dir
 
 
 class ErrorCategory(str, Enum):
@@ -2257,34 +2258,56 @@ class EngineVersion(BaseModel):
 
 
 class SkillParams(BaseModel):
-    """The operation params of ``gda skill`` (ADR-0024).
+    """The operation params of ``gda skill`` (ADR-0024, extended ADR-0027).
 
     ``gda skill`` is a pure emitter meta command: it reads the bundled
     ``SKILL.md`` from the package and emits or installs it — no Godot is spawned.
-    Its only param is ``install``: when set, the manifest is written to the
-    caller-supplied ``install_dir`` instead of being printed. There is no
-    agent-specific default location in core (ADR-0024); ``install_dir`` is required
-    for an install. It is carried as a string so the ``--params-json`` and ``--schema``
-    paths describe it the same way the argv ``--dir`` option supplies it.
+    ``install`` writes the manifest to a target instead of printing it. The target
+    is named one of two ways: a caller-supplied ``install_dir`` (the neutral path,
+    ADR-0024 — core carries no default location), or a known ``provider`` whose
+    skills directory is resolved at ``scope`` (the opt-in convenience, ADR-0027).
+    The two are mutually exclusive; ``provider`` normalizes to ``install_dir`` here so
+    the argv and ``--params-json`` paths resolve identically (ADR-0015).
     """
 
     install: bool = Field(
         default=False,
-        description="If true, WRITE the bundled SKILL.md to install_dir "
+        description="If true, WRITE the bundled SKILL.md to the target "
         "instead of returning it; the result then reports the written path.",
     )
     install_dir: str | None = Field(
         default=None,
-        description="The skills directory to install into (caller-supplied; required "
-        "for an install, no default). Parent dirs are created and an existing file is "
-        "overwritten. Providing it implies an install (ADR-0015 parity with argv --dir).",
+        description="The skills directory to install into (caller-supplied; the neutral "
+        "path, no default). Parent dirs are created and an existing file is overwritten. "
+        "Providing it implies an install (ADR-0015 parity with argv --dir). Mutually "
+        "exclusive with provider.",
+    )
+    provider: SkillProvider | None = Field(
+        default=None,
+        description="Install into a KNOWN agent's skills directory instead of a "
+        "caller-supplied install_dir: resolves that agent's directory at scope "
+        "(ADR-0027). Mutually exclusive with install_dir; providing it implies an install.",
+    )
+    scope: SkillScope = Field(
+        default=SkillScope.USER,
+        description="With provider, whether to install into the agent's per-project "
+        "(committed) or per-user (all projects) skills directory; default user.",
     )
 
     @model_validator(mode="after")
-    def _dir_implies_install(self) -> "SkillParams":
-        # Single source of truth (ADR-0015): naming a target directory means "install
-        # there", whether the params arrive from argv (``--dir``) or a ``--params-json``
-        # object — normalized here in the model, not in the CLI body, so both agree.
+    def _resolve_install_target(self) -> "SkillParams":
+        # Single source of truth (ADR-0015): normalize the target HERE, in the model, so
+        # argv and a --params-json object agree. A named provider resolves to its known
+        # skills dir (ADR-0027) — but provider and an explicit install_dir name the SAME
+        # thing two ways, so giving both is ambiguous and rejected. Then, whichever way a
+        # target was named, naming one means "install there".
+        if self.provider is not None:
+            if self.install_dir is not None:
+                raise ValueError(
+                    "provider and install_dir are mutually exclusive: name an agent "
+                    "(--provider) OR a directory (--dir), not both"
+                )
+            self.install_dir = resolve_skill_dir(self.provider, self.scope)
         if self.install_dir is not None:
             self.install = True
         return self

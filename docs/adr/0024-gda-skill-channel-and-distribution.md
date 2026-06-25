@@ -4,6 +4,14 @@ status: accepted
 
 # gda skill: an Agent Skill as a third agent-facing channel, shipped in-package
 
+> **Extension (2026-06-25) — opt-in known-agent install ([ADR-0027](0027-gda-skill-provider-install.md)).**
+> The "core carries no agent-specific default install location" decision below stands for the
+> *default* path: a plain `gda skill` and a bare `--install` still require an explicit `--dir`.
+> ADR-0027 adds an **opt-in** convenience on top — `--install --provider <agent> --scope <scope>`
+> resolves a known agent's skills directory (Claude Code's `.claude/skills/`, the cross-agent
+> `.agents/skills/`) only when the caller names a provider, with `--dir` remaining the neutral
+> fallback and the `SKILL.md` content still agent-neutral.
+
 An agent can reach [gda](../../CONTEXT.md) two ways today: the CLI directly, and
 [gda-mcp](../../CONTEXT.md) (ADR-0011), which exposes the same surface as MCP tools
 generated from `--schema` (ADR-0012). This ADR adds a third — an **Agent Skill**: a
