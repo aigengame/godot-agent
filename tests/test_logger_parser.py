@@ -15,7 +15,10 @@ script); SHADER ERROR -> (error, shader) — with the sub-kind preserved in
 most-recent-N.
 """
 
-from gda.daemon.diag import parse_log_records
+import json
+
+from gda.daemon.diag import LOG_BEGIN, parse_log_records
+from gda.parser import RESULT_BEGIN
 
 # A realistic Godot --log-file capture: print output interleaved with the engine's
 # two-line error pairs across all four ErrorType strings, a multi-line backtrace,
@@ -182,3 +185,123 @@ def test_never_fails_on_garbage():
     # Pure noise still parses (every line is an info record); bad UTF-8 is replaced.
     assert parse_log_records("just text\nmore text\n")  # non-empty, no raise
     assert isinstance(parse_log_records(b"\xff\xfe not utf8 \x00"), list)
+
+
+# --- The opt-in rich `gda_log()` protocol (#282, ADR-0026 decision 2) -----------
+#
+# The ACTIVE layer: the harness emits one `<<<GDA:LOG>>>{json}` line per gda_log()
+# call. The parser recognises the marker and turns it into a field-carrying
+# `LogRecord` with the supplied level/message/fields and origin=gda_log. The marker
+# is DISTINCT from ADR-0002's `<<<GDA:RESULT>>>` so a log line is never an op result
+# and a result-shaped print is never a log record.
+
+
+def _gda_log_line(level, message, fields=None):
+    payload = {"level": level, "message": message, "fields": fields or {}}
+    return LOG_BEGIN + json.dumps(payload)
+
+
+def test_gda_log_line_becomes_a_rich_record():
+    line = _gda_log_line("warning", "hi", {"k": 1})
+    rec = parse_log_records(line + "\n")[0]
+    assert rec["level"] == "warning"
+    assert rec["message"] == "hi"
+    assert rec["fields"] == {"k": 1}
+    assert rec["origin"] == "gda_log"
+
+
+def test_gda_log_record_carries_no_source_frame():
+    rec = parse_log_records(_gda_log_line("info", "x", {}) + "\n")[0]
+    assert rec["source"] is None
+
+
+def test_gda_log_default_level_is_info_when_unset():
+    # A malformed/partial payload still yields a record; a missing `level` falls
+    # back to `info` (the safe floor) rather than raising.
+    line = LOG_BEGIN + json.dumps({"message": "no level here"})
+    rec = parse_log_records(line + "\n")[0]
+    assert rec["level"] == "info"
+    assert rec["message"] == "no level here"
+    assert rec["origin"] == "gda_log"
+
+
+def test_gda_log_unknown_level_falls_back_to_info():
+    # A value outside the closed enum is not propagated verbatim; it degrades to
+    # `info` so the record's `level` is always a valid LogLevel.
+    rec = parse_log_records(_gda_log_line("loud", "x", {}) + "\n")[0]
+    assert rec["level"] == "info"
+
+
+def test_malformed_gda_log_line_is_a_best_effort_info_record():
+    # Malformed JSON after the marker never raises: the whole line degrades to a
+    # plain `info` record carrying its verbatim text (best-effort).
+    line = LOG_BEGIN + "{not valid json"
+    records = parse_log_records(line + "\n")
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["level"] == "info"
+    assert rec["fields"] == {}
+    assert line in rec["message"]
+
+
+def test_gda_log_line_is_never_misparsed_as_an_op_result():
+    # The `<<<GDA:LOG>>>` marker is distinct from `<<<GDA:RESULT>>>`: a log line
+    # carries the LOG marker, never the RESULT marker, so the result parser never
+    # claims it.
+    line = _gda_log_line("info", "hello", {})
+    assert RESULT_BEGIN not in line
+    assert LOG_BEGIN != RESULT_BEGIN
+
+
+def test_a_plain_print_of_result_shaped_text_is_not_a_log_record():
+    # A game that prints `<<<GDA:RESULT>>>...`-shaped text is plain output: it does
+    # NOT begin with the LOG marker, so it stays a plain `info` record (never a
+    # rich gda_log record).
+    line = RESULT_BEGIN + json.dumps({"foo": "bar"})
+    rec = parse_log_records(line + "\n")[0]
+    assert rec["level"] == "info"
+    assert rec["origin"] is None
+    assert rec["message"] == line
+
+
+def test_raw_keeps_a_gda_log_line_as_a_verbatim_info_record():
+    # Under `raw=True` classification is skipped entirely: a `<<<GDA:LOG>>>` line
+    # stays a verbatim `info` record (consistent with #281's raw view), NOT a
+    # decoded rich record.
+    line = _gda_log_line("error", "boom", {"k": 1})
+    records = parse_log_records(line + "\n", raw=True)
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["level"] == "info"
+    assert rec["message"] == line
+    assert rec["fields"] == {}
+    assert rec["origin"] is None
+
+
+def test_gda_log_records_compose_with_engine_and_plain_lines():
+    # The two layers compose per line: a `<<<GDA:LOG>>>` line -> rich record; an
+    # engine error -> typed record; every other line -> plain info (ADR-0026).
+    log = (
+        _gda_log_line("warning", "rich one", {"k": 1}) + "\n"
+        "plain output\n"
+        "ERROR: boom\n"
+        "   at: f (res://a.gd:3)\n"
+    )
+    records = parse_log_records(log)
+    rich = _by_message(records, "rich one")
+    assert rich["origin"] == "gda_log" and rich["fields"] == {"k": 1}
+    assert _by_message(records, "plain output")["level"] == "info"
+    assert _by_message(records, "boom")["level"] == "error"
+
+
+def test_gda_log_level_participates_in_the_level_filter():
+    # A rich record's level is a real LogLevel, so `--level warning` keeps a
+    # warning gda_log record and drops an info one.
+    log = (
+        _gda_log_line("info", "low", {}) + "\n"
+        + _gda_log_line("warning", "high", {}) + "\n"
+    )
+    records = parse_log_records(log, level="warning")
+    messages = [r["message"] for r in records]
+    assert "high" in messages
+    assert "low" not in messages

@@ -20,6 +20,15 @@ const LAUNCH_MARKER := "gda-daemon"
 const RESULT_BEGIN := "<<<GDA:RESULT>>>"
 const RESULT_END := "<<<GDA:END>>>"
 
+# The active opt-in log marker (#282, ADR-0026 decision 2). `gda_log()` emits one
+# `<<<GDA:LOG>>>{json}` line into the Session log (the daemon's --log-file); the
+# Python parser (gda.daemon.diag.LOG_BEGIN) recognises the prefix and decodes the
+# JSON into a field-carrying LogRecord. A SEPARATE marker family from RESULT_BEGIN
+# above, so a log line is never mistaken for an op result. Mirrored in Python
+# (gda.daemon.diag.LOG_BEGIN); a const test (tests/test_error_registry.py) keeps
+# the two byte-identical.
+const LOG_MARKER := "<<<GDA:LOG>>>"
+
 # The live operations this harness serves, keyed by their wire op name (#220, #223).
 const OP_GAME_TREE := "game-tree"
 const OP_GAME_GET := "game-get"
@@ -923,6 +932,25 @@ func _ok(payload: Dictionary) -> String:
 
 func _error(code: String, message: String) -> String:
 	return RESULT_BEGIN + JSON.stringify({"error": {"code": code, "message": message}}) + RESULT_END
+
+
+# The active opt-in rich-log protocol (#282, ADR-0026). Project code in a live
+# session calls `GdaHarness.gda_log(level, message, fields)` to emit ONE fully
+# structured, field-carrying log record. It prints a single `<<<GDA:LOG>>>{json}`
+# line into the engine log — which the daemon captures via --log-file (ADR-0022) —
+# so the daemon's parser turns it into a rich LogRecord (`gda logger tail`).
+# JSON.stringify keeps the payload single-line (newlines in `message`/`fields` are
+# escaped), so one call is always one log line. It uses a marker DISTINCT from
+# RESULT_BEGIN, so a log line can never be mistaken for an op result. Unlike the
+# live ops above, this is a plain stdout print, NOT an IPC reply — it works the same
+# whether or not the daemon launched this run, but it is only OBSERVED through the
+# daemon-owned Session log of a daemon-launched Engine session.
+func gda_log(level: String, message: String, fields: Dictionary = {}) -> void:
+	print(LOG_MARKER + JSON.stringify({
+		"level": level,
+		"message": message,
+		"fields": fields,
+	}))
 
 
 # --- BEGIN shared coercion (keep byte-identical: operations.gd <-> gda_harness.gd) ---

@@ -24,6 +24,7 @@ header nor the ``   at:`` follow-on (a backtrace, an interleaved print line) is
 skipped for ``errors`` and never raises. ``log`` keeps every line verbatim.
 """
 
+import json
 import re
 
 # A ``<TYPE>: <message>`` header. The TYPE strings come straight from the engine's
@@ -152,8 +153,17 @@ def parse_log(data: str | bytes, limit: int | None = None) -> list[str]:
 # `LogRecord`s. Engine errors/warnings come from `parse_errors` above (reused
 # verbatim — this code is purely additive); every OTHER captured line becomes a
 # plain `info` record. An un-instrumented project gets structured logs for free.
-# The opt-in rich `gda_log()` protocol (the `<<<GDA:LOG>>>` marker) is a SEPARATE
-# follow-up slice (#282) and is NOT parsed here.
+# Overlaid on it is the ACTIVE, opt-in rich `gda_log()` protocol (#282): a line
+# beginning with the `<<<GDA:LOG>>>` marker carries the app's own structured record.
+
+# The active-layer marker (#282, ADR-0026 decision 2). A `gda_log()` call emits one
+# `<<<GDA:LOG>>>{json}` line into the Session log; the parser recognises the prefix
+# and decodes the JSON into a field-carrying record. A SEPARATE marker family from
+# ADR-0002's single `<<<GDA:RESULT>>>` (gda.parser.RESULT_BEGIN), so a log line is
+# never mistaken for an op result and a result-shaped print is never a log record.
+# Mirrors the harness `LOG_MARKER` const (src/gda/harness/gda_harness.gd); a const
+# test (tests/test_error_registry.py) keeps the two byte-identical.
+LOG_BEGIN = "<<<GDA:LOG>>>"
 
 # The closed, ordered severity enum (ADR-0026): `debug < info < warning < error`.
 # A record's rank is its index, so `--level <min>` is a well-defined `>=` filter.
@@ -178,25 +188,36 @@ def parse_log_records(
     limit: int | None = None,
     raw: bool = False,
 ) -> list[dict]:
-    """The whole Session log as structured ``LogRecord`` dicts (#281, ADR-0026).
+    """The whole Session log as structured ``LogRecord`` dicts (#281/#282, ADR-0026).
 
-    The passive structured runtime-log channel: EVERY captured line becomes a
-    typed record, so the structured stream represents the whole Session log
-    losslessly (ADR-0026 decision 2). An engine error/warning (recognized by the
-    same two-line format :func:`parse_errors` reads) yields a typed record carrying
-    its normalized ``level`` (mapped onto the closed enum), an ``origin`` sub-kind
-    (``engine`` / ``script`` / ``shader``), and a ``source`` ``{function, file,
-    line}`` frame when the log recorded an ``at:`` line; the ``at:`` follow-on is
-    folded into ``source`` rather than re-emitted. Every OTHER line — game output,
-    the engine banner, AND the indented ``GDScript backtrace`` continuation lines
-    that follow an error — becomes a plain ``info`` record (nothing is dropped).
-    Each record carries a monotonic ``seq`` in capture order and a present-but-
-    empty ``fields`` object (populated only by the opt-in #282 protocol).
+    The structured runtime-log channel, two layers overlaid (ADR-0026 decision 2).
+    EVERY captured line becomes a typed record, so the structured stream represents
+    the whole Session log losslessly. Per line:
+
+    - A line beginning with the active-layer ``<<<GDA:LOG>>>`` marker (#282) is an
+      opt-in ``gda_log()`` record: the JSON after the marker is decoded into a
+      field-carrying record carrying the app-supplied ``level`` (clamped to the
+      closed enum, defaulting to ``info``), ``message``, and ``fields``, with
+      ``origin = gda_log`` and no ``source`` frame. Malformed JSON never raises —
+      the whole line degrades to a plain ``info`` record (best-effort).
+    - An engine error/warning (recognized by the same two-line format
+      :func:`parse_errors` reads) yields a typed record carrying its normalized
+      ``level`` (mapped onto the closed enum), an ``origin`` sub-kind (``engine`` /
+      ``script`` / ``shader``), and a ``source`` ``{function, file, line}`` frame
+      when the log recorded an ``at:`` line; the ``at:`` follow-on is folded into
+      ``source`` rather than re-emitted.
+    - Every OTHER line — game output, the engine banner, AND the indented ``GDScript
+      backtrace`` continuation lines that follow an error — becomes a plain ``info``
+      record (nothing is dropped).
+
+    Each record carries a monotonic ``seq`` in capture order; a passively-parsed
+    record's ``fields`` is a present-but-empty object (populated only by the opt-in
+    #282 protocol).
 
     With ``raw`` set, classification is skipped entirely: every captured line
     becomes a plain ``info`` record carrying its verbatim text (the view the
     superseded ``diag log`` returned, now uniformly typed as ``LogRecord[]``) —
-    even an error header stays a verbatim ``info`` line.
+    even an error header or a ``<<<GDA:LOG>>>`` line stays a verbatim ``info`` line.
 
     ``level`` filters by minimum severity over the closed ordering
     ``debug < info < warning < error`` (e.g. ``"warning"`` drops ``info`` and
@@ -223,6 +244,15 @@ def parse_log_records(
         i = 0
         n = len(lines)
         while i < n:
+            # The active opt-in layer (#282): a `<<<GDA:LOG>>>` line is a rich
+            # `gda_log()` record. Checked FIRST so an app's own structured record
+            # is never re-classified as engine output. Best-effort: malformed JSON
+            # degrades to a plain `info` record (see `_gda_log_record`).
+            if lines[i].startswith(LOG_BEGIN):
+                records.append(_gda_log_record(seq, lines[i]))
+                seq += 1
+                i += 1
+                continue
             if _ERROR_HEADER.match(lines[i]) is None:
                 records.append(_info_record(seq, lines[i]))
                 seq += 1
@@ -277,4 +307,41 @@ def _error_record(seq: int, entry: dict) -> dict:
         "source": source,
         "origin": origin,
         "fields": {},
+    }
+
+
+def _gda_log_record(seq: int, line: str) -> dict:
+    """A ``<<<GDA:LOG>>>{json}`` line as a rich ``gda_log`` ``LogRecord`` (#282).
+
+    Decodes the JSON after the marker into a field-carrying record: the app-supplied
+    ``level`` (clamped to the closed enum, defaulting to ``info`` when missing or
+    unknown), ``message``, and ``fields``, with ``origin = gda_log`` and no engine
+    ``source`` frame. Best-effort and never raises: a malformed payload (bad JSON, a
+    non-object, wrong-typed members) degrades to a plain ``info`` record carrying the
+    line verbatim, so a corrupt opt-in line can never break the passive stream.
+    """
+    payload_text = line[len(LOG_BEGIN) :]
+    try:
+        payload = json.loads(payload_text)
+    except (ValueError, TypeError):
+        return _info_record(seq, line)
+    if not isinstance(payload, dict):
+        return _info_record(seq, line)
+
+    level = payload.get("level")
+    if not isinstance(level, str) or level not in _LEVEL_RANK:
+        level = "info"
+    message = payload.get("message")
+    if not isinstance(message, str):
+        message = ""
+    fields = payload.get("fields")
+    if not isinstance(fields, dict):
+        fields = {}
+    return {
+        "seq": seq,
+        "level": level,
+        "message": message,
+        "source": None,
+        "origin": "gda_log",
+        "fields": fields,
     }
