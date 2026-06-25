@@ -165,14 +165,17 @@ Godot from the CLI. It's the lightest way in (no server to register), bundled in
 version-locked to your install. Print it, or install it into your agent's skills directory:
 
 ```bash
-gda skill                                       # print SKILL.md (redirect it anywhere)
-gda skill --install --dir ~/.claude/skills/gda  # write it into a skills directory
+gda skill                                              # print SKILL.md (redirect it anywhere)
+gda skill --install --provider claude --scope user     # resolve a known agent's skills dir
+gda skill --install --dir ~/.claude/skills/gda         # …or give the directory yourself
 ```
 
-`--dir` is caller-supplied — there's no built-in default; the [skill recipes](docs/gda-skill.md)
-list each agent's skills directory (Claude Code's `~/.claude/skills/`, Codex's `~/.agents/skills/`,
-…). Or fetch the same file straight from the repo, if you'd rather not go through `gda skill` — you
-still install `gda`, since the Skill drives it:
+`--install --provider <claude|codex> --scope <project|user>` resolves a known agent's skills
+directory (`--scope` defaults to `user`); `--dir` is the neutral fallback for any other agent —
+there's no built-in default. The [skill recipes](docs/gda-skill.md) list each agent's directory
+(Claude Code's `~/.claude/skills/`, Codex's `~/.agents/skills/`, …). Or fetch the same file straight
+from the repo, if you'd rather not go through `gda skill` — you still install `gda`, since the Skill
+drives it:
 
 ```bash
 curl --create-dirs -o ~/.claude/skills/gda/SKILL.md \

@@ -259,6 +259,7 @@ from gda.screen_ops import (
     run_screen_frames_operation,
 )
 from gda.skill_ops import build_skill_result
+from gda.skill_targets import SkillProvider, SkillScope
 from gda.surface import build_surface_manifest
 
 app = typer.Typer(
@@ -3173,8 +3174,21 @@ def skill(
     dir: Optional[str] = typer.Option(
         None,
         "--dir",
-        help="The skills directory to install into (caller-supplied; no default). "
-        "Implies --install.",
+        help="The skills directory to install into (caller-supplied; the neutral path, "
+        "no default). Implies --install. Mutually exclusive with --provider.",
+    ),
+    provider: Optional[SkillProvider] = typer.Option(
+        None,
+        "--provider",
+        "-p",
+        help="Install into a known agent's skills directory (claude/codex) instead of "
+        "--dir, resolved with --scope (ADR-0027). Implies --install.",
+    ),
+    scope: SkillScope = typer.Option(
+        SkillScope.USER,
+        "--scope",
+        help="With --provider: the agent's per-project (committed) or per-user (all "
+        "projects) skills dir; default user.",
     ),
     json_output: bool = json_option(),
     schema: bool = SKILL_COMMAND.schema_option(),
@@ -3185,21 +3199,30 @@ def skill(
     The canonical `SKILL.md` ships inside the `gda` package and is version-locked to
     the install (ADR-0024): a plain run prints it verbatim (so
     `gda skill > .../SKILL.md` drops it to disk), `--json` emits
-    `{name, version, content}`, and `--install --dir <path>` writes it to a
-    caller-supplied directory, creating parents and overwriting, then reports the path.
-    Core carries no agent-specific default location — the caller supplies the per-agent
-    skills dir (ADR-0024). A sibling of `info`/`schema`, carrying `--schema` like them.
+    `{name, version, content}`, and an install writes it to a directory, creating
+    parents and overwriting, then reports the path. The install target is named one
+    of two ways: `--dir <path>` (the neutral path; core carries no agent-specific
+    default, ADR-0024), or `--provider <agent> --scope <scope>` which resolves a known
+    agent's skills directory (the opt-in convenience, ADR-0027). A sibling of
+    `info`/`schema`, carrying `--schema` like them.
     """
-    # An install needs an explicit target dir (ADR-0024). `--dir` implying an install is
-    # normalized inside SkillParams so argv and --params-json produce identical params
-    # (ADR-0015) — the CLI just forwards the raw flags.
-    if install and dir is None:
+    # The target is named by --dir OR --provider; they name the SAME thing two ways, so
+    # both at once is ambiguous, and an install with neither has nowhere to write. Both
+    # rules are mirrored in SkillParams (so the --params-json path enforces them too,
+    # ADR-0015); resolving provider→dir also happens there. The CLI raises the friendly
+    # usage errors and otherwise just forwards the raw flags.
+    if dir is not None and provider is not None:
         raise typer.BadParameter(
-            "`--install` requires `--dir` (the skills directory to write into)"
+            "`--dir` and `--provider` are mutually exclusive: name a directory OR an "
+            "agent, not both"
+        )
+    if install and dir is None and provider is None:
+        raise typer.BadParameter(
+            "`--install` requires `--dir` or `--provider` (where to write the SKILL.md)"
         )
     _dispatch_recipe(
         SKILL_COMMAND,
-        SkillParams(install=install, install_dir=dir),
+        SkillParams(install=install, install_dir=dir, provider=provider, scope=scope),
         json_output=json_output,
         godot=None,
         project=None,

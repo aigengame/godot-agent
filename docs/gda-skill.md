@@ -20,18 +20,34 @@ One canonical file, two ways to obtain it:
 
 ## Install it where your agent loads skills
 
-A `SKILL.md` is loaded by most coding agents — only the **discovery directory** differs.
-`gda skill --install --dir <dir>` writes `<dir>/SKILL.md` (creating parent dirs); there is **no
-built-in default location**, so point `--dir` at the directory your agent scans:
+A `SKILL.md` is loaded by most coding agents — only the **discovery directory** differs:
 
 | Agent | Personal (all projects) | Project scope (committed) |
 | --- | --- | --- |
 | **Claude Code** | `~/.claude/skills/gda/` | `.claude/skills/gda/` |
 | **Codex and other agents** | `~/.agents/skills/gda/` | `.agents/skills/gda/` |
 
+### Name your agent (recommended)
+
+For the agents above, let `gda` resolve the directory — `--install --provider <agent> --scope
+<project|user>` (ADR-0027). `--scope` defaults to `user`; `--provider` implies `--install`:
+
 ```bash
-gda skill --install --dir ~/.claude/skills/gda    # Claude Code (personal scope)
-gda skill --install --dir ~/.agents/skills/gda    # Codex & others (personal scope)
+gda skill --install --provider claude --scope user      # ~/.claude/skills/gda/
+gda skill --install --provider claude --scope project   # ./.claude/skills/gda/
+gda skill --install --provider codex  --scope project   # ./.agents/skills/gda/
+```
+
+Codex uses the cross-agent `.agents/skills` namespace (per OpenAI's Codex docs), not `.codex/skills`.
+
+### Or give the directory yourself
+
+`gda skill --install --dir <dir>` writes `<dir>/SKILL.md` (creating parent dirs) — the neutral path
+for any agent, listed above or not (there is **no** built-in default; `--dir` and `--provider` are
+mutually exclusive):
+
+```bash
+gda skill --install --dir ~/.claude/skills/gda    # an explicit directory
 # …or fetch the same file directly, instead of going through `gda skill`:
 curl --create-dirs -o ~/.agents/skills/gda/SKILL.md \
   https://raw.githubusercontent.com/aigengame/godot-agent/main/src/gda/skill/SKILL.md
