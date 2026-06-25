@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.43](https://github.com/aigengame/godot-agent/compare/v0.1.42...v0.1.43) (2026-06-25)
+
+
+### Features
+
+* **skill:** install into a known agent's skills dir via --provider/--scope ([#292](https://github.com/aigengame/godot-agent/issues/292)) ([04421ce](https://github.com/aigengame/godot-agent/commit/04421ce88635700081e6155319965bb6742fe9b4))
+
 ## [0.1.42](https://github.com/aigengame/godot-agent/compare/v0.1.41...v0.1.42) (2026-06-25)
 
 
