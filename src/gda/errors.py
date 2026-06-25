@@ -50,7 +50,6 @@ from gda.error_codes import (
 )
 from gda.models import (
     DiagErrorsResult,
-    DiagLogResult,
     EngineVersion,
     ExportRunMode,
     ExportRunResult,
@@ -62,6 +61,7 @@ from gda.models import (
     InputKeyResult,
     InputMouseResult,
     InputSequenceResult,
+    LoggerTailResult,
     OperationErrorEnvelope,
     PerfMonitorResult,
     PerfMonitorsResult,
@@ -463,9 +463,16 @@ def classify_diag_errors(result: RunResult, binary: Path) -> DiagErrorsResult | 
     return classify_live(result, binary, DiagErrorsResult)
 
 
-def classify_diag_log(result: RunResult, binary: Path) -> DiagLogResult | Failure:
-    """The per-command live classifier for ``gda diag log`` (mirrors ``classify_diag_errors``)."""
-    return classify_live(result, binary, DiagLogResult)
+def classify_logger_tail(result: RunResult, binary: Path) -> LoggerTailResult | Failure:
+    """The per-command live classifier for ``gda logger tail`` (#281; mirrors ``classify_diag_errors``).
+
+    ``logger tail`` is daemon-served (the daemon reads its own Session log,
+    ADR-0022/ADR-0026), but its reply rides the same ADR-0002 sentinel envelope as
+    any live op, so the live error codes (``daemon_not_running``,
+    ``engine_session_not_running``, ``live_log_unavailable``) flow through the
+    shared ``classify_live``.
+    """
+    return classify_live(result, binary, LoggerTailResult)
 
 
 def classify_perf_monitors(result: RunResult, binary: Path) -> PerfMonitorsResult | Failure:

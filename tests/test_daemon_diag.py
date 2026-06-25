@@ -3,10 +3,11 @@
 In-process, engine-free. ``diag`` is a daemon-served live op (ADR: runtime-
 diagnostics-via-daemon-owned-session-log): the daemon launches the Engine session
 with ``--log-file <session path>``, remembers that path, and serves ``diag-errors``
-/ ``diag-log`` by reading the file directly — NOT by relaying to the harness, and
-even after the session process has died (so a crash stays diagnosable). These
-tests exercise the launch argv, the remembered path, and the daemon's ``_handle``
-read path against a temp log file.
+by reading the file directly — NOT by relaying to the harness, and even after the
+session process has died (so a crash stays diagnosable). These tests exercise the
+launch argv, the remembered path, and the daemon's ``_handle`` read path against a
+temp log file. (The raw ``diag-log`` op is superseded by ``logger-tail`` — see
+``test_daemon_logger.py``, #281.)
 """
 
 import os
@@ -115,17 +116,6 @@ def test_diag_errors_reads_structured_errors_from_the_log(tmp_path):
     assert payload["errors"][0]["line"] == 9
 
 
-def test_diag_log_reads_raw_lines_from_the_log(tmp_path):
-    log_file = tmp_path / "session.log"
-    log_file.write_text("known line\nERROR: boom\n", encoding="utf-8")
-    server = _server_with_session(tmp_path, log_file)
-
-    reply = server._handle({"op": "diag-log", "params": {}})
-    payload = parse_result(reply["stdout"])
-
-    assert "known line" in payload["lines"]
-
-
 def test_diag_errors_limit_tails_the_most_recent_n(tmp_path):
     log_file = tmp_path / "session.log"
     log_file.write_text(
@@ -160,19 +150,17 @@ def test_diag_empty_log_is_an_empty_result_not_an_error(tmp_path):
     server = _server_with_session(tmp_path, log_file)
 
     errors_reply = server._handle({"op": "diag-errors", "params": {}})
-    log_reply = server._handle({"op": "diag-log", "params": {}})
 
     assert parse_result(errors_reply["stdout"])["errors"] == []
-    assert parse_result(log_reply["stdout"])["lines"] == []
 
 
-@pytest.mark.parametrize("op", ["diag-errors", "diag-log"])
-def test_diag_with_no_session_launched_is_engine_session_not_running(monkeypatch, tmp_path, op):
+def test_diag_with_no_session_launched_is_engine_session_not_running(monkeypatch, tmp_path):
     # ADR-0022: diag observes an already-launched session; it does NOT launch one.
-    # With NO session launched this daemon lifetime, BOTH diag ops return a
-    # structured `engine_session_not_running` (exit 6) — and crucially diag must
-    # NOT spawn an engine session as a side effect, even with a Godot binary set
-    # (that hidden project-code-execution side effect is the bug under ADR-0009).
+    # With NO session launched this daemon lifetime, diag-errors returns a
+    # structured `engine_session_not_running` (exit 6) — and crucially it must NOT
+    # spawn an engine session as a side effect, even with a Godot binary set (that
+    # hidden project-code-execution side effect is the bug under ADR-0009).
+    op = "diag-errors"
     server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
 
     # Trip-wire: if diag tries to launch a session, fail loudly.

@@ -2653,25 +2653,147 @@ class DiagErrorsResult(BaseModel):
     errors: list[DiagError]
 
 
-class DiagLogParams(BaseModel):
-    """The params of ``gda diag log``: read the running game's raw output log (#224).
+# The `logger` command group (Phase 2, ADR-0019, ADR-0026, #281): the running
+# game's STRUCTURED runtime-log stream, daemon-served from the Session log like
+# `diag` (`--log-file`, ADR-0022) and so crash-survivable. The passive,
+# non-invasive floor of the structured-log protocol — `diag log` (raw) is
+# SUPERSEDED by `gda logger tail`, whose default output is structured records.
 
-    ``limit`` tails the most recent N lines (constrained ``>= 1``); v1 returns the
-    current session's log with no incremental offset. Omitting ``limit`` returns
-    all lines.
+
+class SourceFrame(BaseModel):
+    """A source location ``{function, file, line}`` (ADR-0026).
+
+    A small, generic frame model: a function name, the source path it lives in,
+    and the line, each ``null`` when the source did not carry it. Used for a
+    :class:`LogRecord`'s ``source`` (the ``at:`` follow-on the engine logs after an
+    error); named generically because the error-callstack slice (#283) reuses it
+    for an error's call frames.
     """
 
+    function: str | None = Field(
+        default=None, description="The reporting function, or null when unknown."
+    )
+    file: str | None = Field(
+        default=None, description="The source path (e.g. res://main.gd), or null when unknown."
+    )
+    line: int | None = Field(default=None, description="The 1-based source line, or null when unknown.")
+
+
+class LogLevel(str, Enum):
+    """The closed, ordered severity of a :class:`LogRecord` (ADR-0026).
+
+    ``debug < info < warning < error`` — a TOTAL order, so ``--level <min>``
+    filtering is a well-defined ``>=`` contract (ADR-0004). The engine's finer
+    kinds collapse onto it (``WARNING`` -> ``warning``; ``ERROR`` / ``SCRIPT
+    ERROR`` / ``SHADER ERROR`` -> ``error``), with the sub-kind kept in
+    :class:`LogRecord.origin`.
+    """
+
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class LogOrigin(str, Enum):
+    """Where a typed :class:`LogRecord` came from — the sub-kind (ADR-0026).
+
+    Preserves the distinction the closed :class:`LogLevel` collapses: an engine
+    error vs a script error vs a shader error (all ``error`` level) vs an opt-in
+    ``gda_log()`` record (#282). ``null`` on a plain ``info`` line that carries no
+    engine/app origin.
+    """
+
+    ENGINE = "engine"
+    SCRIPT = "script"
+    SHADER = "shader"
+    GDA_LOG = "gda_log"
+
+
+class LogRecord(BaseModel):
+    """One structured record of the running game's runtime log (ADR-0026, #281).
+
+    The typed unit of the structured runtime-log channel, parsed from the
+    daemon-owned Session log. ``seq`` is a monotonic ordinal in capture order.
+    ``level`` is the closed, ordered :class:`LogLevel`. ``message`` is the logged
+    text. ``source`` is the ``{function, file, line}`` frame when the engine
+    recorded an ``at:`` location (engine errors/warnings), else ``null``.
+    ``origin`` names the sub-kind the closed level collapses (``engine`` /
+    ``script`` / ``shader`` / ``gda_log``), else ``null`` for a plain ``info``
+    line. ``fields`` is an app-supplied structured object — empty here (the passive
+    floor); populated only by the opt-in ``gda_log()`` protocol (#282).
+    """
+
+    seq: int = Field(description="Monotonic ordinal in capture order (0-based).")
+    level: LogLevel = Field(description="Closed, ordered severity: debug < info < warning < error.")
+    message: str = Field(description="The logged message text.")
+    source: SourceFrame | None = Field(
+        default=None,
+        description="The {function, file, line} location when known (engine errors), else null.",
+    )
+    origin: LogOrigin | None = Field(
+        default=None,
+        description=(
+            "The sub-kind the closed level collapses (engine / script / shader / "
+            "gda_log), or null for a plain info line."
+        ),
+    )
+    fields: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "App-supplied structured fields; empty for a passively-parsed record, "
+            "populated only by the opt-in gda_log() protocol (#282)."
+        ),
+    )
+
+
+class LoggerTailParams(BaseModel):
+    """The params of ``gda logger tail``: read the running game's structured log (#281).
+
+    Reads the current Engine session's captured log as structured records.
+    ``level`` filters by minimum severity over the closed ordering
+    ``debug < info < warning < error`` (e.g. ``warning`` excludes ``info`` /
+    ``debug``); omit for all severities. ``limit`` tails the most recent N records
+    (constrained ``>= 1``) AFTER the level filter; omit for all. ``raw`` skips
+    classification, returning every captured line as a verbatim ``info`` record
+    (the view the superseded ``diag log`` returned), still as ``LogRecord[]``.
+    """
+
+    level: LogLevel | None = Field(
+        default=None,
+        description=(
+            "If set, return only records at or above this minimum severity over the "
+            "closed ordering debug < info < warning < error. Omit for all."
+        ),
+    )
     limit: int | None = Field(default=None, ge=1, description=_DIAG_LIMIT_DESC)
+    raw: bool = Field(
+        default=False,
+        description=(
+            "If set, skip classification: return every captured line as a verbatim "
+            "`info` record (the superseded `diag log` view), still as LogRecord[]. "
+            "Otherwise lines are classified into typed records."
+        ),
+    )
 
 
-class DiagLogResult(BaseModel):
-    """The result of ``gda diag log``: the running game's raw output lines (#224).
+class LoggerTailResult(BaseModel):
+    """The result of ``gda logger tail``: the running game's structured log (#281).
 
-    The full captured stream (print output AND error lines) verbatim, one entry
-    per line; an empty ``lines`` list is a successful empty read.
+    ``records`` is the whole captured Session log as ``LogRecord[]`` — one record
+    per line: engine errors/warnings typed (their ``at:`` folded into ``source``),
+    every other line a plain ``info`` record (ADR-0026 decision 2, amended #281).
+    With ``--raw`` the same shape carries every line as an unclassified ``info``
+    record holding its verbatim text (the view the superseded ``diag log``
+    returned). It mirrors how ``diag errors`` delivers ``DiagError[]`` as
+    ``DiagErrorsResult.errors``. An empty read is a successful empty result, not an
+    error.
     """
 
-    lines: list[str]
+    records: list[LogRecord] = Field(
+        default_factory=list,
+        description="The whole Session log as structured records (LogRecord[]).",
+    )
 
 
 # The per-window frame ceiling a time-windowed live op may request (#223). A

@@ -454,10 +454,11 @@ GAME_SET_RESULT = {
     "value": [10.0, 20.0],
 }
 
-# Sample ``gda diag errors`` / ``gda diag log`` results — the running game's
-# runtime diagnostics, daemon-served from the Session log (#224). Shared by the
-# diag-command success/schema/render tests. ``errors`` carries warnings too,
-# distinguished by ``level``; a bare error may omit the location fields.
+# Sample ``gda diag errors`` result — the running game's runtime errors,
+# daemon-served from the Session log (#224). Shared by the diag-command
+# success/schema/render tests. ``errors`` carries warnings too, distinguished by
+# ``level``; a bare error may omit the location fields. (The raw ``diag log`` is
+# superseded by ``gda logger tail`` — see ``LOGGER_TAIL_RAW_RESULT``, #281.)
 DIAG_ERRORS_RESULT = {
     "errors": [
         {
@@ -484,13 +485,54 @@ DIAG_ERRORS_RESULT = {
     ]
 }
 
-DIAG_LOG_RESULT = {
-    "lines": [
-        "known line",
-        "ERROR: boom",
-        "   at: _ready (res://main.gd:9)",
-        "another line",
-    ]
+# Sample ``gda logger tail`` results — the running game's STRUCTURED runtime log,
+# daemon-served from the Session log (#281, ADR-0026). Shared by the
+# logger-command success/schema/render tests. The default carries typed
+# ``records`` (the closed level enum, sub-kind in ``origin``, ``source`` when
+# known, ``fields`` present-but-empty); ``--raw`` is the SAME ``records`` shape
+# with every line an unclassified ``info`` record (verbatim message).
+LOGGER_TAIL_RESULT = {
+    "records": [
+        {
+            "seq": 0,
+            "level": "info",
+            "message": "known line",
+            "source": None,
+            "origin": None,
+            "fields": {},
+        },
+        {
+            "seq": 1,
+            "level": "error",
+            "message": "boom",
+            "source": {"function": "_ready", "file": "res://main.gd", "line": 9},
+            "origin": "engine",
+            "fields": {},
+        },
+        {
+            "seq": 2,
+            "level": "warning",
+            "message": "careful",
+            "source": {"function": "_process", "file": "res://main.gd", "line": 20},
+            "origin": "engine",
+            "fields": {},
+        },
+    ],
+}
+
+# ``--raw``: the same ``records`` shape, every line an unclassified ``info`` record
+# carrying its verbatim text (even an ``ERROR:`` header stays a plain info line).
+LOGGER_TAIL_RAW_RESULT = {
+    "records": [
+        {"seq": 0, "level": "info", "message": "known line",
+         "source": None, "origin": None, "fields": {}},
+        {"seq": 1, "level": "info", "message": "ERROR: boom",
+         "source": None, "origin": None, "fields": {}},
+        {"seq": 2, "level": "info", "message": "   at: _ready (res://main.gd:9)",
+         "source": None, "origin": None, "fields": {}},
+        {"seq": 3, "level": "info", "message": "another line",
+         "source": None, "origin": None, "fields": {}},
+    ],
 }
 
 # Sample ``gda perf monitors`` / ``gda perf monitor`` results — the running game's

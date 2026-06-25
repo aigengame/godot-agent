@@ -13,6 +13,21 @@ is unstructured. This ADR adds `gda logger`: a structured runtime-log channel an
 that backs it. It is in scope under ADR-0025 (read-only observability is in; interactive debugging
 is out) and deliberately does **not** tap Godot's remote-debug protocol.
 
+> **Amendment (2026-06-25, #281) — the read result is `LoggerTailResult { records: LogRecord[] }`,
+> the passive parse is whole-log lossless, and `--raw` returns info records.** Decision 3 wrote the
+> read contract as "→ `LogRecord[]`"; it is delivered as a single-field result object
+> `LoggerTailResult` whose `records` **is** that `LogRecord[]` — mirroring how `diag errors` delivers
+> `DiagError[]` as `DiagErrorsResult.errors` (the established wrapper convention; one output model
+> keeps the `--schema` projection well-defined). There is **no** second `lines` field. `--raw` returns
+> the **same** shape with every captured line as an unclassified `info` record carrying its verbatim
+> text (not a separate `{lines: str[]}` shape), so the channel is uniformly typed `LogRecord[]`.
+> Honouring decision 2's "the daemon parses the **whole** Session log … every other line as a plain
+> `info` record", the passive parse is **lossless**: an engine error/warning becomes a typed record
+> (its `at:` folded into `source`), and **every other line — including the `GDScript backtrace`
+> continuation lines after an error — becomes a plain `info` record** (a first implementation that
+> dropped those continuation lines was corrected). Errors thus still appear in both surfaces by
+> design: `logger tail` is the full stream; `diag errors` is the focused, callstack-enriched view.
+
 ## Decision
 
 **1. `LogRecord` — the structured unit.** One typed model (backing `--json` / `--schema`):
