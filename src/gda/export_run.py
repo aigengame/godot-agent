@@ -144,7 +144,7 @@ def run_export_operation(
     # invocation, not the raw --preset string, is keyed on it.
     binary = resolve_godot_binary(godot)
     export_runner = make_export_runner(binary, project)
-    # The dev-only harness must never reach the artifact (ADR-0018): an export
+    # The dev-only harness must never reach the artifact (ADR-0028): an export
     # cannot strip a project.godot autoload after the fact (it is serialized whole
     # into project.binary), so the only reliable guarantee is that the harness is
     # already gone before the native export reads the project. Paired-uninstall it

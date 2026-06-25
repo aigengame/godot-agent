@@ -66,26 +66,17 @@ so two instances can touch the project at once.
 > **asymmetric** — implicit install on `start`, explicit `uninstall` — not a symmetric
 > install/uninstall pair. Decision 1's wording is preserved as the point-in-time record.
 
-> **Outcome (2026-06-25) — a shipped build never carries the harness: `gda export run`
-> strips it, and the harness self-disables in any exported build.** The bottom line is
-> that a shipped build must carry zero daemon-related files/config and must not depend on
-> the developer remembering `gda daemon uninstall`. Engine research settled the mechanism:
-> an export **cannot** remove a `project.godot` autoload after the fact — `project.binary`
-> is serialized whole from `ProjectSettings` *after* every `EditorExportPlugin` hook, with
-> no hook to alter it (`editor/export/editor_export_platform.cpp` `save_custom`), and the
-> entry re-leaks through `override.cfg` (loaded via `set()` into the same `props` map that
-> `save_custom` writes), so the only reliable guarantee is that the autoload is gone
-> **before** the export reads the project. So **`gda export run` paired-strips the harness
-> transactionally** (uninstall → native export → reinstall in a `finally`): the gda export
-> path is harness-free and forget-proof, the dev project is left untouched, and a mid-export
-> crash leaves it harness-*absent* (safe). As **defense in depth** for export routes that
-> bypass gda (editor GUI, raw `godot --export`), the harness `_ready()` returns immediately
-> under `OS.has_feature("template")` — true only in an exported build, false on the editor
-> binary every session runs on — so a harness that *did* reach a shipped build is provably
-> inert. Coverage chosen: **gda export = physically clean; every other route = provably
-> inert** (files may physically remain there but never activate). Extending *physical*
-> cleanliness to non-gda routes would need an ephemeral install that reopens Decision 1's
-> "no per-launch mutation" and is deferred.
+> **Outcome (2026-06-25) — the export/teardown half of this lifecycle is decided in
+> ADR-0028.** A shipped build must carry zero daemon-related files/config without depending
+> on the developer remembering `gda daemon uninstall`. Because an export **cannot** strip a
+> `project.godot` autoload after the fact (it is serialized whole into `project.binary`), the
+> guarantee is achieved before the export, not during it: **`gda export run` paired-strips the
+> harness transactionally** (forget-proof, dev project untouched), and the harness
+> **self-disables in any exported build** via `OS.has_feature("template")` (defence in depth
+> for non-gda export routes). Coverage: gda export = physically clean; every other route =
+> provably inert. See **ADR-0028** for the full decision and the rejected alternatives
+> (`override.cfg` re-leak, file-only `exclude_filter`, feature-tagged autoload, ephemeral
+> install).
 >
 > **Correction to point 3's wording.** Point 3 says a dangling autoload (file excluded, entry
 > kept) "crashes the exported game at startup." On the current engine it is **not** a hard
