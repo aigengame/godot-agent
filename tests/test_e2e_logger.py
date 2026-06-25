@@ -167,3 +167,41 @@ def test_logger_tail_reads_back_structured_records_and_raw_lines(tmp_path, daemo
         assert any("known error" in r["message"] for r in again_records), again_records
     finally:
         run("daemon", "stop")
+
+
+# A main scene that calls gda_log() in a PLAIN run (no daemon). It prints a marker so
+# the test can confirm the game actually ran, then quits so the headless run returns.
+PLAIN_MAIN_GD = """\
+extends Node2D
+
+func _ready() -> void:
+	GdaHarness.gda_log("warning", "should-not-leak", {"k": 1})
+	print("PLAIN-RUN-RAN")
+	get_tree().quit()
+"""
+
+
+@pytest.mark.e2e
+def test_gda_log_is_inert_outside_a_daemon_launched_session(tmp_path):
+    # The harness boundary (CONTEXT.md, ADR-0018): the autoload is inert in a human
+    # editor run, a plain run, and a shipped build. So `gda_log()` MUST be a no-op
+    # when the engine was NOT launched by gda-daemon — it must never leak the
+    # `<<<GDA:LOG>>>` protocol sentinel into ordinary game output (PR #288 review).
+    # Run Godot DIRECTLY (no daemon, no LAUNCH_MARKER) on a project whose `_ready`
+    # calls GdaHarness.gda_log(...), and assert the sentinel is absent.
+    from gda.harness.install import install_harness
+
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "main.gd").write_text(PLAIN_MAIN_GD, encoding="utf-8")
+    install_harness(tmp_path)  # the GdaHarness autoload, exactly as a real project carries it
+
+    proc = subprocess.run(
+        [str(GODOT), "--headless", "--path", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    out = proc.stdout + proc.stderr
+    assert "PLAIN-RUN-RAN" in out, out  # the game actually ran its _ready
+    assert "<<<GDA:LOG>>>" not in out, out  # gda_log() was inert (no daemon) — no leak
