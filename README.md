@@ -137,7 +137,7 @@ one you just built, then start the daemon (macOS/Linux, Godot 4.6+):
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json
-gda daemon start             # start the daemon for $GDA_PROJECT (installs the harness)
+gda daemon start             # start the daemon for $GDA_PROJECT (installs the in-game harness)
 gda game tree --json         # the runtime scene tree, after _ready
 gda perf monitors --json     # live engine counters: fps, memory, node count
 gda daemon stop
@@ -438,7 +438,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 
 | Command | What it does |
 | ------- | ------------ |
-| `daemon start` | Start the per-project daemon and install the harness; the engine session launches on the first live op (`--windowed` for `screen` capture). |
+| `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches on the first live op (`--windowed` for `screen` capture). |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |
 | `daemon uninstall` | Remove the in-game `gda` harness (autoload entry + files) from the project — an explicit dev-tooling teardown; `gda export run` already strips it from exported artifacts automatically. |
