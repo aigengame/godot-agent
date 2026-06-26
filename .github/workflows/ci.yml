@@ -26,6 +26,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint and format (ruff)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          # The python job already populates the dependency cache for this key;
+          # this job only reads it, so skip a redundant (racing) cache save.
+          save-cache: false
+
+      - name: Lint
+        run: uv run --frozen ruff check .
+
+      - name: Check formatting
+        run: uv run --frozen ruff format --check .
+
   python:
     name: Python unit tests and package build
     runs-on: ubuntu-latest

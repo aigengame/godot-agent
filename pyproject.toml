@@ -57,6 +57,9 @@ dev = [
     # The MCP SDK is also a dev dependency (not just the `[mcp]` extra) so
     # `uv run pytest` has it for the gda-mcp fast/e2e tiers (ADR-0013).
     "mcp>=1.12,<2",
+    # Lint + format gate (CI `lint` job). Pinned so `ruff format` output stays
+    # stable across the team and CI; the exact version is locked in uv.lock.
+    "ruff>=0.15.19,<0.16",
 ]
 
 [tool.pytest.ini_options]
@@ -64,3 +67,18 @@ testpaths = ["tests"]
 markers = [
     "e2e: tests that spawn a real Godot process (requires a 4.4+ engine)",
 ]
+
+[tool.ruff]
+target-version = "py313"  # ruff's default line-length (88) already matches the codebase
+
+[tool.ruff.lint]
+# Ruff's default high-signal set, made explicit and pinned against version drift.
+# Deliberately NOT full "E": E1/E2/E3/E5 are whitespace/line-length rules the
+# formatter owns — enabling them would conflict with `ruff format`.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer attaches same-named subcommands (create/get/...) to different sub-apps,
+# so reusing the function name is intentional; F811 "redefinition" is a false
+# positive for that idiom (the descriptor-driven command surface, ADR-0023).
+"src/gda/cli.py" = ["F811"]
