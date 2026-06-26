@@ -31,6 +31,7 @@ import os
 import subprocess
 import sys
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -322,3 +323,51 @@ def test_export_run_without_templates_yields_export_templates_missing(
     assert err["category"] == "operation"
     # Fail-fast preflight: no native export ran, so nothing was written.
     assert not (godot_project / "build").exists(), "no artifact when preflight fails"
+
+
+def _host_templates_on_disk() -> bool:
+    """Whether the running platform's export templates are PHYSICALLY present in the
+    engine's real user data dir — computed INDEPENDENTLY of gda's own path logic (the
+    code #304 fixed), by globbing for a platform template file under ANY version dir.
+    A detection regression (Linux ``godot`` vs ``Godot`` case, or a ``.0`` version-dir
+    name) shows up as disagreement between this and ``gda export get``.
+    """
+    home = Path(os.path.expanduser("~"))
+    if sys.platform == "darwin":
+        root = home / "Library" / "Application Support" / "Godot" / "export_templates"
+        return any(root.glob("*/macos.zip"))
+    if sys.platform.startswith("linux"):
+        data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
+        root = data / "godot" / "export_templates"
+        return any(root.glob("*/linux_release.x86_64")) or any(
+            root.glob("*/linux_debug.x86_64")
+        )
+    return False
+
+
+@pytest.mark.e2e
+def test_templates_installed_is_true_when_host_templates_are_on_disk(godot_project):
+    # #304 acceptance, as a HARD assertion: wherever the host's export templates are
+    # physically installed (the CI install-godot step, or a dev who installed them),
+    # `gda export get` MUST report templates_installed=true. This converts a
+    # template-path detection regression — the Linux user-dir case or the .0
+    # version-dir name — from a SILENT skip of the #301 proof into a RED failure (the
+    # very gap that hid the original #304 bug). It skips only where templates are
+    # genuinely absent (a dev box without them); CI always has them.
+    if not _host_templates_on_disk():
+        pytest.skip(
+            "no host export templates on disk (a dev box without them); the CI "
+            "install-godot step provides them, where this assertion guards the "
+            "template-installed path"
+        )
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+
+    # templates_installed is preset-independent (it only checks the version dir
+    # exists), so any real preset works; the on-disk check above is the source of truth.
+    assert templates_installed(gda) is True, (
+        "host export templates are present on disk but `gda export get` reports "
+        "templates_installed=false — the template-path detection regressed (#304)"
+    )
