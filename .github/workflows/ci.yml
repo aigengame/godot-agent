@@ -13,7 +13,10 @@ on:
         default: false
         type: boolean
   schedule:
-    - cron: "24 3 * * 1"
+    # Nightly (03:24 UTC) — the automatic, dependable trigger for the godot-e2e job
+    # (workflow_dispatch with run-e2e is the on-demand extra). Daily so a regression in
+    # the real-engine tier is caught within a day rather than up to a week.
+    - cron: "24 3 * * *"
 
 permissions:
   contents: read
