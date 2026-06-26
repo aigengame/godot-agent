@@ -67,5 +67,18 @@ jobs:
       - name: Install Godot
         uses: ./.github/actions/install-godot
 
+      - name: DIAGNOSTIC (temporary)
+        run: |
+          echo "=== export_templates tree ==="
+          ls -la ~/.local/share/godot/export_templates/ || true
+          for f in ~/.local/share/godot/export_templates/*/version.txt; do echo "$f -> $(cat "$f")"; done || true
+          echo "=== engine version ==="
+          "${GDA_GODOT}" --headless --version || true
+          echo "=== gda export get (Linux/X11) ==="
+          mkdir -p /tmp/diagproj
+          printf 'config_version=5\n\n[application]\n\nconfig/name="diag"\n' > /tmp/diagproj/project.godot
+          printf '[preset.0]\n\nname="Linux/X11"\nplatform="Linux/X11"\nrunnable=true\nexport_path="build/g.x86_64"\n\n[preset.0.options]\n\nbinary_format/embed_pck=false\n' > /tmp/diagproj/export_presets.cfg
+          uv run --frozen python -m gda export get --preset Linux/X11 --project /tmp/diagproj --godot "${GDA_GODOT}" --json || true
+
       - name: Run Godot e2e tests
-        run: uv run --frozen pytest -m e2e
+        run: uv run --frozen pytest -m e2e -rs
