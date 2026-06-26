@@ -1962,6 +1962,10 @@ func _export_preset_summary(config: ConfigFile, section: String, index: int) -> 
 # is 0 — exactly as Engine.get_version_info()'s version string does (engine.cpp) and
 # as the official export-template archives are named — so a .0 release resolves to
 # "<major>.<minor>.<status>", not "<major>.<minor>.0.<status>".
+# Known limitation (#304): a NON-standard build appends a module/precision suffix to
+# the real dir name (FULL_CONFIG — e.g. "4.6.stable.mono" for a C# build, "...double"
+# for double precision), which Engine.get_version_info() exposes no field to
+# reconstruct. gda targets STANDARD official builds, where that suffix is empty.
 func _export_templates_version_dir() -> String:
 	var v := Engine.get_version_info()
 	var dir := "%d.%d" % [v.major, v.minor]
