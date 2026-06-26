@@ -609,7 +609,8 @@ Linting and formatting are enforced by [ruff](https://docs.astral.sh/ruff/) — 
 place of flake8 + black + isort, configured under `[tool.ruff]` in `pyproject.toml` and
 pinned via `uv.lock` so local and CI agree. CI's `lint` job runs `ruff check .` and
 `ruff format --check .` on every PR; run `uv run ruff format .` before committing to stay
-green.
+green. The rationale (ruff-only, CI-only, rule set, the Typer `F811` exemption) is
+[ADR-0029](docs/adr/0029-lint-and-format-gate.md).
 
 ```
 src/gda/
