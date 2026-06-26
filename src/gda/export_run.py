@@ -34,6 +34,7 @@ root) beside that recipe, where it is the command's single fully-bound descripto
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -45,7 +46,7 @@ from gda.errors import (
     export_templates_missing_failure,
 )
 from gda.export_runner import ExportRunner, make_subprocess_export_runner
-from gda.harness.install import install_harness, uninstall_harness
+from gda.harness.install import HARNESS_FILE, HARNESS_RES_DIR, uninstall_harness
 from gda.headless import HeadlessCommand, RunnerFactory, make_subprocess_runner
 from gda.models import (
     ExportGetParams,
@@ -59,6 +60,54 @@ from gda.render import render_export_get
 # the sentinel channel's ``RunnerFactory``. Spelled here (not in ``headless``)
 # because only the export recipe spawns a native ``--export-<mode>`` process.
 ExportRunnerFactory = Callable[[Path, Optional[Path]], ExportRunner]
+
+
+@dataclass(frozen=True)
+class _HarnessSnapshot:
+    """The EXACT pre-export state of the two files the export strip touches.
+
+    Restoring from this snapshot leaves the dev project byte-identical (ADR-0028's
+    "untouched" guarantee) — unlike a fresh ``install_harness``, which would
+    canonicalize a noncanonical autoload, rewrite a stale harness body to the
+    current version, or ADD a ``GdaHarness`` autoload for a stray harness file that
+    had none. Captured before the strip; replayed in the ``finally`` after the
+    native export.
+    """
+
+    project_godot: Path
+    project_godot_bytes: Optional[bytes]
+    harness_file: Path
+    harness_file_bytes: Optional[bytes]
+
+    @classmethod
+    def capture(cls, project: Path) -> "_HarnessSnapshot":
+        project_godot = project / "project.godot"
+        harness_file = project / HARNESS_RES_DIR / HARNESS_FILE
+        return cls(
+            project_godot,
+            project_godot.read_bytes() if project_godot.exists() else None,
+            harness_file,
+            harness_file.read_bytes() if harness_file.exists() else None,
+        )
+
+    def restore(self) -> None:
+        """Put both files back to their captured bytes, writing only when changed.
+
+        A file absent at capture is left absent (the strip removed it); otherwise its
+        exact bytes are rewritten, but only if the current on-disk state differs — so
+        the common no-harness export touches nothing (no spurious ``project.godot``
+        mtime bump against a concurrent editor, ADR-0018).
+        """
+        for path, before in (
+            (self.project_godot, self.project_godot_bytes),
+            (self.harness_file, self.harness_file_bytes),
+        ):
+            if before is None:
+                path.unlink(missing_ok=True)
+            elif not path.exists() or path.read_bytes() != before:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(before)
+
 
 EXPORT_GET_COMMAND: HeadlessCommand[ExportGetResult] = HeadlessCommand(
     operation="export-get",
@@ -147,19 +196,23 @@ def run_export_operation(
     # The dev-only harness must never reach the artifact (ADR-0028): an export
     # cannot strip a project.godot autoload after the fact (it is serialized whole
     # into project.binary), so the only reliable guarantee is that the harness is
-    # already gone before the native export reads the project. Paired-uninstall it
-    # first (autoload entry + files, crash-safe ordering) and restore it after, so
-    # the gda export path is harness-free yet the dev project is left untouched.
-    # This is forget-proof: it needs no `gda daemon uninstall` step. A no-op when no
-    # harness is installed; if gda dies mid-export the project is left harness-ABSENT
-    # (the safe direction — no dangling autoload), and the next `daemon start`
-    # reinstalls it.
-    strip = uninstall_harness(project) if project is not None else None
+    # already gone before the native export reads the project. SNAPSHOT the exact
+    # pre-export state, paired-uninstall the harness (autoload entry + files,
+    # crash-safe ordering) so the export sees a clean project, then restore the
+    # snapshot — byte-for-byte, NOT a fresh install (which would add/canonicalize an
+    # autoload or rewrite stale bytes, mutating a project that was not cleanly
+    # installed). The dev project is thus left byte-identical and the step is
+    # forget-proof (no `gda daemon uninstall` needed). A no-op when no harness is
+    # present; if gda dies mid-export the project is left harness-ABSENT (the safe
+    # direction — no dangling autoload), and the next `daemon start` reinstalls it.
+    snapshot = _HarnessSnapshot.capture(project) if project is not None else None
+    if snapshot is not None:
+        uninstall_harness(project)
     try:
         export_output = export_runner.run(got.name, mode.value, output_path)
     finally:
-        if strip is not None and strip.removed:
-            install_harness(project)
+        if snapshot is not None:
+            snapshot.restore()
     return classify_export_run(
         export_output,
         binary,

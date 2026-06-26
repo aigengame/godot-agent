@@ -29,6 +29,7 @@ path) run unconditionally.
 import json
 import shutil
 import subprocess
+import zipfile
 
 import pytest
 
@@ -260,14 +261,19 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
 
     assert run.returncode == 0, run.stdout + run.stderr
     assert artifact.exists(), f"expected .zip at the override path {artifact}"
-    # The artifact must NOT contain the harness script.
-    listing = subprocess.run(
-        ["unzip", "-l", str(artifact)], capture_output=True, text=True
-    )
-    assert listing.returncode == 0, listing.stdout + listing.stderr
-    assert HARNESS_FILE not in listing.stdout, (
-        "the exported archive still carries the harness:\n" + listing.stdout
-    )
+    with zipfile.ZipFile(artifact) as zf:
+        names = zf.namelist()
+        # (a) The harness SCRIPT is absent from the archive.
+        assert not any(HARNESS_FILE in n for n in names), (
+            "the exported archive still carries the harness script:\n" + "\n".join(names)
+        )
+        # (b) The packed project settings declare NO GdaHarness autoload — the
+        # specific Godot risk (project.binary serializes ProjectSettings wholesale,
+        # ADR-0028), so checking the file's absence alone is not enough.
+        binary_entry = next(n for n in names if n.endswith("project.binary"))
+        assert HARNESS_AUTOLOAD_NAME.encode() not in zf.read(binary_entry), (
+            "packed project.binary still declares the GdaHarness autoload"
+        )
     # The dev project is left UNTOUCHED: harness restored on disk and in config.
     assert harness_file.exists(), "the harness file must be restored after export"
     assert HARNESS_AUTOLOAD_NAME in project_godot.read_text(encoding="utf-8")

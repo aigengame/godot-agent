@@ -240,11 +240,15 @@ def _run_export_in(project: Path, export_runner) -> object:
     )
 
 
-def test_export_strips_harness_during_run_then_restores(tmp_path):
+def test_export_strips_harness_during_run_then_restores_byte_identical(tmp_path):
     # The harness is ABSENT on disk while the native export builds the artifact, and
-    # RESTORED afterward — so it never reaches the build, but the dev project is left
-    # exactly as it was.
+    # the dev project is restored BYTE-IDENTICAL afterward (ADR-0028) — not merely
+    # "an autoload named GdaHarness exists", but the exact prior project.godot and
+    # harness bytes.
     harness = _project_with_harness(tmp_path)
+    project_godot = tmp_path / "project.godot"
+    godot_before = project_godot.read_bytes()
+    harness_before = harness.read_bytes()
     seen = {}
 
     class _AssertingRunner:
@@ -261,9 +265,9 @@ def test_export_strips_harness_during_run_then_restores(tmp_path):
 
     assert isinstance(outcome, ExportRunResult)
     assert seen["harness_present_during_export"] is False  # stripped for the export
-    assert harness.exists()  # restored after
-    # The restore is the FULL paired install: the autoload entry is back too.
-    assert "GdaHarness" in (tmp_path / "project.godot").read_text(encoding="utf-8")
+    # Byte-identical restore of BOTH files — the dev project is untouched.
+    assert project_godot.read_bytes() == godot_before
+    assert harness.read_bytes() == harness_before
 
 
 def test_export_restores_harness_even_when_native_run_raises(tmp_path):
@@ -299,6 +303,50 @@ def test_export_is_a_noop_when_no_harness_installed(tmp_path):
     assert not (tmp_path / "addons" / "gda_harness").exists()
     assert "GdaHarness" not in (tmp_path / "project.godot").read_text(encoding="utf-8")
     assert export_runner.calls == [("Linux/X11", "pack", "build/game.zip")]
+
+
+def test_export_restores_a_stale_harness_body_unchanged_not_a_fresh_install(tmp_path):
+    # ADR-0028 "byte-identical": a STALE installed harness (older version/body) must
+    # be restored exactly as it was — NOT re-materialized to the current
+    # HARNESS_VERSION. A fresh install_harness would rewrite it; the snapshot restore
+    # preserves the prior bytes.
+    harness = _project_with_harness(tmp_path)
+    stale = b"# gda-harness-version: stale-old\nextends Node\n# old body\n"
+    harness.write_bytes(stale)
+    godot_before = (tmp_path / "project.godot").read_bytes()
+
+    outcome = _run_export_in(
+        tmp_path, FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+    )
+
+    assert isinstance(outcome, ExportRunResult)
+    assert harness.read_bytes() == stale  # not bumped to the current version
+    assert (tmp_path / "project.godot").read_bytes() == godot_before
+
+
+def test_export_does_not_add_autoload_for_a_stray_harness_file(tmp_path):
+    # The reviewer's repro: a project with ONLY a stray harness file and NO
+    # [autoload] entry must come out of export with NO autoload added. The strip
+    # removes the stray file (so it cannot ship); the byte-exact restore puts the
+    # stray file back WITHOUT synthesizing an autoload the project never had.
+    (tmp_path / "project.godot").write_text(
+        'config_version=5\n\n[application]\n', encoding="utf-8"
+    )
+    stray = tmp_path / "addons" / "gda_harness" / "gda_harness.gd"
+    stray.parent.mkdir(parents=True, exist_ok=True)
+    stray.write_bytes(b"extends Node\n# stray, no autoload entry\n")
+    godot_before = (tmp_path / "project.godot").read_bytes()
+
+    outcome = _run_export_in(
+        tmp_path, FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+    )
+
+    assert isinstance(outcome, ExportRunResult)
+    # No autoload synthesized — project.godot is byte-identical to before.
+    assert (tmp_path / "project.godot").read_bytes() == godot_before
+    assert "GdaHarness" not in (tmp_path / "project.godot").read_text(encoding="utf-8")
+    # The stray file is restored (the project is left exactly as found).
+    assert stray.read_bytes() == b"extends Node\n# stray, no autoload entry\n"
 
 
 def test_native_nonzero_exit_returns_export_failed():
