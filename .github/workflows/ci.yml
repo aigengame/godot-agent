@@ -61,6 +61,9 @@ jobs:
         with:
           save-cache: false
 
+      # install-godot also installs the matching export templates, so this job can
+      # run the #301 template-gate behavioural proof (it exports a real template
+      # binary). Every other e2e needs only the editor binary.
       - name: Install Godot
         uses: ./.github/actions/install-godot
 
