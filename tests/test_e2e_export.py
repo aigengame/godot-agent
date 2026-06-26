@@ -55,9 +55,10 @@ export_path=""
 html/export_icon=true
 """
 
-# The export-templates version-directory pattern: major.minor.patch.status,
-# e.g. 4.6.3.stable — what export get reports as templates_version.
-VERSION_DIR = re.compile(r"^\d+\.\d+\.\d+\.[a-z0-9]+$")
+# The export-templates version-directory pattern: major.minor[.patch].status,
+# e.g. "4.6.3.stable" or "4.6.stable" — the patch is omitted for a .0 release, as
+# Godot names the dir. What export get reports as templates_version.
+VERSION_DIR = re.compile(r"^\d+\.\d+(?:\.\d+)?\.[a-z0-9]+$")
 
 
 def _gda_project(project) -> "callable":
@@ -168,7 +169,7 @@ def test_export_get_reports_preset_details_and_template_status(godot_project):
     assert data["runnable"] is False
     assert data["export_path"] == ""
     # Template readiness: a bool verdict plus the version dir it checked, matching
-    # the running engine's major.minor.patch.status.
+    # the running engine's major.minor[.patch].status (patch omitted for a .0 release).
     assert isinstance(data["templates_installed"], bool)
     assert VERSION_DIR.match(data["templates_version"]), data["templates_version"]
 
