@@ -65,7 +65,9 @@ def test_launch_timeout_maps_to_environment_error_distinct_from_not_found(monkey
     assert "timed out" in result.stderr
 
 
-def test_operation_failure_maps_to_operation_error_distinct_from_environment(monkeypatch):
+def test_operation_failure_maps_to_operation_error_distinct_from_environment(
+    monkeypatch,
+):
     # The engine launched and ran but the GDScript operation reported an error
     # and quit non-zero (no synthetic 124/127, no result sentinel). This is an
     # operation failure, distinct from the environment-error case.
@@ -87,7 +89,9 @@ def test_operation_failure_maps_to_operation_error_distinct_from_environment(mon
     assert "unknown operation" in result.stderr
 
 
-def test_engine_signal_crash_maps_to_operation_error_distinct_from_clean_exit(monkeypatch):
+def test_engine_signal_crash_maps_to_operation_error_distinct_from_clean_exit(
+    monkeypatch,
+):
     # subprocess reports a signal death as a NEGATIVE return code. The engine
     # ran but was killed (e.g. SIGSEGV) — surfaced as an engine_crashed code,
     # distinct from a clean non-zero operation exit, never a raw negative code.
@@ -168,7 +172,9 @@ def _version_payload(major: int, minor: int) -> str:
     )
 
 
-def test_version_below_minimum_maps_to_version_error_distinct_from_environment(monkeypatch):
+def test_version_below_minimum_maps_to_version_error_distinct_from_environment(
+    monkeypatch,
+):
     # The engine launched and reported its version successfully, but it is below
     # the minimum supported version of 4.4 (ADR-0003). This is a version error,
     # distinct from the environment-error case.

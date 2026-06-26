@@ -64,7 +64,16 @@ def test_scene_create_via_params_json_stdin_creates_the_scene(godot_project):
     params = json.dumps({"path": str(scene_path), "root_type": "Node2D"})
 
     created = subprocess.run(
-        [*GDA_CMD, "scene", "create", "--params-json", "-", "--json", "--godot", str(GODOT)],
+        [
+            *GDA_CMD,
+            "scene",
+            "create",
+            "--params-json",
+            "-",
+            "--json",
+            "--godot",
+            str(GODOT),
+        ],
         input=params,
         capture_output=True,
         text=True,

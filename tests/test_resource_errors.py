@@ -148,9 +148,7 @@ def _invoke_resource_delete(monkeypatch, code: str, message: str):
             exit_code=1,
         ),
     )
-    return CliRunner().invoke(
-        app, ["resource", "delete", "/x/palette.tres", "--json"]
-    )
+    return CliRunner().invoke(app, ["resource", "delete", "/x/palette.tres", "--json"])
 
 
 def test_resource_set_unknown_property_yields_unknown_property(monkeypatch):

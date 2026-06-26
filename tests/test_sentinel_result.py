@@ -30,7 +30,12 @@ def test_build_result_wraps_payload_in_the_sentinel_with_trailing_newline():
 
 def test_build_result_round_trips_through_parse_result():
     # The write side is the exact inverse of the read side.
-    for payload in ({}, {"a": 1}, {"error": {"code": "x", "message": "m"}}, {"l": [1, 2]}):
+    for payload in (
+        {},
+        {"a": 1},
+        {"error": {"code": "x", "message": "m"}},
+        {"l": [1, 2]},
+    ):
         assert parse_result(build_result(payload)) == payload
 
 
@@ -60,10 +65,17 @@ def test_the_exit_invariant_is_owned_by_the_builders_not_the_caller():
 def test_error_reply_is_a_live_error_envelope_at_exit_live():
     # The single builder the daemon and the live client both synthesize from; the
     # envelope is sentinel-wrapped and carries the live exit code.
-    reply = error_reply("engine_disconnected", "the engine session dropped the connection")
+    reply = error_reply(
+        "engine_disconnected", "the engine session dropped the connection"
+    )
     assert reply == {
         "stdout": build_result(
-            {"error": {"code": "engine_disconnected", "message": "the engine session dropped the connection"}}
+            {
+                "error": {
+                    "code": "engine_disconnected",
+                    "message": "the engine session dropped the connection",
+                }
+            }
         ),
         "stderr": "",
         "exit_code": EXIT_LIVE,

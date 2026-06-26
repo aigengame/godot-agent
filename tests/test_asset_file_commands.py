@@ -36,7 +36,14 @@ def test_shader_create_json_maps_success_to_json_object_and_exit_zero(monkeypatc
 
     result = CliRunner().invoke(
         app,
-        ["shader", "create", "/tmp/proj/wave.gdshader", "--shader-type", "canvas_item", "--json"],
+        [
+            "shader",
+            "create",
+            "/tmp/proj/wave.gdshader",
+            "--shader-type",
+            "canvas_item",
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0
@@ -62,10 +69,13 @@ def test_shader_create_default_template_passes_null_content_and_type(monkeypatch
     # The bare template: no --content, no --shader-type. Both pass through as
     # null, so the operation writes its default canvas_item template.
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SHADER_CREATE_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SHADER_CREATE_RESULT), stderr="", exit_code=0),
     )
 
-    result = CliRunner().invoke(app, ["shader", "create", "/tmp/proj/wave.gdshader", "--json"])
+    result = CliRunner().invoke(
+        app, ["shader", "create", "/tmp/proj/wave.gdshader", "--json"]
+    )
 
     assert result.exit_code == 0
     assert fake.calls == [
@@ -81,7 +91,11 @@ def test_shader_create_content_passes_verbatim_source(monkeypatch):
         monkeypatch,
         RunResult(
             stdout=sentinel(
-                {"path": "/tmp/proj/x.gdshader", "shader_type": "spatial", "created_dirs": []}
+                {
+                    "path": "/tmp/proj/x.gdshader",
+                    "shader_type": "spatial",
+                    "created_dirs": [],
+                }
             ),
             stderr="",
             exit_code=0,
@@ -117,7 +131,8 @@ def test_shader_create_content_and_type_are_mutually_exclusive(monkeypatch):
     # Verbatim content is not templated, so a shader_type has nowhere to go;
     # supplying both is a usage error (exit 2), never a silent precedence rule.
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SHADER_CREATE_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SHADER_CREATE_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
@@ -148,7 +163,9 @@ def test_shader_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch):
     stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(SHADER_GET_RESULT)
     fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
 
-    result = CliRunner().invoke(app, ["shader", "get", "/tmp/proj/wave.gdshader", "--json"])
+    result = CliRunner().invoke(
+        app, ["shader", "get", "/tmp/proj/wave.gdshader", "--json"]
+    )
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
@@ -165,7 +182,8 @@ def test_shader_set_search_replace_dispatches_search_and_replace(monkeypatch):
     # pass as null. The CLI resolves the edit mode once and stamps the explicit
     # `mode` discriminator (issue #133) — the SAME ScriptSetMode as script set.
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
@@ -201,7 +219,8 @@ def test_shader_set_search_replace_dispatches_search_and_replace(monkeypatch):
 
 def test_shader_set_line_range_dispatches_start_end_and_content(monkeypatch):
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
@@ -239,12 +258,20 @@ def test_shader_set_line_range_dispatches_start_end_and_content(monkeypatch):
 
 def test_shader_set_full_overwrite_dispatches_content_only(monkeypatch):
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
         app,
-        ["shader", "set", "/tmp/proj/wave.gdshader", "--content", "shader_type spatial;\n", "--json"],
+        [
+            "shader",
+            "set",
+            "/tmp/proj/wave.gdshader",
+            "--content",
+            "shader_type spatial;\n",
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0
@@ -273,17 +300,21 @@ def _assert_set_usage_error(fake, result):
 
 def test_shader_set_no_flags_is_a_usage_error(monkeypatch):
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0),
     )
 
-    result = CliRunner().invoke(app, ["shader", "set", "/tmp/proj/wave.gdshader", "--json"])
+    result = CliRunner().invoke(
+        app, ["shader", "set", "/tmp/proj/wave.gdshader", "--json"]
+    )
 
     _assert_set_usage_error(fake, result)
 
 
 def test_shader_set_search_without_replace_is_a_usage_error(monkeypatch):
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
@@ -295,7 +326,8 @@ def test_shader_set_search_without_replace_is_a_usage_error(monkeypatch):
 
 def test_shader_set_search_replace_and_content_are_mutually_exclusive(monkeypatch):
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
@@ -341,18 +373,23 @@ def test_theme_create_json_maps_success_to_json_object_and_exit_zero(monkeypatch
 
 def test_shader_create_human_output(monkeypatch):
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SHADER_CREATE_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SHADER_CREATE_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(app, ["shader", "create", "/tmp/proj/wave.gdshader"])
 
     assert result.exit_code == 0
-    assert result.stdout.strip() == "created /tmp/proj/wave.gdshader (shader_type canvas_item)"
+    assert (
+        result.stdout.strip()
+        == "created /tmp/proj/wave.gdshader (shader_type canvas_item)"
+    )
 
 
 def test_shader_get_human_output_renders_metadata_then_source(monkeypatch):
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SHADER_GET_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SHADER_GET_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(app, ["shader", "get", "/tmp/proj/wave.gdshader"])
@@ -364,7 +401,8 @@ def test_shader_get_human_output_renders_metadata_then_source(monkeypatch):
 
 def test_shader_set_human_output_renders_metadata(monkeypatch):
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SHADER_SET_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
@@ -377,7 +415,8 @@ def test_shader_set_human_output_renders_metadata(monkeypatch):
 
 def test_theme_create_human_output(monkeypatch):
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(THEME_CREATE_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(THEME_CREATE_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(app, ["theme", "create", "/tmp/proj/ui.tres"])

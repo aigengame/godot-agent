@@ -185,9 +185,7 @@ def test_find_references_to_the_main_scene_includes_the_project_level_reference(
     assert proc.returncode == 0, proc.stdout + proc.stderr
     refs = json.loads(proc.stdout)["references"]
     # The main scene is referenced by project.godot's run/main_scene, not a file.
-    assert any(
-        r["path"] == "project.godot" and r["kind"] == "main_scene" for r in refs
-    )
+    assert any(r["path"] == "project.godot" and r["kind"] == "main_scene" for r in refs)
 
 
 @pytest.mark.e2e
@@ -204,9 +202,7 @@ def test_find_references_to_an_unreferenced_resource_is_empty(refgraph_project):
 def test_find_unused_resources_reports_the_orphan_and_is_consistent_with_find_references(
     refgraph_project,
 ):
-    proc = _gda(
-        refgraph_project, "project", "find-unused-resources", "--json"
-    )
+    proc = _gda(refgraph_project, "project", "find-unused-resources", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     unused = json.loads(proc.stdout)["unused"]
@@ -223,9 +219,7 @@ def test_find_unused_resources_reports_the_orphan_and_is_consistent_with_find_re
     # find-references for it returns empty, and a referenced one returns non-empty.
     for path in unused:
         refs = json.loads(
-            _gda(
-                refgraph_project, "project", "find-references", path, "--json"
-            ).stdout
+            _gda(refgraph_project, "project", "find-references", path, "--json").stdout
         )["references"]
         assert refs == [], f"{path} reported unused but has references {refs}"
 
@@ -248,7 +242,9 @@ def test_statistics_reports_counts_autoloads_and_plugins(refgraph_project):
     assert data["total_files"] >= 8
     assert data["total_lines"] > 0
     assert data["scene_count"] == 2  # main.tscn, hero.tscn
-    assert data["script_count"] >= 3  # main.gd, util.gd, game_state.gd (+ plugin.gd? no)
+    assert (
+        data["script_count"] >= 3
+    )  # main.gd, util.gd, game_state.gd (+ plugin.gd? no)
     by_ext = {e["extension"]: e for e in data["by_extension"]}
     assert by_ext["gd"]["files"] >= 3
     assert by_ext["gd"]["lines"] > 0
@@ -353,9 +349,7 @@ def test_find_references_to_a_class_name_excludes_its_own_declaration(
     # `var x: Hero` annotation, Hero.new()) but NEVER hero.gd's own
     # `class_name Hero` declaration line — that is the definition site, not a
     # reference (issue #116 review: false positive).
-    proc = _gda(
-        classname_project, "project", "find-references", "Hero", "--json"
-    )
+    proc = _gda(classname_project, "project", "find-references", "Hero", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     data = json.loads(proc.stdout)
@@ -381,9 +375,7 @@ def test_find_references_to_a_class_name_excludes_its_own_declaration(
 def test_find_references_to_an_unreferenced_class_name_is_empty(classname_project):
     # A class declared via class_name that NOTHING consumes returns an empty
     # reference set — its own declaration line must not count as a reference.
-    proc = _gda(
-        classname_project, "project", "find-references", "Lonely", "--json"
-    )
+    proc = _gda(classname_project, "project", "find-references", "Lonely", "--json")
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert json.loads(proc.stdout)["references"] == []

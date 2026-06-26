@@ -31,7 +31,11 @@ def test_params_carry_the_single_target_argument():
 
 def test_result_validates_a_uid_to_path_payload():
     # The uid->path direction: the sentinel payload the operation emits.
-    payload = {"queried": "uid", "uid": "uid://caax1gby1api1", "path": "res://data.tres"}
+    payload = {
+        "queried": "uid",
+        "uid": "uid://caax1gby1api1",
+        "path": "res://data.tres",
+    }
 
     result = ResourceUidResult.model_validate(payload)
 
@@ -42,7 +46,11 @@ def test_result_validates_a_uid_to_path_payload():
 
 def test_result_validates_a_path_to_uid_payload():
     # The path->uid direction shares the same shape; only `queried` differs.
-    payload = {"queried": "path", "uid": "uid://caax1gby1api1", "path": "res://data.tres"}
+    payload = {
+        "queried": "path",
+        "uid": "uid://caax1gby1api1",
+        "path": "res://data.tres",
+    }
 
     result = ResourceUidResult.model_validate(payload)
 

@@ -107,7 +107,9 @@ def _deep_chain(model, depth, **leaf_fields):
     # bypasses pydantic's recursive validation (issue #37): the point is to
     # exercise the RENDER path's recursion in isolation, at a depth past the
     # ~255 pydantic-core ceiling a legitimately deep scene can reach.
-    root = leaf = model.model_construct(name="n0", type="Node", children=[], **leaf_fields)
+    root = leaf = model.model_construct(
+        name="n0", type="Node", children=[], **leaf_fields
+    )
     for i in range(1, depth):
         child = model.model_construct(
             name=f"n{i}", type="Node", children=[], **leaf_fields
@@ -182,7 +184,10 @@ def test_render_game_set_renders_the_set_runtime_property():
         type="Vector2",
         value=[10.0, 20.0],
     )
-    assert render_game_set(result) == "set /root/Main/Player.position (Vector2) = [10.0, 20.0]"
+    assert (
+        render_game_set(result)
+        == "set /root/Main/Player.position (Vector2) = [10.0, 20.0]"
+    )
 
 
 def test_render_perf_monitors_renders_a_sorted_snapshot():
@@ -194,7 +199,9 @@ def test_render_perf_monitors_renders_a_sorted_snapshot():
         },
     )
     # Monitors are listed in a stable (name-sorted) order under the timestamp header.
-    assert render_perf_monitors(result) == "perf @ 500ms\n  fps = 60.0\n  node_count = 3.0"
+    assert (
+        render_perf_monitors(result) == "perf @ 500ms\n  fps = 60.0\n  node_count = 3.0"
+    )
 
 
 def test_render_perf_monitor_property_renders_a_per_frame_timeline():
@@ -239,11 +246,17 @@ def test_render_daemon_start_surfaces_a_version_sync(tmp_path):
         harness_version="3",
         already_running=False,
     )
-    assert render_daemon_start(synced) == "daemon started: pid 42 on /tmp/x.sock (synced harness to v3)"
+    assert (
+        render_daemon_start(synced)
+        == "daemon started: pid 42 on /tmp/x.sock (synced harness to v3)"
+    )
 
     # A first install (changed but not a version-mismatch resync) reads as install.
     installed = synced.model_copy(update={"harness_synced": False})
-    assert render_daemon_start(installed) == "daemon started: pid 42 on /tmp/x.sock (installed harness)"
+    assert (
+        render_daemon_start(installed)
+        == "daemon started: pid 42 on /tmp/x.sock (installed harness)"
+    )
 
 
 def test_render_daemon_status_notes_the_windowed_session(tmp_path):
@@ -252,7 +265,10 @@ def test_render_daemon_status_notes_the_windowed_session(tmp_path):
     windowed = DaemonStatusResult(
         running=True, pid=42, socket_path="/tmp/x.sock", windowed=True
     )
-    assert render_daemon_status(windowed) == "daemon running: pid 42 on /tmp/x.sock [windowed]"
+    assert (
+        render_daemon_status(windowed)
+        == "daemon running: pid 42 on /tmp/x.sock [windowed]"
+    )
 
     headless = windowed.model_copy(update={"windowed": False})
     assert render_daemon_status(headless) == "daemon running: pid 42 on /tmp/x.sock"
@@ -267,8 +283,14 @@ def test_render_daemon_status_notes_the_windowed_session(tmp_path):
 
 def test_render_daemon_uninstall_reports_removal(tmp_path):
     # #225: uninstall renders the paired removal, with the idempotent no-op form.
-    assert render_daemon_uninstall(DaemonUninstallResult(removed=True)) == "harness uninstalled"
-    assert render_daemon_uninstall(DaemonUninstallResult(removed=False)) == "no harness was installed"
+    assert (
+        render_daemon_uninstall(DaemonUninstallResult(removed=True))
+        == "harness uninstalled"
+    )
+    assert (
+        render_daemon_uninstall(DaemonUninstallResult(removed=False))
+        == "no harness was installed"
+    )
 
 
 def test_render_engine_version_renders_the_one_line_version_string():
@@ -319,7 +341,9 @@ def test_render_diag_errors_shows_the_callstack_frames_under_the_error():
     assert "_ready (res://main.gd:3)" in rendered
     # Frames render below the headline, in order.
     assert rendered.index("b (res://main.gd:9)") < rendered.index("a (res://main.gd:6)")
-    assert rendered.index("a (res://main.gd:6)") < rendered.index("_ready (res://main.gd:3)")
+    assert rendered.index("a (res://main.gd:6)") < rendered.index(
+        "_ready (res://main.gd:3)"
+    )
 
 
 def test_render_diag_errors_omits_a_callstack_block_for_a_bare_error():

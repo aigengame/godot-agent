@@ -596,11 +596,20 @@ uv sync                       # set up the environment
 uv run pytest                 # run the full suite (includes e2e tests against a real Godot)
 uv run pytest -m "not e2e"    # unit tests only (no Godot binary required)
 uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on this machine)
+
+uv run ruff check .           # lint
+uv run ruff format .          # auto-format (append --check to verify without writing)
 ```
 
 The `e2e` tier runs by default with `uv run pytest`, and **fails loudly** — naming the
 resolved path and how to fix it — if no Godot binary is found there, rather than skipping.
 Deselect the whole tier with `-m "not e2e"` (CI's per-PR job uses exactly this).
+
+Linting and formatting are enforced by [ruff](https://docs.astral.sh/ruff/) — one tool in
+place of flake8 + black + isort, configured under `[tool.ruff]` in `pyproject.toml` and
+pinned via `uv.lock` so local and CI agree. CI's `lint` job runs `ruff check .` and
+`ruff format --check .` on every PR; run `uv run ruff format .` before committing to stay
+green.
 
 ```
 src/gda/
@@ -635,6 +644,8 @@ Contributions are welcome. Read [`CONTEXT.md`](CONTEXT.md) to align with the pro
 shared language, and review the relevant [ADRs](docs/adr/) for the area you're touching.
 Issues and PRDs live as [GitHub issues](https://github.com/aigengame/godot-agent/issues).
 Commits follow the [Conventional Commits](https://www.conventionalcommits.org/) specification.
+Python code is linted and formatted with [ruff](https://docs.astral.sh/ruff/), enforced in
+CI — run `uv run ruff format .` before committing (see **Development** above).
 
 > **Working with an AI coding agent?** This project is built to be agent-navigable —
 > [`AGENTS.md`](AGENTS.md) is the entry point for coding agents, wiring in the project's

@@ -64,8 +64,15 @@ def test_screen_capture_params_json_supplies_the_output_path(monkeypatch, tmp_pa
 
     result = CliRunner().invoke(
         app,
-        ["screen", "capture", "--params-json", payload,
-         "--project", str(_project(tmp_path)), "--json"],
+        [
+            "screen",
+            "capture",
+            "--params-json",
+            payload,
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -78,8 +85,15 @@ def test_screen_capture_params_json_without_output_is_invalid_params(tmp_path):
     # a STRUCTURED invalid_params, never an AttributeError on a None path.
     result = CliRunner().invoke(
         app,
-        ["screen", "capture", "--params-json", "{}",
-         "--project", str(_project(tmp_path)), "--json"],
+        [
+            "screen",
+            "capture",
+            "--params-json",
+            "{}",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code != 0
@@ -100,8 +114,15 @@ def test_screen_frames_params_json_supplies_the_output_dir(monkeypatch, tmp_path
 
     result = CliRunner().invoke(
         app,
-        ["screen", "frames", "--params-json", payload,
-         "--project", str(_project(tmp_path)), "--json"],
+        [
+            "screen",
+            "frames",
+            "--params-json",
+            payload,
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -145,9 +166,13 @@ def test_screen_capture_writes_a_png_and_returns_its_path(monkeypatch, tmp_path)
     result = CliRunner().invoke(
         app,
         [
-            "screen", "capture",
-            "--output", str(out),
-            "--project", str(_project(tmp_path)), "--json",
+            "screen",
+            "capture",
+            "--output",
+            str(out),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -180,9 +205,14 @@ def test_screen_capture_inline_embeds_the_base64(monkeypatch, tmp_path):
     result = CliRunner().invoke(
         app,
         [
-            "screen", "capture", "--inline",
-            "--output", str(out),
-            "--project", str(_project(tmp_path)), "--json",
+            "screen",
+            "capture",
+            "--inline",
+            "--output",
+            str(out),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -194,7 +224,9 @@ def test_screen_capture_inline_embeds_the_base64(monkeypatch, tmp_path):
     assert out.read_bytes() == _PNG_1X1
 
 
-def test_screen_capture_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
+def test_screen_capture_with_no_daemon_reports_daemon_not_running(
+    monkeypatch, tmp_path
+):
     # No fake: the real DaemonRunner + discovery run against an empty runtime dir,
     # so no daemon is found — the attach-or-fail typed error (ADR-0017).
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
@@ -202,9 +234,13 @@ def test_screen_capture_with_no_daemon_reports_daemon_not_running(monkeypatch, t
     result = CliRunner().invoke(
         app,
         [
-            "screen", "capture",
-            "--output", str(tmp_path / "shot.png"),
-            "--project", str(_project(tmp_path)), "--json",
+            "screen",
+            "capture",
+            "--output",
+            str(tmp_path / "shot.png"),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -235,9 +271,13 @@ def test_screen_capture_on_headless_session_reports_live_display_unavailable(
     result = CliRunner().invoke(
         app,
         [
-            "screen", "capture",
-            "--output", str(out),
-            "--project", str(_project(tmp_path)), "--json",
+            "screen",
+            "capture",
+            "--output",
+            str(out),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -255,7 +295,9 @@ def test_screen_capture_schema_reports_kind_live_and_is_self_describing():
     assert schema["kind"] == "live"
 
 
-def test_screen_capture_without_a_project_reports_project_not_found(monkeypatch, tmp_path):
+def test_screen_capture_without_a_project_reports_project_not_found(
+    monkeypatch, tmp_path
+):
     monkeypatch.chdir(tmp_path)  # holds no project.godot
 
     result = CliRunner().invoke(
@@ -285,9 +327,15 @@ def test_screen_frames_writes_each_png_and_returns_paths(monkeypatch, tmp_path):
     result = CliRunner().invoke(
         app,
         [
-            "screen", "frames", "--frames", "3",
-            "--output-dir", str(out_dir),
-            "--project", str(_project(tmp_path)), "--json",
+            "screen",
+            "frames",
+            "--frames",
+            "3",
+            "--output-dir",
+            str(out_dir),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -314,9 +362,15 @@ def test_screen_frames_with_no_daemon_reports_daemon_not_running(monkeypatch, tm
     result = CliRunner().invoke(
         app,
         [
-            "screen", "frames", "--frames", "3",
-            "--output-dir", str(tmp_path / "frames"),
-            "--project", str(_project(tmp_path)), "--json",
+            "screen",
+            "frames",
+            "--frames",
+            "3",
+            "--output-dir",
+            str(tmp_path / "frames"),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -329,15 +383,23 @@ def test_screen_frames_argv_frames_over_range_is_a_usage_error(monkeypatch, tmp_
     # an over-range value is a usage error on argv (exit 2), engine never reached.
     fake = inject_live_runner(
         monkeypatch,
-        RunResult(stdout=sentinel(screen_frames_reply([_PNG_B64])), stderr="", exit_code=0),
+        RunResult(
+            stdout=sentinel(screen_frames_reply([_PNG_B64])), stderr="", exit_code=0
+        ),
     )
 
     result = CliRunner().invoke(
         app,
         [
-            "screen", "frames", "--frames", "601",
-            "--output-dir", str(tmp_path / "frames"),
-            "--project", str(_project(tmp_path)), "--json",
+            "screen",
+            "frames",
+            "--frames",
+            "601",
+            "--output-dir",
+            str(tmp_path / "frames"),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -370,16 +432,22 @@ def test_screen_frames_params_json_over_range_frames_is_invalid_params(
     # not a CLI-only option mutually exclusive with it (PR #248 review).
     fake = inject_live_runner(
         monkeypatch,
-        RunResult(stdout=sentinel(screen_frames_reply([_PNG_B64])), stderr="", exit_code=0),
+        RunResult(
+            stdout=sentinel(screen_frames_reply([_PNG_B64])), stderr="", exit_code=0
+        ),
     )
     payload = json.dumps({"frames": 601, "output_dir": str(tmp_path / "frames")})
 
     result = CliRunner().invoke(
         app,
         [
-            "screen", "frames",
-            "--project", str(_project(tmp_path)), "--json",
-            "--params-json", payload,
+            "screen",
+            "frames",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+            "--params-json",
+            payload,
         ],
     )
 

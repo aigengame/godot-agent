@@ -90,7 +90,7 @@ if TYPE_CHECKING:
         ProjectFindReferencesResult,
         ProjectFindUnusedResourcesResult,
         ProjectStatisticsResult,
-)
+    )
 
 
 @runtime_checkable
@@ -276,9 +276,7 @@ def render_perf_monitor(timeline: "PerfMonitorResult") -> str:
         ]
         return "\n".join([header, *rows])
     header = f"{timeline.node} property {timeline.property} ({timeline.frames} frames)"
-    rows = [
-        f"  frame {s.frame}: {format_value(s.value)}" for s in timeline.samples
-    ]
+    rows = [f"  frame {s.frame}: {format_value(s.value)}" for s in timeline.samples]
     return "\n".join([header, *rows])
 
 
@@ -441,8 +439,7 @@ def render_node_remove(removed: "NodeRemoveResult") -> str:
 def render_node_duplicate(duplicated: "NodeDuplicateResult") -> str:
     """Render a duplicated node as ``duplicated <source> to <path> (<type>)``."""
     return (
-        f"duplicated {duplicated.source_path} to {duplicated.path} "
-        f"({duplicated.type})"
+        f"duplicated {duplicated.source_path} to {duplicated.path} ({duplicated.type})"
     )
 
 
@@ -512,9 +509,7 @@ def render_script_set(edited: "ScriptSetResult") -> str:
 
 def render_script_attach(attached: "ScriptAttachResult") -> str:
     """Render an attached script as ``attached <script> to <node> in <scene>``."""
-    return (
-        f"attached {attached.script} to {attached.node} in {attached.scene_path}"
-    )
+    return f"attached {attached.script} to {attached.node} in {attached.scene_path}"
 
 
 def render_script_validate(validated: "ScriptValidateResult") -> str:
@@ -593,8 +588,7 @@ def render_export_run(ran: "ExportRunResult") -> str:
     non-fatal engine warning (a clean export prints just the header line).
     """
     header = (
-        f"exported {ran.preset} ({ran.platform}, {ran.mode.value}) "
-        f"-> {ran.output_path}"
+        f"exported {ran.preset} ({ran.platform}, {ran.mode.value}) -> {ran.output_path}"
     )
     if not ran.warnings:
         return header

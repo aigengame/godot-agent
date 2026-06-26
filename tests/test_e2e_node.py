@@ -57,8 +57,14 @@ def test_node_add_then_list_round_trip(godot_project):
     _create_scene(scene_path)
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Sprite2D", "--name", "Hero", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Sprite2D",
+        "--name",
+        "Hero",
+        "--json",
     )
 
     assert added.returncode == 0, added.stdout + added.stderr
@@ -92,14 +98,28 @@ def test_node_add_under_nested_parent_path(godot_project):
     _create_scene(scene_path)
 
     first = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Sprite2D", "--name", "Hero", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Sprite2D",
+        "--name",
+        "Hero",
+        "--json",
     )
     assert first.returncode == 0, first.stdout + first.stderr
 
     second = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Area2D", "--name", "Hitbox", "--parent", "Hero", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Area2D",
+        "--name",
+        "Hitbox",
+        "--parent",
+        "Hero",
+        "--json",
     )
 
     assert second.returncode == 0, second.stdout + second.stderr
@@ -141,8 +161,14 @@ def test_node_add_builtin_type_reports_null_script_class(godot_project):
     _create_scene(scene_path)
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Sprite2D", "--name", "Hero", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Sprite2D",
+        "--name",
+        "Hero",
+        "--json",
     )
 
     assert added.returncode == 0, added.stdout + added.stderr
@@ -178,8 +204,14 @@ def test_node_add_bad_parent_yields_parent_not_found_and_leaves_file_unchanged(
     before = scene_path.read_text(encoding="utf-8")
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Sprite2D", "--parent", "Bogus/Path", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Sprite2D",
+        "--parent",
+        "Bogus/Path",
+        "--json",
     )
 
     err = _assert_operation_error(added, "parent_not_found")
@@ -194,8 +226,16 @@ def _scene_with_nested_children(godot_project):
     _create_scene(scene_path)
     for name, parent in (("A", "."), ("B", "A")):
         added = _gda(
-            "node", "add", str(scene_path),
-            "--type", "Node2D", "--name", name, "--parent", parent, "--json",
+            "node",
+            "add",
+            str(scene_path),
+            "--type",
+            "Node2D",
+            "--name",
+            name,
+            "--parent",
+            parent,
+            "--json",
         )
         assert added.returncode == 0, added.stdout + added.stderr
     return scene_path
@@ -203,9 +243,7 @@ def _scene_with_nested_children(godot_project):
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("form", ["..", "../A", "/root/A"])
-def test_node_add_parent_path_escaping_or_absolute_stays_rejected(
-    godot_project, form
-):
+def test_node_add_parent_path_escaping_or_absolute_stays_rejected(godot_project, form):
     # Regression pins for issue #66: these forms were already rejected on main
     # before the strictness change — absolute paths by _resolve_parent's
     # explicit check, and leading ".." because a scene loaded for editing has
@@ -215,8 +253,16 @@ def test_node_add_parent_path_escaping_or_absolute_stays_rejected(
     before = scene_path.read_text(encoding="utf-8")
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Marker2D", "--name", "M", "--parent", form, "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Marker2D",
+        "--name",
+        "M",
+        "--parent",
+        form,
+        "--json",
     )
 
     err = _assert_operation_error(added, "parent_not_found")
@@ -240,8 +286,16 @@ def test_node_add_rejects_non_canonical_parent_path(godot_project, form):
     before = scene_path.read_text(encoding="utf-8")
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Marker2D", "--name", "M", "--parent", form, "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Marker2D",
+        "--name",
+        "M",
+        "--parent",
+        form,
+        "--json",
     )
 
     err = _assert_operation_error(added, "parent_not_found")
@@ -256,8 +310,16 @@ def test_node_add_explicit_dot_parent_addresses_the_root(godot_project):
     scene_path = _scene_with_nested_children(godot_project)
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Marker2D", "--name", "M", "--parent", ".", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Marker2D",
+        "--name",
+        "M",
+        "--parent",
+        ".",
+        "--json",
     )
 
     assert added.returncode == 0, added.stdout + added.stderr
@@ -269,15 +331,27 @@ def test_node_add_name_collision_yields_duplicate_node_name(godot_project):
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
     first = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Sprite2D", "--name", "Hero", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Sprite2D",
+        "--name",
+        "Hero",
+        "--json",
     )
     assert first.returncode == 0, first.stdout + first.stderr
     before = scene_path.read_text(encoding="utf-8")
 
     again = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Area2D", "--name", "Hero", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Area2D",
+        "--name",
+        "Hero",
+        "--json",
     )
 
     err = _assert_operation_error(again, "duplicate_node_name")
@@ -303,15 +377,29 @@ def test_node_add_collision_with_internal_child_yields_duplicate_node_name(
     )
     assert created.returncode == 0, created.stdout + created.stderr
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "ScrollContainer", "--name", "Scroll", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "ScrollContainer",
+        "--name",
+        "Scroll",
+        "--json",
     )
     assert added.returncode == 0, added.stdout + added.stderr
     before = scene_path.read_text(encoding="utf-8")
 
     colliding = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Control", "--name", "_h_scroll", "--parent", "Scroll", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Control",
+        "--name",
+        "_h_scroll",
+        "--parent",
+        "Scroll",
+        "--json",
     )
 
     err = _assert_operation_error(colliding, "duplicate_node_name")
@@ -338,8 +426,14 @@ def test_node_add_rejects_name_godot_would_rewrite(godot_project):
     _create_scene(scene_path)
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Sprite2D", "--name", "Bad%Name", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Sprite2D",
+        "--name",
+        "Bad%Name",
+        "--json",
     )
 
     err = _assert_operation_error(added, "invalid_node_name")
@@ -367,8 +461,14 @@ def test_node_get_reports_typed_properties(godot_project):
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Sprite2D", "--name", "Hero", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Sprite2D",
+        "--name",
+        "Hero",
+        "--json",
     )
     assert added.returncode == 0, added.stdout + added.stderr
 
@@ -432,11 +532,21 @@ def test_node_set_coerces_and_round_trips_via_get(
     # rules documented in the command catalog.
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
-    _gda("node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json")
+    _gda(
+        "node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json"
+    )
 
     was_set = _gda(
-        "node", "set", str(scene_path),
-        "--node", "Hero", "--property", prop, "--value", value, "--json",
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        "Hero",
+        "--property",
+        prop,
+        "--value",
+        value,
+        "--json",
     )
 
     assert was_set.returncode == 0, was_set.stdout + was_set.stderr
@@ -453,12 +563,22 @@ def test_node_set_unknown_property_yields_unknown_property_and_leaves_file_uncha
 ):
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
-    _gda("node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json")
+    _gda(
+        "node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json"
+    )
     before = scene_path.read_text(encoding="utf-8")
 
     was_set = _gda(
-        "node", "set", str(scene_path),
-        "--node", "Hero", "--property", "no_such_prop", "--value", "1", "--json",
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        "Hero",
+        "--property",
+        "no_such_prop",
+        "--value",
+        "1",
+        "--json",
     )
 
     err = _assert_operation_error(was_set, "unknown_property")
@@ -475,12 +595,22 @@ def test_node_set_uncoercible_value_yields_uncoercible_value_and_leaves_file_unc
     # the scene file is left untouched.
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
-    _gda("node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json")
+    _gda(
+        "node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json"
+    )
     before = scene_path.read_text(encoding="utf-8")
 
     was_set = _gda(
-        "node", "set", str(scene_path),
-        "--node", "Hero", "--property", "position", "--value", "not_a_vector", "--json",
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        "Hero",
+        "--property",
+        "position",
+        "--value",
+        "not_a_vector",
+        "--json",
     )
 
     err = _assert_operation_error(was_set, "uncoercible_value")
@@ -495,8 +625,16 @@ def test_node_set_missing_node_yields_node_not_found(godot_project):
     before = scene_path.read_text(encoding="utf-8")
 
     was_set = _gda(
-        "node", "set", str(scene_path),
-        "--node", "Bogus", "--property", "position", "--value", "1,2", "--json",
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        "Bogus",
+        "--property",
+        "position",
+        "--value",
+        "1,2",
+        "--json",
     )
 
     err = _assert_operation_error(was_set, "node_not_found")
@@ -515,9 +653,18 @@ def test_node_set_refuses_scene_whose_sub_scene_cannot_resolve(godot_project):
     before = parent.read_text(encoding="utf-8")
 
     was_set = _gda(
-        "node", "set", str(parent),
-        "--node", ".", "--property", "position", "--value", "1,2",
-        "--project", str(godot_project), "--json",
+        "node",
+        "set",
+        str(parent),
+        "--node",
+        ".",
+        "--property",
+        "position",
+        "--value",
+        "1,2",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     err = _assert_operation_error(was_set, "missing_dependency")
@@ -537,8 +684,14 @@ def test_node_list_reports_all_siblings_at_one_level_in_tree_order(godot_project
     siblings = [("A", "Node2D"), ("B", "Sprite2D"), ("C", "Area2D")]
     for name, node_type in siblings:
         added = _gda(
-            "node", "add", str(scene_path),
-            "--type", node_type, "--name", name, "--json",
+            "node",
+            "add",
+            str(scene_path),
+            "--type",
+            node_type,
+            "--name",
+            name,
+            "--json",
         )
         assert added.returncode == 0, added.stdout + added.stderr
 
@@ -631,16 +784,23 @@ def test_node_add_preserves_editable_instance_overrides(godot_project):
     parent = _write_instance_fixture(godot_project)
 
     added = _gda(
-        "node", "add", str(parent),
-        "--type", "Marker2D", "--name", "M",
-        "--project", str(godot_project), "--json",
+        "node",
+        "add",
+        str(parent),
+        "--type",
+        "Marker2D",
+        "--name",
+        "M",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     assert added.returncode == 0, added.stdout + added.stderr
     assert json.loads(added.stdout)["path"] == "M"
     saved = parent.read_text(encoding="utf-8")
     # The sub-scene is still an instance, not a flattened copy.
-    assert 'instance=ExtResource(' in saved
+    assert "instance=ExtResource(" in saved
     assert '[editable path="ChildInstance"]' in saved
     # Top-level instance property override.
     assert "position = Vector2(10, 20)" in saved
@@ -686,9 +846,16 @@ def test_node_add_refuses_scene_whose_sub_scene_cannot_resolve(godot_project):
     before = parent.read_text(encoding="utf-8")
 
     added = _gda(
-        "node", "add", str(parent),
-        "--type", "Marker2D", "--name", "M",
-        "--project", str(godot_project), "--json",
+        "node",
+        "add",
+        str(parent),
+        "--type",
+        "Marker2D",
+        "--name",
+        "M",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     err = _assert_operation_error(added, "missing_dependency")
@@ -721,9 +888,16 @@ def test_node_add_refuses_scene_that_instantiates_to_null(godot_project):
     before = parent.read_text(encoding="utf-8")
 
     added = _gda(
-        "node", "add", str(parent),
-        "--type", "Marker2D", "--name", "M",
-        "--project", str(godot_project), "--json",
+        "node",
+        "add",
+        str(parent),
+        "--type",
+        "Marker2D",
+        "--name",
+        "M",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     err = _assert_operation_error(added, "missing_dependency")
@@ -755,8 +929,14 @@ def test_node_add_refuses_scene_whose_declared_class_is_substituted(godot_projec
     before = scene_path.read_text(encoding="utf-8")
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Marker2D", "--name", "M", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Marker2D",
+        "--name",
+        "M",
+        "--json",
     )
 
     err = _assert_operation_error(added, "missing_dependency")
@@ -795,8 +975,14 @@ def test_node_add_by_class_name_attaches_the_script(godot_project):
     _create_scene(scene_path)
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Hero", "--project", str(godot_project), "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Hero",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     assert added.returncode == 0, added.stdout + added.stderr
@@ -825,8 +1011,14 @@ def test_node_add_by_unregistered_class_name_yields_invalid_node_type(godot_proj
     _create_scene(scene_path)
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Hero", "--project", str(godot_project), "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Hero",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     err = _assert_operation_error(added, "invalid_node_type")
@@ -859,8 +1051,14 @@ def test_node_add_by_registered_but_broken_class_name_names_the_script(godot_pro
     before = scene_path.read_text(encoding="utf-8")
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Hero", "--project", str(godot_project), "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Hero",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     err = _assert_operation_error(added, "uninstantiable_script")
@@ -890,8 +1088,14 @@ def test_node_add_by_non_node_class_name_yields_invalid_node_type(godot_project)
     before = scene_path.read_text(encoding="utf-8")
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Loot", "--project", str(godot_project), "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Loot",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     err = _assert_operation_error(added, "invalid_node_type")
@@ -928,8 +1132,14 @@ def test_node_add_by_class_name_whose_init_requires_args_names_the_constructor(
     before = scene_path.read_text(encoding="utf-8")
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Hero", "--project", str(godot_project), "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Hero",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     err = _assert_operation_error(added, "uninstantiable_script")
@@ -1003,8 +1213,14 @@ def _scene_with_emitter_and_receiver(godot_project):
     _create_scene(scene_path)
     for node_type, name in (("Timer", "Emitter"), ("Node2D", "Receiver")):
         added = _gda(
-            "node", "add", str(scene_path),
-            "--type", node_type, "--name", name, "--json",
+            "node",
+            "add",
+            str(scene_path),
+            "--type",
+            node_type,
+            "--name",
+            name,
+            "--json",
         )
         assert added.returncode == 0, added.stdout + added.stderr
     return scene_path
@@ -1027,9 +1243,18 @@ def test_node_connect_signal_records_a_connection_that_round_trips(godot_project
     scene_path = _scene_with_emitter_and_receiver(godot_project)
 
     connected = _gda(
-        "node", "connect-signal", str(scene_path),
-        "--from", "Emitter", "--signal", "timeout",
-        "--to", "Receiver", "--method", "on_timeout", "--json",
+        "node",
+        "connect-signal",
+        str(scene_path),
+        "--from",
+        "Emitter",
+        "--signal",
+        "timeout",
+        "--to",
+        "Receiver",
+        "--method",
+        "on_timeout",
+        "--json",
     )
 
     assert connected.returncode == 0, connected.stdout + connected.stderr
@@ -1053,9 +1278,18 @@ def test_node_connect_signal_allows_a_not_yet_defined_target_method(godot_projec
     scene_path = _scene_with_emitter_and_receiver(godot_project)
 
     connected = _gda(
-        "node", "connect-signal", str(scene_path),
-        "--from", "Emitter", "--signal", "timeout",
-        "--to", "Receiver", "--method", "not_yet_written", "--json",
+        "node",
+        "connect-signal",
+        str(scene_path),
+        "--from",
+        "Emitter",
+        "--signal",
+        "timeout",
+        "--to",
+        "Receiver",
+        "--method",
+        "not_yet_written",
+        "--json",
     )
 
     assert connected.returncode == 0, connected.stdout + connected.stderr
@@ -1074,9 +1308,18 @@ def test_node_connect_signal_unknown_signal_yields_signal_not_found(godot_projec
     before = scene_path.read_text(encoding="utf-8")
 
     connected = _gda(
-        "node", "connect-signal", str(scene_path),
-        "--from", "Emitter", "--signal", "no_such_signal",
-        "--to", "Receiver", "--method", "on_timeout", "--json",
+        "node",
+        "connect-signal",
+        str(scene_path),
+        "--from",
+        "Emitter",
+        "--signal",
+        "no_such_signal",
+        "--to",
+        "Receiver",
+        "--method",
+        "on_timeout",
+        "--json",
     )
 
     err = _assert_operation_error(connected, "signal_not_found")
@@ -1091,17 +1334,35 @@ def test_node_connect_signal_already_connected_yields_already_connected(godot_pr
     # unchanged after the second attempt.
     scene_path = _scene_with_emitter_and_receiver(godot_project)
     first = _gda(
-        "node", "connect-signal", str(scene_path),
-        "--from", "Emitter", "--signal", "timeout",
-        "--to", "Receiver", "--method", "on_timeout", "--json",
+        "node",
+        "connect-signal",
+        str(scene_path),
+        "--from",
+        "Emitter",
+        "--signal",
+        "timeout",
+        "--to",
+        "Receiver",
+        "--method",
+        "on_timeout",
+        "--json",
     )
     assert first.returncode == 0, first.stdout + first.stderr
     before = scene_path.read_text(encoding="utf-8")
 
     again = _gda(
-        "node", "connect-signal", str(scene_path),
-        "--from", "Emitter", "--signal", "timeout",
-        "--to", "Receiver", "--method", "on_timeout", "--json",
+        "node",
+        "connect-signal",
+        str(scene_path),
+        "--from",
+        "Emitter",
+        "--signal",
+        "timeout",
+        "--to",
+        "Receiver",
+        "--method",
+        "on_timeout",
+        "--json",
     )
 
     err = _assert_operation_error(again, "already_connected")
@@ -1115,9 +1376,18 @@ def test_node_connect_signal_missing_source_node_yields_node_not_found(godot_pro
     before = scene_path.read_text(encoding="utf-8")
 
     connected = _gda(
-        "node", "connect-signal", str(scene_path),
-        "--from", "Bogus", "--signal", "timeout",
-        "--to", "Receiver", "--method", "on_timeout", "--json",
+        "node",
+        "connect-signal",
+        str(scene_path),
+        "--from",
+        "Bogus",
+        "--signal",
+        "timeout",
+        "--to",
+        "Receiver",
+        "--method",
+        "on_timeout",
+        "--json",
     )
 
     err = _assert_operation_error(connected, "node_not_found")
@@ -1138,7 +1408,7 @@ def test_node_remove_root_yields_cannot_target_root(godot_project):
 
     removed = _gda("node", "remove", str(scene_path), "--node", ".", "--json")
 
-    err = _assert_operation_error(removed, "cannot_target_root")
+    _assert_operation_error(removed, "cannot_target_root")
     assert scene_path.read_text(encoding="utf-8") == before
 
 
@@ -1152,7 +1422,9 @@ def test_node_duplicate_copies_node_under_same_parent_with_fresh_name(godot_proj
     # is reported — verified through a fresh node list. The source survives.
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
-    _gda("node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json")
+    _gda(
+        "node", "add", str(scene_path), "--type", "Sprite2D", "--name", "Hero", "--json"
+    )
 
     duplicated = _gda("node", "duplicate", str(scene_path), "--node", "Hero", "--json")
 
@@ -1183,8 +1455,16 @@ def test_node_duplicate_copies_the_whole_subtree(godot_project):
     _create_scene(scene_path)
     _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "Hero", "--json")
     _gda(
-        "node", "add", str(scene_path),
-        "--type", "Area2D", "--name", "Hitbox", "--parent", "Hero", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Area2D",
+        "--name",
+        "Hitbox",
+        "--parent",
+        "Hero",
+        "--json",
     )
 
     duplicated = _gda("node", "duplicate", str(scene_path), "--node", "Hero", "--json")
@@ -1255,10 +1535,27 @@ def test_node_move_reparents_node_and_subtree_round_trip(godot_project):
     _create_scene(scene_path)
     _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "Hero", "--json")
     _gda(
-        "node", "add", str(scene_path),
-        "--type", "Area2D", "--name", "Hitbox", "--parent", "Hero", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Area2D",
+        "--name",
+        "Hitbox",
+        "--parent",
+        "Hero",
+        "--json",
     )
-    _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "Enemies", "--json")
+    _gda(
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Node2D",
+        "--name",
+        "Enemies",
+        "--json",
+    )
 
     moved = _gda(
         "node", "move", str(scene_path), "--node", "Hero", "--to", "Enemies", "--json"
@@ -1326,9 +1623,7 @@ def test_node_move_under_itself_yields_cyclic_target(godot_project):
     scene_path = _scene_with_nested_children(godot_project)  # root -> A -> B
     before = scene_path.read_text(encoding="utf-8")
 
-    moved = _gda(
-        "node", "move", str(scene_path), "--node", "A", "--to", "A", "--json"
-    )
+    moved = _gda("node", "move", str(scene_path), "--node", "A", "--to", "A", "--json")
 
     _assert_operation_error(moved, "cyclic_target")
     assert scene_path.read_text(encoding="utf-8") == before
@@ -1360,10 +1655,27 @@ def test_node_move_name_collision_at_destination_yields_duplicate_node_name(
     scene_path = godot_project / "main.tscn"
     _create_scene(scene_path)
     _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "Hero", "--json")
-    _gda("node", "add", str(scene_path), "--type", "Node2D", "--name", "Enemies", "--json")
     _gda(
-        "node", "add", str(scene_path),
-        "--type", "Sprite2D", "--name", "Hero", "--parent", "Enemies", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Node2D",
+        "--name",
+        "Enemies",
+        "--json",
+    )
+    _gda(
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Sprite2D",
+        "--name",
+        "Hero",
+        "--parent",
+        "Enemies",
+        "--json",
     )
     before = scene_path.read_text(encoding="utf-8")
 
@@ -1381,9 +1693,18 @@ def test_node_connect_signal_missing_target_node_yields_node_not_found(godot_pro
     scene_path = _scene_with_emitter_and_receiver(godot_project)
 
     connected = _gda(
-        "node", "connect-signal", str(scene_path),
-        "--from", "Emitter", "--signal", "timeout",
-        "--to", "Bogus", "--method", "on_timeout", "--json",
+        "node",
+        "connect-signal",
+        str(scene_path),
+        "--from",
+        "Emitter",
+        "--signal",
+        "timeout",
+        "--to",
+        "Bogus",
+        "--method",
+        "on_timeout",
+        "--json",
     )
 
     err = _assert_operation_error(connected, "node_not_found")
@@ -1397,17 +1718,35 @@ def test_node_disconnect_signal_removes_an_existing_connection(godot_project):
     # trip read shows the [connection] is gone from the saved file.
     scene_path = _scene_with_emitter_and_receiver(godot_project)
     connected = _gda(
-        "node", "connect-signal", str(scene_path),
-        "--from", "Emitter", "--signal", "timeout",
-        "--to", "Receiver", "--method", "on_timeout", "--json",
+        "node",
+        "connect-signal",
+        str(scene_path),
+        "--from",
+        "Emitter",
+        "--signal",
+        "timeout",
+        "--to",
+        "Receiver",
+        "--method",
+        "on_timeout",
+        "--json",
     )
     assert connected.returncode == 0, connected.stdout + connected.stderr
     assert _connection_lines(scene_path)  # the connection is there first
 
     disconnected = _gda(
-        "node", "disconnect-signal", str(scene_path),
-        "--from", "Emitter", "--signal", "timeout",
-        "--to", "Receiver", "--method", "on_timeout", "--json",
+        "node",
+        "disconnect-signal",
+        str(scene_path),
+        "--from",
+        "Emitter",
+        "--signal",
+        "timeout",
+        "--to",
+        "Receiver",
+        "--method",
+        "on_timeout",
+        "--json",
     )
 
     assert disconnected.returncode == 0, disconnected.stdout + disconnected.stderr
@@ -1427,9 +1766,18 @@ def test_node_disconnect_signal_absent_connection_yields_connection_not_found(
     before = scene_path.read_text(encoding="utf-8")
 
     disconnected = _gda(
-        "node", "disconnect-signal", str(scene_path),
-        "--from", "Emitter", "--signal", "timeout",
-        "--to", "Receiver", "--method", "on_timeout", "--json",
+        "node",
+        "disconnect-signal",
+        str(scene_path),
+        "--from",
+        "Emitter",
+        "--signal",
+        "timeout",
+        "--to",
+        "Receiver",
+        "--method",
+        "on_timeout",
+        "--json",
     )
 
     err = _assert_operation_error(disconnected, "connection_not_found")
@@ -1460,9 +1808,18 @@ def test_node_disconnect_signal_missing_signal_yields_signal_not_found(godot_pro
     before = scene_path.read_text(encoding="utf-8")
 
     disconnected = _gda(
-        "node", "disconnect-signal", str(scene_path),
-        "--from", "Emitter", "--signal", "no_such_signal",
-        "--to", "Receiver", "--method", "on_timeout", "--json",
+        "node",
+        "disconnect-signal",
+        str(scene_path),
+        "--from",
+        "Emitter",
+        "--signal",
+        "no_such_signal",
+        "--to",
+        "Receiver",
+        "--method",
+        "on_timeout",
+        "--json",
     )
 
     err = _assert_operation_error(disconnected, "signal_not_found")
@@ -1477,9 +1834,7 @@ def test_node_move_root_yields_cannot_target_root(godot_project):
     scene_path = _scene_with_nested_children(godot_project)
     before = scene_path.read_text(encoding="utf-8")
 
-    moved = _gda(
-        "node", "move", str(scene_path), "--node", ".", "--to", "A", "--json"
-    )
+    moved = _gda("node", "move", str(scene_path), "--node", ".", "--to", "A", "--json")
 
     _assert_operation_error(moved, "cannot_target_root")
     assert scene_path.read_text(encoding="utf-8") == before
@@ -1527,23 +1882,37 @@ def test_node_move_preserves_editable_instance_overrides(godot_project):
     parent = _write_instance_fixture(godot_project)
     # A destination parent to reparent the instance under.
     added = _gda(
-        "node", "add", str(parent),
-        "--type", "Node2D", "--name", "Dest",
-        "--project", str(godot_project), "--json",
+        "node",
+        "add",
+        str(parent),
+        "--type",
+        "Node2D",
+        "--name",
+        "Dest",
+        "--project",
+        str(godot_project),
+        "--json",
     )
     assert added.returncode == 0, added.stdout + added.stderr
 
     moved = _gda(
-        "node", "move", str(parent),
-        "--node", "ChildInstance", "--to", "Dest",
-        "--project", str(godot_project), "--json",
+        "node",
+        "move",
+        str(parent),
+        "--node",
+        "ChildInstance",
+        "--to",
+        "Dest",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     assert moved.returncode == 0, moved.stdout + moved.stderr
     assert json.loads(moved.stdout)["path"] == "Dest/ChildInstance"
     saved = parent.read_text(encoding="utf-8")
     # The sub-scene is still an instance under its new parent, not a flattened copy.
-    assert 'instance=ExtResource(' in saved
+    assert "instance=ExtResource(" in saved
     assert '[editable path="Dest/ChildInstance"]' in saved
     # The override nodes inside the instance keep their override form (parent +
     # index, NO type=) rather than being rewritten as local typed nodes.
@@ -1562,9 +1931,18 @@ def test_node_connect_signal_to_missing_scene_yields_path_not_found(godot_projec
     missing = godot_project / "missing.tscn"
 
     connected = _gda(
-        "node", "connect-signal", str(missing),
-        "--from", "Emitter", "--signal", "timeout",
-        "--to", "Receiver", "--method", "on_timeout", "--json",
+        "node",
+        "connect-signal",
+        str(missing),
+        "--from",
+        "Emitter",
+        "--signal",
+        "timeout",
+        "--to",
+        "Receiver",
+        "--method",
+        "on_timeout",
+        "--json",
     )
 
     err = _assert_operation_error(connected, "path_not_found")
@@ -1579,8 +1957,14 @@ def test_node_add_leaves_no_temp_file_on_success(godot_project):
     _create_scene(scene_path)
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Sprite2D", "--name", "Hero", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Sprite2D",
+        "--name",
+        "Hero",
+        "--json",
     )
 
     assert added.returncode == 0, added.stdout + added.stderr
@@ -1604,8 +1988,14 @@ def test_node_add_with_external_edit_in_window_yields_file_changed_externally(
 
     added = _gda_env(
         {"GDA_TEST_PERTURB_BEFORE_SAVE": "1"},
-        "node", "add", str(scene_path),
-        "--type", "Sprite2D", "--name", "Hero", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Sprite2D",
+        "--name",
+        "Hero",
+        "--json",
     )
 
     err = _assert_operation_error(added, "file_changed_externally")
@@ -1642,8 +2032,14 @@ def test_node_add_with_external_edit_during_instantiate_yields_file_changed_exte
 
     added = _gda_env(
         {"GDA_TEST_PERTURB_AFTER_LOAD": "1"},
-        "node", "add", str(scene_path),
-        "--type", "Sprite2D", "--name", "Hero", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Sprite2D",
+        "--name",
+        "Hero",
+        "--json",
     )
 
     err = _assert_operation_error(added, "file_changed_externally")

@@ -11,9 +11,8 @@ from tests.support import VERSION_INFO, inject_runner, sentinel
 
 def test_info_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     # Engine banner / warnings around the sentinel, plus diagnostics on stderr.
-    stdout = (
-        "Godot Engine v4.6.3.stable.official\n"
-        "WARNING: benign\n" + sentinel(VERSION_INFO)
+    stdout = "Godot Engine v4.6.3.stable.official\nWARNING: benign\n" + sentinel(
+        VERSION_INFO
     )
     fake = inject_runner(
         monkeypatch, RunResult(stdout=stdout, stderr="engine diagnostic\n", exit_code=0)

@@ -78,7 +78,9 @@ def test_resource_set_dispatches_path_property_value_and_round_trips(monkeypatch
 
 
 def test_resource_set_human_output_is_set_path_property_type_value(monkeypatch):
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(
         app,
@@ -217,7 +219,9 @@ def test_resource_create_json_maps_success_to_json_object_and_exit_zero(monkeypa
 
 
 def test_resource_create_human_output_reports_path_and_type(monkeypatch):
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(
         app, ["resource", "create", "/tmp/proj/palette.tres", "--type", "Gradient"]
@@ -249,7 +253,9 @@ def test_resource_get_json_maps_success_to_json_object_and_exit_zero(monkeypatch
 
 
 def test_resource_get_human_output_lists_typed_properties(monkeypatch):
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(app, ["resource", "get", "/tmp/proj/palette.tres"])
 
@@ -358,7 +364,8 @@ def test_resource_uid_expands_tilde_for_a_filesystem_target(monkeypatch, tmp_pat
     # works without a shell (issue #32); a uid:// / res:// target is untouched.
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(PATH_TO_UID_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(PATH_TO_UID_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
@@ -367,7 +374,7 @@ def test_resource_uid_expands_tilde_for_a_filesystem_target(monkeypatch, tmp_pat
 
     assert result.exit_code == 0
     # The dispatched target is the ~-expanded absolute path, not the literal "~".
-    (operation, params), = fake.calls
+    ((operation, params),) = fake.calls
     assert operation == "resource-uid"
     assert not params["target"].startswith("~")
     assert params["target"].endswith("/data.tres")
@@ -381,7 +388,8 @@ def test_resource_uid_human_output_renders_uid_arrow_path(monkeypatch, tmp_path)
     # for both directions since the result shape is identical.
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(UID_TO_PATH_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(UID_TO_PATH_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(

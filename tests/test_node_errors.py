@@ -288,7 +288,9 @@ def test_node_set_uncoercible_value_maps_to_stable_uncoercible_value_code(monkey
     assert "Vector2" in err["message"]
 
 
-def test_node_set_missing_dependency_maps_to_stable_missing_dependency_code(monkeypatch):
+def test_node_set_missing_dependency_maps_to_stable_missing_dependency_code(
+    monkeypatch,
+):
     # node set is a mutating op, so it honors the mutation-integrity boundary
     # (issue #64) via the shared mutate-entry: a scene whose instance vanishes
     # on load is refused with missing_dependency, the same as node add, leaving
@@ -564,7 +566,9 @@ def _invoke_disconnect_signal(monkeypatch, code: str, message: str):
     )
 
 
-def test_connect_signal_missing_signal_maps_to_stable_signal_not_found_code(monkeypatch):
+def test_connect_signal_missing_signal_maps_to_stable_signal_not_found_code(
+    monkeypatch,
+):
     # issue #57's design decision: the signal MUST exist on the source node — a
     # typo or wrong node is a clean signal_not_found error, so an agent branches
     # on a bad signal name rather than parsing prose.

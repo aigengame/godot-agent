@@ -64,7 +64,9 @@ def test_signal_death_maps_to_engine_crashed_naming_the_signal():
     # subprocess reports a signal death as a negative return code: the engine ran
     # but was killed (e.g. SIGSEGV) — an operation-category crash, never a raw
     # negative exit code leaking out.
-    failure = classify_launch_or_crash(RunResult(stdout="", stderr="", exit_code=-11), BINARY)
+    failure = classify_launch_or_crash(
+        RunResult(stdout="", stderr="", exit_code=-11), BINARY
+    )
 
     assert isinstance(failure, Failure)
     assert failure.exit_code == EXIT_OPERATION
@@ -76,12 +78,25 @@ def test_signal_death_maps_to_engine_crashed_naming_the_signal():
 def test_clean_exit_returns_none_so_the_channel_tail_takes_over():
     # exit 0 with no launch failure is not an env/crash outcome: the prefix yields
     # to the channel-specific tail (sentinel parse vs synthesize-from-exit-code).
-    assert classify_launch_or_crash(RunResult(stdout="ok", stderr="", exit_code=0), BINARY) is None
+    assert (
+        classify_launch_or_crash(RunResult(stdout="ok", stderr="", exit_code=0), BINARY)
+        is None
+    )
 
 
 def test_genuine_engine_124_127_fall_through_to_the_tail():
     # A genuine engine/wrapper exit of 124/127 — with NO runner-synthesized launch
     # failure — is the engine's own result, not an env failure. The prefix returns
     # None so the tail classifies it as operation, never environment (issue #15).
-    assert classify_launch_or_crash(RunResult(stdout="", stderr="boom\n", exit_code=127), BINARY) is None
-    assert classify_launch_or_crash(RunResult(stdout="", stderr="124\n", exit_code=124), BINARY) is None
+    assert (
+        classify_launch_or_crash(
+            RunResult(stdout="", stderr="boom\n", exit_code=127), BINARY
+        )
+        is None
+    )
+    assert (
+        classify_launch_or_crash(
+            RunResult(stdout="", stderr="124\n", exit_code=124), BINARY
+        )
+        is None
+    )

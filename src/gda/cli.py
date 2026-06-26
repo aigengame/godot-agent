@@ -284,17 +284,13 @@ app.add_typer(node_app, name="node")
 # disk (write text / read text back), so they stay headless. C# (.cs) is out of
 # scope for now — it needs the .NET build of Godot (ADR-0003 targets the standard
 # build) and a dedicated decision.
-script_app = typer.Typer(
-    help="Act on script files (.gd).", no_args_is_help=True
-)
+script_app = typer.Typer(help="Act on script files (.gd).", no_args_is_help=True)
 app.add_typer(script_app, name="script")
 
 # The resource command group (issue #112): commands acting on .tres resource
 # files on disk (load/save plumbing), so they stay headless. The group is a
 # .tres tracer; the binary .res form is out of scope for this slice.
-resource_app = typer.Typer(
-    help="Act on resource files (.tres).", no_args_is_help=True
-)
+resource_app = typer.Typer(help="Act on resource files (.tres).", no_args_is_help=True)
 app.add_typer(resource_app, name="resource")
 
 # The export command group (issue #114): read-only discovery of the project's
@@ -328,9 +324,7 @@ app.add_typer(project_app, name="project")
 # create/get/set and attach/validate. This bounds the operation, not the run:
 # every command still goes through the headless runner, so resolving --project
 # still constructs the project's autoloads at engine startup (ADR-0009).
-shader_app = typer.Typer(
-    help="Act on shader files (.gdshader).", no_args_is_help=True
-)
+shader_app = typer.Typer(help="Act on shader files (.gdshader).", no_args_is_help=True)
 app.add_typer(shader_app, name="shader")
 
 theme_app = typer.Typer(
@@ -581,9 +575,7 @@ def _emit(
     (:func:`_dispatch`) and the meta dispatch (:func:`_dispatch_meta`) funnel
     through here; they differ only in how ``project`` is obtained.
     """
-    make_runner = (
-        _make_live_runner if cmd.kind is ExecutionKind.LIVE else _make_runner
-    )
+    make_runner = _make_live_runner if cmd.kind is ExecutionKind.LIVE else _make_runner
     cmd.emit(
         params,
         godot=godot,
@@ -1211,8 +1203,12 @@ INPUT_MOUSE_MOVE_COMMAND: HeadlessCommand[InputMouseResult] = HeadlessCommand(
 
 @input_app.command(name="mouse-move", cls=INPUT_MOUSE_MOVE_COMMAND.command_class())
 def input_mouse_move(
-    x: float = typer.Argument(..., help="The motion's target x position in the viewport."),
-    y: float = typer.Argument(..., help="The motion's target y position in the viewport."),
+    x: float = typer.Argument(
+        ..., help="The motion's target x position in the viewport."
+    ),
+    y: float = typer.Argument(
+        ..., help="The motion's target y position in the viewport."
+    ),
     json_output: bool = json_option(),
     schema: bool = INPUT_MOUSE_MOVE_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -1828,11 +1824,13 @@ PROJECT_SET_COMMAND: HeadlessCommand[ProjectSetResult] = HeadlessCommand(
     render=render_project_set,
 )
 
-PROJECT_ADD_AUTOLOAD_COMMAND: HeadlessCommand[ProjectAddAutoloadResult] = HeadlessCommand(
-    operation="project-add-autoload",
-    input_model=ProjectAddAutoloadParams,
-    output_model=ProjectAddAutoloadResult,
-    render=render_project_add_autoload,
+PROJECT_ADD_AUTOLOAD_COMMAND: HeadlessCommand[ProjectAddAutoloadResult] = (
+    HeadlessCommand(
+        operation="project-add-autoload",
+        input_model=ProjectAddAutoloadParams,
+        output_model=ProjectAddAutoloadResult,
+        render=render_project_add_autoload,
+    )
 )
 
 PROJECT_REMOVE_AUTOLOAD_COMMAND: HeadlessCommand[ProjectRemoveAutoloadResult] = (
@@ -2145,9 +2143,7 @@ def set_property(
     """Set a node property, coercing the value to its declared Godot type."""
     _dispatch(
         NODE_SET_COMMAND,
-        NodeSetParams(
-            path=path, node=node, property=property, value=value
-        ),
+        NodeSetParams(path=path, node=node, property=property, value=value),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -2621,7 +2617,8 @@ def project_info(
 @project_app.command(name="get", cls=PROJECT_GET_COMMAND.command_class())
 def project_get(
     setting: str = typer.Argument(
-        ..., help="The project setting's full section/key name (e.g. application/config/name)."
+        ...,
+        help="The project setting's full section/key name (e.g. application/config/name).",
     ),
     json_output: bool = json_option(),
     schema: bool = PROJECT_GET_COMMAND.schema_option(),
@@ -2695,9 +2692,7 @@ def create(
 ) -> None:
     """Create a new .gdshader from a template or verbatim --content."""
     if content is not None and shader_type is not None:
-        raise typer.BadParameter(
-            "--content and --shader-type are mutually exclusive."
-        )
+        raise typer.BadParameter("--content and --shader-type are mutually exclusive.")
     _dispatch(
         SHADER_CREATE_COMMAND,
         ShaderCreateParams(
@@ -2734,7 +2729,9 @@ def get_resource(
 def set_resource(
     path: str = typer.Argument(..., help="The .tres resource file to mutate."),
     property: str = typer.Option(
-        ..., "--property", help="The resource property to set (e.g. interpolation_mode)."
+        ...,
+        "--property",
+        help="The resource property to set (e.g. interpolation_mode).",
     ),
     value: str = typer.Option(
         ...,
@@ -2753,9 +2750,7 @@ def set_resource(
     """Set a .tres property, coercing the value to its declared Godot type, then save."""
     _dispatch(
         RESOURCE_SET_COMMAND,
-        ResourceSetParams(
-            path=path, property=property, value=value
-        ),
+        ResourceSetParams(path=path, property=property, value=value),
         json_output=json_output,
         godot=godot,
         project=project,
@@ -3037,7 +3032,8 @@ def set_shader(
 @project_app.command(name="set", cls=PROJECT_SET_COMMAND.command_class())
 def project_set(
     setting: str = typer.Argument(
-        ..., help="The project setting's full section/key name (e.g. application/config/name)."
+        ...,
+        help="The project setting's full section/key name (e.g. application/config/name).",
     ),
     value: str = typer.Option(
         ...,
@@ -3071,7 +3067,8 @@ def project_add_autoload(
         ..., help="The autoload singleton's global name (the autoload/<name> key)."
     ),
     path: str = typer.Argument(
-        ..., help="The res:// path to the script or scene to autoload (e.g. res://global.gd)."
+        ...,
+        help="The res:// path to the script or scene to autoload (e.g. res://global.gd).",
     ),
     json_output: bool = json_option(),
     schema: bool = PROJECT_ADD_AUTOLOAD_COMMAND.schema_option(),

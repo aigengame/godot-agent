@@ -134,9 +134,7 @@ HUMAN_CASES = [
                 }
             ],
         },
-        ". (Node2D)\n"
-        "  speed (float) = 3.5\n"
-        "  start (Vector2) = [1.0, 2.0]",
+        ". (Node2D)\n  speed (float) = 3.5\n  start (Vector2) = [1.0, 2.0]",
     ),
     (
         "scene-get-exports-empty",
@@ -201,9 +199,7 @@ HUMAN_CASES = [
                 {"name": "visible", "type": "bool", "value": True},
             ],
         },
-        "Hero (Sprite2D)\n"
-        "  position (Vector2) = [10.0, 20.0]\n"
-        "  visible (bool) = true",
+        "Hero (Sprite2D)\n  position (Vector2) = [10.0, 20.0]\n  visible (bool) = true",
     ),
     (
         # node set whose Vector2 value exercises format_value (-> [x, y]).
@@ -471,7 +467,9 @@ def test_human_mode_cli_output_is_exactly_the_rendered_text(
     # with a fake runner, and assert the exact stdout: the renderer's text plus
     # the single trailing newline typer.echo adds. This pins #139's render
     # dispatch + #140's gda.render end-to-end, per command.
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(app, argv)
 

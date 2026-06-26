@@ -889,9 +889,7 @@ def test_project_find_unused_resources_schema_emits_model_derived_contract():
         ProjectFindUnusedResourcesResult,
     )
 
-    result = CliRunner().invoke(
-        app, ["project", "find-unused-resources", "--schema"]
-    )
+    result = CliRunner().invoke(app, ["project", "find-unused-resources", "--schema"])
 
     assert result.exit_code == 0
     doc = json.loads(result.stdout)
@@ -995,9 +993,7 @@ def test_sample_project_results_validate_against_emitted_output_schemas():
         CliRunner().invoke(app, ["project", "dependencies", "--schema"]).stdout
     )
     unused_doc = json.loads(
-        CliRunner()
-        .invoke(app, ["project", "find-unused-resources", "--schema"])
-        .stdout
+        CliRunner().invoke(app, ["project", "find-unused-resources", "--schema"]).stdout
     )
     stats_doc = json.loads(
         CliRunner().invoke(app, ["project", "statistics", "--schema"]).stdout
@@ -1155,8 +1151,12 @@ def test_sample_game_results_validate_against_emitted_output_schemas():
 def test_perf_commands_schema_report_kind_live_and_are_model_derived():
     # The LIVE perf commands (#223) self-describe like any command — input/output
     # contracts derived from their models, plus the LIVE execution kind (ADR-0017).
-    monitors_doc = json.loads(CliRunner().invoke(app, ["perf", "monitors", "--schema"]).stdout)
-    monitor_doc = json.loads(CliRunner().invoke(app, ["perf", "monitor", "--schema"]).stdout)
+    monitors_doc = json.loads(
+        CliRunner().invoke(app, ["perf", "monitors", "--schema"]).stdout
+    )
+    monitor_doc = json.loads(
+        CliRunner().invoke(app, ["perf", "monitor", "--schema"]).stdout
+    )
 
     for doc in (monitors_doc, monitor_doc):
         assert "input" in doc and "output" in doc
@@ -1172,12 +1172,20 @@ def test_sample_perf_results_validate_against_emitted_output_schemas():
         PERF_MONITORS_RESULT,
     )
 
-    monitors_doc = json.loads(CliRunner().invoke(app, ["perf", "monitors", "--schema"]).stdout)
-    monitor_doc = json.loads(CliRunner().invoke(app, ["perf", "monitor", "--schema"]).stdout)
+    monitors_doc = json.loads(
+        CliRunner().invoke(app, ["perf", "monitors", "--schema"]).stdout
+    )
+    monitor_doc = json.loads(
+        CliRunner().invoke(app, ["perf", "monitor", "--schema"]).stdout
+    )
 
     jsonschema.validate(instance=PERF_MONITORS_RESULT, schema=monitors_doc["output"])
-    jsonschema.validate(instance=PERF_MONITOR_PROPERTY_RESULT, schema=monitor_doc["output"])
-    jsonschema.validate(instance=PERF_MONITOR_SIGNAL_RESULT, schema=monitor_doc["output"])
+    jsonschema.validate(
+        instance=PERF_MONITOR_PROPERTY_RESULT, schema=monitor_doc["output"]
+    )
+    jsonschema.validate(
+        instance=PERF_MONITOR_SIGNAL_RESULT, schema=monitor_doc["output"]
+    )
 
 
 def test_input_commands_schema_report_kind_live_and_are_model_derived():
@@ -1213,10 +1221,18 @@ def test_sample_input_results_validate_against_emitted_output_schemas():
     )
 
     key_doc = json.loads(CliRunner().invoke(app, ["input", "key", "--schema"]).stdout)
-    click_doc = json.loads(CliRunner().invoke(app, ["input", "mouse-click", "--schema"]).stdout)
-    move_doc = json.loads(CliRunner().invoke(app, ["input", "mouse-move", "--schema"]).stdout)
-    action_doc = json.loads(CliRunner().invoke(app, ["input", "action", "--schema"]).stdout)
-    seq_doc = json.loads(CliRunner().invoke(app, ["input", "sequence", "--schema"]).stdout)
+    click_doc = json.loads(
+        CliRunner().invoke(app, ["input", "mouse-click", "--schema"]).stdout
+    )
+    move_doc = json.loads(
+        CliRunner().invoke(app, ["input", "mouse-move", "--schema"]).stdout
+    )
+    action_doc = json.loads(
+        CliRunner().invoke(app, ["input", "action", "--schema"]).stdout
+    )
+    seq_doc = json.loads(
+        CliRunner().invoke(app, ["input", "sequence", "--schema"]).stdout
+    )
 
     jsonschema.validate(instance=INPUT_KEY_RESULT, schema=key_doc["output"])
     jsonschema.validate(instance=INPUT_MOUSE_CLICK_RESULT, schema=click_doc["output"])
@@ -1230,9 +1246,7 @@ def test_schema_kind_is_identical_via_argv_and_params_json_forms():
     # argv form and the `--params-json` form (the --schema check runs first), so
     # the emitted `kind` must be byte-identical between the two — proving the one
     # source of truth is threaded through, not duplicated per path.
-    argv_doc = json.loads(
-        CliRunner().invoke(app, ["scene", "get", "--schema"]).stdout
-    )
+    argv_doc = json.loads(CliRunner().invoke(app, ["scene", "get", "--schema"]).stdout)
     params_json_doc = json.loads(
         CliRunner()
         .invoke(app, ["scene", "get", "--params-json", "{}", "--schema"])
@@ -1316,9 +1330,7 @@ def test_schema_constraints_are_identical_via_argv_and_params_json_forms():
     # byte-identical across the two — proving the one predicate is threaded
     # through, not duplicated per path (#233). Use a LIVE command so the field is
     # populated, not null.
-    argv_doc = json.loads(
-        CliRunner().invoke(app, ["game", "tree", "--schema"]).stdout
-    )
+    argv_doc = json.loads(CliRunner().invoke(app, ["game", "tree", "--schema"]).stdout)
     params_json_doc = json.loads(
         CliRunner()
         .invoke(app, ["game", "tree", "--params-json", "{}", "--schema"])

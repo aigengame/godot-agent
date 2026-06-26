@@ -27,7 +27,6 @@ needs its own ``project.godot`` must build it through this helper (passing its
 extra sections via ``extra``) so the logging stays disabled.
 """
 
-import os
 import shutil
 import tempfile
 from pathlib import Path

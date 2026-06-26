@@ -77,8 +77,8 @@ def test_skill_md_tables_match_the_command_surface():
                 f"  [{group}] SKILL.md missing {sorted(want - have)} / "
                 f"stale {sorted(have - want)}"
             )
-    assert not diffs, "SKILL.md command tables have drifted from the surface:\n" + "\n".join(
-        diffs
+    assert not diffs, (
+        "SKILL.md command tables have drifted from the surface:\n" + "\n".join(diffs)
     )
 
 

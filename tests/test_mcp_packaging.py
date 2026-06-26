@@ -43,8 +43,12 @@ def test_gda_core_does_not_import_mcp():
     # MCP cost. Checked in a fresh interpreter (this test process already has mcp
     # loaded from the fast tier) that imports the whole CLI surface.
     proc = subprocess.run(
-        [sys.executable, "-c", "import gda.cli, gda.__main__, sys; "
-         "assert 'mcp' not in sys.modules, sorted(m for m in sys.modules if 'mcp' in m)"],
+        [
+            sys.executable,
+            "-c",
+            "import gda.cli, gda.__main__, sys; "
+            "assert 'mcp' not in sys.modules, sorted(m for m in sys.modules if 'mcp' in m)",
+        ],
         capture_output=True,
         text=True,
     )

@@ -28,7 +28,9 @@ def _project(tmp_path):
     return tmp_path
 
 
-def test_game_tree_emits_runtime_tree_json_through_the_live_channel(monkeypatch, tmp_path):
+def test_game_tree_emits_runtime_tree_json_through_the_live_channel(
+    monkeypatch, tmp_path
+):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(GAME_TREE_RESULT), stderr="", exit_code=0),
@@ -98,7 +100,9 @@ def test_game_tree_on_non_unix_reports_live_unsupported_platform(monkeypatch, tm
 # --- game get (live runtime property read) -----------------------------------
 
 
-def test_game_get_emits_runtime_properties_through_the_live_channel(monkeypatch, tmp_path):
+def test_game_get_emits_runtime_properties_through_the_live_channel(
+    monkeypatch, tmp_path
+):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(GAME_GET_RESULT), stderr="", exit_code=0),
@@ -106,7 +110,14 @@ def test_game_get_emits_runtime_properties_through_the_live_channel(monkeypatch,
 
     result = CliRunner().invoke(
         app,
-        ["game", "get", "/root/Main/Player", "--project", str(_project(tmp_path)), "--json"],
+        [
+            "game",
+            "get",
+            "/root/Main/Player",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -119,7 +130,9 @@ def test_game_get_emits_runtime_properties_through_the_live_channel(monkeypatch,
     assert fake.calls == [("game-get", {"node": "/root/Main/Player", "property": None})]
 
 
-def test_game_get_passes_the_property_filter_through_the_live_channel(monkeypatch, tmp_path):
+def test_game_get_passes_the_property_filter_through_the_live_channel(
+    monkeypatch, tmp_path
+):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(GAME_GET_RESULT), stderr="", exit_code=0),
@@ -128,9 +141,14 @@ def test_game_get_passes_the_property_filter_through_the_live_channel(monkeypatc
     result = CliRunner().invoke(
         app,
         [
-            "game", "get", "/root/Main/Player",
-            "--property", "position",
-            "--project", str(_project(tmp_path)), "--json",
+            "game",
+            "get",
+            "/root/Main/Player",
+            "--property",
+            "position",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -156,7 +174,14 @@ def test_game_get_missing_node_reports_live_node_not_found(monkeypatch, tmp_path
 
     result = CliRunner().invoke(
         app,
-        ["game", "get", "/root/Main/Ghost", "--project", str(_project(tmp_path)), "--json"],
+        [
+            "game",
+            "get",
+            "/root/Main/Ghost",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
@@ -178,9 +203,14 @@ def test_game_get_unknown_property_reports_live_unknown_property(monkeypatch, tm
     result = CliRunner().invoke(
         app,
         [
-            "game", "get", "/root/Main/Player",
-            "--property", "nope",
-            "--project", str(_project(tmp_path)), "--json",
+            "game",
+            "get",
+            "/root/Main/Player",
+            "--property",
+            "nope",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -195,7 +225,14 @@ def test_game_get_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_pat
 
     result = CliRunner().invoke(
         app,
-        ["game", "get", "/root/Main/Player", "--project", str(_project(tmp_path)), "--json"],
+        [
+            "game",
+            "get",
+            "/root/Main/Player",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
@@ -225,9 +262,16 @@ def test_game_set_mutates_and_echoes_coerced_value_through_the_live_channel(
     result = CliRunner().invoke(
         app,
         [
-            "game", "set", "/root/Main/Player",
-            "--property", "position", "--value", "10,20",
-            "--project", str(_project(tmp_path)), "--json",
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "position",
+            "--value",
+            "10,20",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -260,9 +304,16 @@ def test_game_set_missing_node_reports_live_node_not_found(monkeypatch, tmp_path
     result = CliRunner().invoke(
         app,
         [
-            "game", "set", "/root/Main/Ghost",
-            "--property", "position", "--value", "1,2",
-            "--project", str(_project(tmp_path)), "--json",
+            "game",
+            "set",
+            "/root/Main/Ghost",
+            "--property",
+            "position",
+            "--value",
+            "1,2",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -285,9 +336,16 @@ def test_game_set_unknown_property_reports_live_unknown_property(monkeypatch, tm
     result = CliRunner().invoke(
         app,
         [
-            "game", "set", "/root/Main/Player",
-            "--property", "nope", "--value", "1",
-            "--project", str(_project(tmp_path)), "--json",
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "nope",
+            "--value",
+            "1",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -297,7 +355,9 @@ def test_game_set_unknown_property_reports_live_unknown_property(monkeypatch, tm
     assert error["category"] == "live"
 
 
-def test_game_set_uncoercible_value_reports_live_uncoercible_value(monkeypatch, tmp_path):
+def test_game_set_uncoercible_value_reports_live_uncoercible_value(
+    monkeypatch, tmp_path
+):
     inject_live_runner(
         monkeypatch,
         RunResult(
@@ -310,9 +370,16 @@ def test_game_set_uncoercible_value_reports_live_uncoercible_value(monkeypatch, 
     result = CliRunner().invoke(
         app,
         [
-            "game", "set", "/root/Main/Player",
-            "--property", "position", "--value", "not-a-vector",
-            "--project", str(_project(tmp_path)), "--json",
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "position",
+            "--value",
+            "not-a-vector",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -328,9 +395,16 @@ def test_game_set_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_pat
     result = CliRunner().invoke(
         app,
         [
-            "game", "set", "/root/Main/Player",
-            "--property", "position", "--value", "1,2",
-            "--project", str(_project(tmp_path)), "--json",
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "position",
+            "--value",
+            "1,2",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 

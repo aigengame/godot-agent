@@ -102,7 +102,15 @@ def test_export_run_json_reports_configured_path_and_exit_zero(monkeypatch, tmp_
 
     result = CliRunner().invoke(
         app,
-        ["export", "run", "--preset", "Linux/X11", "--project", str(tmp_path), "--json"],
+        [
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -127,7 +135,15 @@ def test_export_run_default_mode_is_release(monkeypatch, tmp_path):
 
     result = CliRunner().invoke(
         app,
-        ["export", "run", "--preset", "Linux/X11", "--project", str(tmp_path), "--json"],
+        [
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -146,9 +162,15 @@ def test_export_run_mode_selects_export_flavor(monkeypatch, tmp_path):
         result = CliRunner().invoke(
             app,
             [
-                "export", "run", "--preset", "Linux/X11",
-                "--mode", mode,
-                "--project", str(tmp_path), "--json",
+                "export",
+                "run",
+                "--preset",
+                "Linux/X11",
+                "--mode",
+                mode,
+                "--project",
+                str(tmp_path),
+                "--json",
             ],
         )
 
@@ -173,9 +195,14 @@ def test_export_run_rejects_unknown_mode(monkeypatch, tmp_path):
     result = CliRunner().invoke(
         app,
         [
-            "export", "run", "--preset", "Linux/X11",
-            "--mode", "nonsense",
-            "--project", str(tmp_path),
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--mode",
+            "nonsense",
+            "--project",
+            str(tmp_path),
         ],
     )
 
@@ -192,9 +219,15 @@ def test_export_run_output_overrides_configured_path(monkeypatch, tmp_path):
     result = CliRunner().invoke(
         app,
         [
-            "export", "run", "--preset", "Linux/X11",
-            "--output", "dist/custom.x86_64",
-            "--project", str(tmp_path), "--json",
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--output",
+            "dist/custom.x86_64",
+            "--project",
+            str(tmp_path),
+            "--json",
         ],
     )
 
@@ -216,9 +249,15 @@ def test_export_run_output_expands_leading_tilde(monkeypatch, tmp_path):
     result = CliRunner().invoke(
         app,
         [
-            "export", "run", "--preset", "Linux/X11",
-            "--output", "~/builds/game.x86_64",
-            "--project", str(tmp_path), "--json",
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--output",
+            "~/builds/game.x86_64",
+            "--project",
+            str(tmp_path),
+            "--json",
         ],
     )
 
@@ -241,9 +280,15 @@ def test_export_run_output_overrides_unset_configured_path(monkeypatch, tmp_path
     result = CliRunner().invoke(
         app,
         [
-            "export", "run", "--preset", "Linux/X11",
-            "--output", "dist/custom.x86_64",
-            "--project", str(tmp_path), "--json",
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--output",
+            "dist/custom.x86_64",
+            "--project",
+            str(tmp_path),
+            "--json",
         ],
     )
 
@@ -272,7 +317,15 @@ def test_export_run_surfaces_advisory_warnings(monkeypatch, tmp_path):
 
     result = CliRunner().invoke(
         app,
-        ["export", "run", "--preset", "Linux/X11", "--project", str(tmp_path), "--json"],
+        [
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -294,12 +347,24 @@ def test_export_run_missing_templates_is_structured_preflight(monkeypatch, tmp_p
     # spawning any native export — no stderr string-matching (ADR-0002), no native
     # run. The message names the templates_version the agent must install.
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    get = {**GET_RESULT, "templates_installed": False, "templates_version": "4.6.3.stable"}
+    get = {
+        **GET_RESULT,
+        "templates_installed": False,
+        "templates_version": "4.6.3.stable",
+    }
     _, export_runner = _inject(monkeypatch, get=get)
 
     result = CliRunner().invoke(
         app,
-        ["export", "run", "--preset", "Linux/X11", "--project", str(tmp_path), "--json"],
+        [
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 4
@@ -318,15 +383,25 @@ def test_export_run_pack_skips_template_preflight_when_missing(monkeypatch, tmp_
     # proceeds straight to the native runner. (release/debug, which DO need
     # templates, still fail fast — asserted by the parametric test below.)
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
-    get = {**GET_RESULT, "templates_installed": False, "templates_version": "4.6.3.stable"}
+    get = {
+        **GET_RESULT,
+        "templates_installed": False,
+        "templates_version": "4.6.3.stable",
+    }
     _, export_runner = _inject(monkeypatch, get=get)
 
     result = CliRunner().invoke(
         app,
         [
-            "export", "run", "--preset", "Linux/X11",
-            "--mode", "pack",
-            "--project", str(tmp_path), "--json",
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--mode",
+            "pack",
+            "--project",
+            str(tmp_path),
+            "--json",
         ],
     )
 
@@ -337,7 +412,9 @@ def test_export_run_pack_skips_template_preflight_when_missing(monkeypatch, tmp_
     assert export_runner.calls == [("Linux/X11", "pack", "build/game.x86_64")]
 
 
-def test_export_run_release_debug_still_require_templates_when_missing(monkeypatch, tmp_path):
+def test_export_run_release_debug_still_require_templates_when_missing(
+    monkeypatch, tmp_path
+):
     # The counterpart guard: release and debug DO need platform templates, so with
     # templates_installed=False they still fail fast with export_templates_missing
     # before any native run — only pack is exempt (#170).
@@ -353,9 +430,15 @@ def test_export_run_release_debug_still_require_templates_when_missing(monkeypat
         result = CliRunner().invoke(
             app,
             [
-                "export", "run", "--preset", "Linux/X11",
-                "--mode", mode,
-                "--project", str(tmp_path), "--json",
+                "export",
+                "run",
+                "--preset",
+                "Linux/X11",
+                "--mode",
+                mode,
+                "--project",
+                str(tmp_path),
+                "--json",
             ],
         )
 
@@ -379,7 +462,15 @@ def test_export_run_generic_failure_is_structured(monkeypatch, tmp_path):
 
     result = CliRunner().invoke(
         app,
-        ["export", "run", "--preset", "Linux/X11", "--project", str(tmp_path), "--json"],
+        [
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 4
@@ -399,7 +490,15 @@ def test_export_run_unset_path_is_structured(monkeypatch, tmp_path):
 
     result = CliRunner().invoke(
         app,
-        ["export", "run", "--preset", "Linux/X11", "--project", str(tmp_path), "--json"],
+        [
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 4
@@ -415,15 +514,18 @@ def test_export_run_unknown_preset_reuses_export_get_error(monkeypatch, tmp_path
     get_runner = FakeRunner(
         RunResult(
             stdout=sentinel(
-                {"error": {"code": "export_preset_not_found", "message": "no such preset"}}
+                {
+                    "error": {
+                        "code": "export_preset_not_found",
+                        "message": "no such preset",
+                    }
+                }
             ),
             stderr="",
             exit_code=4,
         )
     )
-    monkeypatch.setattr(
-        "gda.cli._make_runner", lambda binary, project=None: get_runner
-    )
+    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: get_runner)
     export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
     monkeypatch.setattr(
         "gda.cli._make_export_runner", lambda binary, project=None: export_runner
@@ -480,4 +582,6 @@ def test_export_run_human_output_echoes_artifact(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
-    assert "exported Linux/X11 (Linux/X11, release) -> build/game.x86_64" in result.stdout
+    assert (
+        "exported Linux/X11 (Linux/X11, release) -> build/game.x86_64" in result.stdout
+    )

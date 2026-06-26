@@ -277,7 +277,9 @@ def run_daemon_stop_operation(project: Optional[Path]) -> "DaemonStopResult | Fa
     return DaemonStopResult(stopped=True, pid=pid)
 
 
-def run_daemon_status_operation(project: Optional[Path]) -> "DaemonStatusResult | Failure":
+def run_daemon_status_operation(
+    project: Optional[Path],
+) -> "DaemonStatusResult | Failure":
     if not _is_unix():
         return _failure(
             "live_unsupported_platform",

@@ -298,8 +298,10 @@ def test_gda_log_level_participates_in_the_level_filter():
     # A rich record's level is a real LogLevel, so `--level warning` keeps a
     # warning gda_log record and drops an info one.
     log = (
-        _gda_log_line("info", "low", {}) + "\n"
-        + _gda_log_line("warning", "high", {}) + "\n"
+        _gda_log_line("info", "low", {})
+        + "\n"
+        + _gda_log_line("warning", "high", {})
+        + "\n"
     )
     records = parse_log_records(log, level="warning")
     messages = [r["message"] for r in records]

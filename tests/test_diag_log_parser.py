@@ -179,7 +179,10 @@ def test_parse_errors_backtrace_consumption_stops_before_the_next_error():
     log = BACKTRACE_LOG + "ERROR: second error\n   at: g (res://b.gd:2)\n"
     errors = parse_errors(log)
     assert len(errors) == 2
-    assert errors[0]["message"] == "Invalid call. Nonexistent function 'do_thing' in base 'Nil'."
+    assert (
+        errors[0]["message"]
+        == "Invalid call. Nonexistent function 'do_thing' in base 'Nil'."
+    )
     assert len(errors[0]["callstack"]) == 3
     assert errors[1]["message"] == "second error"
     assert errors[1]["function"] == "g"

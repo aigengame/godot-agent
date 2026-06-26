@@ -561,14 +561,38 @@ LOGGER_TAIL_RESULT = {
 # carrying its verbatim text (even an ``ERROR:`` header stays a plain info line).
 LOGGER_TAIL_RAW_RESULT = {
     "records": [
-        {"seq": 0, "level": "info", "message": "known line",
-         "source": None, "origin": None, "fields": {}},
-        {"seq": 1, "level": "info", "message": "ERROR: boom",
-         "source": None, "origin": None, "fields": {}},
-        {"seq": 2, "level": "info", "message": "   at: _ready (res://main.gd:9)",
-         "source": None, "origin": None, "fields": {}},
-        {"seq": 3, "level": "info", "message": "another line",
-         "source": None, "origin": None, "fields": {}},
+        {
+            "seq": 0,
+            "level": "info",
+            "message": "known line",
+            "source": None,
+            "origin": None,
+            "fields": {},
+        },
+        {
+            "seq": 1,
+            "level": "info",
+            "message": "ERROR: boom",
+            "source": None,
+            "origin": None,
+            "fields": {},
+        },
+        {
+            "seq": 2,
+            "level": "info",
+            "message": "   at: _ready (res://main.gd:9)",
+            "source": None,
+            "origin": None,
+            "fields": {},
+        },
+        {
+            "seq": 3,
+            "level": "info",
+            "message": "another line",
+            "source": None,
+            "origin": None,
+            "fields": {},
+        },
     ],
 }
 

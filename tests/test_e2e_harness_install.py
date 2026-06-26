@@ -70,7 +70,9 @@ def _assert_inert_boot(out: str, returncode: int) -> None:
     # Strengthened (#225): the autoload must not have opened a connection — no
     # daemon marker, so it returns early and touches no socket.
     for needle in _CONNECTION_NOISE:
-        assert needle not in out, f"unexpected harness connection activity: {needle}\n{out}"
+        assert needle not in out, (
+            f"unexpected harness connection activity: {needle}\n{out}"
+        )
     assert returncode == 0, out
 
 
@@ -132,14 +134,21 @@ def test_exported_pck_with_harness_runs_inert(tmp_path):
     # RAW engine export (bypasses gda's strip on purpose) so the harness is packed.
     packed = subprocess.run(
         [
-            str(GODOT), "--headless", "--path", str(tmp_path),
-            "--export-pack", "Pack", str(pck),
+            str(GODOT),
+            "--headless",
+            "--path",
+            str(tmp_path),
+            "--export-pack",
+            "Pack",
+            str(pck),
         ],
         capture_output=True,
         text=True,
         timeout=120,
     )
-    assert pck.exists(), f"expected packed .pck at {pck}\n{packed.stdout}{packed.stderr}"
+    assert pck.exists(), (
+        f"expected packed .pck at {pck}\n{packed.stdout}{packed.stderr}"
+    )
     # Non-trivial precondition: the harness path really is inside the pack (the pck
     # file table stores res:// paths as plaintext), so "inert" below is meaningful.
     assert b"gda_harness.gd" in pck.read_bytes(), "the harness was not packed"
@@ -263,8 +272,7 @@ def _exported_tree_has_harness(export_dir) -> bool:
     really shipped in the template build).
     """
     return any(
-        HARNESS_FILE.encode() in p.read_bytes()
-        for p in export_dir.rglob("*.pck")
+        HARNESS_FILE.encode() in p.read_bytes() for p in export_dir.rglob("*.pck")
     )
 
 
@@ -382,13 +390,24 @@ def test_template_feature_gates_the_harness_only_in_exported_builds(
     editor_token = "tok-editor"
     with _socket_probe(editor_sock) as probe:
         subprocess.run(
-            [str(GODOT), "--headless", "--path", str(tmp_path), "--quit",
-             "--", "gda-daemon", str(editor_sock), editor_token],
+            [
+                str(GODOT),
+                "--headless",
+                "--path",
+                str(tmp_path),
+                "--quit",
+                "--",
+                "gda-daemon",
+                str(editor_sock),
+                editor_token,
+            ],
             capture_output=True,
             text=True,
             timeout=60,
         )
-        assert probe.connected.wait(5), "editor binary never connected — the rig is broken"
+        assert probe.connected.wait(5), (
+            "editor binary never connected — the rig is broken"
+        )
         assert probe.token == editor_token.encode(), probe.token
 
     # Export a real DEBUG TEMPLATE binary that CONTAINS the harness. RAW `--export-debug`
@@ -398,8 +417,15 @@ def test_template_feature_gates_the_harness_only_in_exported_builds(
     export_dir.mkdir(parents=True, exist_ok=True)
     artifact = tmp_path / target.export_path
     exported = subprocess.run(
-        [str(GODOT), "--headless", "--path", str(tmp_path),
-         "--export-debug", target.preset, str(artifact)],
+        [
+            str(GODOT),
+            "--headless",
+            "--path",
+            str(tmp_path),
+            "--export-debug",
+            target.preset,
+            str(artifact),
+        ],
         capture_output=True,
         text=True,
         timeout=300,
@@ -419,8 +445,15 @@ def test_template_feature_gates_the_harness_only_in_exported_builds(
     tmpl_token = "tok-template"
     with _socket_probe(tmpl_sock) as probe:
         ran = subprocess.run(
-            [str(exe), "--headless", "--quit",
-             "--", "gda-daemon", str(tmpl_sock), tmpl_token],
+            [
+                str(exe),
+                "--headless",
+                "--quit",
+                "--",
+                "gda-daemon",
+                str(tmpl_sock),
+                tmpl_token,
+            ],
             capture_output=True,
             text=True,
             timeout=60,

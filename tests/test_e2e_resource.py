@@ -107,7 +107,9 @@ def test_resource_create_then_get_round_trip(godot_project):
     # resource create wrote.
     resource_path = godot_project / "palette.tres"
 
-    created = _gda("resource", "create", str(resource_path), "--type", "Gradient", "--json")
+    created = _gda(
+        "resource", "create", str(resource_path), "--type", "Gradient", "--json"
+    )
 
     assert created.returncode == 0, created.stdout + created.stderr
     data = json.loads(created.stdout)
@@ -137,7 +139,9 @@ def test_resource_create_into_nested_dir_reports_created_dirs(godot_project):
     # outermost to innermost (mirrors scene/script create).
     resource_path = godot_project / "art" / "palettes" / "sunset.tres"
 
-    created = _gda("resource", "create", str(resource_path), "--type", "Gradient", "--json")
+    created = _gda(
+        "resource", "create", str(resource_path), "--type", "Gradient", "--json"
+    )
 
     assert created.returncode == 0, created.stdout + created.stderr
     data = json.loads(created.stdout)
@@ -153,13 +157,13 @@ def test_resource_create_no_clobber_yields_already_exists(godot_project):
     # No-clobber: a create whose target already exists is refused with
     # already_exists, leaving the existing file untouched.
     resource_path = godot_project / "palette.tres"
-    first = _gda("resource", "create", str(resource_path), "--type", "Gradient", "--json")
+    first = _gda(
+        "resource", "create", str(resource_path), "--type", "Gradient", "--json"
+    )
     assert first.returncode == 0, first.stdout + first.stderr
     before = resource_path.read_text(encoding="utf-8")
 
-    second = _gda(
-        "resource", "create", str(resource_path), "--type", "Curve", "--json"
-    )
+    second = _gda("resource", "create", str(resource_path), "--type", "Curve", "--json")
 
     err = _assert_operation_error(second, "already_exists")
     assert str(resource_path) in err["message"]
@@ -200,9 +204,7 @@ def test_resource_create_non_resource_type_yields_invalid_resource_type(godot_pr
 def test_resource_create_non_tres_path_yields_invalid_path(godot_project):
     bad_path = godot_project / "palette.txt"
 
-    created = _gda(
-        "resource", "create", str(bad_path), "--type", "Gradient", "--json"
-    )
+    created = _gda("resource", "create", str(bad_path), "--type", "Gradient", "--json")
 
     err = _assert_operation_error(created, "invalid_path")
     assert ".tres" in err["message"]
@@ -239,7 +241,9 @@ def test_resource_set_coerces_persists_and_round_trips_via_get(godot_project):
     # type, saves the .tres, and get reports the coerced value — resource get IS
     # the structured-level verification that set persisted.
     resource_path = godot_project / "palette.tres"
-    created = _gda("resource", "create", str(resource_path), "--type", "Gradient", "--json")
+    created = _gda(
+        "resource", "create", str(resource_path), "--type", "Gradient", "--json"
+    )
     assert created.returncode == 0, created.stdout + created.stderr
 
     was_set = _gda(
@@ -309,8 +313,14 @@ def test_resource_set_with_external_edit_in_window_yields_file_changed_externall
 
     was_set = _gda_env(
         {"GDA_TEST_PERTURB_BEFORE_SAVE": "1"},
-        "resource", "set", str(resource_path),
-        "--property", "resource_name", "--value", "Sunset", "--json",
+        "resource",
+        "set",
+        str(resource_path),
+        "--property",
+        "resource_name",
+        "--value",
+        "Sunset",
+        "--json",
     )
 
     err = _assert_operation_error(was_set, "file_changed_externally")
@@ -388,7 +398,9 @@ def test_resource_delete_removes_file_and_round_trips_against_get(godot_project)
     # create → delete → get: delete removes the .tres and reports what was removed
     # (path + type); a subsequent get is now path_not_found, closing the lifecycle.
     resource_path = godot_project / "palette.tres"
-    created = _gda("resource", "create", str(resource_path), "--type", "Gradient", "--json")
+    created = _gda(
+        "resource", "create", str(resource_path), "--type", "Gradient", "--json"
+    )
     assert created.returncode == 0, created.stdout + created.stderr
     assert resource_path.exists()
 
@@ -514,7 +526,15 @@ def test_resource_uid_projectless_run_is_project_not_found():
     # Resolution queries the project's UID cache, so a projectless run is refused
     # with project_not_found rather than a misleading "no UID" answer.
     proc = subprocess.run(
-        [*GDA_CMD, "resource", "uid", "uid://b00000000000b", "--godot", str(GODOT), "--json"],
+        [
+            *GDA_CMD,
+            "resource",
+            "uid",
+            "uid://b00000000000b",
+            "--godot",
+            str(GODOT),
+            "--json",
+        ],
         capture_output=True,
         text=True,
     )
