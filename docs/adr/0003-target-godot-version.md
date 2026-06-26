@@ -46,3 +46,11 @@ making "version too old" a programmatically detectable failure.
   provide 4.6+ — the headless suites still run on 4.4+.
 - 3.x is explicitly unsupported.
 - The minimum-version check depends on the `gda info` operation (issue #2) existing.
+- **Export-template detection is standard-official-builds only** (#304, 2026-06-26):
+  `gda`'s export-template readiness (`export get`'s `templates_installed`, used by the
+  `export run` preflight) reconstructs the per-version templates directory from
+  `Engine.get_version_info()`, which exposes no module/precision field. A **non-standard
+  build** — `.mono` (C#) or `.double` (double precision) — names its real templates dir
+  with a `.mono`/`.double` suffix gda cannot reconstruct, so it may under-report
+  templates on those variants. This narrowing is intentional within the 4.x/4.4+ target,
+  not an accidental false-negative.

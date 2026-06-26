@@ -1956,24 +1956,47 @@ func _export_preset_summary(config: ConfigFile, section: String, index: int) -> 
 
 
 # The export-templates version directory name for the running engine, e.g.
-# "4.6.3.stable" — major.minor.patch.status, matching how the editor names the
-# per-version templates folder under <data_dir>/Godot/export_templates/.
+# "4.6.stable" (4.6.0) or "4.6.3.stable" (4.6.3) — major.minor[.patch].status,
+# matching how the editor names the per-version templates folder under
+# <data_dir>/<godot-dir>/export_templates/. The patch component is OMITTED when it
+# is 0 — exactly as Engine.get_version_info()'s version string does (engine.cpp) and
+# as the official export-template archives are named — so a .0 release resolves to
+# "<major>.<minor>.<status>", not "<major>.<minor>.0.<status>".
+# Known limitation (#304): a NON-standard build appends a module/precision suffix to
+# the real dir name (FULL_CONFIG — e.g. "4.6.stable.mono" for a C# build, "...double"
+# for double precision), which Engine.get_version_info() exposes no field to
+# reconstruct. gda targets STANDARD official builds, where that suffix is empty.
 func _export_templates_version_dir() -> String:
 	var v := Engine.get_version_info()
-	return "%d.%d.%d.%s" % [v.major, v.minor, v.patch, v.status]
+	var dir := "%d.%d" % [v.major, v.minor]
+	if int(v.patch) != 0:
+		dir += ".%d" % v.patch
+	return "%s.%s" % [dir, v.status]
 
 
 # Whether the export templates for the running engine version are installed:
 # their per-version directory exists under the user data dir's
-# Godot/export_templates/. Headless --script runs have no EditorPaths singleton,
-# so the path is derived from OS.get_data_dir() (the same root the editor uses)
-# plus the fixed "Godot/export_templates/<version>" layout. This is the readiness
-# signal an agent checks before a future export run (issue #121); it does not
-# verify per-platform template files, only that the version's templates are
+# <godot-dir>/export_templates/. Headless --script runs have no EditorPaths
+# singleton, so the path is derived from OS.get_data_dir() (the same root the editor
+# uses) plus the "<godot-dir>/export_templates/<version>" layout, where <godot-dir>
+# is the engine's per-platform user-dir name (see _godot_user_dir_name — lowercase
+# "godot" on case-sensitive Linux, NOT the macOS/Windows "Godot"). This is the
+# readiness signal an agent checks before a future export run (issue #121); it does
+# not verify per-platform template files, only that the version's templates are
 # present at all.
 func _export_templates_installed(version_dir: String) -> bool:
-	var templates_root := OS.get_data_dir().path_join("Godot").path_join("export_templates")
+	var templates_root := OS.get_data_dir().path_join(_godot_user_dir_name()).path_join("export_templates")
 	return DirAccess.dir_exists_absolute(templates_root.path_join(version_dir))
+
+
+# The engine's per-platform user-data directory name. macOS and Windows capitalize it
+# ("Godot"); every other platform — Linux and the BSDs — uses lowercase "godot", and
+# their filesystems are case-sensitive, so the case is load-bearing. Mirrors the C++
+# OS::get_godot_dir_name() (its default is lowercase; only macOS/Windows override it),
+# which a headless --script run cannot call.
+func _godot_user_dir_name() -> String:
+	var os_name := OS.get_name()
+	return "Godot" if os_name == "macOS" or os_name == "Windows" else "godot"
 
 
 # resource-uid: resolve a Godot resource UID to/from its resource path in BOTH

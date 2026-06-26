@@ -1,7 +1,9 @@
 name: Install Godot
 description: >-
-  Download (and cache) a headless Godot binary and export GDA_GODOT for later
-  steps. Single source of truth for the Godot version shared by CI and Release.
+  Download (and cache) a headless Godot binary AND its matching export templates,
+  and export GDA_GODOT for later steps. Single source of truth for the Godot version
+  shared by CI and Release; the export templates let the e2e job run the #301
+  template-gate behavioural proof, which exports a real template binary.
 
 inputs:
   godot-version:
@@ -43,3 +45,45 @@ runs:
       run: |
         chmod +x "${GDA_GODOT}"
         "${GDA_GODOT}" --headless --version
+
+    # Export templates for the SAME pinned engine, required only by the #301
+    # template-gate behavioural e2e (it exports a real template binary); every other
+    # e2e needs only the editor binary above. Godot keys templates on a per-version
+    # directory under its user-data dir — lowercase "godot" on Linux — whose name is
+    # the engine's version-config string (e.g. "4.6.stable" for 4.6.0, "4.6.3.stable"
+    # for 4.6.3 — the patch is OMITTED when 0). That name is authoritative in the
+    # .tpz's templates/version.txt, so the version dir is named from THAT, not guessed
+    # from the release tag. The root honors XDG_DATA_HOME so it matches where the
+    # engine (and gda's export-get) actually look.
+    - name: Resolve export-template paths
+      shell: bash
+      run: |
+        echo "GODOT_TEMPLATES_ROOT=${XDG_DATA_HOME:-$HOME/.local/share}/godot/export_templates" >> "$GITHUB_ENV"
+
+    - name: Restore cached export templates
+      id: templates-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.GODOT_TEMPLATES_ROOT }}
+        key: godot-templates-${{ inputs.godot-version }}-linux
+
+    - name: Download export templates
+      if: steps.templates-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        curl --fail --location --show-error \
+          --output "${RUNNER_TEMP}/templates.tpz" \
+          "https://github.com/godotengine/godot/releases/download/${{ inputs.godot-version }}/Godot_v${{ inputs.godot-version }}_export_templates.tpz"
+        # A .tpz is a zip whose top-level templates/ holds the per-platform files plus
+        # version.txt (the engine's FULL_CONFIG); flatten them into <root>/<version>/.
+        unzip -q "${RUNNER_TEMP}/templates.tpz" -d "${RUNNER_TEMP}/tpz"
+        version="$(cat "${RUNNER_TEMP}/tpz/templates/version.txt")"
+        dest="${GODOT_TEMPLATES_ROOT}/${version}"
+        mkdir -p "${dest}"
+        mv "${RUNNER_TEMP}/tpz/templates/"* "${dest}/"
+
+    - name: Verify export templates
+      shell: bash
+      run: |
+        # The Linux/X11 debug template the #301 proof's --export-debug uses.
+        find "${GODOT_TEMPLATES_ROOT}" -name linux_debug.x86_64 | grep -q .

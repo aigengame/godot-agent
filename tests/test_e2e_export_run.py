@@ -27,9 +27,11 @@ path) run unconditionally.
 """
 
 import json
+import os
 import subprocess
-import warnings
+import sys
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -40,7 +42,7 @@ from gda.harness.install import (
     HARNESS_RES_DIR,
     install_harness,
 )
-from tests.support import GDA_CMD
+from tests.support import GDA_CMD, templates_installed
 
 GODOT = resolve_godot_binary()
 
@@ -90,13 +92,6 @@ def _gda_project(project) -> "callable":
         )
 
     return gda
-
-
-def _templates_installed(gda) -> bool:
-    """Ask the real engine (via export get) whether templates are installed."""
-    got = gda("export", "get", "--preset", "Linux/X11", "--json")
-    assert got.returncode == 0, got.stdout + got.stderr
-    return json.loads(got.stdout)["templates_installed"]
 
 
 @pytest.mark.e2e
@@ -151,6 +146,13 @@ def test_export_run_writes_to_configured_export_path(godot_project):
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )
+    # all_resources needs at least one exportable file, or the native export fails with
+    # "Must select at least one file to export." This success branch only runs where
+    # templates exist (CI now installs them, #301), so — like the pack tests below — it
+    # must carry pack content; a bare project.godot alone would fail the real export.
+    (godot_project / "main.gd").write_text(
+        "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
+    )
     configured_rel = "build/game.x86_64"
     artifact = godot_project / configured_rel
     artifact.parent.mkdir(parents=True, exist_ok=True)  # the preset's configured dir
@@ -158,7 +160,7 @@ def test_export_run_writes_to_configured_export_path(godot_project):
 
     run = gda("export", "run", "--preset", "Linux/X11", "--json")
 
-    if not _templates_installed(gda):
+    if not templates_installed(gda):
         # Templates absent: gda's structured preflight fails fast with
         # export_templates_missing, before any native export — so no artifact is
         # written. Verify that path live, then skip the success assertion cleanly.
@@ -278,32 +280,94 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
 
 
 @pytest.mark.e2e
-def test_template_gate_behavioural_proof_is_due_once_templates_exist(godot_project):
-    # TRIPWIRE for ADR-0028's harness `template` gate. The gate
-    # (`if OS.has_feature("template"): return`, the first statement of `_ready()`) is
-    # proven STATICALLY by
-    # tests/test_harness_install.py::test_ready_gates_on_template_feature_as_its_first_statement.
-    # Its BEHAVIOURAL proof needs a real exported TEMPLATE binary, which needs
-    # installed export templates (issue #301). The default PR CI both skips the e2e
-    # job AND lacks templates, so that gap could be silently forgotten. This guard
-    # stays a LOUD skip while templates are absent and emits a WARNING the moment a
-    # runner has them — so #301 gets implemented rather than left undone.
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="forces missing templates by pointing XDG_DATA_HOME at an empty dir, which "
+    "only the Linux/BSD engine honors as its data dir (macOS uses ~/Library/"
+    "Application Support); this restores the Linux CI coverage lost once CI installs "
+    "templates",
+)
+def test_export_run_without_templates_yields_export_templates_missing(
+    godot_project, tmp_path
+):
+    # Restores the LIVE (real-engine) coverage of the export_templates_missing
+    # structured preflight that installing export templates into CI removed: once CI
+    # has templates, test_export_run_writes_to_configured_export_path takes its success
+    # branch and its missing branch goes dead, leaving that error path on faked unit
+    # tests only (which RULES.md DoD says can pass while the artifact is broken). Here
+    # we point the engine's data dir (XDG_DATA_HOME) at an EMPTY dir so it finds NO
+    # export templates, then assert `gda export run` fails fast with the structured
+    # export_templates_missing code BEFORE any native export (#304).
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    (godot_project / "main.gd").write_text(
+        "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
+    )
+    empty_data = tmp_path / "empty-xdg"
+    empty_data.mkdir()
+
+    run = subprocess.run(
+        [
+            *GDA_CMD, "export", "run", "--preset", "Linux/X11", "--json",
+            "--godot", str(GODOT), "--project", str(godot_project),
+        ],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "XDG_DATA_HOME": str(empty_data)},
+    )
+
+    assert run.returncode == 4, run.stdout + run.stderr
+    err = json.loads(run.stdout)["error"]
+    assert err["code"] == "export_templates_missing", run.stdout + run.stderr
+    assert err["category"] == "operation"
+    # Fail-fast preflight: no native export ran, so nothing was written.
+    assert not (godot_project / "build").exists(), "no artifact when preflight fails"
+
+
+def _host_templates_on_disk() -> bool:
+    """Whether the running platform's export templates are PHYSICALLY present in the
+    engine's real user data dir — computed INDEPENDENTLY of gda's own path logic (the
+    code #304 fixed), by globbing for a platform template file under ANY version dir.
+    A detection regression (Linux ``godot`` vs ``Godot`` case, or a ``.0`` version-dir
+    name) shows up as disagreement between this and ``gda export get``.
+    """
+    home = Path(os.path.expanduser("~"))
+    if sys.platform == "darwin":
+        root = home / "Library" / "Application Support" / "Godot" / "export_templates"
+        return any(root.glob("*/macos.zip"))
+    if sys.platform.startswith("linux"):
+        data = Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share")
+        root = data / "godot" / "export_templates"
+        return any(root.glob("*/linux_release.x86_64")) or any(
+            root.glob("*/linux_debug.x86_64")
+        )
+    return False
+
+
+@pytest.mark.e2e
+def test_templates_installed_is_true_when_host_templates_are_on_disk(godot_project):
+    # #304 acceptance, as a HARD assertion: wherever the host's export templates are
+    # physically installed (the CI install-godot step, or a dev who installed them),
+    # `gda export get` MUST report templates_installed=true. This converts a
+    # template-path detection regression — the Linux user-dir case or the .0
+    # version-dir name — from a SILENT skip of the #301 proof into a RED failure (the
+    # very gap that hid the original #304 bug). It skips only where templates are
+    # genuinely absent (a dev box without them); CI always has them.
+    if not _host_templates_on_disk():
+        pytest.skip(
+            "no host export templates on disk (a dev box without them); the CI "
+            "install-godot step provides them, where this assertion guards the "
+            "template-installed path"
+        )
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )
     gda = _gda_project(godot_project)
-    if not _templates_installed(gda):
-        pytest.skip(
-            "export templates absent: the template-gate BEHAVIOURAL proof cannot run "
-            "here (covered statically by "
-            "test_ready_gates_on_template_feature_as_its_first_statement). Implement "
-            "it where templates exist — issue #301."
-        )
-    warnings.warn(
-        "Godot export templates are now installed: implement the behavioural "
-        "template-gate e2e (issue #301) — export a template binary, run it with a "
-        "`gda-daemon` marker + a live socket, and assert the harness never connects — "
-        "then remove this tripwire. Until then the `template` gate is proven only "
-        "statically.",
-        stacklevel=2,
+
+    # templates_installed is preset-independent (it only checks the version dir
+    # exists), so any real preset works; the on-disk check above is the source of truth.
+    assert templates_installed(gda) is True, (
+        "host export templates are present on disk but `gda export get` reports "
+        "templates_installed=false — the template-path detection regressed (#304)"
     )

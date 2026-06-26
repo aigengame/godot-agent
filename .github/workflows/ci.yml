@@ -13,7 +13,10 @@ on:
         default: false
         type: boolean
   schedule:
-    - cron: "24 3 * * 1"
+    # Nightly (03:24 UTC) — the automatic, dependable trigger for the godot-e2e job
+    # (workflow_dispatch with run-e2e is the on-demand extra). Daily so a regression in
+    # the real-engine tier is caught within a day rather than up to a week.
+    - cron: "24 3 * * *"
 
 permissions:
   contents: read
@@ -61,8 +64,14 @@ jobs:
         with:
           save-cache: false
 
+      # install-godot also installs the matching export templates, so this job can
+      # run the #301 template-gate behavioural proof (it exports a real template
+      # binary). Every other e2e needs only the editor binary.
       - name: Install Godot
         uses: ./.github/actions/install-godot
 
       - name: Run Godot e2e tests
-        run: uv run --frozen pytest -m e2e
+        # -rs surfaces skip reasons in the log (e.g. absent export templates, or no
+        # DisplayServer for windowed capture), so a silently-skipped e2e is visible
+        # rather than mistaken for a pass.
+        run: uv run --frozen pytest -m e2e -rs

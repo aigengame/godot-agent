@@ -13,7 +13,6 @@ not a fixed value.
 """
 
 import json
-import re
 import subprocess
 
 import pytest
@@ -55,9 +54,26 @@ export_path=""
 html/export_icon=true
 """
 
-# The export-templates version-directory pattern: major.minor.patch.status,
-# e.g. 4.6.3.stable — what export get reports as templates_version.
-VERSION_DIR = re.compile(r"^\d+\.\d+\.\d+\.[a-z0-9]+$")
+def _expected_templates_version() -> str:
+    """The export-templates version-dir name the running engine uses, derived from its
+    OWN version info — major.minor[.patch].status with the patch OMITTED when 0 (e.g.
+    "4.6.stable" for 4.6.0, "4.6.3.stable" for 4.6.3), exactly as engine.cpp formats
+    its version string. Asserting ``templates_version`` against THIS (not a loose
+    regex) makes a regression in operations.gd::_export_templates_version_dir — e.g.
+    re-adding the ``.0`` patch — fail RED here, instead of silently making the
+    template-gate e2e skip (templates_installed would go False on a .0 engine).
+    """
+    info = subprocess.run(
+        [*GDA_CMD, "info", "--json", "--godot", str(GODOT)],
+        capture_output=True,
+        text=True,
+    )
+    assert info.returncode == 0, info.stdout + info.stderr
+    v = json.loads(info.stdout)
+    base = f"{v['major']}.{v['minor']}"
+    if v["patch"]:
+        base += f".{v['patch']}"
+    return f"{base}.{v['status']}"
 
 
 def _gda_project(project) -> "callable":
@@ -167,10 +183,13 @@ def test_export_get_reports_preset_details_and_template_status(godot_project):
     assert data["platform"] == "Web"
     assert data["runnable"] is False
     assert data["export_path"] == ""
-    # Template readiness: a bool verdict plus the version dir it checked, matching
-    # the running engine's major.minor.patch.status.
+    # Template readiness: a bool verdict plus the EXACT version dir it checked —
+    # derived from the engine's own version (patch omitted for a .0 release), so a
+    # format regression is caught RED here rather than slipping past a loose regex.
     assert isinstance(data["templates_installed"], bool)
-    assert VERSION_DIR.match(data["templates_version"]), data["templates_version"]
+    assert data["templates_version"] == _expected_templates_version(), (
+        data["templates_version"]
+    )
 
 
 @pytest.mark.e2e
