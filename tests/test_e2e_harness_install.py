@@ -42,6 +42,7 @@ from gda.binary import resolve_godot_binary
 from gda.daemon.protocol import read_frame
 from gda.harness.install import (
     HARNESS_AUTOLOAD_NAME,
+    HARNESS_FILE,
     HARNESS_RES_PATH,
     install_harness,
 )
@@ -235,25 +236,35 @@ def _locate_exe(project, target: _ExportTarget):
     """
     artifact = project / target.export_path
     if sys.platform == "darwin":
-        # A macOS export is a .app bundle; the executable is the lone file under
-        # Contents/MacOS/ (named from the preset, so glob rather than guess it).
+        # A macOS export is a .app bundle; the executable is the lone real file under
+        # Contents/MacOS/ (named from the preset, so glob rather than guess it). Skip
+        # dotfiles (e.g. a stray .DS_Store) that would sort ahead of the binary.
         macos_dir = artifact / "Contents" / "MacOS"
-        exes = sorted(macos_dir.iterdir()) if macos_dir.is_dir() else []
+        exes = (
+            sorted(
+                p
+                for p in macos_dir.iterdir()
+                if p.is_file() and not p.name.startswith(".")
+            )
+            if macos_dir.is_dir()
+            else []
+        )
         return exes[0] if exes else None
     return artifact if artifact.exists() else None  # Linux: export_path IS the exe
 
 
 def _exported_tree_has_harness(export_dir) -> bool:
-    """Whether the harness script is anywhere in the exported artifact tree.
+    """Whether the harness script is packed into the exported artifact's pck.
 
-    The ``res://`` path is stored as plaintext in the pck (a sidecar on Linux,
-    embedded in the .app on macOS), so a recursive byte search finds it regardless of
-    layout — making the negative "no connection" result non-vacuous (the harness
+    The ``res://`` path is stored as plaintext in the project pack — a sidecar
+    ``game.pck`` on Linux, ``Contents/Resources/<name>.pck`` inside the .app on macOS
+    — so scanning the pck(s) finds it WITHOUT reading the multi-hundred-MB template
+    binary, and keeps the negative "no connection" result non-vacuous (the harness
     really shipped in the template build).
     """
     return any(
-        p.is_file() and b"gda_harness.gd" in p.read_bytes()
-        for p in export_dir.rglob("*")
+        HARNESS_FILE.encode() in p.read_bytes()
+        for p in export_dir.rglob("*.pck")
     )
 
 
@@ -286,12 +297,15 @@ class _SocketProbe:
             except OSError:
                 return
             with conn:
-                self.connected.set()
                 try:
                     conn.settimeout(2.0)
                     self.token = read_frame(conn)
                 except OSError:
                     pass
+                # Signal AFTER the token is read so a waiter gated on `connected` sees
+                # a populated `token` — no read-before-write race in the positive
+                # control (the harness sends the token as its first frame).
+                self.connected.set()
             return
 
     def stop(self) -> None:
@@ -418,7 +432,9 @@ def test_template_feature_gates_the_harness_only_in_exported_builds(
         assert "Parse Error" not in out_text, out_text
         assert ran.returncode == 0, out_text
         # The harness never connected: the `template` gate fired before marker handling.
-        assert not probe.connected.wait(1), (
+        # The binary has already exited, so a 0.5s grace (2 probe accept-poll cycles)
+        # is enough to catch any late backlog connection without padding every run.
+        assert not probe.connected.wait(0.5), (
             "the exported TEMPLATE binary connected — the `template` gate did NOT fire "
             "before marker/socket handling\n" + out_text
         )

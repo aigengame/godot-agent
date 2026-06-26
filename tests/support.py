@@ -32,10 +32,13 @@ def templates_installed(gda, preset: str = "Linux/X11") -> bool:
 
     ``gda`` is a bound ``gda <args> --json`` callable (e.g. the e2e tests'
     ``_gda_project``). The single source of truth for the e2e template-presence
-    policy, shared by the export-run happy-path skip and the harness
-    template-gate behavioural proof (#301). ``preset`` selects the platform whose
-    templates are queried — the behavioural proof exports the HOST platform, so it
-    must not hard-code ``Linux/X11``.
+    policy, shared by the export-run happy-path skip and the harness template-gate
+    behavioural proof (#301). ``preset`` only needs to NAME a preset that exists in
+    the project so ``export get`` succeeds; the verdict itself is preset-independent
+    — ``export get`` checks only that the engine's per-version templates DIRECTORY
+    exists, not the platform-specific template files — so a caller on a host with the
+    version dir present but the host platform's file missing still sees ``True`` and
+    must tolerate the export failing later.
     """
     got = gda("export", "get", "--preset", preset, "--json")
     assert got.returncode == 0, got.stdout + got.stderr

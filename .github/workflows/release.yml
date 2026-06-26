@@ -99,7 +99,9 @@ jobs:
         uses: ./.github/actions/install-godot
 
       - name: Run Godot e2e tests
-        run: uv run --frozen pytest -m e2e
+        # -rs surfaces skip reasons (absent export templates, no DisplayServer) so a
+        # silently-skipped e2e is visible in the release log, not mistaken for a pass.
+        run: uv run --frozen pytest -m e2e -rs
 
       - name: Validate release tag
         run: |

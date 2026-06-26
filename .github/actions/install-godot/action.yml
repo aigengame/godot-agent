@@ -50,13 +50,15 @@ runs:
     # template-gate behavioural e2e (it exports a real template binary); every other
     # e2e needs only the editor binary above. Godot keys templates on a per-version
     # directory under its user-data dir — lowercase "godot" on Linux — whose name is
-    # the engine's FULL_CONFIG (e.g. "4.6.0.stable", patch ALWAYS included). That name
-    # is authoritative in the .tpz's templates/version.txt, so the version dir is named
-    # from THAT, not guessed from the release tag (which omits the patch).
+    # the engine's version-config string (e.g. "4.6.stable" for 4.6.0, "4.6.3.stable"
+    # for 4.6.3 — the patch is OMITTED when 0). That name is authoritative in the
+    # .tpz's templates/version.txt, so the version dir is named from THAT, not guessed
+    # from the release tag. The root honors XDG_DATA_HOME so it matches where the
+    # engine (and gda's export-get) actually look.
     - name: Resolve export-template paths
       shell: bash
       run: |
-        echo "GODOT_TEMPLATES_ROOT=${HOME}/.local/share/godot/export_templates" >> "$GITHUB_ENV"
+        echo "GODOT_TEMPLATES_ROOT=${XDG_DATA_HOME:-$HOME/.local/share}/godot/export_templates" >> "$GITHUB_ENV"
 
     - name: Restore cached export templates
       id: templates-cache
