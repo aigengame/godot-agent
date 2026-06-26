@@ -28,7 +28,6 @@ path) run unconditionally.
 
 import json
 import subprocess
-import warnings
 import zipfile
 
 import pytest
@@ -40,7 +39,7 @@ from gda.harness.install import (
     HARNESS_RES_DIR,
     install_harness,
 )
-from tests.support import GDA_CMD
+from tests.support import GDA_CMD, templates_installed
 
 GODOT = resolve_godot_binary()
 
@@ -90,13 +89,6 @@ def _gda_project(project) -> "callable":
         )
 
     return gda
-
-
-def _templates_installed(gda) -> bool:
-    """Ask the real engine (via export get) whether templates are installed."""
-    got = gda("export", "get", "--preset", "Linux/X11", "--json")
-    assert got.returncode == 0, got.stdout + got.stderr
-    return json.loads(got.stdout)["templates_installed"]
 
 
 @pytest.mark.e2e
@@ -151,6 +143,13 @@ def test_export_run_writes_to_configured_export_path(godot_project):
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )
+    # all_resources needs at least one exportable file, or the native export fails with
+    # "Must select at least one file to export." This success branch only runs where
+    # templates exist (CI now installs them, #301), so — like the pack tests below — it
+    # must carry pack content; a bare project.godot alone would fail the real export.
+    (godot_project / "main.gd").write_text(
+        "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
+    )
     configured_rel = "build/game.x86_64"
     artifact = godot_project / configured_rel
     artifact.parent.mkdir(parents=True, exist_ok=True)  # the preset's configured dir
@@ -158,7 +157,7 @@ def test_export_run_writes_to_configured_export_path(godot_project):
 
     run = gda("export", "run", "--preset", "Linux/X11", "--json")
 
-    if not _templates_installed(gda):
+    if not templates_installed(gda):
         # Templates absent: gda's structured preflight fails fast with
         # export_templates_missing, before any native export — so no artifact is
         # written. Verify that path live, then skip the success assertion cleanly.
@@ -275,35 +274,3 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
     # The dev project is left UNTOUCHED: harness restored on disk and in config.
     assert harness_file.exists(), "the harness file must be restored after export"
     assert HARNESS_AUTOLOAD_NAME in project_godot.read_text(encoding="utf-8")
-
-
-@pytest.mark.e2e
-def test_template_gate_behavioural_proof_is_due_once_templates_exist(godot_project):
-    # TRIPWIRE for ADR-0028's harness `template` gate. The gate
-    # (`if OS.has_feature("template"): return`, the first statement of `_ready()`) is
-    # proven STATICALLY by
-    # tests/test_harness_install.py::test_ready_gates_on_template_feature_as_its_first_statement.
-    # Its BEHAVIOURAL proof needs a real exported TEMPLATE binary, which needs
-    # installed export templates (issue #301). The default PR CI both skips the e2e
-    # job AND lacks templates, so that gap could be silently forgotten. This guard
-    # stays a LOUD skip while templates are absent and emits a WARNING the moment a
-    # runner has them — so #301 gets implemented rather than left undone.
-    (godot_project / "export_presets.cfg").write_text(
-        EXPORT_PRESETS_CFG, encoding="utf-8"
-    )
-    gda = _gda_project(godot_project)
-    if not _templates_installed(gda):
-        pytest.skip(
-            "export templates absent: the template-gate BEHAVIOURAL proof cannot run "
-            "here (covered statically by "
-            "test_ready_gates_on_template_feature_as_its_first_statement). Implement "
-            "it where templates exist — issue #301."
-        )
-    warnings.warn(
-        "Godot export templates are now installed: implement the behavioural "
-        "template-gate e2e (issue #301) — export a template binary, run it with a "
-        "`gda-daemon` marker + a live socket, and assert the harness never connects — "
-        "then remove this tripwire. Until then the `template` gate is proven only "
-        "statically.",
-        stacklevel=2,
-    )

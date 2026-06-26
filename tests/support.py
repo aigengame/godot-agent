@@ -27,6 +27,21 @@ from gda.runner import RunResult
 GDA_CMD = [sys.executable, "-m", "gda"]
 
 
+def templates_installed(gda, preset: str = "Linux/X11") -> bool:
+    """Whether the running engine has export templates, via ``gda export get``.
+
+    ``gda`` is a bound ``gda <args> --json`` callable (e.g. the e2e tests'
+    ``_gda_project``). The single source of truth for the e2e template-presence
+    policy, shared by the export-run happy-path skip and the harness
+    template-gate behavioural proof (#301). ``preset`` selects the platform whose
+    templates are queried — the behavioural proof exports the HOST platform, so it
+    must not hard-code ``Linux/X11``.
+    """
+    got = gda("export", "get", "--preset", preset, "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    return json.loads(got.stdout)["templates_installed"]
+
+
 class FakeRunner:
     """A fakeable GodotRunner that records its calls and returns a canned result."""
 
