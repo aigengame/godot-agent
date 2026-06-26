@@ -29,6 +29,7 @@ path) run unconditionally.
 import json
 import shutil
 import subprocess
+import warnings
 import zipfile
 
 import pytest
@@ -277,3 +278,35 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
     # The dev project is left UNTOUCHED: harness restored on disk and in config.
     assert harness_file.exists(), "the harness file must be restored after export"
     assert HARNESS_AUTOLOAD_NAME in project_godot.read_text(encoding="utf-8")
+
+
+@pytest.mark.e2e
+def test_template_gate_behavioural_proof_is_due_once_templates_exist(godot_project):
+    # TRIPWIRE for ADR-0028's harness `template` gate. The gate
+    # (`if OS.has_feature("template"): return`, the first statement of `_ready()`) is
+    # proven STATICALLY by
+    # tests/test_harness_install.py::test_ready_gates_on_template_feature_as_its_first_statement.
+    # Its BEHAVIOURAL proof needs a real exported TEMPLATE binary, which needs
+    # installed export templates (issue #301). The default PR CI both skips the e2e
+    # job AND lacks templates, so that gap could be silently forgotten. This guard
+    # stays a LOUD skip while templates are absent and emits a WARNING the moment a
+    # runner has them — so #301 gets implemented rather than left undone.
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+    if not _templates_installed(gda):
+        pytest.skip(
+            "export templates absent: the template-gate BEHAVIOURAL proof cannot run "
+            "here (covered statically by "
+            "test_ready_gates_on_template_feature_as_its_first_statement). Implement "
+            "it where templates exist — issue #301."
+        )
+    warnings.warn(
+        "Godot export templates are now installed: implement the behavioural "
+        "template-gate e2e (issue #301) — export a template binary, run it with a "
+        "`gda-daemon` marker + a live socket, and assert the harness never connects — "
+        "then remove this tripwire. Until then the `template` gate is proven only "
+        "statically.",
+        stacklevel=2,
+    )
