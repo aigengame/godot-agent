@@ -8,21 +8,19 @@ verification of ``node add``'s effect.
 
 import json
 import os
-import shutil
 import subprocess
 
 import pytest
 
 from gda.binary import resolve_godot_binary
+from tests.support import GDA_CMD
 
 GODOT = resolve_godot_binary()
 
 
 def _gda(*args: str) -> subprocess.CompletedProcess:
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     return subprocess.run(
-        [gda_bin, *args, "--godot", str(GODOT)], capture_output=True, text=True
+        [*GDA_CMD, *args, "--godot", str(GODOT)], capture_output=True, text=True
     )
 
 
@@ -33,10 +31,8 @@ def _gda_env(extra_env: dict, *args: str) -> subprocess.CompletedProcess:
     this environment — the channel the production-inert
     ``GDA_TEST_PERTURB_BEFORE_SAVE`` test seam rides on (issue #226).
     """
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     return subprocess.run(
-        [gda_bin, *args, "--godot", str(GODOT)],
+        [*GDA_CMD, *args, "--godot", str(GODOT)],
         capture_output=True,
         text=True,
         env={**os.environ, **extra_env},

@@ -8,21 +8,19 @@ structured-level verification of ``scene create``'s effect.
 
 import json
 import os
-import shutil
 import subprocess
 
 import pytest
 
 from gda.binary import resolve_godot_binary
+from tests.support import GDA_CMD
 
 GODOT = resolve_godot_binary()
 
 
 def _gda(*args: str) -> subprocess.CompletedProcess:
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     return subprocess.run(
-        [gda_bin, *args, "--godot", str(GODOT)], capture_output=True, text=True
+        [*GDA_CMD, *args, "--godot", str(GODOT)], capture_output=True, text=True
     )
 
 
@@ -32,12 +30,9 @@ def test_res_path_round_trip_against_the_project_fixture(godot_project):
     # project fixture, a res:// path resolves against it — proving the fixture
     # is actually handed to the engine (it previously never reached it). The
     # created scene lands inside the project and reads back through res://.
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
-
     def gda(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [gda_bin, *args, "--godot", str(GODOT), "--project", str(godot_project)],
+            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(godot_project)],
             capture_output=True,
             text=True,
         )
@@ -135,12 +130,9 @@ def test_scene_create_creates_missing_parent_directories(godot_project):
 def test_scene_create_creates_relative_parent_directories_against_project(
     godot_project,
 ):
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
-
     created = subprocess.run(
         [
-            gda_bin,
+            *GDA_CMD,
             "scene",
             "create",
             "demo/main.tscn",
@@ -352,12 +344,10 @@ def test_scene_create_unknown_root_type_yields_structured_error_end_to_end(
 
 def _gda_project(project) -> "callable":
     """A ``_gda`` bound to ``--project`` for res:// enumeration/resolution."""
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
 
     def gda(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [gda_bin, *args, "--godot", str(GODOT), "--project", str(project)],
+            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
             capture_output=True,
             text=True,
         )
@@ -465,11 +455,8 @@ def test_scene_list_without_project_yields_project_not_found(tmp_path):
     # scene list cannot enumerate res:// projectless: run from a non-project
     # directory with no --project, it must refuse with the structured
     # project_not_found code rather than return a misleading empty listing.
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
-
     listed = subprocess.run(
-        [gda_bin, "scene", "list", "--json", "--godot", str(GODOT)],
+        [*GDA_CMD, "scene", "list", "--json", "--godot", str(GODOT)],
         capture_output=True,
         text=True,
         cwd=str(tmp_path),

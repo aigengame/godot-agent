@@ -17,25 +17,23 @@ import pytest
 from gda.binary import resolve_godot_binary
 from gda.runner import OPERATIONS_GD
 
+from tests.support import GDA_CMD
+
 GODOT = resolve_godot_binary()
 
 
 def _gda(*args: str) -> subprocess.CompletedProcess:
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     return subprocess.run(
-        [gda_bin, *args, "--godot", str(GODOT)], capture_output=True, text=True
+        [*GDA_CMD, *args, "--godot", str(GODOT)], capture_output=True, text=True
     )
 
 
 def _gda_project(project) -> "callable":
     """A ``_gda`` bound to ``--project`` for res:// enumeration/resolution."""
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
 
     def gda(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [gda_bin, *args, "--godot", str(GODOT), "--project", str(project)],
+            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
             capture_output=True,
             text=True,
         )
@@ -45,10 +43,8 @@ def _gda_project(project) -> "callable":
 
 def _gda_env(extra_env: dict, *args: str) -> subprocess.CompletedProcess:
     """``_gda`` with extra env vars in the child's environment (issue #226 seam)."""
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     return subprocess.run(
-        [gda_bin, *args, "--godot", str(GODOT)],
+        [*GDA_CMD, *args, "--godot", str(GODOT)],
         capture_output=True,
         text=True,
         env={**os.environ, **extra_env},
@@ -414,11 +410,8 @@ def test_script_list_without_project_yields_project_not_found(tmp_path):
     # script list cannot enumerate res:// projectless: run from a non-project
     # directory with no --project, it must refuse with the structured
     # project_not_found code rather than return a misleading empty listing.
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
-
     listed = subprocess.run(
-        [gda_bin, "script", "list", "--json", "--godot", str(GODOT)],
+        [*GDA_CMD, "script", "list", "--json", "--godot", str(GODOT)],
         capture_output=True,
         text=True,
         cwd=str(tmp_path),

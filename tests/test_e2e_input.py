@@ -14,12 +14,12 @@ project_godot (#180).
 
 import json
 import os
-import shutil
 import subprocess
 
 import pytest
 
 from gda.binary import resolve_godot_binary
+from tests.support import GDA_CMD
 
 from .conftest import project_godot
 
@@ -103,8 +103,6 @@ def test_daemon_serves_input_key_observed_via_game_get(tmp_path, daemon_runtime_
     # The #221 DoD: a real daemon -> engine session -> `input key Right` pushes a key
     # event into the running game, whose `_input` moves the Player, observed via
     # `game get` — end-to-end through the real harness over UDS (ADR-0020).
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(KEY_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(KEY_PLAYER_GD, encoding="utf-8")
@@ -113,7 +111,7 @@ def test_daemon_serves_input_key_observed_via_game_get(tmp_path, daemon_runtime_
 
     def run(*args):
         return subprocess.run(
-            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
             capture_output=True,
             text=True,
             env=env,
@@ -156,8 +154,6 @@ def test_daemon_serves_input_mouse_click_observed_via_game_get(tmp_path, daemon_
     # InputEventMouseButton through the real `push_input` viewport path into the
     # running game's `_input`, which snaps the Player to the click position —
     # observed via `game get` (ADR-0020).
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MOUSE_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(MOUSE_PLAYER_GD, encoding="utf-8")
@@ -166,7 +162,7 @@ def test_daemon_serves_input_mouse_click_observed_via_game_get(tmp_path, daemon_
 
     def run(*args):
         return subprocess.run(
-            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
             capture_output=True,
             text=True,
             env=env,
@@ -208,8 +204,6 @@ def test_daemon_serves_input_action_observed_via_game_get(tmp_path, daemon_runti
     # `input action move_right` presses an action the running InputMap declares; the
     # Player polls it each frame and advances. The press is held across frames until
     # released, so position.x increases — observed via game get.
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     (tmp_path / "project.godot").write_text(ACTION_PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(ACTION_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(ACTION_PLAYER_GD, encoding="utf-8")
@@ -218,7 +212,7 @@ def test_daemon_serves_input_action_observed_via_game_get(tmp_path, daemon_runti
 
     def run(*args):
         return subprocess.run(
-            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
             capture_output=True,
             text=True,
             env=env,
@@ -263,8 +257,6 @@ def test_daemon_serves_input_sequence_across_frames(tmp_path, daemon_runtime_dir
     # multi-frame base (#223), returned as ONE blocking result. Three Right presses at
     # frames 0/1/2 each move the Player by 10, so position.x advances by 30 over the
     # window — observed via game get.
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(KEY_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(KEY_PLAYER_GD, encoding="utf-8")
@@ -273,7 +265,7 @@ def test_daemon_serves_input_sequence_across_frames(tmp_path, daemon_runtime_dir
 
     def run(*args):
         return subprocess.run(
-            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
             capture_output=True,
             text=True,
             env=env,
@@ -320,8 +312,6 @@ def test_daemon_serves_input_sequence_across_frames(tmp_path, daemon_runtime_dir
 def test_input_action_unknown_action_reports_live_unknown_action(tmp_path, daemon_runtime_dir):
     # An action absent from the running InputMap is the typed harness op-error,
     # relayed through the daemon (exit-0 sentinel) and mapped by classify_live.
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(KEY_MAIN_TSCN, encoding="utf-8")
     (tmp_path / "player.gd").write_text(KEY_PLAYER_GD, encoding="utf-8")
@@ -330,7 +320,7 @@ def test_input_action_unknown_action_reports_live_unknown_action(tmp_path, daemo
 
     def run(*args):
         return subprocess.run(
-            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
             capture_output=True,
             text=True,
             env=env,
@@ -352,15 +342,13 @@ def test_input_action_unknown_action_reports_live_unknown_action(tmp_path, daemo
 @pytest.mark.e2e
 def test_input_key_without_a_daemon_reports_daemon_not_running(tmp_path):
     # The attach-or-fail path through the real DaemonRunner + discovery, no daemon.
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
 
     from gda.exit_codes import EXIT_LIVE
 
     env = {**os.environ, "XDG_RUNTIME_DIR": str(tmp_path / "run")}
     proc = subprocess.run(
-        [gda, "input", "key", "Right", "--project", str(tmp_path), "--json"],
+        [*GDA_CMD, "input", "key", "Right", "--project", str(tmp_path), "--json"],
         capture_output=True,
         text=True,
         env=env,

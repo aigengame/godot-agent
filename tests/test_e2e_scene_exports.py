@@ -12,21 +12,20 @@ The scene is built end-to-end with the real CLI: ``scene create`` →
 """
 
 import json
-import shutil
 import subprocess
 
 import pytest
 
 from gda.binary import resolve_godot_binary
 
+from tests.support import GDA_CMD
+
 GODOT = resolve_godot_binary()
 
 
 def _gda(*args: str) -> subprocess.CompletedProcess:
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     return subprocess.run(
-        [gda_bin, *args, "--godot", str(GODOT)], capture_output=True, text=True
+        [*GDA_CMD, *args, "--godot", str(GODOT)], capture_output=True, text=True
     )
 
 

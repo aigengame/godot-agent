@@ -21,13 +21,13 @@ within the `sun_path` limit.
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 
 import pytest
 
 from gda.binary import resolve_godot_binary
+from tests.support import GDA_CMD
 
 from .conftest import project_godot
 
@@ -77,7 +77,7 @@ def _runner(gda, tmp_path):
 
     def run(*args):
         return subprocess.run(
-            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [*gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
             capture_output=True,
             text=True,
             env=env,
@@ -92,10 +92,8 @@ def _runner(gda, tmp_path):
 def test_windowed_daemon_captures_a_single_viewport_frame(tmp_path, daemon_runtime_dir):
     # `daemon start --windowed` -> a WINDOWED engine session -> `screen capture`
     # writes a real PNG of the running viewport (magic + dims > 0).
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     _scaffold(tmp_path)
-    run = _runner(gda, tmp_path)
+    run = _runner(GDA_CMD, tmp_path)
     out = tmp_path / "shot.png"
 
     try:
@@ -124,10 +122,8 @@ def test_windowed_daemon_captures_a_single_viewport_frame(tmp_path, daemon_runti
 @_needs_display
 def test_windowed_daemon_inline_embeds_the_base64(tmp_path, daemon_runtime_dir):
     # `screen capture --inline` additionally embeds the base64 PNG in the reply.
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     _scaffold(tmp_path)
-    run = _runner(gda, tmp_path)
+    run = _runner(GDA_CMD, tmp_path)
     out = tmp_path / "shot.png"
 
     try:
@@ -148,10 +144,8 @@ def test_windowed_daemon_captures_a_frame_window(tmp_path, daemon_runtime_dir):
     # `screen frames --frames 3`: the time-windowed multi-frame base (#223) collects
     # 3 viewport frames over the engine session and returns them in one blocking
     # call; the CLI writes one PNG per frame (path-only).
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     _scaffold(tmp_path)
-    run = _runner(gda, tmp_path)
+    run = _runner(GDA_CMD, tmp_path)
     out_dir = tmp_path / "frames"
 
     try:
@@ -181,10 +175,8 @@ def test_headless_session_reports_live_display_unavailable(tmp_path, daemon_runt
     # A default (HEADLESS) daemon session has the dummy DisplayServer; a `screen
     # capture` there is refused with the typed live_display_unavailable (the
     # self-revealing remediation: start --windowed). No file is written.
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     _scaffold(tmp_path)
-    run = _runner(gda, tmp_path)
+    run = _runner(GDA_CMD, tmp_path)
     out = tmp_path / "shot.png"
 
     try:
@@ -206,10 +198,8 @@ def test_screen_capture_with_no_daemon_reports_daemon_not_running(
 ):
     # No daemon started: `screen capture` is the attach-or-fail daemon_not_running
     # (ADR-0017), the same typed error every live op reports with no daemon.
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     _scaffold(tmp_path)
-    run = _runner(gda, tmp_path)
+    run = _runner(GDA_CMD, tmp_path)
 
     cap = run("screen", "capture", "--output", str(tmp_path / "shot.png"))
 

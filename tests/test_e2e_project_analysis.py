@@ -11,7 +11,6 @@ acceptance criterion: the same reference graph backs both).
 """
 
 import json
-import shutil
 import subprocess
 
 import pytest
@@ -19,6 +18,7 @@ import pytest
 from gda.binary import resolve_godot_binary
 
 from .conftest import project_godot
+from tests.support import GDA_CMD
 
 GODOT = resolve_godot_binary()
 
@@ -122,10 +122,8 @@ def refgraph_project(tmp_path):
 
 
 def _gda(project, *args: str) -> subprocess.CompletedProcess:
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     return subprocess.run(
-        [gda_bin, *args, "--godot", str(GODOT), "--project", str(project)],
+        [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
         capture_output=True,
         text=True,
     )
@@ -432,10 +430,8 @@ def test_statistics_counts_binary_assets_as_files_but_not_lines(tmp_path):
 def test_dependencies_without_project_is_project_not_found(tmp_path):
     # Run projectless (no --project, cwd is not a project): the res:// scan has no
     # tree to walk, so it refuses with the registered project_not_found code.
-    gda_bin = shutil.which("gda")
-    assert gda_bin
     proc = subprocess.run(
-        [gda_bin, "project", "dependencies", "--godot", str(GODOT), "--json"],
+        [*GDA_CMD, "project", "dependencies", "--godot", str(GODOT), "--json"],
         capture_output=True,
         text=True,
         cwd=str(tmp_path),

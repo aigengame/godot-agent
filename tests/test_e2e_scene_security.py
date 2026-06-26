@@ -32,12 +32,12 @@ The contract pinned (verified on Godot 4.6.3):
 """
 
 import json
-import shutil
 import subprocess
 
 import pytest
 
 from gda.binary import resolve_godot_binary
+from tests.support import GDA_CMD
 
 from .conftest import project_godot
 
@@ -45,10 +45,8 @@ GODOT = resolve_godot_binary()
 
 
 def _gda(*args: str, cwd=None) -> subprocess.CompletedProcess:
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     return subprocess.run(
-        [gda_bin, *args, "--godot", str(GODOT)],
+        [*GDA_CMD, *args, "--godot", str(GODOT)],
         capture_output=True,
         text=True,
         cwd=str(cwd) if cwd is not None else None,
@@ -86,12 +84,10 @@ def test_scene_get_does_not_execute_scene_code(godot_project):
     (godot_project / "evil.gd").write_text(EVIL_GD, encoding="utf-8")
     (godot_project / "evil.tscn").write_text(EVIL_TSCN, encoding="utf-8")
 
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     # Run from inside the project so res://evil.gd resolves — the condition
     # under which the script would load and (on the buggy path) execute.
     proc = subprocess.run(
-        [gda_bin, "scene", "get", "evil.tscn", "--json", "--godot", str(GODOT)],
+        [*GDA_CMD, "scene", "get", "evil.tscn", "--json", "--godot", str(GODOT)],
         capture_output=True,
         text=True,
         cwd=str(godot_project),

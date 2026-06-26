@@ -10,24 +10,23 @@ RULES.md DoD the fake-runner command tests do not count toward this gate.
 
 import json
 import os
-import shutil
 import subprocess
 
 import pytest
 
 from gda.exit_codes import EXIT_LIVE
 
+from tests.support import GDA_CMD
+
 
 @pytest.mark.e2e
 def test_game_tree_without_a_daemon_reports_daemon_not_running(tmp_path):
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
 
     # An empty runtime dir so discovery finds no daemon for this fresh project.
     env = {**os.environ, "XDG_RUNTIME_DIR": str(tmp_path / "run")}
     proc = subprocess.run(
-        [gda_bin, "game", "tree", "--project", str(tmp_path), "--json"],
+        [*GDA_CMD, "game", "tree", "--project", str(tmp_path), "--json"],
         capture_output=True,
         text=True,
         env=env,

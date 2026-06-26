@@ -8,26 +8,25 @@ toward this gate.
 """
 
 import json
-import shutil
 import subprocess
 
 import pytest
 
 from gda.binary import resolve_godot_binary
 
+from tests.support import GDA_CMD
+
 GODOT = resolve_godot_binary()
 
 
 @pytest.mark.e2e
 def test_scene_create_via_params_json_creates_the_scene(godot_project):
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     scene_path = godot_project / "main.tscn"
     params = json.dumps({"path": str(scene_path), "root_type": "Node2D"})
 
     created = subprocess.run(
         [
-            gda_bin,
+            *GDA_CMD,
             "scene",
             "create",
             "--params-json",
@@ -50,7 +49,7 @@ def test_scene_create_via_params_json_creates_the_scene(godot_project):
 
     # And reads back through the engine — the file is loadable, not just present.
     got = subprocess.run(
-        [gda_bin, "scene", "get", str(scene_path), "--json", "--godot", str(GODOT)],
+        [*GDA_CMD, "scene", "get", str(scene_path), "--json", "--godot", str(GODOT)],
         capture_output=True,
         text=True,
     )
@@ -61,13 +60,11 @@ def test_scene_create_via_params_json_creates_the_scene(godot_project):
 @pytest.mark.e2e
 def test_scene_create_via_params_json_stdin_creates_the_scene(godot_project):
     # `--params-json -` reads the object from stdin through the real chain.
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     scene_path = godot_project / "fromstdin.tscn"
     params = json.dumps({"path": str(scene_path), "root_type": "Node2D"})
 
     created = subprocess.run(
-        [gda_bin, "scene", "create", "--params-json", "-", "--json", "--godot", str(GODOT)],
+        [*GDA_CMD, "scene", "create", "--params-json", "-", "--json", "--godot", str(GODOT)],
         input=params,
         capture_output=True,
         text=True,
