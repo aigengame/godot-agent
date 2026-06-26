@@ -12,21 +12,19 @@ the e2e fixture has none, so that surface is exercised as a no-op here.
 """
 
 import json
-import shutil
 import subprocess
 
 import pytest
 
 from gda.binary import resolve_godot_binary
+from tests.support import GDA_CMD
 
 GODOT = resolve_godot_binary()
 
 
 def _gda(project, *args: str) -> subprocess.CompletedProcess:
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     return subprocess.run(
-        [gda_bin, *args, "--project", str(project), "--godot", str(GODOT)],
+        [*GDA_CMD, *args, "--project", str(project), "--godot", str(GODOT)],
         capture_output=True,
         text=True,
     )
@@ -262,10 +260,8 @@ def test_project_remove_autoload_unknown_name_is_a_clean_error(godot_project):
 def test_project_info_without_project_is_a_clean_error():
     # Projectless: ProjectSettings would report only the engine's bare defaults,
     # not the agent's project, so it is refused with project_not_found.
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     proc = subprocess.run(
-        [gda_bin, "project", "info", "--json", "--godot", str(GODOT)],
+        [*GDA_CMD, "project", "info", "--json", "--godot", str(GODOT)],
         capture_output=True,
         text=True,
         cwd="/tmp",

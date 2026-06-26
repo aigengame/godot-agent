@@ -12,20 +12,21 @@ describes (Plan A); `gda schema --schema` still self-describes as any command.
 
 These are fast tests — `gda schema` spawns no Godot, so none of them need the
 engine. Most drive the command in-process via `CliRunner`; the last drives the
-real installed `gda` console script as a subprocess to protect the public entry
-point. That one is deliberately NOT marked `e2e`: this repo's `e2e` marker means
+real out-of-process `gda` CLI (`python -m gda`, the same `app` the console script
+wraps) as a subprocess, so the manifest is exercised through a real process, not
+only in-process. That one is deliberately NOT marked `e2e`: this repo's `e2e` marker means
 "spawns a real Godot process" and gates a schedule/manual-only CI job, whereas
 this check is cheap and deterministic and belongs in the default PR gate.
 """
 
 import json
-import shutil
 import subprocess
 
 import typer
 from typer.testing import CliRunner
 
 from gda.cli import app
+from tests.support import GDA_CMD
 
 
 def _manifest() -> dict:
@@ -304,15 +305,12 @@ def test_self_described_manifest_describes_the_nullable_constraints_field():
     ]
 
 
-def test_real_console_script_manifest_covers_the_live_command_tree():
-    # The real installed `gda` entry point — not the in-process CliRunner —
-    # emits the manifest and covers the whole live command tree (issue #192).
-    # Under `uv run` (how CI runs the fast suite) this resolves to the project
-    # venv's console script, so it tracks the current checkout.
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
-
-    proc = subprocess.run([gda_bin, "schema"], capture_output=True, text=True)
+def test_real_out_of_process_cli_manifest_covers_the_live_command_tree():
+    # The real out-of-process `gda` CLI (invoked as `python -m gda`) — not the
+    # in-process CliRunner — emits the manifest and covers the whole live command
+    # tree (issue #192). Under `uv run` (how CI runs the fast suite) `sys.executable`
+    # is the project venv, so `-m gda` runs the current checkout's gda.
+    proc = subprocess.run([*GDA_CMD, "schema"], capture_output=True, text=True)
 
     assert proc.returncode == 0, proc.stderr
     names = {entry["name"] for entry in json.loads(proc.stdout)["commands"]}

@@ -27,7 +27,6 @@ path) run unconditionally.
 """
 
 import json
-import shutil
 import subprocess
 import warnings
 import zipfile
@@ -41,6 +40,7 @@ from gda.harness.install import (
     HARNESS_RES_DIR,
     install_harness,
 )
+from tests.support import GDA_CMD
 
 GODOT = resolve_godot_binary()
 
@@ -82,12 +82,9 @@ binary_format/embed_pck=false
 
 def _gda_project(project) -> "callable":
     """A ``gda`` bound to ``--godot`` + ``--project`` for the real engine."""
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
-
     def gda(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [gda_bin, *args, "--godot", str(GODOT), "--project", str(project)],
+            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
             capture_output=True,
             text=True,
         )

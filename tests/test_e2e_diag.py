@@ -20,13 +20,13 @@ serially in review.
 
 import json
 import os
-import shutil
 import subprocess
 import time
 
 import pytest
 
 from gda.binary import resolve_godot_binary
+from tests.support import GDA_CMD
 
 from .conftest import project_godot
 
@@ -75,8 +75,6 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"
 
 @pytest.mark.e2e
 def test_diag_reads_back_a_known_runtime_error_and_log_line(tmp_path, daemon_runtime_dir):
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
     (tmp_path / "main.gd").write_text(MAIN_GD, encoding="utf-8")
@@ -85,7 +83,7 @@ def test_diag_reads_back_a_known_runtime_error_and_log_line(tmp_path, daemon_run
 
     def run(*args):
         return subprocess.run(
-            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
             capture_output=True,
             text=True,
             env=env,
@@ -144,8 +142,6 @@ def test_diag_reads_back_a_multi_frame_callstack(tmp_path, daemon_runtime_dir):
     # — not just the top `file:line`. Same lifecycle as the sibling test: a
     # NON-diag live op (`game tree`) launches + warms the session, THEN diag
     # observes the daemon-owned Session log.
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
     (tmp_path / "main.gd").write_text(CALLSTACK_MAIN_GD, encoding="utf-8")
@@ -154,7 +150,7 @@ def test_diag_reads_back_a_multi_frame_callstack(tmp_path, daemon_runtime_dir):
 
     def run(*args):
         return subprocess.run(
-            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
             capture_output=True,
             text=True,
             env=env,

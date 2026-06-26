@@ -14,12 +14,12 @@ not a fixed value.
 
 import json
 import re
-import shutil
 import subprocess
 
 import pytest
 
 from gda.binary import resolve_godot_binary
+from tests.support import GDA_CMD
 
 GODOT = resolve_godot_binary()
 
@@ -62,12 +62,10 @@ VERSION_DIR = re.compile(r"^\d+\.\d+\.\d+\.[a-z0-9]+$")
 
 def _gda_project(project) -> "callable":
     """A ``gda`` bound to ``--project`` for res:// resolution of the cfg."""
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
 
     def gda(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [gda_bin, *args, "--godot", str(GODOT), "--project", str(project)],
+            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
             capture_output=True,
             text=True,
         )
@@ -138,11 +136,8 @@ def test_export_list_without_project_yields_project_not_found(tmp_path):
     # export list reads export_presets.cfg in a project, so it cannot run
     # projectless: run from a non-project directory with no --project, it refuses
     # with project_not_found rather than returning a misleading empty listing.
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
-
     listed = subprocess.run(
-        [gda_bin, "export", "list", "--json", "--godot", str(GODOT)],
+        [*GDA_CMD, "export", "list", "--json", "--godot", str(GODOT)],
         capture_output=True,
         text=True,
         cwd=str(tmp_path),

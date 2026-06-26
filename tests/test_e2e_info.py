@@ -1,29 +1,26 @@
 """S1 (e2e): gda info --json against the real Godot engine.
 
-Spawns the installed `gda` console script as a subprocess against the real
+Spawns the `gda` CLI (`python -m gda`) as a subprocess against the real
 Godot binary (path per RULES.md), asserts stdout is a single valid JSON object
 carrying the engine version, and that the version satisfies the minimum
 supported version (>= 4.4) per ADR-0003.
 """
 
 import json
-import shutil
 import subprocess
 
 import pytest
 
 from gda.binary import resolve_godot_binary
+from tests.support import GDA_CMD
 
 GODOT = resolve_godot_binary()
 
 
 @pytest.mark.e2e
 def test_gda_info_json_against_real_godot():
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
-
     proc = subprocess.run(
-        [gda_bin, "info", "--json", "--godot", str(GODOT)],
+        [*GDA_CMD, "info", "--json", "--godot", str(GODOT)],
         capture_output=True,
         text=True,
     )
@@ -44,11 +41,8 @@ def test_gda_info_missing_binary_yields_structured_error_end_to_end():
     # against a binary that cannot launch. No installed engine required — the
     # point is that the path does NOT exist. The runner synthesizes exit 127,
     # the CLI emits a structured JSON error on stdout.
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
-
     proc = subprocess.run(
-        [gda_bin, "info", "--godot", "/nonexistent/Godot"],
+        [*GDA_CMD, "info", "--godot", "/nonexistent/Godot"],
         capture_output=True,
         text=True,
     )

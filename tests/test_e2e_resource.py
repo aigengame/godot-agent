@@ -24,12 +24,13 @@ modes, are exercised end to end.
 
 import json
 import os
-import shutil
 import subprocess
 
 import pytest
 
 from gda.binary import resolve_godot_binary
+
+from tests.support import GDA_CMD
 
 GODOT = resolve_godot_binary()
 
@@ -44,10 +45,8 @@ DATA_TRES = """\
 
 
 def _gda(*args: str) -> subprocess.CompletedProcess:
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     return subprocess.run(
-        [gda_bin, *args, "--godot", str(GODOT)], capture_output=True, text=True
+        [*GDA_CMD, *args, "--godot", str(GODOT)], capture_output=True, text=True
     )
 
 
@@ -63,12 +62,10 @@ def _import_project(project) -> None:
 
 def _gda_project(project) -> "callable":
     """A ``gda`` bound to ``--godot`` and ``--project`` for res:// / UID resolution."""
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
 
     def gda(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [gda_bin, *args, "--godot", str(GODOT), "--project", str(project)],
+            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
             capture_output=True,
             text=True,
         )
@@ -78,10 +75,8 @@ def _gda_project(project) -> "callable":
 
 def _gda_env(extra_env: dict, *args: str) -> subprocess.CompletedProcess:
     """``_gda`` with extra env vars in the child's environment (issue #226 seam)."""
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
     return subprocess.run(
-        [gda_bin, *args, "--godot", str(GODOT)],
+        [*GDA_CMD, *args, "--godot", str(GODOT)],
         capture_output=True,
         text=True,
         env={**os.environ, **extra_env},
@@ -518,11 +513,8 @@ def test_resource_uid_path_without_uid_is_no_uid_assigned(imported_project):
 def test_resource_uid_projectless_run_is_project_not_found():
     # Resolution queries the project's UID cache, so a projectless run is refused
     # with project_not_found rather than a misleading "no UID" answer.
-    gda_bin = shutil.which("gda")
-    assert gda_bin, "the `gda` console script is not on PATH"
-
     proc = subprocess.run(
-        [gda_bin, "resource", "uid", "uid://b00000000000b", "--godot", str(GODOT), "--json"],
+        [*GDA_CMD, "resource", "uid", "uid://b00000000000b", "--godot", str(GODOT), "--json"],
         capture_output=True,
         text=True,
     )

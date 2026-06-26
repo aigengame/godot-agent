@@ -1,4 +1,4 @@
-"""S1 (e2e): the full gda-daemon live loop through the console script (#7, #225).
+"""S1 (e2e): the full gda-daemon live loop through the gda CLI (#7, #225).
 
 The Step-6 proof: a real ``gda daemon start`` (real detached daemon, real harness
 install, live-version gate) → a real engine session it launches on demand →
@@ -14,7 +14,6 @@ bump (the installed copy declares an older version), and the paired
 
 import json
 import os
-import shutil
 import subprocess
 
 import pytest
@@ -26,6 +25,8 @@ from gda.harness.install import (
     HARNESS_VERSION,
     installed_harness_version,
 )
+
+from tests.support import GDA_CMD
 
 from .conftest import project_godot
 
@@ -46,8 +47,6 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"
 
 @pytest.mark.e2e
 def test_daemon_serves_a_real_runtime_tree(tmp_path, daemon_runtime_dir):
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
 
@@ -57,7 +56,7 @@ def test_daemon_serves_a_real_runtime_tree(tmp_path, daemon_runtime_dir):
 
     def run(*args):
         return subprocess.run(
-            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
             capture_output=True,
             text=True,
             env=env,
@@ -89,8 +88,6 @@ def test_daemon_serves_game_get_set_round_trip(tmp_path, daemon_runtime_dir):
     # The #220 DoD: a real daemon → engine session → `game set` mutates a runtime
     # property, applied at a frame boundary, and `game get` observes the change —
     # State consistency (ADR-0020) end-to-end through the real harness over UDS.
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
 
@@ -98,7 +95,7 @@ def test_daemon_serves_game_get_set_round_trip(tmp_path, daemon_runtime_dir):
 
     def run(*args):
         return subprocess.run(
-            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
             capture_output=True,
             text=True,
             env=env,
@@ -136,12 +133,10 @@ def test_daemon_serves_game_get_set_round_trip(tmp_path, daemon_runtime_dir):
 
 def _gda(tmp_path, env):
     """A `gda <args> --project <tmp> --godot <GODOT> --json` subprocess helper."""
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
 
     def run(*args):
         return subprocess.run(
-            [gda, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
             capture_output=True,
             text=True,
             env=env,
@@ -247,7 +242,7 @@ def test_daemon_uninstall_is_refused_while_running(tmp_path, daemon_runtime_dir)
 @pytest.mark.e2e
 def test_daemon_status_surfaces_the_windowed_display_mode(tmp_path, daemon_runtime_dir):
     # #251: `daemon status` reports the running daemon's launch-time display mode,
-    # read over STATUS_OP through the console script, so an agent can tell whether a
+    # read over STATUS_OP through the `gda` CLI, so an agent can tell whether a
     # live session can serve a `screen` capture before issuing one. No daemon ->
     # `windowed` null (clean, hang-free fallback); a default start -> false; a
     # `--windowed` start -> true. The daemon records the mode at start; no engine
