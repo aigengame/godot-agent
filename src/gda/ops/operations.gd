@@ -1956,11 +1956,18 @@ func _export_preset_summary(config: ConfigFile, section: String, index: int) -> 
 
 
 # The export-templates version directory name for the running engine, e.g.
-# "4.6.3.stable" — major.minor.patch.status, matching how the editor names the
-# per-version templates folder under <data_dir>/<godot-dir>/export_templates/.
+# "4.6.stable" (4.6.0) or "4.6.3.stable" (4.6.3) — major.minor[.patch].status,
+# matching how the editor names the per-version templates folder under
+# <data_dir>/<godot-dir>/export_templates/. The patch component is OMITTED when it
+# is 0 — exactly as Engine.get_version_info()'s version string does (engine.cpp) and
+# as the official export-template archives are named — so a .0 release resolves to
+# "<major>.<minor>.<status>", not "<major>.<minor>.0.<status>".
 func _export_templates_version_dir() -> String:
 	var v := Engine.get_version_info()
-	return "%d.%d.%d.%s" % [v.major, v.minor, v.patch, v.status]
+	var dir := "%d.%d" % [v.major, v.minor]
+	if int(v.patch) != 0:
+		dir += ".%d" % v.patch
+	return "%s.%s" % [dir, v.status]
 
 
 # Whether the export templates for the running engine version are installed:
