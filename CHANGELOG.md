@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.45](https://github.com/aigengame/godot-agent/compare/v0.1.44...v0.1.45) (2026-06-26)
+
+
+### Features
+
+* a shipped build never carries the gda harness ([#297](https://github.com/aigengame/godot-agent/issues/297)) ([d0c0bac](https://github.com/aigengame/godot-agent/commit/d0c0bac358a381a75c8bcb33297096f6e6ed9ae1))
+
 ## [0.1.44](https://github.com/aigengame/godot-agent/compare/v0.1.43...v0.1.44) (2026-06-25)
 
 
