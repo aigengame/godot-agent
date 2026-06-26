@@ -191,9 +191,7 @@ def schema_command_class(
         gda_output_model = output_model
         gda_command = command
 
-        def _parse_relaxed(
-            self, ctx: typer.Context, args: list[str]
-        ) -> list[str]:
+        def _parse_relaxed(self, ctx: typer.Context, args: list[str]) -> list[str]:
             # Parse with required args relaxed, so a probe that omits the
             # individual operation args still succeeds, while Click still rejects
             # unknown options / extra positionals and an eager ``--help`` still
@@ -244,8 +242,7 @@ def schema_command_class(
                 # operation argument may also be given on the command line; the
                 # global flags (--json/--godot/--project/--schema) still compose.
                 if any(
-                    name not in _GLOBAL_OPTION_NAMES
-                    and _from_command_line(ctx, name)
+                    name not in _GLOBAL_OPTION_NAMES and _from_command_line(ctx, name)
                     for name in ctx.params
                 ):
                     emit_failure(conflicting_params_input_failure())
@@ -430,7 +427,5 @@ class HeadlessCommand(Generic[M]):
         renderer, ADR-0023) — the descriptor is in hand here, so there is no
         type-keyed table to consult.
         """
-        result = self.run(
-            params, godot=godot, project=project, make_runner=make_runner
-        )
+        result = self.run(params, godot=godot, project=project, make_runner=make_runner)
         emit_result(result, json_output, self.render)

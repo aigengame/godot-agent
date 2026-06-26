@@ -116,9 +116,7 @@ def test_node_get_json_emits_typed_properties_and_exit_zero(monkeypatch):
         [10.0, 20.0],
     )
     # The node is addressed by node path, dispatched by the operation name.
-    assert fake.calls == [
-        ("node-get", {"path": "/tmp/proj/main.tscn", "node": "Hero"})
-    ]
+    assert fake.calls == [("node-get", {"path": "/tmp/proj/main.tscn", "node": "Hero"})]
 
 
 def test_node_set_json_echoes_the_coerced_property_and_exit_zero(monkeypatch):
@@ -217,8 +215,14 @@ def test_node_move_json_echoes_the_reparented_node_and_exit_zero(monkeypatch):
     result = CliRunner().invoke(
         app,
         [
-            "node", "move", "/tmp/proj/main.tscn",
-            "--node", "Hero", "--to", "Enemies", "--json",
+            "node",
+            "move",
+            "/tmp/proj/main.tscn",
+            "--node",
+            "Hero",
+            "--to",
+            "Enemies",
+            "--json",
         ],
     )
 

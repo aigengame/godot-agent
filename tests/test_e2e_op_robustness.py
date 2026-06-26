@@ -8,7 +8,6 @@ errors (unknown operation, non-JSON params) carry their own stable codes rather
 than the generic operation_failed.
 """
 
-import shutil
 import subprocess
 import time
 
@@ -57,12 +56,22 @@ def test_non_json_params_yield_stable_code():
     # Bypass the runner (which json.dumps its params) to hand the op a
     # syntactically invalid params payload directly.
     proc = subprocess.run(
-        [str(GODOT), "--headless", "--script", str(OPERATIONS_GD), "--", "info", "{not json"],
+        [
+            str(GODOT),
+            "--headless",
+            "--script",
+            str(OPERATIONS_GD),
+            "--",
+            "info",
+            "{not json",
+        ],
         capture_output=True,
         text=True,
         timeout=30,
     )
-    result = RunResult(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
+    result = RunResult(
+        stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode
+    )
 
     outcome = classify_run(result, GODOT, EngineVersion)
     assert isinstance(outcome, Failure)

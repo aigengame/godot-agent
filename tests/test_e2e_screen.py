@@ -171,7 +171,9 @@ def test_windowed_daemon_captures_a_frame_window(tmp_path, daemon_runtime_dir):
 
 
 @pytest.mark.e2e
-def test_headless_session_reports_live_display_unavailable(tmp_path, daemon_runtime_dir):
+def test_headless_session_reports_live_display_unavailable(
+    tmp_path, daemon_runtime_dir
+):
     # A default (HEADLESS) daemon session has the dummy DisplayServer; a `screen
     # capture` there is refused with the typed live_display_unavailable (the
     # self-revealing remediation: start --windowed). No file is written.

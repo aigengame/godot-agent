@@ -586,7 +586,9 @@ def test_status_windowed_is_null_when_the_control_round_trip_fails(
 # --- uninstall recipe (#225, D2) ----------------------------------------------
 
 
-def test_uninstall_refused_while_a_daemon_is_running(tmp_path, short_runtime, monkeypatch):
+def test_uninstall_refused_while_a_daemon_is_running(
+    tmp_path, short_runtime, monkeypatch
+):
     project = _project(tmp_path)
     install_harness(project)
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: 999)  # a live daemon

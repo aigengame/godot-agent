@@ -57,7 +57,9 @@ def test_export_list_passes_resolved_project_to_the_runner(monkeypatch, tmp_path
 
     def record(binary, project):
         seen["project"] = project
-        return FakeRunner(RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0))
+        return FakeRunner(
+            RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
+        )
 
     monkeypatch.setattr("gda.cli._make_runner", record)
 
@@ -77,9 +79,7 @@ def test_export_get_json_reports_preset_details_and_template_status(monkeypatch)
     stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(GET_RESULT)
     fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
 
-    result = CliRunner().invoke(
-        app, ["export", "get", "--preset", "Web", "--json"]
-    )
+    result = CliRunner().invoke(app, ["export", "get", "--preset", "Web", "--json"])
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)

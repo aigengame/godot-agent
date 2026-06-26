@@ -89,9 +89,7 @@ def test_config_error_stderr_still_maps_to_generic_export_failed():
 def test_other_nonzero_maps_to_generic_export_failed():
     # A non-zero export with no recognized signature is the generic export_failed,
     # preserving the engine stderr as diagnostics.
-    outcome = _classify(
-        RunResult(stdout="", stderr="ERROR: disk full\n", exit_code=1)
-    )
+    outcome = _classify(RunResult(stdout="", stderr="ERROR: disk full\n", exit_code=1))
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "export_failed"

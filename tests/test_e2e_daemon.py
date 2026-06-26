@@ -56,7 +56,15 @@ def test_daemon_serves_a_real_runtime_tree(tmp_path, daemon_runtime_dir):
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -95,7 +103,15 @@ def test_daemon_serves_game_get_set_round_trip(tmp_path, daemon_runtime_dir):
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -109,7 +125,13 @@ def test_daemon_serves_game_get_set_round_trip(tmp_path, daemon_runtime_dir):
         # set: mutate the Player's runtime position (a Vector2), coerced harness-side
         # from the CLI string "10,20" exactly as headless `node set` coerces it.
         was_set = run(
-            "game", "set", "/root/Main/Player", "--property", "position", "--value", "10,20"
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "position",
+            "--value",
+            "10,20",
         )
         assert was_set.returncode == 0, was_set.stdout + was_set.stderr
         set_doc = json.loads(was_set.stdout)
@@ -136,7 +158,15 @@ def _gda(tmp_path, env):
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -147,7 +177,9 @@ def _gda(tmp_path, env):
 
 
 @pytest.mark.e2e
-def test_daemon_start_re_syncs_harness_after_a_version_bump(tmp_path, daemon_runtime_dir):
+def test_daemon_start_re_syncs_harness_after_a_version_bump(
+    tmp_path, daemon_runtime_dir
+):
     # #225 D1: the daemon self-syncs the installed harness to the running gda's
     # version. A real start installs at HARNESS_VERSION; we then SIMULATE a
     # previously-installed OLDER copy by rewriting its leading version header to a
@@ -163,7 +195,9 @@ def test_daemon_start_re_syncs_harness_after_a_version_bump(tmp_path, daemon_run
         first = run("daemon", "start")
         assert first.returncode == 0, first.stdout + first.stderr
         first_doc = json.loads(first.stdout)
-        assert first_doc["harness_synced"] is False  # a first install is NOT a sync (#247)
+        assert (
+            first_doc["harness_synced"] is False
+        )  # a first install is NOT a sync (#247)
         assert first_doc["harness_version"] == HARNESS_VERSION
         assert installed_harness_version(tmp_path) == HARNESS_VERSION
 
@@ -283,7 +317,9 @@ B_TSCN = (
 
 
 @pytest.mark.e2e
-def test_daemon_start_scene_runs_the_chosen_scene_not_main(tmp_path, daemon_runtime_dir):
+def test_daemon_start_scene_runs_the_chosen_scene_not_main(
+    tmp_path, daemon_runtime_dir
+):
     # #278 (ADR-0017 amendment): `daemon start --scene res://B.tscn` boots the chosen
     # scene B — `game tree` reports B's root (not Main's), proving the engine received
     # `--scene` (before `--path`) — and `project.godot`'s `main_scene` is UNCHANGED
@@ -306,10 +342,9 @@ def test_daemon_start_scene_runs_the_chosen_scene_not_main(tmp_path, daemon_runt
         assert any(c["name"] == "Marker" for c in root.get("children", []))
 
         # main_scene is untouched on disk (running a scene is not setting it).
-        assert (
-            'run/main_scene="res://main.tscn"'
-            in (tmp_path / "project.godot").read_text(encoding="utf-8")
-        )
+        assert 'run/main_scene="res://main.tscn"' in (
+            tmp_path / "project.godot"
+        ).read_text(encoding="utf-8")
     finally:
         run("daemon", "stop")
 

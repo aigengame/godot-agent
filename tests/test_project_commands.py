@@ -76,7 +76,9 @@ def test_project_info_json_maps_success_to_json_object_and_exit_zero(monkeypatch
 
 
 def test_project_info_human_output_is_a_readable_block(monkeypatch):
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(INFO_RESULT), stderr="", exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(INFO_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(app, ["project", "info"])
 
@@ -90,7 +92,9 @@ def test_project_info_human_output_is_a_readable_block(monkeypatch):
 def test_project_info_human_output_shows_none_for_empty_main_scene(monkeypatch):
     # A new project has no main scene; the human block names that explicitly.
     payload = {**INFO_RESULT, "main_scene": ""}
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(app, ["project", "info"])
 
@@ -118,7 +122,9 @@ def test_project_get_dispatches_setting_param_and_reports_typed_value(monkeypatc
 
 
 def test_project_get_human_output_is_setting_type_value(monkeypatch):
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(GET_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(app, ["project", "get", "application/config/name"])
 
@@ -130,7 +136,9 @@ def test_project_get_carries_packed_value_projection(monkeypatch):
     # A packed-type setting (e.g. a Vector2-ish value) is carried as a JSON list,
     # the same projection node get reports — so get / set round-trip the shape.
     payload = {"setting": "some/vec", "type": "Vector2", "value": [10.0, 20.0]}
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(app, ["project", "get", "some/vec", "--json"])
 
@@ -175,7 +183,9 @@ def test_project_set_dispatches_setting_and_value_and_round_trips(monkeypatch):
 
 
 def test_project_set_human_output_is_set_setting_type_value(monkeypatch):
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(
         app, ["project", "set", "display/window/size/viewport_width", "--value", "1920"]
@@ -183,8 +193,7 @@ def test_project_set_human_output_is_set_setting_type_value(monkeypatch):
 
     assert result.exit_code == 0
     assert (
-        result.stdout.strip()
-        == "set display/window/size/viewport_width (int) = 1920"
+        result.stdout.strip() == "set display/window/size/viewport_width (int) = 1920"
     )
 
 
@@ -194,9 +203,7 @@ def test_project_set_requires_value(monkeypatch):
     fake = FakeRunner(RunResult(stdout=sentinel(SET_RESULT), stderr="", exit_code=0))
     monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
 
-    result = CliRunner().invoke(
-        app, ["project", "set", "application/config/name"]
-    )
+    result = CliRunner().invoke(app, ["project", "set", "application/config/name"])
 
     assert result.exit_code == 2
     assert fake.calls == []
@@ -244,7 +251,9 @@ def test_project_add_autoload_human_output_names_the_registered_autoload(monkeyp
         RunResult(stdout=sentinel(ADD_AUTOLOAD_RESULT), stderr="", exit_code=0),
     )
 
-    result = CliRunner().invoke(app, ["project", "add-autoload", "Global", "res://global.gd"])
+    result = CliRunner().invoke(
+        app, ["project", "add-autoload", "Global", "res://global.gd"]
+    )
 
     assert result.exit_code == 0
     assert result.stdout.strip() == "added autoload Global = *res://global.gd"
@@ -259,9 +268,7 @@ def test_project_remove_autoload_dispatches_name_and_reports_result(monkeypatch)
         RunResult(stdout=sentinel(REMOVE_AUTOLOAD_RESULT), stderr="", exit_code=0),
     )
 
-    result = CliRunner().invoke(
-        app, ["project", "remove-autoload", "Global", "--json"]
-    )
+    result = CliRunner().invoke(app, ["project", "remove-autoload", "Global", "--json"])
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
@@ -269,7 +276,9 @@ def test_project_remove_autoload_dispatches_name_and_reports_result(monkeypatch)
     assert fake.calls == [("project-remove-autoload", {"name": "Global"})]
 
 
-def test_project_remove_autoload_human_output_names_the_unregistered_autoload(monkeypatch):
+def test_project_remove_autoload_human_output_names_the_unregistered_autoload(
+    monkeypatch,
+):
     inject_runner(
         monkeypatch,
         RunResult(stdout=sentinel(REMOVE_AUTOLOAD_RESULT), stderr="", exit_code=0),
@@ -360,7 +369,9 @@ def test_project_remove_autoload_schema_emits_model_derived_contract_without_oth
 def test_sample_project_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each project command satisfies the contract its
     # --schema emits (the other half of the ADR-0004 hard gate, issue #111).
-    info_doc = json.loads(CliRunner().invoke(app, ["project", "info", "--schema"]).stdout)
+    info_doc = json.loads(
+        CliRunner().invoke(app, ["project", "info", "--schema"]).stdout
+    )
     get_doc = json.loads(CliRunner().invoke(app, ["project", "get", "--schema"]).stdout)
     set_doc = json.loads(CliRunner().invoke(app, ["project", "set", "--schema"]).stdout)
     add_doc = json.loads(

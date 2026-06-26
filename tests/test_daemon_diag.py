@@ -18,7 +18,7 @@ import subprocess
 import pytest
 
 from gda.daemon.discovery import daemon_paths
-from gda.daemon.protocol import read_frame, write_frame
+from gda.daemon.protocol import write_frame
 from gda.daemon.server import DaemonServer
 from gda.daemon.session import EngineSession, SceneMismatch, launch_session
 from gda.parser import parse_result
@@ -204,7 +204,12 @@ def _launch_with_fake_harness(monkeypatch, tmp_path, *, token, verify, scene):
     monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
     daemon_end, harness_end = socket.socketpair()
     # The harness presents its token, then the scene-verification frame.
-    write_frame(harness_end, token.to_utf8_buffer() if hasattr(token, "to_utf8_buffer") else token.encode("utf-8"))
+    write_frame(
+        harness_end,
+        token.to_utf8_buffer()
+        if hasattr(token, "to_utf8_buffer")
+        else token.encode("utf-8"),
+    )
     if verify is not None:
         write_frame(harness_end, json.dumps(verify).encode("utf-8"))
     try:
@@ -245,7 +250,9 @@ def test_launch_raises_scene_mismatch_when_loaded_scene_differs(monkeypatch, tmp
         )
 
 
-def test_launch_with_no_selector_does_not_require_a_verification_frame(monkeypatch, tmp_path):
+def test_launch_with_no_selector_does_not_require_a_verification_frame(
+    monkeypatch, tmp_path
+):
     # No selector: scene_ok is trivially true (the harness sends it as ok), and the
     # session is verified — the main_scene default is unchanged.
     _project(tmp_path)
@@ -287,7 +294,9 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
 
 def _server_with_session(tmp_path, log_file, alive=True):
     server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
-    server._session = EngineSession(_FakeProc(None if alive else 0), conn=None, log_file=log_file)
+    server._session = EngineSession(
+        _FakeProc(None if alive else 0), conn=None, log_file=log_file
+    )
     return server
 
 
@@ -326,7 +335,9 @@ def test_diag_serves_even_when_the_session_process_has_died(tmp_path):
     # A crash is diagnosable: the daemon serves diag from the remembered log file
     # even after the session process has exited (ADR rationale).
     log_file = tmp_path / "session.log"
-    log_file.write_text("ERROR: crashed\n   at: _ready (res://main.gd:3)\n", encoding="utf-8")
+    log_file.write_text(
+        "ERROR: crashed\n   at: _ready (res://main.gd:3)\n", encoding="utf-8"
+    )
     server = _server_with_session(tmp_path, log_file, alive=False)
 
     reply = server._handle({"op": "diag-errors", "params": {}})
@@ -345,7 +356,9 @@ def test_diag_empty_log_is_an_empty_result_not_an_error(tmp_path):
     assert parse_result(errors_reply["stdout"])["errors"] == []
 
 
-def test_diag_with_no_session_launched_is_engine_session_not_running(monkeypatch, tmp_path):
+def test_diag_with_no_session_launched_is_engine_session_not_running(
+    monkeypatch, tmp_path
+):
     # ADR-0022: diag observes an already-launched session; it does NOT launch one.
     # With NO session launched this daemon lifetime, diag-errors returns a
     # structured `engine_session_not_running` (exit 6) — and crucially it must NOT
@@ -362,12 +375,16 @@ def test_diag_with_no_session_launched_is_engine_session_not_running(monkeypatch
 
     reply = server._handle({"op": op, "params": {}})
 
-    assert parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    assert (
+        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    )
     # No session was created as a side effect of the read-only diag.
     assert server._session is None
 
 
-def test_diag_with_a_remembered_session_but_missing_file_is_live_log_unavailable(tmp_path):
+def test_diag_with_a_remembered_session_but_missing_file_is_live_log_unavailable(
+    tmp_path,
+):
     # A session was launched (remembered) but its log file is gone/unreadable.
     log_file = tmp_path / "missing.log"  # never created
     server = _server_with_session(tmp_path, log_file, alive=False)

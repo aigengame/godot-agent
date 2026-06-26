@@ -54,6 +54,7 @@ export_path=""
 html/export_icon=true
 """
 
+
 def _expected_templates_version() -> str:
     """The export-templates version-dir name the running engine uses, derived from its
     OWN version info — major.minor[.patch].status with the patch OMITTED when 0 (e.g.
@@ -187,9 +188,9 @@ def test_export_get_reports_preset_details_and_template_status(godot_project):
     # derived from the engine's own version (patch omitted for a .0 release), so a
     # format regression is caught RED here rather than slipping past a loose regex.
     assert isinstance(data["templates_installed"], bool)
-    assert data["templates_version"] == _expected_templates_version(), (
-        data["templates_version"]
-    )
+    assert data["templates_version"] == _expected_templates_version(), data[
+        "templates_version"
+    ]
 
 
 @pytest.mark.e2e

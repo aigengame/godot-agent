@@ -101,7 +101,9 @@ def test_parse_validate_diagnostics_ignores_operations_own_backtrace_frames():
 
     assert len(diagnostics) == 1
     assert diagnostics[0].line == 5
-    assert diagnostics[0].message == 'Parse Error: Unexpected "Identifier" in class body.'
+    assert (
+        diagnostics[0].message == 'Parse Error: Unexpected "Identifier" in class body.'
+    )
 
 
 def test_parse_validate_diagnostics_does_not_borrow_a_later_errors_reload_line():
@@ -126,10 +128,7 @@ def test_parse_validate_diagnostics_empty_message_keeps_line_and_does_not_spill(
     # An empty SCRIPT ERROR message must not swallow the following reload frame
     # (the `[ \t]` bound keeps the capture on its own line): the diagnostic still
     # gets the frame's line, with an empty message rather than the frame text.
-    stderr = (
-        "SCRIPT ERROR: \n"
-        "          at: GDScript::reload (gdscript://-1.gd:4)\n"
-    )
+    stderr = "SCRIPT ERROR: \n          at: GDScript::reload (gdscript://-1.gd:4)\n"
 
     diagnostics = parse_validate_diagnostics(stderr)
 

@@ -29,9 +29,7 @@ def test_gda_project_env_resolves_to_that_project(tmp_path):
 
 def test_root_resolves_when_gda_project_unset(tmp_path):
     proj = _project(tmp_path)
-    result = resolve_project_dir(
-        env={}, roots=[str(proj)], cwd=Path("/nonexistent")
-    )
+    result = resolve_project_dir(env={}, roots=[str(proj)], cwd=Path("/nonexistent"))
     assert result == proj
 
 

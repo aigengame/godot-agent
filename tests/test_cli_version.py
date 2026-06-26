@@ -43,8 +43,6 @@ def test_root_version_option_does_not_require_godot(monkeypatch):
 
 
 def test_package_metadata_version_matches_pyproject():
-    pyproject = tomllib.loads(
-        (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    )
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert version("gda") == pyproject["project"]["version"]

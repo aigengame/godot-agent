@@ -18,7 +18,6 @@ from tests.support import (
     FIND_REFERENCES_RESULT,
     STATISTICS_RESULT,
     UNUSED_RESULT,
-    FakeRunner,
     inject_runner,
     sentinel,
 )
@@ -83,9 +82,7 @@ def test_find_references_normalizes_filesystem_target_but_not_res_path(monkeypat
         ),
     )
 
-    result = CliRunner().invoke(
-        app, ["project", "find-references", "Hero", "--json"]
-    )
+    result = CliRunner().invoke(app, ["project", "find-references", "Hero", "--json"])
 
     assert result.exit_code == 0
     assert fake.calls == [("project-find-references", {"target": "Hero"})]
@@ -96,9 +93,7 @@ def test_find_unused_resources_json(monkeypatch):
         monkeypatch, RunResult(stdout=sentinel(UNUSED_RESULT), stderr="", exit_code=0)
     )
 
-    result = CliRunner().invoke(
-        app, ["project", "find-unused-resources", "--json"]
-    )
+    result = CliRunner().invoke(app, ["project", "find-unused-resources", "--json"])
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)

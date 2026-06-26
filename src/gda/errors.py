@@ -422,7 +422,9 @@ def _live_error_from_payload(result: RunResult) -> Failure | None:
     return None
 
 
-def classify_live(result: RunResult, binary: Path, output_model: type[M]) -> M | Failure:
+def classify_live(
+    result: RunResult, binary: Path, output_model: type[M]
+) -> M | Failure:
     """Classify a live operation's raw result (ADR-0017).
 
     A live op returns the same ``RunResult`` + ADR-0002 sentinel a headless op
@@ -475,12 +477,16 @@ def classify_logger_tail(result: RunResult, binary: Path) -> LoggerTailResult | 
     return classify_live(result, binary, LoggerTailResult)
 
 
-def classify_perf_monitors(result: RunResult, binary: Path) -> PerfMonitorsResult | Failure:
+def classify_perf_monitors(
+    result: RunResult, binary: Path
+) -> PerfMonitorsResult | Failure:
     """The per-command live classifier for ``gda perf monitors`` (#223, mirrors ``classify_game_tree``)."""
     return classify_live(result, binary, PerfMonitorsResult)
 
 
-def classify_perf_monitor(result: RunResult, binary: Path) -> PerfMonitorResult | Failure:
+def classify_perf_monitor(
+    result: RunResult, binary: Path
+) -> PerfMonitorResult | Failure:
     """The per-command live classifier for ``gda perf monitor`` (#223, mirrors ``classify_game_tree``)."""
     return classify_live(result, binary, PerfMonitorResult)
 
@@ -495,12 +501,16 @@ def classify_input_mouse(result: RunResult, binary: Path) -> InputMouseResult | 
     return classify_live(result, binary, InputMouseResult)
 
 
-def classify_input_action(result: RunResult, binary: Path) -> InputActionResult | Failure:
+def classify_input_action(
+    result: RunResult, binary: Path
+) -> InputActionResult | Failure:
     """The per-command live classifier for ``gda input action`` (#221, mirrors ``classify_game_tree``)."""
     return classify_live(result, binary, InputActionResult)
 
 
-def classify_input_sequence(result: RunResult, binary: Path) -> InputSequenceResult | Failure:
+def classify_input_sequence(
+    result: RunResult, binary: Path
+) -> InputSequenceResult | Failure:
     """The per-command live classifier for ``gda input sequence`` (#221, mirrors ``classify_game_tree``)."""
     return classify_live(result, binary, InputSequenceResult)
 

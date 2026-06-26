@@ -79,7 +79,9 @@ def test_no_renderer_is_orphaned():
         f"{sorted(orphaned)}"
     )
     # And nothing claims to be bound that the module does not define (a stale import).
-    assert not (bound - defined), f"descriptors bind undefined renderers: {sorted(bound - defined)}"
+    assert not (bound - defined), (
+        f"descriptors bind undefined renderers: {sorted(bound - defined)}"
+    )
 
 
 # The recipe-bearing commands — those fulfilled by a CLI-side recipe (export run /

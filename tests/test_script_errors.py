@@ -27,9 +27,7 @@ def _invoke_script_create(monkeypatch, code: str, message: str):
             exit_code=1,
         ),
     )
-    return CliRunner().invoke(
-        app, ["script", "create", "/x/hero.gd", "--json"]
-    )
+    return CliRunner().invoke(app, ["script", "create", "/x/hero.gd", "--json"])
 
 
 def _invoke_script_get(monkeypatch, code: str, message: str):
@@ -239,7 +237,7 @@ def test_script_set_no_search_match_maps_to_stable_no_search_match_code(monkeypa
     # contain is a new no_search_match code, so an agent learns the edit landed
     # nowhere (and the file was left untouched) rather than parsing prose.
     result = _invoke_script_set(
-        monkeypatch, "no_search_match", "search string not found in script: \"xyzzy\""
+        monkeypatch, "no_search_match", 'search string not found in script: "xyzzy"'
     )
 
     assert result.exit_code == 4
@@ -397,7 +395,9 @@ def test_script_attach_unloadable_resource_reuses_stable_invalid_path_code(monke
     assert "/x/hero.gd" in err["message"]
 
 
-def test_script_attach_non_compiling_script_uses_script_compile_failed_code(monkeypatch):
+def test_script_attach_non_compiling_script_uses_script_compile_failed_code(
+    monkeypatch,
+):
     # A .gd that loads but does not COMPILE cannot be bound: the headless engine
     # silently rejects it from set_script, so attach refuses with the focused
     # script_compile_failed code rather than report a phantom success over a
@@ -415,7 +415,9 @@ def test_script_attach_non_compiling_script_uses_script_compile_failed_code(monk
     assert "/x/hero.gd" in err["message"]
 
 
-def test_script_attach_incompatible_type_uses_incompatible_script_type_code(monkeypatch):
+def test_script_attach_incompatible_type_uses_incompatible_script_type_code(
+    monkeypatch,
+):
     # A script that COMPILES but whose native base is incompatible with the node
     # (e.g. an `extends Node3D` script onto a Node2D) is bounced by set_script for
     # a different reason than a compile error — attach reports the distinct

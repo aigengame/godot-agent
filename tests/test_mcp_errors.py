@@ -59,7 +59,9 @@ def _failing_server(code: str):
     ],
 )
 def test_each_category_relays_losslessly_as_is_error(code):
-    result = call_tool(_failing_server(code), "scene_create", {"path": "x", "root_type": "Node2D"})
+    result = call_tool(
+        _failing_server(code), "scene_create", {"path": "x", "root_type": "Node2D"}
+    )
 
     # The failure channel: isError, and the error stays OUT of structuredContent.
     assert result.isError is True
@@ -89,7 +91,9 @@ def test_cannot_run_edge_is_synthesized_by_gda_mcp():
     runner = FakeGdaRunner(
         schema_then(
             lambda args, stdin: gda_result(
-                stdout="", stderr="Traceback: ModuleNotFoundError: No module named 'gda'", returncode=1
+                stdout="",
+                stderr="Traceback: ModuleNotFoundError: No module named 'gda'",
+                returncode=1,
             )
         )
     )
@@ -106,7 +110,9 @@ def test_non_envelope_output_edge_is_synthesized():
     # Non-zero exit but stdout is not a GdaError envelope (a Click usage error, a
     # bare string, JSON missing the error shape): also synthesized by gda-mcp.
     runner = FakeGdaRunner(
-        schema_then(lambda args, stdin: gda_result(stdout='{"not":"an envelope"}', returncode=2))
+        schema_then(
+            lambda args, stdin: gda_result(stdout='{"not":"an envelope"}', returncode=2)
+        )
     )
     result = call_tool(build_server(runner), "info", {})
 
@@ -118,7 +124,9 @@ def test_exit_zero_but_non_json_stdout_edge_is_synthesized():
     # The success-path edge: gda exits 0 yet stdout is not JSON (so --json could
     # not have been honored). gda-mcp treats it as an adapter error, not a crash.
     runner = FakeGdaRunner(
-        schema_then(lambda args, stdin: gda_result(stdout="not json at all", returncode=0))
+        schema_then(
+            lambda args, stdin: gda_result(stdout="not json at all", returncode=0)
+        )
     )
     result = call_tool(build_server(runner), "info", {})
 

@@ -34,7 +34,9 @@ _ERROR_HEADER = re.compile(r"^(ERROR|WARNING|SCRIPT ERROR|SHADER ERROR): (.*)$")
 
 # The engine's follow-on location line: ``   at: <function> (<file>:<line>)``.
 # Leading whitespace varies by ErrorType indent, so it is matched loosely.
-_AT_LINE = re.compile(r"^\s*at:\s*(?P<function>.*?)\s*\((?P<file>.*):(?P<line>\d+)\)\s*$")
+_AT_LINE = re.compile(
+    r"^\s*at:\s*(?P<function>.*?)\s*\((?P<file>.*):(?P<line>\d+)\)\s*$"
+)
 
 # After the ``at:`` line, a runtime GDScript error MAY carry a full call stack:
 # a marker line ``GDScript backtrace (most recent call first):`` then one frame
@@ -296,7 +298,11 @@ def _error_record(seq: int, entry: dict) -> dict:
     # (no follow-on) leaves `source` null rather than an all-null frame.
     has_location = any(entry.get(k) is not None for k in ("function", "file", "line"))
     source = (
-        {"function": entry.get("function"), "file": entry.get("file"), "line": entry.get("line")}
+        {
+            "function": entry.get("function"),
+            "file": entry.get("file"),
+            "line": entry.get("line"),
+        }
         if has_location
         else None
     )

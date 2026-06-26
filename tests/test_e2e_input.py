@@ -36,7 +36,7 @@ KEY_PLAYER_GD = (
     "\t\t\tposition.x += 10.0\n"
 )
 KEY_MAIN_TSCN = (
-    '[gd_scene load_steps=2 format=3]\n\n'
+    "[gd_scene load_steps=2 format=3]\n\n"
     '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
     '[node name="Main" type="Node2D"]\n\n'
     '[node name="Player" type="Node2D" parent="."]\n'
@@ -56,7 +56,7 @@ MOUSE_PLAYER_GD = (
     "\t\t\tposition = event.position\n"
 )
 MOUSE_MAIN_TSCN = (
-    '[gd_scene load_steps=2 format=3]\n\n'
+    "[gd_scene load_steps=2 format=3]\n\n"
     '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
     '[node name="Main" type="Node2D"]\n\n'
     '[node name="Player" type="Node2D" parent="."]\n'
@@ -69,11 +69,11 @@ MOUSE_MAIN_TSCN = (
 ACTION_PLAYER_GD = (
     "extends Node2D\n"
     "func _process(_delta: float) -> void:\n"
-    "\tif Input.is_action_pressed(\"move_right\"):\n"
+    '\tif Input.is_action_pressed("move_right"):\n'
     "\t\tposition.x += 1.0\n"
 )
 ACTION_MAIN_TSCN = (
-    '[gd_scene load_steps=2 format=3]\n\n'
+    "[gd_scene load_steps=2 format=3]\n\n"
     '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
     '[node name="Main" type="Node2D"]\n\n'
     '[node name="Player" type="Node2D" parent="."]\n'
@@ -88,7 +88,7 @@ ACTION_PROJECT_GODOT = project_godot(
     extra=(
         'run/main_scene="res://main.tscn"\n\n'
         "[input]\n\n"
-        'move_right={\n'
+        "move_right={\n"
         '"deadzone": 0.5,\n'
         '"events": []\n'
         "}\n"
@@ -111,7 +111,15 @@ def test_daemon_serves_input_key_observed_via_game_get(tmp_path, daemon_runtime_
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -125,7 +133,9 @@ def test_daemon_serves_input_key_observed_via_game_get(tmp_path, daemon_runtime_
         before = run("game", "get", "/root/Main/Player", "--property", "position")
         assert before.returncode == 0, before.stdout + before.stderr
         before_x = next(
-            p for p in json.loads(before.stdout)["properties"] if p["name"] == "position"
+            p
+            for p in json.loads(before.stdout)["properties"]
+            if p["name"] == "position"
         )["value"][0]
 
         # Inject a Right key press; the game's _input advances position.x by 10.
@@ -148,7 +158,9 @@ def test_daemon_serves_input_key_observed_via_game_get(tmp_path, daemon_runtime_
 
 
 @pytest.mark.e2e
-def test_daemon_serves_input_mouse_click_observed_via_game_get(tmp_path, daemon_runtime_dir):
+def test_daemon_serves_input_mouse_click_observed_via_game_get(
+    tmp_path, daemon_runtime_dir
+):
     # The mouse leg of the #221 DoD: a real daemon -> engine session ->
     # `input mouse-click <x> <y>` (post-flatten two-token name) pushes an
     # InputEventMouseButton through the real `push_input` viewport path into the
@@ -162,7 +174,15 @@ def test_daemon_serves_input_mouse_click_observed_via_game_get(tmp_path, daemon_
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -176,7 +196,9 @@ def test_daemon_serves_input_mouse_click_observed_via_game_get(tmp_path, daemon_
         before = run("game", "get", "/root/Main/Player", "--property", "position")
         assert before.returncode == 0, before.stdout + before.stderr
         before_pos = next(
-            p for p in json.loads(before.stdout)["properties"] if p["name"] == "position"
+            p
+            for p in json.loads(before.stdout)["properties"]
+            if p["name"] == "position"
         )["value"]
         assert before_pos == [0.0, 0.0]
 
@@ -212,7 +234,15 @@ def test_daemon_serves_input_action_observed_via_game_get(tmp_path, daemon_runti
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -225,7 +255,9 @@ def test_daemon_serves_input_action_observed_via_game_get(tmp_path, daemon_runti
         before = run("game", "get", "/root/Main/Player", "--property", "position")
         assert before.returncode == 0, before.stdout + before.stderr
         before_x = next(
-            p for p in json.loads(before.stdout)["properties"] if p["name"] == "position"
+            p
+            for p in json.loads(before.stdout)["properties"]
+            if p["name"] == "position"
         )["value"][0]
 
         # Press the action; the Player polls is_action_pressed each frame and moves.
@@ -265,7 +297,15 @@ def test_daemon_serves_input_sequence_across_frames(tmp_path, daemon_runtime_dir
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -286,7 +326,9 @@ def test_daemon_serves_input_sequence_across_frames(tmp_path, daemon_runtime_dir
         before = run("game", "get", "/root/Main/Player", "--property", "position")
         assert before.returncode == 0, before.stdout + before.stderr
         before_x = next(
-            p for p in json.loads(before.stdout)["properties"] if p["name"] == "position"
+            p
+            for p in json.loads(before.stdout)["properties"]
+            if p["name"] == "position"
         )["value"][0]
 
         # The whole sequence returns as one blocking result: 3 events over 3 frames.
@@ -309,7 +351,9 @@ def test_daemon_serves_input_sequence_across_frames(tmp_path, daemon_runtime_dir
 
 
 @pytest.mark.e2e
-def test_input_action_unknown_action_reports_live_unknown_action(tmp_path, daemon_runtime_dir):
+def test_input_action_unknown_action_reports_live_unknown_action(
+    tmp_path, daemon_runtime_dir
+):
     # An action absent from the running InputMap is the typed harness op-error,
     # relayed through the daemon (exit-0 sentinel) and mapped by classify_live.
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
@@ -320,7 +364,15 @@ def test_input_action_unknown_action_reports_live_unknown_action(tmp_path, daemo
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,

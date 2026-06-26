@@ -54,7 +54,10 @@ def test_info_over_stdio_reports_engine_version():
 
     assert result.isError is False, result.content
     assert result.structuredContent["major"] == 4
-    assert (result.structuredContent["major"], result.structuredContent["minor"]) >= (4, 4)
+    assert (result.structuredContent["major"], result.structuredContent["minor"]) >= (
+        4,
+        4,
+    )
 
 
 @pytest.mark.e2e

@@ -152,8 +152,7 @@ def dispatch(
             # exit 0 but non-JSON stdout: gda could not have honored ``--json``.
             # Treat as the can't-run / non-envelope edge rather than crash.
             return _synthesized_error(
-                "gda exited 0 but did not emit a JSON result for "
-                f"{' '.join(argv)!r}",
+                f"gda exited 0 but did not emit a JSON result for {' '.join(argv)!r}",
                 result,
             )
 

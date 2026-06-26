@@ -64,7 +64,9 @@ def test_script_create_default_template_passes_null_content_and_extends(monkeypa
     stdout = sentinel({**CREATE_RESULT, "extends": "Node"})
     fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
 
-    result = CliRunner().invoke(app, ["script", "create", "/tmp/proj/hero.gd", "--json"])
+    result = CliRunner().invoke(
+        app, ["script", "create", "/tmp/proj/hero.gd", "--json"]
+    )
 
     assert result.exit_code == 0
     assert fake.calls == [
@@ -78,7 +80,12 @@ def test_script_create_default_template_passes_null_content_and_extends(monkeypa
 def test_script_create_content_passes_verbatim_source(monkeypatch):
     # --content supplies verbatim source; it rides through as the content param.
     stdout = sentinel(
-        {"path": "/tmp/proj/util.gd", "class_name": None, "extends": None, "created_dirs": []}
+        {
+            "path": "/tmp/proj/util.gd",
+            "class_name": None,
+            "extends": None,
+            "created_dirs": [],
+        }
     )
     fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
 
@@ -110,7 +117,9 @@ def test_script_create_content_passes_verbatim_source(monkeypatch):
 def test_script_create_content_and_extends_are_mutually_exclusive(monkeypatch):
     # Verbatim content is not templated, so a base class has nowhere to go;
     # supplying both is a usage error (exit 2), never a silent precedence rule.
-    fake = inject_runner(monkeypatch, RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0))
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(CREATE_RESULT), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(
         app,
@@ -148,7 +157,9 @@ def test_script_get_json_emits_source_and_metadata_and_exit_zero(monkeypatch):
     assert fake.calls == [("script-get", {"path": "/tmp/proj/hero.gd"})]
 
 
-def test_script_list_json_enumerates_project_scripts_and_exit_zero(monkeypatch, tmp_path):
+def test_script_list_json_enumerates_project_scripts_and_exit_zero(
+    monkeypatch, tmp_path
+):
     # script list enumerates the resolved project's .gd files (issue #117): each
     # entry carries its res:// path plus the class_name/extends parsed cheaply
     # from the script's raw source.
@@ -484,7 +495,9 @@ def test_script_validate_valid_script_reports_valid_true_no_diagnostics(monkeypa
     stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(payload)
     fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
 
-    result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/ok.gd", "--json"])
+    result = CliRunner().invoke(
+        app, ["script", "validate", "/tmp/proj/ok.gd", "--json"]
+    )
 
     assert result.exit_code == 0
     data = json.loads(result.stdout)
@@ -504,7 +517,7 @@ def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(monke
         "error_string": "Parse error.",
     }
     stderr = (
-        'SCRIPT ERROR: Parse Error: Expected expression for variable initial '
+        "SCRIPT ERROR: Parse Error: Expected expression for variable initial "
         'value after "=".\n'
         "          at: GDScript::reload (gdscript://-9223371888644840980.gd:3)\n"
     )
@@ -573,7 +586,9 @@ def test_script_set_end_line_without_start_line_is_a_usage_error(monkeypatch):
 def test_script_validate_human_output_valid(monkeypatch):
     # Without --json, a valid result renders a one-line 'valid <path>'.
     payload = {"path": "/tmp/proj/ok.gd", "valid": True, "error_string": None}
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/ok.gd"])
 
@@ -593,7 +608,9 @@ def test_script_validate_human_output_invalid_lists_diagnostics(monkeypatch):
         "SCRIPT ERROR: Parse Error: the message.\n"
         "          at: GDScript::reload (gdscript://-1.gd:3)\n"
     )
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr=stderr, exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr=stderr, exit_code=0)
+    )
 
     result = CliRunner().invoke(app, ["script", "validate", "/tmp/proj/broken.gd"])
 
@@ -611,25 +628,43 @@ def test_script_attach_human_output(monkeypatch):
         "script": "/tmp/proj/hero.gd",
         "class_name": "Hero",
     }
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(
         app,
-        ["script", "attach", "/tmp/proj/main.tscn", "--node", "Hero", "--script", "/tmp/proj/hero.gd"],
+        [
+            "script",
+            "attach",
+            "/tmp/proj/main.tscn",
+            "--node",
+            "Hero",
+            "--script",
+            "/tmp/proj/hero.gd",
+        ],
     )
 
     assert result.exit_code == 0
-    assert result.stdout.strip() == "attached /tmp/proj/hero.gd to Hero in /tmp/proj/main.tscn"
+    assert (
+        result.stdout.strip()
+        == "attached /tmp/proj/hero.gd to Hero in /tmp/proj/main.tscn"
+    )
 
 
 def test_script_set_human_output_renders_metadata(monkeypatch):
     # Without --json, set reuses the shared script-metadata renderer.
     payload = {"path": "/tmp/proj/hero.gd", "class_name": "Hero", "extends": "Node2D"}
-    inject_runner(monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0))
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
 
     result = CliRunner().invoke(
         app, ["script", "set", "/tmp/proj/hero.gd", "--content", "x"]
     )
 
     assert result.exit_code == 0
-    assert result.stdout.strip() == "set /tmp/proj/hero.gd (extends Node2D, class_name Hero)"
+    assert (
+        result.stdout.strip()
+        == "set /tmp/proj/hero.gd (extends Node2D, class_name Hero)"
+    )

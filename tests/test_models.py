@@ -507,7 +507,12 @@ def test_export_list_result_round_trips_enumerated_presets():
     # carries runnable=false, so the listing names every preset the file defines.
     payload = {
         "presets": [
-            {"index": 0, "name": "Linux/X11", "platform": "Linux/X11", "runnable": True},
+            {
+                "index": 0,
+                "name": "Linux/X11",
+                "platform": "Linux/X11",
+                "runnable": True,
+            },
             {"index": 1, "name": "Web", "platform": "Web", "runnable": False},
         ]
     }
@@ -1088,7 +1093,13 @@ def test_diag_error_callstack_defaults_to_empty_for_a_bare_error():
     from gda.models import DiagError
 
     error = DiagError.model_validate(
-        {"level": "error", "message": "boom", "function": None, "file": None, "line": None}
+        {
+            "level": "error",
+            "message": "boom",
+            "function": None,
+            "file": None,
+            "line": None,
+        }
     )
 
     assert error.callstack == []

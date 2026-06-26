@@ -154,9 +154,7 @@ def test_project_set_uncoercible_value_is_a_clean_error(godot_project):
 @pytest.mark.e2e
 def test_project_add_autoload_registers_persists_and_round_trips(godot_project):
     # A real script to autoload must exist in the project (path_not_found otherwise).
-    (godot_project / "global.gd").write_text(
-        "extends Node\n", encoding="utf-8"
-    )
+    (godot_project / "global.gd").write_text("extends Node\n", encoding="utf-8")
 
     added = _gda(
         godot_project,

@@ -84,6 +84,7 @@ binary_format/embed_pck=false
 
 def _gda_project(project) -> "callable":
     """A ``gda`` bound to ``--godot`` + ``--project`` for the real engine."""
+
     def gda(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
             [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
@@ -212,8 +213,15 @@ def test_export_run_pack_writes_pck_without_templates(godot_project):
     gda = _gda_project(godot_project)
 
     run = gda(
-        "export", "run", "--preset", "Linux/X11",
-        "--mode", "pack", "--output", override_rel, "--json",
+        "export",
+        "run",
+        "--preset",
+        "Linux/X11",
+        "--mode",
+        "pack",
+        "--output",
+        override_rel,
+        "--json",
     )
 
     # No skip: pack must RUN to completion regardless of template presence.
@@ -255,8 +263,15 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
     gda = _gda_project(godot_project)
 
     run = gda(
-        "export", "run", "--preset", "Linux/X11",
-        "--mode", "pack", "--output", override_rel, "--json",
+        "export",
+        "run",
+        "--preset",
+        "Linux/X11",
+        "--mode",
+        "pack",
+        "--output",
+        override_rel,
+        "--json",
     )
 
     assert run.returncode == 0, run.stdout + run.stderr
@@ -265,7 +280,8 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
         names = zf.namelist()
         # (a) The harness SCRIPT is absent from the archive.
         assert not any(HARNESS_FILE in n for n in names), (
-            "the exported archive still carries the harness script:\n" + "\n".join(names)
+            "the exported archive still carries the harness script:\n"
+            + "\n".join(names)
         )
         # (b) The packed project settings declare NO GdaHarness autoload — the
         # specific Godot risk (project.binary serializes ProjectSettings wholesale,
@@ -309,8 +325,16 @@ def test_export_run_without_templates_yields_export_templates_missing(
 
     run = subprocess.run(
         [
-            *GDA_CMD, "export", "run", "--preset", "Linux/X11", "--json",
-            "--godot", str(GODOT), "--project", str(godot_project),
+            *GDA_CMD,
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--json",
+            "--godot",
+            str(GODOT),
+            "--project",
+            str(godot_project),
         ],
         capture_output=True,
         text=True,

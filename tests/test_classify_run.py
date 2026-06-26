@@ -78,9 +78,7 @@ def test_engine_returned_124_is_operation_not_environment():
 def test_engine_nonzero_exit_maps_to_operation_failure():
     # The engine launched and ran but the operation reported an error and quit
     # non-zero (its own exit, not the runner's synthetic 124/127).
-    result = RunResult(
-        stdout="", stderr="gda: unknown operation: bogus\n", exit_code=1
-    )
+    result = RunResult(stdout="", stderr="gda: unknown operation: bogus\n", exit_code=1)
 
     outcome = classify_run(result, BINARY, SceneSummary)
 

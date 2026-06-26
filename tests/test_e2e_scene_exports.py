@@ -64,9 +64,16 @@ def _build_scene_with_exports(project) -> "tuple":
     script_path.write_text(EXPORTING_SCRIPT, encoding="utf-8")
 
     attached = _gda(
-        "script", "attach", str(scene_path),
-        "--node", ".", "--script", str(script_path),
-        "--project", str(project), "--json",
+        "script",
+        "attach",
+        str(scene_path),
+        "--node",
+        ".",
+        "--script",
+        str(script_path),
+        "--project",
+        str(project),
+        "--json",
     )
     assert attached.returncode == 0, attached.stdout + attached.stderr
     return scene_path, script_path
@@ -81,8 +88,12 @@ def test_scene_get_exports_reports_declared_exports_per_node(godot_project):
     scene_path, _ = _build_scene_with_exports(godot_project)
 
     got = _gda(
-        "scene", "get-exports", str(scene_path),
-        "--project", str(godot_project), "--json",
+        "scene",
+        "get-exports",
+        str(scene_path),
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     assert got.returncode == 0, got.stdout + got.stderr
@@ -126,8 +137,12 @@ def test_scene_get_exports_omits_nodes_without_declared_exports(godot_project):
     assert created.returncode == 0, created.stdout + created.stderr
 
     got = _gda(
-        "scene", "get-exports", str(scene_path),
-        "--project", str(godot_project), "--json",
+        "scene",
+        "get-exports",
+        str(scene_path),
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     assert got.returncode == 0, got.stdout + got.stderr
@@ -150,20 +165,37 @@ def test_scene_get_exports_reports_nested_node_by_path(godot_project):
     script_path.write_text(EXPORTING_SCRIPT, encoding="utf-8")
 
     added = _gda(
-        "node", "add", str(scene_path),
-        "--type", "Node2D", "--name", "Child", "--json",
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Node2D",
+        "--name",
+        "Child",
+        "--json",
     )
     assert added.returncode == 0, added.stdout + added.stderr
     attached = _gda(
-        "script", "attach", str(scene_path),
-        "--node", "Child", "--script", str(script_path),
-        "--project", str(godot_project), "--json",
+        "script",
+        "attach",
+        str(scene_path),
+        "--node",
+        "Child",
+        "--script",
+        str(script_path),
+        "--project",
+        str(godot_project),
+        "--json",
     )
     assert attached.returncode == 0, attached.stdout + attached.stderr
 
     got = _gda(
-        "scene", "get-exports", str(scene_path),
-        "--project", str(godot_project), "--json",
+        "scene",
+        "get-exports",
+        str(scene_path),
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     assert got.returncode == 0, got.stdout + got.stderr
@@ -178,8 +210,12 @@ def test_scene_get_exports_reports_nested_node_by_path(godot_project):
 @pytest.mark.e2e
 def test_scene_get_exports_missing_file_yields_path_not_found(godot_project):
     got = _gda(
-        "scene", "get-exports", str(godot_project / "nope.tscn"),
-        "--project", str(godot_project), "--json",
+        "scene",
+        "get-exports",
+        str(godot_project / "nope.tscn"),
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     err = _assert_operation_error(got, "path_not_found")
@@ -194,8 +230,12 @@ def test_scene_get_exports_non_scene_file_yields_not_a_scene(godot_project):
     notes.write_text("not a scene\n", encoding="utf-8")
 
     got = _gda(
-        "scene", "get-exports", str(notes),
-        "--project", str(godot_project), "--json",
+        "scene",
+        "get-exports",
+        str(notes),
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     _assert_operation_error(got, "not_a_scene")

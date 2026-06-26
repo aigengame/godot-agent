@@ -181,9 +181,16 @@ def test_node_add_executes_pre_existing_scene_script(godot_project):
     scene = _plant_spied_scene(godot_project)
 
     added = _gda(
-        "node", "add", str(scene),
-        "--type", "Sprite2D", "--name", "Hero",
-        "--project", str(godot_project), "--json",
+        "node",
+        "add",
+        str(scene),
+        "--type",
+        "Sprite2D",
+        "--name",
+        "Hero",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     assert added.returncode == 0, added.stdout + added.stderr
@@ -211,9 +218,14 @@ def test_node_get_executes_pre_existing_scene_script(godot_project):
     scene = _plant_spied_scene(godot_project)
 
     got = _gda(
-        "node", "get", str(scene),
-        "--node", ".",
-        "--project", str(godot_project), "--json",
+        "node",
+        "get",
+        str(scene),
+        "--node",
+        ".",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     assert got.returncode == 0, got.stdout + got.stderr
@@ -265,9 +277,16 @@ def test_node_add_forged_sentinel_from_scene_script_fails_loudly(godot_project):
     (godot_project / "forged.tscn").write_text(FORGED_TSCN, encoding="utf-8")
 
     added = _gda(
-        "node", "add", str(godot_project / "forged.tscn"),
-        "--type", "Sprite2D", "--name", "Hero",
-        "--project", str(godot_project), "--json",
+        "node",
+        "add",
+        str(godot_project / "forged.tscn"),
+        "--type",
+        "Sprite2D",
+        "--name",
+        "Hero",
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     # The forged result is never accepted: the run fails on the parse boundary.
@@ -334,8 +353,12 @@ def test_autoload_runs_on_scene_get(godot_project):
     (godot_project / "plain.tscn").write_text(PLAIN_TSCN, encoding="utf-8")
 
     got = _gda(
-        "scene", "get", str(godot_project / "plain.tscn"),
-        "--project", str(godot_project), "--json",
+        "scene",
+        "get",
+        str(godot_project / "plain.tscn"),
+        "--project",
+        str(godot_project),
+        "--json",
     )
 
     # The read itself succeeds and reports the declared (script-less) tree.

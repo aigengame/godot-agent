@@ -213,7 +213,8 @@ def test_wrong_typed_path_is_a_structured_error_not_a_traceback(monkeypatch):
     )
 
     result = CliRunner().invoke(
-        app, ["scene", "create", "--params-json", '{"path": 123, "root_type": "Node2D"}']
+        app,
+        ["scene", "create", "--params-json", '{"path": 123, "root_type": "Node2D"}'],
     )
 
     assert result.exit_code != 0
@@ -231,7 +232,12 @@ def test_node_add_params_json_derives_default_name_like_argv(monkeypatch):
 
     result = CliRunner().invoke(
         app,
-        ["node", "add", "--params-json", '{"path": "/tmp/proj/main.tscn", "type": "Sprite2D"}'],
+        [
+            "node",
+            "add",
+            "--params-json",
+            '{"path": "/tmp/proj/main.tscn", "type": "Sprite2D"}',
+        ],
     )
 
     assert result.exit_code == 0, result.stdout
@@ -244,7 +250,8 @@ def test_script_create_params_json_rejects_content_and_extends(monkeypatch):
     # The content/extends mutual exclusivity is enforced model-side, so
     # --params-json cannot bypass it (it is rejected, not silently resolved).
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SCRIPT_CREATE_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SCRIPT_CREATE_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
@@ -263,7 +270,8 @@ def test_script_create_params_json_rejects_content_and_extends(monkeypatch):
 
 def test_shader_create_params_json_rejects_content_and_shader_type(monkeypatch):
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SHADER_CREATE_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SHADER_CREATE_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
@@ -284,12 +292,18 @@ def test_script_set_params_json_rejects_inconsistent_edit_fields(monkeypatch):
     # The edit-mode rule is enforced model-side: a half-specified mode (search
     # without replace) is invalid_params via --params-json, not a silent dispatch.
     inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SCRIPT_SET_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SCRIPT_SET_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
         app,
-        ["script", "set", "--params-json", '{"path": "/tmp/proj/hero.gd", "search": "a"}'],
+        [
+            "script",
+            "set",
+            "--params-json",
+            '{"path": "/tmp/proj/hero.gd", "search": "a"}',
+        ],
     )
 
     assert result.exit_code != 0
@@ -303,7 +317,8 @@ def test_perf_monitor_params_json_rejects_both_selectors(monkeypatch):
     result = CliRunner().invoke(
         app,
         [
-            "perf", "monitor",
+            "perf",
+            "monitor",
             "--params-json",
             '{"node": "/root/Main/Player", "property": "position", "signal": "hit"}',
         ],
@@ -331,7 +346,8 @@ def test_perf_monitor_params_json_rejects_frames_over_range(monkeypatch):
     result = CliRunner().invoke(
         app,
         [
-            "perf", "monitor",
+            "perf",
+            "monitor",
             "--params-json",
             '{"node": "/root/Main/Player", "property": "position", "frames": 601}',
         ],
@@ -346,7 +362,8 @@ def test_perf_monitor_params_json_rejects_frames_below_range(monkeypatch):
     result = CliRunner().invoke(
         app,
         [
-            "perf", "monitor",
+            "perf",
+            "monitor",
             "--params-json",
             '{"node": "/root/Main/Player", "property": "position", "frames": 0}',
         ],
@@ -360,12 +377,18 @@ def test_script_set_params_json_derives_mode_like_argv(monkeypatch):
     # Parity: the edit mode is derived from the supplied fields model-side, so a
     # --params-json caller need not (and should not) supply it.
     fake = inject_runner(
-        monkeypatch, RunResult(stdout=sentinel(SCRIPT_SET_RESULT), stderr="", exit_code=0)
+        monkeypatch,
+        RunResult(stdout=sentinel(SCRIPT_SET_RESULT), stderr="", exit_code=0),
     )
 
     result = CliRunner().invoke(
         app,
-        ["script", "set", "--params-json", '{"path": "/tmp/proj/hero.gd", "content": "extends Node\\n"}'],
+        [
+            "script",
+            "set",
+            "--params-json",
+            '{"path": "/tmp/proj/hero.gd", "content": "extends Node\\n"}',
+        ],
     )
 
     assert result.exit_code == 0, result.stdout
@@ -396,10 +419,7 @@ def _params_json_leaves():
     ``--params-json`` is caught here automatically, not only in a hand-kept list.
     """
     root = typer.main.get_command(app)
-    return [
-        (" ".join(name), command.params)
-        for name, command in _leaf_commands(root)
-    ]
+    return [(" ".join(name), command.params) for name, command in _leaf_commands(root)]
 
 
 # ``gda schema`` is the one documented exception (ADR-0015): the parameterless

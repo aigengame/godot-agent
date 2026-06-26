@@ -47,7 +47,9 @@ OPERATIONS_GD = ROOT / "src" / "gda" / "ops" / "operations.gd"
 GDA_HARNESS_GD = ROOT / "src" / "gda" / "harness" / "gda_harness.gd"
 
 ADR_REGISTRY_ROW = re.compile(r"^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \| `(\d+)` \|")
-GDSCRIPT_OPERATION_CODE = re.compile(r'^const OP_ERROR_[A-Z_]+ := "([a-z_]+)"$', re.MULTILINE)
+GDSCRIPT_OPERATION_CODE = re.compile(
+    r'^const OP_ERROR_[A-Z_]+ := "([a-z_]+)"$', re.MULTILINE
+)
 GDSCRIPT_HARNESS_LIVE_CODE = re.compile(
     r'^const LIVE_ERROR_[A-Z_]+ := "([a-z_]+)"$', re.MULTILINE
 )
@@ -174,7 +176,7 @@ def test_gdscript_harness_live_error_codes_mirror_python_harness_subset():
 
 
 HARNESS_MAX_WINDOW_FRAMES = re.compile(
-    r'^const MAX_WINDOW_FRAMES := (\d+)$', re.MULTILINE
+    r"^const MAX_WINDOW_FRAMES := (\d+)$", re.MULTILINE
 )
 
 

@@ -29,7 +29,9 @@ def _project(tmp_path):
     return tmp_path
 
 
-def test_logger_tail_emits_structured_records_json_through_the_live_channel(monkeypatch, tmp_path):
+def test_logger_tail_emits_structured_records_json_through_the_live_channel(
+    monkeypatch, tmp_path
+):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(LOGGER_TAIL_RESULT), stderr="", exit_code=0),
@@ -57,15 +59,28 @@ def test_logger_tail_passes_level_and_limit_through(monkeypatch, tmp_path):
 
     result = CliRunner().invoke(
         app,
-        ["logger", "tail", "--level", "warning", "--limit", "5",
-         "--project", str(_project(tmp_path)), "--json"],
+        [
+            "logger",
+            "tail",
+            "--level",
+            "warning",
+            "--limit",
+            "5",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
-    assert fake.calls == [("logger-tail", {"level": "warning", "limit": 5, "raw": False})]
+    assert fake.calls == [
+        ("logger-tail", {"level": "warning", "limit": 5, "raw": False})
+    ]
 
 
-def test_logger_tail_raw_passes_raw_flag_and_returns_verbatim_info_records(monkeypatch, tmp_path):
+def test_logger_tail_raw_passes_raw_flag_and_returns_verbatim_info_records(
+    monkeypatch, tmp_path
+):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(LOGGER_TAIL_RAW_RESULT), stderr="", exit_code=0),
@@ -91,7 +106,16 @@ def test_logger_tail_rejects_a_non_positive_limit_on_the_argv_path(tmp_path):
     # error, not a silently-accepted "no limit". No live runner needed.
     for bad in ("0", "-1"):
         result = CliRunner().invoke(
-            app, ["logger", "tail", "--limit", bad, "--project", str(_project(tmp_path)), "--json"]
+            app,
+            [
+                "logger",
+                "tail",
+                "--limit",
+                bad,
+                "--project",
+                str(_project(tmp_path)),
+                "--json",
+            ],
         )
         assert result.exit_code == 2, (bad, result.stdout + result.stderr)
 
@@ -99,7 +123,16 @@ def test_logger_tail_rejects_a_non_positive_limit_on_the_argv_path(tmp_path):
 def test_logger_tail_rejects_an_unknown_level_on_the_argv_path(tmp_path):
     # `--level` is the closed enum; an out-of-set value is a usage error.
     result = CliRunner().invoke(
-        app, ["logger", "tail", "--level", "trace", "--project", str(_project(tmp_path)), "--json"]
+        app,
+        [
+            "logger",
+            "tail",
+            "--level",
+            "trace",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
     )
     assert result.exit_code == 2, result.stdout + result.stderr
 
@@ -110,7 +143,9 @@ def test_logger_tail_human_output_renders_records(monkeypatch, tmp_path):
         RunResult(stdout=sentinel(LOGGER_TAIL_RESULT), stderr="", exit_code=0),
     )
 
-    result = CliRunner().invoke(app, ["logger", "tail", "--project", str(_project(tmp_path))])
+    result = CliRunner().invoke(
+        app, ["logger", "tail", "--project", str(_project(tmp_path))]
+    )
 
     assert result.exit_code == 0, result.stdout + result.stderr
     # Human output names the level and message; the location is shown when present.
@@ -125,7 +160,9 @@ def test_logger_tail_raw_human_output_renders_lines(monkeypatch, tmp_path):
         RunResult(stdout=sentinel(LOGGER_TAIL_RAW_RESULT), stderr="", exit_code=0),
     )
 
-    result = CliRunner().invoke(app, ["logger", "tail", "--raw", "--project", str(_project(tmp_path))])
+    result = CliRunner().invoke(
+        app, ["logger", "tail", "--raw", "--project", str(_project(tmp_path))]
+    )
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert "known line" in result.stdout
@@ -165,12 +202,21 @@ def test_logger_tail_log_unavailable_is_a_typed_live_error(monkeypatch, tmp_path
     assert error["category"] == "live"
 
 
-def test_logger_tail_params_json_rejects_a_non_positive_limit_as_invalid_params(monkeypatch, tmp_path):
+def test_logger_tail_params_json_rejects_a_non_positive_limit_as_invalid_params(
+    monkeypatch, tmp_path
+):
     for bad in (0, -1):
         result = CliRunner().invoke(
             app,
-            ["logger", "tail", "--params-json", json.dumps({"limit": bad}),
-             "--project", str(_project(tmp_path)), "--json"],
+            [
+                "logger",
+                "tail",
+                "--params-json",
+                json.dumps({"limit": bad}),
+                "--project",
+                str(_project(tmp_path)),
+                "--json",
+            ],
         )
         assert result.exit_code != 0, (bad, result.stdout + result.stderr)
         err = json.loads(result.stdout)["error"]

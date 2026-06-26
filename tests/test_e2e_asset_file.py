@@ -108,8 +108,14 @@ def test_shader_set_search_replace_round_trips_through_get(godot_project):
     _gda("shader", "create", str(shader_path), "--json")
 
     edited = _gda(
-        "shader", "set", str(shader_path),
-        "--search", "canvas_item", "--replace", "spatial", "--json",
+        "shader",
+        "set",
+        str(shader_path),
+        "--search",
+        "canvas_item",
+        "--replace",
+        "spatial",
+        "--json",
     )
 
     assert edited.returncode == 0, edited.stdout + edited.stderr
@@ -143,7 +149,12 @@ def test_shader_create_no_clobber_existing_file(godot_project):
     before = shader_path.read_text(encoding="utf-8")
 
     again = _gda(
-        "shader", "create", str(shader_path), "--content", "shader_type spatial;\n", "--json"
+        "shader",
+        "create",
+        str(shader_path),
+        "--content",
+        "shader_type spatial;\n",
+        "--json",
     )
 
     _assert_operation_error(again, "already_exists")
@@ -164,7 +175,14 @@ def test_shader_set_no_search_match_leaves_file_untouched(godot_project):
     before = shader_path.read_text(encoding="utf-8")
 
     edited = _gda(
-        "shader", "set", str(shader_path), "--search", "xyzzy", "--replace", "z", "--json"
+        "shader",
+        "set",
+        str(shader_path),
+        "--search",
+        "xyzzy",
+        "--replace",
+        "z",
+        "--json",
     )
 
     _assert_operation_error(edited, "no_search_match")
@@ -177,8 +195,16 @@ def test_shader_set_invalid_line_range_is_invalid_line_range(godot_project):
     _gda("shader", "create", str(shader_path), "--json")
 
     edited = _gda(
-        "shader", "set", str(shader_path),
-        "--start-line", "50", "--end-line", "99", "--content", "x", "--json",
+        "shader",
+        "set",
+        str(shader_path),
+        "--start-line",
+        "50",
+        "--end-line",
+        "99",
+        "--content",
+        "x",
+        "--json",
     )
 
     _assert_operation_error(edited, "invalid_line_range")

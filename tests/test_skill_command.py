@@ -94,9 +94,9 @@ def test_skill_schema_reports_kind_headless():
 
 
 def test_skill_sample_result_validates_against_emitted_output_schema():
-    output_schema = json.loads(
-        CliRunner().invoke(app, ["skill", "--schema"]).stdout
-    )["output"]
+    output_schema = json.loads(CliRunner().invoke(app, ["skill", "--schema"]).stdout)[
+        "output"
+    ]
     sample = json.loads(CliRunner().invoke(app, ["skill", "--json"]).stdout)
     jsonschema.validate(instance=sample, schema=output_schema)
 
@@ -210,7 +210,12 @@ def test_skill_params_json_dir_alone_installs(tmp_path):
     # argv `--dir` does — the model normalizes both to the same params.
     result = CliRunner().invoke(
         app,
-        ["skill", "--params-json", json.dumps({"install_dir": str(tmp_path)}), "--json"],
+        [
+            "skill",
+            "--params-json",
+            json.dumps({"install_dir": str(tmp_path)}),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0
@@ -249,9 +254,9 @@ def test_bundled_skill_is_included_in_the_built_wheel(tmp_path):
     assert wheels, f"no wheel built:\n{proc.stdout}{proc.stderr}"
     with zipfile.ZipFile(wheels[-1]) as zf:
         names = zf.namelist()
-    assert any(
-        name.endswith("gda/skill/SKILL.md") for name in names
-    ), f"gda/skill/SKILL.md missing from {wheels[-1].name}: {names}"
+    assert any(name.endswith("gda/skill/SKILL.md") for name in names), (
+        f"gda/skill/SKILL.md missing from {wheels[-1].name}: {names}"
+    )
 
 
 # --- `--provider`/`--scope` convenience install (ADR-0027) -------------------------
@@ -286,7 +291,9 @@ def test_resolve_skill_dir_maps_every_provider_scope(provider, scope, expected):
     assert PROVIDER_SKILL_DIRS[provider][scope] == expected
 
 
-def test_skill_install_provider_claude_project_writes_into_dot_claude(tmp_path, monkeypatch):
+def test_skill_install_provider_claude_project_writes_into_dot_claude(
+    tmp_path, monkeypatch
+):
     # `--provider claude --scope project` resolves to `.claude/skills/gda`, relative to
     # the CWD — install it into a tmp project dir.
     monkeypatch.chdir(tmp_path)
@@ -299,7 +306,9 @@ def test_skill_install_provider_claude_project_writes_into_dot_claude(tmp_path, 
     assert written.read_text(encoding="utf-8") == BUNDLED
 
 
-def test_skill_install_provider_codex_project_uses_agents_namespace(tmp_path, monkeypatch):
+def test_skill_install_provider_codex_project_uses_agents_namespace(
+    tmp_path, monkeypatch
+):
     # Codex follows the cross-agent `.agents/skills` namespace, NOT `.codex/skills`.
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(
@@ -311,7 +320,9 @@ def test_skill_install_provider_codex_project_uses_agents_namespace(tmp_path, mo
     assert written.read_text(encoding="utf-8") == BUNDLED
 
 
-def test_skill_provider_implies_install_and_defaults_to_user_scope(tmp_path, monkeypatch):
+def test_skill_provider_implies_install_and_defaults_to_user_scope(
+    tmp_path, monkeypatch
+):
     # Naming a provider implies an install (like --dir does), and --scope defaults to
     # user — under HOME. Pin HOME at a tmp dir so we never touch the real one.
     monkeypatch.setenv("HOME", str(tmp_path))

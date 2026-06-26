@@ -44,6 +44,7 @@ def test_no_tool_inputschema_carries_a_project_field():
         properties = (tool.inputSchema or {}).get("properties", {})
         assert "project" not in properties, tool.name
 
+
 # A tiny stand-in "gda": echoes the GDA_PROJECT the child process actually sees,
 # so the test observes the real subprocess environment without spawning gda.
 _ECHO_GDA_PROJECT = [
@@ -242,7 +243,9 @@ def test_no_roots_capability_degrades_to_no_project_without_error(
     runner = _scene_create_runner()
     server = build_server(runner)
 
-    result = call_tool(server, "scene_create", {"path": "x.tscn", "root_type": "Node2D"})
+    result = call_tool(
+        server, "scene_create", {"path": "x.tscn", "root_type": "Node2D"}
+    )
 
     assert result.isError is False
     _args, _stdin, project = runner.calls[-1]

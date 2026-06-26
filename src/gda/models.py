@@ -705,9 +705,7 @@ class NodeSetParams(BaseModel):
             "itself, 'Player/Arm' a nested node."
         )
     )
-    property: str = Field(
-        description="The property to set (e.g. position, visible)."
-    )
+    property: str = Field(description="The property to set (e.g. position, visible).")
     value: str = Field(
         description=(
             "The value to set, as a string. The operation coerces it to the "
@@ -731,7 +729,9 @@ class NodeSetResult(BaseModel):
         description="The addressed node's node path, relative to the scene root."
     )
     property: str
-    type: str = Field(description="The property's declared Godot type the value was coerced to.")
+    type: str = Field(
+        description="The property's declared Godot type the value was coerced to."
+    )
     value: Any = Field(
         description="The coerced value as JSON, as the node now holds it."
     )
@@ -807,9 +807,7 @@ class NodeDuplicateResult(BaseModel):
     path: str = Field(
         description="The new copy's node path, relative to the scene root."
     )
-    name: str = Field(
-        description="The fresh, non-colliding name assigned to the copy."
-    )
+    name: str = Field(description="The fresh, non-colliding name assigned to the copy.")
     type: str = Field(description="The copy's engine class (e.g. Sprite2D).")
 
 
@@ -1020,15 +1018,13 @@ class ScriptCreateResult(BaseModel):
     class_name: str | None = Field(
         default=None,
         description=(
-            "The class_name the written script declares, or null when it "
-            "declares none."
+            "The class_name the written script declares, or null when it declares none."
         ),
     )
     extends: str | None = Field(
         default=None,
         description=(
-            "The base class the written script extends, or null when it "
-            "declares none."
+            "The base class the written script extends, or null when it declares none."
         ),
     )
     created_dirs: list[str] = Field(
@@ -1298,15 +1294,13 @@ class ScriptSetResult(BaseModel):
     class_name: str | None = Field(
         default=None,
         description=(
-            "The class_name the edited source declares, or null when it "
-            "declares none."
+            "The class_name the edited source declares, or null when it declares none."
         ),
     )
     extends: str | None = Field(
         default=None,
         description=(
-            "The base class the edited source extends, or null when it "
-            "declares none."
+            "The base class the edited source extends, or null when it declares none."
         ),
     )
 
@@ -1327,9 +1321,7 @@ class ScriptAttachParams(BaseModel):
     success — check a script with ``script validate`` first.
     """
 
-    path: NormalizedPath = Field(
-        description="The .tscn scene file to mutate."
-    )
+    path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
     node: str = Field(
         description=(
             "Node path relative to the scene root: '.' addresses the root "
@@ -1685,9 +1677,7 @@ class ExportRunResult(BaseModel):
         description="The preset's target platform (e.g. Linux/X11, Web, macOS)."
     )
     mode: ExportRunMode = Field(description="The export flavor that was run.")
-    output_path: str = Field(
-        description="The path the export artifact was written to."
-    )
+    output_path: str = Field(description="The path the export artifact was written to.")
     warnings: list[str] = Field(
         default_factory=list,
         description="The engine's non-fatal export warnings, parsed from stderr; empty on a clean export.",
@@ -1882,7 +1872,9 @@ class ResourceDeleteResult(BaseModel):
     """
 
     path: str
-    type: str = Field(description="The deleted resource's engine class (e.g. Gradient).")
+    type: str = Field(
+        description="The deleted resource's engine class (e.g. Gradient)."
+    )
 
 
 class ResourceUidResult(BaseModel):
@@ -2026,8 +2018,7 @@ class ShaderSetResult(BaseModel):
     shader_type: str | None = Field(
         default=None,
         description=(
-            "The shader_type the edited source declares, or null when it "
-            "declares none."
+            "The shader_type the edited source declares, or null when it declares none."
         ),
     )
 
@@ -2056,9 +2047,7 @@ class ThemeCreateResult(BaseModel):
     """
 
     path: str
-    type: str = Field(
-        description="The resource type written to the .tres (Theme)."
-    )
+    type: str = Field(description="The resource type written to the .tres (Theme).")
     created_dirs: list[str] = Field(
         description=(
             "Parent directories created before saving, from outermost to innermost."
@@ -2129,9 +2118,7 @@ class Dependency(BaseModel):
     """
 
     path: str = Field(description="The res:// path of the referenced resource.")
-    kind: str = Field(
-        description="How the resource is referenced (ext_resource)."
-    )
+    kind: str = Field(description="How the resource is referenced (ext_resource).")
 
 
 class ResourceDependencies(BaseModel):
@@ -2212,7 +2199,9 @@ class Autoload(BaseModel):
     """
 
     name: str
-    path: str = Field(description="The autoload's res:// path (enable marker stripped).")
+    path: str = Field(
+        description="The autoload's res:// path (enable marker stripped)."
+    )
 
 
 class ProjectStatisticsResult(BaseModel):
@@ -2349,7 +2338,9 @@ class ProjectInfoResult(BaseModel):
     them, so a brand-new project still reports a complete, valid result.
     """
 
-    name: str = Field(description="The project name (ProjectSettings application/config/name).")
+    name: str = Field(
+        description="The project name (ProjectSettings application/config/name)."
+    )
     main_scene: str = Field(
         description=(
             "The project's main scene path (application/run/main_scene), or the "
@@ -2377,8 +2368,7 @@ class ProjectGetParams(BaseModel):
 
     setting: str = Field(
         description=(
-            "The project setting's full section/key name, e.g. "
-            "application/config/name."
+            "The project setting's full section/key name, e.g. application/config/name."
         )
     )
 
@@ -2417,8 +2407,7 @@ class ProjectSetParams(BaseModel):
 
     setting: str = Field(
         description=(
-            "The project setting's full section/key name, e.g. "
-            "application/config/name."
+            "The project setting's full section/key name, e.g. application/config/name."
         )
     )
     value: str = Field(
@@ -2440,7 +2429,9 @@ class ProjectSetResult(BaseModel):
     """
 
     setting: str
-    type: str = Field(description="The setting's declared Godot type the value was coerced to.")
+    type: str = Field(
+        description="The setting's declared Godot type the value was coerced to."
+    )
     value: Any = Field(
         description="The coerced value as JSON, as ProjectSettings now holds it."
     )
@@ -2465,8 +2456,7 @@ class ProjectAddAutoloadParams(BaseModel):
     )
     path: NormalizedPath = Field(
         description=(
-            "The res:// path to the script or scene to autoload, e.g. "
-            "res://global.gd."
+            "The res:// path to the script or scene to autoload, e.g. res://global.gd."
         )
     )
 
@@ -2616,8 +2606,12 @@ class GameSetResult(BaseModel):
 
     path: str = Field(description="The addressed node's runtime (absolute) path.")
     property: str
-    type: str = Field(description="The property's declared Godot type the value was coerced to.")
-    value: Any = Field(description="The coerced value as JSON, as the running node now holds it.")
+    type: str = Field(
+        description="The property's declared Godot type the value was coerced to."
+    )
+    value: Any = Field(
+        description="The coerced value as JSON, as the running node now holds it."
+    )
 
 
 # The `diag` command group (Phase 2, ADR-0019): the RUNNING game's runtime
@@ -2641,11 +2635,16 @@ class SourceFrame(BaseModel):
     parse failure).
     """
 
-    function: str | None = Field(default=None, description="The frame's function name, if known.")
-    file: str | None = Field(
-        default=None, description="The frame's source path (e.g. res://main.gd), if known."
+    function: str | None = Field(
+        default=None, description="The frame's function name, if known."
     )
-    line: int | None = Field(default=None, description="The frame's source line, if known.")
+    file: str | None = Field(
+        default=None,
+        description="The frame's source path (e.g. res://main.gd), if known.",
+    )
+    line: int | None = Field(
+        default=None, description="The frame's source line, if known."
+    )
 
 
 class DiagError(BaseModel):
@@ -2666,7 +2665,8 @@ class DiagError(BaseModel):
     )
     message: str = Field(description="The error/warning message the engine logged.")
     function: str | None = Field(
-        default=None, description="The reporting function, if the log had an `at:` line."
+        default=None,
+        description="The reporting function, if the log had an `at:` line.",
     )
     file: str | None = Field(
         default=None, description="The source path (e.g. res://main.gd), if known."
@@ -2756,7 +2756,9 @@ class LogRecord(BaseModel):
     """
 
     seq: int = Field(description="Monotonic ordinal in capture order (0-based).")
-    level: LogLevel = Field(description="Closed, ordered severity: debug < info < warning < error.")
+    level: LogLevel = Field(
+        description="Closed, ordered severity: debug < info < warning < error."
+    )
     message: str = Field(description="The logged message text.")
     source: SourceFrame | None = Field(
         default=None,
@@ -3096,9 +3098,7 @@ class InputMouseClickParams(BaseModel):
         default=MouseButton.LEFT,
         description="Which mouse button to click: left, right, or middle.",
     )
-    double: bool = Field(
-        default=False, description="Mark the event a double click."
-    )
+    double: bool = Field(default=False, description="Mark the event a double click.")
 
 
 class InputMouseMoveParams(BaseModel):
@@ -3121,7 +3121,9 @@ class InputMouseResult(BaseModel):
     and whether it was a ``double`` click (both null for a move).
     """
 
-    kind: str = Field(description="The injected event kind: 'mouse_click' or 'mouse_move'.")
+    kind: str = Field(
+        description="The injected event kind: 'mouse_click' or 'mouse_move'."
+    )
     position: list[float] = Field(
         description="The viewport position the event was injected at, as [x, y]."
     )
@@ -3129,7 +3131,8 @@ class InputMouseResult(BaseModel):
         default=None, description="The clicked button (a click only); null for a move."
     )
     double: bool | None = Field(
-        default=None, description="Whether the click was a double click; null for a move."
+        default=None,
+        description="Whether the click was a double click; null for a move.",
     )
 
 
@@ -3167,10 +3170,14 @@ class InputActionResult(BaseModel):
     action fired against the running ``InputMap`` at a frame boundary (ADR-0020).
     """
 
-    kind: str = Field(default="action", description="The injected event kind ('action').")
+    kind: str = Field(
+        default="action", description="The injected event kind ('action')."
+    )
     action: str = Field(description="The action name that was driven.")
     pressed: bool = Field(description="True for a press, false for a release.")
-    strength: float = Field(description="The press strength applied (0.0 on a release).")
+    strength: float = Field(
+        description="The press strength applied (0.0 on a release)."
+    )
 
 
 # The event types a `gda input sequence` may carry. A sequence event reuses the
@@ -3226,7 +3233,9 @@ class InputSequenceEvent(BaseModel):
         default=False, description="A mouse-click event: mark it a double click."
     )
     # action fields
-    action: str | None = Field(default=None, description="An action event's action name.")
+    action: str | None = Field(
+        default=None, description="An action event's action name."
+    )
     release: bool = Field(
         default=False, description="An action event: release instead of press."
     )
@@ -3404,7 +3413,9 @@ class ScreenFrame(BaseModel):
     an N-frame sequence is path-only so it never blows the agent's context.
     """
 
-    path: str = Field(description="The filesystem path this frame's PNG was written to.")
+    path: str = Field(
+        description="The filesystem path this frame's PNG was written to."
+    )
     width: int = Field(description="The frame's width in pixels.")
     height: int = Field(description="The frame's height in pixels.")
     bytes: int = Field(description="The written PNG's size in bytes.")

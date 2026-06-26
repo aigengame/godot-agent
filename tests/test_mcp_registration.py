@@ -19,6 +19,7 @@ from tests.mcp_support import (
     schema_then,
 )
 
+
 # The fake seam never dispatches in these tests (registration only); a dispatch
 # attempt is a loud failure so a stray call cannot pass silently.
 def _no_dispatch(args, stdin):

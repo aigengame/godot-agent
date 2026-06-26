@@ -64,7 +64,9 @@ pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX"
 
 
 @pytest.mark.e2e
-def test_logger_tail_reads_back_structured_records_and_raw_lines(tmp_path, daemon_runtime_dir):
+def test_logger_tail_reads_back_structured_records_and_raw_lines(
+    tmp_path, daemon_runtime_dir
+):
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
     (tmp_path / "main.gd").write_text(MAIN_GD, encoding="utf-8")
@@ -73,7 +75,15 @@ def test_logger_tail_reads_back_structured_records_and_raw_lines(tmp_path, daemo
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -192,7 +202,9 @@ def test_gda_log_is_inert_outside_a_daemon_launched_session(tmp_path):
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
     (tmp_path / "main.gd").write_text(PLAIN_MAIN_GD, encoding="utf-8")
-    install_harness(tmp_path)  # the GdaHarness autoload, exactly as a real project carries it
+    install_harness(
+        tmp_path
+    )  # the GdaHarness autoload, exactly as a real project carries it
 
     proc = subprocess.run(
         [str(GODOT), "--headless", "--path", str(tmp_path)],

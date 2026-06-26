@@ -28,7 +28,9 @@ def _project(tmp_path):
     return tmp_path
 
 
-def test_diag_errors_emits_structured_errors_json_through_the_live_channel(monkeypatch, tmp_path):
+def test_diag_errors_emits_structured_errors_json_through_the_live_channel(
+    monkeypatch, tmp_path
+):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(DIAG_ERRORS_RESULT), stderr="", exit_code=0),
@@ -60,7 +62,16 @@ def test_diag_errors_passes_limit_through(monkeypatch, tmp_path):
     )
 
     result = CliRunner().invoke(
-        app, ["diag", "errors", "--limit", "5", "--project", str(_project(tmp_path)), "--json"]
+        app,
+        [
+            "diag",
+            "errors",
+            "--limit",
+            "5",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
@@ -73,7 +84,16 @@ def test_diag_errors_rejects_a_non_positive_limit_on_the_argv_path(tmp_path):
     # rejects before any dispatch.
     for bad in ("0", "-1"):
         result = CliRunner().invoke(
-            app, ["diag", "errors", "--limit", bad, "--project", str(_project(tmp_path)), "--json"]
+            app,
+            [
+                "diag",
+                "errors",
+                "--limit",
+                bad,
+                "--project",
+                str(_project(tmp_path)),
+                "--json",
+            ],
         )
         assert result.exit_code == 2, (bad, result.stdout + result.stderr)
 
@@ -84,7 +104,9 @@ def test_diag_errors_human_output_renders_levels(monkeypatch, tmp_path):
         RunResult(stdout=sentinel(DIAG_ERRORS_RESULT), stderr="", exit_code=0),
     )
 
-    result = CliRunner().invoke(app, ["diag", "errors", "--project", str(_project(tmp_path))])
+    result = CliRunner().invoke(
+        app, ["diag", "errors", "--project", str(_project(tmp_path))]
+    )
 
     assert result.exit_code == 0, result.stdout + result.stderr
     # Human output names the level and message; the location is shown when present.
@@ -131,7 +153,9 @@ def test_diag_errors_log_unavailable_is_a_typed_live_error(monkeypatch, tmp_path
     assert error["category"] == "live"
 
 
-def test_diag_params_json_rejects_a_non_positive_limit_as_invalid_params(monkeypatch, tmp_path):
+def test_diag_params_json_rejects_a_non_positive_limit_as_invalid_params(
+    monkeypatch, tmp_path
+):
     # The `ge=1` bound on DiagErrorsParams: a zero/negative limit via --params-json
     # is a structured `invalid_params` (reflected in --schema), not a silent "no
     # limit". No dispatch happens — model validation fails first, so no live runner
@@ -139,8 +163,15 @@ def test_diag_params_json_rejects_a_non_positive_limit_as_invalid_params(monkeyp
     for bad in (0, -1):
         result = CliRunner().invoke(
             app,
-            ["diag", "errors", "--params-json", json.dumps({"limit": bad}),
-             "--project", str(_project(tmp_path)), "--json"],
+            [
+                "diag",
+                "errors",
+                "--params-json",
+                json.dumps({"limit": bad}),
+                "--project",
+                str(_project(tmp_path)),
+                "--json",
+            ],
         )
         assert result.exit_code != 0, (bad, result.stdout + result.stderr)
         err = json.loads(result.stdout)["error"]

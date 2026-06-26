@@ -46,7 +46,7 @@ SIGNAL_PLAYER_GD = (
     "\tticked.emit(_n)\n"
 )
 SIGNAL_MAIN_TSCN = (
-    '[gd_scene load_steps=2 format=3]\n\n'
+    "[gd_scene load_steps=2 format=3]\n\n"
     '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
     '[node name="Main" type="Node2D"]\n\n'
     '[node name="Player" type="Node2D" parent="."]\n'
@@ -67,7 +67,15 @@ def test_daemon_serves_a_live_perf_snapshot(tmp_path, daemon_runtime_dir):
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -104,7 +112,15 @@ def test_daemon_serves_a_property_timeline_over_a_window(tmp_path, daemon_runtim
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -116,8 +132,13 @@ def test_daemon_serves_a_property_timeline_over_a_window(tmp_path, daemon_runtim
         assert started.returncode == 0, started.stdout + started.stderr
 
         timeline = run(
-            "perf", "monitor", "/root/Main/Player",
-            "--property", "position", "--frames", "5",
+            "perf",
+            "monitor",
+            "/root/Main/Player",
+            "--property",
+            "position",
+            "--frames",
+            "5",
         )
         assert timeline.returncode == 0, timeline.stdout + timeline.stderr
         doc = json.loads(timeline.stdout)
@@ -149,7 +170,15 @@ def test_daemon_serves_a_signal_timeline_over_a_window(tmp_path, daemon_runtime_
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -161,8 +190,13 @@ def test_daemon_serves_a_signal_timeline_over_a_window(tmp_path, daemon_runtime_
         assert started.returncode == 0, started.stdout + started.stderr
 
         timeline = run(
-            "perf", "monitor", "/root/Main/Player",
-            "--signal", "ticked", "--frames", "5",
+            "perf",
+            "monitor",
+            "/root/Main/Player",
+            "--signal",
+            "ticked",
+            "--frames",
+            "5",
         )
         assert timeline.returncode == 0, timeline.stdout + timeline.stderr
         doc = json.loads(timeline.stdout)
@@ -191,7 +225,9 @@ def test_daemon_serves_a_signal_timeline_over_a_window(tmp_path, daemon_runtime_
 
 
 @pytest.mark.e2e
-def test_perf_monitor_missing_node_reports_live_perf_node_not_found(tmp_path, daemon_runtime_dir):
+def test_perf_monitor_missing_node_reports_live_perf_node_not_found(
+    tmp_path, daemon_runtime_dir
+):
     # A path that resolves to no running node is the typed harness op-error,
     # relayed through the daemon (exit-0 sentinel) and mapped by classify_live.
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
@@ -201,7 +237,15 @@ def test_perf_monitor_missing_node_reports_live_perf_node_not_found(tmp_path, da
 
     def run(*args):
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(tmp_path), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -214,7 +258,13 @@ def test_perf_monitor_missing_node_reports_live_perf_node_not_found(tmp_path, da
         from gda.exit_codes import EXIT_LIVE
 
         missing = run(
-            "perf", "monitor", "/root/Main/Ghost", "--property", "position", "--frames", "2"
+            "perf",
+            "monitor",
+            "/root/Main/Ghost",
+            "--property",
+            "position",
+            "--frames",
+            "2",
         )
         assert missing.returncode == EXIT_LIVE, missing.stdout + missing.stderr
         assert json.loads(missing.stdout)["error"]["code"] == "live_perf_node_not_found"

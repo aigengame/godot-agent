@@ -219,7 +219,9 @@ def test_scene_get_exports_json_emits_per_node_exports_and_exit_zero(monkeypatch
     assert "engine diagnostic" in result.stderr
 
 
-def test_scene_get_exports_expands_user_home_in_filesystem_path_but_not_res(monkeypatch):
+def test_scene_get_exports_expands_user_home_in_filesystem_path_but_not_res(
+    monkeypatch,
+):
     # Path normalization at the CLI layer (issue #32) applies to get-exports too:
     # a filesystem path gets ~ expanded; a res:// path passes through untouched.
     fake = inject_runner(

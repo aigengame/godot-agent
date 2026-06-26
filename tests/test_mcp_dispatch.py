@@ -40,7 +40,9 @@ def test_multiword_command_name_maps_back_to_the_right_argv():
     # (hyphen restored), proving the argv comes from the dump's own name — not a
     # lossy reverse of the underscored tool name.
     runner = FakeGdaRunner(
-        schema_then(lambda args, stdin: gda_result(json.dumps({"path": "x", "exports": []})))
+        schema_then(
+            lambda args, stdin: gda_result(json.dumps({"path": "x", "exports": []}))
+        )
     )
     server = build_server(runner)
 

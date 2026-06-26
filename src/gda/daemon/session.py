@@ -88,10 +88,18 @@ class EngineSession:
                 f"the engine session did not return within {int(OP_TIMEOUT)}s",
             )
         except OSError:
-            return error_reply("engine_disconnected", "the engine session dropped the connection")
+            return error_reply(
+                "engine_disconnected", "the engine session dropped the connection"
+            )
         if reply is None:
-            return error_reply("engine_disconnected", "the engine session closed before replying")
-        return {"stdout": reply.decode("utf-8", "replace"), "stderr": "", "exit_code": 0}
+            return error_reply(
+                "engine_disconnected", "the engine session closed before replying"
+            )
+        return {
+            "stdout": reply.decode("utf-8", "replace"),
+            "stderr": "",
+            "exit_code": 0,
+        }
 
     def close(self) -> None:
         if self._conn is not None:
@@ -246,5 +254,3 @@ def _terminate(proc: subprocess.Popen) -> None:
             proc.kill()
         except OSError:
             pass
-
-

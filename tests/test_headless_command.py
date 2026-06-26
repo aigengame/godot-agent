@@ -29,7 +29,9 @@ def test_headless_command_classifies_its_execution_channel_as_headless_by_defaul
 
 def test_headless_command_emit_owns_runner_classification_and_json_output(capsys):
     fake = FakeRunner(
-        RunResult(stdout=sentinel(VERSION_INFO), stderr="engine diagnostic\n", exit_code=0)
+        RunResult(
+            stdout=sentinel(VERSION_INFO), stderr="engine diagnostic\n", exit_code=0
+        )
     )
     seen: dict[str, Path | None] = {}
 

@@ -115,9 +115,7 @@ def test_phase1_failure_returns_the_failure():
     )
     export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
 
-    outcome = _run(
-        get_runner=get_runner, export_runner=export_runner, preset="Nope"
-    )
+    outcome = _run(get_runner=get_runner, export_runner=export_runner, preset="Nope")
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "export_preset_not_found"
@@ -182,9 +180,7 @@ def test_templates_missing_for_release_and_debug():
         get_runner = _get_runner({**GET_RESULT, "templates_installed": False})
         export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
 
-        outcome = _run(
-            get_runner=get_runner, export_runner=export_runner, mode=mode
-        )
+        outcome = _run(get_runner=get_runner, export_runner=export_runner, mode=mode)
 
         assert isinstance(outcome, Failure), mode
         assert outcome.error.code == "export_templates_missing", mode
@@ -291,7 +287,7 @@ def test_export_is_a_noop_when_no_harness_installed(tmp_path):
     # With no harness installed, the strip is a harmless no-op: nothing is created,
     # and the export still runs to completion.
     (tmp_path / "project.godot").write_text(
-        'config_version=5\n\n[application]\n', encoding="utf-8"
+        "config_version=5\n\n[application]\n", encoding="utf-8"
     )
     # Ensure a clean slate (idempotent): no harness present.
     uninstall_harness(tmp_path)
@@ -330,7 +326,7 @@ def test_export_does_not_add_autoload_for_a_stray_harness_file(tmp_path):
     # removes the stray file (so it cannot ship); the byte-exact restore puts the
     # stray file back WITHOUT synthesizing an autoload the project never had.
     (tmp_path / "project.godot").write_text(
-        'config_version=5\n\n[application]\n', encoding="utf-8"
+        "config_version=5\n\n[application]\n", encoding="utf-8"
     )
     stray = tmp_path / "addons" / "gda_harness" / "gda_harness.gd"
     stray.parent.mkdir(parents=True, exist_ok=True)

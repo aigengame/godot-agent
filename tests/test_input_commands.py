@@ -69,9 +69,17 @@ def test_input_key_threads_modifiers_and_released(monkeypatch, tmp_path):
     CliRunner().invoke(
         app,
         [
-            "input", "key", "A",
-            "--modifiers", "shift", "--modifiers", "ctrl", "--released",
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "key",
+            "A",
+            "--modifiers",
+            "shift",
+            "--modifiers",
+            "ctrl",
+            "--released",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -128,7 +136,9 @@ def test_input_key_schema_reports_kind_live():
 # --- input mouse-click / mouse-move (single-frame) ----------------------------
 
 
-def test_input_mouse_click_injects_a_click_through_the_live_channel(monkeypatch, tmp_path):
+def test_input_mouse_click_injects_a_click_through_the_live_channel(
+    monkeypatch, tmp_path
+):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(INPUT_MOUSE_CLICK_RESULT), stderr="", exit_code=0),
@@ -137,9 +147,16 @@ def test_input_mouse_click_injects_a_click_through_the_live_channel(monkeypatch,
     result = CliRunner().invoke(
         app,
         [
-            "input", "mouse-click", "100", "200",
-            "--button", "right", "--double",
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "mouse-click",
+            "100",
+            "200",
+            "--button",
+            "right",
+            "--double",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -156,7 +173,9 @@ def test_input_mouse_click_injects_a_click_through_the_live_channel(monkeypatch,
     ]
 
 
-def test_input_mouse_move_injects_a_motion_through_the_live_channel(monkeypatch, tmp_path):
+def test_input_mouse_move_injects_a_motion_through_the_live_channel(
+    monkeypatch, tmp_path
+):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(INPUT_MOUSE_MOVE_RESULT), stderr="", exit_code=0),
@@ -165,8 +184,13 @@ def test_input_mouse_move_injects_a_motion_through_the_live_channel(monkeypatch,
     result = CliRunner().invoke(
         app,
         [
-            "input", "mouse-move", "50", "60",
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "mouse-move",
+            "50",
+            "60",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -185,7 +209,15 @@ def test_input_mouse_click_default_button_is_left(monkeypatch, tmp_path):
 
     CliRunner().invoke(
         app,
-        ["input", "mouse-click", "1", "2", "--project", str(_project(tmp_path)), "--json"],
+        [
+            "input",
+            "mouse-click",
+            "1",
+            "2",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert fake.calls[0][1]["button"] == "left"
@@ -201,8 +233,15 @@ def test_input_mouse_click_unknown_button_argv_is_a_usage_error(monkeypatch, tmp
     result = CliRunner().invoke(
         app,
         [
-            "input", "mouse-click", "1", "2", "--button", "scroll",
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "mouse-click",
+            "1",
+            "2",
+            "--button",
+            "scroll",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -249,8 +288,14 @@ def test_input_action_release_and_strength_are_threaded(monkeypatch, tmp_path):
     CliRunner().invoke(
         app,
         [
-            "input", "action", "move_right", "--strength", "0.5",
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "action",
+            "move_right",
+            "--strength",
+            "0.5",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -288,8 +333,14 @@ def test_input_action_strength_over_range_argv_is_a_usage_error(monkeypatch, tmp
     result = CliRunner().invoke(
         app,
         [
-            "input", "action", "jump", "--strength", "2.0",
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "action",
+            "jump",
+            "--strength",
+            "2.0",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -323,8 +374,13 @@ def test_input_sequence_injects_events_across_frames_through_the_live_channel(
     result = CliRunner().invoke(
         app,
         [
-            "input", "sequence", "--events", json.dumps(events),
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(events),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -341,15 +397,21 @@ def test_input_sequence_injects_events_across_frames_through_the_live_channel(
     assert [e["frame"] for e in sent_events] == [0, 2, 4]
 
 
-def test_input_sequence_with_no_daemon_reports_daemon_not_running(monkeypatch, tmp_path):
+def test_input_sequence_with_no_daemon_reports_daemon_not_running(
+    monkeypatch, tmp_path
+):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
 
     result = CliRunner().invoke(
         app,
         [
-            "input", "sequence",
-            "--events", json.dumps([{"type": "key", "key": "Right"}]),
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "sequence",
+            "--events",
+            json.dumps([{"type": "key", "key": "Right"}]),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -357,7 +419,9 @@ def test_input_sequence_with_no_daemon_reports_daemon_not_running(monkeypatch, t
     assert json.loads(result.stdout)["error"]["code"] == "daemon_not_running"
 
 
-def test_input_sequence_invalid_event_spec_reports_the_typed_error(monkeypatch, tmp_path):
+def test_input_sequence_invalid_event_spec_reports_the_typed_error(
+    monkeypatch, tmp_path
+):
     # A request that reached the harness without passing the model (a direct daemon
     # caller) with an unrecognized event type aborts the window with the typed code,
     # relayed exit-0 and mapped by classify_live.
@@ -373,9 +437,13 @@ def test_input_sequence_invalid_event_spec_reports_the_typed_error(monkeypatch, 
     result = CliRunner().invoke(
         app,
         [
-            "input", "sequence",
-            "--events", json.dumps([{"type": "key", "key": "Right"}]),
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "sequence",
+            "--events",
+            json.dumps([{"type": "key", "key": "Right"}]),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -393,7 +461,15 @@ def test_input_sequence_non_json_events_argv_is_a_usage_error(monkeypatch, tmp_p
 
     result = CliRunner().invoke(
         app,
-        ["input", "sequence", "--events", "not json", "--project", str(_project(tmp_path)), "--json"],
+        [
+            "input",
+            "sequence",
+            "--events",
+            "not json",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -408,7 +484,15 @@ def test_input_sequence_empty_events_argv_is_a_usage_error(monkeypatch, tmp_path
 
     result = CliRunner().invoke(
         app,
-        ["input", "sequence", "--events", "[]", "--project", str(_project(tmp_path)), "--json"],
+        [
+            "input",
+            "sequence",
+            "--events",
+            "[]",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
     )
 
     assert result.exit_code == 2, result.stdout + result.stderr
@@ -426,9 +510,13 @@ def test_input_sequence_malformed_event_argv_is_a_usage_error(monkeypatch, tmp_p
     result = CliRunner().invoke(
         app,
         [
-            "input", "sequence",
-            "--events", json.dumps([{"type": "key", "frame": 0}]),
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "sequence",
+            "--events",
+            json.dumps([{"type": "key", "frame": 0}]),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -449,9 +537,13 @@ def test_input_sequence_over_window_frame_argv_is_a_usage_error(monkeypatch, tmp
     result = CliRunner().invoke(
         app,
         [
-            "input", "sequence",
-            "--events", json.dumps([{"type": "key", "key": "Right", "frame": 999999}]),
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "sequence",
+            "--events",
+            json.dumps([{"type": "key", "key": "Right", "frame": 999999}]),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -470,11 +562,15 @@ def test_input_sequence_at_the_window_boundary_argv_is_accepted(monkeypatch, tmp
     result = CliRunner().invoke(
         app,
         [
-            "input", "sequence",
-            "--events", json.dumps(
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(
                 [{"type": "key", "key": "Right", "frame": MAX_WINDOW_FRAMES - 1}]
             ),
-            "--project", str(_project(tmp_path)), "--json",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -505,9 +601,13 @@ def test_input_key_params_json_bad_modifier_is_invalid_params(monkeypatch, tmp_p
     result = CliRunner().invoke(
         app,
         [
-            "input", "key",
-            "--params-json", '{"key": "A", "modifiers": ["control"]}',
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "key",
+            "--params-json",
+            '{"key": "A", "modifiers": ["control"]}',
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -515,7 +615,9 @@ def test_input_key_params_json_bad_modifier_is_invalid_params(monkeypatch, tmp_p
     assert fake.calls == []
 
 
-def test_input_action_params_json_strength_over_range_is_invalid_params(monkeypatch, tmp_path):
+def test_input_action_params_json_strength_over_range_is_invalid_params(
+    monkeypatch, tmp_path
+):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(INPUT_ACTION_RESULT), stderr="", exit_code=0),
@@ -524,9 +626,13 @@ def test_input_action_params_json_strength_over_range_is_invalid_params(monkeypa
     result = CliRunner().invoke(
         app,
         [
-            "input", "action",
-            "--params-json", '{"action": "jump", "strength": 2.0}',
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "action",
+            "--params-json",
+            '{"action": "jump", "strength": 2.0}',
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -534,7 +640,9 @@ def test_input_action_params_json_strength_over_range_is_invalid_params(monkeypa
     assert fake.calls == []
 
 
-def test_input_sequence_params_json_empty_events_is_invalid_params(monkeypatch, tmp_path):
+def test_input_sequence_params_json_empty_events_is_invalid_params(
+    monkeypatch, tmp_path
+):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
@@ -543,9 +651,13 @@ def test_input_sequence_params_json_empty_events_is_invalid_params(monkeypatch, 
     result = CliRunner().invoke(
         app,
         [
-            "input", "sequence",
-            "--params-json", '{"events": []}',
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "sequence",
+            "--params-json",
+            '{"events": []}',
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -553,7 +665,9 @@ def test_input_sequence_params_json_empty_events_is_invalid_params(monkeypatch, 
     assert fake.calls == []
 
 
-def test_input_sequence_params_json_malformed_event_is_invalid_params(monkeypatch, tmp_path):
+def test_input_sequence_params_json_malformed_event_is_invalid_params(
+    monkeypatch, tmp_path
+):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
@@ -562,9 +676,13 @@ def test_input_sequence_params_json_malformed_event_is_invalid_params(monkeypatc
     result = CliRunner().invoke(
         app,
         [
-            "input", "sequence",
-            "--params-json", '{"events": [{"type": "mouse_click", "x": 1.0}]}',
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "sequence",
+            "--params-json",
+            '{"events": [{"type": "mouse_click", "x": 1.0}]}',
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -572,7 +690,9 @@ def test_input_sequence_params_json_malformed_event_is_invalid_params(monkeypatc
     assert fake.calls == []
 
 
-def test_input_sequence_params_json_over_window_frame_is_invalid_params(monkeypatch, tmp_path):
+def test_input_sequence_params_json_over_window_frame_is_invalid_params(
+    monkeypatch, tmp_path
+):
     # The same window bound as the argv path, surfaced as the structured
     # invalid_params on --params-json (ADR-0015): a frame whose window exceeds
     # MAX_WINDOW_FRAMES never reaches the engine.
@@ -584,10 +704,13 @@ def test_input_sequence_params_json_over_window_frame_is_invalid_params(monkeypa
     result = CliRunner().invoke(
         app,
         [
-            "input", "sequence",
+            "input",
+            "sequence",
             "--params-json",
             json.dumps({"events": [{"type": "key", "key": "Right", "frame": 999999}]}),
-            "--project", str(_project(tmp_path)), "--json",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -595,7 +718,9 @@ def test_input_sequence_params_json_over_window_frame_is_invalid_params(monkeypa
     assert fake.calls == []
 
 
-def test_input_sequence_params_json_at_the_window_boundary_dispatches(monkeypatch, tmp_path):
+def test_input_sequence_params_json_at_the_window_boundary_dispatches(
+    monkeypatch, tmp_path
+):
     # The boundary frame (window == MAX_WINDOW_FRAMES) passes the model and
     # dispatches through the same live seam the argv path uses.
     fake = inject_live_runner(
@@ -606,12 +731,19 @@ def test_input_sequence_params_json_at_the_window_boundary_dispatches(monkeypatc
     result = CliRunner().invoke(
         app,
         [
-            "input", "sequence",
+            "input",
+            "sequence",
             "--params-json",
             json.dumps(
-                {"events": [{"type": "key", "key": "Right", "frame": MAX_WINDOW_FRAMES - 1}]}
+                {
+                    "events": [
+                        {"type": "key", "key": "Right", "frame": MAX_WINDOW_FRAMES - 1}
+                    ]
+                }
             ),
-            "--project", str(_project(tmp_path)), "--json",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
@@ -630,9 +762,13 @@ def test_input_key_params_json_dispatches_like_argv(monkeypatch, tmp_path):
     result = CliRunner().invoke(
         app,
         [
-            "input", "key",
-            "--params-json", '{"key": "Right", "modifiers": ["shift"]}',
-            "--project", str(_project(tmp_path)), "--json",
+            "input",
+            "key",
+            "--params-json",
+            '{"key": "Right", "modifiers": ["shift"]}',
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
         ],
     )
 
