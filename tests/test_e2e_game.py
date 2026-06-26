@@ -1,8 +1,8 @@
-"""S1 (e2e): `gda game` live commands through the real console script (#7).
+"""S1 (e2e): `gda game` live commands through the real `gda` CLI (`python -m gda`, #7).
 
 This slice's real path is the attach-or-fail: a real ``gda game tree`` with no
 running daemon must emit the typed ``daemon_not_running`` envelope and exit
-``EXIT_LIVE`` — exercised through the installed console script and the real
+``EXIT_LIVE`` — exercised through the out-of-process `gda` CLI and the real
 ``DaemonRunner`` + discovery (no fake at the seam). The connected path (a live
 tree from a real engine session) lands with the daemon, a later slice. Per
 RULES.md DoD the fake-runner command tests do not count toward this gate.

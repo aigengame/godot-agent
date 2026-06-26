@@ -1,7 +1,7 @@
 """S1 (e2e): gda --params-json against the real Godot engine (issue #199, ADR-0015).
 
-Drives the structured params-input ABI through the real installed console script
-and a real Godot process: a JSON params object (on the command line, and via
+Drives the structured params-input ABI through the real out-of-process `gda` CLI
+(`python -m gda`) and a real Godot process: a JSON params object (on the command line, and via
 stdin) produces the same on-disk effect as the argv form — the ``.tscn`` is
 created and reads back. Per RULES.md DoD the fake-runner fast tests do not count
 toward this gate.

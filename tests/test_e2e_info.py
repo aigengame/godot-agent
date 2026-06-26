@@ -1,6 +1,6 @@
 """S1 (e2e): gda info --json against the real Godot engine.
 
-Spawns the installed `gda` console script as a subprocess against the real
+Spawns the `gda` CLI (`python -m gda`) as a subprocess against the real
 Godot binary (path per RULES.md), asserts stdout is a single valid JSON object
 carrying the engine version, and that the version satisfies the minimum
 supported version (>= 4.4) per ADR-0003.

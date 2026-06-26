@@ -242,7 +242,7 @@ def test_daemon_uninstall_is_refused_while_running(tmp_path, daemon_runtime_dir)
 @pytest.mark.e2e
 def test_daemon_status_surfaces_the_windowed_display_mode(tmp_path, daemon_runtime_dir):
     # #251: `daemon status` reports the running daemon's launch-time display mode,
-    # read over STATUS_OP through the console script, so an agent can tell whether a
+    # read over STATUS_OP through the `gda` CLI, so an agent can tell whether a
     # live session can serve a `screen` capture before issuing one. No daemon ->
     # `windowed` null (clean, hang-free fallback); a default start -> false; a
     # `--windowed` start -> true. The daemon records the mode at start; no engine

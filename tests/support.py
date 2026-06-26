@@ -20,8 +20,8 @@ from gda.runner import RunResult
 # MODULE in *this* interpreter's environment — `[sys.executable, "-m", "gda"]` —
 # never a PATH-resolved global. This is the same same-environment resolution
 # ADR-0011 (Design decision 3) mandates for gda-mcp ("never a wrong global `gda` a
-# PATH lookup might resolve"); a `shutil.which("gda")` would instead run whatever is
-# first on PATH (e.g. a uv-tool global, or another worktree's editable install).
+# PATH lookup might resolve"); a `which`-style PATH lookup would instead run whatever
+# is first on PATH (e.g. a uv-tool global, or another worktree's editable install).
 # Under `uv run pytest`, sys.executable is this checkout's venv, so `-m gda` runs
 # this checkout's editable gda deterministically. Spread it: `[*GDA_CMD, *args]`.
 GDA_CMD = [sys.executable, "-m", "gda"]
