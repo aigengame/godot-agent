@@ -191,8 +191,9 @@ def test_uninstall_scopes_removal_to_the_autoload_section(tmp_path):
 def test_uninstall_removes_autoload_before_files(tmp_path, monkeypatch):
     # Crash-safe ordering (ADR-0018, D2): the [autoload] entry must be stripped
     # FIRST, then the files — so a mid-failure leaves only a harmless stray inert
-    # .gd, never a dangling autoload pointing at a missing script (which crashes an
-    # exported game). Force the file-delete step to blow up and assert the autoload
+    # .gd, never a dangling autoload pointing at a missing script (which makes an
+    # exported game log ERR_CONTINUE and skip it at startup — error spam, not a hard
+    # crash; ADR-0028). Force the file-delete step to blow up and assert the autoload
     # was already gone.
     (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
     install_harness(tmp_path)
@@ -235,3 +236,36 @@ def test_uninstall_is_idempotent_when_not_installed(tmp_path):
     install_harness(tmp_path)
     assert uninstall_harness(tmp_path).removed is True
     assert uninstall_harness(tmp_path).removed is False
+
+
+def test_ready_gates_on_template_feature_as_its_first_statement():
+    # ADR-0028 defence in depth: an EXPORTED build must self-disable the harness,
+    # "regardless of launch args". That holds iff `if OS.has_feature("template"):
+    # return` is the FIRST executable statement of `_ready()` — it must run BEFORE
+    # any launch-marker / socket handling, so an exported template build (where the
+    # `template` feature is true) returns immediately.
+    #
+    # The behavioural proof needs a real exported template binary (the editor binary
+    # has `template` == false), which requires installed export templates and the
+    # Godot e2e job — skipped on PRs. This STATIC guard runs in the default PR gate
+    # instead, so the property is checked on every PR rather than assumed.
+    from pathlib import Path
+
+    import gda.harness.install as install_mod
+
+    bundled = Path(install_mod.__file__).parent / HARNESS_FILE
+    lines = bundled.read_text(encoding="utf-8").splitlines()
+    ready_at = next(
+        i for i, line in enumerate(lines) if line.strip().startswith("func _ready(")
+    )
+    # The first two non-blank, non-comment body lines of _ready().
+    body: list[str] = []
+    for line in lines[ready_at + 1 :]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        body.append(stripped)
+        if len(body) == 2:
+            break
+    assert body[0] == 'if OS.has_feature("template"):', body
+    assert body[1] == "return", body

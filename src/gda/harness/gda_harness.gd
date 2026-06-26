@@ -90,6 +90,14 @@ var _window_state = null
 
 
 func _ready() -> void:
+	# Defence in depth (ADR-0028): stay fully inert in any EXPORTED build, even if a
+	# build somehow shipped with the harness installed (e.g. exported outside `gda
+	# export run`, which strips it). `template` is true ONLY in an exported template
+	# build and false on the editor (tools) binary every gda-daemon session runs on —
+	# so this never disables a legitimate session, and a shipped build does literally
+	# nothing here regardless of the launch args below.
+	if OS.has_feature("template"):
+		return
 	_perf_monitors = {
 		"fps": Performance.TIME_FPS,
 		"process_time": Performance.TIME_PROCESS,

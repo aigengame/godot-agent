@@ -3,17 +3,29 @@
 Per RULES.md DoD the fast install tests do not count toward this gate: these boot
 a REAL Godot on a project with the harness installed and assert the autoload is
 valid GDScript and stays inert — no daemon launch marker, so it opens no
-connection and the engine boots clean. The exact failure ADR-0018 guards (a
-dangling autoload crashing the boot, or the harness opening a connection in a
+connection and the engine boots clean. The exact failures ADR-0018 guards (a
+dangling autoload spamming startup errors, or the harness opening a connection in a
 plain run / shipped build) must NOT occur.
 
 Two boots: a plain ``--path`` run (#7, strengthened by #225), and an EXPORTED PCK
 run (#225) — the harness packed into a templateless ``.pck`` and run with no
 ``gda-daemon`` marker, the shipped-build path ADR-0018 point 2 calls out.
+
+The PCK boot packs via a RAW ``godot --export-pack`` (NOT ``gda export run``): since
+ADR-0018's export-strip, ``gda export run`` removes the harness from its artifacts
+(verified in ``tests/test_e2e_export_run.py``), so to exercise the DEFENSE-IN-DEPTH
+property here — that a harness which *did* reach a shipped build stays inert — the
+pack must come from a route that does not strip it, and the harness's presence in
+the pack is asserted so "inert" is never trivially true.
+
+NOTE on what the PCK boot proves: it runs the pack with the EDITOR (tools) binary via
+``--main-pack``, where ``OS.has_feature("template")`` is FALSE — so it exercises the
+**no-marker** inert path (ADR-0018 point 2), not ADR-0028's ``template`` gate. The
+gate's behavioural proof needs a real exported template binary (templates + the e2e
+job); its CI-runnable static proof — that the gate is the first statement of
+``_ready()`` — lives in ``tests/test_harness_install.py``.
 """
 
-import json
-import shutil
 import subprocess
 
 import pytest
@@ -76,21 +88,19 @@ def test_installed_harness_boots_inert_in_a_real_engine(tmp_path):
 
 @pytest.mark.e2e
 def test_exported_pck_with_harness_runs_inert(tmp_path):
-    # #225 / ADR-0018 point 2: the harness installed into a project must stay inert
-    # in a SHIPPED build. Pack the project (harness autoload included) into a
-    # templateless .pck via `export run --mode pack` (needs no platform templates),
-    # then RUN that .pck with no `gda-daemon` marker — the engine loads the packed
-    # autoload, which must boot clean and open nothing (the exact crash ADR-0018
-    # guards: a dangling/active autoload in an exported game).
-    gda = shutil.which("gda")
-    assert gda, "the `gda` console script is not on PATH"
-
+    # #225 / ADR-0018 point 2 (defense in depth): a harness that DID reach a SHIPPED
+    # build must stay inert. `gda export run` now strips the harness from its
+    # artifacts (see tests/test_e2e_export_run.py), so to exercise the residual case
+    # we pack via a RAW `godot --export-pack` (which does NOT strip), assert the
+    # harness is genuinely IN the pack, then RUN that .pck with no `gda-daemon`
+    # marker — the packed GdaHarness autoload must boot clean and open nothing (the
+    # exact failure ADR-0018 guards: a dangling/active autoload in an exported game).
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
     install_harness(tmp_path)
 
-    # A minimal Linux preset so `export run --mode pack` has a preset to pack from
-    # (pack produces project data only; platform is immaterial, no templates used).
+    # A minimal Linux preset so `--export-pack` has a preset to pack from (pack
+    # produces project data only; platform is immaterial, no templates used).
     (tmp_path / "export_presets.cfg").write_text(
         "[preset.0]\n\n"
         'name="Pack"\n'
@@ -104,23 +114,23 @@ def test_exported_pck_with_harness_runs_inert(tmp_path):
         "binary_format/embed_pck=false\n",
         encoding="utf-8",
     )
-    pck_rel = "dist/game.pck"
-    pck = tmp_path / pck_rel
+    pck = tmp_path / "dist" / "game.pck"
     pck.parent.mkdir(parents=True, exist_ok=True)
 
+    # RAW engine export (bypasses gda's strip on purpose) so the harness is packed.
     packed = subprocess.run(
         [
-            gda, "export", "run", "--preset", "Pack",
-            "--mode", "pack", "--output", pck_rel,
-            "--project", str(tmp_path), "--godot", str(GODOT), "--json",
+            str(GODOT), "--headless", "--path", str(tmp_path),
+            "--export-pack", "Pack", str(pck),
         ],
         capture_output=True,
         text=True,
         timeout=120,
     )
-    assert packed.returncode == 0, packed.stdout + packed.stderr
-    assert json.loads(packed.stdout)["mode"] == "pack"
-    assert pck.exists(), f"expected packed .pck at {pck}"
+    assert pck.exists(), f"expected packed .pck at {pck}\n{packed.stdout}{packed.stderr}"
+    # Non-trivial precondition: the harness path really is inside the pack (the pck
+    # file table stores res:// paths as plaintext), so "inert" below is meaningful.
+    assert b"gda_harness.gd" in pck.read_bytes(), "the harness was not packed"
 
     # Run the engine against the packed .pck (the shipped-build path): the packed
     # GdaHarness autoload must boot inert — no marker, so it opens nothing.

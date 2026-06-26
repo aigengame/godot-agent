@@ -29,10 +29,18 @@ path) run unconditionally.
 import json
 import shutil
 import subprocess
+import warnings
+import zipfile
 
 import pytest
 
 from gda.binary import resolve_godot_binary
+from gda.harness.install import (
+    HARNESS_AUTOLOAD_NAME,
+    HARNESS_FILE,
+    HARNESS_RES_DIR,
+    install_harness,
+)
 
 GODOT = resolve_godot_binary()
 
@@ -218,3 +226,87 @@ def test_export_run_pack_writes_pck_without_templates(godot_project):
     assert data["output_path"] == override_rel
     assert artifact.exists(), f"expected .pck at the override path {artifact}"
     assert not configured.exists(), "the override must not write the configured path"
+
+
+@pytest.mark.e2e
+def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
+    # ADR-0018: `gda export run` must NEVER carry the dev-only harness into the
+    # artifact — and without the developer having to `gda daemon uninstall` first.
+    # With the harness INSTALLED, a pack export to a .zip (so we can list it) must
+    # contain NO gda_harness.gd, and the dev project must be left UNTOUCHED (the
+    # harness file + autoload entry restored). Pack needs no templates, so this runs
+    # on a template-less machine and gives real on-disk verification.
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    # Pack content unrelated to the harness, so the archive is non-empty even after
+    # the harness is stripped (a bare project alone yields Godot's "select one file").
+    (godot_project / "main.gd").write_text(
+        "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
+    )
+    install_harness(godot_project)
+    harness_file = godot_project / HARNESS_RES_DIR / HARNESS_FILE
+    project_godot = godot_project / "project.godot"
+    assert harness_file.exists(), "precondition: harness installed on disk"
+    assert HARNESS_AUTOLOAD_NAME in project_godot.read_text(encoding="utf-8")
+
+    override_rel = "dist/packed.zip"
+    artifact = godot_project / override_rel
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    gda = _gda_project(godot_project)
+
+    run = gda(
+        "export", "run", "--preset", "Linux/X11",
+        "--mode", "pack", "--output", override_rel, "--json",
+    )
+
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert artifact.exists(), f"expected .zip at the override path {artifact}"
+    with zipfile.ZipFile(artifact) as zf:
+        names = zf.namelist()
+        # (a) The harness SCRIPT is absent from the archive.
+        assert not any(HARNESS_FILE in n for n in names), (
+            "the exported archive still carries the harness script:\n" + "\n".join(names)
+        )
+        # (b) The packed project settings declare NO GdaHarness autoload — the
+        # specific Godot risk (project.binary serializes ProjectSettings wholesale,
+        # ADR-0028), so checking the file's absence alone is not enough.
+        binary_entry = next(n for n in names if n.endswith("project.binary"))
+        assert HARNESS_AUTOLOAD_NAME.encode() not in zf.read(binary_entry), (
+            "packed project.binary still declares the GdaHarness autoload"
+        )
+    # The dev project is left UNTOUCHED: harness restored on disk and in config.
+    assert harness_file.exists(), "the harness file must be restored after export"
+    assert HARNESS_AUTOLOAD_NAME in project_godot.read_text(encoding="utf-8")
+
+
+@pytest.mark.e2e
+def test_template_gate_behavioural_proof_is_due_once_templates_exist(godot_project):
+    # TRIPWIRE for ADR-0028's harness `template` gate. The gate
+    # (`if OS.has_feature("template"): return`, the first statement of `_ready()`) is
+    # proven STATICALLY by
+    # tests/test_harness_install.py::test_ready_gates_on_template_feature_as_its_first_statement.
+    # Its BEHAVIOURAL proof needs a real exported TEMPLATE binary, which needs
+    # installed export templates (issue #301). The default PR CI both skips the e2e
+    # job AND lacks templates, so that gap could be silently forgotten. This guard
+    # stays a LOUD skip while templates are absent and emits a WARNING the moment a
+    # runner has them — so #301 gets implemented rather than left undone.
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+    if not _templates_installed(gda):
+        pytest.skip(
+            "export templates absent: the template-gate BEHAVIOURAL proof cannot run "
+            "here (covered statically by "
+            "test_ready_gates_on_template_feature_as_its_first_statement). Implement "
+            "it where templates exist — issue #301."
+        )
+    warnings.warn(
+        "Godot export templates are now installed: implement the behavioural "
+        "template-gate e2e (issue #301) — export a template binary, run it with a "
+        "`gda-daemon` marker + a live socket, and assert the harness never connects — "
+        "then remove this tripwire. Until then the `template` gate is proven only "
+        "statically.",
+        stacklevel=2,
+    )

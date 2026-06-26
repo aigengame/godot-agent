@@ -24,6 +24,7 @@ from gda.export_run import (
     EXPORT_GET_COMMAND,
     run_export_operation,
 )
+from gda.harness.install import install_harness, uninstall_harness
 from gda.models import ExportRunMode, ExportRunResult
 from gda.runner import RunResult
 from tests.support import FakeExportRunner, FakeRunner, error_sentinel, sentinel
@@ -206,6 +207,146 @@ def test_pack_is_exempt_from_templates_preflight():
     assert isinstance(outcome, ExportRunResult)
     assert outcome.mode is ExportRunMode.PACK
     assert export_runner.calls == [("Linux/X11", "pack", "build/game.x86_64")]
+
+
+# --- Transactional harness strip (ADR-0018: a shipped build must never carry the
+# dev-only harness). run_export_operation paired-uninstalls the harness before the
+# native export and restores it after, so the gda export path is harness-free yet
+# the dev project is left unchanged. These drive a real temp project so the on-disk
+# strip/restore is observed, with the export runner pinned to a fake. ----------------
+
+
+def _project_with_harness(tmp_path: Path) -> Path:
+    """A minimal real project with the harness installed; returns the harness path."""
+    (tmp_path / "project.godot").write_text(
+        'config_version=5\n\n[application]\n\nconfig/name="t"\n', encoding="utf-8"
+    )
+    install_harness(tmp_path)
+    harness = tmp_path / "addons" / "gda_harness" / "gda_harness.gd"
+    assert harness.exists()  # precondition: installed
+    return harness
+
+
+def _run_export_in(project: Path, export_runner) -> object:
+    """Invoke run_export_operation against a real ``project`` with seams pinned."""
+    return run_export_operation(
+        preset="Linux/X11",
+        mode=ExportRunMode.PACK,  # pack: no template preflight, runs the native seam
+        output_override="build/game.zip",
+        godot="/tmp/Godot",
+        project=project,
+        make_runner=lambda binary, project=None: _get_runner(),
+        make_export_runner=lambda binary, project=None: export_runner,
+    )
+
+
+def test_export_strips_harness_during_run_then_restores_byte_identical(tmp_path):
+    # The harness is ABSENT on disk while the native export builds the artifact, and
+    # the dev project is restored BYTE-IDENTICAL afterward (ADR-0028) — not merely
+    # "an autoload named GdaHarness exists", but the exact prior project.godot and
+    # harness bytes.
+    harness = _project_with_harness(tmp_path)
+    project_godot = tmp_path / "project.godot"
+    godot_before = project_godot.read_bytes()
+    harness_before = harness.read_bytes()
+    seen = {}
+
+    class _AssertingRunner:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, str]] = []
+
+        def run(self, preset, mode, output_path):
+            seen["harness_present_during_export"] = harness.exists()
+            self.calls.append((preset, mode, output_path))
+            return RunResult(stdout="", stderr="", exit_code=0)
+
+    runner = _AssertingRunner()
+    outcome = _run_export_in(tmp_path, runner)
+
+    assert isinstance(outcome, ExportRunResult)
+    assert seen["harness_present_during_export"] is False  # stripped for the export
+    # Byte-identical restore of BOTH files — the dev project is untouched.
+    assert project_godot.read_bytes() == godot_before
+    assert harness.read_bytes() == harness_before
+
+
+def test_export_restores_harness_even_when_native_run_raises(tmp_path):
+    # A crash-safe finally: if the native export raises, the harness is still
+    # restored (never left stripped by a mid-export failure on the gda path).
+    harness = _project_with_harness(tmp_path)
+
+    class _BoomRunner:
+        def run(self, preset, mode, output_path):
+            raise RuntimeError("export blew up")
+
+    try:
+        _run_export_in(tmp_path, _BoomRunner())
+    except RuntimeError:
+        pass
+    assert harness.exists()  # restored despite the exception
+    assert "GdaHarness" in (tmp_path / "project.godot").read_text(encoding="utf-8")
+
+
+def test_export_is_a_noop_when_no_harness_installed(tmp_path):
+    # With no harness installed, the strip is a harmless no-op: nothing is created,
+    # and the export still runs to completion.
+    (tmp_path / "project.godot").write_text(
+        'config_version=5\n\n[application]\n', encoding="utf-8"
+    )
+    # Ensure a clean slate (idempotent): no harness present.
+    uninstall_harness(tmp_path)
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+
+    outcome = _run_export_in(tmp_path, export_runner)
+
+    assert isinstance(outcome, ExportRunResult)
+    assert not (tmp_path / "addons" / "gda_harness").exists()
+    assert "GdaHarness" not in (tmp_path / "project.godot").read_text(encoding="utf-8")
+    assert export_runner.calls == [("Linux/X11", "pack", "build/game.zip")]
+
+
+def test_export_restores_a_stale_harness_body_unchanged_not_a_fresh_install(tmp_path):
+    # ADR-0028 "byte-identical": a STALE installed harness (older version/body) must
+    # be restored exactly as it was — NOT re-materialized to the current
+    # HARNESS_VERSION. A fresh install_harness would rewrite it; the snapshot restore
+    # preserves the prior bytes.
+    harness = _project_with_harness(tmp_path)
+    stale = b"# gda-harness-version: stale-old\nextends Node\n# old body\n"
+    harness.write_bytes(stale)
+    godot_before = (tmp_path / "project.godot").read_bytes()
+
+    outcome = _run_export_in(
+        tmp_path, FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+    )
+
+    assert isinstance(outcome, ExportRunResult)
+    assert harness.read_bytes() == stale  # not bumped to the current version
+    assert (tmp_path / "project.godot").read_bytes() == godot_before
+
+
+def test_export_does_not_add_autoload_for_a_stray_harness_file(tmp_path):
+    # The reviewer's repro: a project with ONLY a stray harness file and NO
+    # [autoload] entry must come out of export with NO autoload added. The strip
+    # removes the stray file (so it cannot ship); the byte-exact restore puts the
+    # stray file back WITHOUT synthesizing an autoload the project never had.
+    (tmp_path / "project.godot").write_text(
+        'config_version=5\n\n[application]\n', encoding="utf-8"
+    )
+    stray = tmp_path / "addons" / "gda_harness" / "gda_harness.gd"
+    stray.parent.mkdir(parents=True, exist_ok=True)
+    stray.write_bytes(b"extends Node\n# stray, no autoload entry\n")
+    godot_before = (tmp_path / "project.godot").read_bytes()
+
+    outcome = _run_export_in(
+        tmp_path, FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+    )
+
+    assert isinstance(outcome, ExportRunResult)
+    # No autoload synthesized — project.godot is byte-identical to before.
+    assert (tmp_path / "project.godot").read_bytes() == godot_before
+    assert "GdaHarness" not in (tmp_path / "project.godot").read_text(encoding="utf-8")
+    # The stray file is restored (the project is left exactly as found).
+    assert stray.read_bytes() == b"extends Node\n# stray, no autoload entry\n"
 
 
 def test_native_nonzero_exit_returns_export_failed():

@@ -137,7 +137,7 @@ one you just built, then start the daemon (macOS/Linux, Godot 4.6+):
 
 ```bash
 gda project set application/run/main_scene --value res://scenes/main.tscn --json
-gda daemon start             # start the daemon for $GDA_PROJECT (installs the harness)
+gda daemon start             # start the daemon for $GDA_PROJECT (installs the in-game harness)
 gda game tree --json         # the runtime scene tree, after _ready
 gda perf monitors --json     # live engine counters: fps, memory, node count
 gda daemon stop
@@ -296,11 +296,16 @@ command — register via the JSON above or the Settings → MCP UI.
 | **`gda-mcp`**    | An MCP server exposing the same operations as tools, from `--schema`. |
 | **`gda-daemon`** | A per-project process supervising a running game for live operations. |
 
-- **Headless operations** need no running engine — `gda` runs them one-shot with nothing
-  to install (create a scene, edit a script, export, analyze).
+- **Headless operations** run one-shot — no daemon, nothing to install (create a scene, edit
+  a script, export, analyze).
 - **Live operations** require a running game — `gda-daemon` launches it, injects an inert
   in-game harness, and brokers requests over a Unix domain socket (runtime tree, input,
   screenshots, performance, diagnostics).
+
+The in-game harness `gda-daemon` injects is **dev-only**: `gda export run` strips it from the
+artifact entirely, and built any other way (editor GUI, raw `godot --export`) it still
+self-disables in the exported game — so a shipped game never *runs* anything daemon-related
+(and via `gda export run`, doesn't even carry it).
 
 **Platform & version support:**
 
@@ -434,10 +439,10 @@ flags — `gda --help` is the authoritative list of what is installed.
 
 | Command | What it does |
 | ------- | ------------ |
-| `daemon start` | Start the per-project daemon and install the harness; the engine session launches on the first live op (`--windowed` for `screen` capture). |
+| `daemon start` | Start the per-project daemon and install the in-game harness; the engine session launches on the first live op (`--windowed` for `screen` capture). |
 | `daemon stop` | Stop the project's daemon and any running engine session. |
 | `daemon status` | Report the daemon's state (running, windowed mode, session). |
-| `daemon uninstall` | Remove the in-game `gda` harness autoload from the project. |
+| `daemon uninstall` | Remove the in-game `gda` harness (autoload entry + files) from the project — an explicit dev-tooling teardown; `gda export run` already strips it from exported artifacts automatically. |
 
 **`game`** — the running game's runtime scene graph
 
@@ -572,7 +577,7 @@ or agent can branch on the failure **category without parsing the JSON error**:
 | `3`       | `version`     | The detected Godot version is below the supported minimum.            |
 | `4`       | `operation`   | The engine ran but the operation failed — a registered operation error, an engine crash, or an unstructured non-zero exit. |
 | `5`       | `parse`       | The process claimed success but violated the structured-output contract. |
-| `6`       | `live`        | A live operation failed — e.g. no running daemon/session, or a live timeout (Phase-2 live). |
+| `6`       | `live`        | A live operation failed — e.g. no running daemon/session, or a live timeout. |
 
 These values are the public ABI; their authoritative source is
 [`src/gda/exit_codes.py`](src/gda/exit_codes.py). The `{"error": {category, code, …}}`

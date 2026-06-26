@@ -21,9 +21,10 @@ concurrent-editor prompt). ``installed_harness_version`` reads the header back.
 
 **Paired uninstall (#225, D2).** ``uninstall_harness`` removes the ``[autoload]``
 entry **first**, then deletes the files — so a mid-failure leaves only a harmless
-stray inert ``.gd``, never a dangling autoload pointing at a missing script (which
-crashes an exported game, ADR-0018). It is idempotent: a no-op success when the
-harness is not installed (mirrors ``daemon stop``).
+stray inert ``.gd``, never a dangling autoload pointing at a missing script (which an
+exported game logs ``ERR_CONTINUE`` and skips at startup — error spam, not a hard
+crash; ADR-0028). It is idempotent: a no-op success when the harness is not installed
+(mirrors ``daemon stop``).
 """
 
 from dataclasses import dataclass
@@ -40,7 +41,7 @@ HARNESS_RES_PATH = f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}"
 # copy to it (#225). The installed copy declares its version in a leading header
 # (`# gda-harness-version: <N>`); a mismatch re-materializes via the content
 # compare. NOT the package version — the harness changes far less often.
-HARNESS_VERSION = "2"
+HARNESS_VERSION = "3"
 
 _VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"
@@ -249,7 +250,8 @@ def uninstall_harness(project: Path) -> HarnessUninstall:
     Crash-safe ordering (ADR-0018, D2): strip the ``[autoload]`` entry **first**
     (a single atomic ``write_text``), then delete the files — so a mid-failure
     leaves only a harmless stray inert ``.gd``, never a dangling autoload pointing
-    at a missing script (which crashes an exported game). Returns a
+    at a missing script (which an exported game logs ``ERR_CONTINUE`` and skips at
+    startup — error spam, not a hard crash; ADR-0028). Returns a
     :class:`HarnessUninstall`; ``removed`` is ``False`` (a no-op success) when
     nothing is installed (mirrors ``daemon stop``).
     """

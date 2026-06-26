@@ -1483,7 +1483,8 @@ def daemon_uninstall(
 
     A release-hygiene step: removal is paired and crash-safe — the [autoload] entry
     is stripped first, then the files — so a mid-failure never leaves a dangling
-    autoload that would crash an exported game. Idempotent (a no-op if not
+    autoload (which an exported game logs `ERR_CONTINUE` and skips at startup —
+    error spam, not a hard crash; ADR-0028). Idempotent (a no-op if not
     installed). Refused while a daemon is running (`daemon_running`); stop it first
     with `gda daemon stop`. Live is macOS/Linux only; elsewhere reports
     `live_unsupported_platform`.

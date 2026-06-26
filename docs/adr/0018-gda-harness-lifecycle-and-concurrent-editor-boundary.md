@@ -66,6 +66,26 @@ so two instances can touch the project at once.
 > **asymmetric** — implicit install on `start`, explicit `uninstall` — not a symmetric
 > install/uninstall pair. Decision 1's wording is preserved as the point-in-time record.
 
+> **Outcome (2026-06-25) — the export/teardown half of this lifecycle is decided in
+> ADR-0028.** A shipped build must carry zero daemon-related files/config without depending
+> on the developer remembering `gda daemon uninstall`. Because an export **cannot** strip a
+> `project.godot` autoload after the fact (it is serialized whole into `project.binary`), the
+> guarantee is achieved before the export, not during it: **`gda export run` paired-strips the
+> harness transactionally** (forget-proof, dev project untouched), and the harness
+> **self-disables in any exported build** via `OS.has_feature("template")` (defence in depth
+> for non-gda export routes). Coverage: gda export = physically clean; every other route =
+> provably inert. See **ADR-0028** for the full decision and the rejected alternatives
+> (`override.cfg` re-leak, file-only `exclude_filter`, feature-tagged autoload, ephemeral
+> install).
+>
+> **Correction to point 3's wording.** Point 3 says a dangling autoload (file excluded, entry
+> kept) "crashes the exported game at startup." On the current engine it is **not** a hard
+> crash: autoload instantiation logs `ERR_CONTINUE` and *skips* the missing autoload
+> (`main/main.cpp`, the `ERR_CONTINUE_MSG` arms of the autoload loop). It is still
+> unacceptable — startup error spam in a shipped game — so the paired strip (never a
+> file-only `exclude_filter`) stands; the rationale is "no error spam / no orphaned config,"
+> not "avoid a crash." Point 3's text is preserved as the point-in-time record.
+
 ## Decision
 
 **1. The harness is an installed autoload, not a runtime injection.** `gda` bundles
