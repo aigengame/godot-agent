@@ -3,8 +3,8 @@
 Per RULES.md DoD the fast install tests do not count toward this gate: these boot
 a REAL Godot on a project with the harness installed and assert the autoload is
 valid GDScript and stays inert — no daemon launch marker, so it opens no
-connection and the engine boots clean. The exact failure ADR-0018 guards (a
-dangling autoload crashing the boot, or the harness opening a connection in a
+connection and the engine boots clean. The exact failures ADR-0018 guards (a
+dangling autoload spamming startup errors, or the harness opening a connection in a
 plain run / shipped build) must NOT occur.
 
 Two boots: a plain ``--path`` run (#7, strengthened by #225), and an EXPORTED PCK
@@ -17,6 +17,13 @@ ADR-0018's export-strip, ``gda export run`` removes the harness from its artifac
 property here — that a harness which *did* reach a shipped build stays inert — the
 pack must come from a route that does not strip it, and the harness's presence in
 the pack is asserted so "inert" is never trivially true.
+
+NOTE on what the PCK boot proves: it runs the pack with the EDITOR (tools) binary via
+``--main-pack``, where ``OS.has_feature("template")`` is FALSE — so it exercises the
+**no-marker** inert path (ADR-0018 point 2), not ADR-0028's ``template`` gate. The
+gate's behavioural proof needs a real exported template binary (templates + the e2e
+job); its CI-runnable static proof — that the gate is the first statement of
+``_ready()`` — lives in ``tests/test_harness_install.py``.
 """
 
 import subprocess

@@ -303,8 +303,9 @@ command — register via the JSON above or the Settings → MCP UI.
   screenshots, performance, diagnostics).
 
 The in-game harness `gda-daemon` injects is **dev-only**: `gda export run` strips it from the
-exported artifact, and it self-disables in any exported build — so a shipped game carries and
-runs nothing daemon-related.
+artifact entirely, and built any other way (editor GUI, raw `godot --export`) it still
+self-disables in the exported game — so a shipped game never *runs* anything daemon-related
+(and via `gda export run`, doesn't even carry it).
 
 **Platform & version support:**
 
