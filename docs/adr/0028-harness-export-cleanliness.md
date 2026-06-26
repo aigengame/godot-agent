@@ -42,11 +42,14 @@ project** — it must never be present at export time, not stripped during it.
 **1. `gda export run` strips the harness transactionally.** Before the native
 `--export-<mode>` run (the [Headless launch](../../CONTEXT.md) native-export channel), the
 operation paired-uninstalls the harness — autoload entry first, then files, the crash-safe
-ordering ADR-0018 already uses — and reinstalls it in a `finally` after the export returns.
-The artifact is therefore harness-free **by construction and forget-proof** (no `gda daemon
-uninstall` step required), the dev project is left byte-identical, and a mid-export crash
-leaves the project harness-**absent** (the safe direction — no orphaned autoload), which the
-next `gda daemon start` repairs. It is a no-op when no harness is installed.
+ordering ADR-0018 already uses — then, in a `finally`, **restores the exact pre-export state**
+(a byte-exact snapshot of `project.godot` + the harness file, NOT a fresh install — which
+would canonicalize a noncanonical autoload, synthesize one for a stray harness file that had
+none, or rewrite a stale body to the current version). The artifact is therefore harness-free
+**by construction and forget-proof** (no `gda daemon uninstall` step required), the dev
+project is left **byte-identical**, and a mid-export crash leaves the project harness-**absent**
+(the safe direction — no orphaned autoload), which the next `gda daemon start` repairs. It is
+a no-op when no harness is installed.
 
 **2. The harness self-disables in any exported build.** As defence in depth for export routes
 that bypass `gda export run` (the Godot editor GUI, a raw `godot --export-*`), the harness
@@ -86,15 +89,22 @@ on here (see Considered options).
 
 ## Consequences
 
-- `gda export run` (`run_export_operation`) now brackets the native export with the
-  harness strip/restore, reusing the ADR-0018 `install`/`uninstall` paired helpers; a no-op when
-  no harness is present. Verified by unit tests (strip-during-export, restore-after,
-  restore-on-exception, no-op-when-absent) and an e2e (`export run --mode pack` archive omits
-  `gda_harness.gd`, project restored).
-- The harness `_ready()` template gate is verified resident-inert in a real engine and in an
-  exported pack; the "exported pck runs inert" e2e packs via a **raw** `godot --export-pack`
-  (which does not strip) and asserts the harness is genuinely present, so "inert" stays
-  meaningful.
+- `gda export run` (`run_export_operation`) now brackets the native export with the harness
+  strip/restore: the strip reuses the ADR-0018 paired `uninstall`, but the restore **replays a
+  byte-exact snapshot** (not `install`), so the dev project is byte-identical even for a
+  stale / stray-file / noncanonical prior state; a no-op when no harness is present. Verified
+  by unit tests (byte-identical restore, stray-file → no autoload synthesized, stale-body →
+  not re-materialized, restore-on-exception) and an e2e (`export run --mode pack` archive omits
+  `gda_harness.gd` **and** the packed `project.binary` declares no `GdaHarness` autoload, the
+  project restored after).
+- The `template` gate is proven **statically** (a CI-runnable test asserts `if
+  OS.has_feature("template"): return` is the first statement of `_ready()`). Its
+  **behavioural** proof needs a real exported template binary (export templates + the e2e job)
+  and is deferred to **issue #301**, guarded by a tripwire e2e that warns once templates exist.
+  The separate "exported pck runs inert" e2e proves the **no-marker** resident-inert path
+  (ADR-0018 point 2) — it runs on the editor binary, where `template` is false — packing via a
+  **raw** `godot --export-pack` (which does not strip) and asserting the harness is genuinely
+  present, so "inert" stays meaningful.
 - **ADR-0018 is the harness *install/lifecycle* record; this ADR owns the *export/teardown*
   half.** ADR-0018 carries a dated pointer to this ADR and retains the corrected note on its
   point 3 (the dangling-autoload behaviour is `ERR_CONTINUE`, not a crash). The trust model is
