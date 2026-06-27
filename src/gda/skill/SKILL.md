@@ -63,7 +63,7 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | `scene` | `create`, `get`, `list`, `get-exports`, `delete` (`.tscn` files) |
 | `node` | `add`, `get`, `list`, `set`, `remove`, `duplicate`, `move`, `connect-signal`, `disconnect-signal` (nodes within a scene) |
 | `script` | `create`, `get`, `list`, `set`, `delete`, `attach`, `validate` (`.gd` files) |
-| `project` | `info`, `get`, `set`, `add-autoload`, `remove-autoload`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` |
+| `project` | `info`, `get`, `set`, `list`, `add-autoload`, `remove-autoload`, `find-references`, `dependencies`, `find-unused-resources`, `statistics` |
 | `resource` | `create`, `get`, `set`, `delete`, `uid` (`.tres` files) |
 | `export` | `list`, `get`, `run` (export a preset by name; `--mode` release/debug/pack) |
 | `shader` | `create`, `get`, `set` (`.gdshader` files) |

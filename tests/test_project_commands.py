@@ -21,6 +21,8 @@ from gda.models import (
     ProjectGetResult,
     ProjectInfoParams,
     ProjectInfoResult,
+    ProjectListParams,
+    ProjectListResult,
     ProjectRemoveAutoloadParams,
     ProjectRemoveAutoloadResult,
     ProjectSetParams,
@@ -47,6 +49,23 @@ SET_RESULT = {
     "setting": "display/window/size/viewport_width",
     "type": "int",
     "value": 1920,
+}
+
+LIST_RESULT = {
+    "settings": [
+        {
+            "setting": "application/config/name",
+            "type": "String",
+            "value": "My Game",
+            "is_default": False,
+        },
+        {
+            "setting": "display/window/size/viewport_width",
+            "type": "int",
+            "value": 1152,
+            "is_default": True,
+        },
+    ],
 }
 
 
@@ -209,6 +228,82 @@ def test_project_set_requires_value(monkeypatch):
     assert fake.calls == []
 
 
+# --- project list ---------------------------------------------------------
+
+
+def test_project_list_bare_dispatches_customized_scope_and_maps_entries(monkeypatch):
+    # A bare list lists only customized settings: include_defaults defaults False,
+    # section None. Each entry rides through as {setting, type, value, is_default}.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(app, ["project", "list", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data == LIST_RESULT
+    assert fake.calls == [
+        ("project-list", {"include_defaults": False, "section": None})
+    ]
+
+
+def test_project_list_all_flag_widens_scope_to_engine_defaults(monkeypatch):
+    # --all sets include_defaults True so the engine's built-in defaults are listed
+    # too, not just the project's customized settings.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(app, ["project", "list", "--all", "--json"])
+
+    assert result.exit_code == 0
+    assert fake.calls == [("project-list", {"include_defaults": True, "section": None})]
+
+
+def test_project_list_section_filter_rides_through_as_a_param(monkeypatch):
+    # --section restricts the listing to keys under a section/ prefix; it composes
+    # with --all (both ride through as operation params).
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["project", "list", "--all", "--section", "application/", "--json"]
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls == [
+        ("project-list", {"include_defaults": True, "section": "application/"})
+    ]
+
+
+def test_project_list_human_output_lines_settings_and_marks_defaults(monkeypatch):
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(LIST_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(app, ["project", "list"])
+
+    assert result.exit_code == 0
+    lines = result.stdout.strip().splitlines()
+    assert lines[0] == 'application/config/name (String) = "My Game"'
+    # An engine-default entry is tagged so customized vs default reads at a glance.
+    assert lines[1] == "display/window/size/viewport_width (int) = 1152 [default]"
+
+
+def test_project_list_human_output_names_an_empty_listing(monkeypatch):
+    inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel({"settings": []}), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(app, ["project", "list"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "(no settings)"
+
+
 # --- project add-autoload -------------------------------------------------
 
 
@@ -339,6 +434,21 @@ def test_project_set_schema_emits_model_derived_contract_without_other_args():
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_project_list_schema_emits_model_derived_contract_without_other_args():
+    result = CliRunner().invoke(app, ["project", "list", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ProjectListParams.model_json_schema()
+    assert doc["output"] == ProjectListResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    # The two scope params are part of the self-described input contract.
+    assert "include_defaults" in doc["input"]["properties"]
+    assert "section" in doc["input"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_project_add_autoload_schema_emits_model_derived_contract_without_other_args():
     result = CliRunner().invoke(app, ["project", "add-autoload", "--schema"])
 
@@ -373,6 +483,9 @@ def test_sample_project_results_validate_against_emitted_output_schemas():
         CliRunner().invoke(app, ["project", "info", "--schema"]).stdout
     )
     get_doc = json.loads(CliRunner().invoke(app, ["project", "get", "--schema"]).stdout)
+    list_doc = json.loads(
+        CliRunner().invoke(app, ["project", "list", "--schema"]).stdout
+    )
     set_doc = json.loads(CliRunner().invoke(app, ["project", "set", "--schema"]).stdout)
     add_doc = json.loads(
         CliRunner().invoke(app, ["project", "add-autoload", "--schema"]).stdout
@@ -383,6 +496,7 @@ def test_sample_project_results_validate_against_emitted_output_schemas():
 
     jsonschema.validate(instance=INFO_RESULT, schema=info_doc["output"])
     jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
+    jsonschema.validate(instance=LIST_RESULT, schema=list_doc["output"])
     jsonschema.validate(instance=SET_RESULT, schema=set_doc["output"])
     jsonschema.validate(instance=ADD_AUTOLOAD_RESULT, schema=add_doc["output"])
     jsonschema.validate(instance=REMOVE_AUTOLOAD_RESULT, schema=remove_doc["output"])
@@ -398,6 +512,7 @@ def test_project_schema_spawns_no_godot(monkeypatch):
     for command in (
         ["project", "info"],
         ["project", "get"],
+        ["project", "list"],
         ["project", "set"],
         ["project", "add-autoload"],
         ["project", "remove-autoload"],

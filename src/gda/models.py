@@ -2394,6 +2394,75 @@ class ProjectGetResult(BaseModel):
     )
 
 
+class ProjectListParams(BaseModel):
+    """The operation params of ``gda project list`` (issue #312).
+
+    Enumerates the project's ``ProjectSettings`` keys so an agent can DISCOVER
+    which settings exist — the list half of the ``list → get → set`` workflow
+    (``get``/``set`` both require you to already know the ``section/key``).
+    ``include_defaults`` (the CLI ``--all`` flag) widens the listing from only the
+    project's customized (non-default) settings to the engine's built-in defaults
+    too; ``section`` restricts it to keys whose name begins with that ``section/``
+    prefix (e.g. ``application/``, ``display/``), and the two compose. The project
+    is process context (``--project``), not an operation param (ADR-0006).
+    """
+
+    include_defaults: bool = Field(
+        default=False,
+        description=(
+            "Also list the engine's built-in default settings, not just the "
+            "project's customized (non-default) ones. The CLI --all flag."
+        ),
+    )
+    section: str | None = Field(
+        default=None,
+        description=(
+            "Restrict the listing to keys whose name begins with this section/ "
+            "prefix, e.g. application/ or display/. Null lists every section."
+        ),
+    )
+
+
+class ListedProjectSetting(BaseModel):
+    """One enumerated project setting of ``gda project list`` (issue #312).
+
+    Reuses the same ``{setting, type, value}`` projection ``project get`` reports
+    for a single setting — so a listed entry round-trips through ``project get`` —
+    plus ``is_default``: ``false`` when the key is customized (written in
+    ``project.godot``), ``true`` when it is at the engine's built-in default.
+    """
+
+    setting: str
+    type: str = Field(
+        description="The setting's declared Godot type name (e.g. String, int, Vector2)."
+    )
+    value: Any = Field(
+        description=(
+            "The setting's value as JSON: a scalar for a scalar type, a list for "
+            "a packed type (Vector2 → [x, y], Color → [r, g, b, a])."
+        )
+    )
+    is_default: bool = Field(
+        description=(
+            "True when the setting is at the engine's built-in default; false when "
+            "it is customized in project.godot."
+        )
+    )
+
+
+class ProjectListResult(BaseModel):
+    """The result of ``gda project list``: the project's enumerated settings (#312).
+
+    ``settings`` is the discovered keys, each a ``{setting, type, value,
+    is_default}`` entry sorted by name. A project with no customized settings and
+    no ``include_defaults`` is a valid, EMPTY listing — ``settings == []`` — not a
+    failure. Internal engine-bookkeeping and non-setting properties are filtered
+    out, so only real ``ProjectSettings`` keys appear.
+    """
+
+    settings: list[ListedProjectSetting]
+
+
 class ProjectSetParams(BaseModel):
     """The operation params of ``gda project set`` (issue #111).
 
