@@ -60,6 +60,7 @@ if TYPE_CHECKING:
         ProjectAddAutoloadResult,
         ProjectGetResult,
         ProjectInfoResult,
+        ProjectListResult,
         ProjectRemoveAutoloadResult,
         ProjectSetResult,
         ResourceCreateResult,
@@ -622,6 +623,25 @@ def render_project_get(got: "ProjectGetResult") -> str:
 def render_project_set(was_set: "ProjectSetResult") -> str:
     """Render a set setting as ``set <setting> (<type>) = <value>``."""
     return f"set {was_set.setting} ({was_set.type}) = {format_value(was_set.value)}"
+
+
+def render_project_list(listed: "ProjectListResult") -> str:
+    """Render enumerated settings as ``<setting> (<type>) = <value>`` lines.
+
+    An engine-default entry is tagged ``[default]`` so customized vs default reads
+    at a glance; the same ``<setting> (<type>) = <value>`` shape ``project get``
+    renders. An empty listing is named explicitly rather than printing nothing.
+    """
+    if not listed.settings:
+        return "(no settings)"
+    lines = []
+    for entry in listed.settings:
+        default_marker = " [default]" if entry.is_default else ""
+        lines.append(
+            f"{entry.setting} ({entry.type}) = {format_value(entry.value)}"
+            f"{default_marker}"
+        )
+    return "\n".join(lines)
 
 
 def render_project_add_autoload(added: "ProjectAddAutoloadResult") -> str:

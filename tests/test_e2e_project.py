@@ -115,6 +115,121 @@ def test_project_set_string_setting_round_trips(godot_project):
 
 
 @pytest.mark.e2e
+def test_project_list_bare_reports_only_customized_settings(godot_project):
+    # A bare list reports only the settings the fixture's project.godot actually
+    # writes (customized), each as {setting, type, value, is_default} with
+    # is_default false — NOT the hundreds of engine built-in defaults.
+    listed = _gda(godot_project, "project", "list", "--json")
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    settings = json.loads(listed.stdout)["settings"]
+    by_name = {entry["setting"]: entry for entry in settings}
+
+    # config/name is customized in the fixture's project.godot.
+    assert "application/config/name" in by_name
+    name_entry = by_name["application/config/name"]
+    assert name_entry["type"] == "String"
+    assert name_entry["value"] == "gda-e2e-fixture"
+    assert name_entry["is_default"] is False
+    # Every bare-scope entry is customized (none are defaults).
+    assert all(entry["is_default"] is False for entry in settings)
+    # A built-in default the fixture never set is absent from the bare listing.
+    assert "display/window/size/viewport_width" not in by_name
+    # The customized listing stays small — not the engine's hundreds of defaults.
+    assert len(settings) < 50
+
+
+@pytest.mark.e2e
+def test_project_list_all_includes_engine_defaults(godot_project):
+    # --all widens the listing to the engine's built-in defaults too, so a setting
+    # the project never customized appears, flagged is_default true, alongside the
+    # customized ones (is_default false).
+    listed = _gda(godot_project, "project", "list", "--all", "--json")
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    settings = json.loads(listed.stdout)["settings"]
+    by_name = {entry["setting"]: entry for entry in settings}
+
+    # A built-in default the fixture never set is now present and flagged default.
+    assert "display/window/size/viewport_width" in by_name
+    assert by_name["display/window/size/viewport_width"]["is_default"] is True
+    assert by_name["display/window/size/viewport_width"]["type"] == "int"
+    # The customized config/name is still present and still flagged customized.
+    assert by_name["application/config/name"]["is_default"] is False
+    # --all is the engine's hundreds of registered settings, far more than bare.
+    assert len(settings) > 100
+    # Internal / non-setting entries are filtered out: no category header, no
+    # `script` property, no PROPERTY_USAGE_INTERNAL keys like application/config/features.
+    assert "script" not in by_name
+    assert "ProjectSettings" not in by_name
+    assert "application/config/features" not in by_name
+
+
+@pytest.mark.e2e
+def test_project_list_section_filters_to_a_prefix_and_composes_with_all(godot_project):
+    # --section restricts to keys under a section/ prefix; with --all it scopes the
+    # engine defaults to that section too.
+    listed = _gda(
+        godot_project,
+        "project",
+        "list",
+        "--all",
+        "--section",
+        "application/",
+        "--json",
+    )
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    settings = json.loads(listed.stdout)["settings"]
+    names = [entry["setting"] for entry in settings]
+
+    assert names, "section filter should still find application/* keys"
+    # Every reported key is under the requested prefix.
+    assert all(name.startswith("application/") for name in names)
+    assert "application/config/name" in names
+    # A different section is excluded by the prefix filter.
+    assert not any(name.startswith("display/") for name in names)
+
+
+@pytest.mark.e2e
+def test_project_list_entry_round_trips_through_project_get(godot_project):
+    # A listed entry reports the SAME {type, value} projection project get reports
+    # for that key — so an agent can list to discover, then get to read one.
+    listed = _gda(godot_project, "project", "list", "--all", "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    entry = next(
+        e
+        for e in json.loads(listed.stdout)["settings"]
+        if e["setting"] == "display/window/size/viewport_width"
+    )
+
+    got = _gda(
+        godot_project, "project", "get", "display/window/size/viewport_width", "--json"
+    )
+    assert got.returncode == 0, got.stdout + got.stderr
+    got_data = json.loads(got.stdout)
+    assert entry["type"] == got_data["type"]
+    assert entry["value"] == got_data["value"]
+
+
+@pytest.mark.e2e
+def test_project_list_without_project_is_a_clean_error():
+    # Projectless: ProjectSettings would report only the engine's bare defaults,
+    # not the agent's project, so it is refused with project_not_found (exit 4),
+    # consistent with the rest of the project group.
+    proc = subprocess.run(
+        [*GDA_CMD, "project", "list", "--json", "--godot", str(GODOT)],
+        capture_output=True,
+        text=True,
+        cwd="/tmp",
+    )
+
+    assert proc.returncode == 4
+    err = json.loads(proc.stdout)["error"]
+    assert err["code"] == "project_not_found"
+
+
+@pytest.mark.e2e
 def test_project_get_unknown_setting_is_a_clean_error(godot_project):
     got = _gda(godot_project, "project", "get", "application/bogus/key", "--json")
 

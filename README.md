@@ -133,10 +133,11 @@ gda scene get scenes/main.tscn --json
 > directory) — only `res://` resolution needs a project. See [Configuration](#configuration).
 
 **Drive a *running* game live.** Live ops run the project's **main scene**, so point it at the
-one you just built, then start the daemon (macOS/Linux, Godot 4.6+):
+one you just built via Godot's `application/run/main_scene` project setting (the editor's
+*Application → Run → Main Scene*), then start the daemon (macOS/Linux, Godot 4.6+):
 
 ```bash
-gda project set application/run/main_scene --value res://scenes/main.tscn --json
+gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
 gda daemon start             # start the daemon for $GDA_PROJECT (installs the in-game harness)
 gda game tree --json         # the runtime scene tree, after _ready
 gda perf monitors --json     # live engine counters: fps, memory, node count
@@ -393,6 +394,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 | ------- | ------------ |
 | `project info` | Report project metadata (name, main scene, viewport, engine version). |
 | `project get` | Read a single project setting by section/key as typed JSON. |
+| `project list` | List the project's settings keys (customized by default; `--all` adds engine defaults, `--section` filters by prefix). |
 | `project set` | Set a project setting, coercing the value to its declared type. |
 | `project add-autoload` | Register an autoload singleton (name → script/scene). |
 | `project remove-autoload` | Unregister an autoload singleton by name. |

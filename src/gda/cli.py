@@ -140,6 +140,8 @@ from gda.models import (
     ProjectGetResult,
     ProjectInfoParams,
     ProjectInfoResult,
+    ProjectListParams,
+    ProjectListResult,
     ProjectRemoveAutoloadParams,
     ProjectRemoveAutoloadResult,
     ProjectSetParams,
@@ -232,6 +234,7 @@ from gda.render import (
     render_project_find_unused_resources,
     render_project_get,
     render_project_info,
+    render_project_list,
     render_project_remove_autoload,
     render_project_set,
     render_project_statistics,
@@ -1827,6 +1830,13 @@ PROJECT_GET_COMMAND: HeadlessCommand[ProjectGetResult] = HeadlessCommand(
     render=render_project_get,
 )
 
+PROJECT_LIST_COMMAND: HeadlessCommand[ProjectListResult] = HeadlessCommand(
+    operation="project-list",
+    input_model=ProjectListParams,
+    output_model=ProjectListResult,
+    render=render_project_list,
+)
+
 PROJECT_SET_COMMAND: HeadlessCommand[ProjectSetResult] = HeadlessCommand(
     operation="project-set",
     input_model=ProjectSetParams,
@@ -2640,6 +2650,40 @@ def project_get(
     _dispatch(
         PROJECT_GET_COMMAND,
         ProjectGetParams(setting=setting),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@project_app.command(name="list", cls=PROJECT_LIST_COMMAND.command_class())
+def project_list(
+    all_settings: bool = typer.Option(
+        False,
+        "--all",
+        help=(
+            "Also list the engine's built-in default settings, not just the "
+            "project's customized ones."
+        ),
+    ),
+    section: Optional[str] = typer.Option(
+        None,
+        "--section",
+        help=(
+            "Restrict to keys whose name begins with this section/ prefix "
+            "(e.g. application/, display/)."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_LIST_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """List the project's settings keys (customized only by default; --all adds defaults)."""
+    _dispatch(
+        PROJECT_LIST_COMMAND,
+        ProjectListParams(include_defaults=all_settings, section=section),
         json_output=json_output,
         godot=godot,
         project=project,
