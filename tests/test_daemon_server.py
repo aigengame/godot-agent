@@ -40,14 +40,18 @@ def test_live_op_without_a_launchable_session_is_engine_session_not_running(tmp_
 
 
 def test_malformed_control_request_is_dropped_not_raised(tmp_path):
-    # A malformed control frame (no "op", or a non-string "op") crosses the IPC
-    # boundary from a client process. It must be DROPPED — _handle returns None so
-    # the serve loop survives — and must never raise an exception that would escape
-    # _accept_loop and kill the daemon (regression: an assert used to do exactly that).
+    # A malformed control frame crosses the IPC boundary from a client process —
+    # read_message decodes any JSON value, so the frame may not even be an object.
+    # Every malformed shape must be DROPPED (_handle returns None so the serve loop
+    # survives), never raise an exception that would escape _accept_loop and kill the
+    # daemon (regression: an assert, then an unguarded .get, used to do exactly that).
     server = DaemonServer(daemon_paths(tmp_path), godot="")
 
-    assert server._handle({}) is None
-    assert server._handle({"op": 1}) is None
+    assert server._handle({}) is None  # no "op"
+    assert server._handle({"op": 1}) is None  # non-string "op"
+    assert server._handle([]) is None  # non-dict frame
+    assert server._handle("x") is None  # non-dict frame
+    assert server._handle(1) is None  # non-dict frame
 
 
 # --- #278 (review): scene verification happens at LAUNCH (in the harness), never

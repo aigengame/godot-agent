@@ -34,11 +34,13 @@ in stages (issues #307–#309); this ADR covers the Stage 1 `src/` gate.
 
 - **The 21 `src/` findings were resolved in three honest ways**, not blanket-ignored:
   - *Real None-safety / narrowing fixes* (the majority): a guard returning a structured
-    `engine_disconnected` when a session has no connection; an `assert isinstance(op, str)` on the
-    daemon control message ([ADR-0021](0021-gda-daemon-transport-discovery-and-live-version-floor.md));
-    an `assert cmd.recipe is not None` documenting the recipe-dispatch invariant
-    ([ADR-0023](0023-command-descriptor-single-registration.md)); a guard restructured to narrow a
-    `Path | None`; `render_node_tree` widened to `SceneNode | GameNode` (the two share
+    `engine_disconnected` when a session has no connection; a boundary guard that **drops** a
+    malformed daemon control frame (a non-dict value, or a missing/non-string `op`) and isolates
+    per-request decode/handle failures in the serve loop, so malformed IPC can never crash the
+    daemon ([ADR-0021](0021-gda-daemon-transport-discovery-and-live-version-floor.md)) — this
+    also narrows `op` to `str`; an `assert cmd.recipe is not None` documenting the recipe-dispatch
+    invariant ([ADR-0023](0023-command-descriptor-single-registration.md)); a guard restructured
+    to narrow a `Path | None`; `render_node_tree` widened to `SceneNode | GameNode` (the two share
     `name`/`type`/`children`); and `surface.py` switched to the `getattr` idiom it already uses.
   - *Honest annotation widening*: the `classify_*` functions that only interpolate `binary` into
     a message take `Path | None`, since live ops legitimately pass `None`.
