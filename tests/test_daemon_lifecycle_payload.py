@@ -97,12 +97,14 @@ def test_start_reports_not_synced_when_version_already_matches(
     monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
 
     first = _start(project)
+    assert not isinstance(first, Failure)
     assert first.installed_harness is True
     assert first.harness_synced is False  # first install is not a resync (#247)
 
     # A second start at the same HARNESS_VERSION must NOT re-sync (no rewrite), but
     # still reports the installed version.
     again = _start(project)
+    assert not isinstance(again, Failure)
     assert again.harness_synced is False
     assert again.installed_harness is False
     assert again.harness_version == HARNESS_VERSION

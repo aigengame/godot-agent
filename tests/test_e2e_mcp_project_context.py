@@ -15,8 +15,10 @@ from pathlib import Path
 
 import anyio
 import pytest
+from mcp.client.session import ListRootsFnT
 from mcp.shared.memory import create_connected_server_and_client_session as connect
 from mcp.types import ListRootsResult, Root
+from pydantic import FileUrl
 
 from gda.binary import GODOT_BIN_ENV, resolve_godot_binary
 from gda.mcp.runner import SubprocessGdaRunner
@@ -27,11 +29,15 @@ GODOT = resolve_godot_binary()
 
 def _call_tool(server, name, arguments, *, roots=None):
     """Drive one tool call over a real in-memory MCP session (optionally advertising roots)."""
-    list_roots_callback = None
+    list_roots_callback: ListRootsFnT | None = None
     if roots is not None:
+        # The param is named ``context`` to match the ListRootsFnT Protocol.
+        async def _list_roots(context):
+            return ListRootsResult(
+                roots=[Root(uri=FileUrl(Path(r).as_uri())) for r in roots]
+            )
 
-        async def list_roots_callback(_ctx):
-            return ListRootsResult(roots=[Root(uri=Path(r).as_uri()) for r in roots])
+        list_roots_callback = _list_roots
 
     async def _drive():
         async with connect(server, list_roots_callback=list_roots_callback) as session:
@@ -91,4 +97,5 @@ def test_meta_command_tolerates_a_pinned_project(godot_project, monkeypatch):
     result = _call_tool(server, "info", {}, roots=[str(godot_project)])
 
     assert result.isError is False, result.content
+    assert result.structuredContent is not None
     assert result.structuredContent["major"] == 4

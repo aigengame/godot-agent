@@ -20,7 +20,13 @@ import pytest
 from gda.error_codes import ERROR_CODE_BY_CODE
 from gda.mcp.server import build_server
 from gda.models import GdaError, GdaErrorEnvelope
-from tests.mcp_support import FakeGdaRunner, call_tool, gda_result, schema_then
+from tests.mcp_support import (
+    FakeGdaRunner,
+    call_tool,
+    gda_result,
+    schema_then,
+    tool_text,
+)
 
 
 def _gda_envelope_json(code: str) -> str:
@@ -69,7 +75,7 @@ def test_each_category_relays_losslessly_as_is_error(code):
     # Lossless: the single content block parses back to gda's exact envelope —
     # all four fields, and crucially the stable code, preserved verbatim.
     assert len(result.content) == 1
-    relayed = json.loads(result.content[0].text)
+    relayed = json.loads(tool_text(result))
     assert relayed == json.loads(_gda_envelope_json(code))
     assert relayed["error"]["code"] == code
     assert relayed["error"]["category"] == ERROR_CODE_BY_CODE[code].category.value
@@ -79,7 +85,7 @@ def test_relayed_content_is_not_flattened_to_prose():
     # ADR-0011: the envelope must arrive as JSON an agent can branch on, never a
     # prose string the SDK would synthesize from a raised exception.
     result = call_tool(_failing_server("path_not_found"), "scene_create", {"path": "x"})
-    text = result.content[0].text
+    text = tool_text(result)
     parsed = json.loads(text)  # must be valid JSON, not prose
     assert set(parsed["error"]) >= {"category", "code", "message", "diagnostics"}
 
@@ -101,7 +107,7 @@ def test_cannot_run_edge_is_synthesized_by_gda_mcp():
 
     assert result.isError is True
     assert result.structuredContent is None
-    body = json.loads(result.content[0].text)
+    body = json.loads(tool_text(result))
     assert body["error"]["category"] == "adapter"  # gda-mcp's own, not a gda category
     assert "ModuleNotFoundError" in body["error"]["diagnostics"]
 
@@ -117,7 +123,7 @@ def test_non_envelope_output_edge_is_synthesized():
     result = call_tool(build_server(runner), "info", {})
 
     assert result.isError is True
-    assert json.loads(result.content[0].text)["error"]["category"] == "adapter"
+    assert json.loads(tool_text(result))["error"]["category"] == "adapter"
 
 
 def test_exit_zero_but_non_json_stdout_edge_is_synthesized():
@@ -131,4 +137,4 @@ def test_exit_zero_but_non_json_stdout_edge_is_synthesized():
     result = call_tool(build_server(runner), "info", {})
 
     assert result.isError is True
-    assert json.loads(result.content[0].text)["error"]["category"] == "adapter"
+    assert json.loads(tool_text(result))["error"]["category"] == "adapter"

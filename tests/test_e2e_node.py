@@ -554,7 +554,9 @@ def test_node_set_coerces_and_round_trips_via_get(
     assert (set_data["property"], set_data["type"]) == (prop, want_type)
     assert set_data["value"] == want_value
     # The change is on disk, verified through a fresh get.
-    assert _get_property(scene_path, "Hero", prop)["value"] == want_value
+    got_property = _get_property(scene_path, "Hero", prop)
+    assert got_property is not None
+    assert got_property["value"] == want_value
 
 
 @pytest.mark.e2e

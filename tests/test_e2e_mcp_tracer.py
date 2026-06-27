@@ -42,6 +42,7 @@ def test_info_tracer_real_chain(monkeypatch):
     # structuredContent (the SDK checked it against info's outputSchema).
     assert result.isError is False, result.content
     version = result.structuredContent
+    assert version is not None
     assert version["major"] == 4
     assert (version["major"], version["minor"]) >= (4, 4)  # ADR-0003 minimum
     assert isinstance(version["string"], str)

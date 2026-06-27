@@ -18,6 +18,9 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import anyio
+from mcp.client.session import ListRootsFnT
+from mcp.types import CallToolResult, TextContent
+from pydantic import FileUrl
 
 from gda.cli import app
 from gda.mcp.runner import GdaResult
@@ -82,6 +85,21 @@ def gda_result(stdout: str = "", stderr: str = "", returncode: int = 0) -> GdaRe
     return GdaResult(stdout=stdout, stderr=stderr, returncode=returncode)
 
 
+def tool_text(result: CallToolResult, index: int = 0) -> str:
+    """The text of a ``CallToolResult`` content block (the first by default).
+
+    A gda-mcp tool reply carries its JSON envelope as a ``TextContent`` block, so a
+    test reads ``.text`` off it. This narrows the MCP content union
+    (``TextContent | ImageContent | …``) to ``TextContent`` once, here, instead of
+    a per-assertion ``isinstance``.
+    """
+    block = result.content[index]
+    assert isinstance(block, TextContent), (
+        f"expected TextContent, got {type(block).__name__}"
+    )
+    return block.text
+
+
 def list_tools(server):
     """Open an in-memory MCP session and return the server's ``list_tools`` result."""
     from mcp.shared.memory import create_connected_server_and_client_session as connect
@@ -102,12 +120,17 @@ def call_tool(server, name: str, arguments: dict, *, roots: Optional[list[str]] 
     """
     from mcp.shared.memory import create_connected_server_and_client_session as connect
 
-    list_roots_callback = None
+    list_roots_callback: ListRootsFnT | None = None
     if roots is not None:
         from mcp.types import ListRootsResult, Root
 
-        async def list_roots_callback(_context):
-            return ListRootsResult(roots=[Root(uri=Path(r).as_uri()) for r in roots])
+        # The param is named ``context`` to match the ListRootsFnT Protocol.
+        async def _list_roots(context):
+            return ListRootsResult(
+                roots=[Root(uri=FileUrl(Path(r).as_uri())) for r in roots]
+            )
+
+        list_roots_callback = _list_roots
 
     async def _inner():
         async with connect(server, list_roots_callback=list_roots_callback) as session:
@@ -138,10 +161,13 @@ def roots_changed_call(
 
     holder = {"roots": roots_before}
 
-    async def list_roots_callback(_context):
+    # The param is named ``context`` to match the ListRootsFnT Protocol.
+    async def _list_roots(context):
         return ListRootsResult(
-            roots=[Root(uri=Path(r).as_uri()) for r in holder["roots"]]
+            roots=[Root(uri=FileUrl(Path(r).as_uri())) for r in holder["roots"]]
         )
+
+    list_roots_callback: ListRootsFnT = _list_roots
 
     async def _inner():
         async with connect(server, list_roots_callback=list_roots_callback) as session:

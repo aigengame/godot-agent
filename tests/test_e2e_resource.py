@@ -60,7 +60,7 @@ def _import_project(project) -> None:
     )
 
 
-def _gda_project(project) -> "callable":
+def _gda_project(project):
     """A ``gda`` bound to ``--godot`` and ``--project`` for res:// / UID resolution."""
 
     def gda(*args: str) -> subprocess.CompletedProcess:

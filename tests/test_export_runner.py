@@ -57,6 +57,7 @@ def test_export_runs_with_project_as_cwd(monkeypatch):
     assert rec.kwargs is not None
     assert rec.kwargs.get("cwd") == str(project)
     # The command still carries --path <project> and the export flags.
+    assert rec.cmd is not None
     assert "--path" in rec.cmd and str(project) in rec.cmd
     assert rec.cmd[-3:] == ["--export-release", "Linux/X11", "build/game.x86_64"]
 
@@ -72,6 +73,7 @@ def test_export_without_project_passes_no_cwd(monkeypatch):
 
     assert rec.kwargs is not None
     assert rec.kwargs.get("cwd") is None
+    assert rec.cmd is not None
     assert "--path" not in rec.cmd
 
 
@@ -104,7 +106,7 @@ def test_export_timeout_keeps_the_export_worded_diagnostic(monkeypatch):
     from gda.runner import LaunchFailure
 
     def fake_run(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout"))
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
 
     monkeypatch.setattr(runner_mod.subprocess, "run", fake_run)
 

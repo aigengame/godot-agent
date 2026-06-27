@@ -342,7 +342,7 @@ def test_scene_create_unknown_root_type_yields_structured_error_end_to_end(
     assert not target.exists()
 
 
-def _gda_project(project) -> "callable":
+def _gda_project(project):
     """A ``_gda`` bound to ``--project`` for res:// enumeration/resolution."""
 
     def gda(*args: str) -> subprocess.CompletedProcess:

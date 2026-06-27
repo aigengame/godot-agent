@@ -9,6 +9,8 @@ log file, plus the same no-session / missing-file typed errors ``diag`` returns.
 """
 
 import os
+import subprocess
+from typing import cast
 
 import pytest
 
@@ -36,7 +38,9 @@ def _project(tmp_path):
 def _server_with_session(tmp_path, log_file, alive=True):
     server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
     server._session = EngineSession(
-        _FakeProc(None if alive else 0), conn=None, log_file=log_file
+        cast(subprocess.Popen, _FakeProc(None if alive else 0)),
+        conn=None,
+        log_file=log_file,
     )
     return server
 
@@ -49,6 +53,7 @@ def test_logger_tail_reads_structured_records_from_the_log(tmp_path):
     server = _server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "logger-tail", "params": {}})
+    assert reply is not None
     payload = parse_result(reply["stdout"])
 
     records = payload["records"]
@@ -68,6 +73,7 @@ def test_logger_tail_raw_returns_verbatim_info_records(tmp_path):
     server = _server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "logger-tail", "params": {"raw": True}})
+    assert reply is not None
     payload = parse_result(reply["stdout"])
 
     messages = [r["message"] for r in payload["records"]]
@@ -85,6 +91,7 @@ def test_logger_tail_level_filters_by_minimum_severity(tmp_path):
     server = _server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "logger-tail", "params": {"level": "warning"}})
+    assert reply is not None
     payload = parse_result(reply["stdout"])
 
     levels = {r["level"] for r in payload["records"]}
@@ -98,6 +105,7 @@ def test_logger_tail_limit_tails_the_most_recent_n(tmp_path):
     server = _server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "logger-tail", "params": {"limit": 1}})
+    assert reply is not None
     payload = parse_result(reply["stdout"])
 
     assert len(payload["records"]) == 1
@@ -114,6 +122,7 @@ def test_logger_tail_serves_even_when_the_session_process_has_died(tmp_path):
     server = _server_with_session(tmp_path, log_file, alive=False)
 
     reply = server._handle({"op": "logger-tail", "params": {}})
+    assert reply is not None
     payload = parse_result(reply["stdout"])
 
     crashed = next(r for r in payload["records"] if "crashed" in r["message"])
@@ -126,6 +135,7 @@ def test_logger_tail_empty_log_is_an_empty_result_not_an_error(tmp_path):
     server = _server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "logger-tail", "params": {}})
+    assert reply is not None
     payload = parse_result(reply["stdout"])
 
     assert payload["records"] == []
@@ -137,6 +147,7 @@ def test_logger_tail_with_no_session_is_engine_session_not_running(tmp_path):
     server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
 
     reply = server._handle({"op": "logger-tail", "params": {}})
+    assert reply is not None
 
     assert (
         parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
@@ -151,5 +162,6 @@ def test_logger_tail_with_a_remembered_session_but_missing_file_is_live_log_unav
     server = _server_with_session(tmp_path, log_file, alive=False)
 
     reply = server._handle({"op": "logger-tail", "params": {}})
+    assert reply is not None
 
     assert parse_result(reply["stdout"])["error"]["code"] == "live_log_unavailable"

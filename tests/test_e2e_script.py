@@ -28,7 +28,7 @@ def _gda(*args: str) -> subprocess.CompletedProcess:
     )
 
 
-def _gda_project(project) -> "callable":
+def _gda_project(project):
     """A ``_gda`` bound to ``--project`` for res:// enumeration/resolution."""
 
     def gda(*args: str) -> subprocess.CompletedProcess:

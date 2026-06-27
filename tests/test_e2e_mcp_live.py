@@ -40,6 +40,7 @@ from gda.mcp.runner import SubprocessGdaRunner
 from gda.mcp.server import build_server
 
 from .conftest import project_godot
+from .mcp_support import tool_text
 
 GODOT = resolve_godot_binary()
 
@@ -96,11 +97,13 @@ def test_mcp_live_game_tree_routes_through_daemon_to_a_real_tree(
         # daemon_start succeeded through the generic dispatcher (exit 0 → result
         # dict wrapped as structuredContent by the SDK).
         assert started.isError is False, started.content
+        assert started.structuredContent is not None
         assert started.structuredContent["installed_harness"] is True
 
         # The live op routed CLI → daemon → engine session and returned the live
         # runtime tree — exactly what a headless tool's success looks like.
         assert tree.isError is False, tree.content
+        assert tree.structuredContent is not None
         root = tree.structuredContent["root"]
         assert root["name"] == "Main"
         assert root["type"] == "Node2D"
@@ -133,7 +136,7 @@ def test_mcp_live_game_tree_relays_daemon_not_running_verbatim(
         assert result.structuredContent is None
         # The full GdaError envelope crossed verbatim as text content.
         assert result.content, "expected the GdaError envelope as text content"
-        payload = json.loads(result.content[0].text)
+        payload = json.loads(tool_text(result))
         # Assert the COMPLETE envelope shape, not a subset: lossless routing is the
         # property #227 exists to prove, so a relay that silently dropped a field
         # (most plausibly `diagnostics`) or wrapped it differently must fail here.
