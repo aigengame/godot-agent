@@ -402,10 +402,24 @@ an unknown key is `unknown_setting`, never a silent create, so the type to coerc
 A value that cannot be coerced to the setting's type is `uncoercible_value` (exit 4, the #55 code,
 `project.godot` left untouched); a failed save is `save_failed`.
 
+**Listing settings** (established by #312): `gda project list` enumerates the project's
+`ProjectSettings` keys so an agent can **discover** which settings exist — the list half of the
+`list → get → set` workflow (`get`/`set` both require you to already know the `section/key`). Each
+entry reuses the **same** `{setting, type, value}` projection `project get` reports — so a listed
+entry round-trips through `project get` — **plus** an `is_default` boolean: `false` when the key is
+customized (written in `project.godot`), `true` when it is at the engine's built-in default. By
+default the listing is only the project's **customized** settings (small and useful); `--all` widens
+it to the engine's built-in defaults too, and `--section <prefix>` restricts it to keys whose name
+begins with that `section/` prefix (e.g. `application/`, `display/`) — the two compose. Internal
+engine-bookkeeping settings and the non-setting properties the engine's property list also returns
+are filtered out, so only real `ProjectSettings` keys appear. Like the rest of the group it requires
+a resolved project (`project_not_found`, exit 4, otherwise) and never instantiates a scene.
+
 | Command | Description |
 | --- | --- |
 | `gda project info` | Project metadata (name, main scene, viewport, engine version) |
 | `gda project get` | Read a project setting by section/key (typed JSON) |
+| `gda project list` | List the project's settings keys (customized by default; `--all` adds defaults, `--section` filters) |
 | `gda project set` | Modify a project setting (value coerced to its declared type) |
 | `gda project add-autoload` / `remove-autoload` | Register / unregister an autoload singleton |
 

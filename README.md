@@ -394,6 +394,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 | ------- | ------------ |
 | `project info` | Report project metadata (name, main scene, viewport, engine version). |
 | `project get` | Read a single project setting by section/key as typed JSON. |
+| `project list` | List the project's settings keys (customized by default; `--all` adds engine defaults, `--section` filters by prefix). |
 | `project set` | Set a project setting, coercing the value to its declared type. |
 | `project add-autoload` | Register an autoload singleton (name → script/scene). |
 | `project remove-autoload` | Unregister an autoload singleton by name. |
