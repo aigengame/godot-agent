@@ -133,10 +133,11 @@ gda scene get scenes/main.tscn --json
 > directory) — only `res://` resolution needs a project. See [Configuration](#configuration).
 
 **Drive a *running* game live.** Live ops run the project's **main scene**, so point it at the
-one you just built, then start the daemon (macOS/Linux, Godot 4.6+):
+one you just built via Godot's `application/run/main_scene` project setting (the editor's
+*Application → Run → Main Scene*), then start the daemon (macOS/Linux, Godot 4.6+):
 
 ```bash
-gda project set application/run/main_scene --value res://scenes/main.tscn --json
+gda project set application/run/main_scene --value res://scenes/main.tscn --json  # a Godot project setting key
 gda daemon start             # start the daemon for $GDA_PROJECT (installs the in-game harness)
 gda game tree --json         # the runtime scene tree, after _ready
 gda perf monitors --json     # live engine counters: fps, memory, node count
