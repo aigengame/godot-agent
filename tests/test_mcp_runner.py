@@ -10,8 +10,12 @@ fast: the bad binary fails to exec immediately, no Godot involved.
 
 import json
 
+from mcp.types import CallToolResult
+
 from gda.mcp.runner import SubprocessGdaRunner
 from gda.mcp.server import dispatch
+
+from tests.mcp_support import tool_text
 
 # A command that cannot be exec'd at all — the unlaunchable-binary case a bad
 # GDA_BIN override produces.
@@ -35,8 +39,9 @@ def test_dispatch_synthesizes_is_error_for_a_launch_failure():
     outcome = dispatch(_UNLAUNCHABLE, ["info"], {})
 
     # A CallToolResult (failure channel), not a raised exception or a result dict.
+    assert isinstance(outcome, CallToolResult)
     assert outcome.isError is True
     assert outcome.structuredContent is None
-    body = json.loads(outcome.content[0].text)
+    body = json.loads(tool_text(outcome))
     assert body["error"]["category"] == "adapter"  # gda-mcp's own synthesized error
     assert "/does/not/exist/gda" in body["error"]["diagnostics"]

@@ -40,6 +40,7 @@ from gda.mcp.runner import SubprocessGdaRunner
 from gda.mcp.server import build_server
 
 from .conftest import project_godot
+from .mcp_support import tool_text
 
 GODOT = resolve_godot_binary()
 
@@ -133,7 +134,7 @@ def test_mcp_live_game_tree_relays_daemon_not_running_verbatim(
         assert result.structuredContent is None
         # The full GdaError envelope crossed verbatim as text content.
         assert result.content, "expected the GdaError envelope as text content"
-        payload = json.loads(result.content[0].text)
+        payload = json.loads(tool_text(result))
         # Assert the COMPLETE envelope shape, not a subset: lossless routing is the
         # property #227 exists to prove, so a relay that silently dropped a field
         # (most plausibly `diagnostics`) or wrapped it differently must fail here.

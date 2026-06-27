@@ -308,6 +308,7 @@ def test_diag_errors_reads_structured_errors_from_the_log(tmp_path):
     server = _server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "diag-errors", "params": {}})
+    assert reply is not None
     payload = parse_result(reply["stdout"])
 
     assert payload["errors"][0]["level"] == "error"
@@ -325,6 +326,7 @@ def test_diag_errors_limit_tails_the_most_recent_n(tmp_path):
     server = _server_with_session(tmp_path, log_file)
 
     reply = server._handle({"op": "diag-errors", "params": {"limit": 1}})
+    assert reply is not None
     payload = parse_result(reply["stdout"])
 
     assert len(payload["errors"]) == 1
@@ -341,6 +343,7 @@ def test_diag_serves_even_when_the_session_process_has_died(tmp_path):
     server = _server_with_session(tmp_path, log_file, alive=False)
 
     reply = server._handle({"op": "diag-errors", "params": {}})
+    assert reply is not None
     payload = parse_result(reply["stdout"])
 
     assert payload["errors"][0]["message"] == "crashed"
@@ -352,6 +355,7 @@ def test_diag_empty_log_is_an_empty_result_not_an_error(tmp_path):
     server = _server_with_session(tmp_path, log_file)
 
     errors_reply = server._handle({"op": "diag-errors", "params": {}})
+    assert errors_reply is not None
 
     assert parse_result(errors_reply["stdout"])["errors"] == []
 
@@ -374,6 +378,7 @@ def test_diag_with_no_session_launched_is_engine_session_not_running(
     monkeypatch.setattr("gda.daemon.server.launch_session", _boom)
 
     reply = server._handle({"op": op, "params": {}})
+    assert reply is not None
 
     assert (
         parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
@@ -390,5 +395,6 @@ def test_diag_with_a_remembered_session_but_missing_file_is_live_log_unavailable
     server = _server_with_session(tmp_path, log_file, alive=False)
 
     reply = server._handle({"op": "diag-errors", "params": {}})
+    assert reply is not None
 
     assert parse_result(reply["stdout"])["error"]["code"] == "live_log_unavailable"
