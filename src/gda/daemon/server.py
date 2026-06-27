@@ -114,6 +114,9 @@ class DaemonServer:
 
     def _handle(self, request: dict) -> dict | None:
         op = request.get("op")
+        # The daemon control protocol always carries a string ``op`` (the daemon
+        # owns both ends, ADR-0021); assert it so the live-op relay below sees a str.
+        assert isinstance(op, str)
         if op == STATUS_OP:
             # `windowed` lets `gda daemon status` report the daemon's launch-time
             # display mode (#251): the running daemon is the only authority for the

@@ -96,7 +96,9 @@ def _collect(
     schema = CommandSchema.of(
         input_model, output_model, kind=gda_command.kind, constraints=constraints
     )
-    description = (command.help or command.short_help or "").strip()
+    description = (
+        getattr(command, "help", None) or getattr(command, "short_help", None) or ""
+    ).strip()
     entries.append(
         CommandManifestEntry(
             name=" ".join(path),
