@@ -64,11 +64,15 @@ You are implementing <slice> in an ISOLATED git worktree.
 Worktree setup / cleanup:
 
 ```bash
-git worktree add ../wt-<slice> origin/main      # new worktree off main
-git -C ../wt-<slice> branch -m feat/<slice>      # rename in place (inside the worktree)
+git worktree add -b feat/<slice> ../wt-<slice> origin/main   # worktree on a FRESH branch off main
 # ... agent implements, commits, pushes, opens PR ...
-git worktree remove ../wt-<slice>                # ONLY after its PR is merged
+git worktree remove ../wt-<slice>                            # ONLY after its PR is merged
 ```
+
+> Create the branch *with* the worktree (`-b`). `git worktree add ../wt origin/main`
+> (no `-b`) checks out in **detached HEAD**, so a follow-up `git branch -m` fails with
+> "cannot rename the current branch while not on any". The in-place `git branch -m`
+> above is only for the *harness-pre-created* branch case, where a branch already exists.
 
 > **Why `git branch -m`, not `switch -c`:** all worktrees share one `.git`, so refs are
 > global and a branch op meant for the worktree can land on the shared checkout when the
@@ -101,8 +105,12 @@ git -C <B-worktree> reset --soft "$base" && git commit -m "<B title>"   # squash
 git -C <B-worktree> rebase --onto origin/main "$base" B-branch          # 1 commit → ONE conflict pass
 # resolve only the genuine A↔B overlap, run fast + integration tiers, then:
 git push --force-with-lease
-gh pr edit B --base main && gh pr merge B --squash
+gh pr edit B --base main && gh pr merge B --squash   # GitHub example; swap in your host's CLI
 ```
+
+> The portable lesson is host-agnostic: **replay only B's own commits with `git rebase
+> --onto`; never merge the base in.** The last line and the `main` / `origin/main` names
+> are just this example's host (GitHub) and base branch — substitute your own.
 
 ## 5. The two silent merge hazards (no conflict marker; fast tests still pass)
 
@@ -123,10 +131,16 @@ and a stubbed fast tier passes anyway. **Only the integration tier catches them.
 **After resolving, always audit:**
 
 ```bash
-git diff --check                       # whitespace/merge-marker leftovers
-grep -nE '^\s*(def|func|function) ' <file> | sort | uniq -d   # duplicate definitions
-# + grep for duplicate registrations / enum entries / map keys in the hotspots
+git diff --check                       # whitespace / leftover merge markers
+# duplicate definitions: extract the def NAME (do NOT keep line numbers — a `grep -n`
+# prefix makes identical defs differ, so `uniq -d` would miss them):
+grep -oE '(def|func|function)[[:space:]]+[[:alnum:]_]+' <file> | sort | uniq -d
+# + grep the hotspots for duplicate registrations / enum entries / map keys
 ```
+
+The grep is a fast pre-filter; the **authoritative** catch for a silent duplicate is the
+parse/compile check in §6 (a `--check-only` / build step), which fails on the duplicate
+the grep heuristic might miss in another language.
 
 ## 6. Verification & Definition of Done
 

@@ -1,6 +1,6 @@
 ---
 name: subagent-worktree-parallel
-description: Run parallel development by fanning out independent feature slices to subagents in isolated git worktrees, then merging them serially under an orchestrating agent — covers dependency decomposition, wave sizing, dispatch prompts, merge-conflict hazards, and the integration-test gate. Use when planning to parallelize implementation across multiple subagents/worktrees, split a task for concurrent agents, fan out feature slices, or merge several feature branches back together; or invoked as /subagent-worktree-parallel.
+description: Orchestrates parallel development by fanning out independent feature slices to subagents in isolated git worktrees, then merging them serially under an orchestrating agent — covers dependency decomposition, wave sizing, dispatch prompts, merge-conflict hazards, and the integration-test gate. Use when planning to parallelize implementation across multiple subagents/worktrees, split a task for concurrent agents, fan out feature slices, or merge several feature branches back together; or invoked as /subagent-worktree-parallel.
 ---
 
 # Subagent + Worktree Parallel Development
