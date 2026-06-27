@@ -6,6 +6,8 @@ engine), so the no-session and control-op paths stay covered in the fast suite.
 
 import os
 import socket
+import subprocess
+from typing import cast
 
 import pytest
 
@@ -33,6 +35,7 @@ def test_live_op_without_a_launchable_session_is_engine_session_not_running(tmp_
     server = DaemonServer(daemon_paths(tmp_path), godot="")
 
     reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
 
     assert (
         parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
@@ -81,9 +84,11 @@ def test_scene_mismatch_at_launch_is_a_typed_live_scene_not_found(
     server = DaemonServer(
         _project_with_marker(tmp_path), godot="godot", scene="res://B.tscn"
     )
-    server._harness_listener = object()  # launch_session is patched; value unused
+    # launch_session is patched; the listener value is unused (just non-None).
+    server._harness_listener = cast(socket.socket, object())
 
     reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
 
     assert parse_result(reply["stdout"])["error"]["code"] == "live_scene_not_found"
     # The half-alive (wrong-scene) session was NOT cached for reuse.
@@ -98,8 +103,12 @@ def test_a_verified_session_is_reused_without_re_checking_the_scene(
     # multiple live ops (no per-request disk/scene re-validation), so deleting the
     # scene file after launch cannot break a live op.
     calls = {"n": 0}
-    served = EngineSession(_FakeProc(), conn=None)
-    served.request = lambda op, params: {"stdout": "ok", "stderr": "", "exit_code": 0}
+    served = EngineSession(cast(subprocess.Popen, _FakeProc()), conn=None)
+    monkeypatch.setattr(
+        served,
+        "request",
+        lambda op, params: {"stdout": "ok", "stderr": "", "exit_code": 0},
+    )
 
     def _launch_once(*a, **k):
         calls["n"] += 1
@@ -112,7 +121,8 @@ def test_a_verified_session_is_reused_without_re_checking_the_scene(
     server = DaemonServer(
         _project_with_marker(tmp_path), godot="godot", scene="res://B.tscn"
     )
-    server._harness_listener = object()  # launch_session is patched; value unused
+    # launch_session is patched; the listener value is unused (just non-None).
+    server._harness_listener = cast(socket.socket, object())
 
     server._handle({"op": "game-tree", "params": {}})
     server._handle({"op": "game-tree", "params": {}})
@@ -130,9 +140,11 @@ def test_a_generic_launch_failure_is_engine_session_not_running(tmp_path, monkey
     server = DaemonServer(
         _project_with_marker(tmp_path), godot="godot", scene="res://B.tscn"
     )
-    server._harness_listener = object()  # launch_session is patched; value unused
+    # launch_session is patched; the listener value is unused (just non-None).
+    server._harness_listener = cast(socket.socket, object())
 
     reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
 
     assert (
         parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
@@ -153,9 +165,10 @@ def test_missing_res_scene_is_live_scene_not_found_before_launch(tmp_path, monke
     server = DaemonServer(
         _project_with_marker(tmp_path), godot="godot", scene="res://nope.tscn"
     )
-    server._harness_listener = object()
+    server._harness_listener = cast(socket.socket, object())
 
     reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
 
     assert parse_result(reply["stdout"])["error"]["code"] == "live_scene_not_found"
     assert server._session is None
@@ -168,6 +181,7 @@ def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
     server = DaemonServer(daemon_paths(tmp_path), godot="")
 
     reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
 
     assert (
         parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
@@ -177,9 +191,12 @@ def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
 def test_control_ops_report_liveness_and_request_stop(tmp_path):
     server = DaemonServer(daemon_paths(tmp_path), godot="")
 
-    assert server._handle({"op": "__status__"})["ok"] is True
+    status = server._handle({"op": "__status__"})
+    assert status is not None
+    assert status["ok"] is True
 
     stop = server._handle({"op": "__stop__"})
+    assert stop is not None
     assert stop["ok"] is True
     assert server._stopping is True
 
@@ -189,10 +206,14 @@ def test_status_op_reports_the_declared_display_mode(tmp_path):
     # STATUS_OP (#251) — the daemon is the only authority for the mode it was
     # started with — so the control reply must carry `windowed`.
     headless = DaemonServer(daemon_paths(tmp_path), godot="")
-    assert headless._handle({"op": "__status__"})["windowed"] is False
+    headless_status = headless._handle({"op": "__status__"})
+    assert headless_status is not None
+    assert headless_status["windowed"] is False
 
     windowed = DaemonServer(daemon_paths(tmp_path), godot="", windowed=True)
-    assert windowed._handle({"op": "__status__"})["windowed"] is True
+    windowed_status = windowed._handle({"op": "__status__"})
+    assert windowed_status is not None
+    assert windowed_status["windowed"] is True
 
 
 def test_engine_session_request_times_out_as_live_timeout(monkeypatch):
@@ -200,7 +221,7 @@ def test_engine_session_request_times_out_as_live_timeout(monkeypatch):
     # hang the daemon forever (ADR-0021).
     monkeypatch.setattr("gda.daemon.session.OP_TIMEOUT", 0.2)
     daemon_end, silent_harness = socket.socketpair()
-    session = EngineSession(_FakeProc(), daemon_end)
+    session = EngineSession(cast(subprocess.Popen, _FakeProc()), daemon_end)
     try:
         reply = session.request("game-tree", {})
         assert parse_result(reply["stdout"])["error"]["code"] == "live_timeout"

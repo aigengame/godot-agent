@@ -9,6 +9,8 @@ log file, plus the same no-session / missing-file typed errors ``diag`` returns.
 """
 
 import os
+import subprocess
+from typing import cast
 
 import pytest
 
@@ -36,7 +38,9 @@ def _project(tmp_path):
 def _server_with_session(tmp_path, log_file, alive=True):
     server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
     server._session = EngineSession(
-        _FakeProc(None if alive else 0), conn=None, log_file=log_file
+        cast(subprocess.Popen, _FakeProc(None if alive else 0)),
+        conn=None,
+        log_file=log_file,
     )
     return server
 

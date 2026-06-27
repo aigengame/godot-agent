@@ -599,7 +599,7 @@ uv run pytest -m e2e          # only the end-to-end tests (needs Godot 4.4+ on t
 
 uv run ruff check .           # lint
 uv run ruff format .          # auto-format (append --check to verify without writing)
-uv run pyright                # type-check (src/, basic mode)
+uv run pyright                # type-check (src/ + tests/, basic mode)
 ```
 
 The `e2e` tier runs by default with `uv run pytest`, and **fails loudly** — naming the
@@ -612,9 +612,9 @@ pinned via `uv.lock` so local and CI agree. CI's `lint` job runs `ruff check .` 
 `ruff format --check .` on every PR; run `uv run ruff format .` before committing to stay
 green.
 
-Types are checked by [pyright](https://microsoft.github.io/pyright/) in `basic` mode, scoped to
-`src/` and configured under `[tool.pyright]` in `pyproject.toml` (also pinned via `uv.lock`).
-CI's `type-check` job runs `uv run pyright` on every PR.
+Types are checked by [pyright](https://microsoft.github.io/pyright/) in `basic` mode, covering
+`src/` and `tests/` and configured under `[tool.pyright]` in `pyproject.toml` (also pinned via
+`uv.lock`). CI's `type-check` job runs `uv run pyright` on every PR.
 
 ```
 src/gda/

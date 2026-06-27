@@ -14,6 +14,7 @@ import json
 import os
 import socket
 import subprocess
+from typing import cast
 
 import pytest
 
@@ -74,7 +75,7 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
     launch_session(
         project,
         "godot",
-        _NoAcceptListener(),
+        cast(socket.socket, _NoAcceptListener()),
         tmp_path / "h.sock",
         "tok",
         log_file=log_file,
@@ -90,7 +91,9 @@ def test_launch_session_passes_log_file_arg_and_remembers_path(monkeypatch, tmp_
 
 def test_engine_session_exposes_its_log_file_path(tmp_path):
     log_file = tmp_path / "s.log"
-    session = EngineSession(_FakeProc(), conn=None, log_file=log_file)
+    session = EngineSession(
+        cast(subprocess.Popen, _FakeProc()), conn=None, log_file=log_file
+    )
     assert session.log_file == log_file
 
 
@@ -122,7 +125,7 @@ def _capture_launch_argv(monkeypatch, project, **launch_kw):
     launch_session(
         project,
         "godot",
-        _NoAcceptListener(),
+        cast(socket.socket, _NoAcceptListener()),
         project / "h.sock",
         "tok",
         timeout=0.1,
@@ -216,7 +219,7 @@ def _launch_with_fake_harness(monkeypatch, tmp_path, *, token, verify, scene):
         return launch_session(
             tmp_path,
             "godot",
-            _OneShotListener(daemon_end),
+            cast(socket.socket, _OneShotListener(daemon_end)),
             tmp_path / "h.sock",
             token,
             timeout=1.0,
@@ -278,7 +281,7 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
         outcome = launch_session(
             tmp_path,
             "godot",
-            _OneShotListener(daemon_end),
+            cast(socket.socket, _OneShotListener(daemon_end)),
             tmp_path / "h.sock",
             "tok",
             timeout=1.0,
@@ -295,7 +298,9 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
 def _server_with_session(tmp_path, log_file, alive=True):
     server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
     server._session = EngineSession(
-        _FakeProc(None if alive else 0), conn=None, log_file=log_file
+        cast(subprocess.Popen, _FakeProc(None if alive else 0)),
+        conn=None,
+        log_file=log_file,
     )
     return server
 

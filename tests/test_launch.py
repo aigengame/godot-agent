@@ -57,7 +57,7 @@ def test_non_executable_file_binary_maps_to_not_found_not_traceback(tmp_path):
 
 def test_timeout_maps_to_synthesized_timeout_result(monkeypatch):
     def fake_run(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout"))
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
@@ -75,7 +75,7 @@ def test_timeout_label_customizes_the_diagnostic(monkeypatch):
     # byte-compatible with the pre-#185 "Godot export timed out" wording — the
     # stderr the classifier carries into the public GdaError.diagnostics (#185).
     def fake_run(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout"))
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs["timeout"])
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 

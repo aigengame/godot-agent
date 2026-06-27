@@ -88,10 +88,10 @@ select = ["E4", "E7", "E9", "F"]
 "src/gda/cli.py" = ["F811"]
 
 [tool.pyright]
-# Type-check gate (ADR-0030). Scoped to the shipped library; `basic` mode is the
-# starting point — a strictness ratchet and a possible `ty` migration are tracked
-# separately. The Typer same-named-subcommand idiom (see the ruff F811 ignore
-# above, ADR-0023) is suppressed inline at the command defs, not here.
-include = ["src"]
+# Type-check gate (ADR-0030). Covers the shipped library (src/) and the tests/;
+# `basic` mode is the starting point — a strictness ratchet and a possible `ty`
+# migration are tracked separately. The Typer same-named-subcommand idiom (see the
+# ruff F811 ignore above, ADR-0023) is suppressed inline at the command defs.
+include = ["src", "tests"]
 pythonVersion = "3.13"
 typeCheckingMode = "basic"

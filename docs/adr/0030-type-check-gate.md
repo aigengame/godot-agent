@@ -4,6 +4,12 @@ status: accepted
 
 # Type-check gate: pyright (`basic`), `src/` first, enforced in CI
 
+> **Outcome (Stage 2, 2026-06-27):** the gate now also covers `tests/` (#308) — `[tool.pyright]`
+> `include` is `["src", "tests"]` and the whole repo type-checks clean (the 109 test findings were
+> resolved with union-narrowing helpers, not-None asserts, `cast`s for intentional test doubles,
+> and `ListRootsFnT`-typed in-memory callbacks). The "`tests/` out of scope / Stage 2 / src-only
+> end-state" framing below is the point-in-time Stage-1 record.
+
 CI gates lint + format (ruff, [ADR-0029](0029-lint-and-format-gate.md)), tests, and build —
 but nothing checks types. There is no type-checker config, no type-checker dev dependency,
 and no `py.typed`. Yet `src/` is heavily annotated (0 `type: ignore`) and the structured-output
