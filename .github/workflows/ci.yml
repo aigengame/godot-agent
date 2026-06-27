@@ -63,7 +63,7 @@ jobs:
           save-cache: false
 
       - name: Type check
-        # Scope (src) and mode (basic) come from [tool.pyright] in pyproject (ADR-0030).
+        # Scope (src + tests) and mode (basic) come from [tool.pyright] in pyproject (ADR-0030).
         run: uv run --frozen pyright
 
   python:

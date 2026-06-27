@@ -614,7 +614,7 @@ green.
 
 Types are checked by [pyright](https://microsoft.github.io/pyright/) in `basic` mode, covering
 `src/` and `tests/` and configured under `[tool.pyright]` in `pyproject.toml` (also pinned via
-`uv.lock`). CI's `type-check` job runs `uv run pyright` on every PR.
+`uv.lock`). CI's `type-check` job runs `uv run --frozen pyright` on every PR.
 
 ```
 src/gda/
