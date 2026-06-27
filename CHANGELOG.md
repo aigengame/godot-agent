@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.46](https://github.com/aigengame/godot-agent/compare/v0.1.45...v0.1.46) (2026-06-27)
+
+
+### Features
+
+* **project:** add `gda project list` to enumerate ProjectSettings keys ([#312](https://github.com/aigengame/godot-agent/issues/312)) ([#313](https://github.com/aigengame/godot-agent/issues/313)) ([75a0476](https://github.com/aigengame/godot-agent/commit/75a0476f4bacc839b77440266f99ad210e47334e))
+
 ## [0.1.45](https://github.com/aigengame/godot-agent/compare/v0.1.44...v0.1.45) (2026-06-26)
 
 
