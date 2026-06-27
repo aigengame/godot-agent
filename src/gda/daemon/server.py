@@ -114,9 +114,13 @@ class DaemonServer:
 
     def _handle(self, request: dict) -> dict | None:
         op = request.get("op")
-        # The daemon control protocol always carries a string ``op`` (the daemon
-        # owns both ends, ADR-0021); assert it so the live-op relay below sees a str.
-        assert isinstance(op, str)
+        if not isinstance(op, str):
+            # ``op`` arrives as a JSON frame from the client process, so this is an
+            # IPC boundary, not an internal invariant — a malformed frame (``{}`` or
+            # a non-string ``op``) must NOT crash the serve loop (``_accept_loop``
+            # does not catch ``_handle``'s exceptions). Drop it: the connection
+            # closes with no reply and the client surfaces it as engine_disconnected.
+            return None
         if op == STATUS_OP:
             # `windowed` lets `gda daemon status` report the daemon's launch-time
             # display mode (#251): the running daemon is the only authority for the

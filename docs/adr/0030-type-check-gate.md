@@ -77,5 +77,9 @@ in stages (issues #307–#309); this ADR covers the Stage 1 `src/` gate.
   in the README** — it is human-facing onboarding, not an ADR index (the Contributing section's
   general `docs/adr/` pointer suffices).
 - No new CONTEXT.md term: a type gate is build tooling, not a domain concept.
-- Verified in #307: `pyright` reports 0 on `src/`, the `type-check` job is green, a negative test
-  confirms it blocks a real type error, and `pytest -m "not e2e"` is unaffected (973 passed).
+- Verified in #307: `pyright` reports 0 on `src/`, the `type-check` job is green, and
+  `pytest -m "not e2e"` is unaffected. The gate was negative-tested at PR time with a deliberate
+  type error (pyright then exits non-zero); that proof is **not** checked in, because a
+  permanently-broken file would have to be excluded from the very gate it tests — the gate runs
+  on every PR, so it is itself the durable regression mechanism (the same model as the ruff gate,
+  ADR-0029).
