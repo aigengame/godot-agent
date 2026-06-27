@@ -77,7 +77,7 @@ def _expected_templates_version() -> str:
     return f"{base}.{v['status']}"
 
 
-def _gda_project(project) -> "callable":
+def _gda_project(project):
     """A ``gda`` bound to ``--project`` for res:// resolution of the cfg."""
 
     def gda(*args: str) -> subprocess.CompletedProcess:

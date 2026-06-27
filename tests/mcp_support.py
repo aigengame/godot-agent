@@ -18,7 +18,9 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import anyio
+from mcp.client.session import ListRootsFnT
 from mcp.types import CallToolResult, TextContent
+from pydantic import FileUrl
 
 from gda.cli import app
 from gda.mcp.runner import GdaResult
@@ -118,12 +120,17 @@ def call_tool(server, name: str, arguments: dict, *, roots: Optional[list[str]] 
     """
     from mcp.shared.memory import create_connected_server_and_client_session as connect
 
-    list_roots_callback = None
+    list_roots_callback: ListRootsFnT | None = None
     if roots is not None:
         from mcp.types import ListRootsResult, Root
 
-        async def list_roots_callback(_context):
-            return ListRootsResult(roots=[Root(uri=Path(r).as_uri()) for r in roots])
+        # The param is named ``context`` to match the ListRootsFnT Protocol.
+        async def _list_roots(context):
+            return ListRootsResult(
+                roots=[Root(uri=FileUrl(Path(r).as_uri())) for r in roots]
+            )
+
+        list_roots_callback = _list_roots
 
     async def _inner():
         async with connect(server, list_roots_callback=list_roots_callback) as session:
@@ -154,10 +161,13 @@ def roots_changed_call(
 
     holder = {"roots": roots_before}
 
-    async def list_roots_callback(_context):
+    # The param is named ``context`` to match the ListRootsFnT Protocol.
+    async def _list_roots(context):
         return ListRootsResult(
-            roots=[Root(uri=Path(r).as_uri()) for r in holder["roots"]]
+            roots=[Root(uri=FileUrl(Path(r).as_uri())) for r in holder["roots"]]
         )
+
+    list_roots_callback: ListRootsFnT = _list_roots
 
     async def _inner():
         async with connect(server, list_roots_callback=list_roots_callback) as session:

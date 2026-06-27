@@ -97,11 +97,13 @@ def test_mcp_live_game_tree_routes_through_daemon_to_a_real_tree(
         # daemon_start succeeded through the generic dispatcher (exit 0 → result
         # dict wrapped as structuredContent by the SDK).
         assert started.isError is False, started.content
+        assert started.structuredContent is not None
         assert started.structuredContent["installed_harness"] is True
 
         # The live op routed CLI → daemon → engine session and returned the live
         # runtime tree — exactly what a headless tool's success looks like.
         assert tree.isError is False, tree.content
+        assert tree.structuredContent is not None
         root = tree.structuredContent["root"]
         assert root["name"] == "Main"
         assert root["type"] == "Node2D"

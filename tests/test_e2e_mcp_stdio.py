@@ -53,6 +53,7 @@ def test_info_over_stdio_reports_engine_version():
     result = _call("info", {})
 
     assert result.isError is False, result.content
+    assert result.structuredContent is not None
     assert result.structuredContent["major"] == 4
     assert (result.structuredContent["major"], result.structuredContent["minor"]) >= (
         4,
@@ -67,6 +68,7 @@ def test_scene_create_over_stdio_creates_a_scene_file(tmp_path):
     result = _call("scene_create", {"path": str(scene), "root_type": "Node2D"})
 
     assert result.isError is False, result.content
+    assert result.structuredContent is not None
     # The verbatim --params-json dispatch produced gda's typed result…
     assert result.structuredContent["root_type"] == "Node2D"
     # root_name derived model-side from the filename, same as the argv path.

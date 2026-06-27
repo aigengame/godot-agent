@@ -31,6 +31,7 @@ def test_scene_create_input_object_builds_params_json_dispatch():
     assert result.structuredContent == SCENE_CREATE_RESULT
     # The seam was driven with the gda command argv + verbatim object on stdin.
     dispatch_args, dispatch_stdin, _ = runner.calls[-1]
+    assert dispatch_stdin is not None
     assert dispatch_args == ["scene", "create", "--params-json", "-", "--json"]
     assert json.loads(dispatch_stdin) == arguments
 
@@ -63,7 +64,9 @@ def test_no_param_tool_dispatches_an_empty_params_object():
     result = call_tool(server, "info", {})
 
     assert result.isError is False
+    assert result.structuredContent is not None
     assert result.structuredContent["string"] == VERSION_INFO["string"]
     dispatch_args, dispatch_stdin, _ = runner.calls[-1]
+    assert dispatch_stdin is not None
     assert dispatch_args == ["info", "--params-json", "-", "--json"]
     assert json.loads(dispatch_stdin) == {}

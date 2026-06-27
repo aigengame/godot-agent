@@ -82,7 +82,7 @@ binary_format/embed_pck=false
 """
 
 
-def _gda_project(project) -> "callable":
+def _gda_project(project):
     """A ``gda`` bound to ``--godot`` + ``--project`` for the real engine."""
 
     def gda(*args: str) -> subprocess.CompletedProcess:
