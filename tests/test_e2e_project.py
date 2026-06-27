@@ -115,6 +115,31 @@ def test_project_set_string_setting_round_trips(godot_project):
 
 
 @pytest.mark.e2e
+def test_project_list_bare_reports_only_customized_settings(godot_project):
+    # A bare list reports only the settings the fixture's project.godot actually
+    # writes (customized), each as {setting, type, value, is_default} with
+    # is_default false — NOT the hundreds of engine built-in defaults.
+    listed = _gda(godot_project, "project", "list", "--json")
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    settings = json.loads(listed.stdout)["settings"]
+    by_name = {entry["setting"]: entry for entry in settings}
+
+    # config/name is customized in the fixture's project.godot.
+    assert "application/config/name" in by_name
+    name_entry = by_name["application/config/name"]
+    assert name_entry["type"] == "String"
+    assert name_entry["value"] == "gda-e2e-fixture"
+    assert name_entry["is_default"] is False
+    # Every bare-scope entry is customized (none are defaults).
+    assert all(entry["is_default"] is False for entry in settings)
+    # A built-in default the fixture never set is absent from the bare listing.
+    assert "display/window/size/viewport_width" not in by_name
+    # The customized listing stays small — not the engine's hundreds of defaults.
+    assert len(settings) < 50
+
+
+@pytest.mark.e2e
 def test_project_get_unknown_setting_is_a_clean_error(godot_project):
     got = _gda(godot_project, "project", "get", "application/bogus/key", "--json")
 

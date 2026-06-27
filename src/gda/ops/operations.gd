@@ -162,6 +162,8 @@ func _initialize() -> void:
 			_op_project_info(params)
 		"project-get":
 			_op_project_get(params)
+		"project-list":
+			_op_project_list(params)
 		"project-set":
 			_op_project_set(params)
 		"project-add-autoload":
@@ -2133,6 +2135,86 @@ func _op_project_get(params: Dictionary) -> void:
 		"type": _type_name(typeof(value)),
 		"value": _jsonify(value),
 	})
+
+
+# project-list: enumerate the project's ProjectSettings keys so an agent can
+# DISCOVER which settings exist (issue #312) — the list half of the list → get →
+# set workflow, since get/set both require you to already know the section/key.
+# Each entry reuses the same {setting, type, value} projection project get reports
+# (so a listed entry round-trips through project get), plus an is_default flag:
+# false when the key is CUSTOMIZED (written in project.godot), true when it is at
+# the engine's built-in default.
+#
+# Scope: by default only customized settings are listed (keeping the default
+# output small and agent-useful); include_defaults widens it to the engine's
+# built-in defaults too, and a non-empty section restricts to keys whose name
+# begins with that section/ prefix — the two compose. Internal engine-bookkeeping
+# settings (PROPERTY_USAGE_INTERNAL — features/tags/translation remaps/…) and the
+# non-setting properties get_property_list() also returns (the ProjectSettings
+# category, the `script` property) are filtered out, so only real ProjectSettings
+# keys appear; the has_setting check is what distinguishes a real setting.
+#
+# Like every --project op it needs a project (project_not_found otherwise) and
+# runs the project's autoloads at startup (#61, ADR-0009); enumerating settings
+# never instantiates a scene, so it is a state-read at the operation level.
+func _op_project_list(params: Dictionary) -> void:
+	_diag("running operation: project-list")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project list requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+	var include_defaults := bool(params.get("include_defaults", false))
+	var section := _string_param(params, "section")
+	var customized := _customized_settings()
+
+	var names: Array[String] = []
+	for prop in ProjectSettings.get_property_list():
+		var key := String(prop.get("name", ""))
+		# Only entries ProjectSettings tracks as real settings answer has_setting —
+		# this drops the category header and the `script` property.
+		if not ProjectSettings.has_setting(key):
+			continue
+		# Internal engine bookkeeping is not an agent-facing setting key.
+		if int(prop.get("usage", 0)) & PROPERTY_USAGE_INTERNAL:
+			continue
+		var is_default := not customized.has(key)
+		if is_default and not include_defaults:
+			continue
+		if not section.is_empty() and not key.begins_with(section):
+			continue
+		names.append(key)
+
+	# Sort by name so the listing is stable regardless of registration order.
+	names.sort()
+	var settings: Array = []
+	for key in names:
+		var value: Variant = ProjectSettings.get_setting(key)
+		settings.append({
+			"setting": key,
+			"type": _type_name(typeof(value)),
+			"value": _jsonify(value),
+			"is_default": not customized.has(key),
+		})
+
+	_succeed({"settings": settings})
+
+
+# The set of project setting names CUSTOMIZED in res://project.godot — the keys
+# actually written there, as opposed to the engine's built-in defaults. Read by
+# parsing project.godot with ConfigFile (the engine exposes no get_initial_value
+# binding to compare a current value against its default): each [section] key
+# becomes the full "section/key" setting name (a sectionless key like
+# config_version maps to its bare name, harmlessly — it is not a real setting).
+# project list reports is_default=false for these keys and true for the rest.
+func _customized_settings() -> Dictionary:
+	var customized := {}
+	var cfg := ConfigFile.new()
+	if cfg.load("res://project.godot") != OK:
+		return customized
+	for section in cfg.get_sections():
+		for key in cfg.get_section_keys(section):
+			var name := key if section.is_empty() else section + "/" + key
+			customized[name] = true
+	return customized
 
 
 # project-set: write one project setting, coercing the CLI string value to the
