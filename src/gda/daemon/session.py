@@ -78,6 +78,12 @@ class EngineSession:
 
     def request(self, operation: str, params: dict) -> dict:
         """Relay one live op to the harness; return the CLI reply dict."""
+        if self._conn is None:
+            # A session whose harness never connected has no channel to relay on
+            # — report it as a dropped connection rather than crash on ``None``.
+            return error_reply(
+                "engine_disconnected", "the engine session has no live connection"
+            )
         try:
             self._conn.settimeout(OP_TIMEOUT)
             write_message(self._conn, {"op": operation, "params": params})

@@ -188,7 +188,7 @@ def invalid_params_json_failure(detail: str) -> Failure:
     )
 
 
-def classify_launch_or_crash(raw: RunResult, binary: Path) -> Failure | None:
+def classify_launch_or_crash(raw: RunResult, binary: Path | None) -> Failure | None:
     """The env/crash classifier prefix shared by both headless channels (#185).
 
     The single home of the launch-failure and signal-death mapping that the
@@ -228,7 +228,9 @@ def classify_launch_or_crash(raw: RunResult, binary: Path) -> Failure | None:
     return None
 
 
-def classify_run(result: RunResult, binary: Path, output_model: type[M]) -> M | Failure:
+def classify_run(
+    result: RunResult, binary: Path | None, output_model: type[M]
+) -> M | Failure:
     """Classify a raw headless run into the command's typed model or a ``Failure``.
 
     Command-agnostic: owns the env/operation/parse decision tree shared by all
@@ -423,7 +425,7 @@ def _live_error_from_payload(result: RunResult) -> Failure | None:
 
 
 def classify_live(
-    result: RunResult, binary: Path, output_model: type[M]
+    result: RunResult, binary: Path | None, output_model: type[M]
 ) -> M | Failure:
     """Classify a live operation's raw result (ADR-0017).
 

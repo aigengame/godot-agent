@@ -7,6 +7,13 @@ domain group (issue #18). Every command drives the same headless pipeline:
 binary resolution → runner → sentinel parse → typed model → JSON.
 """
 
+# Typer attaches same-named subcommands (create/get/...) to different sub-apps,
+# so reusing the function name is intentional — the descriptor-driven command
+# surface (ADR-0023). pyright's reportRedeclaration is a false positive for that
+# idiom (the type-checker analogue of the ruff F811 per-file ignore for this
+# module), so it is suppressed file-wide here.
+# pyright: reportRedeclaration=false
+
 import json
 from importlib.metadata import version as package_version
 from pathlib import Path
@@ -653,6 +660,9 @@ def _dispatch_recipe(
     indistinguishable downstream (ADR-0015). Project resolution stays CLI-side
     (ADR-0006), owned by each recipe.
     """
+    # A recipe command always carries a recipe channel — that is what routes it
+    # here rather than to the sentinel ``cmd.emit`` path (ADR-0023).
+    assert cmd.recipe is not None
     outcome = cmd.recipe(params, project=project, godot=godot)
     if isinstance(outcome, Failure):
         emit_failure(outcome)

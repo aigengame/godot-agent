@@ -206,7 +206,7 @@ def run_export_operation(
     # present; if gda dies mid-export the project is left harness-ABSENT (the safe
     # direction — no dangling autoload), and the next `daemon start` reinstalls it.
     snapshot = _HarnessSnapshot.capture(project) if project is not None else None
-    if snapshot is not None:
+    if project is not None:
         uninstall_harness(project)
     try:
         export_output = export_runner.run(got.name, mode.value, output_path)

@@ -47,6 +47,25 @@ jobs:
       - name: Check formatting
         run: uv run --frozen ruff format --check .
 
+  type-check:
+    name: Type check (pyright)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          # The python job already populates the dependency cache for this key;
+          # this job only reads it, so skip a redundant (racing) cache save.
+          save-cache: false
+
+      - name: Type check
+        # Scope (src) and mode (basic) come from [tool.pyright] in pyproject (ADR-0030).
+        run: uv run --frozen pyright
+
   python:
     name: Python unit tests and package build
     runs-on: ubuntu-latest

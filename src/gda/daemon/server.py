@@ -104,16 +104,34 @@ class DaemonServer:
             except OSError:
                 break  # listener closed by a signal
             with conn:
-                request = read_message(conn)
-                if request is not None:
-                    reply = self._handle(request)
-                    if reply is not None:
-                        write_message(conn, reply)
+                try:
+                    request = read_message(conn)
+                    if request is not None:
+                        reply = self._handle(request)
+                        if reply is not None:
+                            write_message(conn, reply)
+                except Exception:
+                    # The daemon outlives any one client frame: a single request
+                    # that fails to decode (bad JSON bytes) or to handle must never
+                    # terminate the serve loop. Drop it — the conn closes with no
+                    # reply and the client surfaces engine_disconnected — and keep
+                    # accepting. (KeyboardInterrupt/SystemExit still propagate.)
+                    pass
             if self._stopping:
                 break
 
-    def _handle(self, request: dict) -> dict | None:
+    def _handle(self, request: object) -> dict | None:
+        # ``request`` is a JSON frame decoded from a client process (read_message
+        # returns any JSON value), so this is an IPC boundary, not an internal
+        # invariant. A malformed frame — a non-dict value (``[]``, ``"x"``, …), a
+        # missing ``op``, or a non-string ``op`` — is DROPPED (return None) so the
+        # serve loop survives rather than crashing on ``.get`` or a bad relay. The
+        # connection closes with no reply; the client maps that to engine_disconnected.
+        if not isinstance(request, dict):
+            return None
         op = request.get("op")
+        if not isinstance(op, str):
+            return None
         if op == STATUS_OP:
             # `windowed` lets `gda daemon status` report the daemon's launch-time
             # display mode (#251): the running daemon is the only authority for the

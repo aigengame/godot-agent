@@ -38,6 +38,7 @@ if TYPE_CHECKING:
         ExportListResult,
         ExportRunResult,
         GameGetResult,
+        GameNode,
         GameSetResult,
         GameTreeResult,
         InputActionResult,
@@ -124,7 +125,7 @@ def format_value(value: Any) -> str:
     return json.dumps(value)
 
 
-def render_node_tree(node: "SceneNode", depth: int = 0) -> str:
+def render_node_tree(node: "SceneNode | GameNode", depth: int = 0) -> str:
     """Render a node tree as an indented ``name (Type)`` outline for humans.
 
     Types against ``SceneNode`` alone: ``ListedNode`` is a ``SceneNode`` subclass
@@ -141,7 +142,7 @@ def render_node_tree(node: "SceneNode", depth: int = 0) -> str:
     lines: list[str] = []
     # Stack of (node, depth); pushing children in reverse so the leftmost child
     # is popped first preserves the recursive pre-order, in-order traversal.
-    stack: list[tuple["SceneNode", int]] = [(node, depth)]
+    stack: list[tuple["SceneNode | GameNode", int]] = [(node, depth)]
     while stack:
         current, current_depth = stack.pop()
         lines.append(f"{'  ' * current_depth}{current.name} ({current.type})")

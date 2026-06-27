@@ -378,14 +378,20 @@ class HeadlessCommand(Generic[M]):
                 # the structured ``binary_not_found`` envelope so it never escapes as
                 # a raw traceback (issue #33), mirroring the runner's NOT_FOUND path.
                 return unresolvable_binary_failure(str(exc))
-        runner = make_runner(binary, project)
+        # ``binary`` is ``None`` only on the LIVE branch above, where the injected
+        # runner (`_make_live_runner`) and classifier ignore it — a live op reaches
+        # the daemon, not a fresh engine (ADR-0017); the headless path always passes
+        # a resolved ``Path``. The RunnerFactory/Classifier seam is shared across
+        # both kinds and can't express that per-kind invariant, so the two
+        # None-for-live calls are suppressed (classify_run itself accepts None).
+        runner = make_runner(binary, project)  # pyright: ignore[reportArgumentType]
         result = runner.run(self.operation, params.model_dump())
 
         if result.stderr:
             print(result.stderr, end="", file=sys.stderr)
 
         return (
-            self.classify(result, binary)
+            self.classify(result, binary)  # pyright: ignore[reportArgumentType]
             if self.classify is not None
             else classify_run(result, binary, self.output_model)
         )
