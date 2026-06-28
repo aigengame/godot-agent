@@ -100,12 +100,16 @@ and conflicts on **every file A touched** (even files B never edited).
 Replay only B's own commits onto main instead:
 
 ```bash
-base=$(git merge-base B-branch A-branch)                 # branch point where B forked off A
-git -C <B-worktree> reset --soft "$base" && git commit -m "<B title>"   # squash B → 1 commit
-git -C <B-worktree> rebase --onto origin/main "$base" B-branch          # 1 commit → ONE conflict pass
+# Scope EVERY mutating git command with `-C <B-worktree>` (per §3/§7 — never let a
+# command run against the shared checkout because cwd reset). Don't chain with `&&`,
+# which hides an unscoped second command.
+base=$(git -C <B-worktree> merge-base B-branch A-branch)        # branch point where B forked off A
+git -C <B-worktree> reset --soft "$base"                        # squash B → 1 commit ...
+git -C <B-worktree> commit -m "<B title>"                       # ... (scoped: lands in B, not main)
+git -C <B-worktree> rebase --onto origin/main "$base" B-branch  # 1 commit → ONE conflict pass
 # resolve only the genuine A↔B overlap, run fast + integration tiers, then:
-git push --force-with-lease
-gh pr edit B --base main && gh pr merge B --squash   # GitHub example; swap in your host's CLI
+git -C <B-worktree> push --force-with-lease
+gh pr edit B --base main && gh pr merge B --squash             # GitHub example; swap in your host's CLI
 ```
 
 > The portable lesson is host-agnostic: **replay only B's own commits with `git rebase
