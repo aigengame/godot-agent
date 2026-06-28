@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.47](https://github.com/aigengame/godot-agent/compare/v0.1.46...v0.1.47) (2026-06-28)
+
+
+### Features
+
+* **state:** cross-session STATE.md daily-report mechanism ([#318](https://github.com/aigengame/godot-agent/issues/318)) ([45ad9ee](https://github.com/aigengame/godot-agent/commit/45ad9ee0996a1b5151964ffb2ec17769285e8892))
+
 ## [0.1.46](https://github.com/aigengame/godot-agent/compare/v0.1.45...v0.1.46) (2026-06-27)
 
 
