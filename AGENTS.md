@@ -4,6 +4,8 @@ Read @RULES.md if exists, to align communication style, collaboration specificat
 
 Read @CONTEXT.md to align with the project's nature and shared language; consult `docs/adr/` for the architecture and the decisions behind it. README.md is human-facing onboarding (install, usage, contributing) and has grown large — read specific sections on demand (e.g. its "Project status" section for current state) rather than the whole file.
 
+Read @STATE.md if exists for the latest session state — a lightweight cross-session daily report (≤10 lines): current milestone/phase, what the last session did, pitfalls worth reusing, and recommended next issues/tasks. Treat it as read-only startup context. Only the **primary worker** updates it, at session end, via the `state` skill; parallel sub-agents and sub-tasks must not write it.
+
 ## Agent skills
 
 ### Issue tracker
