@@ -5,6 +5,14 @@
         "hooks": [
           {
             "type": "command",
+            "command": "echo '{\"systemMessage\": \"Session wrap-up: if you completed or changed issue/task work, run /state to refresh STATE.md (progress + next steps).\"}'"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "echo '{\"systemMessage\": \"Reminder: if a requirement or technical decision changed this session, run /reconcile to sync issues and docs (CONTEXT.md, docs/adr/).\"}'"
           }
         ]
