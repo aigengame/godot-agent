@@ -78,8 +78,8 @@ _Updated: <YYYY-MM-DD>_
   or not useful to the next session. Never carry a phase forward just because it was there before.
 - **Pitfalls only when they serve "Next up"** — record experience only when this session's work is
   continuous with / related to the recommended next work; otherwise leave it out.
-- **Overwrite, never append** — STATE.md must not become a session-history log. Version-control
-  history already preserves the per-session record.
+- **Overwrite, never append** — STATE.md is a current handoff snapshot, not a session-history log;
+  keep only the latest state.
 - Record only **this session's delta** — not a running journal.
 - Keep it **self-contained**: don't duplicate the project's durable decision/architecture docs, and
   don't hard-depend on any particular tracker or tool.

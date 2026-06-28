@@ -2,7 +2,7 @@
 
 _Cross-session daily report (≤10 lines, rewritten each session via `/state`). Durable decisions live elsewhere, not here._
 
-- **Last session:** built the cross-session `state` mechanism (skill + STATE.md + Stop-hook nudge + `@STATE.md` read-loop), filed #317, opened PR #318 (CI green).
-- **Next up:** review + merge PR #318 (Closes #317); then open issues #309 (pyright ratchet), #271 (`ExecutionKind` refinement).
+- **Last session:** added the cross-session `state` mechanism — `state` skill + `STATE.md` + Stop-hook nudge + `@STATE.md` read-loop (#317).
+- **Next up:** #309 (pyright strictness ratchet), #271 (`ExecutionKind`: stop pure-local/recipe commands advertising `kind=headless`).
 
 _Updated: 2026-06-28_
