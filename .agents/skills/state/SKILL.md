@@ -51,8 +51,8 @@ unchanged — at most refresh the date. Don't churn the file with non-progress.
    the next task is noise, not a war-story archive.
 5. **Rewrite `STATE.md`** from the template — **overwrite, never append**; ≤10 lines; terse; drop
    any field you have nothing accurate and useful for. Stamp the date.
-6. **Do not auto-commit.** Leave `STATE.md` in the working tree for the session's normal commit (or
-   commit it on its own). The session author decides when to commit.
+6. **Do not auto-commit.** Just leave the rewritten `STATE.md` in the working tree. Whether it is
+   tracked or kept as a local-only working aid is the project's choice — this skill never commits it.
 
 ## Template
 
