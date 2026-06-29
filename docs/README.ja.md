@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6fb0da04e0265ed7c55f7bceeee9088a764838c27f9b5bf0121339bfb0bb244e -->
+<!-- gda-readme-i18n: source=README.md sha256=6636b90927355b348b5c9501140f1e09f0fba731175e0ff8e4afc8eeb349c6ba -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -666,13 +666,6 @@ CONTEXT.md          # the project's shared domain language
 [ruff](https://docs.astral.sh/ruff/) でリント・フォーマットされ、[pyright](https://microsoft.github.io/pyright/)
 で型チェックされます。どちらも CI で強制されます — コミット前に `uv run ruff format .` と
 `uv run pyright` を実行してください(上記の **開発** を参照)。
-
-この README が信頼できる出典です。翻訳は `docs/README.<lang>.md` 配下にあります([简体中文](README.zh-CN.md)、
-[Español](README.es.md)、[日本語](README.ja.md))。同期ゲート(`tests/test_readme_i18n_sync.py`、CI で実行)は、
-このファイルが変更されたのに翻訳が更新されていない場合に失敗します。この README を編集したら、影響を
-受けるセクションを翻訳し直し、`uv run python scripts/update_readme_i18n.py` を実行して各翻訳の鮮度
-マーカーを再スタンプしてください。このゲートが証明するのは、翻訳が現在の英語版に *照らしてレビュー
-された* ことであり、正確であることではありません — 正確さは人間のレビュアーだけが判断できます。
 
 > **AI コーディングエージェントと作業していますか?** このプロジェクトはエージェントが辿りやすいように
 > 作られています — [`AGENTS.md`](../AGENTS.md) がコーディングエージェントの入口で、プロジェクトの

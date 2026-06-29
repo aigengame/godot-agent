@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6fb0da04e0265ed7c55f7bceeee9088a764838c27f9b5bf0121339bfb0bb244e -->
+<!-- gda-readme-i18n: source=README.md sha256=6636b90927355b348b5c9501140f1e09f0fba731175e0ff8e4afc8eeb349c6ba -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -660,14 +660,6 @@ Los commits siguen la especificación [Conventional Commits](https://www.convent
 El código Python se lintea y formatea con [ruff](https://docs.astral.sh/ruff/) y se comprueban sus tipos
 con [pyright](https://microsoft.github.io/pyright/), ambos aplicados en CI — ejecuta
 `uv run ruff format .` y `uv run pyright` antes de hacer commit (consulta **Desarrollo** arriba).
-
-Este README es la fuente autoritativa; las traducciones viven en `docs/README.<lang>.md`
-([简体中文](README.zh-CN.md), [Español](README.es.md), [日本語](README.ja.md)).
-Una puerta de sincronización (`tests/test_readme_i18n_sync.py`, ejecutada en CI) falla cuando este archivo cambia
-sin que se actualicen las traducciones. Si editas este README, vuelve a traducir las
-secciones afectadas y luego ejecuta `uv run python scripts/update_readme_i18n.py` para volver a sellar el
-marcador de frescura de cada traducción. La puerta demuestra que una traducción fue *revisada contra* el
-inglés actual — no que sea precisa, lo cual solo un revisor humano puede juzgar.
 
 > **¿Trabajas con un agente de programación con IA?** Este proyecto está construido para ser navegable por agentes —
 > [`AGENTS.md`](../AGENTS.md) es el punto de entrada para los agentes de programación, integrando las reglas del

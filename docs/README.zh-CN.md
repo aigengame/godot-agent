@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6fb0da04e0265ed7c55f7bceeee9088a764838c27f9b5bf0121339bfb0bb244e -->
+<!-- gda-readme-i18n: source=README.md sha256=6636b90927355b348b5c9501140f1e09f0fba731175e0ff8e4afc8eeb349c6ba -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -644,13 +644,6 @@ e2e 套件会驱动一个真实引擎跨越这两者。
 Python 代码用 [ruff](https://docs.astral.sh/ruff/) 做 lint 和格式化、用
 [pyright](https://microsoft.github.io/pyright/) 做类型检查，二者都在 CI 中强制执行——
 提交前先运行 `uv run ruff format .` 和 `uv run pyright`（见上面的**开发**部分）。
-
-本 README 是权威来源；译文位于 `docs/README.<lang>.md`
-（[简体中文](README.zh-CN.md)、[Español](README.es.md)、[日本語](README.ja.md)）。
-一道同步闸门（`tests/test_readme_i18n_sync.py`，在 CI 中运行）会在本文件变更而译文未刷新时失败。
-如果你修改了本 README，请重新翻译受影响的章节，然后运行
-`uv run python scripts/update_readme_i18n.py` 来为每份译文重新打上新鲜度标记。这道闸门只能证明
-某份译文是*对照*当前英文*审阅过*的——而不能证明它准确，后者只有人工审阅者才能判断。
 
 > **正在和 AI 编程 agent 协作？** 本项目从设计上就便于 agent 导航——
 > [`AGENTS.md`](../AGENTS.md) 是编程 agent 的入口，把项目的规则、领域文档和 skill 都

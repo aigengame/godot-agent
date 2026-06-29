@@ -657,14 +657,6 @@ Python code is linted and formatted with [ruff](https://docs.astral.sh/ruff/) an
 with [pyright](https://microsoft.github.io/pyright/), both enforced in CI — run
 `uv run ruff format .` and `uv run pyright` before committing (see **Development** above).
 
-This README is the authoritative source; translations live under `docs/README.<lang>.md`
-([简体中文](docs/README.zh-CN.md), [Español](docs/README.es.md), [日本語](docs/README.ja.md)).
-A sync gate (`tests/test_readme_i18n_sync.py`, run in CI) fails when this file changes
-without the translations being refreshed. If you edit this README, re-translate the
-affected sections, then run `uv run python scripts/update_readme_i18n.py` to re-stamp each
-translation's freshness marker. The gate proves a translation was *reviewed against* the
-current English — not that it is accurate, which only a human reviewer can judge.
-
 > **Working with an AI coding agent?** This project is built to be agent-navigable —
 > [`AGENTS.md`](AGENTS.md) is the entry point for coding agents, wiring in the project's
 > rules, domain docs, and skills.
