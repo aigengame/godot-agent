@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6636b90927355b348b5c9501140f1e09f0fba731175e0ff8e4afc8eeb349c6ba -->
+<!-- gda-readme-i18n: source=README.md sha256=4ef9cb754f81a9c5c4ff9b88782dd72a6577f3a6c5fea7170390d9c59b5972cd -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -35,6 +35,22 @@ limpio sobre el que actuar — nunca registros del motor que tenga que rascar. F
 
 ---
 
+## Índice
+
+- [¿Por qué `gda`?](#why-gda)
+- [Capacidades de un vistazo](#capabilities-at-a-glance)
+- [Instalación](#installation)
+- [Inicio rápido](#quick-start)
+- [Elige tu integración](#choose-your-integration)
+- [Cómo funciona](#how-it-works)
+- [Referencia de comandos](#command-reference)
+- [Configuración](#configuration)
+- [Contribuir](#contributing)
+- [Licencia](#license)
+
+---
+
+<a id="why-gda"></a>
 ## ¿Por qué `gda`?
 
 - **🤖 Salida estructurada, pensada para agentes.** Cada comando emite **exactamente un** objeto JSON
@@ -59,6 +75,7 @@ limpio sobre el que actuar — nunca registros del motor que tenga que rascar. F
 
 ---
 
+<a id="capabilities-at-a-glance"></a>
 ## Capacidades de un vistazo
 
 | Lo que necesitas | Usa |
@@ -71,6 +88,7 @@ limpio sobre el que actuar — nunca registros del motor que tenga que rascar. F
 
 ---
 
+<a id="installation"></a>
 ## Instalación
 
 **Requisitos:** Python 3.13+ y un binario de [Godot](https://godotengine.org) — 4.4+ para
@@ -104,6 +122,7 @@ uv run gda --help
 
 ---
 
+<a id="quick-start"></a>
 ## Inicio rápido
 
 **Apunta `gda` a tu binario de Godot** y luego pregúntale al motor su versión — sin necesidad de proyecto:
@@ -153,6 +172,7 @@ con `gda daemon start --windowed`.)
 
 ---
 
+<a id="choose-your-integration"></a>
 ## Elige tu integración
 
 `gda` expone la **misma superficie de comandos** de tres formas — elige la que tu agente (o tú) admita:
@@ -326,6 +346,7 @@ se autodeshabilita en el juego exportado — de modo que un juego publicado nunc
 
 ---
 
+<a id="command-reference"></a>
 ## Referencia de comandos
 
 Los comandos de `gda` están **agrupados por objeto de dominio de Godot** y usan un vocabulario de verbos pequeño
@@ -651,6 +672,7 @@ a través del daemon (`live_runner.py`). La suite e2e maneja un motor real a tra
 
 ---
 
+<a id="contributing"></a>
 ## Contribuir
 
 Las contribuciones son bienvenidas. Lee [`CONTEXT.md`](../CONTEXT.md) para alinearte con el lenguaje
@@ -665,6 +687,7 @@ con [pyright](https://microsoft.github.io/pyright/), ambos aplicados en CI — e
 > [`AGENTS.md`](../AGENTS.md) es el punto de entrada para los agentes de programación, integrando las reglas del
 > proyecto, la documentación de dominio y las skills.
 
+<a id="license"></a>
 ## Licencia
 
 Publicado bajo la [Licencia MIT](../LICENSE). Copyright (c) 2026 aigengame.

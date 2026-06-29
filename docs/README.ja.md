@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6636b90927355b348b5c9501140f1e09f0fba731175e0ff8e4afc8eeb349c6ba -->
+<!-- gda-readme-i18n: source=README.md sha256=4ef9cb754f81a9c5c4ff9b88782dd72a6577f3a6c5fea7170390d9c59b5972cd -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -33,6 +33,22 @@ AI エージェントは GDScript を書くのは得意ですが、*何が起き
 
 ---
 
+## 目次
+
+- [なぜ `gda`？](#why-gda)
+- [ひと目でわかる機能](#capabilities-at-a-glance)
+- [インストール](#installation)
+- [クイックスタート](#quick-start)
+- [統合方法を選ぶ](#choose-your-integration)
+- [仕組み](#how-it-works)
+- [コマンドリファレンス](#command-reference)
+- [設定](#configuration)
+- [コントリビューション](#contributing)
+- [ライセンス](#license)
+
+---
+
+<a id="why-gda"></a>
 ## なぜ `gda`？
 
 - **🤖 エージェントのために設計された構造化出力。** すべてのコマンドは stdout に **ちょうど 1 つ**
@@ -58,6 +74,7 @@ AI エージェントは GDScript を書くのは得意ですが、*何が起き
 
 ---
 
+<a id="capabilities-at-a-glance"></a>
 ## ひと目でわかる機能
 
 | やりたいこと | 使うもの |
@@ -70,6 +87,7 @@ AI エージェントは GDScript を書くのは得意ですが、*何が起き
 
 ---
 
+<a id="installation"></a>
 ## インストール
 
 **要件:** Python 3.13 以上、および [Godot](https://godotengine.org) バイナリ — Headless コマンドには
@@ -103,6 +121,7 @@ uv run gda --help
 
 ---
 
+<a id="quick-start"></a>
 ## クイックスタート
 
 **`gda` に Godot バイナリの場所を教え**、エンジンにバージョンを尋ねます — プロジェクトは不要です。
@@ -154,6 +173,7 @@ start --windowed` でデーモンを起動してください。)
 
 ---
 
+<a id="choose-your-integration"></a>
 ## 統合方法を選ぶ
 
 `gda` は **同じコマンド体系** を 3 通りで公開します — エージェント(またはあなた)が対応している
@@ -332,6 +352,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 
 ---
 
+<a id="command-reference"></a>
 ## コマンドリファレンス
 
 `gda` のコマンドは **Godot のドメインオブジェクトごとにグループ化** され、小さく一貫した動詞の語彙を
@@ -657,6 +678,7 @@ CONTEXT.md          # the project's shared domain language
 
 ---
 
+<a id="contributing"></a>
 ## コントリビューション
 
 コントリビューションを歓迎します。プロジェクトの共有言語に合わせるため [`CONTEXT.md`](../CONTEXT.md) を
@@ -671,6 +693,7 @@ CONTEXT.md          # the project's shared domain language
 > 作られています — [`AGENTS.md`](../AGENTS.md) がコーディングエージェントの入口で、プロジェクトの
 > ルール、ドメインドキュメント、スキルを束ねています。
 
+<a id="license"></a>
 ## ライセンス
 
 [MIT ライセンス](../LICENSE) の下でリリースされています。Copyright (c) 2026 aigengame.

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6636b90927355b348b5c9501140f1e09f0fba731175e0ff8e4afc8eeb349c6ba -->
+<!-- gda-readme-i18n: source=README.md sha256=4ef9cb754f81a9c5c4ff9b88782dd72a6577f3a6c5fea7170390d9c59b5972cd -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -34,6 +34,22 @@ AI agent 擅长编写 GDScript，却拙于*看到发生了什么*。`gda` 帮你
 
 ---
 
+## 目录
+
+- [为什么选择 `gda`？](#why-gda)
+- [能力速览](#capabilities-at-a-glance)
+- [安装](#installation)
+- [快速上手](#quick-start)
+- [选择你的集成方式](#choose-your-integration)
+- [工作原理](#how-it-works)
+- [命令参考](#command-reference)
+- [配置](#configuration)
+- [贡献](#contributing)
+- [许可证](#license)
+
+---
+
+<a id="why-gda"></a>
 ## 为什么选择 `gda`？
 
 - **🤖 结构化输出，为 agent 而生。** 每条命令在 stdout 上只输出**恰好一个** JSON
@@ -56,6 +72,7 @@ AI agent 擅长编写 GDScript，却拙于*看到发生了什么*。`gda` 帮你
 
 ---
 
+<a id="capabilities-at-a-glance"></a>
 ## 能力速览
 
 | 你的需求 | 用这个 |
@@ -68,6 +85,7 @@ AI agent 擅长编写 GDScript，却拙于*看到发生了什么*。`gda` 帮你
 
 ---
 
+<a id="installation"></a>
 ## 安装
 
 **环境要求：** Python 3.13+，以及一个 [Godot](https://godotengine.org) 二进制文件——
@@ -101,6 +119,7 @@ uv run gda --help
 
 ---
 
+<a id="quick-start"></a>
 ## 快速上手
 
 **让 `gda` 指向你的 Godot 二进制文件**，然后问引擎要它的版本——不需要项目：
@@ -149,6 +168,7 @@ gda daemon stop
 
 ---
 
+<a id="choose-your-integration"></a>
 ## 选择你的集成方式
 
 `gda` 用三种方式暴露**同一套命令界面**——你的 agent（或你自己）支持哪种就挑哪种：
@@ -316,6 +336,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 ---
 
+<a id="command-reference"></a>
 ## 命令参考
 
 `gda` 命令**按 Godot 领域对象分组**，并使用一套精简、一致的动词词汇，因此同一个动词
@@ -636,6 +657,7 @@ e2e 套件会驱动一个真实引擎跨越这两者。
 
 ---
 
+<a id="contributing"></a>
 ## 贡献
 
 欢迎贡献。请阅读 [`CONTEXT.md`](../CONTEXT.md) 以对齐项目的共享语言，并查阅你所触及领域的
@@ -649,6 +671,7 @@ Python 代码用 [ruff](https://docs.astral.sh/ruff/) 做 lint 和格式化、�
 > [`AGENTS.md`](../AGENTS.md) 是编程 agent 的入口，把项目的规则、领域文档和 skill 都
 > 串接了进来。
 
+<a id="license"></a>
 ## 许可证
 
 基于 [MIT License](../LICENSE) 发布。Copyright (c) 2026 aigengame。

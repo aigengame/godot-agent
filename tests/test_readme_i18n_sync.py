@@ -21,6 +21,7 @@ sync if it ever changes.
 
 import hashlib
 import re
+import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,4 +88,71 @@ def test_english_readme_links_to_all_translations():
     assert not missing, (
         f"README.md is missing language-switcher links to: {missing}. "
         "Keep the switcher complete so every translation is discoverable."
+    )
+
+
+# --- In-page anchor integrity (Table of Contents and other "](#...)" links) ---
+
+_FENCE_RE = re.compile(r"^\s*```")
+_HEADING_RE = re.compile(r"^#{1,6}\s+(.*?)\s*$", re.MULTILINE)
+_ANCHOR_ID_RE = re.compile(r'<a id="([^"]+)">')
+_INPAGE_LINK_RE = re.compile(r"\]\(#([^)]+)\)")
+
+
+def _outside_code_fences(text: str) -> str:
+    """Drop fenced code blocks so their `# comment` lines aren't read as headings."""
+    lines, in_fence = [], False
+    for line in text.splitlines():
+        if _FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def _github_heading_slug(heading: str) -> str:
+    """Approximate GitHub's heading-anchor slug (exact for ASCII headings).
+
+    Lowercase, drop everything that is not a letter/number/mark/space/hyphen
+    (so backticks, `?`, `¿`, … go), then spaces -> hyphens. Translated headings
+    rely on explicit <a id> anchors instead, so CJK edge cases don't gate links.
+    """
+    kept = [
+        ch
+        for ch in heading.strip().lower()
+        if ch in " -" or unicodedata.category(ch)[0] in ("L", "N", "M")
+    ]
+    return "".join(kept).replace(" ", "-")
+
+
+def _anchor_targets(text: str) -> set[str]:
+    body = _outside_code_fences(text)
+    targets = set(_ANCHOR_ID_RE.findall(body))
+    targets.update(_github_heading_slug(h) for h in _HEADING_RE.findall(body))
+    return targets
+
+
+def test_in_page_anchor_links_resolve():
+    files = {"README.md": README} | {
+        f"docs/README.{lang}.md": path for lang, path in TRANSLATIONS.items()
+    }
+    broken = {}
+    for name, path in files.items():
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        body = _outside_code_fences(text)
+        targets = _anchor_targets(text)
+        unresolved = sorted(
+            {slug for slug in _INPAGE_LINK_RE.findall(body) if slug not in targets}
+        )
+        if unresolved:
+            broken[name] = unresolved
+
+    assert not broken, (
+        "In-page anchor links with no matching heading slug or <a id> anchor:\n"
+        + "\n".join(f"  {name}: {slugs}" for name, slugs in sorted(broken.items()))
+        + "\nFix the link, the heading, or add an <a id> anchor (translated "
+        "headings link to stable English ids via explicit anchors)."
     )

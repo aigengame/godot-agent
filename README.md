@@ -33,6 +33,21 @@ result it can act on — never engine logs it has to scrape. It runs in **two mo
 
 ---
 
+## Contents
+
+- [Why `gda`?](#why-gda)
+- [Capabilities at a glance](#capabilities-at-a-glance)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Choose your integration](#choose-your-integration)
+- [How it works](#how-it-works)
+- [Command reference](#command-reference)
+- [Configuration](#configuration)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## Why `gda`?
 
 - **🤖 Structured output, built for agents.** Every command emits **exactly one** JSON
