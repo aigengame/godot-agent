@@ -154,7 +154,7 @@ gda scene get scenes/main.tscn --json
 
 > プロジェクトがない? `gda` はそれでも、プレーンなファイルシステムパス(カレントディレクトリからの
 > 相対)に対して **projectless(プロジェクトなし)** で動作します — プロジェクトが必要なのは `res://`
-> の解決だけです。[Configuration](#configuration) を参照してください。
+> の解決だけです。[設定](#configuration) を参照してください。
 
 **実行中のゲームを Live で操作します。** Live 操作はプロジェクトの **メインシーン** を実行します。
 そのため、いま構築したシーンを Godot の `application/run/main_scene` プロジェクト設定(エディタの
@@ -200,7 +200,7 @@ gda skill --install --dir ~/.claude/skills/gda         # …or give the director
 
 `--install --provider <claude|codex> --scope <project|user>` は既知のエージェントのスキルディレクトリを
 解決します(`--scope` のデフォルトは `user`)。`--dir` はその他すべてのエージェント向けの中立的な
-フォールバックで、組み込みのデフォルトはありません。[skill recipes](gda-skill.md) には各エージェントの
+フォールバックで、組み込みのデフォルトはありません。[Skill レシピ](gda-skill.md) には各エージェントの
 ディレクトリが記載されています(Claude Code の `~/.claude/skills/`、Codex の `~/.agents/skills/` など)。
 あるいは `gda skill` を経由したくない場合は、同じファイルをリポジトリから直接取得することもできます —
 Skill はそれを駆動するので、`gda` 自体のインストールは引き続き必要です。
@@ -227,7 +227,7 @@ uvx --from "gda[mcp]" gda-mcp
   設定します。そうでなければ、`gda-mcp` はクライアントが送る roots(あなたが開いているフォルダ)から
   プロジェクトを自動検出します。*設定されているが無効な* `GDA_PROJECT` は、静かにフォールバックする
   のではなくエラーとして報告されます。CLI と MCP の完全な解決順序については
-  [Configuration](#configuration) を参照してください。
+  [設定](#configuration) を参照してください。
 - **エンジン** — `GDA_GODOT` に Godot バイナリを設定します。例: `"GDA_GODOT": "/path/to/Godot"`。
 
 
@@ -312,7 +312,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 > Cursor は最小限の `PATH` で GUI から起動されるため、素の `uvx` は解決できないことがあります —
 > 上記で絶対パスの `command` を使っているのはこのためです。`which uvx` の出力で埋めてください。
 > 完全なレシピ — PATH の注入、Claude Desktop、ユーザースコープ対プロジェクトスコープ、エージェント
-> ごとのプロジェクト固定 — は [registration recipes](gda-mcp-registration.md) にあります。
+> ごとのプロジェクト固定 — は [登録レシピ](gda-mcp-registration.md) にあります。
 </details>
 
 ---
@@ -368,7 +368,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 
 すべてのコマンドは `--json` と `--schema` をサポートします — ただし `gda schema` 自体は例外で、集約
 マニフェストを直接 JSON として出力します。`res://` パスを読み取りまたは変更するコマンドは
-[project context](#configuration) を解決します。完全なフラグについては `gda <group> <command> --help`
+[プロジェクトコンテキスト](#configuration) を解決します。完全なフラグについては `gda <group> <command> --help`
 を実行してください — `gda --help` がインストール済みのものを示す信頼できる一覧です。
 
 **はじめての方へ:** おすすめの最初の流れ: `gda info` → `gda scene create` → `gda node add` →
@@ -529,7 +529,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | `--json`    | 結果を stdout に単一の JSON オブジェクトとして出力します。指定しない場合、コマンドは簡潔な人間可読のレンダリングを出力します。 |
 | `--schema`  | コマンドの入出力 JSON Schema 契約を出力します(Godot は起動されません)。 |
 | `--godot`   | Godot バイナリへのパス(`$GDA_GODOT` とデフォルトを上書きします)。 |
-| `--project` | `res://` 解決のための Godot プロジェクトディレクトリ(`$GDA_PROJECT` を上書き。プロジェクトであればカレントディレクトリがデフォルト)。ドメインコマンドのみ。プロジェクトの解決はそのプロジェクトのコードを実行します — [Project code execution](#configuration) を参照してください。 |
+| `--project` | `res://` 解決のための Godot プロジェクトディレクトリ(`$GDA_PROJECT` を上書き。プロジェクトであればカレントディレクトリがデフォルト)。ドメインコマンドのみ。プロジェクトの解決はそのプロジェクトのコードを実行します — [プロジェクトコードの実行](#configuration) を参照してください。 |
 | `--help`    | `gda` または任意のコマンドの使い方を表示します。 |
 
 ---
@@ -558,7 +558,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | **MCP**(`gda-mcp`) | `GDA_PROJECT`(厳格 — 設定済みだが無効ならスキップせずエラー報告)→ *有効な* クライアントワークスペースの `root` → *有効な* サーバーの cwd、なければ projectless |
 
 <details>
-<summary>Project code execution — プロジェクトを指定したときに何が実行されるか</summary>
+<summary>プロジェクトコードの実行 — プロジェクトを指定したときに何が実行されるか</summary>
 
 `res://` パスを機能させるためにプロジェクトを解決すると、そのプロジェクトに対して Godot が実行され、
 その一環として Godot はプロジェクト自身のコードの一部を実行します。具体的には:

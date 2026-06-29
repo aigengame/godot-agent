@@ -193,7 +193,7 @@ gda skill --install --dir ~/.claude/skills/gda         # …or give the director
 
 `--install --provider <claude|codex> --scope <project|user>` 会解析出某个已知 agent 的 skills
 目录（`--scope` 默认为 `user`）；`--dir` 则是面向任何其他 agent 的中立兜底——没有内置默认值。
-[skill recipes](gda-skill.md) 列出了每个 agent 的目录（Claude Code 的 `~/.claude/skills/`、
+[Skill 配方](gda-skill.md) 列出了每个 agent 的目录（Claude Code 的 `~/.claude/skills/`、
 Codex 的 `~/.agents/skills/` 等）。或者，如果你不想走 `gda skill`，也可以直接从仓库获取同一个文件——
 你仍然需要安装 `gda`，因为 Skill 靠它来驱动：
 

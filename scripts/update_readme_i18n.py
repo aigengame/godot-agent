@@ -34,12 +34,10 @@ def main() -> None:
         if not path.exists():
             print(f"skipped (missing): {path.relative_to(ROOT)}")
             continue
-        text = path.read_text(encoding="utf-8")
-        if MARKER_RE.search(text):
-            text = MARKER_RE.sub(marker, text, count=1)
-        else:
-            text = f"{marker}\n\n{text}"
-        path.write_text(text, encoding="utf-8")
+        # Strip any existing marker wherever it sits, then re-attach the canonical
+        # marker as the leading line — the gate requires a *leading* marker.
+        body = MARKER_RE.sub("", path.read_text(encoding="utf-8")).lstrip("\n")
+        path.write_text(f"{marker}\n\n{body}", encoding="utf-8")
         print(f"stamped {path.relative_to(ROOT)} -> {digest[:12]}…")
 
 

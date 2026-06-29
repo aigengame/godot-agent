@@ -43,8 +43,23 @@ def _english_hash() -> str:
 
 
 def _recorded_hash(text: str) -> str | None:
-    match = MARKER_RE.search(text)
+    # `.match` anchors at the start of the file: the marker must be the *leading*
+    # content, not buried somewhere in the body.
+    match = MARKER_RE.match(text)
     return match.group(1) if match else None
+
+
+def test_marker_is_the_leading_line():
+    misplaced = sorted(
+        lang
+        for lang, path in TRANSLATIONS.items()
+        if path.exists() and not MARKER_RE.match(path.read_text(encoding="utf-8"))
+    )
+
+    assert not misplaced, (
+        f"the gda-readme-i18n marker must be the leading content in: {misplaced}. "
+        "Run `uv run python scripts/update_readme_i18n.py` to normalize it to the top."
+    )
 
 
 def test_all_translations_present():
