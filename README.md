@@ -2,6 +2,8 @@
 
 ![godot-agent title image](https://raw.githubusercontent.com/aigengame/godot-agent/main/assets/godot-agent-title.png)
 
+**Read this in:** [简体中文](docs/README.zh-CN.md) · [Español](docs/README.es.md) · [日本語](docs/README.ja.md)
+
 > **`gda` gives your AI coding agent — or your shell scripts and CI — structured, machine-readable
 > control of the [Godot Engine](https://godotengine.org).** Create scenes, edit nodes & scripts,
 > and export builds headlessly, then drive a *running* game live: runtime tree, input,
@@ -28,6 +30,21 @@ result it can act on — never engine logs it has to scrape. It runs in **two mo
 
 > `gda` is **pre-1.0**: every command works end-to-end today, but the CLI surface may
 > still change before 1.0.
+
+---
+
+## Contents
+
+- [Why `gda`?](#why-gda)
+- [Capabilities at a glance](#capabilities-at-a-glance)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Choose your integration](#choose-your-integration)
+- [How it works](#how-it-works)
+- [Command reference](#command-reference)
+- [Configuration](#configuration)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
