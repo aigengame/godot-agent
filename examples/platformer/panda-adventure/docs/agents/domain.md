@@ -45,8 +45,10 @@ and apply this remap before acting:
 Applies to `grill-with-docs`, `improve-codebase-architecture`, and `reconcile`. `to-prd` and
 `to-issues` defer abstractly to "the project's domain glossary" — point them at `GAME-CONTEXT.md`.
 
-**Hard prohibition.** Game work must **never** read or write the parent root `CONTEXT.md` or
-`docs/adr/`; those are the `gda` tool's domain. Game terms and decisions live only here.
+**Isolation boundary.** Never **write** game terms or decisions into the parent root `CONTEXT.md`
+or `docs/adr/`; game-domain language and decisions live only here. You **may read** the parent
+`gda` docs when the work concerns the `gda` tool itself (its CLI, schema, daemon, `logger`
+protocol) — just don't treat them as the game's domain authority.
 
 ## Use the glossary's vocabulary
 
