@@ -47,11 +47,33 @@ This makes `script run` the one operation whose **success result *is* a [Raw run
 — the previously internal `{stdout, stderr, exit_code, …}` shape — minus its `launch_failure` axis,
 which is exactly the part lifted out into the Error envelope above.
 
+**Public `kind` surface — a fourth value.** The execution `kind` is **public self-description**: it
+is projected into `gda <cmd> --schema` and the gda-mcp manifest (ADR-0004, ADR-0012), where it was
+previously the closed set `headless` / `export` / `live`. Because `script run` is a genuinely third
+execution shape, it carries a **fourth** value, `script_run` — representing it under an existing kind
+would *misdescribe its contract* (`headless` implies the ADR-0002 sentinel; `export` implies the
+native export recipe). Per ADR-0023 the dispatch seam is `recipe` **xor** the `kind`-runner, and
+`script run` routes by its `recipe`; so the new `kind` adds **no runner-selection branch** — it is a
+self-description label only. The migration this entails, landing **with** the implementation, is
+therefore an ABI/schema-surface change, not a dispatch change: extend the `ExecutionKind` enum, the
+`--schema`/`CommandSchema` `kind` enum (ADR-0004) and the gda-mcp manifest surface (ADR-0012), and
+the schema tests that pin the kind set. ADR-0017's `kind` taxonomy is referenced but unaffected (it
+governs the `live` channel only).
+
 **Scope: project-scoped + `res://`-only.** `script run` requires a resolved project (ADR-0006) and
 takes a `res://…` script path, consistent with the rest of the `script` command group (which all act
 on `res://`). A `res://` path needs a project to resolve, and the motivating need is project-scoped.
 Running a standalone script by absolute path with no project is **out of scope** here; it can be
 added incrementally under ADR-0025 if a concrete need appears.
+
+**Explicit ABI edges (public, called out so the contract is not merely implied):**
+
+- A **non-`res://` or absolute** script path, or an invocation with **no resolved project**, returns
+  a structured `GdaError` (e.g. `invalid_path` / `project_not_found`) — **never** a crash or a raw
+  engine failure.
+- `gda script run --schema` self-describes the **success result** (`{exit_status, stdout, stderr}`)
+  **and** the uniform Error envelope, exactly like every command (ADR-0004) — the success `output`
+  and the `error` envelope kept as the two distinct channels ADR-0004 defines.
 
 ## Considered options
 
@@ -69,6 +91,12 @@ added incrementally under ADR-0025 if a concrete need appears.
 - **Treat it as ADR-0010 mechanism ② unchanged** — **rejected.** Mechanism ② yields a gda-defined
   typed result; this yields a passthrough result gda does not interpret. It is genuinely a third
   shape, recorded here rather than silently overloading mechanism ②.
+- **Reuse an existing `kind` (`headless`/`export`) + a `recipe`, adding no fourth value** —
+  **rejected.** It is the smaller change (no public-enum expansion), and ADR-0023's `recipe` seam
+  would route it correctly regardless of `kind`. But `kind` is public self-description (ADR-0004 /
+  ADR-0012): advertising `script run` as `headless` would promise the ADR-0002 sentinel it does not
+  emit, and as `export` would promise the native export recipe. Misdescribing the shape to dodge a
+  recorded enum migration is the wrong trade; the fourth value is taken and its migration owned above.
 
 ## Consequences
 
@@ -84,9 +112,14 @@ added incrementally under ADR-0025 if a concrete need appears.
   This stays **within** ADR-0009's Trusted-project assumption (gda already runs project-authored code
   on every `--project` op); it adds **no new defence** and no new trust axis — only a documented
   widening of the same surface.
+- **The public `kind` enum gains a fourth value** (`script_run`), so the `--schema` / gda-mcp
+  manifest `kind` set is no longer closed at three. This is an ABI/schema-surface expansion that
+  moves as one unit with the implementation: the `ExecutionKind` enum, the `CommandSchema` `kind`
+  enum (ADR-0004), the gda-mcp manifest surface (ADR-0012), and the schema tests that pin the kind
+  set. It is **not** a dispatch change — routing is by `recipe` (ADR-0023).
 - **Implementation reuses existing machinery** — the shared `launch()` headless-launch primitive and
-  the recipe channel — rather than inventing a runner. The new `ExecutionKind.SCRIPT_RUN` must be
-  handled by **every** cross-cutting CLI channel that branches on `kind`/`recipe` (dispatch routing,
+  the recipe channel — rather than inventing a runner. The new kind/recipe must be handled by
+  **every** cross-cutting CLI channel that branches on `kind`/`recipe` (dispatch routing,
   `--params-json`), or the command routes to the wrong runner — a known hazard from the non-sentinel
   dispatch channels.
 - **Large output** streams through stdout like any headless result; if a future need surfaces, the

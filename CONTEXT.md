@@ -75,13 +75,13 @@ property only — Phase-1 headless calls are stateless (ADR-0020).
 _Avoid_: consistency, coherence, sync
 
 **Headless launch**:
-The one-shot `godot --headless` spawn primitive that both Phase-1 channels — the
-sentinel op-dispatch runner and the native-export runner — share. Given the
-binary, an argv tail, an optional working directory, and a timeout, it builds
-`[binary, --headless, *args]`, captures bytes with the timeout, and normalizes
-the outcome into a `Raw run` (the single home of the spawn / timeout / launch-
-failure / UTF-8-decode handling). Each channel contributes only its argv tail and
-the export-only cwd.
+The one-shot `godot --headless` spawn primitive that the Phase-1 channels share —
+the sentinel op-dispatch runner, the native-export runner, and the `gda script run`
+user-script runner (ADR-0031). Given the binary, an argv tail, an optional working
+directory, and a timeout, it builds `[binary, --headless, *args]`, captures bytes
+with the timeout, and normalizes the outcome into a `Raw run` (the single home of
+the spawn / timeout / launch-failure / UTF-8-decode handling). Each channel
+contributes only its argv tail and the export-only cwd.
 _Avoid_: spawn helper, subprocess wrapper
 
 **Raw run**:
@@ -136,8 +136,11 @@ _Avoid_: safe project, sandboxed project
 
 **Project-code execution surface**:
 The set of points where a single `gda` run triggers the target project's own
-code to run: autoload constructors at engine startup (every `--project` op), and
-the `_init` of scripts on nodes that an instantiating operation constructs.
+code to run: autoload constructors at engine startup (every `--project` op), the
+`_init` of scripts on nodes that an instantiating operation constructs, and — via
+`gda script run` (ADR-0031) — the **full execution of a named project script**.
+All stay within the `Trusted project` assumption (ADR-0009); `script run` widens
+this surface without adding a new trust axis.
 _Avoid_: attack surface, code-execution risk
 
 **Concurrent external editor**:
