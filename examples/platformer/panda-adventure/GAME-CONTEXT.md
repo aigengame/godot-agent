@@ -108,7 +108,7 @@ _Avoid_: armor (generic), suit
 
 **Wave**:
 A timed segment of the demo level that spawns a specific composition of enemies
-(Faction × Tier × Archetype). The demo has four.
+(Faction × Tier × Archetype). The demo defaults to four; the count is data-driven, not hardcoded.
 _Avoid_: round, stage; level (the demo is a single level)
 
 <!-- Format reminder — **Term**: one/two-sentence definition (what it IS, not what it does);
