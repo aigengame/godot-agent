@@ -21,6 +21,7 @@ def _valid_config() -> dict:
     """A fresh copy of a schema-valid config to mutate into invalid variants."""
     return {
         "block_color": [0.2, 0.6, 1.0, 1.0],
+        "block_size": [64.0, 64.0],
         "start_position": [100.0, 300.0],
         "target_position": [500.0, 300.0],
         "tween_duration": 1.5,
@@ -79,6 +80,7 @@ def test_build_produces_round_trippable_resource(gda) -> None:
 
     # Color is stored as float32 in Godot, so compare with a tolerance.
     assert props["block_color"] == pytest.approx(config["block_color"], abs=1e-5)
+    assert props["block_size"] == pytest.approx(config["block_size"])
     assert props["start_position"] == pytest.approx(config["start_position"])
     assert props["target_position"] == pytest.approx(config["target_position"])
     assert props["tween_duration"] == pytest.approx(config["tween_duration"])
@@ -88,9 +90,12 @@ def test_build_produces_round_trippable_resource(gda) -> None:
     "bad",
     [
         _without("tween_duration"),  # missing required key
+        _without("block_size"),  # missing required block_size
         _with("block_color", [0.2, 0.6, 1.0]),  # color: too few components
         _with("block_color", [0.2, 0.6, 1.0, 1.0, 0.5]),  # color: too many
         _with("block_color", [0.2, 0.6, 1.5, 1.0]),  # color: component out of 0..1
+        _with("block_size", [64.0]),  # size: too few components
+        _with("block_size", [0.0, 64.0]),  # size: component must be > 0
         _with("start_position", [100.0]),  # position: too few components
         _with("target_position", [1.0, 2.0, 3.0]),  # position: too many
         _with("tween_duration", 0),  # duration must be strictly positive

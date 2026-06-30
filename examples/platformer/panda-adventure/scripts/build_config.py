@@ -72,19 +72,25 @@ def _num(value: float) -> str:
     return repr(float(value))
 
 
+def _vec2(pair: list[float]) -> str:
+    """Render a 2-number JSON array as a Godot ``Vector2(x, y)`` literal."""
+    x, y = pair
+    return f"Vector2({_num(x)}, {_num(y)})"
+
+
 def render_tres(config: dict[str, Any]) -> str:
     """Render a validated boot config as ``GameConfig`` ``.tres`` text.
 
     Pure function (no IO): the JSON->Resource conversion seam. Maps the JSON
-    arrays to their Godot types — ``block_color`` -> ``Color(r,g,b,a)``, the two
-    positions -> ``Vector2(x,y)``, ``tween_duration`` -> a bare number.
+    arrays to their Godot types — ``block_color`` -> ``Color(r,g,b,a)``,
+    ``block_size`` and the two positions -> ``Vector2(x,y)``, ``tween_duration``
+    -> a bare number.
     """
     r, g, b, a = config["block_color"]
-    sx, sy = config["start_position"]
-    tx, ty = config["target_position"]
     color = f"Color({_num(r)}, {_num(g)}, {_num(b)}, {_num(a)})"
-    start = f"Vector2({_num(sx)}, {_num(sy)})"
-    target = f"Vector2({_num(tx)}, {_num(ty)})"
+    size = _vec2(config["block_size"])
+    start = _vec2(config["start_position"])
+    target = _vec2(config["target_position"])
     duration = _num(config["tween_duration"])
     return (
         f'[gd_resource type="Resource" script_class="GameConfig" '
@@ -93,6 +99,7 @@ def render_tres(config: dict[str, Any]) -> str:
         f"[resource]\n"
         f'script = ExtResource("{_EXT_ID}")\n'
         f"block_color = {color}\n"
+        f"block_size = {size}\n"
         f"start_position = {start}\n"
         f"target_position = {target}\n"
         f"tween_duration = {duration}\n"

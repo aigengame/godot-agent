@@ -1,5 +1,6 @@
 {
   "block_color": [0.2, 0.6, 1.0, 1.0],
+  "block_size": [64.0, 64.0],
   "start_position": [100.0, 300.0],
   "target_position": [500.0, 300.0],
   "tween_duration": 1.5

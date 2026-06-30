@@ -1,0 +1,8 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://src/controllers/boot_controller.gd" id="1_45kwc"]
+
+[node name="Main" type="Node2D" unique_id=1083486238]
+script = ExtResource("1_45kwc")
+
+[node name="Block" type="ColorRect" parent="." unique_id=1805209758]

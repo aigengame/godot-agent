@@ -11,6 +11,7 @@ extends Resource
 ## authoritative config source).
 
 @export var block_color: Color = Color.WHITE
+@export var block_size: Vector2 = Vector2(64, 64)
 @export var start_position: Vector2 = Vector2.ZERO
 @export var target_position: Vector2 = Vector2.ZERO
 @export var tween_duration: float = 1.0
