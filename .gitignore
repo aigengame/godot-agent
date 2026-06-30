@@ -1,7 +1,7 @@
 # Local working aids — per-checkout, not shared via git
 RULES.md
 STATE.md
-
+*.local.md
 # Python
 __pycache__/
 *.py[cod]
