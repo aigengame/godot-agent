@@ -25,3 +25,10 @@ run/main_scene="res://scenes/main.tscn"
 ; default is `true` and wins over the base key at startup, so both are set off.
 file_logging/enable_file_logging=false
 file_logging/enable_file_logging.pc=false
+
+[rendering]
+
+; Import ETC2/ASTC compressed textures. Required for the macOS universal/arm64
+; export preset (S0 smoke-test); the exporter refuses universal/arm64 builds when
+; this is off. Harmless for desktop running.
+textures/vram_compression/import_etc2_astc=true

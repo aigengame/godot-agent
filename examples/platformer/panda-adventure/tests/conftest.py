@@ -4,19 +4,23 @@ The repo-root ``tests/conftest.py`` does not apply to this subtree (the root
 ``testpaths`` excludes the game dir), so this re-provides the bits the game's
 tests need:
 
-- an **engine gate** (``engine`` marker) that *fails loudly* — not skips — when
-  no Godot binary resolves, reusing gda's resolver. Distinct from the daemon
-  ``e2e`` tier: the data-seam round-trip drives a one-shot ``gda`` headless op and
-  needs the engine, yet runs in the fast (``not e2e``) tier.
+- an **engine gate** (``engine`` or ``e2e`` marker) that *fails loudly* — not
+  skips — when no Godot binary resolves, reusing gda's resolver. The ``engine``
+  tier is the fast one (the data-seam round-trip + logic seam drive one-shot
+  ``gda``/``godot`` headless calls); the ``e2e`` tier is the daemon live loop.
 - a ``gda`` fixture: a project-scoped ``gda <args> --project <GAME_DIR>`` runner
   whose stdout the caller parses (modeled on gda's own e2e helper + support.py).
+- ``daemon_runtime_dir``: a SHORT ``XDG_RUNTIME_DIR`` so a real daemon's UDS
+  ``sun_path`` does not overflow ``bind()`` (copied from the main repo's conftest).
 - ``scripts/`` on ``sys.path`` so tests can ``import build_config``.
 """
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -46,13 +50,17 @@ def pytest_configure(config: pytest.Config) -> None:
 
 @pytest.fixture(autouse=True)
 def _require_godot_engine(request: pytest.FixtureRequest) -> None:
-    """Fail any selected ``engine``-marked test loudly when no Godot resolves.
+    """Fail any selected ``engine``/``e2e`` test loudly when no Godot resolves.
 
-    Keyed on the ``engine`` marker (a no-op otherwise). The binary is resolved
-    here, not at import time, so a runtime ``$GDA_GODOT`` override is honored and
-    a missing engine is a loud failure, not a silent skip.
+    Keyed on the ``engine`` or ``e2e`` marker (a no-op otherwise) — both tiers
+    drive a real engine. The binary is resolved here, not at import time, so a
+    runtime ``$GDA_GODOT`` override is honored and a missing engine is a loud
+    failure, not a silent skip.
     """
-    if request.node.get_closest_marker("engine") is None:
+    if (
+        request.node.get_closest_marker("engine") is None
+        and request.node.get_closest_marker("e2e") is None
+    ):
         return
     godot = resolve_godot_binary()
     if not godot.exists():
@@ -81,3 +89,21 @@ def gda():
         )
 
     return _gda
+
+
+@pytest.fixture
+def daemon_runtime_dir(monkeypatch):
+    """A SHORT ``XDG_RUNTIME_DIR`` for tests that bind a real gda-daemon socket.
+
+    Copied from the main repo's ``tests/conftest.py``: a Unix-domain-socket path
+    is bounded by the OS ``sun_path`` limit (104 bytes on macOS), and pytest's
+    macOS ``tmp_path`` lives under a long ``/private/var/folders/...`` prefix, so
+    the daemon's ``<runtime>/gda/<hash>.cli.sock`` overflows it and ``bind()``
+    fails (the daemon never becomes ready and ``start`` times out). Point
+    ``XDG_RUNTIME_DIR`` at a SHORT ``/tmp`` dir instead; the spawned daemon
+    inherits it. UNIX only (the whole live stack is — guard with ``os.name``).
+    """
+    runtime = tempfile.mkdtemp(prefix="gda-", dir="/tmp")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", runtime)
+    yield Path(runtime)
+    shutil.rmtree(runtime, ignore_errors=True)
