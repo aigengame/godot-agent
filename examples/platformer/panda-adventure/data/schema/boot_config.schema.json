@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigengame.dev/panda-adventure/data/schema/boot_config.schema.json",
+  "title": "Panda Adventure boot configuration",
+  "description": "Authoritative boot config for the walking skeleton (gADR-0000: JSON is the single source of truth). Converted to data/generated/boot_config.tres (a GameConfig Resource) by scripts/build_config.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "block_color",
+    "start_position",
+    "target_position",
+    "tween_duration"
+  ],
+  "properties": {
+    "block_color": {
+      "description": "Block color as RGBA, each component in 0..1.",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 1.0
+      },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "start_position": {
+      "description": "Block start position (x, y), in pixels.",
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "target_position": {
+      "description": "Block tween target position (x, y), in pixels.",
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "tween_duration": {
+      "description": "Tween duration in seconds; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    }
+  }
+}

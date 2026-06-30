@@ -1,0 +1,6 @@
+# Derived build artifacts — regenerated from authoritative JSON by
+# scripts/build_config.py (gADR-0000). Never committed; tests regenerate them.
+/data/generated/
+
+# Export / build output (e.g. macOS .app from `gda export run`).
+/build/

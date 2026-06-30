@@ -1,0 +1,27 @@
+; Panda Adventure — Godot project manifest (hand-authored).
+;
+; gda has no `project create`, so this is the canonical project root. Keep it
+; minimal: later slices (S1–S9) extend it. The `data/generated/*.tres` the build
+; pipeline emits are derived artifacts (gitignored), regenerated from JSON.
+
+config_version=5
+
+[application]
+
+config/name="Panda Adventure"
+run/main_scene="res://scenes/main.tscn"
+
+[input]
+
+; Named input actions (e.g. move_left/move_right/jump) are registered by a later
+; slice (S1). This section is an intentionally empty scaffold for now — no
+; actions yet.
+
+[debug]
+
+; Disable Godot's default desktop file logging so no engine launch writes a
+; shared user://logs/godot.log (the #180 RotatedFileLogger race under concurrent
+; launches). The `.pc` platform override is the operative one on desktop: its
+; default is `true` and wins over the base key at startup, so both are set off.
+file_logging/enable_file_logging=false
+file_logging/enable_file_logging.pc=false
