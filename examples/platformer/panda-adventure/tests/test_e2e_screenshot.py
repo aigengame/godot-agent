@@ -10,12 +10,14 @@ display.
 
 Isolation matches ``test_e2e_boot.py`` (a throwaway COPY; ``gda daemon start``
 mutates the project). posix-only — the live stack uses ``AF_UNIX`` (ADR-0021); a
-windowed session needs a DisplayServer, so this skips visibly on headless Linux
-(``-rs``) and runs directly on macOS (Aqua).
+windowed session needs a usable window server, so this skips — **before spawning
+Godot** — where there is none (headless Linux without ``$DISPLAY``; macOS without
+an active window-server session) and runs for real on a genuine desktop.
 """
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import shutil
@@ -57,37 +59,63 @@ def _error_code(stdout: str) -> str | None:
         return None
 
 
+def _macos_has_usable_window_server() -> bool | None:
+    """Whether THIS process has a usable macOS window-server session (else None).
+
+    ``CGSessionCopyCurrentDictionary`` (CoreGraphics, via ctypes — no extra dep)
+    returns a non-NULL session dict only when the calling process is attached to an
+    active window-server session; it is NULL over SSH and in headless / sandbox
+    sessions **even when ``launchctl managername`` reports "Aqua"**. That NULL is
+    exactly what predicts a windowed Godot will abort during AppKit / window-server
+    registration, so it lets us skip BEFORE spawning (and crashing) the engine.
+    Returns None if the probe itself can't run (then the caller falls through and
+    attempts, with the runtime fallback as a backstop).
+    """
+    try:
+        cg = ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
+        )
+        cg.CGSessionCopyCurrentDictionary.restype = ctypes.c_void_p
+        session = cg.CGSessionCopyCurrentDictionary()
+    except Exception:
+        return None
+    if not session:
+        return False
+    try:  # release the copied CFDictionary to avoid a leak
+        cf = ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
+        )
+        cf.CFRelease.argtypes = [ctypes.c_void_p]
+        cf.CFRelease(ctypes.c_void_p(session))
+    except Exception:
+        pass
+    return True
+
+
 def _windowed_capture_unsupported_reason() -> str | None:
     """Why windowed viewport capture can't run in THIS environment (else None).
 
-    A windowed engine session needs a usable DisplayServer. Headless Linux has none
-    unless run under a virtual framebuffer (``xvfb-run`` sets ``DISPLAY``). macOS
-    needs an active **Aqua** GUI session: a windowed Godot otherwise aborts in
-    ``NSApplication`` init (window-server registration) and the daemon reports
-    ``engine_session_not_running``. ``launchctl managername`` == ``"Aqua"`` is the
-    macOS analogue of ``$DISPLAY``. Where a DisplayServer IS usable (a real
-    desktop), the test runs for real and a failure is a real failure — this only
-    gates environments (SSH / CI / sandbox) that physically cannot show a window,
-    exactly how gda's own windowed screen e2e is display-gated.
+    A windowed engine session needs a usable window server. Headless Linux has none
+    unless run under a virtual framebuffer (``xvfb-run`` sets ``DISPLAY``). On macOS
+    the reliable signal is an active window-server session
+    (``CGSessionCopyCurrentDictionary``) — NOT ``launchctl managername``, which
+    reports "Aqua" even in headless / sandbox sessions where a windowed Godot still
+    aborts in AppKit registration. Where a window server IS usable (a real desktop),
+    the test runs for real and a failure is a real failure; this gates — and skips
+    BEFORE spawning Godot — only environments (SSH / CI / sandbox) that cannot show
+    a window, so no Godot process is launched (or crashed) there.
     """
     if sys.platform.startswith("linux"):
         if not os.environ.get("DISPLAY"):
             return "headless Linux has no DisplayServer (run under xvfb-run, which sets DISPLAY)"
         return None
     if sys.platform == "darwin":
-        try:
-            name = subprocess.run(
-                ["launchctl", "managername"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            ).stdout.strip()
-        except Exception:
-            return None  # can't determine — attempt it and let the runtime guard decide
-        if name != "Aqua":
+        if _macos_has_usable_window_server() is False:
             return (
-                f"no Aqua GUI session (launchctl managername={name!r}); a windowed "
-                "Godot session needs a usable macOS window server"
+                "no usable macOS window-server session "
+                "(CGSessionCopyCurrentDictionary returned NULL — e.g. SSH / CI / "
+                "sandbox); a windowed Godot session cannot register with the window "
+                "server here"
             )
     return None
 
