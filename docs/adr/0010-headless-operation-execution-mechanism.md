@@ -4,6 +4,12 @@ status: accepted
 
 # Headless operation execution: GDScript op-dispatch by default, native engine CLI mode for editor-only capabilities
 
+> **Outcome (2026-06-30, #343):** a **third** execution shape was later recognised — a *user-script
+> passthrough run* (`gda script run`). It fits neither mechanism below: it runs the user's own `.gd`
+> via `--script`, so it emits no ADR-0002 sentinel, yet — unlike mechanism ②'s `export run` — `gda`
+> does **not** know the script's semantics, so it passes the script's `{exit_status, stdout, stderr}`
+> through verbatim and classifies only launch/crash. See ADR-0031.
+
 ADR-0001 serves [headless operations](../../CONTEXT.md) by spawning one-shot
 `godot --headless` processes. ADR-0002 then fixes *how* such a process reports its
 result: a single GDScript operation in `operations.gd` emits a sentinel-delimited

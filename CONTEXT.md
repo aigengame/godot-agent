@@ -90,7 +90,10 @@ launch_failure}`, unparsed — before any classification. `launch_failure` is se
 only when the primitive synthesized the result (binary missing, timed out) rather
 than the engine returning one, so the classifier keys environment failures on
 that typed reason, not on the overloaded exit code. Both channels return the one
-`RunResult` shape.
+`RunResult` shape. Normally internal, it is **promoted to a public result by
+`gda script run`** — the one operation whose success result *is* a Raw run (minus
+`launch_failure`, which is lifted out into an `Error envelope`), so its
+`exit_status` can be non-zero on success (ADR-0031).
 _Avoid_: run output, export output
 
 **Session log**:
