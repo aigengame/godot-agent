@@ -61,12 +61,12 @@ def _properties_by_name(get_result: dict) -> dict:
 def test_build_produces_round_trippable_resource(gda) -> None:
     """build() emits a .tres whose fields round-trip back through gda.
 
-    The generated ``.tres`` is a derived artifact (gitignored), so delete any
-    stale copy and rebuild — proving build() writes it. It must live under the
-    project's gitignored generated/ dir so ``res://`` resolves it. Reading each
-    field back via ``gda resource get`` and comparing to the *authoritative JSON*
-    (not hardcoded values) proves the JSON->Resource conversion preserves both
-    value and Godot type (Color/Vector2/float).
+    The generated ``.tres`` is a derived artifact (committed, but rebuilt here to
+    prove build() writes it). It lives under the project's ``data/generated/`` dir
+    so ``res://`` resolves it. Reading each field back via ``gda resource get`` and
+    comparing to the *authoritative JSON* (not hardcoded values) proves the
+    JSON->Resource conversion preserves both value and Godot type
+    (Color/Vector2/float).
     """
     config = build_config.load_json(build_config.JSON_PATH)
 
@@ -84,6 +84,26 @@ def test_build_produces_round_trippable_resource(gda) -> None:
     assert props["start_position"] == pytest.approx(config["start_position"])
     assert props["target_position"] == pytest.approx(config["target_position"])
     assert props["tween_duration"] == pytest.approx(config["tween_duration"])
+
+
+def test_generated_resource_is_fresh(tmp_path) -> None:
+    """The COMMITTED .tres matches a fresh build — JSON stays authoritative.
+
+    ``data/generated/boot_config.tres`` is a derived artifact that is committed
+    (tracked) so a clean checkout / exported ``.app`` boots with no build step.
+    This gate runs in the pure-Python tier (every PR): it rebuilds from the
+    authoritative JSON to a temp path and asserts byte-equality with the committed
+    file, so drift between the JSON and the committed Resource is caught.
+    """
+    committed = build_config.GENERATED_TRES
+    assert committed.exists(), (
+        "committed data/generated/boot_config.tres is missing — "
+        "run scripts/build_config.py"
+    )
+    fresh = build_config.build(out_path=tmp_path / "boot_config.tres")
+    assert fresh.read_text(encoding="utf-8") == committed.read_text(encoding="utf-8"), (
+        "committed .tres is stale — run scripts/build_config.py"
+    )
 
 
 @pytest.mark.parametrize(

@@ -57,16 +57,17 @@ def _require_godot_engine(request: pytest.FixtureRequest) -> None:
     runtime ``$GDA_GODOT`` override is honored and a missing engine is a loud
     failure, not a silent skip.
     """
-    if (
-        request.node.get_closest_marker("engine") is None
-        and request.node.get_closest_marker("e2e") is None
-    ):
+    is_e2e = request.node.get_closest_marker("e2e") is not None
+    if not is_e2e and request.node.get_closest_marker("engine") is None:
         return
+    # The headless (`engine`) tier needs Godot 4.4+; the live daemon (`e2e`) tier
+    # needs 4.6+ (ADR-0021). Name the right floor so a too-old engine is diagnosable.
+    floor = "4.6+ (the live/daemon tier)" if is_e2e else "4.4+ (the headless tier)"
     godot = resolve_godot_binary()
     if not godot.exists():
         pytest.fail(
             f"engine tests need a real Godot engine, but none was found at {godot}. "
-            f"Install Godot at that path or set ${GODOT_BIN_ENV} to a 4.4+ binary."
+            f"Install Godot at that path or set ${GODOT_BIN_ENV} to a {floor} binary."
         )
 
 

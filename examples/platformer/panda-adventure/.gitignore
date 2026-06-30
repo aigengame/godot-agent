@@ -1,6 +1,8 @@
-# Derived build artifacts — regenerated from authoritative JSON by
-# scripts/build_config.py (gADR-0000). Never committed; tests regenerate them.
-/data/generated/
+# Note: data/generated/boot_config.tres is a DERIVED artifact but is COMMITTED
+# (tracked) so a clean checkout / exported .app boots without a build step. A
+# pure-Python freshness gate (test_data_seam.py) asserts it matches a fresh build,
+# keeping the JSON authoritative (gADR-0000). Regenerate it with
+# scripts/build_config.py whenever the JSON changes.
 
 # Export / build output (e.g. macOS .app from `gda export run`).
 /build/

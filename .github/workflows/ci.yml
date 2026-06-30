@@ -128,8 +128,10 @@ jobs:
       - name: Run Panda Adventure engine and e2e tests
         run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "engine or e2e" -rs
 
-      # Portable export guard: validate the macOS preset is found and parses (no
-      # templates or platform tooling needed). The full .app export is smoke-tested
-      # locally on macOS (see the PR); a Linux runner can't produce a macOS .app.
+      # Portable export guard: `export get` validates the macOS preset is found and
+      # parses (no templates or platform tooling needed), so it is safe on a Linux
+      # runner. `export run --mode pack` works on macOS (verified) but a macOS preset
+      # on a Linux runner is unverified here, so we keep `get`. The REAL .app export
+      # is reproduced by scripts/export_macos.sh and smoke-tested on macOS (see PR).
       - name: Guard Panda Adventure export preset wiring
         run: uv run --frozen gda export get --preset macOS --project examples/platformer/panda-adventure --json

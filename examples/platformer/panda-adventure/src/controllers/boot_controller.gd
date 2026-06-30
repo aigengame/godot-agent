@@ -30,6 +30,14 @@ static func plan_from_config(config: GameConfigScript) -> Dictionary:
 
 func _ready() -> void:
 	var config: GameConfigScript = load(CONFIG_PATH)
+	if config == null:
+		# The derived .tres is committed, but guard the boot loudly rather than
+		# null-dereferencing if it is missing (e.g. a half-checkout): point at the
+		# pipeline that regenerates it from the authoritative JSON.
+		push_error(
+			"BootController: could not load %s — run scripts/build_config.py to regenerate the derived config." % CONFIG_PATH
+		)
+		return
 	var plan := plan_from_config(config)
 
 	var block := $Block as ColorRect

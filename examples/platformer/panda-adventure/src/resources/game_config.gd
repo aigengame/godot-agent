@@ -9,9 +9,14 @@ extends Resource
 ## data/generated/boot_config.tres. Never hand-edit the generated .tres or
 ## hardcode these values — change the JSON (gADR-0000: JSON is the single
 ## authoritative config source).
+##
+## The @export fields carry NO default literals on purpose: a default would read
+## as a second config source competing with the authoritative JSON (gADR-0000).
+## The committed .tres sets every field, so the runtime value always comes from
+## data.
 
-@export var block_color: Color = Color.WHITE
-@export var block_size: Vector2 = Vector2(64, 64)
-@export var start_position: Vector2 = Vector2.ZERO
-@export var target_position: Vector2 = Vector2.ZERO
-@export var tween_duration: float = 1.0
+@export var block_color: Color
+@export var block_size: Vector2
+@export var start_position: Vector2
+@export var target_position: Vector2
+@export var tween_duration: float
