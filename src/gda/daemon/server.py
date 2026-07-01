@@ -12,11 +12,18 @@ import os
 import secrets
 import signal
 import socket
+from typing import Callable, Optional
 
 from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
 from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
-from gda.daemon.session import EngineSession, SceneMismatch, launch_session
+from gda.daemon.session import (
+    EngineSession,
+    SceneMismatch,
+    WindowedDisplayUnavailable,
+    launch_session,
+)
+from gda.display import windowed_unavailable_reason
 
 # Control ops on the CLI socket — daemon lifetime, not project domain ops.
 STATUS_OP = "__status__"
@@ -41,6 +48,7 @@ class DaemonServer:
         godot: str = "",
         windowed: bool = False,
         scene: str | None = None,
+        display_check: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self.paths = paths
         self.godot = godot
@@ -54,6 +62,11 @@ class DaemonServer:
         # Godot's `--scene` engine option instead of the project's main_scene; None
         # runs main_scene unchanged. Fixed for the daemon's life (ADR-0020).
         self.scene = scene
+        # The pre-launch host-display precondition seam (#345): returns the reason a
+        # windowed session cannot come up on this host, or None when it can. Injectable
+        # so tests drive the guard without a real display; defaults to the shared
+        # gda.display probe. Consulted only for a windowed session.
+        self._display_check = display_check or windowed_unavailable_reason
         self._token = secrets.token_hex(16)
         self._stopping = False
         self._listener: socket.socket | None = None
@@ -165,6 +178,17 @@ class DaemonServer:
                 "gda never falls back — fix the path/UID or omit --scene to run the "
                 "project's main_scene",
             )
+        except WindowedDisplayUnavailable as unavailable:
+            # The authoritative no-display guard fired at the launch boundary (#345):
+            # no windowed engine was spawned. Surface the typed
+            # live_windowed_unavailable, carrying the probe's reason as diagnostics.
+            return error_reply(
+                "live_windowed_unavailable",
+                "a windowed engine session cannot launch: the host has no usable "
+                f"DisplayServer ({unavailable.reason}). Run the daemon headless, or "
+                "start it on a host with an on-console GUI session / $DISPLAY",
+                diagnostics=unavailable.reason,
+            )
         if session is None:
             return error_reply(
                 "engine_session_not_running",
@@ -231,6 +255,18 @@ class DaemonServer:
             self._session = None
         if not self.godot:
             return None
+        # The AUTHORITATIVE no-display guard (#345): a windowed session needs a usable
+        # host DisplayServer, else a windowed Godot aborts during DisplayServer
+        # registration. This is the launch boundary — where the lazy session launch
+        # actually happens — so refuse HERE, BEFORE launch_session is ever called, with
+        # a typed WindowedDisplayUnavailable (mirroring the SceneMismatch pattern). The
+        # daemon maps it to live_windowed_unavailable. `daemon start --windowed` runs
+        # the same check as an OPTIONAL fail-fast, but this is the one that guarantees a
+        # doomed windowed engine is never spawned even when start slipped through.
+        if self.windowed:
+            reason = self._display_check()
+            if reason is not None:
+                raise WindowedDisplayUnavailable(reason)
         # A res:// / filesystem scene selector that names no file is rejected HERE,
         # at the launch boundary (NOT per-request — finding 1), as a typed
         # SceneMismatch. Godot does not fall-back-and-run for a missing res:// path:

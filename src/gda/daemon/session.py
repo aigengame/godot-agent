@@ -53,6 +53,24 @@ class SceneMismatch(Exception):
         self.current = current
 
 
+class WindowedDisplayUnavailable(Exception):
+    """A windowed session cannot launch: the host has no usable ``DisplayServer``.
+
+    Raised at the AUTHORITATIVE session-launch boundary (``_ensure_session``, where
+    the lazy launch happens) BEFORE :func:`launch_session` is ever called, when a
+    windowed daemon's pre-launch host-display check fails — a windowed Godot would
+    abort during ``DisplayServer`` registration otherwise (#345). Mirrors
+    :class:`SceneMismatch`: a typed launch-boundary signal the daemon maps to the
+    ``live_windowed_unavailable`` error code, distinct from a generic launch failure
+    (``launch_session`` returns ``None``). ``reason`` is the host-display probe's
+    human-readable explanation.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 class EngineSession:
     """A launched engine run plus the daemon's connection to its harness.
 
@@ -184,6 +202,20 @@ def launch_session(
             diagnostics.append(message)
 
     log_args = ["--log-file", str(log_file)] if log_file is not None else []
+    if log_file is not None:
+        # Truncate the Session log BEFORE spawning (#345 finding 2). Godot's
+        # ``--log-file`` logger opens the path with ``FileAccess::WRITE`` (truncating)
+        # only once it installs, but a PRE-LOGGER abort — a windowed-no-DisplayServer
+        # crash, and others — dies before that, leaving a PREVIOUS session's output on
+        # disk. Without this, the failed-launch diagnostics tail would attach that
+        # stale content. Truncating here makes "truncated each launch" (ADR-0022 /
+        # CONTEXT.md Session log) hold even for a pre-logger abort: a pre-logger
+        # failure then reads EMPTY (honest), a post-logger one reads only the current
+        # session. Best-effort — a truncate failure must not abort the launch.
+        try:
+            log_file.write_bytes(b"")
+        except OSError:
+            pass
     headless_args = [] if windowed else ["--headless"]
     # `--scene <path|UID>` is an ENGINE option, so it sits before `--path` (and so
     # before the `--` payload separator) alongside the other engine args (#278).

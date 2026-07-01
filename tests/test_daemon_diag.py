@@ -359,6 +359,38 @@ def test_failed_launch_records_harness_hung_when_child_still_alive(
     assert "harness did not connect" in diagnostics[0]
 
 
+def test_failed_launch_diagnostics_excludes_stale_session_log(
+    monkeypatch, tmp_path, daemon_runtime_dir
+):
+    # #345 finding 2: a PRE-LOGGER abort (a windowed-no-DisplayServer crash, and
+    # others) dies before Godot installs its --log-file logger, so nothing truncates
+    # the deterministic session-log path. If a PREVIOUS session left content there, it
+    # must NOT leak into the current failure's diagnostics. launch_session truncates
+    # the log BEFORE spawning, so the tail reads EMPTY for a pre-logger abort.
+    server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
+    log_path = server._session_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("STALE-PREVIOUS-SESSION-OUTPUT", encoding="utf-8")
+
+    # A REAL launch_session runs (truncating the log), spawns a fake child that dies
+    # pre-logger by SIGABRT and writes nothing, and no harness connects -> None.
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc(-6))
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    server._harness_listener = cast(socket.socket, _NoAcceptListener())
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
+    assert (
+        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    )
+    # The child-signal reason is present; the STALE log content is gone (truncated).
+    assert "SIGABRT" in reply["stderr"]
+    assert "STALE-PREVIOUS-SESSION-OUTPUT" not in reply["stderr"]
+    # The file on disk was truncated by the launch attempt, honoring "truncated each
+    # launch" even for a pre-logger abort (ADR-0022 / CONTEXT.md Session log).
+    assert log_path.read_bytes() == b""
+
+
 # --- Slice 2: the daemon serves diag from the remembered log file ---
 
 

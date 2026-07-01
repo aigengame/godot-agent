@@ -205,6 +205,89 @@ def test_failed_launch_threads_diagnostics_into_the_error_reply(tmp_path, monkey
     assert "SIGABRT" in reply["stderr"]
 
 
+def test_windowed_no_display_is_live_windowed_unavailable_without_launching(
+    tmp_path, monkeypatch
+):
+    # #345 finding 1: the AUTHORITATIVE no-display guard lives at the session-launch
+    # boundary (_ensure_session), not only the optional `daemon start` fail-fast. A
+    # windowed daemon on a host with no usable DisplayServer refuses a live op with the
+    # typed live_windowed_unavailable AND never calls launch_session — so a doomed
+    # windowed Godot is never spawned, even if `daemon start --windowed` slipped through.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+
+    def _must_not_launch(*a, **k):
+        raise AssertionError("launch_session must not be called with no usable display")
+
+    monkeypatch.setattr("gda.daemon.server.launch_session", _must_not_launch)
+    server = DaemonServer(
+        daemon_paths(tmp_path),
+        godot="godot",
+        windowed=True,
+        display_check=lambda: "no usable DisplayServer (test)",
+    )
+    server._harness_listener = cast(socket.socket, object())
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
+
+    error = parse_result(reply["stdout"])["error"]
+    assert error["code"] == "live_windowed_unavailable"
+    # The probe's reason rides the advisory diagnostics (existing stderr) field.
+    assert "no usable DisplayServer (test)" in reply["stderr"]
+    assert server._session is None  # nothing launched or cached
+
+
+def test_windowed_with_a_usable_display_reaches_launch(tmp_path, monkeypatch):
+    # The guard is display-gated: a usable display (the check returns None) does NOT
+    # short-circuit — the launch proceeds (here to the generic engine_session_not_running
+    # via a patched None launch), proving the guard fires ONLY on no-display.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    calls = {"n": 0}
+
+    def _launch(*a, **k):
+        calls["n"] += 1
+        return None
+
+    monkeypatch.setattr("gda.daemon.server.launch_session", _launch)
+    server = DaemonServer(
+        daemon_paths(tmp_path),
+        godot="godot",
+        windowed=True,
+        display_check=lambda: None,  # a usable display
+    )
+    server._harness_listener = cast(socket.socket, object())
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
+    assert calls["n"] == 1  # the launch boundary was reached
+    assert (
+        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    )
+
+
+def test_headless_windowed_false_never_consults_the_display_check(
+    tmp_path, monkeypatch
+):
+    # A default (headless) daemon must never consult the display check — a headless
+    # session needs no window server; only a windowed session is gated.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+
+    def _boom() -> str:
+        raise AssertionError("a headless daemon must not run the display check")
+
+    monkeypatch.setattr("gda.daemon.server.launch_session", lambda *a, **k: None)
+    server = DaemonServer(
+        daemon_paths(tmp_path), godot="godot", windowed=False, display_check=_boom
+    )
+    server._harness_listener = cast(socket.socket, object())
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
+    assert (
+        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    )
+
+
 def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
     # The selector-less default is unchanged: straight to the launch path (which here
     # is engine_session_not_running with no real binary), no scene verification.

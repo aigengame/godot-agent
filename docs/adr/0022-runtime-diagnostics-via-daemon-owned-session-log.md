@@ -113,4 +113,10 @@ parse.
 > the `engine_session_not_running` error's advisory `diagnostics`. NOTE: a
 > windowed-no-`DisplayServer` abort happens BEFORE Godot installs its file logger, so
 > for that case the tail is usually empty (the child-signal reason carries it); it
-> carries content for a post-logger crash. The decision above is otherwise unchanged.
+> carries content for a post-logger crash. To keep that tail HONEST, `launch_session`
+> now truncates the Session log at the START of each launch attempt, before spawning —
+> so "truncated each launch" holds even for a pre-logger abort (Godot's own
+> `FileAccess::WRITE` truncation only happens once its logger installs, which a
+> pre-logger crash never reaches). A failed pre-logger launch therefore reads EMPTY
+> rather than a PREVIOUS session's stale output; a post-logger failure reads only the
+> current session. The decision above is otherwise unchanged.

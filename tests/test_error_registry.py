@@ -147,6 +147,33 @@ def test_live_failures_are_registered_classifier_live_codes():
         assert spec.code not in OPERATION_ERROR_CODES
 
 
+def test_live_windowed_unavailable_flows_through_classify_live():
+    # #345 finding 1: live_windowed_unavailable is raised at the daemon's
+    # session-launch boundary and relayed as a LIVE reply, so classify_live must
+    # surface it — it is whitelisted in _LIVE_CLIENT_CODES alongside
+    # live_unsupported_platform (both ENVIRONMENT-category codes arriving via the live
+    # path). Without the whitelist, classify_run would misroute it to operation_failed.
+    from gda.daemon.protocol import error_reply
+    from gda.errors import _LIVE_CLIENT_CODES, Failure, classify_live
+    from gda.models import GameTreeResult
+    from gda.runner import RunResult
+
+    assert "live_windowed_unavailable" in _LIVE_CLIENT_CODES
+
+    reply = error_reply(
+        "live_windowed_unavailable", "no usable DisplayServer", diagnostics="why-here"
+    )
+    outcome = classify_live(RunResult(**reply), None, GameTreeResult)
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "live_windowed_unavailable"
+    # It resolves to its REGISTERED environment/127 shape (not the EXIT_LIVE the wire
+    # reply carried, nor an operation_failed fallback).
+    assert outcome.error.category is ErrorCategory.ENVIRONMENT
+    assert outcome.exit_code == 127
+    assert outcome.error.diagnostics == "why-here"
+
+
 def test_harness_live_error_codes_are_registered_live_codes():
     # The per-op LIVE failures the gda harness reports (#220) are registered
     # LIVE-category classifier-source codes: because their category is LIVE,
