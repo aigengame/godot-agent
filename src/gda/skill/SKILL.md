@@ -86,6 +86,27 @@ the first live op. `screen capture` needs a windowed session
 | `input` | `key`, `mouse-click`, `mouse-move`, `action`, `sequence` |
 | `screen` | `capture`, `frames` (viewport PNGs; needs `--windowed`) |
 
+### Structured logging from game code
+
+To emit a record `gda logger tail` reads back as a rich, field-carrying `LogRecord`,
+call the harness autoload from your GDScript — but **gate it on the daemon-launched
+predicate, not on harness presence**. The harness is present only where it was
+installed, and a supported `gda export run` artifact omits it entirely (ADR-0028), so
+resolve it by node path and null-check it — never the `GdaHarness` global, which fails
+to *parse* when the autoload is absent (a stripped export build, a project before
+`gda daemon start`, or after `gda daemon uninstall`), taking the whole script down with
+it. Even where it is present, it only captures logs when `gda-daemon` launched the
+session. Resolve the node, then gate on `is_daemon_launched()` (a pure read), falling
+back to `print()` when it is absent or dormant so no record is lost:
+
+```gdscript
+var harness := get_node_or_null("/root/GdaHarness")
+if harness != null and harness.is_daemon_launched():
+    harness.gda_log("info", "player spawned", {"hp": 100})
+else:
+    print("player spawned")  # absent or dormant: gda_log() would be a silent no-op
+```
+
 ## Worked example
 
 Headless: build and export a scene.

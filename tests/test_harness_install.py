@@ -49,6 +49,19 @@ def test_install_materializes_harness_and_writes_autoload_entry(tmp_path):
     assert _autoload_line() in text
 
 
+def test_installed_harness_carries_the_daemon_launched_predicate(tmp_path):
+    # #362: the public `is_daemon_launched()` predicate must travel into the INSTALLED
+    # copy — install copies the bundled source verbatim, so the change is not confined
+    # to the in-repo file. Game code gates its logging on this predicate, so a project
+    # that installed the harness must carry it.
+    (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
+
+    install_harness(tmp_path)
+
+    body = _harness_file(tmp_path).read_text(encoding="utf-8")
+    assert "func is_daemon_launched() -> bool:" in body
+
+
 def test_install_is_idempotent(tmp_path):
     (tmp_path / "project.godot").write_text(_NO_AUTOLOAD, encoding="utf-8")
 
