@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.49](https://github.com/aigengame/godot-agent/compare/v0.1.48...v0.1.49) (2026-07-01)
+
+
+### Bug Fixes
+
+* **cli:** structured project_not_found for an invalid --project, all channels ([#353](https://github.com/aigengame/godot-agent/issues/353)) ([#357](https://github.com/aigengame/godot-agent/issues/357)) ([b24e8e5](https://github.com/aigengame/godot-agent/commit/b24e8e5100b5381b90c0216b7a1b5cedb24c32cc))
+
 ## [0.1.48](https://github.com/aigengame/godot-agent/compare/v0.1.47...v0.1.48) (2026-07-01)
 
 
