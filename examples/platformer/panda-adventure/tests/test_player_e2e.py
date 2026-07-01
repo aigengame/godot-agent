@@ -100,7 +100,15 @@ def test_daemon_serves_player_traversal(tmp_path, daemon_runtime_dir):
 
     def run(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(project), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(project),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,
@@ -197,7 +205,13 @@ def test_daemon_serves_player_traversal(tmp_path, daemon_runtime_dir):
         )
 
         # The follow camera is configured for smooth follow from data.
-        cam_get = run("game", "get", "/root/Main/Player/Camera2D", "--property", "position_smoothing_enabled")
+        cam_get = run(
+            "game",
+            "get",
+            "/root/Main/Player/Camera2D",
+            "--property",
+            "position_smoothing_enabled",
+        )
         assert cam_get.returncode == 0, cam_get.stdout + cam_get.stderr
         assert _prop(json.loads(cam_get.stdout), "position_smoothing_enabled") is True
 
