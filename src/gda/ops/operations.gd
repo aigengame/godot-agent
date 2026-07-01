@@ -49,6 +49,12 @@ const OP_ERROR_CANNOT_TARGET_ROOT := "cannot_target_root"
 const OP_ERROR_CYCLIC_TARGET := "cyclic_target"
 const OP_ERROR_UNKNOWN_PROPERTY := "unknown_property"
 const OP_ERROR_UNCOERCIBLE_VALUE := "uncoercible_value"
+# Object-typed property assignment via a res:// resource reference (ADR-0033, #363).
+const OP_ERROR_EXPECTED_RESOURCE_PATH := "expected_resource_path"
+const OP_ERROR_NOT_A_RESOURCE := "not_a_resource"
+const OP_ERROR_RESOURCE_TYPE_MISMATCH := "resource_type_mismatch"
+const OP_ERROR_USE_SCRIPT_ATTACH := "use_script_attach"
+const OP_ERROR_UNSUPPORTED_PROPERTY_TYPE := "unsupported_property_type"
 const OP_ERROR_NO_SEARCH_MATCH := "no_search_match"
 const OP_ERROR_INVALID_LINE_RANGE := "invalid_line_range"
 const OP_ERROR_SCRIPT_COMPILE_FAILED := "script_compile_failed"
@@ -626,20 +632,36 @@ func _op_node_set(params: Dictionary) -> void:
 		return
 
 	var raw_value := _string_param(params, "value")
-	var coerced: Variant = _coerce_value(raw_value, declared_type)
-	if coerced == null:
-		root.free()
-		_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
-				+ " to " + _type_name(declared_type) + " for property " + prop_name
-				+ " on node " + node_path)
-		return
+	var stored_value: Variant
+	if declared_type == TYPE_OBJECT:
+		# Object-typed property: assign an EXISTING Resource referenced by a res://
+		# path (ADR-0033, #363). A separate, headless-only step from the shared
+		# _coerce_value (it needs the expected-class hint the (raw, type) signature
+		# cannot carry); it records its own distinct structured failure.
+		var resolved := _resolve_object_value(prop_name,
+				_storage_property_entry(node, prop_name), raw_value, "node " + node_path)
+		if resolved == null:
+			root.free()
+			return  # _resolve_object_value already recorded the failure
+		node.set(prop_name, resolved)
+		# The assigned reference round-trips as its res:// path; the loaded resource
+		# carries a resource_path, so re-packing serializes it as an ext_resource.
+		stored_value = resolved.resource_path
+	else:
+		var coerced: Variant = _coerce_value(raw_value, declared_type)
+		if coerced == null:
+			root.free()
+			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
+					+ " to " + _type_name(declared_type) + " for property " + prop_name
+					+ " on node " + node_path)
+			return
 
-	node.set(prop_name, coerced)
+		node.set(prop_name, coerced)
 
-	# Read the value back off the node before re-saving frees the tree — the node
-	# now holds the coerced value in its canonical form, the same projection
-	# node-get reports.
-	var stored_value: Variant = _jsonify(node.get(prop_name))
+		# Read the value back off the node before re-saving frees the tree — the node
+		# now holds the coerced value in its canonical form, the same projection
+		# node-get reports.
+		stored_value = _jsonify(node.get(prop_name))
 	if not _repack_and_save(root, path):
 		return  # _repack_and_save already recorded the failure (and freed root)
 
@@ -1630,14 +1652,33 @@ func _op_resource_set(params: Dictionary) -> void:
 		return
 
 	var raw_value := _string_param(params, "value")
-	var coerced: Variant = _coerce_value(raw_value, declared_type)
-	if coerced == null:
-		_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
-				+ " to " + _type_name(declared_type) + " for property " + prop_name
-				+ " on resource " + path)
-		return
+	var stored_value: Variant
+	if declared_type == TYPE_OBJECT:
+		# Object-typed property: assign an EXISTING Resource referenced by a res://
+		# path (ADR-0033, #363) — the resource-on-resource counterpart of node set's
+		# Object branch. Headless-only, separate from the shared _coerce_value; it
+		# records its own distinct structured failure.
+		var resolved := _resolve_object_value(prop_name,
+				_storage_property_entry(resource, prop_name), raw_value, "resource " + path)
+		if resolved == null:
+			return  # _resolve_object_value already recorded the failure
+		resource.set(prop_name, resolved)
+		# The assigned reference round-trips as its res:// path; the loaded resource
+		# carries a resource_path, so re-saving serializes it as an ext_resource.
+		stored_value = resolved.resource_path
+	else:
+		var coerced: Variant = _coerce_value(raw_value, declared_type)
+		if coerced == null:
+			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
+					+ " to " + _type_name(declared_type) + " for property " + prop_name
+					+ " on resource " + path)
+			return
+		resource.set(prop_name, coerced)
+		# Read the value back off the resource before reporting — it now holds the
+		# coerced value in its canonical form, the same projection resource get
+		# reports, so a set round-trips through a get.
+		stored_value = _jsonify(resource.get(prop_name))
 
-	resource.set(prop_name, coerced)
 	# Recheck before the write (issue #226): refuse if a concurrent editor changed the
 	# .tres in the read->write window.
 	if not _check_unchanged():
@@ -1647,10 +1688,6 @@ func _op_resource_set(params: Dictionary) -> void:
 		_fail(OP_ERROR_SAVE_FAILED, _save_failure_message("resource", path, save_err))
 		return
 
-	# Read the value back off the resource before reporting — it now holds the
-	# coerced value in its canonical form, the same projection resource get
-	# reports, so a set round-trips through a get.
-	var stored_value: Variant = _jsonify(resource.get(prop_name))
 	_succeed({
 		"path": path,
 		"property": prop_name,
@@ -3853,6 +3890,106 @@ func _tree_from_state(state: SceneState, with_paths := false) -> Dictionary:
 			if parent != null:
 				parent["children"].append(node)
 	return root
+
+
+# --- Object-typed property assignment via a res:// resource reference (ADR-0033, #363) ---
+#
+# node set / resource set assign an EXISTING Resource — referenced by a `res://`
+# path — to an Object-typed property that expects a Resource (sub)class (e.g.
+# CollisionShape2D.shape). This is a SEPARATE, headless-only step from the shared
+# _coerce_value block below: value coercion keys only off the Variant.Type, but
+# resolving an Object needs the property's expected-CLASS hint, which lives on the
+# property-list entry — so this deliberately is NOT mirrored into the harness (a
+# live `game set` Object assignment is out of scope, ADR-0033) and the byte-identical
+# coercion mirror stays untouched.
+#
+# The full storage-property list entry (name/type/hint/hint_string/class_name/usage)
+# for `prop_name` on `target` (a Node or a Resource — both are Objects with a
+# property list), or an empty Dictionary when the target has no storage property by
+# that name. The shared _property_type returns only the Variant.Type, which cannot
+# carry the expected-class hint the Object step needs, so this reads the whole entry.
+func _storage_property_entry(target: Object, prop_name: String) -> Dictionary:
+	for prop in target.get_property_list():
+		if String(prop.get("name", "")) == prop_name and _is_storage_property(prop):
+			return prop
+	return {}
+
+
+# The engine/script class an Object-typed property expects, read off its
+# property-list entry. Godot records it in the entry's `class_name` (a StringName,
+# e.g. &"Shape2D" for CollisionShape2D.shape, &"PlayerConfig" for a script
+# class_name-typed export) and mirrors it in `hint_string` under
+# PROPERTY_HINT_RESOURCE_TYPE. Returns "" when neither names a class.
+func _object_expected_class(prop_entry: Dictionary) -> String:
+	var cls := String(prop_entry.get("class_name", ""))
+	if not cls.is_empty():
+		return cls
+	if int(prop_entry.get("hint", PROPERTY_HINT_NONE)) == PROPERTY_HINT_RESOURCE_TYPE:
+		return String(prop_entry.get("hint_string", ""))
+	return ""
+
+
+# Resolve a `res://` --value into the EXISTING Resource to assign to an Object-typed
+# property (ADR-0033). Returns the loaded Resource on success, or null AFTER recording
+# a DISTINCT structured failure (the caller stops; unlike _coerce_value's null, the
+# caller must NOT fall back to uncoercible_value). `subject` names the target in
+# messages ("node Player/Col" / "resource res://foo.tres"). The failure modes:
+#   - the `script` property is bound only by `script attach` (#118) → use_script_attach;
+#   - a non-`res://` value → expected_resource_path;
+#   - a property typed as a script class_name (not an engine class) is deferred to the
+#     ADR-0032 resolver → unsupported_property_type (type-check scope is engine classes);
+#   - a path that does not load as a Resource → not_a_resource;
+#   - a loaded Resource whose type is incompatible with the expected class →
+#     resource_type_mismatch.
+func _resolve_object_value(prop_name: String, prop_entry: Dictionary, raw_value: String, subject: String) -> Resource:
+	# The `script` property is bound with `script attach` — the one authoritative
+	# script-binding path (compile + base-type verification + replaced-script report,
+	# #118). Route it there rather than adding a second, unverified attach entry.
+	if prop_name == "script":
+		_fail(OP_ERROR_USE_SCRIPT_ATTACH, "property script on " + subject
+				+ " is bound with `gda script attach`, not `set` — it verifies the script"
+				+ " compiles and its base type matches, and reports any replaced script")
+		return null
+
+	# An Object-typed property takes an existing Resource by its res:// path. A
+	# non-res:// value is a distinct structured failure, never the generic
+	# uncoercible_value.
+	if not raw_value.begins_with("res://"):
+		_fail(OP_ERROR_EXPECTED_RESOURCE_PATH, "property " + prop_name + " on " + subject
+				+ " expects a Resource; assign an existing resource by its res:// path"
+				+ " (e.g. res://shapes/box.tres), not " + raw_value.c_escape())
+		return null
+
+	# Type-check scope is ENGINE-class-typed Object properties (e.g. shape: Shape2D).
+	# A property typed as a script `class_name` names a class ClassDB does not know;
+	# its validation is deferred to the ADR-0032 class_name resolver (ADR-0033), so
+	# refuse it distinctly rather than mis-type-check it against the engine hierarchy.
+	var expected_class := _object_expected_class(prop_entry)
+	if expected_class.is_empty() or not ClassDB.class_exists(expected_class):
+		var named := expected_class if not expected_class.is_empty() else "an unspecified Object type"
+		_fail(OP_ERROR_UNSUPPORTED_PROPERTY_TYPE, "property " + prop_name + " on " + subject
+				+ " expects " + named + ", which is not an engine class — assigning a Resource to"
+				+ " a script class_name-typed property is not yet supported (deferred, ADR-0033)")
+		return null
+
+	# Load the referenced resource. A missing path, or a file that is not a resource,
+	# yields null here (the engine logs why to stderr) → a distinct structured failure,
+	# never uncoercible_value. res:// resolution needs project context (pass --project).
+	var loaded := ResourceLoader.load(raw_value) as Resource
+	if loaded == null:
+		_fail(OP_ERROR_NOT_A_RESOURCE, "value does not load as a Resource: " + raw_value
+				+ " — check the res:// path exists and names a resource (pass --project so res:// resolves)")
+		return null
+
+	# is_class walks the engine class hierarchy, so a RectangleShape2D satisfies a
+	# Shape2D-typed property while a Gradient does not.
+	if not loaded.is_class(expected_class):
+		_fail(OP_ERROR_RESOURCE_TYPE_MISMATCH, "resource " + raw_value + " is a "
+				+ loaded.get_class() + ", incompatible with property " + prop_name + " on "
+				+ subject + " (expects " + expected_class + ")")
+		return null
+
+	return loaded
 
 
 # --- BEGIN shared coercion (keep byte-identical: operations.gd <-> gda_harness.gd) ---

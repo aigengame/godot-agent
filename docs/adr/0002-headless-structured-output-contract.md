@@ -122,6 +122,11 @@ operation, and parse codes the CLI assigns).
 | `cyclic_target` | `operation` | `operation` | `4` | A node move targeted the node itself or one of its own descendants, which would detach the moved subtree from the scene. |
 | `unknown_property` | `operation` | `operation` | `4` | A requested property does not exist as a settable property on the target node or resource. |
 | `uncoercible_value` | `operation` | `operation` | `4` | A supplied value cannot be coerced to the property's declared Godot type. |
+| `expected_resource_path` | `operation` | `operation` | `4` | An Object-typed property was given a value that is not a `res://` resource path; assign an existing Resource by its `res://` path (ADR-0033, #363). |
+| `not_a_resource` | `operation` | `operation` | `4` | A `res://` value for an Object-typed property does not load as a Resource (the path is missing or does not name a resource) (ADR-0033, #363). |
+| `resource_type_mismatch` | `operation` | `operation` | `4` | A `res://` resource's type is incompatible with the Object-typed property's expected engine class (ADR-0033, #363). |
+| `use_script_attach` | `operation` | `operation` | `4` | The `script` property is bound with `gda script attach` (which verifies the script compiles and its base type matches), not with `node set` / `resource set` (ADR-0033, #363). |
+| `unsupported_property_type` | `operation` | `operation` | `4` | An Object-typed property expects a type `node set` / `resource set` cannot yet assign a `res://` resource to: a script `class_name`-typed property (deferred to the ADR-0032 resolver) or an Object property with no declared engine class (ADR-0033, #363). |
 | `no_search_match` | `operation` | `operation` | `4` | A search-replace script edit found no occurrence of the search string. |
 | `invalid_line_range` | `operation` | `operation` | `4` | A line-range script edit specified lines outside the script's bounds, or end before start. |
 | `script_compile_failed` | `operation` | `operation` | `4` | A script could not be attached to a node because it does not compile. |

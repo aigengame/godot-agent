@@ -272,6 +272,52 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCodeSource.OPERATION,
         "A supplied value cannot be coerced to the property's declared Godot type.",
     ),
+    # Object-typed property assignment via a res:// resource reference (ADR-0033,
+    # #363): node set / resource set assign an EXISTING Resource, referenced by a
+    # res:// path, to an Object-typed property that expects a Resource (sub)class.
+    # These five distinguish the failure modes from the generic uncoercible_value —
+    # each is an operation-source code, so all are GDScript-mirrored in operations.gd.
+    ErrorCodeSpec(
+        "expected_resource_path",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "An Object-typed property was given a value that is not a res:// resource "
+        "path; assign an existing Resource by its res:// path.",
+    ),
+    ErrorCodeSpec(
+        "not_a_resource",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A res:// value for an Object-typed property does not load as a Resource "
+        "(the path is missing or does not name a resource).",
+    ),
+    ErrorCodeSpec(
+        "resource_type_mismatch",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A res:// resource's type is incompatible with the Object-typed property's "
+        "expected engine class.",
+    ),
+    ErrorCodeSpec(
+        "use_script_attach",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "The script property is bound with `gda script attach` (which verifies the "
+        "script compiles and its base type matches), not with node set / resource set.",
+    ),
+    ErrorCodeSpec(
+        "unsupported_property_type",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "An Object-typed property expects a type node set / resource set cannot yet "
+        "assign a res:// resource to: a script class_name-typed property (deferred to "
+        "the ADR-0032 resolver) or an Object property with no declared engine class.",
+    ),
     ErrorCodeSpec(
         "no_search_match",
         ErrorCategory.OPERATION,

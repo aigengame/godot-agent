@@ -142,6 +142,26 @@ Whitespace around a value or a component is tolerated. A property of any other t
 reported by `node get` (its value degrades to a string projection), but `node set` cannot coerce
 to it yet and refuses with `uncoercible_value` — the coercible set grows as later slices need it.
 
+**Object-typed property assignment by `res://` reference** (ADR-0033, #363): for an **Object-typed**
+property that expects a Resource (sub)class — e.g. a `CollisionShape2D`'s `shape` (`Shape2D`) — `gda
+node set` and `gda resource set` accept a **`res://….tres` resource path** as `--value`. The path is
+`load()`ed, **type-checked** against the property's declared **engine** class, and assigned as an
+**external reference** (`ext_resource`); the resource is **not inlined**. Combined with `resource
+create` and `resource set` this completes the external sub-resource workflow with no new command
+(`resource create res://box.tres --type RectangleShape2D` → `resource set … --property size --value
+32,64` → `node set scene.tscn --node Col --property shape --value res://box.tres`). The result echoes
+`type` `"Object"` and `value` the assigned `res://` path (pass `--project` so `res://` resolves). This
+is a **separate, headless-only** step from the shared coercion above — value coercion keys only off
+the Variant type, but resolving an Object needs the expected-class hint on the property-list entry — so
+assigning a Resource on the live `gda game set` is **out of scope** and the coercion mirror is
+untouched. Its failure modes are **distinct structured codes**, never `uncoercible_value`: a non-`res://`
+value is `expected_resource_path`; a path that does not load as a Resource is `not_a_resource`; a loaded
+resource whose type is incompatible with the property's expected class is `resource_type_mismatch`. The
+**`script` property is excluded** and routed to `script attach` (#118) — setting it returns the
+actionable `use_script_attach` error, never a second script-binding entry. A property typed as a script
+`class_name` (rather than an engine class) is **deferred** (its validation will reuse ADR-0032's
+resolver) and refused with `unsupported_property_type`.
+
 This coercion contract — the accepted string forms above, the declared-type target, and the
 `unknown_property` / `uncoercible_value` failures — is **shared by other property-bearing
 commands**, not specific to nodes. `gda resource set` (#120) applies the same #55 coercion to the
