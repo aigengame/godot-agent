@@ -334,6 +334,13 @@ class HeadlessCommand(Generic[M]):
     # means the command runs through ``emit`` with its ``kind``-selected runner — so a
     # single ``recipe is None`` test selects the channel, no identity table.
     recipe: "Recipe | None" = None
+    # A projectless recipe is a pure meta emitter (ADR-0024/0005, e.g. ``gda skill``):
+    # it takes no ``--project`` and resolves none, so the recipe dispatcher must NOT
+    # resolve a project for it — otherwise an inherited ``$GDA_PROJECT`` that is not a
+    # project would make a projectless meta command fail (#353/#357). Project-using
+    # recipes leave this ``False`` and receive a resolved project (or a structured
+    # ``project_not_found``). Meaningless for the sentinel channel (``recipe is None``).
+    projectless: bool = False
 
     def schema_option(self) -> bool:
         """Return the Typer ``--schema`` flag for this command."""

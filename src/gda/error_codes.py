@@ -165,7 +165,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "gda ran without a usable resolved Godot project: an operation needed one and none was resolved, or an explicit --project/$GDA_PROJECT was empty or is not a Godot project (no project.godot).",
+        "gda ran without a usable resolved Godot project: an operation needed one and none was resolved, or an explicit --project was empty, or a --project/$GDA_PROJECT does not name a Godot project (no project.godot).",
     ),
     ErrorCodeSpec(
         "path_not_found",

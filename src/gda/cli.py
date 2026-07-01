@@ -716,16 +716,21 @@ def _dispatch_recipe(
     renders identically to a sentinel one; only outcome production differs. Shared by
     the argv bodies and the ``--params-json`` path, so the two forms are
     indistinguishable downstream (ADR-0015). Project resolution stays CLI-side
-    (ADR-0006) and happens HERE, once, for every recipe — so an invalid
-    ``--project`` yields the structured ``project_not_found`` envelope on this
-    channel exactly as on the sentinel one, and no recipe re-resolves (#353).
+    (ADR-0006) and happens HERE, once, for every PROJECT-USING recipe — so an
+    invalid ``--project`` yields the structured ``project_not_found`` envelope on
+    this channel exactly as on the sentinel one, and no recipe re-resolves (#353).
+    A ``projectless`` recipe (a pure meta emitter like ``gda skill``, ADR-0024) is
+    NOT resolved: it takes no project, so an inherited invalid ``$GDA_PROJECT``
+    must not make it fail (#357).
     """
     # A recipe command always carries a recipe channel — that is what routes it
-    # here rather than to the sentinel ``cmd.emit`` path (ADR-0023). The recipe
-    # receives the ALREADY-resolved project (or a structured project_not_found is
-    # emitted before it runs); it never touches ``resolve_project_dir`` itself.
+    # here rather than to the sentinel ``cmd.emit`` path (ADR-0023). A project-using
+    # recipe receives the ALREADY-resolved project (or a structured project_not_found
+    # is emitted before it runs); a projectless meta recipe receives None and never
+    # touches ``resolve_project_dir``.
     assert cmd.recipe is not None
-    outcome = cmd.recipe(params, project=_resolve_project_or_fail(project), godot=godot)
+    resolved = None if cmd.projectless else _resolve_project_or_fail(project)
+    outcome = cmd.recipe(params, project=resolved, godot=godot)
     if isinstance(outcome, Failure):
         emit_failure(outcome)
     emit_result(outcome, json_output, cmd.render)
@@ -795,6 +800,10 @@ SKILL_COMMAND: HeadlessCommand[SkillResult] = HeadlessCommand(
     output_model=SkillResult,
     render=render_skill,
     recipe=_skill_recipe,
+    # A pure meta emitter (ADR-0024): no --project, resolves none — so the recipe
+    # dispatcher must not resolve a project for it (an inherited invalid $GDA_PROJECT
+    # must not make `gda skill` fail, #357).
+    projectless=True,
 )
 
 GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(

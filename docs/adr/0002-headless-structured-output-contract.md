@@ -107,7 +107,7 @@ operation, and parse codes the CLI assigns).
 | `save_failed` | `operation` | `operation` | `4` | A scene could not be packed or saved. |
 | `delete_failed` | `operation` | `operation` | `4` | A file could not be removed from disk. |
 | `file_changed_externally` | `operation` | `operation` | `4` | A read-modify-write operation's target file changed on disk between the read and the write, so the write was refused to avoid clobbering the external edit. |
-| `project_not_found` | `operation` | `operation` | `4` | gda ran without a usable resolved Godot project: an operation needed one and none was resolved, or an explicit `--project`/`$GDA_PROJECT` was empty or is not a Godot project (no `project.godot`). |
+| `project_not_found` | `operation` | `operation` | `4` | gda ran without a usable resolved Godot project: an operation needed one and none was resolved, or an explicit `--project` was empty, or a `--project`/`$GDA_PROJECT` does not name a Godot project (no `project.godot`). |
 | `path_not_found` | `operation` | `operation` | `4` | A requested file does not exist. |
 | `not_a_scene` | `operation` | `operation` | `4` | A requested file cannot be loaded as a `PackedScene`. |
 | `parent_not_found` | `operation` | `operation` | `4` | A requested parent node path does not resolve to a node in the scene. |
