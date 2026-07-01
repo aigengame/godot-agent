@@ -87,7 +87,7 @@ def run_script_run_operation(
     script: str,
     godot: Optional[str],
     project: Optional[Path],
-    make_launch: LaunchFn = launch,
+    make_launch: Optional[LaunchFn] = None,
     timeout: float = DEFAULT_SCRIPT_RUN_TIMEOUT_SECONDS,
 ) -> ScriptRunResult | Failure:
     """Run ``script run``'s validate → launch → classify recipe (ADR-0031).
@@ -98,9 +98,12 @@ def run_script_run_operation(
     failure (``invalid_path`` / ``project_not_found``) or a
     ``classify_launch_or_crash`` env/crash outcome. ``project`` is the
     already-resolved directory (resolution stays CLI-side, ADR-0006); ``None``
-    means none resolved. ``make_launch`` is the injected headless-launch seam
-    (defaults to the real deep-module ``launch``).
+    means none resolved. ``make_launch`` is the injected headless-launch seam;
+    ``None`` (the default) uses the real deep-module :func:`gda.runner.launch`,
+    resolved at call time — the ``screen_ops`` idiom — so a test can inject a fake
+    OR patch ``gda.script_run.launch``.
     """
+    run_launch = make_launch or launch
     # Pre-run ABI edges (ADR-0031), decided BEFORE any launch so they never surface
     # as a crash or a raw engine failure. Path first (it is the direct argument):
     # res://-only — an absolute or non-res:// path cannot resolve against --path.
@@ -126,7 +129,7 @@ def run_script_run_operation(
     # via --path, so no working directory is needed (unlike the export channel,
     # whose relative output path needs cwd=project).
     args = ["--path", str(project), "--script", script]
-    raw = make_launch(
+    raw = run_launch(
         binary, args, cwd=None, timeout=timeout, timeout_label="Godot script"
     )
 
