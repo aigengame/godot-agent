@@ -174,6 +174,35 @@ def test_missing_res_scene_is_live_scene_not_found_before_launch(tmp_path, monke
     assert server._session is None
 
 
+def test_failed_launch_threads_diagnostics_into_the_error_reply(tmp_path, monkeypatch):
+    # #345: a None launch outcome now threads the child-liveness diagnostic
+    # launch_session recorded into the engine_session_not_running reply's `stderr`
+    # (which becomes GdaError.diagnostics via the live path), instead of the old
+    # EMPTY diagnostics. The wire envelope shape {stdout, stderr, exit_code} is
+    # unchanged — the detail rides the existing stderr field.
+    (tmp_path / "B.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
+
+    def _fail_launch(*a, diagnostics=None, **k):
+        if diagnostics is not None:
+            diagnostics.append("the engine child aborted by signal SIGABRT (6) ...")
+        return None
+
+    monkeypatch.setattr("gda.daemon.server.launch_session", _fail_launch)
+    server = DaemonServer(
+        _project_with_marker(tmp_path), godot="godot", scene="res://B.tscn"
+    )
+    server._harness_listener = cast(socket.socket, object())
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
+
+    # The wire shape is unchanged: still {stdout, stderr, exit_code}.
+    assert set(reply) == {"stdout", "stderr", "exit_code"}
+    assert parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    # The diagnostic rides the existing stderr field, not a new envelope key.
+    assert "SIGABRT" in reply["stderr"]
+
+
 def test_no_scene_selector_runs_main_scene_unchanged(tmp_path):
     # The selector-less default is unchanged: straight to the launch path (which here
     # is engine_session_not_running with no real binary), no scene verification.

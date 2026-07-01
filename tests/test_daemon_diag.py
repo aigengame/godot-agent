@@ -292,6 +292,73 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
     assert outcome is None
 
 
+# --- #345: a failed launch records a best-effort diagnostic in the sink ---------
+# The child is spawned with stderr=DEVNULL, so launch_session polls the child at the
+# failure boundary: a child that already died names its signal (a windowed-no-display
+# abort is SIGABRT); a child still alive is the harness-never-connected case.
+
+
+class _NoAcceptListener:
+    """A harness listener whose accept() times out at once (no harness connects)."""
+
+    def settimeout(self, _):
+        pass
+
+    def accept(self):
+        raise TimeoutError
+
+
+def test_failed_launch_records_signal_death_when_child_already_died(
+    monkeypatch, tmp_path
+):
+    project = _project(tmp_path)
+    # A child that reports it aborted by SIGABRT (returncode -6) — what a windowed
+    # session with no usable DisplayServer does before the harness can connect.
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc(-6))
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+
+    diagnostics: list[str] = []
+    outcome = launch_session(
+        project,
+        "godot",
+        cast(socket.socket, _NoAcceptListener()),
+        tmp_path / "h.sock",
+        "tok",
+        timeout=0.1,
+        diagnostics=diagnostics,
+    )
+
+    assert outcome is None
+    assert diagnostics, "a failed launch must record a diagnostic"
+    assert "SIGABRT" in diagnostics[0]
+    assert "(6)" in diagnostics[0]
+
+
+def test_failed_launch_records_harness_hung_when_child_still_alive(
+    monkeypatch, tmp_path
+):
+    project = _project(tmp_path)
+    # A child still alive (poll() is None) when the harness never connected: the
+    # "engine up, harness hung" case, distinct from a crashed child.
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc(None))
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+
+    diagnostics: list[str] = []
+    outcome = launch_session(
+        project,
+        "godot",
+        cast(socket.socket, _NoAcceptListener()),
+        tmp_path / "h.sock",
+        "tok",
+        timeout=0.1,
+        diagnostics=diagnostics,
+    )
+
+    assert outcome is None
+    assert diagnostics
+    assert "harness did not connect" in diagnostics[0]
+
+
 # --- Slice 2: the daemon serves diag from the remembered log file ---
 
 

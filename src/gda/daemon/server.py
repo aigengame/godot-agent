@@ -149,8 +149,9 @@ class DaemonServer:
         # The scene selector is verified ONCE at launch (in the harness): a mismatch
         # is a typed live_scene_not_found, never a silent fall back to main_scene and
         # never a per-request re-check (#278, ADR-0017 amendment, ADR-0020).
+        launch_diagnostics: list[str] = []
         try:
-            session = self._ensure_session()
+            session = self._ensure_session(launch_diagnostics)
         except SceneMismatch as mismatch:
             detail = (
                 f"no scene named {mismatch.requested!r} exists in the project"
@@ -168,7 +169,8 @@ class DaemonServer:
             return error_reply(
                 "engine_session_not_running",
                 "the gda-daemon could not launch an engine session (no Godot binary, "
-                "or the harness did not connect)",
+                "or the engine died / the harness did not connect)",
+                diagnostics=self._launch_failure_diagnostics(launch_diagnostics),
             )
         return session.request(op, request.get("params", {}))
 
@@ -219,7 +221,9 @@ class DaemonServer:
         )
         return result_reply({"records": records})
 
-    def _ensure_session(self) -> EngineSession | None:
+    def _ensure_session(
+        self, diagnostics: list[str] | None = None
+    ) -> EngineSession | None:
         if self._session is not None and self._session.alive():
             return self._session
         if self._session is not None:
@@ -249,8 +253,35 @@ class DaemonServer:
             log_file=self._session_log_path(),
             windowed=self.windowed,
             scene=self.scene,
+            diagnostics=diagnostics,
         )
         return self._session
+
+    def _launch_failure_diagnostics(self, child_diagnostics: list[str]) -> str:
+        """Best-effort diagnostics for a failed engine-session launch (#345).
+
+        Combines the child-liveness reason ``launch_session`` observed (the engine
+        died by signal, or the harness never connected) with a tail of the daemon-
+        owned Session log, read via the DETERMINISTIC :meth:`_session_log_path` —
+        which needs no live session object, extending ADR-0022's read path to the
+        failed-launch case. NOTE: a windowed-no-``DisplayServer`` abort happens
+        BEFORE Godot installs its file logger, so this tail is usually EMPTY for that
+        case (the child-signal reason carries it); it carries content for a
+        post-logger crash.
+        """
+        parts = [reason for reason in child_diagnostics if reason]
+        tail = self._read_session_log_tail()
+        if tail:
+            parts.append(f"session log tail:\n{tail}")
+        return "\n".join(parts)
+
+    def _read_session_log_tail(self, max_bytes: int = 2000) -> str:
+        """The trailing bytes of the daemon-owned Session log, or "" if unreadable."""
+        try:
+            data = self._session_log_path().read_bytes()
+        except OSError:
+            return ""
+        return data.decode("utf-8", "replace").strip()[-max_bytes:]
 
     def _session_log_path(self):
         """The daemon-owned Session-log path for this project (#224).

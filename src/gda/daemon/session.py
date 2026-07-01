@@ -126,6 +126,7 @@ def launch_session(
     timeout: float = CONNECT_TIMEOUT,
     windowed: bool = False,
     scene: Optional[str] = None,
+    diagnostics: Optional[list[str]] = None,
 ) -> Optional[EngineSession]:
     """Launch an engine session and wait for the harness to connect.
 
@@ -163,7 +164,24 @@ def launch_session(
     ``user://logs`` contention (#180) by isolation, and the session REMEMBERS the
     path so the daemon can serve ``gda diag`` from it (ADR: runtime-diagnostics-
     via-daemon-owned-session-log). The session still relays live ops to the harness.
+
+    On a failed launch (a ``None`` return) an optional ``diagnostics`` sink collects
+    a best-effort reason string so the daemon can surface it instead of an empty
+    ``engine_session_not_running`` (#345). Because the child is spawned with
+    ``stderr=DEVNULL`` (redirecting it to a pipe risks a fill-buffer deadlock, out of
+    scope here), the one cause signal we keep is the child's LIVENESS at the failure
+    boundary: a child that already exited names its exit — a negative return code is
+    a signal death (e.g. a windowed session that could not bring up a
+    ``DisplayServer`` aborts with ``SIGABRT``) — while a child still alive when the
+    harness never connected is the "harness hung" case. That distinction tells a
+    crashed windowed process apart from a stuck harness.
     """
+    def _record(message: str) -> None:
+        # Collect a best-effort launch-failure reason for the daemon to surface
+        # (#345); a no-op when the caller passed no sink.
+        if diagnostics is not None:
+            diagnostics.append(message)
+
     log_args = ["--log-file", str(log_file)] if log_file is not None else []
     headless_args = [] if windowed else ["--headless"]
     # `--scene <path|UID>` is an ENGINE option, so it sits before `--path` (and so
@@ -195,6 +213,10 @@ def launch_session(
     try:
         conn, _ = harness_listener.accept()
     except OSError:  # includes socket.timeout
+        # No harness connected within the timeout. Poll the child BEFORE tearing it
+        # down: this is where a windowed-no-DisplayServer abort (child died by
+        # signal) is told apart from a genuinely hung harness (child still alive).
+        _record(_child_exit_diagnostic(proc, timeout))
         _terminate(proc)
         return None
 
@@ -204,10 +226,8 @@ def launch_session(
     except OSError:
         presented = None
     if presented is None or presented.decode("utf-8", "replace") != token:
-        try:
-            conn.close()
-        except OSError:
-            pass
+        _record("the harness connected but presented an invalid auth token")
+        _close(conn)
         _terminate(proc)
         return None
 
@@ -221,6 +241,7 @@ def launch_session(
     except OSError:
         verify_frame = None
     if verify_frame is None:
+        _record("the harness connected but closed before the scene-verification frame")
         _close(conn)
         _terminate(proc)
         return None
@@ -234,6 +255,31 @@ def launch_session(
         _terminate(proc)
         raise SceneMismatch(scene if scene is not None else "", str(current))
     return EngineSession(proc, conn, log_file=log_file)
+
+
+def _child_exit_diagnostic(proc: subprocess.Popen, timeout: float) -> str:
+    """A best-effort launch-failure reason from the child's liveness (#345).
+
+    Called on a failure path BEFORE terminating the child (spawned with
+    ``stderr=DEVNULL``, so its liveness is the one cause signal we keep). A child
+    that has ALREADY exited means the engine died before the harness could connect:
+    a negative return code is a signal death (a windowed session that could not
+    register a ``DisplayServer`` aborts with ``SIGABRT``); a positive one is a plain
+    non-zero exit. A child STILL alive is the "engine up, harness never connected"
+    case — a hung/broken harness autoload. This is the signal that tells a crashed
+    windowed process apart from a stuck harness.
+    """
+    code = proc.poll()
+    if code is None:
+        return f"the engine started but the harness did not connect within {timeout:.0f}s; session terminated"
+    if code < 0:
+        signum = -code
+        try:
+            name = signal.Signals(signum).name
+        except ValueError:
+            name = f"signal {signum}"
+        return f"the engine child aborted by signal {name} ({signum}) before the harness connected"
+    return f"the engine child exited with status {code} before the harness connected"
 
 
 def _close(conn: socket.socket) -> None:
