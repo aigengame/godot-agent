@@ -130,3 +130,41 @@ def test_no_resolved_project_emits_project_not_found(monkeypatch, tmp_path):
     err = json.loads(result.stdout)["error"]
     assert err["code"] == "project_not_found"
     assert not calls
+
+
+def test_explicit_bad_project_is_structured_not_a_traceback(monkeypatch, tmp_path):
+    # An EXPLICIT --project that is not a Godot project makes resolve_project_dir RAISE
+    # ValueError — which the recipe must convert to the SAME structured project_not_found
+    # the None case yields, never letting the raise escape as a traceback (ADR-0031 /
+    # #343 AC). The projectless-cwd None guard alone would MISS this raise path.
+    not_a_project = tmp_path / "not-a-godot-project"
+    not_a_project.mkdir()  # exists, but has no project.godot
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "run", "res://logic.gd", "--project", str(not_a_project), "--json"],
+    )
+
+    assert result.exit_code != 0
+    # A structured envelope on stdout, NOT a Rich/Python traceback.
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "project_not_found"
+    assert not calls, "no engine launch when the project cannot resolve"
+
+
+def test_bad_gda_project_env_is_structured_not_a_traceback(monkeypatch, tmp_path):
+    # The same raise path via $GDA_PROJECT (env precedence, not the --project flag):
+    # an env pointing at a non-project also raises ValueError and must yield the
+    # structured project_not_found envelope, not a traceback.
+    not_a_project = tmp_path / "env-not-a-project"
+    not_a_project.mkdir()
+    monkeypatch.setenv("GDA_PROJECT", str(not_a_project))
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(app, ["script", "run", "res://logic.gd", "--json"])
+
+    assert result.exit_code != 0
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "project_not_found"
+    assert not calls

@@ -43,6 +43,7 @@ from gda.errors import (
     classify_perf_monitor,
     classify_perf_monitors,
     classify_script_validate,
+    script_run_project_not_found_failure,
 )
 from gda.execution import ExecutionKind
 from gda.export_run import (
@@ -572,10 +573,22 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
 
 
 def _script_run_recipe(params, *, project, godot):
+    # Project resolution stays CLI-side (ADR-0006), but ``resolve_project_dir``
+    # RAISES ValueError for an explicit ``--project`` (or ``$GDA_PROJECT``) that is
+    # not a Godot project — a raise that would escape as a traceback before the op's
+    # projectless-None guard runs. Convert it to the SAME structured project_not_found
+    # the None case yields, so "no resolved project" is always a clear structured
+    # error, never a crash (ADR-0031 / #343 AC). (The general cross-cutting fix — a
+    # shared ValueError→envelope layer across every channel — is tracked in #353;
+    # this stays within script run's own slice.)
+    try:
+        resolved = resolve_project_dir(project)
+    except ValueError:
+        return script_run_project_not_found_failure()
     return run_script_run_operation(
         script=params.path,
         godot=godot,
-        project=resolve_project_dir(project),
+        project=resolved,
     )
 
 

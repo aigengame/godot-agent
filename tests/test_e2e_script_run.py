@@ -61,8 +61,8 @@ def _run_gda(*args: str, retry: bool = False) -> subprocess.CompletedProcess:
     """Invoke ``gda <args>`` as a subprocess (this checkout's editable gda, ADR-0011).
 
     ``retry`` re-runs once on a transient ``engine_crashed`` — a shared-``user://``
-    log race under parallel e2e, not a gda bug (see the memory note) — so a happy
-    path does not flake.
+    log race under parallel e2e (not a gda bug; the race was fixed in #180) — so a
+    happy path does not flake.
     """
     for attempt in range(2 if retry else 1):
         proc = subprocess.run([*GDA_CMD, *args], capture_output=True, text=True)
