@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.51](https://github.com/aigengame/godot-agent/compare/v0.1.50...v0.1.51) (2026-07-01)
+
+
+### Features
+
+* **harness:** public is_daemon_launched() predicate for log gating ([#362](https://github.com/aigengame/godot-agent/issues/362)) ([#367](https://github.com/aigengame/godot-agent/issues/367)) ([c652a5d](https://github.com/aigengame/godot-agent/commit/c652a5d919975e87f7cae13f13ed8c8088753cf0))
+* **ops:** assign a Resource to an Object-typed property by res:// ref ([#363](https://github.com/aigengame/godot-agent/issues/363)) ([#369](https://github.com/aigengame/godot-agent/issues/369)) ([e10ca7c](https://github.com/aigengame/godot-agent/commit/e10ca7c306593071d9432bafe6f89042c90dbb55))
+
 ## [0.1.50](https://github.com/aigengame/godot-agent/compare/v0.1.49...v0.1.50) (2026-07-01)
 
 
