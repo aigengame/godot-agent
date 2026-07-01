@@ -46,7 +46,9 @@ gda node set scene.tscn --node Col --property shape --value res://shapes/box.tre
   the unified `class_name` resolver of ADR-0032.
 - **Structured failures**, not `uncoercible_value`: a non-`res://` value, a path that does not load as
   a Resource, and a resource whose type is incompatible with the property each report a distinct,
-  structured code.
+  structured code. The concrete `GdaError` codes are **not fixed here** — since `GdaError.code` is
+  public ABI whose authoritative source is the error registry (ADR-0002), the implementation slice
+  (#363) mints them and registers them there when it lands (the ADR-0031 pattern).
 - **Value-typed coercion** (scalar / `Vector2` / `Color`) is unchanged.
 
 ## Considered options
@@ -66,13 +68,18 @@ gda node set scene.tscn --node Col --property shape --value res://shapes/box.tre
 
 ## Consequences
 
-- **New public value-form ABI:** `node set` / `resource set` accept a `res://` path for Resource-typed
-  properties; agents and tooling may rely on it. This is why the decision is recorded.
-- **The [Project-code execution surface](../../CONTEXT.md) (ADR-0009) is not newly widened.** Loading a
-  `.tres` runs the same resource `_init` that `resource create` / `load` already run, within the
-  Trusted-project assumption — no new trust axis.
-- **A recorded asymmetry:** `script` → `script attach`; every other Resource-typed property → `node
-  set` / `resource set`. Intentional — one authoritative script-attach path.
+- **New public value-form ABI:** `node set` / `resource set` accept a `res://` path for
+  **engine-class-typed** Resource/Object properties (script-`class_name`-typed properties are deferred,
+  per the contract edge above); agents and tooling may rely on it. This is why the decision is recorded.
+- **The [Project-code execution surface](../../CONTEXT.md) (ADR-0009) widens.** `node set` / `resource
+  set` gain a new entry point that **loads** an external Resource value (`--value res://…`), so a
+  **script-backed** Resource's `_init` runs on load — from a point the surface did not previously
+  enumerate (it covered `_init` only for a resource an operation *constructs*, e.g. `resource create`).
+  This stays **within** ADR-0009's Trusted-project assumption and adds **no new trust axis** — only a
+  documented widening of the same surface, the ADR-0031 precedent. `CONTEXT.md`'s
+  `Project-code execution surface` glossary entry is aligned in this same change.
+- **A recorded asymmetry:** `script` → `script attach`; every other **engine-class-typed** Resource
+  property → `node set` / `resource set`. Intentional — one authoritative script-attach path.
 - **Ties to ADR-0032:** script-`class_name`-typed property validation will reuse ADR-0032's unified
   `class_name` resolver when that extension (or the deferred inline sub-resource work) lands.
 - **The mirrored `_coerce_value` stays byte-identical**; the mirror test (`operations.gd` ↔
