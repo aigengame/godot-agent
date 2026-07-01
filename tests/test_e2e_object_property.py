@@ -42,6 +42,23 @@ def _gda_project(project):
     return gda
 
 
+def _import_project(project) -> None:
+    """Run a one-shot headless import so the project's class_name list is written.
+
+    A script ``class_name`` only registers in
+    ``.godot/global_script_class_list.cfg`` after a project scan — the realistic
+    precondition for resolving ``Player`` / ``PlayerConfig`` by class_name
+    (mirrors the node/resource class_name e2e tests).
+    """
+    imported = subprocess.run(
+        [str(GODOT), "--headless", "--path", str(project), "--import"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert imported.returncode == 0, imported.stdout + imported.stderr
+
+
 def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
     assert proc.returncode == 4, proc.stdout + proc.stderr
     err = json.loads(proc.stdout)["error"]
@@ -340,3 +357,77 @@ def test_node_set_value_typed_coercion_is_unchanged(godot_project):
     data = json.loads(was_set.stdout)
     assert data["type"] == "Vector2"
     assert data["value"] == [3.0, 4.0]
+
+
+# A script-defined custom Resource, and a node script that exports a property
+# typed as that script `class_name`. The exported `config: PlayerConfig` is an
+# Object-typed property whose expected class is a SCRIPT class_name — not an
+# engine class — which ADR-0033 defers.
+PLAYER_CONFIG_GD = """\
+class_name PlayerConfig
+extends Resource
+
+@export var hp: int = 5
+"""
+
+PLAYER_GD = """\
+class_name Player
+extends Node2D
+
+@export var config: PlayerConfig
+"""
+
+
+@pytest.mark.e2e
+def test_node_set_script_class_name_typed_property_is_deferred(godot_project):
+    # ADR-0033 DEFERS script-class_name-typed Object properties (their validation
+    # will reuse ADR-0032's class_name resolver): only ENGINE-class-typed Object
+    # properties are in scope this slice. A node whose script exports a
+    # script-class_name-typed Object property (config: PlayerConfig) refuses a
+    # res:// assignment with the DISTINCT, public unsupported_property_type code —
+    # never a misleading resource_type_mismatch — naming the class and the deferral,
+    # and leaves the scene untouched. Pins the deferred branch as a checked-in
+    # contract (the code is public ABI), dispatching through operations.gd.
+    gda = _gda_project(godot_project)
+    (godot_project / "player_config.gd").write_text(PLAYER_CONFIG_GD, encoding="utf-8")
+    (godot_project / "player.gd").write_text(PLAYER_GD, encoding="utf-8")
+    _import_project(godot_project)
+
+    created = gda(
+        "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+    # Add the scripted node by its class_name so it carries the config export.
+    added = gda(
+        "node",
+        "add",
+        "res://main.tscn",
+        "--type",
+        "Player",
+        "--name",
+        "Player",
+        "--json",
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+    cfg = gda(
+        "resource", "create", "res://cfg.tres", "--type", "PlayerConfig", "--json"
+    )
+    assert cfg.returncode == 0, cfg.stdout + cfg.stderr
+    before = (godot_project / "main.tscn").read_text(encoding="utf-8")
+
+    was_set = gda(
+        "node",
+        "set",
+        "res://main.tscn",
+        "--node",
+        "Player",
+        "--property",
+        "config",
+        "--value",
+        "res://cfg.tres",
+        "--json",
+    )
+
+    err = _assert_operation_error(was_set, "unsupported_property_type")
+    assert "PlayerConfig" in err["message"]
+    assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
