@@ -35,6 +35,13 @@ the cost/benefit table).
   exercises the boundary (integration / e2e / compile or a parse `--check-only`).
 - **The orchestrator independently re-verifies before merging.** Subagent implements;
   the lead re-runs tests and spot-checks the diff. "Done but no artifact" = needs takeover.
+- **Disjointness is a merge-cost heuristic, not an architecture goal.** Never let "keep
+  slices disjoint / avoid the append hotspot" suppress a sound design decision — a
+  legitimate shared-module edit, deep-module *reuse*, or a single source for a public
+  shape. When they conflict, **serialize that slice's merge** rather than degrade the
+  architecture; and make "did this slice *reuse* the existing deep module (not
+  re-implement it in isolation)?" part of each subagent's DoD — wired into the
+  dispatch-prompt DoD and the pre-launch checklist, not just prose. (REFERENCE §1, §3, §9)
 
 ## Workflow
 

@@ -29,6 +29,30 @@ edits, where all the integration cost concentrates:
 A wave whose slices all hammer the same hotspot is *not* a good parallel candidate —
 expect a conflict-heavy serial merge, or fix it structurally first (§8).
 
+**Guardrail: disjointness is a merge-cost heuristic, not an architecture goal.** When
+slicing for disjointness would suppress or distort a sound design decision, the design
+wins:
+
+- **Don't avoid a shared file just to keep a slice disjoint.** If a legitimate change
+  belongs in a registry, a model module, or a *deep module* (a unit with a small
+  interface over substantial implementation that is meant to be reused), put it there and
+  **serialize that slice's merge** — don't sacrifice reusability (or bend scope) to
+  manufacture disjointness. "I deliberately kept this out of `models.py` to decouple the
+  slices" is the smell.
+- **Don't let isolation hide a re-implemented deep module.** Worktree isolation defers
+  duplicated/forked logic to merge or review, so parallel fan-out actively tempts each
+  subagent to re-build shared logic in its own worktree. Before calling a slice's
+  addition "new", confirm it isn't a thin projection of an existing deep module — *reuse
+  the module*; a thin per-slice data shape (a DTO/wrapper) layered over it is fine, a
+  second copy of its logic is not. Bake "did this reuse the existing deep module?" into
+  the subagent DoD and the review — wire it into the operational surfaces, not just this
+  prose (the dispatch-prompt DoD in §3 and the pre-launch checklist in §9).
+
+This is the **complement of §8**: §8 *splits* hotspots so slices stop colliding; this
+guardrail stops you from *degrading* a deep module to fake disjointness in the first
+place. Splitting a shared file is a structural fix; suppressing a sound change to dodge
+it is not.
+
 ## 2. Wave sizing
 
 - **≤ ~5 independent slices per wave.** (A run that tried ~9 at once hit two failure
@@ -57,8 +81,14 @@ You are implementing <slice> in an ISOLATED git worktree.
 - Definition of Done: the INTEGRATION-tier test passes (the tier that actually exercises
   the integration boundary — integration / e2e / compile / a parse `--check-only`), not
   just the fast tier that stubs it. Do not satisfy DoD with `-m "not <integration>"`.
-- When done: open the PR (or commit + push). Report the branch, the PR URL, and the
-  exact test command + its result counts.
+- Also part of DoD — deep-module reuse: if your change belongs in a shared/deep module (a
+  central helper, model, or a spawn/launch primitive), REUSE it — do NOT re-implement its
+  logic in your worktree. A thin per-slice wrapper over an existing module is fine; a
+  second copy of its logic is not. If the right change belongs in a shared file, make it
+  there and flag it in your report — don't dodge it to stay disjoint.
+- When done: open the PR (or commit + push). Report the branch, the PR URL, the exact
+  test command + its result counts, and any deep module you reused or shared file you had
+  to touch.
 ```
 
 Worktree setup / cleanup:
@@ -197,6 +227,7 @@ design decision (an ADR) of its own.
 - [ ] Slices in this wave are independent (no shared module/group); coupled ones serialized.
 - [ ] Wave ≤ ~5; will merge before the next wave.
 - [ ] Each subagent's DoD includes the integration tier (not just the stubbed fast tier).
+- [ ] Each subagent's DoD includes deep-module reuse — no re-implementing shared logic, and no dodging a legitimate shared-file edit, to fake disjointness (§1).
 - [ ] Agents pinned to their own worktree; will commit early; "done but no artifact" = takeover.
 - [ ] Merge order decided (tracer first); after each resolution, audit for the marker-free traps.
 - [ ] Shared-global-resource tests will run serially across worktrees.
