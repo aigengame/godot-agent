@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.50](https://github.com/aigengame/godot-agent/compare/v0.1.49...v0.1.50) (2026-07-01)
+
+
+### Features
+
+* **ops:** project-local class_name static-scan resolution (ADR-0032) ([#368](https://github.com/aigengame/godot-agent/issues/368)) ([7a2382b](https://github.com/aigengame/godot-agent/commit/7a2382bd4132db2929a0d1e7c269809d6282a58a))
+
 ## [0.1.49](https://github.com/aigengame/godot-agent/compare/v0.1.48...v0.1.49) (2026-07-01)
 
 
