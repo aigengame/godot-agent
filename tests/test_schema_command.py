@@ -1091,6 +1091,35 @@ def test_export_get_and_list_commands_schema_report_kind_headless():
         assert json.loads(result.stdout)["kind"] == "headless"
 
 
+def test_script_run_command_schema_reports_kind_script_run():
+    # `script run` is the fourth execution shape (ADR-0031): a user-script
+    # passthrough run — neither the operations.gd sentinel nor the native export
+    # recipe — so its schema must say `script_run`, the fourth kind value. Sibling
+    # script commands (get/list/validate/…) stay HEADLESS.
+    result = CliRunner().invoke(app, ["script", "run", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["kind"] == "script_run"
+
+
+def test_script_run_command_schema_is_model_derived():
+    # `script run` self-describes like any command (ADR-0004): input/output from its
+    # typed models, the uniform error envelope. Its output carries the passthrough
+    # {exit_status, stdout, stderr} — the public promotion of the Raw run.
+    from gda.models import ScriptRunParams, ScriptRunResult
+
+    doc = json.loads(CliRunner().invoke(app, ["script", "run", "--schema"]).stdout)
+
+    assert doc["input"] == ScriptRunParams.model_json_schema()
+    assert doc["output"] == ScriptRunResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    # The success output exposes exit_status (can be non-zero on success, ADR-0031).
+    assert set(doc["output"]["properties"]) == {"exit_status", "stdout", "stderr"}
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_live_command_schema_reports_kind_live_without_a_daemon():
     # `game tree` is a LIVE command served through gda-daemon — but `--schema` is
     # intercepted in parse_args before any execution, so it self-describes with

@@ -181,6 +181,8 @@ from gda.models import (
     ScriptGetResult,
     ScriptListParams,
     ScriptListResult,
+    ScriptRunParams,
+    ScriptRunResult,
     ScriptSetMode,
     ScriptSetParams,
     ScriptSetResult,
@@ -255,6 +257,7 @@ from gda.render import (
     render_script_delete,
     render_script_get,
     render_script_list,
+    render_script_run,
     render_script_set,
     render_script_validate,
     render_shader_create,
@@ -268,6 +271,7 @@ from gda.screen_ops import (
     run_screen_capture_operation,
     run_screen_frames_operation,
 )
+from gda.script_run import run_script_run_operation
 from gda.skill_ops import build_skill_result
 from gda.skill_targets import SkillProvider, SkillScope
 from gda.surface import build_surface_manifest
@@ -564,6 +568,32 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
     kind=ExecutionKind.EXPORT,
     render=render_export_run,
     recipe=_export_run_recipe,
+)
+
+
+def _script_run_recipe(params, *, project, godot):
+    return run_script_run_operation(
+        script=params.path,
+        godot=godot,
+        project=resolve_project_dir(project),
+    )
+
+
+# ``script run`` is the third execution shape (ADR-0031): a user-script passthrough
+# run. Its entry script is the user's own, so it emits no ADR-0002 sentinel, and gda
+# does not know the script's semantics — so it routes through the recipe channel
+# (ADR-0023) like ``export run``, and carries the fourth ``SCRIPT_RUN`` kind, which is
+# self-description only (ADR-0004 / ADR-0012) — dispatch is by ``recipe``, adding no
+# runner-selection branch. The descriptor is defined HERE, not beside the operation
+# (gda.script_run), because its recipe needs cli's project-resolution seam and cli.py
+# is the dispatch composition root (ADR-0023).
+SCRIPT_RUN_COMMAND: HeadlessCommand[ScriptRunResult] = HeadlessCommand(
+    operation="script-run",
+    input_model=ScriptRunParams,
+    output_model=ScriptRunResult,
+    kind=ExecutionKind.SCRIPT_RUN,
+    render=render_script_run,
+    recipe=_script_run_recipe,
 )
 
 
@@ -2586,6 +2616,39 @@ def validate_script(
     _dispatch(
         SCRIPT_VALIDATE_COMMAND,
         ScriptValidateParams(path=path),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@script_app.command(name="run", cls=SCRIPT_RUN_COMMAND.command_class())
+def run_script(
+    path: str = typer.Argument(
+        ...,
+        help="The res:// path of the script to run (e.g. res://tests/logic.gd).",
+    ),
+    json_output: bool = json_option(),
+    schema: bool = SCRIPT_RUN_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Run a user script one-shot and pass its exit_status/stdout/stderr through.
+
+    Runs the user's own res:// script as ``godot --headless --path <project>
+    --script <res://…>`` and returns its result verbatim (ADR-0031). This is the
+    ONE command whose success result can carry a non-zero ``exit_status``: gda does
+    not interpret the script's semantics, so a deliberate ``quit(1)`` (e.g. an
+    assertion-failed logic-seam test) is data the agent reads, not a gda failure —
+    read ``exit_status``, do not assume ``success == zero``. Only a gda-/engine-level
+    failure (binary not launchable, timeout, or a signal crash) is an Error envelope
+    (``binary_not_found`` / ``launch_timeout`` / ``engine_crashed``). A non-res://
+    path or no resolved project is a structured ``invalid_path`` / ``project_not_found``.
+    """
+    _dispatch_recipe(
+        SCRIPT_RUN_COMMAND,
+        ScriptRunParams(path=path),
         json_output=json_output,
         godot=godot,
         project=project,
