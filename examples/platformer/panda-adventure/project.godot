@@ -2,7 +2,8 @@
 ;
 ; gda has no `project create`, so this is the canonical project root. Keep it
 ; minimal: later slices (S1–S9) extend it. The `data/generated/*.tres` the build
-; pipeline emits are derived artifacts (gitignored), regenerated from JSON.
+; pipeline emits are derived artifacts that are COMMITTED (a freshness gate keeps
+; them byte-identical to a fresh build), regenerated from JSON via build_config.py.
 
 config_version=5
 
@@ -13,9 +14,30 @@ run/main_scene="res://scenes/main.tscn"
 
 [input]
 
-; Named input actions (e.g. move_left/move_right/jump) are registered by a later
-; slice (S1). This section is an intentionally empty scaffold for now — no
-; actions yet.
+; S1 player-traversal actions. move_left/move_right/jump are consumed by
+; PlayerController (Input.get_axis / is_action_just_pressed) and driven in the
+; live e2e by `gda input action`. Each binds an arrow key plus a WASD/Space
+; alternative. Hand-authored (project.godot is the canonical root); the exact
+; InputEventKey serialization was emitted by Godot itself (var_to_str).
+
+move_left={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194319,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+, Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":65,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+move_right={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194321,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+, Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":68,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+jump={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":32,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+, Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194320,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
 
 [debug]
 
@@ -32,3 +54,7 @@ file_logging/enable_file_logging.pc=false
 ; export preset (S0 smoke-test); the exporter refuses universal/arm64 builds when
 ; this is off. Harmless for desktop running.
 textures/vram_compression/import_etc2_astc=true
+
+[autoload]
+
+GdaHarness="*res://addons/gda_harness/gda_harness.gd"

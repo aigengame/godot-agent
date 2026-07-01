@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """JSON -> Resource build pipeline for Panda Adventure (gADR-0000).
 
-The authoritative config lives in ``data/json/boot_config.json``. This step
-validates it against ``data/schema/boot_config.schema.json`` (raising on invalid
-input) and emits the *derived* Godot Resource ``data/generated/boot_config.tres``
-that the runtime ``load()``s. The ``.tres`` is a build artifact (gitignored),
-never hand-edited: changing config means changing the JSON.
+The authoritative config lives in ``data/json/player_config.json``. This step
+validates it against ``data/schema/player_config.schema.json`` (raising on
+invalid input) and emits the *derived* Godot Resource
+``data/generated/player_config.tres`` that the runtime ``load()``s. The ``.tres``
+is a committed derived artifact (a freshness gate keeps it byte-identical to a
+fresh build), never hand-edited: changing config means changing the JSON.
 
-Dogfooding note: ``gda resource create --type GameConfig`` cannot instantiate a
-GDScript ``class_name`` global (gda's ClassDB lookup only knows built-in Resource
-classes), so this converter emits the ``.tres`` text directly — an ``ext_resource``
-to the script plus the ``[resource]`` field assignments. The emitted file still
-loads through gda/Godot, which the data-seam round-trip test proves.
+Dogfooding note: ``gda resource create --type PlayerConfig`` cannot instantiate a
+GDScript ``class_name`` for THIS project, because gda resolves a registered
+class_name through ``ProjectSettings.get_global_class_list()`` — which is only
+populated once the project has been imported/scanned by the editor
+(``.godot/global_script_class_cache.cfg``). This project is agent-driven and never
+opened in the editor, so that cache does not exist and the class is invisible. So
+this converter emits the ``.tres`` text directly — an ``ext_resource`` to the
+script plus the ``[resource]`` field assignments. The emitted file still loads
+through gda/Godot, which the data-seam round-trip test proves.
 
 Run standalone: ``python scripts/build_config.py`` (writes the .tres, prints a
 one-line summary).
@@ -27,13 +32,35 @@ import jsonschema
 
 # Resolve paths relative to this file so the script works from any CWD.
 GAME_DIR = Path(__file__).resolve().parent.parent
-JSON_PATH = GAME_DIR / "data" / "json" / "boot_config.json"
-SCHEMA_PATH = GAME_DIR / "data" / "schema" / "boot_config.schema.json"
-GENERATED_TRES = GAME_DIR / "data" / "generated" / "boot_config.tres"
+JSON_PATH = GAME_DIR / "data" / "json" / "player_config.json"
+SCHEMA_PATH = GAME_DIR / "data" / "schema" / "player_config.schema.json"
+GENERATED_TRES = GAME_DIR / "data" / "generated" / "player_config.tres"
 
-# The res:// path of the GameConfig script the generated .tres references.
-SCRIPT_RES_PATH = "res://src/resources/game_config.gd"
-_EXT_ID = "1_gameconfig"
+# The res:// path + script_class of the Resource the generated .tres references.
+SCRIPT_RES_PATH = "res://src/resources/player_config.gd"
+SCRIPT_CLASS = "PlayerConfig"
+_EXT_ID = "1_playerconfig"
+
+# The .tres field layout: (json key, Godot type). Rendered in THIS order, so a
+# rebuild is byte-stable (the freshness gate depends on it) and adding a config
+# field is a one-line change. Types: "color" (4-array -> Color), "vec2" (2-array
+# -> Vector2), "float" (scalar -> bare number). The schema is the validation
+# authority; this list is the render authority — keep them in step.
+_FIELDS: list[tuple[str, str]] = [
+    ("player_color", "color"),
+    ("player_size", "vec2"),
+    ("player_start", "vec2"),
+    ("move_speed", "float"),
+    ("jump_velocity", "float"),
+    ("gravity", "float"),
+    ("max_fall_speed", "float"),
+    ("platform_color", "color"),
+    ("platform_size", "vec2"),
+    ("platform_position", "vec2"),
+    ("camera_smoothing_speed", "float"),
+    ("landing_squash", "vec2"),
+    ("landing_tween_duration", "float"),
+]
 
 
 def load_json(path: Path) -> Any:
@@ -42,7 +69,7 @@ def load_json(path: Path) -> Any:
 
 
 def load_schema(path: Path = SCHEMA_PATH) -> dict[str, Any]:
-    """Load the boot-config JSON Schema."""
+    """Load the player-config JSON Schema."""
     return load_json(path)
 
 
@@ -50,7 +77,7 @@ def validate_config(config: Any, schema: dict[str, Any] | None = None) -> Any:
     """Validate ``config`` against the schema; raise on invalid, else return it.
 
     Raises :class:`jsonschema.ValidationError` for any schema violation (missing
-    key, wrong type, out-of-range component, wrong array length).
+    key, wrong type, out-of-range component, wrong array length, wrong sign).
     """
     jsonschema.validate(
         instance=config, schema=schema if schema is not None else load_schema()
@@ -72,37 +99,35 @@ def _num(value: float) -> str:
     return repr(float(value))
 
 
-def _vec2(pair: list[float]) -> str:
-    """Render a 2-number JSON array as a Godot ``Vector2(x, y)`` literal."""
-    x, y = pair
-    return f"Vector2({_num(x)}, {_num(y)})"
+def _render_field(key: str, kind: str, value: Any) -> str:
+    """Render one config value as its Godot ``.tres`` literal for the given kind."""
+    if kind == "color":
+        r, g, b, a = value
+        return f"Color({_num(r)}, {_num(g)}, {_num(b)}, {_num(a)})"
+    if kind == "vec2":
+        x, y = value
+        return f"Vector2({_num(x)}, {_num(y)})"
+    if kind == "float":
+        return _num(value)
+    raise ValueError(f"unknown field kind {kind!r} for {key!r}")
 
 
 def render_tres(config: dict[str, Any]) -> str:
-    """Render a validated boot config as ``GameConfig`` ``.tres`` text.
+    """Render a validated player config as ``PlayerConfig`` ``.tres`` text.
 
-    Pure function (no IO): the JSON->Resource conversion seam. Maps the JSON
-    arrays to their Godot types — ``block_color`` -> ``Color(r,g,b,a)``,
-    ``block_size`` and the two positions -> ``Vector2(x,y)``, ``tween_duration``
-    -> a bare number.
+    Pure function (no IO): the JSON->Resource conversion seam. Walks ``_FIELDS``
+    in declaration order, mapping each JSON value to its Godot type.
     """
-    r, g, b, a = config["block_color"]
-    color = f"Color({_num(r)}, {_num(g)}, {_num(b)}, {_num(a)})"
-    size = _vec2(config["block_size"])
-    start = _vec2(config["start_position"])
-    target = _vec2(config["target_position"])
-    duration = _num(config["tween_duration"])
+    body = "".join(
+        f"{key} = {_render_field(key, kind, config[key])}\n" for key, kind in _FIELDS
+    )
     return (
-        f'[gd_resource type="Resource" script_class="GameConfig" '
+        f'[gd_resource type="Resource" script_class="{SCRIPT_CLASS}" '
         f"load_steps=2 format=3]\n\n"
         f'[ext_resource type="Script" path="{SCRIPT_RES_PATH}" id="{_EXT_ID}"]\n\n'
         f"[resource]\n"
         f'script = ExtResource("{_EXT_ID}")\n'
-        f"block_color = {color}\n"
-        f"block_size = {size}\n"
-        f"start_position = {start}\n"
-        f"target_position = {target}\n"
-        f"tween_duration = {duration}\n"
+        f"{body}"
     )
 
 

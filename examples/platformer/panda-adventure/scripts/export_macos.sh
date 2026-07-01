@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Reproducible macOS export smoke-test for Panda Adventure (S0).
+# Reproducible macOS export smoke-test for Panda Adventure.
 #
 # Produces a launchable, ad-hoc-signed universal .app from a CLEAN checkout using
 # only `gda` and a Godot binary ($GDA_GODOT or --godot). It encodes the two things
@@ -11,9 +11,9 @@
 #      (it sets cwd=<project> AND passes --path <project>, applying the relative
 #      path twice; gda issue #344), so we always pass the absolute path.
 #
-# Config: relies on the COMMITTED data/generated/boot_config.tres (a tracked,
+# Config: relies on the COMMITTED data/generated/player_config.tres (a tracked,
 # derived artifact, so a clean checkout boots/exports with no build step). If you
-# change data/json/boot_config.json, regenerate it with
+# change data/json/player_config.json, regenerate it with
 # `python3 scripts/build_config.py` — the CI freshness gate enforces they match.
 #
 # Usage:
@@ -23,7 +23,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GAME_DIR="$(dirname "$SCRIPT_DIR")"
-TRES="$GAME_DIR/data/generated/boot_config.tres"
+TRES="$GAME_DIR/data/generated/player_config.tres"
 OUTPUT="$GAME_DIR/build/PandaAdventure.app"
 
 if [[ ! -f "$TRES" ]]; then

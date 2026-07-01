@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigengame.dev/panda-adventure/data/schema/player_config.schema.json",
+  "title": "Panda Adventure player+level configuration",
+  "description": "Authoritative config for S1 player traversal (gADR-0000: JSON is the single source of truth). Converted to data/generated/player_config.tres (a PlayerConfig Resource) by scripts/build_config.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "player_color",
+    "player_size",
+    "player_start",
+    "move_speed",
+    "jump_velocity",
+    "gravity",
+    "max_fall_speed",
+    "platform_color",
+    "platform_size",
+    "platform_position",
+    "camera_smoothing_speed",
+    "landing_squash",
+    "landing_tween_duration"
+  ],
+  "properties": {
+    "player_color": {
+      "description": "Player block color as RGBA, each component in 0..1.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "player_size": {
+      "description": "Player block size (width, height) in pixels; each strictly positive.",
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "player_start": {
+      "description": "Player spawn position (x, y) in pixels — the CharacterBody2D origin.",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "move_speed": {
+      "description": "Horizontal move speed in px/s; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "jump_velocity": {
+      "description": "Jump impulse in px/s; strictly negative (upward, Godot +Y-down).",
+      "type": "number",
+      "exclusiveMaximum": 0.0
+    },
+    "gravity": {
+      "description": "Downward gravity in px/s^2; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "max_fall_speed": {
+      "description": "Terminal fall speed cap in px/s; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "platform_color": {
+      "description": "Platform block color as RGBA, each component in 0..1.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "platform_size": {
+      "description": "Platform block size (width, height) in pixels; each strictly positive.",
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "platform_position": {
+      "description": "Platform center position (x, y) in pixels — the StaticBody2D origin.",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "camera_smoothing_speed": {
+      "description": "Follow-camera position smoothing speed; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "landing_squash": {
+      "description": "Player block scale (x, y) at the moment of landing — the squash-stretch pose the tween recovers from; each strictly positive.",
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "landing_tween_duration": {
+      "description": "Seconds for the landing squash to recover to normal scale; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    }
+  }
+}

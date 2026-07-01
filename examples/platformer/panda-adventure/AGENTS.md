@@ -55,6 +55,15 @@ See `./docs/agents/domain.md` for the authoritative detail.
 - **Logger-based feedback development** — game code logs at module (and key function) entry/exit so
   the agent can observe runtime behavior in a closed loop — enough to trace behavior, not noisy
   per-call spam. Log output conforms to the `gda logger tail` protocol so the agent can parse it.
+- **The gda daemon harness is COMMITTED** (`addons/gda_harness/` + the `GdaHarness` autoload in
+  `project.godot`) — intentionally, not stray tool state. gda normally installs it on `gda daemon
+  start` and treats it as transient, but that install mutates the *tracked* `project.godot`, and the
+  autoload line can't be gitignored, so leaving it uncommitted means a manual revert every session
+  (easy to forget → drift). Committing it makes `daemon start` an idempotent content-match **no-op**
+  (zero working-tree churn), and it never reaches a build: `gda export run` snapshot-strips it and
+  restores the project byte-for-byte (ADR-0028), and it stays dormant in a plain run. **Don't delete
+  it or run `gda daemon uninstall`.** On a gda upgrade `daemon start` may re-materialize a newer
+  harness — commit that diff to keep it in sync.
 
 ## gda feedback (dogfooding)
 

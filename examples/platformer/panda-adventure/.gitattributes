@@ -1,0 +1,7 @@
+# The gda daemon harness is generated tooling, committed VERBATIM (see AGENTS.md).
+# It must stay byte-identical to what `gda daemon start` installs — hand-editing it
+# to satisfy a whitespace linter (e.g. its trailing blank line) would make the next
+# daemon start re-materialize it, breaking the idempotent no-op that committing it
+# buys. So exempt it from whitespace checks (git diff --check / git apply) and mark
+# it generated so it collapses in review diffs.
+addons/gda_harness/** -whitespace linguist-generated
