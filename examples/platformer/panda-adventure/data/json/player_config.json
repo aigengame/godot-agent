@@ -1,0 +1,13 @@
+{
+  "player_color": [0.92, 0.92, 0.96, 1.0],
+  "player_size": [48.0, 64.0],
+  "player_start": [200.0, 200.0],
+  "move_speed": 300.0,
+  "jump_velocity": -650.0,
+  "gravity": 1400.0,
+  "max_fall_speed": 1200.0,
+  "platform_color": [0.36, 0.30, 0.24, 1.0],
+  "platform_size": [800.0, 48.0],
+  "platform_position": [400.0, 500.0],
+  "camera_smoothing_speed": 5.0
+}

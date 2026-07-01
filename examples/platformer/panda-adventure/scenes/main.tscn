@@ -1,8 +1,34 @@
-[gd_scene format=3]
+; Panda Adventure — main scene (S1 player traversal), hand-authored.
+;
+; Structure only: every visual (color/size/position) and the collision-shape
+; sizes are applied at RUNTIME from the derived PlayerConfig Resource by the two
+; controllers (gADR-0000 — no config baked into the scene). The RectangleShape2D
+; sub-resources start at a placeholder size that _ready overwrites from config.
+[gd_scene load_steps=5 format=3]
 
-[ext_resource type="Script" path="res://src/controllers/boot_controller.gd" id="1_45kwc"]
+[ext_resource type="Script" path="res://src/controllers/level_controller.gd" id="1_level"]
+[ext_resource type="Script" path="res://src/controllers/player_controller.gd" id="2_player"]
 
-[node name="Main" type="Node2D" unique_id=1083486238]
-script = ExtResource("1_45kwc")
+[sub_resource type="RectangleShape2D" id="PlayerShape"]
 
-[node name="Block" type="ColorRect" parent="." unique_id=1805209758]
+[sub_resource type="RectangleShape2D" id="PlatformShape"]
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_level")
+
+[node name="Player" type="CharacterBody2D" parent="."]
+script = ExtResource("2_player")
+
+[node name="Visual" type="ColorRect" parent="Player"]
+
+[node name="Collision" type="CollisionShape2D" parent="Player"]
+shape = SubResource("PlayerShape")
+
+[node name="Camera2D" type="Camera2D" parent="Player"]
+
+[node name="Platform" type="StaticBody2D" parent="."]
+
+[node name="Visual" type="ColorRect" parent="Platform"]
+
+[node name="Collision" type="CollisionShape2D" parent="Platform"]
+shape = SubResource("PlatformShape")

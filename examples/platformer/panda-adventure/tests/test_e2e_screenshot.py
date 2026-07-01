@@ -2,7 +2,7 @@
 
 The screenshot half of the e2e gate, modeled on gda's own ``test_e2e_screen.py``:
 a real ``gda daemon start --windowed`` boots a WINDOWED engine session showing the
-data-driven Block, ``gda screen capture`` writes a real PNG of the running
+data-driven Player + Platform blockout, ``gda screen capture`` writes a real PNG of the running
 viewport, and we assert it is a decodable image (PNG magic + non-zero IHDR dims) —
 no image-decode dependency. The headless logger/tree/get gate
 (``test_e2e_boot.py``) stays separate so Linux CI keeps that coverage with no
@@ -66,9 +66,9 @@ def _make_project_copy(dst):
     """Copy the committed game into a throwaway dir and build its config there."""
     shutil.copytree(GAME_DIR, dst, ignore=_COPY_IGNORE)
     build_config.build(
-        json_path=dst / "data" / "json" / "boot_config.json",
-        schema_path=dst / "data" / "schema" / "boot_config.schema.json",
-        out_path=dst / "data" / "generated" / "boot_config.tres",
+        json_path=dst / "data" / "json" / "player_config.json",
+        schema_path=dst / "data" / "schema" / "player_config.schema.json",
+        out_path=dst / "data" / "generated" / "player_config.tres",
     )
     return dst
 
