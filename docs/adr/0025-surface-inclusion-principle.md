@@ -28,6 +28,11 @@ advance the agent loop (gaps). This ADR records the inclusion criterion.
 
 A capability failing either test stays out, regardless of how prominent the engine flag is.
 
+> **Outcome (2026-06-30, #343):** `--script` one-shot is now **committed** — a concrete agent need
+> appeared (headless logic-seam tests, dogfooding #329/#341). Its execution shape and result contract
+> are recorded in ADR-0031 (`gda script run`). The other case-by-case candidates (`--check-only`,
+> `--import`) remain undecided under this same criterion.
+
 **Worked classification (Godot 4.6 `--help`) — illustrative, not a roadmap.** The lists below show
 the criterion *applied*; they are **non-binding examples**, not surface decisions made by this ADR.
 Only "run a project / a specific scene" is **committed** here (via #278); `export` is already shipped.
