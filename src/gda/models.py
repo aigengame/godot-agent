@@ -1445,16 +1445,19 @@ class ResourceCreateParams(BaseModel):
 
     ``path`` is the target ``.tres`` resource file, addressed by its ``res://``
     or filesystem path (resource-file addressing — by file path). ``type`` is
-    the Godot resource class to instantiate and save (e.g. ``Gradient``,
-    ``Curve``); it must be an instantiable ``Resource`` subclass, mirroring
-    ``scene create``'s ``root_type`` check against ``Node``.
+    the Resource type to instantiate and save: a built-in Resource class (e.g.
+    ``Gradient``, ``Curve``) OR a project-defined ``class_name`` (a GDScript
+    ``class_name Foo extends Resource``), resolved the same way ``node add``
+    resolves ``--type`` (issue #342) — mirroring ``scene create``'s ``root_type``
+    check against ``Node``.
     """
 
     path: NormalizedPath = Field(description="Target .tres resource path to write.")
     type: str = Field(
         description=(
-            "The Godot resource class to create (e.g. Gradient, Curve). Must be "
-            "an instantiable Resource subclass."
+            "The Resource type to create: a built-in Resource class (e.g. "
+            "Gradient, Curve) or a registered Resource class_name (a GDScript "
+            "class_name Foo extends Resource)."
         )
     )
 

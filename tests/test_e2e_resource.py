@@ -200,6 +200,276 @@ def test_resource_create_non_resource_type_yields_invalid_resource_type(godot_pr
     assert not resource_path.exists()
 
 
+# --- resource create by class_name (issue #342): resolve a project-defined
+# GDScript `class_name Foo extends Resource` the same way node add resolves a
+# class_name --type, so a custom Resource type creates and saves as a .tres. ---
+
+
+# A project-defined custom Resource with typed exported fields at explicit,
+# non-default values — the round-trip payload the positive test asserts.
+PANDA_STATS_GD = """\
+class_name PandaStats
+extends Resource
+
+@export var tint: Color = Color(0.25, 0.5, 0.75, 1.0)
+@export var offset: Vector2 = Vector2(3, 4)
+@export var speed: float = 2.5
+"""
+
+
+@pytest.mark.e2e
+def test_resource_create_by_class_name_round_trips_typed_fields(godot_project):
+    # The class_name half of --type's contract for resources (issue #342): a
+    # class_name registered in the project's global class list resolves like a
+    # built-in Resource type. create instantiates the script-backed Resource and
+    # saves it as a .tres (recording the script as an ExtResource); get loads it
+    # back and reports the exported fields with their declared Godot types and
+    # values — create → get IS the round-trip proof for a custom Resource type.
+    (godot_project / "panda_stats.gd").write_text(PANDA_STATS_GD, encoding="utf-8")
+    _import_project(godot_project)
+    resource_path = godot_project / "panda.tres"
+
+    created = _gda(
+        "resource",
+        "create",
+        str(resource_path),
+        "--type",
+        "PandaStats",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert created.returncode == 0, created.stdout + created.stderr
+    data = json.loads(created.stdout)
+    assert data["path"] == str(resource_path)
+    # create echoes the requested type (the class_name), and the written .tres is
+    # a real Godot resource carrying the script class.
+    assert data["type"] == "PandaStats"
+    assert resource_path.exists()
+    assert 'script_class="PandaStats"' in resource_path.read_text(encoding="utf-8")
+
+    got = _gda(
+        "resource",
+        "get",
+        str(resource_path),
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    got_data = json.loads(got.stdout)
+    # get reports the engine base class as type (a script-backed Resource's
+    # get_class() is "Resource"); the exported fields carry the declared types.
+    assert got_data["type"] == "Resource"
+    by_name = {p["name"]: p for p in got_data["properties"]}
+    assert by_name["tint"]["type"] == "Color"
+    assert by_name["tint"]["value"] == [0.25, 0.5, 0.75, 1.0]
+    assert by_name["offset"]["type"] == "Vector2"
+    assert by_name["offset"]["value"] == [3.0, 4.0]
+    assert by_name["speed"]["type"] == "float"
+    assert by_name["speed"]["value"] == 2.5
+
+
+@pytest.mark.e2e
+def test_resource_create_by_class_name_round_trips_a_set_via_get(godot_project):
+    # #342's full CRUD contract: a script-backed custom .tres round-trips through
+    # resource set/get, not only create/get. set coerces the CLI string to a
+    # custom exported field's declared type, saves the .tres, and get reports the
+    # persisted value — resource get IS the structured-level proof that set landed
+    # on a custom Resource type.
+    (godot_project / "panda_stats.gd").write_text(PANDA_STATS_GD, encoding="utf-8")
+    _import_project(godot_project)
+    resource_path = godot_project / "panda.tres"
+    created = _gda(
+        "resource",
+        "create",
+        str(resource_path),
+        "--type",
+        "PandaStats",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+
+    was_set = _gda(
+        "resource",
+        "set",
+        str(resource_path),
+        "--property",
+        "speed",
+        "--value",
+        "9.5",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    set_data = json.loads(was_set.stdout)
+    # set reports the coerced value against the script-declared type.
+    assert set_data["property"] == "speed"
+    assert set_data["type"] == "float"
+    assert set_data["value"] == 9.5
+
+    got = _gda(
+        "resource",
+        "get",
+        str(resource_path),
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    by_name = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+    # Round-trip: get reports the value set persisted to the custom .tres.
+    assert by_name["speed"]["type"] == "float"
+    assert by_name["speed"]["value"] == 9.5
+
+
+# A registered class_name whose script is healthy but NOT Resource-derived: a
+# true type error (instantiable, but never savable as a .tres).
+WIDGET_NODE_GD = """\
+class_name WidgetNode
+extends Node2D
+"""
+
+
+@pytest.mark.e2e
+def test_resource_create_by_non_resource_class_name_yields_invalid_resource_type(
+    godot_project,
+):
+    # The boundary of issue #342's distinction: a registered class_name whose
+    # script is fine but not Resource-derived is a true type error — it stays
+    # invalid_resource_type (not uninstantiable_script), with a message naming
+    # the script and the real cause rather than "not a registered class_name".
+    (godot_project / "widget_node.gd").write_text(WIDGET_NODE_GD, encoding="utf-8")
+    _import_project(godot_project)
+    resource_path = godot_project / "widget.tres"
+
+    created = _gda(
+        "resource",
+        "create",
+        str(resource_path),
+        "--type",
+        "WidgetNode",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    err = _assert_operation_error(created, "invalid_resource_type")
+    assert "WidgetNode" in err["message"]
+    assert "not a Resource-derived script" in err["message"]
+    assert "widget_node.gd" in err["message"]
+    # Nothing was written for the rejected type.
+    assert not resource_path.exists()
+
+
+# The same class_name, valid at import then broken on disk: a parse error the
+# import-time scan never saw, so the stale global class list still maps it.
+STATS_GD = """\
+class_name Stats
+extends Resource
+"""
+
+BROKEN_STATS_GD = """\
+class_name Stats
+extends Resource
+func broken( -> void:
+"""
+
+
+@pytest.mark.e2e
+def test_resource_create_by_registered_but_broken_class_name_names_the_script(
+    godot_project,
+):
+    # Issue #342's broken-class_name mode (mirrors node add's #65 split): the
+    # class_name IS in the global class list (the import scanned a then-valid
+    # script), but the script on disk has since broken. Reporting
+    # invalid_resource_type ("not a registered class_name") would misdiagnose a
+    # script problem as an unknown type — the agent fix is to repair the script,
+    # not the type name. The failure must surface as the distinct
+    # uninstantiable_script code naming the script, with nothing written.
+    (godot_project / "stats.gd").write_text(STATS_GD, encoding="utf-8")
+    _import_project(godot_project)
+    (godot_project / "stats.gd").write_text(BROKEN_STATS_GD, encoding="utf-8")
+    resource_path = godot_project / "stats.tres"
+
+    created = _gda(
+        "resource",
+        "create",
+        str(resource_path),
+        "--type",
+        "Stats",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    err = _assert_operation_error(created, "uninstantiable_script")
+    assert "Stats" in err["message"]
+    assert "stats.gd" in err["message"]
+    assert not resource_path.exists()
+
+
+# A registered class_name that compiles and registers fine but cannot be
+# constructed without arguments: script.new() has no args to give _init. Over an
+# existing target its constructor must never run at all.
+NEEDS_ARGS_STATS_GD = """\
+class_name NeedsArgsStats
+extends Resource
+
+
+func _init(scale: float) -> void:
+\tpass
+"""
+
+
+@pytest.mark.e2e
+def test_resource_create_over_existing_target_refuses_before_constructing(
+    godot_project,
+):
+    # No-clobber must win WITHOUT running the requested type's constructor (issue
+    # #342 review): an existing target is refused with already_exists even when
+    # --type is a registered class_name whose _init would fail. A broken
+    # constructor over an existing file must stay already_exists, never turn into
+    # uninstantiable_script — and getting already_exists (not uninstantiable_script)
+    # is itself the proof that _init never ran, so no side effect touched the file.
+    (godot_project / "needs_args_stats.gd").write_text(
+        NEEDS_ARGS_STATS_GD, encoding="utf-8"
+    )
+    _import_project(godot_project)
+    resource_path = godot_project / "occupied.tres"
+    # Occupy the target first with a plain built-in resource.
+    first = _gda(
+        "resource", "create", str(resource_path), "--type", "Gradient", "--json"
+    )
+    assert first.returncode == 0, first.stdout + first.stderr
+    before = resource_path.read_text(encoding="utf-8")
+
+    second = _gda(
+        "resource",
+        "create",
+        str(resource_path),
+        "--type",
+        "NeedsArgsStats",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    err = _assert_operation_error(second, "already_exists")
+    assert str(resource_path) in err["message"]
+    # The existing file is untouched — no clobber — and, because the code is
+    # already_exists rather than uninstantiable_script, the broken constructor
+    # never ran.
+    assert resource_path.read_text(encoding="utf-8") == before
+
+
 @pytest.mark.e2e
 def test_resource_create_non_tres_path_yields_invalid_path(godot_project):
     bad_path = godot_project / "palette.txt"
