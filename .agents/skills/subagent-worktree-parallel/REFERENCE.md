@@ -53,6 +53,13 @@ guardrail stops you from *degrading* a deep module to fake disjointness in the f
 place. Splitting a shared file is a structural fix; suppressing a sound change to dodge
 it is not.
 
+**Re-run this analysis after any review-driven change — pre-flight disjointness expires.**
+Fan-out disjointness is not merge-time disjointness. A correct remediation (a review fix
+or a follow-up) often *must* touch a shared surface the slice originally avoided — a
+central registry, an ABI, a doc table — creating **new** cross-slice overlap after the
+pre-flight already said "disjoint". Recompute the overlap map after any such change; the
+pre-flight verdict is not durable.
+
 ## 2. Wave sizing
 
 - **≤ ~5 independent slices per wave.** (A run that tried ~9 at once hit two failure
@@ -184,6 +191,13 @@ the grep heuristic might miss in another language.
   (fakes/mocks/in-memory doubles) never executes the merged artifact, so it passes on a
   broken merge. After touching an integration point, run the real tier (integration /
   e2e / compile / parse-check).
+- **A green DoD is not spec conformance — re-read each slice against its *originating
+  spec*.** Passing its own tests + CI proves a slice does what its author built, not what
+  the spec/decision required; the author's tests inherit the author's blind spot. Before
+  merging, the orchestrator adversarially re-reads each slice against the spec that
+  spawned it and hunts the contract gap those tests can't see. This *front-runs* the fixed
+  external per-PR review — it complements that review, never replaces or duplicates it —
+  and how deep to go is the orchestrator's call.
 - **Run shared-global-resource tests SERIALLY across worktrees.** If the integration
   tier contends on a global resource — a shared log directory, a fixed port, a fixed
   on-disk fixture/path — concurrent runs across worktrees race and produce spurious
@@ -195,6 +209,10 @@ the grep heuristic might miss in another language.
   (so every skip and its reason is visible) and add a **hard assertion** that when the
   resource *is* present on disk, the precondition must be true — so a broken detector
   goes red, not silently skipped.
+- **Fix a finding at the right altitude.** A defect that surfaces on one slice may be a
+  *cross-cutting cause*. Fix it in a shared follow-up rather than band-aiding the one
+  slice — especially when sibling slices each grew their own *partial* handling that the
+  shared fix should later absorb (otherwise the duplication is what ships).
 
 ## 7. Resilience & takeover
 

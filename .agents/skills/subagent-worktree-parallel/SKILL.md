@@ -66,6 +66,11 @@ decompose + dependency analysis → plan waves → fan out (implement) → merge
    needs it); run shared-global-resource tests serially; treat any "completed but no
    PR/commit/push" report as needs-takeover, not success. (REFERENCE §6, §7)
 
+This path is **not one-shot**: independent review sends merged-ready slices back, and
+remediation reshapes the plan. Re-derive the overlap map and merge order as fixes land,
+verify each slice against its *originating spec* (not just its own green tests), and fix a
+finding at the altitude of its true cause, not where it surfaced. (REFERENCE §1, §6)
+
 When append hotspots keep dominating merge cost, the durable fix is architectural —
 split them into per-module fragments that auto-aggregate (REFERENCE §8). Run the
 **pre-launch checklist** (REFERENCE §9) before every wave.
