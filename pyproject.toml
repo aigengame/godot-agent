@@ -1,6 +1,6 @@
 [project]
 name = "gda"
-version = "0.1.50"
+version = "0.1.51"
 description = "Godot AI agent CLI, Skill, and MCP server with structured JSON/schema output — headless scene/script/export automation plus live runtime control."
 readme = "README.md"
 authors = [
