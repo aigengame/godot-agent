@@ -25,11 +25,18 @@ class ExecutionKind(str, enum.Enum):
       capability that cannot run through ``operations.gd`` (ADR-0010).
     - ``LIVE`` — a live operation served by ``gda-daemon`` against a running
       engine session, reached through a daemon IPC client (ADR-0017).
+    - ``SCRIPT_RUN`` — a user-script passthrough run: a one-shot ``godot
+      --headless --path <project> --script <res://…>`` whose success result is the
+      user script's own ``{exit_status, stdout, stderr}`` passed through verbatim,
+      only launch/crash being classified (ADR-0031). Like ``EXPORT`` it routes by
+      its ``recipe`` (ADR-0023), so this value is self-description only — it adds
+      no runner-selection branch.
     """
 
     HEADLESS = "headless"
     EXPORT = "export"
     LIVE = "live"
+    SCRIPT_RUN = "script_run"
 
 
 # Phase-2 live requires Godot 4.6+ (the UDS transport landed in 4.6; ADR-0021).

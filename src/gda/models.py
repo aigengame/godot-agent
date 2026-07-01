@@ -1684,6 +1684,54 @@ class ExportRunResult(BaseModel):
     )
 
 
+class ScriptRunParams(BaseModel):
+    """The operation params of ``gda script run`` (issue #343, ADR-0031).
+
+    ``path`` is the ``res://`` path of the user script to run as a one-shot
+    ``godot --headless --path <project> --script <res://…>``. It is res://-only
+    (a res:// path resolves against the ``--project`` context, ADR-0006): an
+    absolute or non-``res://`` path is the ``invalid_path`` failure. A plain
+    ``str`` (NOT ``NormalizedPath``) because a res:// path is an engine-virtual
+    address, not a filesystem path — filesystem normalization would collapse the
+    ``res://`` double slash. The project is process context (``--project``), not
+    an operation param.
+    """
+
+    path: str = Field(
+        description="The res:// path of the script to run (e.g. res://tests/logic.gd)."
+    )
+
+
+class ScriptRunResult(BaseModel):
+    """The result of ``gda script run``: the user script's own run, passed through (ADR-0031).
+
+    This is the **public promotion of the internal Raw-run shape**
+    (:class:`gda.runner.RunResult`): a THIN boundary DTO built from a ``RunResult``
+    by dropping its ``launch_failure`` axis (that becomes the Error envelope) and
+    renaming ``exit_code`` → ``exit_status``. Unlike every other command,
+    ``script run`` does not interpret the user script's semantics — a deliberate
+    ``quit(1)`` is meaningful data the agent reads, not a gda failure — so this is
+    the **one** command whose *success* result can carry a non-zero
+    ``exit_status``. Agents must read ``exit_status`` and must not assume
+    ``success == zero``.
+
+    NOTE: a second passthrough consumer should promote this to a shared
+    ``RawRunResult`` model. Do NOT build that shared abstraction now: there is only
+    one consumer today (``export run`` returns a different domain shape — the
+    produced artifact — and does not reuse the raw run).
+    """
+
+    exit_status: int = Field(
+        description=(
+            "The user script's own process exit code, passed through verbatim — "
+            "non-zero (e.g. a deliberate quit(1)) is still a SUCCESS result, not a "
+            "gda failure (ADR-0031)."
+        )
+    )
+    stdout: str = Field(description="The script's standard output, captured verbatim.")
+    stderr: str = Field(description="The script's standard error, captured verbatim.")
+
+
 class ResourceCreateResult(BaseModel):
     """The result of ``gda resource create``: what was written where (issue #112).
 

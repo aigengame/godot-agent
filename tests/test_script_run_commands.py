@@ -1,0 +1,170 @@
+"""S3: gda script run through the full CLI pipeline against a fake launch (issue #343).
+
+``script run`` is the third execution shape (ADR-0031): a user-script passthrough
+run, fulfilled by the CLI-side recipe ``run_script_run_operation`` rather than the
+operations.gd sentinel. The engine-touching step is the deep-module
+:func:`gda.runner.launch`, which these tests replace with a canned
+:class:`~gda.runner.RunResult` (patched at ``gda.script_run.launch``), so the full
+Typer → recipe → classify → JSON/emit pipeline runs engine-free.
+
+They pin the two behaviors that only show at the CLI boundary: a clean engine exit
+emits the SUCCESS result AND the process exits 0 — even when the script's own
+``exit_status`` is non-zero (the ADR-0031 crux) — while the pre-run ABI edges emit
+the uniform Error envelope. The ``--params-json`` case guards that it drives the
+SAME recipe (ADR-0015), not the wrong runner.
+"""
+
+import json
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from gda.cli import app
+from gda.runner import RunResult
+
+
+def _patch_launch(monkeypatch, result: RunResult) -> list:
+    """Replace the deep-module launch with one returning ``result``; record calls."""
+    calls: list = []
+
+    def fake_launch(binary, args, *, cwd, timeout, timeout_label="Godot"):
+        calls.append((binary, args, cwd, timeout, timeout_label))
+        return result
+
+    monkeypatch.setattr("gda.script_run.launch", fake_launch)
+    return calls
+
+
+def _project(tmp_path: Path) -> Path:
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_clean_run_emits_the_passthrough_result(monkeypatch, tmp_path):
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="hi\n", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "run", "res://logic.gd", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data == {"exit_status": 0, "stdout": "hi\n", "stderr": ""}
+    # The recipe launched `--path <project> --script <res path>` with cwd=None.
+    (_binary, args, cwd, _timeout, _label) = calls[0]
+    assert args == ["--path", str(project), "--script", "res://logic.gd"]
+    assert cwd is None
+
+
+def test_non_zero_script_exit_is_success_process_exits_zero(monkeypatch, tmp_path):
+    # THE CRUX at the CLI boundary: a script quit(1) is a SUCCESS — the JSON carries
+    # exit_status=1 but the gda PROCESS exits 0 (not an error envelope). This is the
+    # one command where success != zero exit_status.
+    project = _project(tmp_path)
+    _patch_launch(monkeypatch, RunResult(stdout="fail\n", stderr="", exit_code=1))
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "run", "res://logic.gd", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert "error" not in data
+    assert data["exit_status"] == 1
+    assert data["stdout"] == "fail\n"
+
+
+def test_params_json_drives_the_same_recipe(monkeypatch, tmp_path):
+    # --params-json (ADR-0015) must drive the SAME recipe — a regression guard that
+    # the generic dispatch hook does not route script run through the wrong runner.
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="ok\n", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "script",
+            "run",
+            "--params-json",
+            '{"path": "res://logic.gd"}',
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["exit_status"] == 0
+    assert calls, "the launch seam was never reached via --params-json"
+
+
+def test_non_res_path_emits_invalid_path_envelope(monkeypatch, tmp_path):
+    project = _project(tmp_path)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "run", "logic.gd", "--project", str(project), "--json"],
+    )
+
+    assert result.exit_code != 0
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "invalid_path"
+    assert not calls, "no engine launch on an invalid path"
+
+
+def test_no_resolved_project_emits_project_not_found(monkeypatch, tmp_path):
+    # No --project and a projectless cwd → structured project_not_found, before any
+    # launch. chdir into a dir with no project.godot to make resolution yield None.
+    projectless = tmp_path / "empty"
+    projectless.mkdir()
+    monkeypatch.chdir(projectless)
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(app, ["script", "run", "res://logic.gd", "--json"])
+
+    assert result.exit_code != 0
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "project_not_found"
+    assert not calls
+
+
+def test_explicit_bad_project_is_structured_not_a_traceback(monkeypatch, tmp_path):
+    # An EXPLICIT --project that is not a Godot project makes resolve_project_dir RAISE
+    # ValueError — which the recipe must convert to the SAME structured project_not_found
+    # the None case yields, never letting the raise escape as a traceback (ADR-0031 /
+    # #343 AC). The projectless-cwd None guard alone would MISS this raise path.
+    not_a_project = tmp_path / "not-a-godot-project"
+    not_a_project.mkdir()  # exists, but has no project.godot
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        ["script", "run", "res://logic.gd", "--project", str(not_a_project), "--json"],
+    )
+
+    assert result.exit_code != 0
+    # A structured envelope on stdout, NOT a Rich/Python traceback.
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "project_not_found"
+    assert not calls, "no engine launch when the project cannot resolve"
+
+
+def test_bad_gda_project_env_is_structured_not_a_traceback(monkeypatch, tmp_path):
+    # The same raise path via $GDA_PROJECT (env precedence, not the --project flag):
+    # an env pointing at a non-project also raises ValueError and must yield the
+    # structured project_not_found envelope, not a traceback.
+    not_a_project = tmp_path / "env-not-a-project"
+    not_a_project.mkdir()
+    monkeypatch.setenv("GDA_PROJECT", str(not_a_project))
+    calls = _patch_launch(monkeypatch, RunResult(stdout="", stderr="", exit_code=0))
+
+    result = CliRunner().invoke(app, ["script", "run", "res://logic.gd", "--json"])
+
+    assert result.exit_code != 0
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "project_not_found"
+    assert not calls

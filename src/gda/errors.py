@@ -632,3 +632,37 @@ def export_templates_missing_failure(preset: str, templates_version: str) -> Fai
         f"the running engine version ({templates_version}) are not installed",
         "",
     )
+
+
+def script_path_invalid_failure(path: str) -> Failure:
+    """The ``invalid_path`` failure for a ``script run`` path that is not ``res://`` (ADR-0031).
+
+    ``script run`` is res://-only: a res:// path resolves against the ``--project``
+    context (ADR-0006), and the motivating need is project-scoped. An absolute or
+    otherwise non-``res://`` path is a structured ``invalid_path`` failure decided
+    at the CLI, *before* any engine launch — never a crash or a raw engine failure
+    (an explicit ABI edge of ADR-0031). Kept beside the other pre-run failures so
+    the whole taxonomy reads from one place.
+    """
+    return _failure(
+        "invalid_path",
+        f"script run requires a res:// script path, got: {path!r}",
+        "",
+    )
+
+
+def script_run_project_not_found_failure() -> Failure:
+    """The ``project_not_found`` failure for a ``script run`` with no resolved project (ADR-0031).
+
+    ``script run`` requires a resolved Godot project (ADR-0006): a res:// script
+    path needs a project to resolve against. When none resolves (no ``--project``,
+    no ``$GDA_PROJECT``, and the cwd is not a project), gda fails *before* spawning
+    the engine with this structured failure rather than launching projectless —
+    the other explicit ABI edge of ADR-0031.
+    """
+    return _failure(
+        "project_not_found",
+        "script run requires a resolved Godot project: pass --project, set "
+        "$GDA_PROJECT, or run from a project directory",
+        "",
+    )

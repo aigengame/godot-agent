@@ -81,6 +81,7 @@ if TYPE_CHECKING:
         ScriptDeleteResult,
         ScriptGetResult,
         ScriptListResult,
+        ScriptRunResult,
         ScriptSetResult,
         ScriptValidateResult,
         ShaderCreateResult,
@@ -525,6 +526,22 @@ def render_script_validate(validated: "ScriptValidateResult") -> str:
         location = f"line {diag.line}" if diag.line is not None else "unknown line"
         lines.append(f"  {location}: {diag.message}")
     return "\n".join(lines)
+
+
+def render_script_run(ran: "ScriptRunResult") -> str:
+    """Render a passed-through script run: its exit status then its captured output.
+
+    ``script run`` passes the user script's own output through verbatim (ADR-0031),
+    so the human view leads with the ``exit_status`` — which can be non-zero on a
+    SUCCESS (a deliberate ``quit(1)``) — then the script's stdout and stderr as it
+    emitted them (each trailing newline trimmed; empty streams are omitted).
+    """
+    parts = [f"exit_status: {ran.exit_status}"]
+    if ran.stdout:
+        parts.append(ran.stdout.rstrip("\n"))
+    if ran.stderr:
+        parts.append(ran.stderr.rstrip("\n"))
+    return "\n".join(parts)
 
 
 def render_resource_create(created: "ResourceCreateResult") -> str:
