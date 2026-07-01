@@ -398,12 +398,17 @@ def classify_info(result: RunResult, binary: Path) -> EngineVersion | Failure:
 
 # Codes the daemon IPC client / the daemon surface through the live sentinel that
 # classify_run would otherwise misroute. The LIVE codes are live-runtime failures;
-# ``live_unsupported_platform`` is an ENVIRONMENT-category pre-launch precondition
-# (ADR-0021) but still arrives via the live path, so classify_live must surface it
-# too (else classify_run falls back to operation_failed for a non-operation code).
+# ``live_unsupported_platform`` and ``live_windowed_unavailable`` are
+# ENVIRONMENT-category pre-launch preconditions but still arrive via the live path
+# (``live_windowed_unavailable`` is raised at the daemon's session-launch boundary and
+# relayed as a live reply, #345), so classify_live must surface them too — else
+# classify_run falls back to operation_failed for a non-operation code.
 # ``project_not_found`` is deliberately NOT here — it is an operation-source code
 # classify_run already maps, so it falls through to the shared decision tree.
-_LIVE_CLIENT_CODES = LIVE_ERROR_CODES | {"live_unsupported_platform"}
+_LIVE_CLIENT_CODES = LIVE_ERROR_CODES | {
+    "live_unsupported_platform",
+    "live_windowed_unavailable",
+}
 
 
 def _live_error_from_payload(result: RunResult) -> Failure | None:

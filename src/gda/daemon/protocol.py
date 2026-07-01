@@ -74,21 +74,29 @@ def result_reply(payload: Any) -> dict:
     return _reply(payload, 0)
 
 
-def error_reply(code: str, message: str) -> dict:
+def error_reply(code: str, message: str, diagnostics: str = "") -> dict:
     """A daemon→CLI reply carrying a LIVE error envelope (exit ``EXIT_LIVE``).
 
     The single builder for a daemon- or client-synthesized live failure (no session,
     dropped connection, timeout, op error): the same ADR-0002 envelope a real op
     error uses, so ``classify_live`` maps the ``code`` through the normal pipeline.
+
+    ``diagnostics`` is optional best-effort advisory detail (e.g. why an engine
+    session failed to launch, #345). It rides the reply's EXISTING ``stderr`` field
+    — the wire envelope shape ``{stdout, stderr, exit_code}`` is unchanged — so it
+    flows the established ``stderr`` → ``RunResult.stderr`` → ``GdaError.diagnostics``
+    path, staying within ADR-0002's advisory-stderr carve-out.
     """
-    return _reply(error_envelope(code, message), EXIT_LIVE)
+    return _reply(error_envelope(code, message), EXIT_LIVE, stderr=diagnostics)
 
 
-def _reply(payload: Any, exit_code: int) -> dict:
+def _reply(payload: Any, exit_code: int, stderr: str = "") -> dict:
     """The shared reply-dict shape: a sentinel-wrapped ``payload`` + ``exit_code``.
 
     Private so the two public builders own the ADR-0002 exit invariant —
     :func:`result_reply` is exit ``0`` (success), :func:`error_reply` is ``EXIT_LIVE``
     (live error) — and no caller can pair a success payload with a non-zero exit.
+    ``stderr`` defaults to empty (a success carries none); ``error_reply`` uses it to
+    carry optional advisory diagnostics without changing the wire shape (#345).
     """
-    return {"stdout": build_result(payload), "stderr": "", "exit_code": exit_code}
+    return {"stdout": build_result(payload), "stderr": stderr, "exit_code": exit_code}

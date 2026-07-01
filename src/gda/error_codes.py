@@ -615,6 +615,22 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "Live operations require a UNIX platform (macOS/Linux); they use Unix"
         " domain sockets, which are unavailable here.",
     ),
+    # A pre-launch DISPLAY precondition, not a live-runtime failure: a windowed
+    # engine session needs a usable host DisplayServer, and a host with none makes a
+    # windowed Godot abort during DisplayServer registration. So `gda daemon start
+    # --windowed` refuses BEFORE spawning — an ENVIRONMENT-category code in the
+    # binary_not_found (exit 127) bucket, mirroring `live_unsupported_platform`,
+    # decided pre-launch and classifier-source (no operation reports it), NOT
+    # GDScript-mirrored (#345).
+    ErrorCodeSpec(
+        "live_windowed_unavailable",
+        ErrorCategory.ENVIRONMENT,
+        EXIT_NOT_FOUND,
+        ErrorCodeSource.CLASSIFIER,
+        "A windowed live session was requested (`gda daemon start --windowed`) but"
+        " the host has no usable DisplayServer (no on-console GUI session / no"
+        " $DISPLAY), so the session cannot come up; refused before spawning Godot.",
+    ),
 )
 
 ERROR_CODE_BY_CODE: dict[str, ErrorCodeSpec] = {spec.code: spec for spec in ERROR_CODES}

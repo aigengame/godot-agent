@@ -102,3 +102,21 @@ parse.
   project's own semantics — so the ADR-0009 / ADR-0017 trust and editor-context
   boundaries are unchanged: `diag` introspects the running game's reported output,
   not the editor.
+
+> **Outcome (2026-07-01, #345) — the read path also serves the FAILED-LAUNCH case.**
+> The `diag` / `logger tail` read path above observes an already-launched session by
+> reading `session.log_file` off the remembered session object. #345 reuses the SAME
+> daemon-owned Session log for a session that never came up: when `launch_session`
+> returns no session, the daemon best-effort tails that log via the DETERMINISTIC
+> path (`server._session_log_path()`, computed from the project slug — no live
+> session object required) and threads it, alongside the child-liveness reason, into
+> the `engine_session_not_running` error's advisory `diagnostics`. NOTE: a
+> windowed-no-`DisplayServer` abort happens BEFORE Godot installs its file logger, so
+> for that case the tail is usually empty (the child-signal reason carries it); it
+> carries content for a post-logger crash. To keep that tail HONEST, `launch_session`
+> now truncates the Session log at the START of each launch attempt, before spawning —
+> so "truncated each launch" holds even for a pre-logger abort (Godot's own
+> `FileAccess::WRITE` truncation only happens once its logger installs, which a
+> pre-logger crash never reaches). A failed pre-logger launch therefore reads EMPTY
+> rather than a PREVIOUS session's stale output; a post-logger failure reads only the
+> current session. The decision above is otherwise unchanged.

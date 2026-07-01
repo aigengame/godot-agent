@@ -12,11 +12,18 @@ import os
 import secrets
 import signal
 import socket
+from typing import Callable, Optional
 
 from gda.daemon.diag import parse_errors, parse_log_records
 from gda.daemon.discovery import DaemonPaths, acquire_pidfile, ensure_runtime_dir
 from gda.daemon.protocol import error_reply, read_message, result_reply, write_message
-from gda.daemon.session import EngineSession, SceneMismatch, launch_session
+from gda.daemon.session import (
+    EngineSession,
+    SceneMismatch,
+    WindowedDisplayUnavailable,
+    launch_session,
+)
+from gda.display import windowed_unavailable_reason
 
 # Control ops on the CLI socket — daemon lifetime, not project domain ops.
 STATUS_OP = "__status__"
@@ -41,6 +48,7 @@ class DaemonServer:
         godot: str = "",
         windowed: bool = False,
         scene: str | None = None,
+        display_check: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self.paths = paths
         self.godot = godot
@@ -54,6 +62,11 @@ class DaemonServer:
         # Godot's `--scene` engine option instead of the project's main_scene; None
         # runs main_scene unchanged. Fixed for the daemon's life (ADR-0020).
         self.scene = scene
+        # The pre-launch host-display precondition seam (#345): returns the reason a
+        # windowed session cannot come up on this host, or None when it can. Injectable
+        # so tests drive the guard without a real display; defaults to the shared
+        # gda.display probe. Consulted only for a windowed session.
+        self._display_check = display_check or windowed_unavailable_reason
         self._token = secrets.token_hex(16)
         self._stopping = False
         self._listener: socket.socket | None = None
@@ -149,8 +162,9 @@ class DaemonServer:
         # The scene selector is verified ONCE at launch (in the harness): a mismatch
         # is a typed live_scene_not_found, never a silent fall back to main_scene and
         # never a per-request re-check (#278, ADR-0017 amendment, ADR-0020).
+        launch_diagnostics: list[str] = []
         try:
-            session = self._ensure_session()
+            session = self._ensure_session(launch_diagnostics)
         except SceneMismatch as mismatch:
             detail = (
                 f"no scene named {mismatch.requested!r} exists in the project"
@@ -164,11 +178,23 @@ class DaemonServer:
                 "gda never falls back — fix the path/UID or omit --scene to run the "
                 "project's main_scene",
             )
+        except WindowedDisplayUnavailable as unavailable:
+            # The authoritative no-display guard fired at the launch boundary (#345):
+            # no windowed engine was spawned. Surface the typed
+            # live_windowed_unavailable, carrying the probe's reason as diagnostics.
+            return error_reply(
+                "live_windowed_unavailable",
+                "a windowed engine session cannot launch: the host has no usable "
+                f"DisplayServer ({unavailable.reason}). Run the daemon headless, or "
+                "start it on a host with an on-console GUI session / $DISPLAY",
+                diagnostics=unavailable.reason,
+            )
         if session is None:
             return error_reply(
                 "engine_session_not_running",
                 "the gda-daemon could not launch an engine session (no Godot binary, "
-                "or the harness did not connect)",
+                "or the engine died / the harness did not connect)",
+                diagnostics=self._launch_failure_diagnostics(launch_diagnostics),
             )
         return session.request(op, request.get("params", {}))
 
@@ -219,7 +245,9 @@ class DaemonServer:
         )
         return result_reply({"records": records})
 
-    def _ensure_session(self) -> EngineSession | None:
+    def _ensure_session(
+        self, diagnostics: list[str] | None = None
+    ) -> EngineSession | None:
         if self._session is not None and self._session.alive():
             return self._session
         if self._session is not None:
@@ -227,6 +255,18 @@ class DaemonServer:
             self._session = None
         if not self.godot:
             return None
+        # The AUTHORITATIVE no-display guard (#345): a windowed session needs a usable
+        # host DisplayServer, else a windowed Godot aborts during DisplayServer
+        # registration. This is the launch boundary — where the lazy session launch
+        # actually happens — so refuse HERE, BEFORE launch_session is ever called, with
+        # a typed WindowedDisplayUnavailable (mirroring the SceneMismatch pattern). The
+        # daemon maps it to live_windowed_unavailable. `daemon start --windowed` runs
+        # the same check as an OPTIONAL fail-fast, but this is the one that guarantees a
+        # doomed windowed engine is never spawned even when start slipped through.
+        if self.windowed:
+            reason = self._display_check()
+            if reason is not None:
+                raise WindowedDisplayUnavailable(reason)
         # A res:// / filesystem scene selector that names no file is rejected HERE,
         # at the launch boundary (NOT per-request — finding 1), as a typed
         # SceneMismatch. Godot does not fall-back-and-run for a missing res:// path:
@@ -249,8 +289,35 @@ class DaemonServer:
             log_file=self._session_log_path(),
             windowed=self.windowed,
             scene=self.scene,
+            diagnostics=diagnostics,
         )
         return self._session
+
+    def _launch_failure_diagnostics(self, child_diagnostics: list[str]) -> str:
+        """Best-effort diagnostics for a failed engine-session launch (#345).
+
+        Combines the child-liveness reason ``launch_session`` observed (the engine
+        died by signal, or the harness never connected) with a tail of the daemon-
+        owned Session log, read via the DETERMINISTIC :meth:`_session_log_path` —
+        which needs no live session object, extending ADR-0022's read path to the
+        failed-launch case. NOTE: a windowed-no-``DisplayServer`` abort happens
+        BEFORE Godot installs its file logger, so this tail is usually EMPTY for that
+        case (the child-signal reason carries it); it carries content for a
+        post-logger crash.
+        """
+        parts = [reason for reason in child_diagnostics if reason]
+        tail = self._read_session_log_tail()
+        if tail:
+            parts.append(f"session log tail:\n{tail}")
+        return "\n".join(parts)
+
+    def _read_session_log_tail(self, max_bytes: int = 2000) -> str:
+        """The trailing bytes of the daemon-owned Session log, or "" if unreadable."""
+        try:
+            data = self._session_log_path().read_bytes()
+        except OSError:
+            return ""
+        return data.decode("utf-8", "replace").strip()[-max_bytes:]
 
     def _session_log_path(self):
         """The daemon-owned Session-log path for this project (#224).

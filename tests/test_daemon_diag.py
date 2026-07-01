@@ -292,6 +292,105 @@ def test_launch_returns_none_on_bad_token(monkeypatch, tmp_path):
     assert outcome is None
 
 
+# --- #345: a failed launch records a best-effort diagnostic in the sink ---------
+# The child is spawned with stderr=DEVNULL, so launch_session polls the child at the
+# failure boundary: a child that already died names its signal (a windowed-no-display
+# abort is SIGABRT); a child still alive is the harness-never-connected case.
+
+
+class _NoAcceptListener:
+    """A harness listener whose accept() times out at once (no harness connects)."""
+
+    def settimeout(self, _):
+        pass
+
+    def accept(self):
+        raise TimeoutError
+
+
+def test_failed_launch_records_signal_death_when_child_already_died(
+    monkeypatch, tmp_path
+):
+    project = _project(tmp_path)
+    # A child that reports it aborted by SIGABRT (returncode -6) — what a windowed
+    # session with no usable DisplayServer does before the harness can connect.
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc(-6))
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+
+    diagnostics: list[str] = []
+    outcome = launch_session(
+        project,
+        "godot",
+        cast(socket.socket, _NoAcceptListener()),
+        tmp_path / "h.sock",
+        "tok",
+        timeout=0.1,
+        diagnostics=diagnostics,
+    )
+
+    assert outcome is None
+    assert diagnostics, "a failed launch must record a diagnostic"
+    assert "SIGABRT" in diagnostics[0]
+    assert "(6)" in diagnostics[0]
+
+
+def test_failed_launch_records_harness_hung_when_child_still_alive(
+    monkeypatch, tmp_path
+):
+    project = _project(tmp_path)
+    # A child still alive (poll() is None) when the harness never connected: the
+    # "engine up, harness hung" case, distinct from a crashed child.
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc(None))
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+
+    diagnostics: list[str] = []
+    outcome = launch_session(
+        project,
+        "godot",
+        cast(socket.socket, _NoAcceptListener()),
+        tmp_path / "h.sock",
+        "tok",
+        timeout=0.1,
+        diagnostics=diagnostics,
+    )
+
+    assert outcome is None
+    assert diagnostics
+    assert "harness did not connect" in diagnostics[0]
+
+
+def test_failed_launch_diagnostics_excludes_stale_session_log(
+    monkeypatch, tmp_path, daemon_runtime_dir
+):
+    # #345 finding 2: a PRE-LOGGER abort (a windowed-no-DisplayServer crash, and
+    # others) dies before Godot installs its --log-file logger, so nothing truncates
+    # the deterministic session-log path. If a PREVIOUS session left content there, it
+    # must NOT leak into the current failure's diagnostics. launch_session truncates
+    # the log BEFORE spawning, so the tail reads EMPTY for a pre-logger abort.
+    server = DaemonServer(daemon_paths(_project(tmp_path)), godot="godot")
+    log_path = server._session_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("STALE-PREVIOUS-SESSION-OUTPUT", encoding="utf-8")
+
+    # A REAL launch_session runs (truncating the log), spawns a fake child that dies
+    # pre-logger by SIGABRT and writes nothing, and no harness connects -> None.
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kw: _FakeProc(-6))
+    monkeypatch.setattr("gda.daemon.session._terminate", lambda proc: None)
+    server._harness_listener = cast(socket.socket, _NoAcceptListener())
+
+    reply = server._handle({"op": "game-tree", "params": {}})
+    assert reply is not None
+    assert (
+        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    )
+    # The child-signal reason is present; the STALE log content is gone (truncated).
+    assert "SIGABRT" in reply["stderr"]
+    assert "STALE-PREVIOUS-SESSION-OUTPUT" not in reply["stderr"]
+    # The file on disk was truncated by the launch attempt, honoring "truncated each
+    # launch" even for a pre-logger abort (ADR-0022 / CONTEXT.md Session log).
+    assert log_path.read_bytes() == b""
+
+
 # --- Slice 2: the daemon serves diag from the remembered log file ---
 
 

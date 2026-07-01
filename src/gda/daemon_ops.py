@@ -28,6 +28,7 @@ from gda.daemon.discovery import (
     daemon_pid,
     within_uds_limit,
 )
+from gda.display import windowed_unavailable_reason
 from gda.daemon.protocol import read_message, write_message
 from gda.daemon.server import STATUS_OP, STOP_OP
 from gda.errors import Failure, _failure, unresolvable_binary_failure
@@ -56,6 +57,10 @@ _VERSION_RE = re.compile(r"(\d+)\.(\d+)")
 # Seams tests override to avoid launching a real process / running the engine.
 SpawnDaemon = Callable[[Path, str, bool, Optional[str]], None]
 VersionCheck = Callable[[str], Optional[tuple]]
+# The pre-launch host-display precondition seam (#345): returns the reason a
+# windowed session cannot come up here, or None when it can. Injected in unit tests
+# so a display-less CI host does not spuriously refuse a windowed start.
+DisplayCheck = Callable[[], Optional[str]]
 
 
 def _is_unix() -> bool:
@@ -154,6 +159,7 @@ def run_daemon_start_operation(
     scene: Optional[str] = None,
     spawn: Optional[SpawnDaemon] = None,
     version_check: Optional[VersionCheck] = None,
+    display_check: Optional[DisplayCheck] = None,
 ) -> "DaemonStartResult | Failure":
     if not _is_unix():
         return _failure(
@@ -233,6 +239,18 @@ def run_daemon_start_operation(
             f"domain sockets, added in {minimum}); the engine reports {found}",
             "",
         )
+
+    if windowed:
+        # A windowed session needs a usable host DisplayServer; without one Godot
+        # aborts during DisplayServer registration (before its file logger is even
+        # installed), so the failure would otherwise surface only as a generic
+        # engine_session_not_running at lazy launch (#345 Part A). Refuse fast HERE —
+        # pre-launch, pre-harness-install, WITHOUT spawning — with the typed
+        # live_windowed_unavailable (ENVIRONMENT / 127), mirroring the platform
+        # precondition above. `daemon start` is where `windowed` already flows in.
+        reason = (display_check or windowed_unavailable_reason)()
+        if reason is not None:
+            return _failure("live_windowed_unavailable", reason, "")
 
     installed = install_harness(project)
     (spawn or _spawn_daemon)(project, str(binary), windowed, scene)

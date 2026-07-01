@@ -298,7 +298,15 @@ def test_daemon_status_surfaces_the_windowed_display_mode(tmp_path, daemon_runti
         assert headless["windowed"] is False
         assert run("daemon", "stop").returncode == 0
 
-        # A `--windowed` start -> status reports windowed True.
+        # A `--windowed` start -> status reports windowed True. `daemon start
+        # --windowed` now refuses PRE-LAUNCH with live_windowed_unavailable on a host
+        # with no usable DisplayServer (#345), so gate this half on the shared display
+        # helper — the headless portions above already ran.
+        from gda.display import windowed_unavailable_reason
+
+        reason = windowed_unavailable_reason()
+        if reason is not None:
+            pytest.skip(reason)
         assert run("daemon", "start", "--windowed").returncode == 0
         windowed = json.loads(run("daemon", "status").stdout)
         assert windowed["running"] is True

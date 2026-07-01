@@ -200,12 +200,62 @@ def test_start_windowed_threads_mode_into_spawn_and_result(
         windowed=True,
         spawn=lambda p, b, windowed, scene: spawned.append((p, b, windowed)),
         version_check=_OK_VERSION,
+        # A display IS usable here (inject the #345 precondition so this fast unit
+        # test is display-independent — a headless CI host must not refuse the start).
+        display_check=lambda: None,
     )
 
     assert isinstance(started, DaemonStartResult), started
     assert started.windowed is True
     # The windowed mode is threaded into the spawn (the daemon argv carries it).
     assert spawned[0][2] is True
+
+
+def test_windowed_start_without_a_display_is_live_windowed_unavailable(
+    tmp_path, short_runtime, monkeypatch
+):
+    # #345 Part B: a windowed start on a host with no usable DisplayServer is refused
+    # BEFORE spawning Godot (and before installing the harness) with the typed
+    # live_windowed_unavailable (ENVIRONMENT / exit 127) — mirroring the platform
+    # precondition — rather than spawning a doomed engine that aborts during
+    # DisplayServer registration.
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+    spawned: list = []
+
+    outcome = daemon_ops.run_daemon_start_operation(
+        project,
+        None,
+        windowed=True,
+        spawn=lambda p, b, w, s: spawned.append((p, b, w, s)),
+        version_check=_OK_VERSION,
+        display_check=lambda: "no usable DisplayServer (test)",
+    )
+
+    assert isinstance(outcome, Failure), outcome
+    assert outcome.error.code == "live_windowed_unavailable"
+    assert outcome.error.category.value == "environment"
+    assert outcome.exit_code == 127  # EXIT_NOT_FOUND
+    assert spawned == []  # never spawned Godot
+    # Pre-harness-install too: a doomed windowed start must not mutate the project.
+    assert not (project / HARNESS_RES_DIR / HARNESS_FILE).exists()
+
+
+def test_headless_start_never_consults_the_display_check(
+    tmp_path, short_runtime, fake_ready, monkeypatch
+):
+    # The precondition is windowed-only: a default (headless) start must not consult
+    # the display check at all — a headless session needs no window server.
+    project = _project(tmp_path)
+    monkeypatch.setattr(daemon_ops, "daemon_pid", lambda paths: None)
+
+    def _boom() -> str:
+        raise AssertionError("a headless start must not run the display check")
+
+    started = _start(project, display_check=_boom)
+
+    assert isinstance(started, DaemonStartResult), started
+    assert started.windowed is False
 
 
 # `daemon start --scene <path|UID>` is a START-TIME selector: the daemon holds it
