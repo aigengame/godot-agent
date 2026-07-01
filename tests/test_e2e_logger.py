@@ -47,6 +47,12 @@ extends Node2D
 
 func _ready() -> void:
 	GdaHarness.gda_log("warning", "known gda_log", {"k": 1})
+	# #362: the recommended pattern — gate the structured log on the daemon-launched
+	# predicate. In this daemon-launched session it is true, so this record emits;
+	# `logger tail` reading it back proves the public predicate observes the SAME
+	# condition gda_log() gates on.
+	if GdaHarness.is_daemon_launched():
+		GdaHarness.gda_log("info", "predicate gated log", {})
 	print("known line")
 	push_warning("known warning")
 	push_error("known error")
@@ -127,6 +133,15 @@ def test_logger_tail_reads_back_structured_records_and_raw_lines(
         assert rich[0]["fields"] == {"k": 1}
         assert rich[0]["source"] is None
 
+        # #362: the log gated on `GdaHarness.is_daemon_launched()` emitted, so the
+        # public predicate returned true in this daemon-launched session — the same
+        # condition gda_log() gates on, now observable by game code without reaching
+        # into the private `_daemon_launched` var.
+        records = poll_records([], "predicate gated log")
+        gated = [r for r in records if "predicate gated log" in r["message"]]
+        assert gated, records
+        assert gated[0]["origin"] == "gda_log"
+
         # Default: structured records. The known print is a plain `info` record.
         records = poll_records([], "known line")
         info = [r for r in records if "known line" in r["message"]]
@@ -179,11 +194,15 @@ def test_logger_tail_reads_back_structured_records_and_raw_lines(
 
 # A main scene that calls gda_log() in a PLAIN run (no daemon). It prints a marker so
 # the test can confirm the game actually ran, then quits so the headless run returns.
+# #362: it also asserts the PUBLIC predicate reports the dormant state (false in a
+# plain run), the fact game code branches on with a print() fallback.
 PLAIN_MAIN_GD = """\
 extends Node2D
 
 func _ready() -> void:
 	GdaHarness.gda_log("warning", "should-not-leak", {"k": 1})
+	if not GdaHarness.is_daemon_launched():
+		print("PREDICATE-FALSE-CONFIRMED")
 	print("PLAIN-RUN-RAN")
 	get_tree().quit()
 """
@@ -215,3 +234,7 @@ def test_gda_log_is_inert_outside_a_daemon_launched_session(tmp_path):
     out = proc.stdout + proc.stderr
     assert "PLAIN-RUN-RAN" in out, out  # the game actually ran its _ready
     assert "<<<GDA:LOG>>>" not in out, out  # gda_log() was inert (no daemon) — no leak
+    # #362: the public predicate reported the dormant state — false in a plain run — so
+    # game code can gate its logging on it (and fall back to print) without touching
+    # the private `_daemon_launched` var.
+    assert "PREDICATE-FALSE-CONFIRMED" in out, out

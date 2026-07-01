@@ -86,6 +86,23 @@ the first live op. `screen capture` needs a windowed session
 | `input` | `key`, `mouse-click`, `mouse-move`, `action`, `sequence` |
 | `screen` | `capture`, `frames` (viewport PNGs; needs `--windowed`) |
 
+### Structured logging from game code
+
+To emit a record `gda logger tail` reads back as a rich, field-carrying `LogRecord`,
+call the harness autoload from your GDScript — but **gate it on the daemon-launched
+predicate, not on harness presence**. Once installed, `/root/GdaHarness` exists in
+*every* run, yet it only captures logs when `gda-daemon` launched the session; gating
+on presence silently drops every record in a plain run, a human editor run, or an
+exported build. Gate on `GdaHarness.is_daemon_launched()` (a pure read) and fall back
+to `print()` when it is false, so no record is lost:
+
+```gdscript
+if GdaHarness.is_daemon_launched():
+    GdaHarness.gda_log("info", "player spawned", {"hp": 100})
+else:
+    print("player spawned")  # dormant: gda_log() would be a silent no-op
+```
+
 ## Worked example
 
 Headless: build and export a scene.

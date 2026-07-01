@@ -41,7 +41,7 @@ HARNESS_RES_PATH = f"res://{HARNESS_RES_DIR}/{HARNESS_FILE}"
 # copy to it (#225). The installed copy declares its version in a leading header
 # (`# gda-harness-version: <N>`); a mismatch re-materializes via the content
 # compare. NOT the package version — the harness changes far less often.
-HARNESS_VERSION = "3"
+HARNESS_VERSION = "4"
 
 _VERSION_HEADER_PREFIX = "# gda-harness-version:"
 _AUTOLOAD_HEADER = "[autoload]"

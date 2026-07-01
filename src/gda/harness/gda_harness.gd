@@ -951,6 +951,20 @@ func _error(code: String, message: String) -> String:
 	return RESULT_BEGIN + JSON.stringify({"error": {"code": code, "message": message}}) + RESULT_END
 
 
+# The PUBLIC, stable predicate reporting whether gda-daemon launched this run (#362)
+# — the SAME condition `gda_log()` gates on (`_daemon_launched`). Game code should
+# branch on THIS, not on harness *presence*: once installed, `/root/GdaHarness` exists
+# in every run, but the harness only captures logs when the daemon launched the
+# session, so gating on presence silently drops every record in a plain/editor/exported
+# run. A game-side logging helper instead gates on this predicate and falls back to
+# `print()` when it is false. It is a PURE READ — no connection, no output, no state
+# change — so the ADR-0018 inert-when-dormant guarantee holds: it returns false in a
+# human editor run, a plain run, and an exported build (where `_ready` returns at the
+# `template` gate before `_daemon_launched` is ever set), with no side effect in any.
+func is_daemon_launched() -> bool:
+	return _daemon_launched
+
+
 # The active opt-in rich-log protocol (#282, ADR-0026). Project code in a live
 # session calls `GdaHarness.gda_log(level, message, fields)` to emit ONE fully
 # structured, field-carrying log record. It prints a single `<<<GDA:LOG>>>{json}`
