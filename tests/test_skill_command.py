@@ -52,6 +52,22 @@ def test_skill_json_emits_name_version_content():
     assert data.get("installed_path") is None
 
 
+def test_skill_ignores_an_invalid_inherited_gda_project(tmp_path, monkeypatch):
+    # `gda skill` is a projectless meta emitter (ADR-0024): it reads the bundled
+    # SKILL.md and never resolves a Godot project. An inherited $GDA_PROJECT that
+    # is not a project must NOT make it fail — it stays projectless, unlike the
+    # project-using recipes that structure an invalid --project as project_not_found
+    # (#353). Guards against the shared-resolver refactor over-reaching to meta.
+    not_a_project = tmp_path / "not-a-godot-project"
+    not_a_project.mkdir()
+    monkeypatch.setenv("GDA_PROJECT", str(not_a_project))
+
+    result = CliRunner().invoke(app, ["skill", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["name"] == "gda"
+
+
 def test_skill_json_content_round_trips_the_bundled_file():
     data = json.loads(CliRunner().invoke(app, ["skill", "--json"]).stdout)
     assert data["content"] == SKILL_MD.read_text(encoding="utf-8")

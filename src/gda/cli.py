@@ -43,7 +43,7 @@ from gda.errors import (
     classify_perf_monitor,
     classify_perf_monitors,
     classify_script_validate,
-    script_run_project_not_found_failure,
+    invalid_project_failure,
 )
 from gda.execution import ExecutionKind
 from gda.export_run import (
@@ -487,8 +487,10 @@ def _make_live_runner(binary: Optional[Path], project: Optional[Path]) -> GodotR
 
 # --- Recipe channels (ADR-0023) -----------------------------------------------
 # Each recipe command (export run / the daemon lifecycle / screen) carries one of
-# these on its descriptor (``recipe=``). A recipe PRODUCES the outcome — resolve the
-# project (kept CLI-side, ADR-0006) + run the CLI-side operation — and RETURNS the
+# these on its descriptor (``recipe=``). A recipe PRODUCES the outcome — run the
+# CLI-side operation over the ALREADY-resolved ``project`` (resolution happens once
+# in :func:`_dispatch_recipe`, kept CLI-side per ADR-0006, so an invalid --project is
+# a structured project_not_found before any recipe runs, #353) — and RETURNS the
 # typed result or a Failure; emission stays the shared tail (:func:`_dispatch_recipe`
 # → ``cmd.render``), so a recipe command renders exactly like a sentinel one. The
 # runner seams (``_make_*``) are referenced at call time so test monkeypatches on
@@ -499,7 +501,7 @@ def _make_live_runner(binary: Optional[Path], project: Optional[Path]) -> GodotR
 
 def _daemon_start_recipe(params, *, project, godot):
     return run_daemon_start_operation(
-        resolve_project_dir(project),
+        project,
         godot,
         windowed=params.windowed,
         scene=params.scene,
@@ -507,20 +509,20 @@ def _daemon_start_recipe(params, *, project, godot):
 
 
 def _daemon_stop_recipe(params, *, project, godot):
-    return run_daemon_stop_operation(resolve_project_dir(project))
+    return run_daemon_stop_operation(project)
 
 
 def _daemon_status_recipe(params, *, project, godot):
-    return run_daemon_status_operation(resolve_project_dir(project))
+    return run_daemon_status_operation(project)
 
 
 def _daemon_uninstall_recipe(params, *, project, godot):
-    return run_daemon_uninstall_operation(resolve_project_dir(project))
+    return run_daemon_uninstall_operation(project)
 
 
 def _screen_capture_recipe(params, *, project, godot):
     return run_screen_capture_operation(
-        resolve_project_dir(project),
+        project,
         Path(params.output),
         inline=params.inline,
         make_runner=_make_live_runner,
@@ -529,7 +531,7 @@ def _screen_capture_recipe(params, *, project, godot):
 
 def _screen_frames_recipe(params, *, project, godot):
     return run_screen_frames_operation(
-        resolve_project_dir(project),
+        project,
         params.frames,
         Path(params.output_dir),
         make_runner=_make_live_runner,
@@ -549,7 +551,7 @@ def _export_run_recipe(params, *, project, godot):
         mode=params.mode,
         output_override=params.output,
         godot=godot,
-        project=resolve_project_dir(project),
+        project=project,
         make_runner=_make_runner,
         make_export_runner=_make_export_runner,
     )
@@ -573,22 +575,16 @@ EXPORT_RUN_COMMAND: HeadlessCommand[ExportRunResult] = HeadlessCommand(
 
 
 def _script_run_recipe(params, *, project, godot):
-    # Project resolution stays CLI-side (ADR-0006), but ``resolve_project_dir``
-    # RAISES ValueError for an explicit ``--project`` (or ``$GDA_PROJECT``) that is
-    # not a Godot project — a raise that would escape as a traceback before the op's
-    # projectless-None guard runs. Convert it to the SAME structured project_not_found
-    # the None case yields, so "no resolved project" is always a clear structured
-    # error, never a crash (ADR-0031 / #343 AC). (The general cross-cutting fix — a
-    # shared ValueError→envelope layer across every channel — is tracked in #353;
-    # this stays within script run's own slice.)
-    try:
-        resolved = resolve_project_dir(project)
-    except ValueError:
-        return script_run_project_not_found_failure()
+    # ``project`` arrives ALREADY resolved by _dispatch_recipe — an invalid
+    # --project/$GDA_PROJECT was converted to a structured project_not_found before
+    # this runs, so no per-recipe ValueError handling is needed here (#353 folded in
+    # script run's former try/except). A projectless None remains the op's own ABI
+    # edge: run_script_run_operation returns script_run_project_not_found_failure()
+    # for it (ADR-0031).
     return run_script_run_operation(
         script=params.path,
         godot=godot,
-        project=resolved,
+        project=project,
     )
 
 
@@ -638,6 +634,22 @@ def _emit(
     )
 
 
+def _resolve_project_or_fail(project: Optional[str]) -> Optional[Path]:
+    """Resolve ``--project`` (ADR-0006), or emit a structured ``project_not_found``
+    and exit — never leak the raise as a traceback (#353).
+
+    ``resolve_project_dir`` raises ``ValueError`` for an explicit ``--project`` or
+    ``$GDA_PROJECT`` that is empty or is not a Godot project. This is the ONE shared
+    project-resolution point on the CLI dispatch path, so converting the raise here
+    gives every channel — sentinel (:func:`_dispatch`) and recipe
+    (:func:`_dispatch_recipe`) — the structured envelope in a single place.
+    """
+    try:
+        return resolve_project_dir(project)
+    except ValueError as exc:
+        emit_failure(invalid_project_failure(str(exc)))
+
+
 def _dispatch(
     cmd: HeadlessCommand[M],
     params: BaseModel,
@@ -661,7 +673,7 @@ def _dispatch(
         params,
         json_output=json_output,
         godot=godot,
-        project=resolve_project_dir(project),
+        project=_resolve_project_or_fail(project),
     )
 
 
@@ -704,12 +716,21 @@ def _dispatch_recipe(
     renders identically to a sentinel one; only outcome production differs. Shared by
     the argv bodies and the ``--params-json`` path, so the two forms are
     indistinguishable downstream (ADR-0015). Project resolution stays CLI-side
-    (ADR-0006), owned by each recipe.
+    (ADR-0006) and happens HERE, once, for every PROJECT-USING recipe — so an
+    invalid ``--project`` yields the structured ``project_not_found`` envelope on
+    this channel exactly as on the sentinel one, and no recipe re-resolves (#353).
+    A ``projectless`` recipe (a pure meta emitter like ``gda skill``, ADR-0024) is
+    NOT resolved: it takes no project, so an inherited invalid ``$GDA_PROJECT``
+    must not make it fail (#357).
     """
     # A recipe command always carries a recipe channel — that is what routes it
-    # here rather than to the sentinel ``cmd.emit`` path (ADR-0023).
+    # here rather than to the sentinel ``cmd.emit`` path (ADR-0023). A project-using
+    # recipe receives the ALREADY-resolved project (or a structured project_not_found
+    # is emitted before it runs); a projectless meta recipe receives None and never
+    # touches ``resolve_project_dir``.
     assert cmd.recipe is not None
-    outcome = cmd.recipe(params, project=project, godot=godot)
+    resolved = None if cmd.projectless else _resolve_project_or_fail(project)
+    outcome = cmd.recipe(params, project=resolved, godot=godot)
     if isinstance(outcome, Failure):
         emit_failure(outcome)
     emit_result(outcome, json_output, cmd.render)
@@ -779,6 +800,10 @@ SKILL_COMMAND: HeadlessCommand[SkillResult] = HeadlessCommand(
     output_model=SkillResult,
     render=render_skill,
     recipe=_skill_recipe,
+    # A pure meta emitter (ADR-0024): no --project, resolves none — so the recipe
+    # dispatcher must not resolve a project for it (an inherited invalid $GDA_PROJECT
+    # must not make `gda skill` fail, #357).
+    projectless=True,
 )
 
 GAME_TREE_COMMAND: HeadlessCommand[GameTreeResult] = HeadlessCommand(

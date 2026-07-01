@@ -666,3 +666,18 @@ def script_run_project_not_found_failure() -> Failure:
         "$GDA_PROJECT, or run from a project directory",
         "",
     )
+
+
+def invalid_project_failure(reason: str) -> Failure:
+    """The ``project_not_found`` failure for an explicit ``--project``/``$GDA_PROJECT``
+    that is empty or is not a Godot project (#353).
+
+    ``resolve_project_dir`` raises ``ValueError`` with a descriptive ``reason`` (the
+    offending path, the missing ``project.godot``, or an empty value). Converting it
+    to this structured envelope at the shared CLI dispatch layer — the single place
+    project resolution happens (ADR-0006) — means *every* channel yields the
+    structured ``project_not_found`` error instead of leaking the raise as a Rich/
+    Python traceback. It is the general, cross-cutting form of ``script run``'s own
+    projectless ABI edge (#343); the two share the one ``project_not_found`` code.
+    """
+    return _failure("project_not_found", reason, "")

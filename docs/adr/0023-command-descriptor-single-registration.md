@@ -57,6 +57,16 @@ absorbs the two missing facts.**
   frozensets** and the per-command identity-branching inside the old daemon
   dispatch (each daemon command now carries its own recipe).
 
+  > **Outcome (2026-07-01, #353/#357):** project resolution moved OUT of the recipe
+  > into the shared `_dispatch_recipe` tail — it resolves once (via the same
+  > `_resolve_project_or_fail` the sentinel `_dispatch` uses) and hands the recipe an
+  > ALREADY-resolved project, so an invalid `--project` is a structured
+  > `project_not_found` on the recipe channel exactly as on the sentinel one, with no
+  > per-recipe resolution. A recipe now **produces the outcome from a resolved project**
+  > (it no longer resolves). A `projectless: bool` descriptor field excludes pure meta
+  > emitters (e.g. `gda skill`, ADR-0024) from resolution, so an inherited invalid
+  > `$GDA_PROJECT` cannot make a projectless meta command fail.
+
 **2. The render map and dispatch routing are projections of the descriptor, not
 parallel registries.** On the `cmd.emit` path the descriptor is already in hand, so
 rendering and channel selection read off `cmd` directly. Where a whole-surface view
