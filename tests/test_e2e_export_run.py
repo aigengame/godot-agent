@@ -236,6 +236,61 @@ def test_export_run_pack_writes_pck_without_templates(godot_project):
 
 
 @pytest.mark.e2e
+def test_export_run_pack_accepts_a_relative_project(godot_project):
+    # Regression for #344: `gda export run` with a RELATIVE --project must resolve
+    # the SAME project as an absolute one. The native export runner spawns Godot
+    # with cwd = <project>, so before the fix a relative --path was re-resolved by
+    # the engine against that child CWD (<project>/<project>) — project.godot not
+    # found → empty export_failed. Pack needs no export templates, so this RUNS
+    # deterministically on a template-less host and proves the real bug is gone on
+    # disk (an absolute --project already works via test_..._pack_writes_pck_...).
+    (godot_project / "export_presets.cfg").write_text(
+        EXPORT_PRESETS_CFG, encoding="utf-8"
+    )
+    # all_resources needs at least one exportable file (see the pack test above).
+    (godot_project / "main.gd").write_text(
+        "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
+    )
+    override_rel = "dist/packed.pck"
+    artifact = godot_project / override_rel
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+
+    # Drive gda from the project's PARENT with a RELATIVE --project (the failing
+    # case) — NOT the absolute path _gda_project passes.
+    run = subprocess.run(
+        [
+            *GDA_CMD,
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--mode",
+            "pack",
+            "--output",
+            override_rel,
+            "--json",
+            "--godot",
+            str(GODOT),
+            "--project",
+            godot_project.name,  # RELATIVE; resolved against the cwd below
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(godot_project.parent),
+    )
+
+    # No skip: pack must RUN to completion regardless of template presence. Before
+    # the fix this returned 4 with an empty export_failed (project.godot not found).
+    assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert data["mode"] == "pack"
+    assert data["output_path"] == override_rel
+    # The .pck landed INSIDE the project — the relative --project resolved to the
+    # same directory an absolute one would, exactly as the editor resolves it.
+    assert artifact.exists(), f"expected .pck at {artifact} for a relative --project"
+
+
+@pytest.mark.e2e
 def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
     # ADR-0018: `gda export run` must NEVER carry the dev-only harness into the
     # artifact — and without the developer having to `gda daemon uninstall` first.

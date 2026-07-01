@@ -62,6 +62,64 @@ def test_export_runs_with_project_as_cwd(monkeypatch):
     assert rec.cmd[-3:] == ["--export-release", "Linux/X11", "build/game.x86_64"]
 
 
+def _path_arg(cmd: list[str]) -> str:
+    """The value following ``--path`` in a spawned argv."""
+    return cmd[cmd.index("--path") + 1]
+
+
+def test_relative_project_is_absolutized_so_cwd_and_path_agree(monkeypatch):
+    # Regression for #344: this channel spawns with cwd = <project>, so a RELATIVE
+    # --project passed as --path verbatim would be re-resolved by the engine
+    # against the child CWD (<project>/<project>) — project.godot not found →
+    # empty export_failed. The runner must absolutize the project so --path and
+    # cwd name the SAME absolute directory (reaching the resolution an absolute
+    # --project reaches).
+    rec = _RecordingRun()
+    monkeypatch.setattr(runner_mod.subprocess, "run", rec)
+    relative = Path("relproj")
+    expected = str(relative.absolute())
+
+    runner = SubprocessExportRunner(Path("/x/Godot"), project=relative)
+    runner.run("Linux/X11", "release", "build/game.x86_64")
+
+    assert rec.kwargs is not None and rec.cmd is not None
+    # --path carries the ABSOLUTE project, not the relative string the engine
+    # would mis-resolve against the child cwd.
+    passed_path = _path_arg(rec.cmd)
+    assert Path(passed_path).is_absolute()
+    assert passed_path == expected
+    # cwd and --path name the SAME directory — the invariant the bug violated.
+    assert rec.kwargs.get("cwd") == passed_path == expected
+
+
+def test_relative_and_absolute_project_reach_the_same_resolution(monkeypatch, tmp_path):
+    # The deterministic core of #344, independent of export templates: a RELATIVE
+    # --project and the EQUIVALENT absolute --project produce the identical spawn
+    # (same cwd, same --path). Building the absolute path from Path.cwd() — the
+    # same base .absolute() uses — keeps the two naming one directory regardless
+    # of any symlink in the tmp prefix.
+    monkeypatch.chdir(tmp_path)
+    abs_project = Path.cwd() / "proj"
+    abs_project.mkdir()
+
+    def _spawn(project: Path) -> tuple[list[str], dict]:
+        rec = _RecordingRun()
+        monkeypatch.setattr(runner_mod.subprocess, "run", rec)
+        SubprocessExportRunner(Path("/x/Godot"), project=project).run(
+            "Linux/X11", "release", "build/game.x86_64"
+        )
+        assert rec.cmd is not None and rec.kwargs is not None
+        return rec.cmd, rec.kwargs
+
+    rel_cmd, rel_kwargs = _spawn(Path("proj"))
+    abs_cmd, abs_kwargs = _spawn(abs_project)
+
+    # Relative resolves to the same absolute cwd and --path as absolute does.
+    assert rel_kwargs["cwd"] == abs_kwargs["cwd"] == str(abs_project)
+    assert _path_arg(rel_cmd) == _path_arg(abs_cmd) == str(abs_project)
+    assert Path(rel_kwargs["cwd"]).is_absolute()
+
+
 def test_export_without_project_passes_no_cwd(monkeypatch):
     # Projectless runs (no resolved project) spawn with the default cwd — there is
     # no project root to resolve a relative path against.

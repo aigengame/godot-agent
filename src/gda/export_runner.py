@@ -55,13 +55,22 @@ class SubprocessExportRunner:
     these flags entirely and the engine reports it as a usage error, surfaced as a
     generic export failure by the classifier.
 
-    The process is spawned with ``cwd = <project>`` when a project is resolved.
-    Godot writes the export artifact via ``FileAccess``/``DirAccess`` with NO
-    project globalization (verified against the engine source), so a *relative*
-    output path — the common case, since a preset's configured ``export_path`` is
-    stored project-relative (e.g. ``build/game.x86_64``) — resolves against the
-    process CWD. Running from the project root makes that relative path land
-    inside the project, exactly as the editor resolves it (issue #121).
+    The project is absolutized once and used for BOTH the spawn's
+    ``cwd = <project>`` and the ``--path <project>`` flag when a project is
+    resolved. This matters twice:
+
+    - Godot writes the export artifact via ``FileAccess``/``DirAccess`` with NO
+      project globalization (verified against the engine source), so a *relative*
+      output path — the common case, since a preset's configured ``export_path``
+      is stored project-relative (e.g. ``build/game.x86_64``) — resolves against
+      the process CWD. Running from the project root makes that relative path land
+      inside the project, exactly as the editor resolves it (issue #121).
+    - Because the spawn's ``cwd`` is the project, ``--path`` MUST be absolute. A
+      *relative* ``--project`` would otherwise be re-resolved by the engine
+      against that child CWD — ``<project>/<project>`` — so ``project.godot`` is
+      not found and the export fails with an empty ``export_failed``. Absolutizing
+      the path keeps ``cwd`` and ``--path`` naming the same directory, so a
+      relative ``--project`` resolves exactly as an absolute one (issue #344).
     """
 
     binary: Path
@@ -74,8 +83,15 @@ class SubprocessExportRunner:
         # UTF-8-decode handling to the shared launch primitive (#185).
         flag = EXPORT_MODE_FLAGS[mode]
         args: list[str] = []
-        if self.project is not None:
-            args += ["--path", str(self.project)]
+        # Absolutize the project ONCE and use the same path for cwd and --path:
+        # this channel sets cwd = <project>, so a relative --path would be
+        # re-resolved against that child CWD (<project>/<project>) and Godot would
+        # not find project.godot (#344). ``absolute()`` (not ``resolve()``) keeps
+        # the codebase's symlink-agnostic path handling — resolve_project_dir only
+        # expands ``~`` — so an absolute --project is passed through verbatim.
+        project = self.project.absolute() if self.project is not None else None
+        if project is not None:
+            args += ["--path", str(project)]
         args += [flag, preset, output_path]
         # Pass the export-specific timeout label: on a timeout the primitive's
         # stderr is carried into GdaError.diagnostics and serialized in
@@ -84,7 +100,7 @@ class SubprocessExportRunner:
         return launch(
             self.binary,
             args,
-            cwd=self.project,
+            cwd=project,
             timeout=self.timeout,
             timeout_label="Godot export",
         )
