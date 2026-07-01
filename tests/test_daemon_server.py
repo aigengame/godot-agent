@@ -198,7 +198,9 @@ def test_failed_launch_threads_diagnostics_into_the_error_reply(tmp_path, monkey
 
     # The wire shape is unchanged: still {stdout, stderr, exit_code}.
     assert set(reply) == {"stdout", "stderr", "exit_code"}
-    assert parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    assert (
+        parse_result(reply["stdout"])["error"]["code"] == "engine_session_not_running"
+    )
     # The diagnostic rides the existing stderr field, not a new envelope key.
     assert "SIGABRT" in reply["stderr"]
 

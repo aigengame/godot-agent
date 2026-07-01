@@ -176,6 +176,7 @@ def launch_session(
     harness never connected is the "harness hung" case. That distinction tells a
     crashed windowed process apart from a stuck harness.
     """
+
     def _record(message: str) -> None:
         # Collect a best-effort launch-failure reason for the daemon to surface
         # (#345); a no-op when the caller passed no sink.

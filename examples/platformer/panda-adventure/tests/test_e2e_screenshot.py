@@ -112,7 +112,9 @@ def test_windowed_daemon_captures_the_running_viewport(tmp_path, daemon_runtime_
             # through (env race), not a failure.
             code = _error_code(started.stdout)
             if code in _NO_DISPLAY_CODES:
-                pytest.skip(f"windowed session unavailable in this environment ({code})")
+                pytest.skip(
+                    f"windowed session unavailable in this environment ({code})"
+                )
             raise AssertionError(started.stdout + started.stderr)
         assert json.loads(started.stdout)["windowed"] is True
 
