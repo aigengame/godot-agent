@@ -1456,11 +1456,16 @@ func _op_script_validate(params: Dictionary) -> void:
 # Establishes the .tres load/save plumbing the rest of the group reuses.
 #
 # No-clobber: an existing target is refused with already_exists, leaving it
-# untouched (mirrors scene-create / script-create). The type must be an
-# instantiable Resource subclass — an unknown type or a non-Resource class (e.g.
-# a Node) is refused with invalid_resource_type, parallel to scene-create's
-# invalid_root_type check against Node. A plain Resource holds data, so creating
-# one runs no project code (it constructs an engine class, not a script).
+# untouched (mirrors scene-create / script-create). The type must resolve to an
+# instantiable Resource — a built-in Resource class OR a project-defined
+# class_name (GDScript `class_name Foo extends Resource`), resolved the same way
+# node add resolves --type (issue #342). An unknown type or a non-Resource class
+# (e.g. a Node) is refused with invalid_resource_type; a registered class_name
+# whose script broke since the project scan is uninstantiable_script — parallel
+# to node add's invalid_node_type / uninstantiable_script split. A script-backed
+# Resource runs the script's _init at construction (its constructor is project
+# code, within the Trusted project assumption, ADR-0009); a built-in class
+# constructs an engine class and runs none.
 func _op_resource_create(params: Dictionary) -> void:
 	_diag("running operation: resource-create")
 	var path := _string_param(params, "path")
@@ -1471,15 +1476,13 @@ func _op_resource_create(params: Dictionary) -> void:
 		_fail(OP_ERROR_INVALID_PATH, "resource path must end in .tres: " + path)
 		return
 	var type := _string_param(params, "type")
-	if type.is_empty() or not ClassDB.can_instantiate(type) \
-			or not ClassDB.is_parent_class(type, "Resource"):
-		_fail(OP_ERROR_INVALID_RESOURCE_TYPE, "not an instantiable Resource class: " + type)
-		return
+	var resource: Resource = _instantiate_resource_type(type)
+	if resource == null:
+		return  # _instantiate_resource_type already recorded the failure
 	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
 		_fail(OP_ERROR_ALREADY_EXISTS, "resource target already exists: " + path)
 		return
 
-	var resource: Resource = ClassDB.instantiate(type)
 	var created_dirs: Variant = _ensure_parent_dirs(path)
 	if created_dirs == null:
 		return  # _ensure_parent_dirs already recorded the failure
@@ -3615,6 +3618,57 @@ func _instantiate_script_class(type: String, script_path: String) -> Node:
 # the failure structurally instead of degrading into an unstructured abort.
 func _new_script_instance(script: Script) -> Variant:
 	return script.new()
+
+
+# Instantiate a resource by type: a built-in Resource class first, then a
+# class_name from the project's global class list (script classes register only
+# once the project has been imported/scanned). The Resource-side twin of
+# _instantiate_node_type (issue #342): records the failure itself and returns
+# null when the type resolves to nothing instantiable as a Resource, telling
+# apart the two distinct failure modes — a type that resolves to nothing is
+# invalid_resource_type, while a registered class_name whose script broke since
+# registration is uninstantiable_script (repair the script, not the type name).
+func _instantiate_resource_type(type: String) -> Resource:
+	if not type.is_empty() and ClassDB.can_instantiate(type) and ClassDB.is_parent_class(type, "Resource"):
+		return ClassDB.instantiate(type)
+	for entry in ProjectSettings.get_global_class_list():
+		if String(entry.get("class", "")) == type:
+			return _instantiate_resource_script_class(type, String(entry.get("path", "")))
+	_fail(OP_ERROR_INVALID_RESOURCE_TYPE, "not an instantiable Resource class or registered class_name: " + type)
+	return null
+
+
+# Instantiate a registered class_name from its script as a Resource. The
+# Resource-side twin of _instantiate_script_class (issue #342): registration only
+# proves the script was valid when the project was last scanned — the script on
+# disk may have broken since, so each step is checked and a failure reported as
+# the script problem it is, never as an unknown type. Reuses _new_script_instance
+# so a constructor error stays observable as null rather than aborting the frame.
+func _instantiate_resource_script_class(type: String, script_path: String) -> Resource:
+	var script := ResourceLoader.load(script_path) as Script
+	if script == null:
+		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
+				+ " script failed to load: " + script_path
+				+ " — broken or removed since the project scan; see diagnostics")
+		return null
+	if not script.can_instantiate():
+		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
+				+ " script cannot be instantiated: " + script_path
+				+ " — it no longer compiles; see diagnostics")
+		return null
+	var instance: Variant = _new_script_instance(script)
+	if instance == null:
+		_fail(OP_ERROR_UNINSTANTIABLE_SCRIPT, "registered class_name " + type
+				+ " script constructor failed: " + script_path
+				+ " — its _init may require arguments; see diagnostics")
+		return null
+	if instance is Resource:
+		return instance
+	if instance is Object and not (instance is RefCounted):
+		instance.free()
+	_fail(OP_ERROR_INVALID_RESOURCE_TYPE, "registered class_name " + type
+			+ " is not a Resource-derived script: " + script_path)
+	return null
 
 
 # The class_name of the node's attached script, or null for a plain built-in
