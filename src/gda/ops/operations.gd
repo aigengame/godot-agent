@@ -2459,10 +2459,11 @@ func _op_project_find_references(params: Dictionary) -> void:
 	# Resolve the target to the set of strings a reference can name it by. A
 	# res:// path names a resource directly; a class_name names both the class
 	# token (used in .gd as `extends Name` / type annotations) AND the script
-	# path it registers (used as an ext_resource/preload). A bare token that is
-	# neither a res:// path nor a registered class_name is rejected: a filesystem
-	# path (or a typo) could never appear in a res://-addressed reference, so
-	# scanning for it would only ever return a misleading empty result.
+	# path it resolves to (used as an ext_resource/preload). A bare token that is
+	# neither a res:// path nor a class_name the unified resolver resolves to a .gd
+	# (ADR-0032) is rejected: a filesystem path (or a typo) could never appear in a
+	# res://-addressed reference, so scanning for it would only ever return a
+	# misleading empty result.
 	var target_paths := {}  # res:// paths a reference may name the target by
 	var target_class := ""  # class_name token a .gd reference may name it by
 	if target.begins_with("res://"):
@@ -3654,13 +3655,16 @@ func _fail_node_not_found_labeled(label: String, node_path: String) -> void:
 				+ " — address the node exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 
 
-# Instantiate a node by type: a built-in Node class first, then a class_name
-# from the project's global class list (script classes register only once the
-# project has been imported/scanned). Records the failure itself and returns
-# null when the type resolves to nothing instantiable as a Node, telling apart
-# the two distinct failure modes (issue #65): a type that resolves to nothing
-# is invalid_node_type, while a registered class_name whose script broke since
-# registration is uninstantiable_script — repair the script, not the type name.
+# Instantiate a node by type: a built-in Node class first, then a project-local
+# class_name resolved through the unified resolver (_resolve_project_class_script,
+# ADR-0032) — the editor global class list (cache-first) with a gda-owned
+# raw-source .gd static scan as the fallback on a cache miss, so a headless
+# editor-never-opened project still resolves a valid class_name. Records the
+# failure itself and returns null, telling apart the distinct modes: a type that
+# resolves to nothing is invalid_node_type (with an actionable message), a
+# class_name declared in more than one .gd is ambiguous_class_name, and a resolved
+# class_name whose script broke since registration is uninstantiable_script (issue
+# #65) — repair the script, not the type name.
 func _instantiate_node_type(type: String) -> Node:
 	# Tier 1 (built-in engine class) stays here, per-site with the Node base-class
 	# check; the class_name → script-path step is the unified resolver (ADR-0032).
@@ -3679,10 +3683,12 @@ func _instantiate_node_type(type: String) -> Node:
 			return null
 
 
-# Instantiate a registered class_name from its script. Registration only
-# proves the script was valid when the project was last scanned — the script
-# on disk may have broken since (issue #65), so each step is checked and a
-# failure reported as the script problem it is, never as an unknown type.
+# Instantiate a class_name from its resolved script. Resolution (ADR-0032:
+# the editor cache or the gda-owned static scan) only proves a class_name
+# declaration exists in a .gd — not that the script loads, compiles, or
+# constructs (a cached entry may be stale, and the static scan parses raw text
+# without compiling; issue #65) — so each step is checked and a failure reported
+# as the script problem it is, never as an unknown type.
 func _instantiate_script_class(type: String, script_path: String) -> Node:
 	var script := ResourceLoader.load(script_path) as Script
 	if script == null:
@@ -3719,13 +3725,15 @@ func _new_script_instance(script: Script) -> Variant:
 
 
 # Instantiate a resource by type: a built-in Resource class first, then a
-# class_name from the project's global class list (script classes register only
-# once the project has been imported/scanned). The Resource-side twin of
-# _instantiate_node_type (issue #342): records the failure itself and returns
-# null when the type resolves to nothing instantiable as a Resource, telling
-# apart the two distinct failure modes — a type that resolves to nothing is
-# invalid_resource_type, while a registered class_name whose script broke since
-# registration is uninstantiable_script (repair the script, not the type name).
+# project-local class_name resolved through the same unified resolver node add and
+# find-references route through (_resolve_project_class_script, ADR-0032) — the
+# editor global class list (cache-first) with a gda-owned raw-source .gd static
+# scan as the fallback on a cache miss. The Resource-side twin of
+# _instantiate_node_type (issue #342): records the failure itself and returns null,
+# telling apart the distinct modes — a type that resolves to nothing is
+# invalid_resource_type (with an actionable message), a class_name declared in more
+# than one .gd is ambiguous_class_name, and a resolved class_name whose script broke
+# since registration is uninstantiable_script (repair the script, not the type name).
 func _instantiate_resource_type(type: String) -> Resource:
 	# Tier 1 (built-in engine class) stays here, per-site with the Resource
 	# base-class check; the class_name → script-path step is the unified resolver
@@ -3745,12 +3753,13 @@ func _instantiate_resource_type(type: String) -> Resource:
 			return null
 
 
-# Instantiate a registered class_name from its script as a Resource. The
-# Resource-side twin of _instantiate_script_class (issue #342): registration only
-# proves the script was valid when the project was last scanned — the script on
-# disk may have broken since, so each step is checked and a failure reported as
-# the script problem it is, never as an unknown type. Reuses _new_script_instance
-# so a constructor error stays observable as null rather than aborting the frame.
+# Instantiate a class_name from its resolved script as a Resource. The
+# Resource-side twin of _instantiate_script_class (issue #342): resolution
+# (ADR-0032: the editor cache or the gda-owned static scan) only proves a
+# class_name declaration exists in a .gd, not that the script loads, compiles, or
+# constructs, so each step is checked and a failure reported as the script problem
+# it is, never as an unknown type. Reuses _new_script_instance so a constructor
+# error stays observable as null rather than aborting the frame.
 func _instantiate_resource_script_class(type: String, script_path: String) -> Resource:
 	var script := ResourceLoader.load(script_path) as Script
 	if script == null:

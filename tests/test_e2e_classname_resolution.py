@@ -333,3 +333,82 @@ def test_node_add_unknown_type_message_is_actionable(uncached_project):
     assert "cache" not in msg.lower()
     assert "editor" not in msg.lower()
     assert "global class list" not in msg.lower()
+
+
+# --- .cs is OUT OF SCOPE: a C#-declared class_name is NOT resolved -----------
+#
+# ADR-0032 scopes the static scan to `.gd` only; a `class_name` declared in C#
+# (`.cs`) is out of scope. The scan's `_is_script_path()` accepts `.gd` alone, so
+# a `.cs` file is simply skipped — a C# class name must fail as an UNKNOWN type
+# (invalid_node_type / invalid_resource_type), NEVER a crash. This pins that
+# boundary against a future regression that broadens the scan to `.cs`.
+
+SHARP_NODE_CS = """\
+using Godot;
+
+public partial class SharpNode : Node
+{
+}
+"""
+
+SHARP_RES_CS = """\
+using Godot;
+
+public partial class SharpRes : Resource
+{
+}
+"""
+
+
+@pytest.fixture
+def csharp_project(tmp_path):
+    """A never-opened project whose ONLY declarations of two class names are `.cs`."""
+    (tmp_path / "project.godot").write_text(
+        CLASSNAME_RES_PROJECT_GODOT, encoding="utf-8"
+    )
+    (tmp_path / "sharp_node.cs").write_text(SHARP_NODE_CS, encoding="utf-8")
+    (tmp_path / "sharp_res.cs").write_text(SHARP_RES_CS, encoding="utf-8")
+    return tmp_path
+
+
+@pytest.mark.e2e
+def test_resource_create_does_not_resolve_a_cs_class_name(csharp_project):
+    # A `.cs`-declared class name is out of scope: resource create must fail as an
+    # unknown type (invalid_resource_type), not crash or resolve it.
+    created = _gda(
+        csharp_project,
+        "resource",
+        "create",
+        str(csharp_project / "x.tres"),
+        "--type",
+        "SharpRes",
+        "--json",
+    )
+
+    err = _assert_operation_error(created, "invalid_resource_type")
+    assert "SharpRes" in err["message"]
+    assert not (csharp_project / "x.tres").exists()
+
+
+@pytest.mark.e2e
+def test_node_add_does_not_resolve_a_cs_class_name(csharp_project):
+    # A `.cs`-declared class name is out of scope: node add must fail as an unknown
+    # type (invalid_node_type), not crash or resolve it.
+    scene_path = csharp_project / "main.tscn"
+    created = _gda(
+        csharp_project,
+        "scene",
+        "create",
+        str(scene_path),
+        "--root-type",
+        "Node2D",
+        "--json",
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+
+    added = _gda(
+        csharp_project, "node", "add", str(scene_path), "--type", "SharpNode", "--json"
+    )
+
+    err = _assert_operation_error(added, "invalid_node_type")
+    assert "SharpNode" in err["message"]
