@@ -32,6 +32,8 @@ def _valid_config() -> dict:
         "platform_size": [800.0, 48.0],
         "platform_position": [400.0, 500.0],
         "camera_smoothing_speed": 5.0,
+        "landing_squash": [1.2, 0.8],
+        "landing_tween_duration": 0.15,
     }
 
 
@@ -91,6 +93,7 @@ def test_build_produces_round_trippable_resource(gda) -> None:
     assert props["player_start"] == pytest.approx(config["player_start"])
     assert props["platform_size"] == pytest.approx(config["platform_size"])
     assert props["platform_position"] == pytest.approx(config["platform_position"])
+    assert props["landing_squash"] == pytest.approx(config["landing_squash"])
     # Scalar float fields.
     assert props["move_speed"] == pytest.approx(config["move_speed"])
     assert props["jump_velocity"] == pytest.approx(config["jump_velocity"])
@@ -98,6 +101,9 @@ def test_build_produces_round_trippable_resource(gda) -> None:
     assert props["max_fall_speed"] == pytest.approx(config["max_fall_speed"])
     assert props["camera_smoothing_speed"] == pytest.approx(
         config["camera_smoothing_speed"]
+    )
+    assert props["landing_tween_duration"] == pytest.approx(
+        config["landing_tween_duration"]
     )
 
 
@@ -137,6 +143,9 @@ def test_generated_resource_is_fresh(tmp_path) -> None:
         _with("gravity", -1.0),  # gravity must be positive
         _with("jump_velocity", 0),  # jump must be strictly negative (upward)
         _with("jump_velocity", 650.0),  # jump downward is invalid
+        _with("landing_squash", [1.2]),  # squash: too few components
+        _with("landing_squash", [1.2, 0.0]),  # squash: component must be > 0
+        _with("landing_tween_duration", 0),  # duration must be strictly positive
         _with("move_speed", "fast"),  # wrong type
         {**_valid_config(), "extra": 1},  # unexpected extra key
     ],

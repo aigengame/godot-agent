@@ -58,6 +58,8 @@ _FIELDS: list[tuple[str, str]] = [
     ("platform_size", "vec2"),
     ("platform_position", "vec2"),
     ("camera_smoothing_speed", "float"),
+    ("landing_squash", "vec2"),
+    ("landing_tween_duration", "float"),
 ]
 
 

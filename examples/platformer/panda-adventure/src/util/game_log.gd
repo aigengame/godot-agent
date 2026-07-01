@@ -1,22 +1,28 @@
 class_name GameLog
 extends RefCounted
 
-## Game-owned structured logging that degrades gracefully without the gda daemon.
+## Game-owned structured logging that degrades gracefully to print().
 ##
-## The GdaHarness autoload (which carries gda_log) is installed into the project
-## only by `gda daemon start`; it is absent in a plain run, a headless run, and a
-## shipped build. Referencing the static `GdaHarness` global in game code would
-## therefore fail to COMPILE when the autoload is absent — so we look the harness
-## up DYNAMICALLY at /root/GdaHarness instead. Under the daemon the rich
-## <<<GDA:LOG>>> line materializes; otherwise the print() fallback is still
-## captured as a passive `info` record by the daemon's log parser.
+## The GdaHarness autoload carries gda_log(). This project COMMITS the harness, so
+## it is present in every run — but its gda_log() only emits when gda-daemon
+## launched the run; on a plain run, a headless run, or the editor it is DORMANT
+## and gda_log() is a silent no-op. So we route to the harness only when it is
+## actually daemon-launched (its `_daemon_launched` flag); otherwise we print(),
+## which the daemon's log parser also captures as a passive `info` record and which
+## a human sees on the console. (The harness is still looked up DYNAMICALLY at
+## /root/GdaHarness — a bare `GdaHarness` global would not compile in the exported
+## build, where `gda export run` strips the harness entirely.)
 
 
 static func emit(level: String, message: String, fields: Dictionary = {}) -> void:
 	var loop := Engine.get_main_loop()
 	if loop is SceneTree:
 		var harness := (loop as SceneTree).root.get_node_or_null("GdaHarness")
-		if harness != null:
+		# Route to the harness ONLY when the daemon launched this run; a committed-
+		# but-dormant harness would otherwise swallow the log (its gda_log no-ops).
+		# get() degrades to null if a future harness renames the flag, so we fall
+		# back to print() rather than crash.
+		if harness != null and harness.get("_daemon_launched"):
 			harness.gda_log(level, message, fields)
 			return
 	print("[%s] %s %s" % [level, message, JSON.stringify(fields)])

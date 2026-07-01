@@ -16,7 +16,9 @@
     "platform_color",
     "platform_size",
     "platform_position",
-    "camera_smoothing_speed"
+    "camera_smoothing_speed",
+    "landing_squash",
+    "landing_tween_duration"
   ],
   "properties": {
     "player_color": {
@@ -83,6 +85,18 @@
     },
     "camera_smoothing_speed": {
       "description": "Follow-camera position smoothing speed; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "landing_squash": {
+      "description": "Player block scale (x, y) at the moment of landing — the squash-stretch pose the tween recovers from; each strictly positive.",
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "landing_tween_duration": {
+      "description": "Seconds for the landing squash to recover to normal scale; strictly positive.",
       "type": "number",
       "exclusiveMinimum": 0.0
     }

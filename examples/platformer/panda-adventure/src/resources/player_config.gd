@@ -38,3 +38,8 @@ extends Resource
 
 # Follow-camera smoothing (Camera2D.position_smoothing_speed): higher = snappier.
 @export var camera_smoothing_speed: float
+
+# Landing "juice": the squash-stretch pose (block scale) applied on touchdown and
+# the seconds the tween takes to recover it to normal scale.
+@export var landing_squash: Vector2
+@export var landing_tween_duration: float

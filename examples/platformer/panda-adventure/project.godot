@@ -2,7 +2,8 @@
 ;
 ; gda has no `project create`, so this is the canonical project root. Keep it
 ; minimal: later slices (S1–S9) extend it. The `data/generated/*.tres` the build
-; pipeline emits are derived artifacts (gitignored), regenerated from JSON.
+; pipeline emits are derived artifacts that are COMMITTED (a freshness gate keeps
+; them byte-identical to a fresh build), regenerated from JSON via build_config.py.
 
 config_version=5
 

@@ -110,7 +110,8 @@ func _physics_process(delta: float) -> void:
 ## (a property-tween, per the GDD — no authored sprite frames).
 func _play_landing_tween() -> void:
 	var visual := $Visual as ColorRect
-	visual.scale = Vector2(1.2, 0.8)
+	visual.scale = _config.landing_squash
 	var tween := create_tween()
-	tween.tween_property(visual, "scale", Vector2.ONE, 0.15).set_trans(Tween.TRANS_SINE)
+	var recover := tween.tween_property(visual, "scale", Vector2.ONE, _config.landing_tween_duration)
+	recover.set_trans(Tween.TRANS_SINE)
 	GameLogScript.emit("info", "player_land", {"floor_y": position.y})
