@@ -22,11 +22,11 @@ within the `sun_path` limit.
 import json
 import os
 import subprocess
-import sys
 
 import pytest
 
 from gda.binary import resolve_godot_binary
+from gda.display import windowed_unavailable_reason
 from tests.support import GDA_CMD
 
 from .conftest import project_godot
@@ -52,18 +52,19 @@ PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
-# A WINDOWED engine session needs a real DisplayServer. macOS always has one (Aqua);
-# headless Linux CI does not — the release/scheduled e2e runners are headless, where
-# launching a windowed session fails with `engine_session_not_running`. So the
-# windowed-capture tests skip there unless run under a virtual framebuffer
-# (`xvfb-run`, which sets DISPLAY); the headless-guard and no-daemon screen tests
-# below still run. The check is forward-compatible: wire Xvfb into CI and DISPLAY is
-# set, so these run rather than skip. (PR #248 follow-up — the release-gate fix that
-# unblocked PyPI publishing; the macOS run already exercises the real windowed path.)
+# A WINDOWED engine session needs a usable host DisplayServer. This is NOT a
+# "macOS always has one" assumption: headless macOS (SSH / CI / sandbox) has no
+# on-console window-server session even though `launchctl managername` reports
+# "Aqua", and a windowed Godot aborts in AppKit registration there — so the gate is
+# the shared `gda.display.windowed_unavailable_reason()` helper (#345), which probes
+# CGSessionCopyCurrentDictionary on macOS and $DISPLAY/$WAYLAND_DISPLAY on Linux,
+# skipping BEFORE spawning (and crashing) Godot. The headless-guard and no-daemon
+# screen tests below still run. Forward-compatible: wire Xvfb into CI (DISPLAY set)
+# and these run rather than skip.
+_NO_DISPLAY_REASON = windowed_unavailable_reason()
 _needs_display = pytest.mark.skipif(
-    sys.platform.startswith("linux") and not os.environ.get("DISPLAY"),
-    reason="windowed capture needs a DisplayServer; headless Linux has none — run "
-    "under xvfb-run, which sets DISPLAY",
+    _NO_DISPLAY_REASON is not None,
+    reason=_NO_DISPLAY_REASON or "the host has a usable DisplayServer",
 )
 
 

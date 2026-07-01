@@ -160,6 +160,7 @@ operation, and parse codes the CLI assigns).
 | `live_invalid_event_spec` | `live` | `classifier` | `6` | A live input sequence event has a type the harness does not recognize (Phase 2, #221). |
 | `live_display_unavailable` | `live` | `classifier` | `6` | A live `screen` capture ran on a headless engine session (the dummy DisplayServer cannot read pixels); start the daemon windowed with `gda daemon start --windowed` (Phase 2, #222). |
 | `live_unsupported_platform` | `environment` | `classifier` | `127` | Live operations require a UNIX platform (macOS/Linux); they use Unix domain sockets, unavailable here. Phase-1 headless is unaffected (Phase 2, ADR-0021). |
+| `live_windowed_unavailable` | `environment` | `classifier` | `127` | A windowed live session (`gda daemon start --windowed`) was requested but the host has no usable DisplayServer (no on-console GUI session / no `$DISPLAY`), so the session cannot come up; refused before spawning Godot (Phase 2, #345). |
 
 ## Considered options
 

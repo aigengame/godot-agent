@@ -83,7 +83,14 @@ def test_daemon_status_reports_a_windowed_daemons_mode(tmp_path, daemon_runtime_
 
     try:
         started = run_daemon_start_operation(
-            project, None, windowed=True, version_check=_OK_VERSION
+            project,
+            None,
+            windowed=True,
+            version_check=_OK_VERSION,
+            # No engine session is launched here (lazy launch), so the start needs no
+            # real display; inject the #345 precondition as "available" to keep this
+            # headless-CI safe (a display-less host would otherwise refuse the start).
+            display_check=lambda: None,
         )
         assert isinstance(started, DaemonStartResult), started
         assert started.windowed is True
