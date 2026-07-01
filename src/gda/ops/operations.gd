@@ -43,6 +43,7 @@ const OP_ERROR_INVALID_NODE_NAME := "invalid_node_name"
 const OP_ERROR_DUPLICATE_NODE_NAME := "duplicate_node_name"
 const OP_ERROR_MISSING_DEPENDENCY := "missing_dependency"
 const OP_ERROR_UNINSTANTIABLE_SCRIPT := "uninstantiable_script"
+const OP_ERROR_AMBIGUOUS_CLASS_NAME := "ambiguous_class_name"
 const OP_ERROR_NODE_NOT_FOUND := "node_not_found"
 const OP_ERROR_CANNOT_TARGET_ROOT := "cannot_target_root"
 const OP_ERROR_CYCLIC_TARGET := "cyclic_target"
@@ -84,6 +85,15 @@ const AUTOLOAD_ENABLED_PREFIX := "*"
 # aborts before recording an outcome (e.g. an uncaught runtime error) still
 # exits non-zero rather than reporting a phantom success.
 var _exit_code := 1
+
+# The gda-owned static class_name → declaring-.gd-paths index (ADR-0032), the
+# cache-independent fallback tier of the unified resolver. Built lazily once per
+# process run (a headless op is one-shot, so this is per-op) and reused across
+# the node-add / resource-create / find-references call sites. `_built` guards
+# the lazy build so an empty project (no class_name declared) is distinguished
+# from an unbuilt index rather than rescanning res:// on every miss.
+var _project_class_index: Dictionary = {}
+var _project_class_index_built := false
 
 
 func _initialize() -> void:
@@ -2449,21 +2459,31 @@ func _op_project_find_references(params: Dictionary) -> void:
 	# Resolve the target to the set of strings a reference can name it by. A
 	# res:// path names a resource directly; a class_name names both the class
 	# token (used in .gd as `extends Name` / type annotations) AND the script
-	# path it registers (used as an ext_resource/preload). A bare token that is
-	# neither a res:// path nor a registered class_name is rejected: a filesystem
-	# path (or a typo) could never appear in a res://-addressed reference, so
-	# scanning for it would only ever return a misleading empty result.
+	# path it resolves to (used as an ext_resource/preload). A bare token that is
+	# neither a res:// path nor a class_name the unified resolver resolves to a .gd
+	# (ADR-0032) is rejected: a filesystem path (or a typo) could never appear in a
+	# res://-addressed reference, so scanning for it would only ever return a
+	# misleading empty result.
 	var target_paths := {}  # res:// paths a reference may name the target by
 	var target_class := ""  # class_name token a .gd reference may name it by
 	if target.begins_with("res://"):
 		target_paths[target] = true
 	else:
-		var script_path := _class_name_script_path(target)
-		if script_path.is_empty():
-			_fail(OP_ERROR_INVALID_TARGET, "find-references target is not a res:// path or a registered class_name: " + target)
-			return
-		target_class = target
-		target_paths[script_path] = true
+		# Resolve the class_name through the SAME unified resolver node add /
+		# resource create use (ADR-0032), so find-references and resource create
+		# agree on whether a class resolves in an editor-never-opened project, and
+		# a class_name declared in more than one .gd is the shared ambiguous error.
+		var resolution := _resolve_project_class_script(target)
+		match resolution["status"]:
+			"resolved":
+				target_class = target
+				target_paths[resolution["path"]] = true
+			"ambiguous":
+				_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, _ambiguous_class_name_message(target, resolution["paths"]))
+				return
+			_:
+				_fail(OP_ERROR_INVALID_TARGET, "find-references target is not a res:// path, and no .gd script declares class_name " + target + " (check for a misspelled name): " + target)
+				return
 
 	var paths: Array[String] = []
 	_collect_resource_paths("res://", paths)
@@ -2620,14 +2640,80 @@ func _op_project_statistics(_params: Dictionary) -> void:
 	})
 
 
-# The script res:// path a registered class_name resolves to, or "" if no such
-# class_name is registered. Read from the project's global class list (the same
-# registry node-add resolves class_name nodes through) — never compiled.
-func _class_name_script_path(class_token: String) -> String:
+# The single unified project-local class_name resolver (ADR-0032), shared by node
+# add, resource create, and find-references so the three sites agree on whether a
+# class_name resolves in an editor-never-opened project. Resolves ONLY the
+# class_name → script-path step; the built-in-engine-class tier and the
+# Node-vs-Resource base-class check stay in each caller. The chain is cache-first:
+#   tier 2 — the editor global class list (get_global_class_list), populated only
+#            by the Godot editor scan, kept FIRST so an editor-opened project
+#            resolves exactly as before (the fallback is unobservable there);
+#   tier 3 — a gda-owned static scan of the project's own .gd sources, invoked
+#            only when the cache misses, so a headless editor-never-opened project
+#            still resolves a valid project-local class_name.
+# Returns a status Dictionary the caller matches on:
+#   {"status": "resolved", "path": "res://…gd"}
+#   {"status": "ambiguous", "paths": [conflicting res:// paths]}
+#   {"status": "not_found"}
+# A class_name declared in more than one .gd is ambiguous, never first-file-wins
+# (ADR-0032): a nondeterministic pick would mask a real project error the editor
+# itself reports. The scan runs NO project code — it parses raw source only.
+func _resolve_project_class_script(class_token: String) -> Dictionary:
+	if class_token.is_empty():
+		return {"status": "not_found"}
+	# Tier 2: the editor global class list (cache-first). A populated cache never
+	# carries a duplicate — the editor rejects that — so no ambiguity check here.
 	for entry in ProjectSettings.get_global_class_list():
 		if String(entry.get("class", "")) == class_token:
-			return String(entry.get("path", ""))
-	return ""
+			return {"status": "resolved", "path": String(entry.get("path", ""))}
+	# Tier 3: the gda-owned static scan, built once per process and reused.
+	var index := _project_class_name_index()
+	if not index.has(class_token):
+		return {"status": "not_found"}
+	var declaring: Array = index[class_token]
+	if declaring.size() > 1:
+		return {"status": "ambiguous", "paths": declaring}
+	return {"status": "resolved", "path": String(declaring[0])}
+
+
+# Build (once per process) the class_name → declaring-.gd-paths index for the
+# resolver's tier-3 static scan (ADR-0032). Walks the full res:// tree skipping
+# .godot — reusing the shared recursive walker (_collect_resource_paths, which
+# already enumerates .gd among the graph resources) — and parses each .gd's
+# class_name from raw source with the existing never-compiled parser
+# (_script_metadata). A class_name declared in more than one .gd maps to multiple
+# paths (sorted, so an ambiguous_class_name error is deterministic regardless of
+# traversal order). Runs NO project code.
+func _project_class_name_index() -> Dictionary:
+	if _project_class_index_built:
+		return _project_class_index
+	var paths: Array[String] = []
+	_collect_resource_paths("res://", paths)
+	for path in paths:
+		if not _is_script_path(path):
+			continue
+		# get_file_as_string returns "" for an unreadable OR empty .gd; either way
+		# it declares no class_name, so it simply contributes nothing to the index.
+		var meta := _script_metadata(FileAccess.get_file_as_string(path))
+		var declared: Variant = meta.get("class_name")
+		if declared == null:
+			continue
+		var token := String(declared)
+		if not _project_class_index.has(token):
+			_project_class_index[token] = []
+		(_project_class_index[token] as Array).append(path)
+	for token in _project_class_index:
+		(_project_class_index[token] as Array).sort()
+	_project_class_index_built = true
+	return _project_class_index
+
+
+# The shared ambiguous_class_name failure message (ADR-0032), emitted uniformly by
+# all three resolver call sites: it names the class and every conflicting script
+# path so an agent can repair the project (declare the class_name in exactly one
+# .gd) rather than depend on a nondeterministic first-file-wins pick.
+func _ambiguous_class_name_message(class_token: String, paths: Array) -> String:
+	return "class_name " + class_token + " is declared in more than one script, so it cannot be resolved to a single script; declare it in exactly one .gd. Conflicting scripts: " + ", ".join(PackedStringArray(paths))
 
 
 # Recursively collect every RESOURCE-bearing file under res:// — the files that
@@ -3569,27 +3655,40 @@ func _fail_node_not_found_labeled(label: String, node_path: String) -> void:
 				+ " — address the node exactly as node list reports it: '.' for the root, 'A/B' for a descendant")
 
 
-# Instantiate a node by type: a built-in Node class first, then a class_name
-# from the project's global class list (script classes register only once the
-# project has been imported/scanned). Records the failure itself and returns
-# null when the type resolves to nothing instantiable as a Node, telling apart
-# the two distinct failure modes (issue #65): a type that resolves to nothing
-# is invalid_node_type, while a registered class_name whose script broke since
-# registration is uninstantiable_script — repair the script, not the type name.
+# Instantiate a node by type: a built-in Node class first, then a project-local
+# class_name resolved through the unified resolver (_resolve_project_class_script,
+# ADR-0032) — the editor global class list (cache-first) with a gda-owned
+# raw-source .gd static scan as the fallback on a cache miss, so a headless
+# editor-never-opened project still resolves a valid class_name. Records the
+# failure itself and returns null, telling apart the distinct modes: a type that
+# resolves to nothing is invalid_node_type (with an actionable message), a
+# class_name declared in more than one .gd is ambiguous_class_name, and a resolved
+# class_name whose script broke since registration is uninstantiable_script (issue
+# #65) — repair the script, not the type name.
 func _instantiate_node_type(type: String) -> Node:
+	# Tier 1 (built-in engine class) stays here, per-site with the Node base-class
+	# check; the class_name → script-path step is the unified resolver (ADR-0032).
 	if not type.is_empty() and ClassDB.can_instantiate(type) and ClassDB.is_parent_class(type, "Node"):
 		return ClassDB.instantiate(type)
-	for entry in ProjectSettings.get_global_class_list():
-		if String(entry.get("class", "")) == type:
-			return _instantiate_script_class(type, String(entry.get("path", "")))
-	_fail(OP_ERROR_INVALID_NODE_TYPE, "not an instantiable Node class or registered class_name: " + type)
-	return null
+	var resolution := _resolve_project_class_script(type)
+	match resolution["status"]:
+		"resolved":
+			return _instantiate_script_class(type, String(resolution["path"]))
+		"ambiguous":
+			_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, _ambiguous_class_name_message(type, resolution["paths"]))
+			return null
+		_:
+			_fail(OP_ERROR_INVALID_NODE_TYPE, "not an instantiable Node class, and no .gd script declares class_name " + type
+					+ " (check for a misspelled name, or declare it with `class_name " + type + "`)")
+			return null
 
 
-# Instantiate a registered class_name from its script. Registration only
-# proves the script was valid when the project was last scanned — the script
-# on disk may have broken since (issue #65), so each step is checked and a
-# failure reported as the script problem it is, never as an unknown type.
+# Instantiate a class_name from its resolved script. Resolution (ADR-0032:
+# the editor cache or the gda-owned static scan) only proves a class_name
+# declaration exists in a .gd — not that the script loads, compiles, or
+# constructs (a cached entry may be stale, and the static scan parses raw text
+# without compiling; issue #65) — so each step is checked and a failure reported
+# as the script problem it is, never as an unknown type.
 func _instantiate_script_class(type: String, script_path: String) -> Node:
 	var script := ResourceLoader.load(script_path) as Script
 	if script == null:
@@ -3626,29 +3725,41 @@ func _new_script_instance(script: Script) -> Variant:
 
 
 # Instantiate a resource by type: a built-in Resource class first, then a
-# class_name from the project's global class list (script classes register only
-# once the project has been imported/scanned). The Resource-side twin of
-# _instantiate_node_type (issue #342): records the failure itself and returns
-# null when the type resolves to nothing instantiable as a Resource, telling
-# apart the two distinct failure modes — a type that resolves to nothing is
-# invalid_resource_type, while a registered class_name whose script broke since
-# registration is uninstantiable_script (repair the script, not the type name).
+# project-local class_name resolved through the same unified resolver node add and
+# find-references route through (_resolve_project_class_script, ADR-0032) — the
+# editor global class list (cache-first) with a gda-owned raw-source .gd static
+# scan as the fallback on a cache miss. The Resource-side twin of
+# _instantiate_node_type (issue #342): records the failure itself and returns null,
+# telling apart the distinct modes — a type that resolves to nothing is
+# invalid_resource_type (with an actionable message), a class_name declared in more
+# than one .gd is ambiguous_class_name, and a resolved class_name whose script broke
+# since registration is uninstantiable_script (repair the script, not the type name).
 func _instantiate_resource_type(type: String) -> Resource:
+	# Tier 1 (built-in engine class) stays here, per-site with the Resource
+	# base-class check; the class_name → script-path step is the unified resolver
+	# (ADR-0032), the same one node add and find-references route through.
 	if not type.is_empty() and ClassDB.can_instantiate(type) and ClassDB.is_parent_class(type, "Resource"):
 		return ClassDB.instantiate(type)
-	for entry in ProjectSettings.get_global_class_list():
-		if String(entry.get("class", "")) == type:
-			return _instantiate_resource_script_class(type, String(entry.get("path", "")))
-	_fail(OP_ERROR_INVALID_RESOURCE_TYPE, "not an instantiable Resource class or registered class_name: " + type)
-	return null
+	var resolution := _resolve_project_class_script(type)
+	match resolution["status"]:
+		"resolved":
+			return _instantiate_resource_script_class(type, String(resolution["path"]))
+		"ambiguous":
+			_fail(OP_ERROR_AMBIGUOUS_CLASS_NAME, _ambiguous_class_name_message(type, resolution["paths"]))
+			return null
+		_:
+			_fail(OP_ERROR_INVALID_RESOURCE_TYPE, "not an instantiable Resource class, and no .gd script declares class_name " + type
+					+ " (check for a misspelled name, or declare it with `class_name " + type + "`)")
+			return null
 
 
-# Instantiate a registered class_name from its script as a Resource. The
-# Resource-side twin of _instantiate_script_class (issue #342): registration only
-# proves the script was valid when the project was last scanned — the script on
-# disk may have broken since, so each step is checked and a failure reported as
-# the script problem it is, never as an unknown type. Reuses _new_script_instance
-# so a constructor error stays observable as null rather than aborting the frame.
+# Instantiate a class_name from its resolved script as a Resource. The
+# Resource-side twin of _instantiate_script_class (issue #342): resolution
+# (ADR-0032: the editor cache or the gda-owned static scan) only proves a
+# class_name declaration exists in a .gd, not that the script loads, compiles, or
+# constructs, so each step is checked and a failure reported as the script problem
+# it is, never as an unknown type. Reuses _new_script_instance so a constructor
+# error stays observable as null rather than aborting the frame.
 func _instantiate_resource_script_class(type: String, script_path: String) -> Resource:
 	var script := ResourceLoader.load(script_path) as Script
 	if script == null:

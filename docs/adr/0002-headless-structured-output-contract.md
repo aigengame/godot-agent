@@ -116,6 +116,7 @@ operation, and parse codes the CLI assigns).
 | `duplicate_node_name` | `operation` | `operation` | `4` | The parent node already has a child with the requested name. |
 | `missing_dependency` | `operation` | `operation` | `4` | A scene's declared nodes vanished or degraded on load — an unresolvable instanced sub-scene or an unavailable node class; re-saving would silently drop or downgrade them. |
 | `uninstantiable_script` | `operation` | `operation` | `4` | A registered `class_name`'s script can no longer be loaded, compiled, or constructed, so it cannot be instantiated as a node or a resource. |
+| `ambiguous_class_name` | `operation` | `operation` | `4` | A `class_name` is declared in more than one `.gd` script, so a request naming it (node add, resource create, or find-references) cannot resolve it to a single script; the conflicting script paths are named (ADR-0032). |
 | `node_not_found` | `operation` | `operation` | `4` | A requested node path does not resolve to a node in the scene. |
 | `cannot_target_root` | `operation` | `operation` | `4` | A structural edit targeted the scene root, which has no parent to be removed from, duplicated alongside, or reparented out of. |
 | `cyclic_target` | `operation` | `operation` | `4` | A node move targeted the node itself or one of its own descendants, which would detach the moved subtree from the scene. |

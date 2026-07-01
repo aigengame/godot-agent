@@ -227,6 +227,15 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         " or constructed, so it cannot be instantiated as a node or a resource.",
     ),
     ErrorCodeSpec(
+        "ambiguous_class_name",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A class_name is declared in more than one .gd script, so a request naming"
+        " it (node add, resource create, or find-references) cannot resolve it to a"
+        " single script; the conflicting script paths are named (ADR-0032).",
+    ),
+    ErrorCodeSpec(
         "node_not_found",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
