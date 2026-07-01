@@ -2598,7 +2598,11 @@ def create(
     resource_type: str = typer.Option(
         ...,
         "--type",
-        help="Godot resource class of the new .tres (e.g. Gradient, Curve).",
+        help=(
+            "Resource type of the new .tres: a built-in Resource class (e.g. "
+            "Gradient, Curve) or a registered Resource class_name (a GDScript "
+            "class_name Foo extends Resource)."
+        ),
     ),
     json_output: bool = json_option(),
     schema: bool = RESOURCE_CREATE_COMMAND.schema_option(),

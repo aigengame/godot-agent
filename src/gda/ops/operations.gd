@@ -1466,6 +1466,11 @@ func _op_script_validate(params: Dictionary) -> void:
 # Resource runs the script's _init at construction (its constructor is project
 # code, within the Trusted project assumption, ADR-0009); a built-in class
 # constructs an engine class and runs none.
+#
+# The no-clobber check runs BEFORE construction, so an existing target is refused
+# without ever executing a script-backed type's _init: a broken constructor over
+# an existing file stays already_exists (no-clobber), never uninstantiable_script,
+# and no _init side effect runs against a target that would not be written anyway.
 func _op_resource_create(params: Dictionary) -> void:
 	_diag("running operation: resource-create")
 	var path := _string_param(params, "path")
@@ -1475,13 +1480,13 @@ func _op_resource_create(params: Dictionary) -> void:
 	if not _is_resource_path(path):
 		_fail(OP_ERROR_INVALID_PATH, "resource path must end in .tres: " + path)
 		return
+	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
+		_fail(OP_ERROR_ALREADY_EXISTS, "resource target already exists: " + path)
+		return
 	var type := _string_param(params, "type")
 	var resource: Resource = _instantiate_resource_type(type)
 	if resource == null:
 		return  # _instantiate_resource_type already recorded the failure
-	if FileAccess.file_exists(path) or DirAccess.dir_exists_absolute(path):
-		_fail(OP_ERROR_ALREADY_EXISTS, "resource target already exists: " + path)
-		return
 
 	var created_dirs: Variant = _ensure_parent_dirs(path)
 	if created_dirs == null:

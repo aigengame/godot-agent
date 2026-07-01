@@ -137,8 +137,10 @@ _Avoid_: safe project, sandboxed project
 **Project-code execution surface**:
 The set of points where a single `gda` run triggers the target project's own
 code to run: autoload constructors at engine startup (every `--project` op), the
-`_init` of scripts on nodes that an instantiating operation constructs, and — via
-`gda script run` (ADR-0031) — the **full execution of a named project script**.
+`_init` of scripts on nodes *or resources* that an instantiating operation
+constructs (a `class_name` node via `node add`, or a script-backed `class_name`
+Resource via `resource create`), and — via `gda script run` (ADR-0031) — the
+**full execution of a named project script**.
 All stay within the `Trusted project` assumption (ADR-0009); `script run` widens
 this surface without adding a new trust axis.
 _Avoid_: attack surface, code-execution risk

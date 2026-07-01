@@ -272,6 +272,64 @@ def test_resource_create_by_class_name_round_trips_typed_fields(godot_project):
     assert by_name["speed"]["value"] == 2.5
 
 
+@pytest.mark.e2e
+def test_resource_create_by_class_name_round_trips_a_set_via_get(godot_project):
+    # #342's full CRUD contract: a script-backed custom .tres round-trips through
+    # resource set/get, not only create/get. set coerces the CLI string to a
+    # custom exported field's declared type, saves the .tres, and get reports the
+    # persisted value — resource get IS the structured-level proof that set landed
+    # on a custom Resource type.
+    (godot_project / "panda_stats.gd").write_text(PANDA_STATS_GD, encoding="utf-8")
+    _import_project(godot_project)
+    resource_path = godot_project / "panda.tres"
+    created = _gda(
+        "resource",
+        "create",
+        str(resource_path),
+        "--type",
+        "PandaStats",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+
+    was_set = _gda(
+        "resource",
+        "set",
+        str(resource_path),
+        "--property",
+        "speed",
+        "--value",
+        "9.5",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    set_data = json.loads(was_set.stdout)
+    # set reports the coerced value against the script-declared type.
+    assert set_data["property"] == "speed"
+    assert set_data["type"] == "float"
+    assert set_data["value"] == 9.5
+
+    got = _gda(
+        "resource",
+        "get",
+        str(resource_path),
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    by_name = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+    # Round-trip: get reports the value set persisted to the custom .tres.
+    assert by_name["speed"]["type"] == "float"
+    assert by_name["speed"]["value"] == 9.5
+
+
 # A registered class_name whose script is healthy but NOT Resource-derived: a
 # true type error (instantiable, but never savable as a .tres).
 WIDGET_NODE_GD = """\
@@ -356,6 +414,60 @@ def test_resource_create_by_registered_but_broken_class_name_names_the_script(
     assert "Stats" in err["message"]
     assert "stats.gd" in err["message"]
     assert not resource_path.exists()
+
+
+# A registered class_name that compiles and registers fine but cannot be
+# constructed without arguments: script.new() has no args to give _init. Over an
+# existing target its constructor must never run at all.
+NEEDS_ARGS_STATS_GD = """\
+class_name NeedsArgsStats
+extends Resource
+
+
+func _init(scale: float) -> void:
+\tpass
+"""
+
+
+@pytest.mark.e2e
+def test_resource_create_over_existing_target_refuses_before_constructing(
+    godot_project,
+):
+    # No-clobber must win WITHOUT running the requested type's constructor (issue
+    # #342 review): an existing target is refused with already_exists even when
+    # --type is a registered class_name whose _init would fail. A broken
+    # constructor over an existing file must stay already_exists, never turn into
+    # uninstantiable_script — and getting already_exists (not uninstantiable_script)
+    # is itself the proof that _init never ran, so no side effect touched the file.
+    (godot_project / "needs_args_stats.gd").write_text(
+        NEEDS_ARGS_STATS_GD, encoding="utf-8"
+    )
+    _import_project(godot_project)
+    resource_path = godot_project / "occupied.tres"
+    # Occupy the target first with a plain built-in resource.
+    first = _gda(
+        "resource", "create", str(resource_path), "--type", "Gradient", "--json"
+    )
+    assert first.returncode == 0, first.stdout + first.stderr
+    before = resource_path.read_text(encoding="utf-8")
+
+    second = _gda(
+        "resource",
+        "create",
+        str(resource_path),
+        "--type",
+        "NeedsArgsStats",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    err = _assert_operation_error(second, "already_exists")
+    assert str(resource_path) in err["message"]
+    # The existing file is untouched — no clobber — and, because the code is
+    # already_exists rather than uninstantiable_script, the broken constructor
+    # never ran.
+    assert resource_path.read_text(encoding="utf-8") == before
 
 
 @pytest.mark.e2e

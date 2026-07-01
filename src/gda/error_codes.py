@@ -224,7 +224,7 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
         "A registered class_name's script can no longer be loaded, compiled,"
-        " or constructed, so it cannot be instantiated as a node.",
+        " or constructed, so it cannot be instantiated as a node or a resource.",
     ),
     ErrorCodeSpec(
         "node_not_found",
