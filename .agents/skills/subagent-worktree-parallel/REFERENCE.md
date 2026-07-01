@@ -29,6 +29,28 @@ edits, where all the integration cost concentrates:
 A wave whose slices all hammer the same hotspot is *not* a good parallel candidate —
 expect a conflict-heavy serial merge, or fix it structurally first (§8).
 
+**Guardrail: disjointness is a merge-cost heuristic, not an architecture goal.** When
+slicing for disjointness would suppress or distort a sound design decision, the design
+wins:
+
+- **Don't avoid a shared file just to keep a slice disjoint.** If a legitimate change
+  belongs in a registry, a model module, or a *deep module*, put it there and
+  **serialize that slice's merge** — don't sacrifice reusability (or bend scope) to
+  manufacture disjointness. "I deliberately kept this out of `models.py` to decouple the
+  slices" is the smell.
+- **Don't let isolation hide a re-implemented deep module.** Worktree isolation defers
+  duplicated/forked logic to merge or review, so parallel fan-out actively tempts each
+  subagent to re-build shared logic in its own worktree. Before calling a slice's
+  addition "new", confirm it isn't a thin projection of an existing deep module — *reuse
+  the module*; a per-slice boundary DTO layered over it is fine, a second copy of its
+  logic is not. Bake "did this reuse the existing deep module?" into the DoD and the
+  review.
+
+This is the **complement of §8**: §8 *splits* hotspots so slices stop colliding; this
+guardrail stops you from *degrading* a deep module to fake disjointness in the first
+place. Splitting a shared file is a structural fix; suppressing a sound change to dodge
+it is not.
+
 ## 2. Wave sizing
 
 - **≤ ~5 independent slices per wave.** (A run that tried ~9 at once hit two failure
