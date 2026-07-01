@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.48](https://github.com/aigengame/godot-agent/compare/v0.1.47...v0.1.48) (2026-07-01)
+
+
+### Features
+
+* `gda script run` — user-script passthrough execution (ADR-0031) ([#349](https://github.com/aigengame/godot-agent/issues/349)) ([40fee39](https://github.com/aigengame/godot-agent/commit/40fee39bc4129c53b0f285fed8c2a967af6ae151))
+* **resource:** resolve class_name Resource in resource create ([#342](https://github.com/aigengame/godot-agent/issues/342)) ([#347](https://github.com/aigengame/godot-agent/issues/347)) ([4587bf8](https://github.com/aigengame/godot-agent/commit/4587bf82a8cf1fd53c213207eaa4090e538f8ab0))
+
+
+### Bug Fixes
+
+* **daemon:** session-launch diagnostics + typed live_windowed_unavailable ([#345](https://github.com/aigengame/godot-agent/issues/345)) ([#350](https://github.com/aigengame/godot-agent/issues/350)) ([1a212cb](https://github.com/aigengame/godot-agent/commit/1a212cb1baa57799de3b2fa0d9c99ad6a88f95da))
+* **export:** absolutize project so a relative --project works ([#344](https://github.com/aigengame/godot-agent/issues/344)) ([#348](https://github.com/aigengame/godot-agent/issues/348)) ([a3e20ef](https://github.com/aigengame/godot-agent/commit/a3e20ef9c944235bc64edb76a29fbb7c72708959))
+
 ## [0.1.47](https://github.com/aigengame/godot-agent/compare/v0.1.46...v0.1.47) (2026-06-28)
 
 
