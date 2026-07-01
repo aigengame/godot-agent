@@ -53,3 +53,7 @@ file_logging/enable_file_logging.pc=false
 ; export preset (S0 smoke-test); the exporter refuses universal/arm64 builds when
 ; this is off. Harmless for desktop running.
 textures/vram_compression/import_etc2_astc=true
+
+[autoload]
+
+GdaHarness="*res://addons/gda_harness/gda_harness.gd"

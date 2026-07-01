@@ -146,7 +146,11 @@ def test_daemon_serves_player_traversal(tmp_path, daemon_runtime_dir):
     try:
         started = run("daemon", "start")
         assert started.returncode == 0, started.stdout + started.stderr
-        assert json.loads(started.stdout)["installed_harness"] is True
+        # `installed_harness` is NOT asserted True here: this project COMMITS the
+        # gda harness (autoload + addons/gda_harness/), so `daemon start` finds it
+        # already present and content-matching — an idempotent no-op, not a fresh
+        # install (installed_harness is then False/null). What matters for the game
+        # e2e is that the session serves; the tree/get/log below prove that.
 
         # First live op launches the session; the running scene tree carries the
         # data-driven blockout: the Player body, the Platform it lands on, the Camera.
