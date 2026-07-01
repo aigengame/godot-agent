@@ -40,7 +40,8 @@ the cost/benefit table).
   legitimate shared-module edit, deep-module *reuse*, or a single source for a public
   shape. When they conflict, **serialize that slice's merge** rather than degrade the
   architecture; and make "did this slice *reuse* the existing deep module (not
-  re-implement it in isolation)?" part of each subagent's DoD. (REFERENCE §1)
+  re-implement it in isolation)?" part of each subagent's DoD — wired into the
+  dispatch-prompt DoD and the pre-launch checklist, not just prose. (REFERENCE §1, §3, §9)
 
 ## Workflow
 
