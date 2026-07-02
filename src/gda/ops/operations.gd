@@ -644,9 +644,11 @@ func _op_node_set(params: Dictionary) -> void:
 			root.free()
 			return  # _resolve_object_value already recorded the failure
 		node.set(prop_name, resolved)
-		# The assigned reference round-trips as its res:// path; the loaded resource
-		# carries a resource_path, so re-packing serializes it as an ext_resource.
-		stored_value = resolved.resource_path
+		# The echo is the same reference projection a subsequent get reads back
+		# (ADR-0035): {type, resource_path}. On disk the assignment still
+		# round-trips as its res:// path — the loaded resource carries a
+		# resource_path, so re-packing serializes it as an ext_resource.
+		stored_value = _jsonify(resolved)
 	else:
 		var coerced: Variant = _coerce_value(raw_value, declared_type)
 		if coerced == null:
@@ -1663,9 +1665,11 @@ func _op_resource_set(params: Dictionary) -> void:
 		if resolved == null:
 			return  # _resolve_object_value already recorded the failure
 		resource.set(prop_name, resolved)
-		# The assigned reference round-trips as its res:// path; the loaded resource
-		# carries a resource_path, so re-saving serializes it as an ext_resource.
-		stored_value = resolved.resource_path
+		# The echo is the same reference projection a subsequent get reads back
+		# (ADR-0035): {type, resource_path}. On disk the assignment still
+		# round-trips as its res:// path — the loaded resource carries a
+		# resource_path, so re-saving serializes it as an ext_resource.
+		stored_value = _jsonify(resolved)
 	else:
 		var coerced: Variant = _coerce_value(raw_value, declared_type)
 		if coerced == null:

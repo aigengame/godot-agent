@@ -10,9 +10,11 @@ from gda.models import (
     ExportListResult,
     ExportRunMode,
     ExportRunResult,
+    GameSetResult,
     GdaError,
     GdaErrorEnvelope,
     InlineValueProjection,
+    ListedProjectSetting,
     NodeAddResult,
     NodeConnectSignalResult,
     NodeDisconnectSignalResult,
@@ -31,8 +33,10 @@ from gda.models import (
     ReferenceProjection,
     ResourceCreateResult,
     ResourceGetResult,
+    ResourceSetResult,
     SceneCreateResult,
     SceneDeleteResult,
+    SceneExport,
     SceneGetExportsResult,
     SceneGetResult,
     SceneListResult,
@@ -1195,3 +1199,29 @@ def test_node_property_round_trips_a_reference_projection_value():
     assert prop.value["type"] == "RectangleShape2D"
     assert prop.value["resource_path"] == "res://box.tres"
     assert json.loads(prop.model_dump_json()) == payload
+
+
+def test_every_projected_value_field_exposes_the_named_projection_defs():
+    # ADR-0035 carries the projection ABI into the --schema / model chain
+    # (ADR-0004): `value` stays Any (the recorded, bounded exception), so the
+    # stable Object-projection shapes ride the field's $defs instead — named
+    # and consumable in every emitted command schema, not prose-only. Every
+    # model whose `value` flows through the shared projection must expose them.
+    projected_value_models = [
+        NodeProperty,  # node get / resource get / game get per-property value
+        SceneExport,  # scene get-exports per-export value
+        ProjectGetResult,
+        ListedProjectSetting,  # project list per-entry value
+        NodeSetResult,
+        ResourceSetResult,
+        ProjectSetResult,
+        GameSetResult,
+    ]
+    for model in projected_value_models:
+        schema = model.model_json_schema()
+        jsonschema.Draft202012Validator.check_schema(schema)
+        defs = schema["properties"]["value"]["$defs"]
+        assert defs == {
+            "ReferenceProjection": ReferenceProjection.model_json_schema(),
+            "InlineValueProjection": InlineValueProjection.model_json_schema(),
+        }, model.__name__

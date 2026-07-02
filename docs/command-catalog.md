@@ -153,7 +153,8 @@ node set` and `gda resource set` accept a **`res://….tres` resource path** as 
 create` and `resource set` this completes the external sub-resource workflow with no new command
 (`resource create res://box.tres --type RectangleShape2D` → `resource set … --property size --value
 32,64` → `node set scene.tscn --node Col --property shape --value res://box.tres`). The result echoes
-`type` `"Object"` and `value` the assigned `res://` path (pass `--project` so `res://` resolves). This
+`type` `"Object"` and `value` the ADR-0035 **reference projection** (`{type, resource_path}`) of the assigned
+resource — the same shape a subsequent `get` reads back (pass `--project` so `res://` resolves). This
 is a **separate, headless-only** step from the shared coercion above — value coercion keys only off
 the Variant type, but resolving an Object needs the expected-class hint on the property-list entry — so
 assigning a Resource on the live `gda game set` is **out of scope** and the coercion mirror is
