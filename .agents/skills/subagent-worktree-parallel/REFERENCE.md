@@ -93,16 +93,19 @@ You are implementing <slice> in an ISOLATED git worktree.
   logic in your worktree. A thin per-slice wrapper over an existing module is fine; a
   second copy of its logic is not. If the right change belongs in a shared file, make it
   there and flag it in your report — don't dodge it to stay disjoint.
-- When done: open the PR (or commit + push). Report the branch, the PR URL, the exact
-  test command + its result counts, and any deep module you reused or shared file you had
-  to touch.
+- When done: **commit and push your branch — do NOT open the PR.** The orchestrator opens
+  every PR so the close-vs-reference keyword and PR conventions are applied in one place.
+  Report the branch name, the commit SHA, the exact test command + its result counts, the
+  linked issue/spec and **whether your slice fully satisfies it or only advances it** (so the
+  lead can choose `Closes #N` vs `Refs #N`), and any deep module you reused or shared file
+  you had to touch.
 ```
 
 Worktree setup / cleanup:
 
 ```bash
 git worktree add -b feat/<slice> ../wt-<slice> origin/main   # worktree on a FRESH branch off main
-# ... agent implements, commits, pushes, opens PR ...
+# ... agent implements, commits, pushes; the orchestrator opens the PR ...
 git worktree remove ../wt-<slice>                            # ONLY after its PR is merged
 ```
 
@@ -219,10 +222,18 @@ the grep heuristic might miss in another language.
 - **Commit early.** Truncation/kill only loses *uncommitted* work; an agent cut off
   before committing can leave a broken, unsaved file in its worktree.
 - **"Completed but no artifact" = needs-takeover.** Never trust a completion claim —
-  independently verify with `git status` (clean?), `git log` (recent commits?), the PR
-  list (opened?), and remote-tracking (pushed?). Also seen: an agent reports done while
-  its test run is "still settling" (no counts), or committed but never pushed — both are
-  takeover, re-run and finish it yourself.
+  independently verify with `git status` (clean?), `git log` (recent commits?), and
+  remote-tracking (pushed?). Also seen: an agent reports done while its test run is "still
+  settling" (no counts), or committed but never pushed — both are takeover, re-run and
+  finish it yourself.
+- **The orchestrator opens the PR — and decides `Closes #N` vs `Refs #N`.** PR creation is
+  the lead's, not the subagent's (§3). Once a slice's pushed commits verify, open its PR
+  yourself. Use the closing keyword `Closes #N` **only when that PR fully satisfies the
+  linked issue** (all acceptance criteria, verified); for a tracer, round-out, or
+  stacked/multi-wave slice that only *advances* the issue, use a non-closing `Refs #N` so a
+  partial merge does not close it prematurely. Do not delegate the keyword to the subagent
+  and spot-check it after: even when the brief demands it, subagent-authored PRs reliably
+  bury or omit it — owning PR creation removes the failure mode.
 - **Verify the shared checkout after every worktree agent.** Confirm the main checkout is
   still on its branch and clean (`git -C <main> branch --show-current`, `git status
   --short`, no stray branches) before relying on it — worktree agents have leaked git
@@ -250,6 +261,7 @@ design decision (an ADR) of its own.
 - [ ] Merge order decided (tracer first); after each resolution, audit for the marker-free traps.
 - [ ] Shared-global-resource tests will run serially across worktrees.
 - [ ] Orchestrator will independently re-verify before each merge.
+- [ ] PR creation is the orchestrator's: subagents commit + push only; the lead opens each PR and chooses `Closes #N` (only if the slice fully satisfies its issue) vs `Refs #N`.
 - [ ] If append hotspots keep causing conflicts, consider splitting them (ADR).
 
 ## 10. Cost / benefit
