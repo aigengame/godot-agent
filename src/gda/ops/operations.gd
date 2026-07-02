@@ -240,7 +240,11 @@ func _op_scene_create(params: Dictionary) -> void:
 		_fail(OP_ERROR_INVALID_PATH, "missing required param: path")
 		return
 	var root_type := _string_param(params, "root_type")
-	if root_type.is_empty() or not ClassDB.can_instantiate(root_type) \
+	# class_exists gates can_instantiate: probing a name ClassDB does not know
+	# logs a spurious engine ERROR (issue #377); the miss still fails as
+	# invalid_root_type through the same else path.
+	if root_type.is_empty() or not ClassDB.class_exists(root_type) \
+			or not ClassDB.can_instantiate(root_type) \
 			or not ClassDB.is_parent_class(root_type, "Node"):
 		_fail(OP_ERROR_INVALID_ROOT_TYPE, "not an instantiable Node class: " + root_type)
 		return
@@ -3705,7 +3709,10 @@ func _fail_node_not_found_labeled(label: String, node_path: String) -> void:
 func _instantiate_node_type(type: String) -> Node:
 	# Tier 1 (built-in engine class) stays here, per-site with the Node base-class
 	# check; the class_name → script-path step is the unified resolver (ADR-0032).
-	if not type.is_empty() and ClassDB.can_instantiate(type) and ClassDB.is_parent_class(type, "Node"):
+	# class_exists gates can_instantiate: probing a class ClassDB does not know
+	# (a project-local class_name) logs a spurious engine ERROR (issue #377).
+	if not type.is_empty() and ClassDB.class_exists(type) and ClassDB.can_instantiate(type) \
+			and ClassDB.is_parent_class(type, "Node"):
 		return ClassDB.instantiate(type)
 	var resolution := _resolve_project_class_script(type)
 	match resolution["status"]:
@@ -3775,7 +3782,10 @@ func _instantiate_resource_type(type: String) -> Resource:
 	# Tier 1 (built-in engine class) stays here, per-site with the Resource
 	# base-class check; the class_name → script-path step is the unified resolver
 	# (ADR-0032), the same one node add and find-references route through.
-	if not type.is_empty() and ClassDB.can_instantiate(type) and ClassDB.is_parent_class(type, "Resource"):
+	# class_exists gates can_instantiate: probing a class ClassDB does not know
+	# (a project-local class_name) logs a spurious engine ERROR (issue #377).
+	if not type.is_empty() and ClassDB.class_exists(type) and ClassDB.can_instantiate(type) \
+			and ClassDB.is_parent_class(type, "Resource"):
 		return ClassDB.instantiate(type)
 	var resolution := _resolve_project_class_script(type)
 	match resolution["status"]:
