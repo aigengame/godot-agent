@@ -6,6 +6,12 @@ extends CharacterBody2D
 ## and applies the result with move_and_slide. A landing squash-stretch tween is
 ## the blockout "animation" (property interpolation, gADR/GDD).
 ##
+## S2 adds the Laser Gun: the `fire` action spawns a Projectile bolt aimed by
+## the facing (pure compute_facing over the same input axis), carrying the
+## Player's StatsConfig stat block as the attacker for the damage formula. The
+## Player owns its live StatsSystem (all four stats; HP untouched until S4's
+## enemy->Player damage).
+##
 ## Movement params and visuals are data (gADR-0000): a derived PlayerConfig
 ## Resource, never hardcoded. compute_velocity is static and node-free so the
 ## logic seam can exercise it headless (tests/gdscript/test_player_logic.gd via
@@ -16,11 +22,22 @@ extends CharacterBody2D
 ## bare PlayerConfig type name would not resolve in a headless runtime.
 
 const PlayerConfigScript := preload("res://src/resources/player_config.gd")
+const StatsConfigScript := preload("res://src/resources/stats_config.gd")
+const CombatConfigScript := preload("res://src/resources/combat_config.gd")
+const StatsSystemScript := preload("res://src/systems/stats_system.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
+const ProjectileScene := preload("res://scenes/projectile.tscn")
 
 const CONFIG_PATH := "res://data/generated/player_config.tres"
+const STATS_PATH := "res://data/generated/stats_player.tres"
+const COMBAT_CONFIG_PATH := "res://data/generated/combat_config.tres"
 
 var _config: PlayerConfigScript
+var _stats_config: StatsConfigScript
+var _combat: CombatConfigScript
+var _stats: StatsSystemScript
+# Current aim (-1 left / 1 right); spawn faces right (structural, not config).
+var _facing := 1.0
 
 
 ## Pure movement decision (no node/physics access): given the current velocity,
@@ -53,19 +70,33 @@ static func compute_velocity(
 	return v
 
 
+## Pure facing decision: a nonzero horizontal input re-aims the Player
+## (sign-normalized to -1/1), zero input preserves the current facing. Drives
+## the Laser Gun's projectile direction; the spawn facing (1.0, rightward) is
+## structural, not config.
+static func compute_facing(facing: float, input_dir: float) -> float:
+	return signf(input_dir) if input_dir != 0.0 else facing
+
+
 func _ready() -> void:
 	_config = load(CONFIG_PATH)
-	if _config == null:
-		# The derived .tres is committed; guard loudly rather than crash on a
-		# half-checkout, pointing at the pipeline that regenerates it from JSON.
+	_stats_config = load(STATS_PATH)
+	_combat = load(COMBAT_CONFIG_PATH)
+	if _config == null or _stats_config == null or _combat == null:
+		# The derived .tres are committed; guard loudly rather than crash on a
+		# half-checkout, pointing at the pipeline that regenerates them from JSON.
 		push_error(
-			"PlayerController: could not load %s — run scripts/build_config.py." % CONFIG_PATH
+			"PlayerController: could not load %s / %s / %s — run scripts/build_config.py."
+			% [CONFIG_PATH, STATS_PATH, COMBAT_CONFIG_PATH]
 		)
 		return
+	_stats = StatsSystemScript.new()
+	_stats.init_from(_stats_config)
 	_apply_blockout(_config)
 	GameLogScript.emit("info", "player_ready", {
 		"move_speed": _config.move_speed,
 		"jump_velocity": _config.jump_velocity,
+		"max_hp": _stats_config.max_hp,
 	})
 
 
@@ -98,12 +129,35 @@ func _physics_process(delta: float) -> void:
 	var jump_pressed := Input.is_action_just_pressed("jump")
 	var was_on_floor := is_on_floor()
 
+	_facing = compute_facing(_facing, input_dir)
 	velocity = compute_velocity(velocity, input_dir, jump_pressed, was_on_floor, _config, delta)
 	move_and_slide()
 
 	# Landing this frame (airborne last frame, on the floor now) → play the squash.
 	if is_on_floor() and not was_on_floor:
 		_play_landing_tween()
+
+	if Input.is_action_just_pressed("fire"):
+		_fire()
+
+
+## Fire the Laser Gun: spawn one Projectile bolt aimed by the facing, offset
+## from the Player origin, carrying the Player's stat block as the attacker.
+## The bolt is a child of the Player's PARENT (the level), so it flies in world
+## space instead of inheriting the Player's movement. One press = one bolt.
+func _fire() -> void:
+	if _stats_config == null or _combat == null:
+		return
+	var bolt := ProjectileScene.instantiate()
+	bolt.setup(Vector2(_facing, 0.0), _stats_config)
+	var offset := _combat.projectile_spawn_offset
+	bolt.position = position + Vector2(_facing * offset.x, offset.y)
+	get_parent().add_child(bolt)
+	GameLogScript.emit("info", "laser_fired", {
+		"facing": _facing,
+		"spawn_x": bolt.position.x,
+		"spawn_y": bolt.position.y,
+	})
 
 
 ## The blockout "animation": a brief squash-stretch of the Player block on landing

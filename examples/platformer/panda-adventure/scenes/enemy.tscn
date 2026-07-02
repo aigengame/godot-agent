@@ -1,0 +1,12 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://src/controllers/enemy_controller.gd" id="1_vlkaa"]
+
+[node name="Enemy" type="StaticBody2D" unique_id=71224729]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("1_vlkaa")
+
+[node name="Visual" type="ColorRect" parent="." unique_id=888497638]
+
+[node name="Collision" type="CollisionShape2D" parent="." unique_id=1697886712]

@@ -43,7 +43,7 @@ def test_plain_run_prints_logs_despite_committed_dormant_harness() -> None:
         "present-but-dormant fallback path"
     )
 
-    build_config.build()  # ensure the derived .tres reflects the current JSON
+    build_config.build_all()  # ensure every derived .tres reflects the current JSON
     godot = resolve_godot_binary()
     result = subprocess.run(
         [str(godot), "--headless", "--path", str(GAME_DIR), "--quit-after", "30"],

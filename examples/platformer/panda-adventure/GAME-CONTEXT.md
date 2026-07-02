@@ -51,6 +51,12 @@ _Avoid_: class, role; using 流派 loosely
 The player's primary weapon — a hitscan/projectile gun that deals damage to enemies.
 _Avoid_: blaster, rifle
 
+**Projectile**:
+The bolt the Laser Gun fires — a block that flies straight, damages the first Enemy it
+overlaps (via the damage formula), and despawns on any contact or after its config
+lifetime. The only thing that damages an Enemy in S2.
+_Avoid_: bullet, laser (that names the weapon), missile
+
 **Gravity Gun**:
 The player's utility weapon. Fired at the environment, it creates a Gravity Field rather than
 dealing direct damage. The player's own gravity is never affected by it.
@@ -70,7 +76,25 @@ the Gravity Gun is the only thing that spends MP. Restored by drinking Wine. (HP
 keep their conventional meanings and are not glossed here.)
 _Avoid_: mana, energy
 
+**Stat Block**:
+The per-actor-kind data-driven combat config — max HP/MP, attack, defense — carried as the
+`StatsConfig` Resource derived from JSON (gADR-0001). Player and every Enemy kind carry the
+SAME shape: the symmetric attacker/defender contract of the damage formula.
+_Avoid_: attribute sheet, stat table
+
+**StatsSystem**:
+The runtime holder of one actor's live HP/MP/EXP/Gold, instantiated per actor from its Stat
+Block and mutated only in memory — never persisted back to config (gADR-0001).
+_Avoid_: stats manager, game state
+
 ### Combat
+
+**CombatSystem**:
+The pure decision functions of combat — the damage formula, the i-frame window check, and
+the death rule — static, deterministic, and clock-free, shared unchanged by the runtime
+controllers and the offline Monte-Carlo balancing sim (gADR-0001). Controllers orchestrate
+(clock, mutation, tween, log); decisions live only here.
+_Avoid_: damage manager, battle system
 
 **TTK** (Time To Kill):
 How long it takes the player to kill a given enemy. Paired with TTD to tune combat pacing.

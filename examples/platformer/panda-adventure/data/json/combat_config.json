@@ -1,0 +1,18 @@
+{
+  "player_stats": { "max_hp": 100.0, "max_mp": 50.0, "attack": 10.0, "defense": 0.0 },
+  "enemy_stats": { "max_hp": 25.0, "max_mp": 0.0, "attack": 5.0, "defense": 0.0 },
+  "attack_scale": 1.0,
+  "defense_scale": 1.0,
+  "min_damage": 1.0,
+  "iframe_duration": 0.6,
+  "projectile_color": [1.0, 0.35, 0.25, 1.0],
+  "projectile_size": [18.0, 6.0],
+  "projectile_speed": 900.0,
+  "projectile_lifetime": 1.5,
+  "projectile_spawn_offset": [36.0, 0.0],
+  "enemy_color": [0.75, 0.2, 0.55, 1.0],
+  "enemy_size": [48.0, 48.0],
+  "enemy_position": [640.0, 452.0],
+  "hit_flash_color": [1.0, 1.0, 1.0, 1.0],
+  "hit_flash_duration": 0.12
+}

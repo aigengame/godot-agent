@@ -14,11 +14,12 @@ run/main_scene="res://scenes/main.tscn"
 
 [input]
 
-; S1 player-traversal actions. move_left/move_right/jump are consumed by
-; PlayerController (Input.get_axis / is_action_just_pressed) and driven in the
-; live e2e by `gda input action`. Each binds an arrow key plus a WASD/Space
-; alternative. Hand-authored (project.godot is the canonical root); the exact
-; InputEventKey serialization was emitted by Godot itself (var_to_str).
+; S1 player-traversal actions plus the S2 `fire` action. move_left/move_right/
+; jump/fire are consumed by PlayerController (Input.get_axis /
+; is_action_just_pressed) and driven in the live e2e by `gda input action`.
+; Each movement action binds an arrow key plus a WASD/Space alternative; fire
+; binds J plus F. Hand-authored (project.godot is the canonical root); the
+; exact InputEventKey serialization was emitted by Godot itself (var_to_str).
 
 move_left={
 "deadzone": 0.5,
@@ -38,6 +39,23 @@ jump={
 , Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194320,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
 ]
 }
+fire={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":74,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+, Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":70,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+
+[layer_names]
+
+; S2 collision topology (structural wiring, not balance data — gADR-0000 governs
+; config NUMBERS; what-can-damage-what lives here and in the scenes). Layer 5 is
+; reserved for S3's Gravity Field.
+2d_physics/layer_1="terrain"
+2d_physics/layer_2="player"
+2d_physics/layer_3="enemy"
+2d_physics/layer_4="projectile"
+2d_physics/layer_5="gravity_field"
 
 [debug]
 

@@ -55,11 +55,7 @@ _COPY_IGNORE = shutil.ignore_patterns(
 def _make_project_copy(dst: Path) -> Path:
     """Copy the committed game into a throwaway dir and build its config there."""
     shutil.copytree(GAME_DIR, dst, ignore=_COPY_IGNORE)
-    build_config.build(
-        json_path=dst / "data" / "json" / "player_config.json",
-        schema_path=dst / "data" / "schema" / "player_config.schema.json",
-        out_path=dst / "data" / "generated" / "player_config.tres",
-    )
+    build_config.build_all(root=dst)
     return dst
 
 
