@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="StatsConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/resources/stats_config.gd" id="1_statsconfig"]
+
+[resource]
+script = ExtResource("1_statsconfig")
+max_hp = 25
+max_mp = 0
+attack = 5
+defense = 0
