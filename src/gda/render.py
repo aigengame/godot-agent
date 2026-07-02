@@ -58,10 +58,12 @@ if TYPE_CHECKING:
         PerfMonitorResult,
         PerfMonitorsResult,
         ProjectAddAutoloadResult,
+        ProjectAddInputActionResult,
         ProjectGetResult,
         ProjectInfoResult,
         ProjectListResult,
         ProjectRemoveAutoloadResult,
+        ProjectRemoveInputActionResult,
         ProjectSetResult,
         ResourceCreateResult,
         ResourceDeleteResult,
@@ -669,6 +671,26 @@ def render_project_add_autoload(added: "ProjectAddAutoloadResult") -> str:
 def render_project_remove_autoload(removed: "ProjectRemoveAutoloadResult") -> str:
     """Render an unregistered autoload as ``removed autoload <name>``."""
     return f"removed autoload {removed.name}"
+
+
+def render_project_add_input_action(added: "ProjectAddInputActionResult") -> str:
+    """Render a registered input action with its resolved key bindings.
+
+    e.g. ``added input action jump (deadzone 0.5): J -> 74, Space -> 32``; a
+    physical binding is marked ``(physical)`` after its keycode.
+    """
+    bindings = ", ".join(
+        f"{event.key} -> {event.keycode}" + (" (physical)" if event.physical else "")
+        for event in added.events
+    )
+    return f"added input action {added.name} (deadzone {added.deadzone}): {bindings}"
+
+
+def render_project_remove_input_action(
+    removed: "ProjectRemoveInputActionResult",
+) -> str:
+    """Render an unregistered input action as ``removed input action <name>``."""
+    return f"removed input action {removed.name}"
 
 
 @runtime_checkable

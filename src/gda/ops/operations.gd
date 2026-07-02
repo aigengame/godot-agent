@@ -70,6 +70,7 @@ const OP_ERROR_UNKNOWN_UID := "unknown_uid"
 const OP_ERROR_NO_UID_ASSIGNED := "no_uid_assigned"
 const OP_ERROR_UNKNOWN_SETTING := "unknown_setting"
 const OP_ERROR_INVALID_TARGET := "invalid_target"
+const OP_ERROR_INVALID_KEY := "invalid_key"
 
 const NODE_NAME_INVALID_CHARS := [".", ":", "@", "/", "\"", "%"]
 
@@ -86,6 +87,12 @@ const PROJECT_VIEWPORT_HEIGHT_SETTING := "display/window/size/viewport_height"
 # "enabled as a singleton" — the normal, accessible form gda writes.
 const AUTOLOAD_SETTING_PREFIX := "autoload/"
 const AUTOLOAD_ENABLED_PREFIX := "*"
+
+# InputMap actions live under the "input/<name>" section of project.godot
+# (issue #380). The value is a Dictionary of {deadzone, events} where the events
+# are real InputEventKey Objects, persisted via ProjectSettings.save() so the
+# serialization is exactly the engine's own var_to_str form.
+const INPUT_SETTING_PREFIX := "input/"
 
 # The exit code the process will use. Defaults to failure, so an operation that
 # aborts before recording an outcome (e.g. an uncaught runtime error) still
@@ -186,6 +193,10 @@ func _initialize() -> void:
 			_op_project_add_autoload(params)
 		"project-remove-autoload":
 			_op_project_remove_autoload(params)
+		"project-add-input-action":
+			_op_project_add_input_action(params)
+		"project-remove-input-action":
+			_op_project_remove_input_action(params)
 		"shader-create":
 			_op_shader_create(params)
 		"shader-get":
@@ -2407,6 +2418,146 @@ func _op_project_remove_autoload(params: Dictionary) -> void:
 
 	_succeed({
 		"name": autoload_name,
+	})
+
+
+# Resolve one --key token to a Godot keycode (issue #380). A base-10 integer
+# spelling is taken as a raw keycode and must be positive; anything else is
+# looked up as a Godot key NAME via OS.find_keycode_from_string (e.g. "J",
+# "Space", "Escape"). Returns KEY_NONE (0) when the token is unresolvable —
+# unambiguous as a failure signal because no valid keycode is 0 or negative —
+# which the caller reports as the registered invalid_key error naming the token.
+func _resolve_input_keycode(token: String) -> int:
+	var trimmed := token.strip_edges()
+	if trimmed.is_valid_int():
+		var keycode := trimmed.to_int()
+		return keycode if keycode > 0 else KEY_NONE
+	return OS.find_keycode_from_string(trimmed)
+
+
+# project-add-input-action: register an InputMap action under input/<name> with
+# one or more keyboard key bindings, then persist project.godot (issue #380).
+#
+# The stored value is the InputMap Dictionary shape — {deadzone, events} with
+# real InputEventKey Objects, deadzone first (Godot's own key order) — set via
+# ProjectSettings.set_setting and serialized by ProjectSettings.save() (the
+# engine's own var_to_str form). gda never hand-builds the Object(InputEventKey,
+# …) string, so the persisted entry is byte-equivalent to a hand-authored one.
+#
+# Failure modes use registered codes: an empty name is invalid_path (the
+# missing-required-param convention the autoload ops set); malformed keys /
+# deadzone / physical params are invalid_params; an action name already present
+# is already_exists (add never silently clobbers — remove first to replace).
+# NOTE: the engine registers the built-in ui_* actions (input/ui_accept, …) as
+# ProjectSettings defaults, so has_setting answers true for them and adding e.g.
+# ui_accept reports already_exists by design. An unresolvable key token is
+# invalid_key (nothing saved); a failed save is save_failed.
+func _op_project_add_input_action(params: Dictionary) -> void:
+	_diag("running operation: project-add-input-action")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project add-input-action requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+	var action_name := _string_param(params, "name")
+	if action_name.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: name")
+		return
+	# Defensive params reads: the params arrive as arbitrary JSON, so a wrong
+	# shape surfaces as a structured failure rather than a runtime error.
+	var raw_keys: Variant = params.get("keys")
+	if not (raw_keys is Array) or (raw_keys as Array).is_empty():
+		_fail(OP_ERROR_INVALID_PARAMS, "keys must be a non-empty array of key names or keycodes")
+		return
+	var raw_deadzone: Variant = params.get("deadzone", 0.5)
+	if not (raw_deadzone is float or raw_deadzone is int):
+		_fail(OP_ERROR_INVALID_PARAMS, "deadzone must be a number in 0..1")
+		return
+	var deadzone := float(raw_deadzone)
+	var physical := bool(params.get("physical", false))
+
+	var setting := INPUT_SETTING_PREFIX + action_name
+	if ProjectSettings.has_setting(setting):
+		_fail(OP_ERROR_ALREADY_EXISTS, "input action already registered: " + action_name
+				+ " — add-input-action never overwrites; remove it first to replace it")
+		return
+
+	# Resolve every key token before touching ProjectSettings, so a bad token
+	# fails the whole add cleanly with nothing saved. `events` stays an UNTYPED
+	# Array: a typed Array[InputEventKey] would serialize with an
+	# `Array[InputEventKey](...)` annotation, not the plain `[Object(...)]` form
+	# the editor writes — untyped keeps the persisted entry byte-equivalent.
+	var events := []
+	var reported_events := []
+	for raw_token in (raw_keys as Array):
+		if not (raw_token is String):
+			_fail(OP_ERROR_INVALID_PARAMS, "keys must be a non-empty array of key names or keycodes")
+			return
+		var token: String = raw_token
+		var keycode := _resolve_input_keycode(token)
+		if keycode == KEY_NONE:
+			_fail(OP_ERROR_INVALID_KEY, "cannot resolve key to a Godot keycode: " + token)
+			return
+		var event := InputEventKey.new()
+		# --physical binds the keyboard POSITION (physical_keycode) instead of
+		# the layout symbol (keycode) — set only the requested one, exactly as
+		# the editor's "Physical" toggle does, never both.
+		if physical:
+			event.physical_keycode = keycode as Key
+		else:
+			event.keycode = keycode as Key
+		events.append(event)
+		reported_events.append({
+			"kind": "key",
+			"key": token,
+			"keycode": keycode,
+			"physical": physical,
+		})
+
+	# deadzone first — the key order Godot itself writes for an input action.
+	ProjectSettings.set_setting(setting, {"deadzone": deadzone, "events": events})
+	var save_err := ProjectSettings.save()
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, "failed to save project settings after registering input action "
+				+ action_name + ": " + error_string(save_err))
+		return
+
+	_succeed({
+		"name": action_name,
+		"deadzone": deadzone,
+		"events": reported_events,
+	})
+
+
+# project-remove-input-action: unregister an InputMap action by name (clearing
+# the input/<name> setting), then persist project.godot (issue #380). An action
+# that is not registered is a clean unknown_setting error — the same code
+# `project get` of a missing setting reports, since an input action IS a project
+# setting — not a silent no-op. A failed save is save_failed.
+func _op_project_remove_input_action(params: Dictionary) -> void:
+	_diag("running operation: project-remove-input-action")
+	if not _has_project():
+		_fail(OP_ERROR_PROJECT_NOT_FOUND, "project remove-input-action requires a Godot project; none was resolved — pass --project, set $GDA_PROJECT, or run from a project directory")
+		return
+	var action_name := _string_param(params, "name")
+	if action_name.is_empty():
+		_fail(OP_ERROR_INVALID_PATH, "missing required param: name")
+		return
+
+	var setting := INPUT_SETTING_PREFIX + action_name
+	if not ProjectSettings.has_setting(setting):
+		_fail(OP_ERROR_UNKNOWN_SETTING, "input action not registered: " + action_name)
+		return
+
+	# Clearing the setting (assigning null) removes it from ProjectSettings, so it
+	# is dropped from project.godot on save rather than persisted as an empty key.
+	ProjectSettings.set_setting(setting, null)
+	var save_err := ProjectSettings.save()
+	if save_err != OK:
+		_fail(OP_ERROR_SAVE_FAILED, "failed to save project settings after removing input action "
+				+ action_name + ": " + error_string(save_err))
+		return
+
+	_succeed({
+		"name": action_name,
 	})
 
 

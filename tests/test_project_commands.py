@@ -17,6 +17,8 @@ from gda.models import (
     GdaErrorEnvelope,
     ProjectAddAutoloadParams,
     ProjectAddAutoloadResult,
+    ProjectAddInputActionParams,
+    ProjectAddInputActionResult,
     ProjectGetParams,
     ProjectGetResult,
     ProjectInfoParams,
@@ -25,6 +27,8 @@ from gda.models import (
     ProjectListResult,
     ProjectRemoveAutoloadParams,
     ProjectRemoveAutoloadResult,
+    ProjectRemoveInputActionParams,
+    ProjectRemoveInputActionResult,
     ProjectSetParams,
     ProjectSetResult,
 )
@@ -385,6 +389,204 @@ def test_project_remove_autoload_human_output_names_the_unregistered_autoload(
     assert result.stdout.strip() == "removed autoload Global"
 
 
+# --- project add-input-action ----------------------------------------------
+
+
+ADD_INPUT_ACTION_RESULT = {
+    "name": "jump",
+    "deadzone": 0.5,
+    "events": [
+        {"kind": "key", "key": "J", "keycode": 74, "physical": False},
+        {"kind": "key", "key": "Space", "keycode": 32, "physical": False},
+    ],
+}
+
+REMOVE_INPUT_ACTION_RESULT = {
+    "name": "jump",
+}
+
+
+def test_project_add_input_action_dispatches_full_params_and_reports_result(
+    monkeypatch,
+):
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "project",
+            "add-input-action",
+            "jump",
+            "--key",
+            "J",
+            "--key",
+            "Space",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["name"] == "jump"
+    assert data["deadzone"] == 0.5
+    # Each event echoes the raw token and the keycode it resolved to.
+    assert data["events"][0] == {
+        "kind": "key",
+        "key": "J",
+        "keycode": 74,
+        "physical": False,
+    }
+    # The FULL params model rides through: name, the repeatable keys in order,
+    # the default deadzone, and the default physical=False.
+    assert fake.calls == [
+        (
+            "project-add-input-action",
+            {
+                "name": "jump",
+                "keys": ["J", "Space"],
+                "deadzone": 0.5,
+                "physical": False,
+            },
+        )
+    ]
+
+
+def test_project_add_input_action_dispatches_deadzone_and_physical_overrides(
+    monkeypatch,
+):
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "project",
+            "add-input-action",
+            "jump",
+            "--key",
+            "74",
+            "--deadzone",
+            "0.2",
+            "--physical",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls == [
+        (
+            "project-add-input-action",
+            {"name": "jump", "keys": ["74"], "deadzone": 0.2, "physical": True},
+        )
+    ]
+
+
+def test_project_add_input_action_requires_at_least_one_key(monkeypatch):
+    # --key is required: an add with no keys is a usage error (exit 2), not a
+    # dispatch of an empty key list.
+    fake = FakeRunner(
+        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0)
+    )
+    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
+
+    result = CliRunner().invoke(app, ["project", "add-input-action", "jump"])
+
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
+def test_project_add_input_action_rejects_out_of_range_deadzone(monkeypatch):
+    # The deadzone bounds (0..1, the editor slider's) are validated model-side
+    # (ADR-0015) and surface as a clean usage error before any dispatch.
+    fake = FakeRunner(
+        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0)
+    )
+    monkeypatch.setattr("gda.cli._make_runner", lambda binary, project=None: fake)
+
+    result = CliRunner().invoke(
+        app,
+        ["project", "add-input-action", "jump", "--key", "J", "--deadzone", "1.5"],
+    )
+
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
+def test_project_add_input_action_human_output_lists_resolved_bindings(monkeypatch):
+    inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(ADD_INPUT_ACTION_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app, ["project", "add-input-action", "jump", "--key", "J", "--key", "Space"]
+    )
+
+    assert result.exit_code == 0
+    assert (
+        result.stdout.strip()
+        == "added input action jump (deadzone 0.5): J -> 74, Space -> 32"
+    )
+
+
+def test_project_add_input_action_human_output_marks_physical_bindings(monkeypatch):
+    payload = {
+        "name": "jump",
+        "deadzone": 0.5,
+        "events": [{"kind": "key", "key": "J", "keycode": 74, "physical": True}],
+    }
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app, ["project", "add-input-action", "jump", "--key", "J", "--physical"]
+    )
+
+    assert result.exit_code == 0
+    assert (
+        result.stdout.strip()
+        == "added input action jump (deadzone 0.5): J -> 74 (physical)"
+    )
+
+
+# --- project remove-input-action --------------------------------------------
+
+
+def test_project_remove_input_action_dispatches_name_and_reports_result(monkeypatch):
+    fake = inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(REMOVE_INPUT_ACTION_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app, ["project", "remove-input-action", "jump", "--json"]
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == REMOVE_INPUT_ACTION_RESULT
+    assert fake.calls == [("project-remove-input-action", {"name": "jump"})]
+
+
+def test_project_remove_input_action_human_output_names_the_removed_action(
+    monkeypatch,
+):
+    inject_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(REMOVE_INPUT_ACTION_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(app, ["project", "remove-input-action", "jump"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "removed input action jump"
+
+
 # --- ADR-0004 --schema hard gate -----------------------------------------
 
 
@@ -476,6 +678,37 @@ def test_project_remove_autoload_schema_emits_model_derived_contract_without_oth
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
 
+def test_project_add_input_action_schema_emits_model_derived_contract_without_other_args():
+    result = CliRunner().invoke(app, ["project", "add-input-action", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ProjectAddInputActionParams.model_json_schema()
+    assert doc["output"] == ProjectAddInputActionResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "name" in doc["input"]["properties"]
+    assert "keys" in doc["input"]["properties"]
+    assert "deadzone" in doc["input"]["properties"]
+    assert "physical" in doc["input"]["properties"]
+    # The key list is bounded model-side: at least one key (ADR-0015).
+    assert doc["input"]["properties"]["keys"]["minItems"] == 1
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_project_remove_input_action_schema_emits_model_derived_contract_without_other_args():
+    result = CliRunner().invoke(app, ["project", "remove-input-action", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ProjectRemoveInputActionParams.model_json_schema()
+    assert doc["output"] == ProjectRemoveInputActionResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    assert "name" in doc["input"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
 def test_sample_project_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each project command satisfies the contract its
     # --schema emits (the other half of the ADR-0004 hard gate, issue #111).
@@ -493,6 +726,12 @@ def test_sample_project_results_validate_against_emitted_output_schemas():
     remove_doc = json.loads(
         CliRunner().invoke(app, ["project", "remove-autoload", "--schema"]).stdout
     )
+    add_input_doc = json.loads(
+        CliRunner().invoke(app, ["project", "add-input-action", "--schema"]).stdout
+    )
+    remove_input_doc = json.loads(
+        CliRunner().invoke(app, ["project", "remove-input-action", "--schema"]).stdout
+    )
 
     jsonschema.validate(instance=INFO_RESULT, schema=info_doc["output"])
     jsonschema.validate(instance=GET_RESULT, schema=get_doc["output"])
@@ -500,6 +739,12 @@ def test_sample_project_results_validate_against_emitted_output_schemas():
     jsonschema.validate(instance=SET_RESULT, schema=set_doc["output"])
     jsonschema.validate(instance=ADD_AUTOLOAD_RESULT, schema=add_doc["output"])
     jsonschema.validate(instance=REMOVE_AUTOLOAD_RESULT, schema=remove_doc["output"])
+    jsonschema.validate(
+        instance=ADD_INPUT_ACTION_RESULT, schema=add_input_doc["output"]
+    )
+    jsonschema.validate(
+        instance=REMOVE_INPUT_ACTION_RESULT, schema=remove_input_doc["output"]
+    )
 
 
 def test_project_schema_spawns_no_godot(monkeypatch):
@@ -516,6 +761,8 @@ def test_project_schema_spawns_no_godot(monkeypatch):
         ["project", "set"],
         ["project", "add-autoload"],
         ["project", "remove-autoload"],
+        ["project", "add-input-action"],
+        ["project", "remove-input-action"],
     ):
         result = CliRunner().invoke(app, [*command, "--schema"])
         assert result.exit_code == 0

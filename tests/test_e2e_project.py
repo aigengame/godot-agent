@@ -369,6 +369,155 @@ def test_project_remove_autoload_unknown_name_is_a_clean_error(godot_project):
     assert "Nonexistent" in err["message"]
 
 
+def _normalized_project_godot(project) -> str:
+    # The var_to_str assertions key on token sequences, not layout: Godot writes
+    # the action dict across lines with quoted keys, so strip ALL whitespace and
+    # compare against the whitespace-free form.
+    text = (project / "project.godot").read_text(encoding="utf-8")
+    return "".join(text.split())
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_persists_var_to_str_form_and_reports_keycodes(
+    godot_project,
+):
+    # A key NAME and a raw base-10 keycode mix in one action; --deadzone overrides
+    # Godot's 0.5 default. The result reports each token's resolved keycode, and
+    # project.godot carries the engine's own var_to_str serialization — an [input]
+    # section with real Object(InputEventKey, ...) literals (issue #380). The
+    # stored-value SHAPE via `project get` is deliberately NOT asserted here (the
+    # read-side projection of a compound setting is #381, independent).
+    added = _gda(
+        godot_project,
+        "project",
+        "add-input-action",
+        "jump",
+        "--key",
+        "J",
+        "--key",
+        "32",
+        "--deadzone",
+        "0.2",
+        "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    data = json.loads(added.stdout)
+    assert data["name"] == "jump"
+    assert data["deadzone"] == 0.2
+    assert data["events"] == [
+        {"kind": "key", "key": "J", "keycode": 74, "physical": False},
+        {"kind": "key", "key": "32", "keycode": 32, "physical": False},
+    ]
+
+    normalized = _normalized_project_godot(godot_project)
+    assert "[input]" in normalized
+    assert "jump={" in normalized
+    # deadzone first — Godot's own key order for an input action.
+    assert '"deadzone":0.2' in normalized
+    assert "Object(InputEventKey" in normalized
+    assert '"keycode":74' in normalized
+    assert '"keycode":32' in normalized
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_physical_binds_physical_keycode(godot_project):
+    # --physical binds the keyboard POSITION: the persisted event carries the
+    # keycode in physical_keycode, and the layout keycode stays unset (0).
+    added = _gda(
+        godot_project,
+        "project",
+        "add-input-action",
+        "move_up",
+        "--key",
+        "W",
+        "--physical",
+        "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    data = json.loads(added.stdout)
+    assert data["events"] == [
+        {"kind": "key", "key": "W", "keycode": 87, "physical": True}
+    ]
+
+    normalized = _normalized_project_godot(godot_project)
+    assert "Object(InputEventKey" in normalized
+    assert '"physical_keycode":87' in normalized
+    # The layout keycode is NOT also set — physical binds only the position.
+    assert '"keycode":87' not in normalized
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_duplicate_name_is_a_clean_error(godot_project):
+    first = _gda(
+        godot_project, "project", "add-input-action", "fire", "--key", "F", "--json"
+    )
+    assert first.returncode == 0, first.stdout + first.stderr
+    before = _normalized_project_godot(godot_project)
+
+    dup = _gda(
+        godot_project, "project", "add-input-action", "fire", "--key", "J", "--json"
+    )
+    assert dup.returncode == 4
+    err = json.loads(dup.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "already_exists"
+
+    # The original registration is untouched: project.godot is byte-identical.
+    assert _normalized_project_godot(godot_project) == before
+
+
+@pytest.mark.e2e
+def test_project_add_input_action_unknown_key_is_a_clean_error(godot_project):
+    bad = _gda(
+        godot_project,
+        "project",
+        "add-input-action",
+        "jump",
+        "--key",
+        "NotAKeyName",
+        "--json",
+    )
+
+    assert bad.returncode == 4
+    err = json.loads(bad.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "invalid_key"
+    assert "NotAKeyName" in err["message"]
+
+    # Nothing was saved: project.godot gained no [input] section.
+    assert "[input]" not in _normalized_project_godot(godot_project)
+
+
+@pytest.mark.e2e
+def test_project_remove_input_action_unregisters_and_persists(godot_project):
+    added = _gda(
+        godot_project, "project", "add-input-action", "jump", "--key", "J", "--json"
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+
+    removed = _gda(godot_project, "project", "remove-input-action", "jump", "--json")
+    assert removed.returncode == 0, removed.stdout + removed.stderr
+    assert json.loads(removed.stdout) == {"name": "jump"}
+
+    # The action is gone from project.godot — no lingering InputEventKey literal.
+    normalized = _normalized_project_godot(godot_project)
+    assert "jump={" not in normalized
+    assert "Object(InputEventKey" not in normalized
+
+
+@pytest.mark.e2e
+def test_project_remove_input_action_unknown_name_is_a_clean_error(godot_project):
+    bad = _gda(godot_project, "project", "remove-input-action", "nonexistent", "--json")
+
+    assert bad.returncode == 4
+    err = json.loads(bad.stdout)["error"]
+    assert err["category"] == "operation"
+    assert err["code"] == "unknown_setting"
+    assert "nonexistent" in err["message"]
+
+
 @pytest.mark.e2e
 def test_project_info_without_project_is_a_clean_error():
     # Projectless: ProjectSettings would report only the engine's bare defaults,

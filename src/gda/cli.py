@@ -137,6 +137,8 @@ from gda.models import (
     NodeSetResult,
     ProjectAddAutoloadParams,
     ProjectAddAutoloadResult,
+    ProjectAddInputActionParams,
+    ProjectAddInputActionResult,
     ProjectGetParams,
     ProjectGetResult,
     ProjectInfoParams,
@@ -145,6 +147,8 @@ from gda.models import (
     ProjectListResult,
     ProjectRemoveAutoloadParams,
     ProjectRemoveAutoloadResult,
+    ProjectRemoveInputActionParams,
+    ProjectRemoveInputActionResult,
     ProjectSetParams,
     ProjectSetResult,
     ResourceCreateParams,
@@ -232,6 +236,7 @@ from gda.render import (
     render_perf_monitor,
     render_perf_monitors,
     render_project_add_autoload,
+    render_project_add_input_action,
     render_project_dependencies,
     render_project_find_references,
     render_project_find_unused_resources,
@@ -239,6 +244,7 @@ from gda.render import (
     render_project_info,
     render_project_list,
     render_project_remove_autoload,
+    render_project_remove_input_action,
     render_project_set,
     render_project_statistics,
     render_resource_create,
@@ -1930,6 +1936,24 @@ PROJECT_REMOVE_AUTOLOAD_COMMAND: HeadlessCommand[ProjectRemoveAutoloadResult] = 
     )
 )
 
+PROJECT_ADD_INPUT_ACTION_COMMAND: HeadlessCommand[ProjectAddInputActionResult] = (
+    HeadlessCommand(
+        operation="project-add-input-action",
+        input_model=ProjectAddInputActionParams,
+        output_model=ProjectAddInputActionResult,
+        render=render_project_add_input_action,
+    )
+)
+
+PROJECT_REMOVE_INPUT_ACTION_COMMAND: HeadlessCommand[ProjectRemoveInputActionResult] = (
+    HeadlessCommand(
+        operation="project-remove-input-action",
+        input_model=ProjectRemoveInputActionParams,
+        output_model=ProjectRemoveInputActionResult,
+        render=render_project_remove_input_action,
+    )
+)
+
 SHADER_CREATE_COMMAND: HeadlessCommand[ShaderCreateResult] = HeadlessCommand(
     operation="shader-create",
     input_model=ShaderCreateParams,
@@ -3268,6 +3292,77 @@ def project_remove_autoload(
     _dispatch(
         PROJECT_REMOVE_AUTOLOAD_COMMAND,
         ProjectRemoveAutoloadParams(name=name),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@project_app.command(
+    name="add-input-action", cls=PROJECT_ADD_INPUT_ACTION_COMMAND.command_class()
+)
+def project_add_input_action(
+    name: str = typer.Argument(
+        ..., help="The input action's name (the input/<name> key)."
+    ),
+    keys: list[str] = typer.Option(
+        ...,
+        "--key",
+        help=(
+            "A key to bind (repeatable, at least one): a Godot key name "
+            "(e.g. J, Space, Escape) or a base-10 keycode integer."
+        ),
+    ),
+    deadzone: float = typer.Option(
+        0.5,
+        "--deadzone",
+        help="The action's deadzone, 0..1 (Godot's default is 0.5).",
+    ),
+    physical: bool = typer.Option(
+        False,
+        "--physical",
+        help=(
+            "Bind physical keycodes (keyboard position, layout-independent) "
+            "instead of layout keycodes."
+        ),
+    ),
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_ADD_INPUT_ACTION_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Register an InputMap action bound to one or more keys, then save project.godot."""
+    try:
+        params = ProjectAddInputActionParams(
+            name=name, keys=keys, deadzone=deadzone, physical=physical
+        )
+    except (ValueError, ValidationError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _dispatch(
+        PROJECT_ADD_INPUT_ACTION_COMMAND,
+        params,
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+@project_app.command(
+    name="remove-input-action", cls=PROJECT_REMOVE_INPUT_ACTION_COMMAND.command_class()
+)
+def project_remove_input_action(
+    name: str = typer.Argument(..., help="The name of the input action to unregister."),
+    json_output: bool = json_option(),
+    schema: bool = PROJECT_REMOVE_INPUT_ACTION_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Unregister an InputMap action by name, then save project.godot."""
+    _dispatch(
+        PROJECT_REMOVE_INPUT_ACTION_COMMAND,
+        ProjectRemoveInputActionParams(name=name),
         json_output=json_output,
         godot=godot,
         project=project,
