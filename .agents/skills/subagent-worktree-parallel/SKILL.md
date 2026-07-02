@@ -33,8 +33,17 @@ the cost/benefit table).
 - **The integration-tier test is the Definition of Done.** A fast tier that stubs the
   integration boundary passes even on a broken merge. DoD must run the tier that really
   exercises the boundary (integration / e2e / compile or a parse `--check-only`).
-- **The orchestrator independently re-verifies before merging.** Subagent implements;
-  the lead re-runs tests and spot-checks the diff. "Done but no artifact" = needs takeover.
+- **The orchestrator independently re-verifies before merging.** Subagent implements and
+  **commits** (its own branch, in its worktree); the lead re-runs tests and spot-checks the
+  diff. "Done but no artifact" = needs takeover.
+- **Push and PR creation are the orchestrator's, not the subagent's.** A PR is a *merging*
+  artifact, not a *doing* one — so the subagent stops at commit, and the lead pushes the
+  branch and opens the PR. That keeps PR conventions applied in one place (`Closes #N`, base
+  branch, labels, footer) and lets the lead re-verify a slice against its spec *before* the
+  PR even exists. Subagent-authored PRs reliably omit the `Closes #N` keyword even when the
+  brief demands it, so owning PR creation closes that gap by construction rather than by a
+  fragile after-the-fact check. (Exception: a subagent may `git push` its branch — or open a
+  *draft* — early so CI runs during the wave, but the canonical PR and its body stay the lead's.)
 - **Disjointness is a merge-cost heuristic, not an architecture goal.** Never let "keep
   slices disjoint / avoid the append hotspot" suppress a sound design decision — a
   legitimate shared-module edit, deep-module *reuse*, or a single source for a public
@@ -57,14 +66,16 @@ decompose + dependency analysis → plan waves → fan out (implement) → merge
 2. **Plan waves.** Group independent slices into waves of ≤ ~5; sequence coupled slices
    tracer-first. Decide the merge order now. (REFERENCE §2)
 3. **Fan out to implement.** Launch one subagent per slice in its own git worktree, each
-   with a dispatch prompt that pins it to its worktree, tells it to commit early, and
-   bakes the integration-tier test into its DoD. (REFERENCE §3)
+   with a dispatch prompt that pins it to its worktree, tells it to commit early and stop
+   at push (the orchestrator opens the PR), and bakes the integration-tier test into its
+   DoD. (REFERENCE §3)
 4. **Merge serially in dependency order.** Tracer first → rebase followers onto the new
    base → independent groups can merge in any order. Re-poll mergeability after each
    merge. Watch for the two marker-free conflict traps. (REFERENCE §4, §5)
-5. **Verify + take over.** Re-run the integration tier yourself (a *clean* rebase still
-   needs it); run shared-global-resource tests serially; treat any "completed but no
-   PR/commit/push" report as needs-takeover, not success. (REFERENCE §6, §7)
+5. **Verify, open PRs, take over.** Re-run the integration tier yourself (a *clean* rebase
+   still needs it); run shared-global-resource tests serially; treat any "completed but no
+   commit/push" report as needs-takeover, not success. **You** (not the subagent) push and
+   open each PR, with `Closes #N` in the body. (REFERENCE §6, §7)
 
 This path is **not one-shot**: independent review sends merged-ready slices back, and
 remediation reshapes the plan. Re-derive the overlap map and merge order as fixes land,
