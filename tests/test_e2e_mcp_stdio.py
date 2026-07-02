@@ -14,7 +14,8 @@ never hardcodes it (Design decision 1).
 """
 
 import os
-import shutil
+import sysconfig
+from pathlib import Path
 
 import anyio
 import pytest
@@ -28,12 +29,22 @@ GODOT = resolve_godot_binary()
 
 
 def _server_params() -> StdioServerParameters:
-    gda_mcp = shutil.which("gda-mcp")
-    assert gda_mcp, "the `gda-mcp` console script is not on PATH"
+    # Spawn the REAL `gda-mcp` console script (deliberately NOT `python -m gda.mcp`):
+    # this gate exists to validate ADR-0013 *packaging + launch* — that the generated
+    # `gda-mcp = gda.mcp:main` entry-point wrapper actually starts and speaks MCP (#193).
+    # Resolve it DETERMINISTICALLY from the running interpreter's own scripts dir
+    # (`.venv/bin` under `uv run pytest`) rather than `shutil.which("gda-mcp")`: a PATH
+    # lookup returns whatever is first on PATH, which can be a stale global uv-tool
+    # install or another worktree's editable `gda-mcp` — the same "wrong global" trap
+    # that `tests/support.py::GDA_CMD` avoids for the `gda` CLI by keying off
+    # `sys.executable`. `sysconfig.get_path("scripts")` points at the bin dir of the
+    # exact interpreter running the suite, so we launch THIS checkout's console script.
+    gda_mcp = Path(sysconfig.get_path("scripts")) / "gda-mcp"
+    assert gda_mcp.is_file(), f"`gda-mcp` console script not found at {gda_mcp}"
     # Full env + a pinned Godot, so the server's nested `-m gda` resolves the
     # same engine deterministically.
     env = {**os.environ, GODOT_BIN_ENV: str(GODOT)}
-    return StdioServerParameters(command=gda_mcp, args=[], env=env)
+    return StdioServerParameters(command=str(gda_mcp), args=[], env=env)
 
 
 def _call(tool: str, arguments: dict):
