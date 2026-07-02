@@ -127,6 +127,65 @@ gda game tree --project game --json        # the runtime scene tree, after _read
 gda daemon stop --project game --json
 ```
 
+## Scene authoring
+
+Wiring a functional scene means binding scripts, authoring Resources, and setting
+typed properties. Reach for the right command — the generic `node set` does **not**
+cover scripts, and Resource-typed fields take a `res://` path, not a coerced literal.
+
+**Attach a script — `script attach`, never `node set --property script`.**
+`script attach` is the one authoritative way to bind a `.gd` script to a node: it
+verifies the script compiles, checks its base type against the node, and reports any
+script it displaced. Setting the `script` property with `node set` is refused with an
+actionable `use_script_attach` error that points you back here.
+
+```bash
+gda script attach game/main.tscn --node Player --script res://player.gd --project game --json
+```
+
+**Author and populate a Resource — `resource create` / `resource set`.**
+Create a `.tres` (a built-in type, or a project-local `class_name` — resolved without
+opening the editor), then set its properties with the same `--value` coercion below:
+
+```bash
+gda resource create res://shapes/box.tres --type RectangleShape2D --project game --json
+gda resource set    res://shapes/box.tres --property size --value "32,64" --project game --json
+```
+
+**Assign a Resource to an Object-typed property — `--value res://….tres`.**
+For a property that expects a Resource (sub)class — e.g. a `CollisionShape2D`'s
+`shape` — pass the `.tres` path as `--value` to `node set` (or `resource set`). The
+path is loaded, type-checked against the property's expected class, and stored as an
+external `ext_resource` (not inlined). Pass `--project` so `res://` resolves:
+
+```bash
+gda node set game/main.tscn --node Col --property shape --value res://shapes/box.tres --project game --json
+```
+
+Its failures are distinct structured codes, never `uncoercible_value`: a non-`res://`
+value → `expected_resource_path`; a path that is not a Resource → `not_a_resource`; a
+type mismatch → `resource_type_mismatch`; a `class_name`-typed target (not yet
+supported) → `unsupported_property_type`.
+
+### `--value` string forms
+
+`--value` is a **string** coerced to the property's declared Godot type. The accepted
+forms — several of which are not obvious from `--help`:
+
+- `bool` — `true` / `false` (case-insensitive).
+- `int` / `float` — a numeric literal (`7`, `-3`, `1.5`).
+- `String` / `StringName` — the string, verbatim.
+- `Vector2` / `Vector2i` — **comma-separated** components: `--value "48,72"` →
+  `Vector2(48, 72)`. A JSON array (`"[48,72]"`) or a constructor literal
+  (`"Vector2(48,72)"`) is **rejected** (`uncoercible_value`).
+- `Color` — `#rrggbb` / `#rrggbbaa`, or 3–4 **comma-separated** floats in 0..1:
+  `--value "0.2,0.6,1,1"`.
+- An **Object-typed** (Resource) property — a `res://….tres` path, as above.
+
+Whitespace around a value or a component is tolerated. The value-typed forms are
+shared by `node set`, `resource set`, `project set`, and live `game set`; the `res://`
+Resource assignment is headless-only (`node set` / `resource set`).
+
 ## Tips
 
 - Node paths are relative to the scene root; `.` is the root itself.
