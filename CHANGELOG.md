@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0](https://github.com/aigengame/godot-agent/compare/v0.1.51...v0.2.0) (2026-07-02)
+
+
+### Features
+
+* **ops:** ADR-0035 value projection — compound Variants to structured JSON ([#386](https://github.com/aigengame/godot-agent/issues/386)) ([11bdbc3](https://github.com/aigengame/godot-agent/commit/11bdbc3980f06aae364e63049b2fadf4fce910a6))
+* **project:** structured InputMap action authoring (add-input-action / remove-input-action) ([#385](https://github.com/aigengame/godot-agent/issues/385)) ([ec868bf](https://github.com/aigengame/godot-agent/commit/ec868bf121b95799d5665ec4e1ede14221d5703a))
+
+
+### Bug Fixes
+
+* **ops:** gate reference-scan decode on extension before reading ([#384](https://github.com/aigengame/godot-agent/issues/384)) ([ab82564](https://github.com/aigengame/godot-agent/commit/ab82564a9e9204dc14d4c3fd5acbd2cd011cf07d))
+* **ops:** gate the built-in-class ClassDB probe on class_exists ([#383](https://github.com/aigengame/godot-agent/issues/383)) ([572af52](https://github.com/aigengame/godot-agent/commit/572af529fa4474984838e712d7be8f360577a155))
+
 ## [0.1.51](https://github.com/aigengame/godot-agent/compare/v0.1.50...v0.1.51) (2026-07-01)
 
 
