@@ -21,7 +21,11 @@ when the cache misses. These tests exercise the change through the REAL engine
 (c) a ``class_name`` declared in more than one ``.gd`` → ``ambiguous_class_name``
     naming the conflicting paths, for all three commands;
 (d) a truly unknown ``--type`` still errors with an ACTIONABLE message that names
-    the missing-class cause and does not cite the editor cache.
+    the missing-class cause and does not cite the editor cache;
+(e) the built-in-class tier probe is gated on ``ClassDB.class_exists()`` (#377),
+    so a static-scan resolution no longer makes the engine log a spurious
+    ``ERROR: Cannot get class`` to stderr (nor into the ``diagnostics`` of
+    unrelated error envelopes), while built-in classes resolve exactly as before.
 """
 
 import json
@@ -333,3 +337,112 @@ def test_node_add_unknown_type_message_is_actionable(uncached_project):
     assert "cache" not in msg.lower()
     assert "editor" not in msg.lower()
     assert "global class list" not in msg.lower()
+
+
+# --- (e) no spurious engine ERROR on the static-scan fallback path (#377) -----
+
+
+@pytest.mark.e2e
+def test_resource_create_project_class_emits_no_engine_error(uncached_project):
+    # Before #377 the built-in-class tier probed ClassDB.can_instantiate() on a
+    # project-local class_name and the engine logged "ERROR: Cannot get class
+    # 'PandaStats'." to stderr on a SUCCESSFUL op. class_exists() now gates the
+    # probe, so the static-scan resolution is silent.
+    assert not (uncached_project / ".godot").exists()
+
+    created = _gda(
+        uncached_project,
+        "resource",
+        "create",
+        str(uncached_project / "quiet.tres"),
+        "--type",
+        "PandaStats",
+        "--json",
+    )
+
+    assert created.returncode == 0, created.stdout + created.stderr
+    assert "ERROR:" not in created.stderr, created.stderr
+
+
+@pytest.mark.e2e
+def test_node_add_project_class_emits_no_engine_error(uncached_project):
+    assert not (uncached_project / ".godot").exists()
+    scene_path = uncached_project / "main.tscn"
+    created = _gda(
+        uncached_project,
+        "scene",
+        "create",
+        str(scene_path),
+        "--root-type",
+        "Node2D",
+        "--json",
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+
+    added = _gda(
+        uncached_project, "node", "add", str(scene_path), "--type", "Hero", "--json"
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    assert "ERROR:" not in added.stderr, added.stderr
+
+
+@pytest.mark.e2e
+def test_ambiguous_class_name_carries_no_cannot_get_class(ambiguous_project):
+    # The spurious engine line was also captured verbatim into the diagnostics
+    # of UNRELATED error envelopes on the fallback path — an ambiguous_class_name
+    # failure carried "Cannot get class 'Dup'", pointing away from the real
+    # cause. Neither the envelope's diagnostics nor stderr embeds it now.
+    created = _gda(
+        ambiguous_project,
+        "resource",
+        "create",
+        str(ambiguous_project / "x.tres"),
+        "--type",
+        "Dup",
+        "--json",
+    )
+
+    err = _assert_operation_error(created, "ambiguous_class_name")
+    assert "Cannot get class" not in err.get("diagnostics", "")
+    assert "Cannot get class" not in created.stderr
+
+
+@pytest.mark.e2e
+def test_builtin_classes_resolve_unchanged_and_silent(uncached_project):
+    # Regression for the class_exists() guard: a built-in Node (Sprite2D) and a
+    # built-in Resource (Gradient) still resolve on the ClassDB tier exactly as
+    # before — never reaching the class_name resolver — and stay silent.
+    scene_path = uncached_project / "builtin.tscn"
+    created = _gda(
+        uncached_project,
+        "scene",
+        "create",
+        str(scene_path),
+        "--root-type",
+        "Node2D",
+        "--json",
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+    assert "ERROR:" not in created.stderr, created.stderr
+
+    added = _gda(
+        uncached_project, "node", "add", str(scene_path), "--type", "Sprite2D", "--json"
+    )
+    assert added.returncode == 0, added.stdout + added.stderr
+    assert json.loads(added.stdout)["type"] == "Sprite2D"
+    assert "ERROR:" not in added.stderr, added.stderr
+
+    resource_path = uncached_project / "builtin.tres"
+    res = _gda(
+        uncached_project,
+        "resource",
+        "create",
+        str(resource_path),
+        "--type",
+        "Gradient",
+        "--json",
+    )
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert json.loads(res.stdout)["type"] == "Gradient"
+    assert "ERROR:" not in res.stderr, res.stderr
