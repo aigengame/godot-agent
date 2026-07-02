@@ -32,6 +32,11 @@ Pre-1.0 bump semantics follow the SemVer 0.x convention via
 bump minor, `feat`/`fix` bump patch. Nothing crosses 1.0 until we say so with
 `release-as`.
 
+> **Superseded in part by [ADR-0034](0034-pre-1.0-feature-bumps-minor.md):**
+> `bump-patch-for-minor-pre-major` is removed, so pre-1.0 a `feat` now bumps the
+> **minor** and only a `fix` bumps the patch. `bump-minor-pre-major` and the
+> "nothing crosses 1.0 without `release-as`" rule are unchanged.
+
 The build chain lives in the **same workflow** as release-please, gated on its
 `release_created` output, because tags created with the default `GITHUB_TOKEN`
 do not trigger other workflows (GitHub's recursion guard). For the same reason
