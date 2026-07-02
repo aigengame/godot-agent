@@ -10,8 +10,8 @@ harness was committed and is fixed in ``src/util/game_log.gd``; this locks it do
 
 The daemon-launched *rich* path (``origin == "gda_log"`` via ``gda logger tail``)
 is covered by ``test_player_e2e.py`` — the complementary half. Engine tier (a real
-``godot``, no daemon); never ``e2e``. Tracks gda-side issue #362 (no public
-daemon-launched predicate), whose fix may let us drop the private-flag gate.
+``godot``, no daemon); never ``e2e``. gda-side issue #362 delivered the public
+``is_daemon_launched()`` predicate, which ``GameLog`` now gates on (no private flag).
 """
 
 from __future__ import annotations
