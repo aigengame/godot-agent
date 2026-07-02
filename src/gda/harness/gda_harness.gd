@@ -1036,14 +1036,34 @@ func _type_name(type: int) -> String:
 	return type_string(type)
 
 
-# Project a Godot property value into JSON-safe form for the result payload
-# (issue #55). Scalars pass through; the packed value types node set supports
-# become flat number arrays so node get's output is exactly the projection node
-# set accepts back: Vector2 → [x, y], Vector2i likewise, Color → [r, g, b, a].
-# Any other type degrades to its string form rather than crashing JSON.stringify
-# on an unencodable Variant — node get reports the whole storage surface, but
-# only the coercible types claim a structured projection.
-func _jsonify(value: Variant) -> Variant:
+# The value projection's hard recursion depth cap (ADR-0035): a compound value
+# nested deeper than this degrades to its string form instead of recursing on.
+# Deliberately NO visited-set — references are not descended and non-whitelisted
+# Objects stop at str(), so on-disk stored values are acyclic trees; the cap is
+# the backstop against a pathological self-referential Dictionary live-side.
+const JSONIFY_MAX_DEPTH := 16
+
+# The Object/Resource base bookkeeping properties an inline value projection
+# excludes (ADR-0035): every InputEvent IS a Resource, so without the exclusion
+# a path-less value Object would emit an empty resource_path and masquerade as
+# a reference projection; the exclusion also drops noise.
+const JSONIFY_BOOKKEEPING_PROPS: Array[String] = [
+	"resource_path", "resource_name", "resource_local_to_scene", "script",
+]
+
+# The read-side Value projection (ADR-0035, grown from issue #55): render a
+# Godot Variant into the structured JSON a result's value field carries.
+# Scalars pass through; the fixed-shape value types node set supports become
+# flat number arrays so node get's output is exactly the projection node set
+# accepts back: Vector2 → [x, y], Vector2i likewise, Color → [r, g, b, a].
+# A Dictionary projects to a JSON object (keys stringified), an Array and the
+# packed-array family to a JSON array, each value re-entering the projection;
+# an Object renders as a reference projection, an inline value projection, or
+# the str() fallback (the TYPE_OBJECT arm below). Any other type degrades to
+# its string form rather than crashing JSON.stringify on an unencodable
+# Variant, and the depth cap bounds the recursion on the compound arms — so
+# the projection is always JSON-encodable.
+func _jsonify(value: Variant, depth: int = 0) -> Variant:
 	match typeof(value):
 		TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_FLOAT, TYPE_STRING, TYPE_STRING_NAME:
 			return value
@@ -1053,6 +1073,66 @@ func _jsonify(value: Variant) -> Variant:
 			return [value.x, value.y]
 		TYPE_COLOR:
 			return [value.r, value.g, value.b, value.a]
+		TYPE_DICTIONARY:
+			# The cap guards only the compound arms: a scalar is never
+			# stringified by depth, however deep it sits.
+			if depth >= JSONIFY_MAX_DEPTH:
+				return str(value)
+			var out := {}
+			# Insertion-ordered iteration; keys are coerced to strings, so two
+			# keys that collide after stringification resolve last-wins by
+			# assignment order (deterministic, ADR-0035).
+			for key in value.keys():
+				out[str(key)] = _jsonify(value[key], depth + 1)
+			return out
+		TYPE_ARRAY, TYPE_PACKED_BYTE_ARRAY, TYPE_PACKED_INT32_ARRAY, \
+		TYPE_PACKED_INT64_ARRAY, TYPE_PACKED_FLOAT32_ARRAY, \
+		TYPE_PACKED_FLOAT64_ARRAY, TYPE_PACKED_STRING_ARRAY, \
+		TYPE_PACKED_VECTOR2_ARRAY, TYPE_PACKED_VECTOR3_ARRAY, \
+		TYPE_PACKED_COLOR_ARRAY, TYPE_PACKED_VECTOR4_ARRAY:
+			if depth >= JSONIFY_MAX_DEPTH:
+				return str(value)
+			var items := []
+			# Element-wise re-entry: a PackedVector2Array element projects as
+			# [x, y]; an element type with no structured arm of its own (e.g.
+			# Vector3) stays str(), per the fixed-shape list above.
+			for element in value:
+				items.append(_jsonify(element, depth + 1))
+			return items
+		TYPE_OBJECT:
+			# A freed live Object (harness side) must not be introspected.
+			if not is_instance_valid(value):
+				return str(value)
+			if depth >= JSONIFY_MAX_DEPTH:
+				return str(value)
+			# Reference projection: a Resource with a res:// path is named by
+			# type and path, never inlined — the read-side mirror of ADR-0033's
+			# write-side reference. A sub-resource path (res://x.tscn::…)
+			# counts as a reference too.
+			if value is Resource and String(value.resource_path).begins_with("res://"):
+				return {"type": value.get_class(), "resource_path": value.resource_path}
+			# Inline value projection: a whitelisted path-less value Object
+			# (InputEvent subclasses initially) projects its own storage
+			# properties. The whitelist is the risk-isolation boundary that
+			# keeps this shared projection safe on the live side, where an
+			# arbitrary Object could be a whole scene tree (ADR-0035).
+			if value is InputEvent:
+				var projected := {}
+				for prop in value.get_property_list():
+					if not _is_storage_property(prop):
+						continue
+					var prop_name := String(prop.get("name", ""))
+					if prop_name in JSONIFY_BOOKKEEPING_PROPS:
+						continue
+					projected[prop_name] = _jsonify(value.get(prop_name), depth + 1)
+				# Assigned AFTER the loop so the discriminator shadows a
+				# storage property named "type" (ADR-0035 documents the
+				# shadowing — order matters).
+				projected["type"] = value.get_class()
+				return projected
+			# String fallback: any other Object (not whitelisted, no res://
+			# path — e.g. a live Node) keeps the existing str() form.
+			return str(value)
 		_:
 			return str(value)
 
