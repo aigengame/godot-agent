@@ -104,6 +104,23 @@ launch), survives the session process so a crash stays diagnosable until relaunc
 (ADR-0022).
 _Avoid_: console output, stdout dump
 
+### Structured output
+
+**Value projection**:
+The read-side contract for rendering a Godot value into the structured JSON a
+successful result carries. Scalars and the small fixed-shape value types pass
+through directly; a `Dictionary`/`Array` (and the packed-array family) projects
+recursively; and an `Object` is rendered by one of three **descriptor kinds** — a
+**reference descriptor** for a `Resource` that has a `res://` path (named by type
+and path, never inlined — the read-side mirror of ADR-0033's write-side
+reference), an **inline value descriptor** for a whitelisted path-less value
+`Object` (named by type plus its projected fields), or a plain **string
+fallback** for anything else. One projection shared across every read
+(`project`/`node`/`resource get`, and the live `game` reads) so a value reads the
+same everywhere; the whitelist is the boundary that keeps the shared projection
+safe on the live side (ADR-0035).
+_Avoid_: value rendering, str dump, serialization
+
 ### Failure reporting
 
 **Gda error code**:
