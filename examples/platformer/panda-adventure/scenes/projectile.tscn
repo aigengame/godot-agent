@@ -1,0 +1,12 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://src/controllers/projectile_controller.gd" id="1_ms14w"]
+
+[node name="Projectile" type="Area2D" unique_id=397764211]
+collision_layer = 8
+collision_mask = 5
+script = ExtResource("1_ms14w")
+
+[node name="Visual" type="ColorRect" parent="." unique_id=1941608377]
+
+[node name="Collision" type="CollisionShape2D" parent="." unique_id=524550210]
