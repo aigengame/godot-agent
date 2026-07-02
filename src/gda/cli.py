@@ -2219,7 +2219,10 @@ def set_property(
         "--value",
         help=(
             "The value to set, as a string. Coerced to the property's declared "
-            "Godot type; an uncoercible value is a clean error."
+            "Godot type: Vector2/Vector2i/Color take comma-separated components "
+            '(e.g. "48,72", "0.2,0.6,1,1"), and a property expecting a Resource '
+            "(sub)class takes a res:// path to an existing Resource of that class. "
+            "An uncoercible value is a clean error."
         ),
     ),
     json_output: bool = json_option(),
@@ -2897,7 +2900,10 @@ def set_resource(
         "--value",
         help=(
             "The value to set, as a string. Coerced to the property's declared "
-            "Godot type; an uncoercible value is a clean error."
+            "Godot type: Vector2/Vector2i/Color take comma-separated components "
+            '(e.g. "48,72", "0.2,0.6,1,1"), and a property expecting a Resource '
+            "(sub)class takes a res:// path to an existing Resource of that class. "
+            "An uncoercible value is a clean error."
         ),
     ),
     json_output: bool = json_option(),
