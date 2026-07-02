@@ -182,9 +182,12 @@ forms — several of which are not obvious from `--help`:
   `--value "0.2,0.6,1,1"`.
 - An **Object-typed** (Resource) property — a `res://….tres` path, as above.
 
-Whitespace around a value or a component is tolerated. The value-typed forms are
-shared by `node set`, `resource set`, `project set`, and live `game set`; the `res://`
-Resource assignment is headless-only (`node set` / `resource set`).
+Whitespace is trimmed for the numeric forms — `bool`, `int` / `float`, the
+`Vector2` / `Vector2i` components, and `Color` (hex or list) — but **not** for
+`String` / `StringName` (taken verbatim) or the `res://` path (matched literally, so a
+leading space fails as `expected_resource_path`). The value-typed forms are shared by
+`node set`, `resource set`, `project set`, and live `game set`; the `res://` Resource
+assignment is headless-only (`node set` / `resource set`).
 
 ## Tips
 
