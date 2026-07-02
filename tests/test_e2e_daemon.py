@@ -153,6 +153,60 @@ def test_daemon_serves_game_get_set_round_trip(tmp_path, daemon_runtime_dir):
         run("daemon", "stop")
 
 
+# A Player script for the live half of the value projection (ADR-0035, #381):
+# an exported Dictionary (compound -> structured) and an exported Node
+# reference assigned at _ready (a NON-whitelisted runtime Object -> the str()
+# fallback, the live-side risk boundary).
+PROJECTION_PLAYER_GD = (
+    "extends Node2D\n"
+    '@export var stats: Dictionary = {"hp": 5, "label": "panda"}\n'
+    "@export var buddy: Node\n"
+    "func _ready() -> void:\n"
+    "\tbuddy = get_parent()\n"
+)
+PROJECTION_MAIN_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
+    '[node name="Main" type="Node2D"]\n\n'
+    '[node name="Player" type="Node2D" parent="."]\n'
+    'script = ExtResource("1")\n'
+)
+
+
+@pytest.mark.e2e
+def test_daemon_game_get_projects_compound_values_with_live_fallback(
+    tmp_path, daemon_runtime_dir
+):
+    # The live half of ADR-0035, through the byte-identical mirrored harness
+    # projection: `game get` of an exported Dictionary arrives as a structured
+    # JSON object, while a Node-valued property — a non-whitelisted runtime
+    # Object — stays the str() fallback (the whitelist keeps the shared
+    # projection safe against projecting a whole live scene tree).
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(PROJECTION_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(PROJECTION_PLAYER_GD, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        got = run("game", "get", "/root/Main/Player")
+        assert got.returncode == 0, got.stdout + got.stderr
+        props = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+
+        stats = props["stats"]
+        assert stats["type"] == "Dictionary"
+        assert stats["value"] == {"hp": 5, "label": "panda"}
+
+        # The live Node reference is NOT projected — no structure, no descent
+        # into the runtime tree — just the existing string form.
+        buddy = props["buddy"]
+        assert isinstance(buddy["value"], str)
+    finally:
+        run("daemon", "stop")
+
+
 def _gda(tmp_path, env):
     """A `gda <args> --project <tmp> --godot <GODOT> --json` subprocess helper."""
 

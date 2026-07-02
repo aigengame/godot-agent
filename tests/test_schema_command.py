@@ -140,6 +140,15 @@ def test_scene_get_exports_schema_emits_model_derived_contract_without_other_arg
     assert doc["input"] == SceneGetExportsParams.model_json_schema()
     assert doc["output"] == SceneGetExportsResult.model_json_schema()
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    # The per-export value is a listed ADR-0035 read surface: its description
+    # names the recursive value projection and the emitted schema carries the
+    # named Object-projection shapes — a stale scalar-only doc fails here.
+    export_value = doc["output"]["$defs"]["SceneExport"]["properties"]["value"]
+    assert "value projection" in export_value["description"]
+    assert set(export_value["$defs"]) == {
+        "ReferenceProjection",
+        "InlineValueProjection",
+    }
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 

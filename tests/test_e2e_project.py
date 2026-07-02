@@ -19,6 +19,8 @@ import pytest
 from gda.binary import resolve_godot_binary
 from tests.support import GDA_CMD
 
+from .conftest import project_godot
+
 GODOT = resolve_godot_binary()
 
 
@@ -28,6 +30,23 @@ def _gda(project, *args: str) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
     )
+
+
+# An [input] action holding a real InputEventKey Object literal — the exact
+# on-disk shape the Godot editor writes for an InputMap binding (the #381
+# reproduction: a compound Dictionary value with an embedded value Object).
+INPUT_ACTION_SECTION = (
+    "[input]\n\n"
+    "fire={\n"
+    '"deadzone": 0.5,\n'
+    '"events": [Object(InputEventKey,"resource_local_to_scene":false,'
+    '"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,'
+    '"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,'
+    '"pressed":false,"keycode":74,"physical_keycode":0,"key_label":0,'
+    '"unicode":106,"location":0,"echo":false,"script":null)\n'
+    "]\n"
+    "}\n"
+)
 
 
 @pytest.mark.e2e
@@ -57,6 +76,55 @@ def test_project_get_reads_a_setting_as_typed_json(godot_project):
     assert data["setting"] == "application/config/name"
     assert data["type"] == "String"
     assert data["value"] == "gda-e2e-fixture"
+
+
+@pytest.mark.e2e
+def test_project_get_input_action_projects_a_structured_dictionary(godot_project):
+    # The #381 acceptance case (ADR-0035): an [input] action is a Dictionary
+    # holding an embedded InputEventKey. project get returns an indexable JSON
+    # object — value.deadzone, value.events[0].keycode — with the event as an
+    # inline value projection, not a str() debug dump.
+    (godot_project / "project.godot").write_text(
+        project_godot(extra=INPUT_ACTION_SECTION), encoding="utf-8"
+    )
+
+    got = _gda(godot_project, "project", "get", "input/fire", "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    data = json.loads(got.stdout)
+    assert data["type"] == "Dictionary"
+    value = data["value"]
+    assert value["deadzone"] == 0.5
+    event = value["events"][0]
+    assert event["type"] == "InputEventKey"
+    assert event["keycode"] == 74
+    # The inline value projection excludes the Object/Resource base bookkeeping,
+    # so a path-less value Object never masquerades as a reference projection.
+    excluded_keys = (
+        "resource_path",
+        "resource_name",
+        "resource_local_to_scene",
+        "script",
+    )
+    for excluded in excluded_keys:
+        assert excluded not in event, f"{excluded} must be excluded from the projection"
+
+
+@pytest.mark.e2e
+def test_project_get_packed_string_array_setting_projects_a_json_list(godot_project):
+    # A packed-array-valued setting projects to a JSON array (ADR-0035), not the
+    # Variant str() form.
+    (godot_project / "project.godot").write_text(
+        project_godot(extra='[gda]\n\ntags=PackedStringArray("alpha", "beta")\n'),
+        encoding="utf-8",
+    )
+
+    got = _gda(godot_project, "project", "get", "gda/tags", "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    data = json.loads(got.stdout)
+    assert data["type"] == "PackedStringArray"
+    assert data["value"] == ["alpha", "beta"]
 
 
 @pytest.mark.e2e

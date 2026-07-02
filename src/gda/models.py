@@ -377,6 +377,103 @@ class SceneGetResult(BaseModel):
     root: SceneNode
 
 
+# The one read-side value projection every value gda emits goes through
+# (ADR-0035): the shared field description for the dynamically-shaped `value`
+# fields. The field itself stays `Any` — a value's shape is not statically
+# knowable, a deliberate, bounded exception to ADR-0004's model-driven-output
+# rule — so the stable parts are surfaced here and by the two named projection
+# models (ReferenceProjection / InlineValueProjection) below.
+_VALUE_PROJECTION_DESC = (
+    "Rendered through the one recursive read-side value projection "
+    "(ADR-0035): a scalar for a scalar type; a flat number list for a "
+    "fixed-shape type (Vector2 → [x, y], Color → [r, g, b, a]); a JSON "
+    "object for a Dictionary (keys stringified); a JSON array for an Array "
+    "or packed array (elements re-projected). An Object value renders as a "
+    "ReferenceProjection ({type, resource_path}) for a Resource with a "
+    "res:// path, an InlineValueProjection ({type, …storage properties}) "
+    "for a whitelisted path-less value Object (InputEvent subclasses), or "
+    "its str() form for any other Object — branch on the presence of "
+    "resource_path."
+)
+
+# The set-echo variant: the set commands echo the value they set through the
+# SAME projection (they read it back off the subject and _jsonify it).
+_SET_ECHO_VALUE_DESC = (
+    "The coerced value as JSON, in the same recursive value projection the "
+    "corresponding get reports (ADR-0035)."
+)
+
+# node/resource set additionally have the ADR-0033 Object-typed set path;
+# its echo flows through the same projection, so the assigned resource echoes
+# as the reference projection a subsequent get reads back.
+_OBJECT_SET_ECHO_DESC = _SET_ECHO_VALUE_DESC + (
+    " Setting an Object-typed property by res:// path (ADR-0033) echoes the "
+    "assigned resource as a ReferenceProjection ({type, resource_path}) — "
+    "the same shape a subsequent get reads back."
+)
+
+
+class ReferenceProjection(BaseModel):
+    """A Resource value named by type and ``res://`` path (ADR-0035).
+
+    The read-side mirror of ADR-0033's write-side ``res://`` reference: a
+    value that is a ``Resource`` with a ``res://`` ``resource_path`` projects
+    to ``{type, resource_path}`` — never inlined, so a resource-valued read
+    stays a small, bounded payload and read/write name an external resource
+    the same way. Distinguished from :class:`InlineValueProjection` by the
+    PRESENCE of ``resource_path`` (an inline projection excludes the Resource
+    base bookkeeping, so it never carries one).
+    """
+
+    type: str = Field(
+        description="The referenced resource's engine class (e.g. RectangleShape2D)."
+    )
+    resource_path: str = Field(
+        description=(
+            "The res:// path naming the resource; a sub-resource path "
+            "(res://scene.tscn::id) counts as a reference too."
+        )
+    )
+
+
+class InlineValueProjection(BaseModel):
+    """A whitelisted path-less value Object projected inline (ADR-0035).
+
+    A small path-less value ``Object`` on the projection whitelist
+    (``InputEvent`` subclasses initially — e.g. the ``InputEventKey`` entries
+    of an InputMap action) projects to ``{"type": <Class>, <its storage
+    properties, each re-projected>}``. The ``Object``/``Resource`` base
+    bookkeeping (``resource_path``, ``resource_name``,
+    ``resource_local_to_scene``, ``script``) is excluded — so an inline
+    projection never masquerades as a :class:`ReferenceProjection` — and the
+    ``type`` discriminator is assigned last, shadowing any storage property of
+    that name. The storage properties vary per class, hence ``extra="allow"``.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str = Field(
+        description="The value Object's engine class (e.g. InputEventKey)."
+    )
+
+
+def _projected_value_schema_extra(schema: dict[str, Any]) -> None:
+    """Attach the named Object-projection shapes to a projected ``value`` field.
+
+    A projected ``value`` stays ``Any`` — its shape is not statically knowable,
+    the ADR-0035 bounded exception to ADR-0004 — so the stable projection
+    shapes cannot ride along as the field's type (a union would materialize
+    matching dicts as model instances and change the runtime payload).
+    Attaching their schemas as the field's ``$defs`` keeps ReferenceProjection
+    and InlineValueProjection named and consumable in every emitted command
+    schema (``--schema`` / gda-mcp) instead of prose-only.
+    """
+    schema["$defs"] = {
+        "ReferenceProjection": ReferenceProjection.model_json_schema(),
+        "InlineValueProjection": InlineValueProjection.model_json_schema(),
+    }
+
+
 class SceneExport(BaseModel):
     """One ``@export`` property a node's attached script declares (issue #58).
 
@@ -386,9 +483,9 @@ class SceneExport(BaseModel):
     ``@export_range`` yields ``PROPERTY_HINT_RANGE``); ``hint_string`` is its
     companion string (the range bounds, the enum members, the file filter, …) —
     together they capture HOW the export is meant to be edited. ``value`` is the
-    property's current value in the same JSON projection ``node get`` reports — a
-    scalar for a scalar type, a list for a packed type (Vector2 → ``[x, y]``) —
-    which on a freshly-instantiated node is the export's default.
+    property's current value in the same recursive JSON value projection
+    ``node get`` reports (ADR-0035), which on a freshly-instantiated node is
+    the export's default.
     """
 
     name: str
@@ -407,9 +504,9 @@ class SceneExport(BaseModel):
     value: Any = Field(
         description=(
             "The export's current value as JSON (its default on a freshly-loaded "
-            "node): a scalar for a scalar type, a list for a packed type "
-            "(Vector2 → [x, y], Color → [r, g, b, a])."
-        )
+            "node). " + _VALUE_PROJECTION_DESC
+        ),
+        json_schema_extra=_projected_value_schema_extra,
     )
 
 
@@ -637,10 +734,12 @@ class NodeProperty(BaseModel):
     """One of a node's properties as ``gda node get`` reports it (issue #55).
 
     ``type`` is the property's declared Godot type name (``int``, ``Vector2``,
-    ``Color``, …). ``value`` is the property's value in its JSON projection —
-    left as arbitrary JSON so every Godot type is carried uniformly through one
-    field: a scalar stays a scalar, a Vector2 becomes ``[x, y]``, a Color
-    ``[r, g, b, a]`` — the same projection ``node set`` accepts back.
+    ``Color``, …). ``value`` is the property's value in its recursive JSON
+    value projection (ADR-0035) — left as arbitrary JSON so every Godot type
+    is carried uniformly through one field: a scalar stays a scalar, a Vector2
+    becomes ``[x, y]``, a Dictionary a JSON object, an Object a
+    :class:`ReferenceProjection` / :class:`InlineValueProjection` / ``str()``
+    fallback.
     """
 
     name: str
@@ -648,10 +747,8 @@ class NodeProperty(BaseModel):
         description="The property's declared Godot type name (e.g. int, Vector2, Color)."
     )
     value: Any = Field(
-        description=(
-            "The property's value as JSON: a scalar for a scalar type, a list "
-            "for a packed type (Vector2 → [x, y], Color → [r, g, b, a])."
-        )
+        description="The property's value as JSON. " + _VALUE_PROJECTION_DESC,
+        json_schema_extra=_projected_value_schema_extra,
     )
 
 
@@ -733,7 +830,11 @@ class NodeSetResult(BaseModel):
         description="The property's declared Godot type the value was coerced to."
     )
     value: Any = Field(
-        description="The coerced value as JSON, as the node now holds it."
+        description=(
+            "The coerced value as JSON, as the node now holds it. "
+            + _OBJECT_SET_ECHO_DESC
+        ),
+        json_schema_extra=_projected_value_schema_extra,
     )
 
 
@@ -1904,7 +2005,11 @@ class ResourceSetResult(BaseModel):
         description="The property's declared Godot type the value was coerced to."
     )
     value: Any = Field(
-        description="The coerced value as JSON, as the resource now holds it."
+        description=(
+            "The coerced value as JSON, as the resource now holds it. "
+            + _OBJECT_SET_ECHO_DESC
+        ),
+        json_schema_extra=_projected_value_schema_extra,
     )
 
 
@@ -2438,10 +2543,8 @@ class ProjectGetResult(BaseModel):
         description="The setting's declared Godot type name (e.g. String, int, Vector2)."
     )
     value: Any = Field(
-        description=(
-            "The setting's value as JSON: a scalar for a scalar type, a list for "
-            "a packed type (Vector2 → [x, y], Color → [r, g, b, a])."
-        )
+        description="The setting's value as JSON. " + _VALUE_PROJECTION_DESC,
+        json_schema_extra=_projected_value_schema_extra,
     )
 
 
@@ -2488,10 +2591,8 @@ class ListedProjectSetting(BaseModel):
         description="The setting's declared Godot type name (e.g. String, int, Vector2)."
     )
     value: Any = Field(
-        description=(
-            "The setting's value as JSON: a scalar for a scalar type, a list for "
-            "a packed type (Vector2 → [x, y], Color → [r, g, b, a])."
-        )
+        description="The setting's value as JSON. " + _VALUE_PROJECTION_DESC,
+        json_schema_extra=_projected_value_schema_extra,
     )
     is_default: bool = Field(
         description=(
@@ -2553,7 +2654,11 @@ class ProjectSetResult(BaseModel):
         description="The setting's declared Godot type the value was coerced to."
     )
     value: Any = Field(
-        description="The coerced value as JSON, as ProjectSettings now holds it."
+        description=(
+            "The coerced value as JSON, as ProjectSettings now holds it. "
+            + _SET_ECHO_VALUE_DESC
+        ),
+        json_schema_extra=_projected_value_schema_extra,
     )
 
 
@@ -2685,6 +2790,12 @@ class GameGetResult(BaseModel):
     no file): echoes the addressed node (runtime ``path``/``name``/``type``) and
     its storage properties, each a typed :class:`NodeProperty`, so an agent reads
     the running node's live state and can feed any property back into ``game set``.
+    Each value goes through the same recursive value projection the headless reads
+    use (ADR-0035): compound values arrive structured, and a whitelisted value
+    Object (an ``InputEvent`` subclass) as an :class:`InlineValueProjection` —
+    while a NON-whitelisted runtime Object (e.g. a live ``Node``-valued property)
+    stays the ``str()`` fallback, the whitelist being the boundary that keeps the
+    shared projection safe on the live side.
     """
 
     path: str = Field(description="The addressed node's runtime (absolute) path.")
@@ -2730,7 +2841,11 @@ class GameSetResult(BaseModel):
         description="The property's declared Godot type the value was coerced to."
     )
     value: Any = Field(
-        description="The coerced value as JSON, as the running node now holds it."
+        description=(
+            "The coerced value as JSON, as the running node now holds it. "
+            + _SET_ECHO_VALUE_DESC
+        ),
+        json_schema_extra=_projected_value_schema_extra,
     )
 
 

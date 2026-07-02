@@ -137,10 +137,14 @@ def test_node_set_object_property_wires_ext_resource_end_to_end(godot_project):
     assert was_set.returncode == 0, was_set.stdout + was_set.stderr
     data = json.loads(was_set.stdout)
     assert data["property"] == "shape"
-    # The declared Godot type is Object; the assigned value round-trips as the
-    # res:// reference (not an inlined blob).
+    # The declared Godot type is Object; the set echoes the assigned resource as
+    # the ADR-0035 reference projection ({type, resource_path}) — the same shape
+    # node get reads back, never an inlined blob.
     assert data["type"] == "Object"
-    assert data["value"] == "res://box.tres"
+    assert data["value"] == {
+        "type": "RectangleShape2D",
+        "resource_path": "res://box.tres",
+    }
 
     # The mutation is on disk as an EXTERNAL reference: an [ext_resource ...] entry
     # for the .tres and a `shape = ExtResource(...)` binding — not an inlined
@@ -154,7 +158,15 @@ def test_node_set_object_property_wires_ext_resource_end_to_end(godot_project):
     # the addressed node again — proving the wiring is not a torn file.
     got = gda("node", "get", "res://main.tscn", "--node", "Col", "--json")
     assert got.returncode == 0, got.stdout + got.stderr
-    assert json.loads(got.stdout)["type"] == "CollisionShape2D"
+    got_data = json.loads(got.stdout)
+    assert got_data["type"] == "CollisionShape2D"
+    # The read side reports the same ADR-0035 reference projection the set
+    # echoed above — one shape for one stored value, whichever way it is read.
+    shape = next(p for p in got_data["properties"] if p["name"] == "shape")
+    assert shape["value"] == {
+        "type": "RectangleShape2D",
+        "resource_path": "res://box.tres",
+    }
 
 
 @pytest.mark.e2e
@@ -185,11 +197,27 @@ def test_resource_set_object_property_wires_ext_resource(godot_project):
     data = json.loads(was_set.stdout)
     assert data["property"] == "gradient"
     assert data["type"] == "Object"
-    assert data["value"] == "res://grad.tres"
+    # The set echo is the ADR-0035 reference projection, matching the get below.
+    assert data["value"] == {
+        "type": "Gradient",
+        "resource_path": "res://grad.tres",
+    }
 
     saved = (godot_project / "tex.tres").read_text(encoding="utf-8")
     assert 'ext_resource type="Gradient" path="res://grad.tres"' in saved
     assert "gradient = ExtResource(" in saved
+
+    # resource get reads the assigned value back as the ADR-0035 reference
+    # projection ({type, resource_path}), never an inlined dump.
+    got = gda("resource", "get", "res://tex.tres", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    gradient = next(
+        p for p in json.loads(got.stdout)["properties"] if p["name"] == "gradient"
+    )
+    assert gradient["value"] == {
+        "type": "Gradient",
+        "resource_path": "res://grad.tres",
+    }
 
 
 @pytest.mark.e2e

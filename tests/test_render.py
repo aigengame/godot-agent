@@ -155,6 +155,30 @@ def test_render_node_properties_routes_value_through_the_helper():
     assert rendered == ". (Node2D)\n  position (Vector2) = [1.0, 2.0]"
 
 
+def test_render_node_properties_renders_a_compound_value_projection():
+    # A dict-valued property (the ADR-0035 compound projection) renders through
+    # the same format_value helper — json.dumps of the projected object, no
+    # per-shape renderer.
+    result = NodeGetResult(
+        scene_path="res://s.tscn",
+        path=".",
+        name="Root",
+        type="Node2D",
+        properties=[
+            NodeProperty(
+                name="fire",
+                type="Dictionary",
+                value={"deadzone": 0.5, "events": [{"type": "InputEventKey"}]},
+            )
+        ],
+    )
+    rendered = render_node_properties(result)
+    assert rendered == (
+        ". (Node2D)\n"
+        '  fire (Dictionary) = {"deadzone": 0.5, "events": [{"type": "InputEventKey"}]}'
+    )
+
+
 def test_render_node_set_routes_value_through_the_helper():
     result = NodeSetResult(
         scene_path="res://s.tscn",

@@ -139,8 +139,11 @@ mutation integrity boundary above. The supported target types and the string for
 | `Color` | `#rrggbb` / `#rrggbbaa`, or 3–4 comma-separated floats in 0..1 (`r,g,b[,a]`) | `[r, g, b, a]` |
 
 Whitespace around a value or a component is tolerated. A property of any other type is still
-reported by `node get` (its value degrades to a string projection), but `node set` cannot coerce
-to it yet and refuses with `uncoercible_value` — the coercible set grows as later slices need it.
+reported by `node get` — compound values arrive structured through the shared value projection
+(ADR-0035): a `Dictionary` as a JSON object, an `Array`/packed array as a JSON array, an `Object` as
+a reference / inline value projection or the `str()` fallback (see [`project`](#project)) — but
+`node set` cannot coerce to it yet and refuses with `uncoercible_value` — the coercible set grows as
+later slices need it.
 
 **Object-typed property assignment by `res://` reference** (ADR-0033, #363): for an **Object-typed**
 property that expects a Resource (sub)class — e.g. a `CollisionShape2D`'s `shape` (`Shape2D`) — `gda
@@ -150,7 +153,8 @@ node set` and `gda resource set` accept a **`res://….tres` resource path** as 
 create` and `resource set` this completes the external sub-resource workflow with no new command
 (`resource create res://box.tres --type RectangleShape2D` → `resource set … --property size --value
 32,64` → `node set scene.tscn --node Col --property shape --value res://box.tres`). The result echoes
-`type` `"Object"` and `value` the assigned `res://` path (pass `--project` so `res://` resolves). This
+`type` `"Object"` and `value` the ADR-0035 **reference projection** (`{type, resource_path}`) of the assigned
+resource — the same shape a subsequent `get` reads back (pass `--project` so `res://` resolves). This
 is a **separate, headless-only** step from the shared coercion above — value coercion keys only off
 the Variant type, but resolving an Object needs the expected-class hint on the property-list entry — so
 assigning a Resource on the live `gda game set` is **out of scope** and the coercion mirror is
@@ -410,9 +414,14 @@ valid result.
 **Reading and writing settings** (established by #111): `gda project get SECTION/KEY` reads one
 setting by its full `section/key` name (e.g. `application/config/name`) and reports it as a
 `{setting, type, value}` triple — `type` is the setting's declared Godot type name and `value` its
-JSON projection, the **same projection** `node get` reports for a node property. A setting that does
-not exist is a clean `unknown_setting` error (exit 4), distinguishing a typo'd key from a setting
-genuinely holding null. `gda project set SECTION/KEY --value <string>` writes a setting, **coercing**
+JSON projection, the **same projection** `node get` reports for a node property. Compound values
+arrive **structured** (ADR-0035): a `Dictionary` projects to a JSON object, an `Array` or packed
+array to a JSON array, and an embedded `Object` renders as a **reference projection**
+(`{type, resource_path}` for a Resource with a `res://` path), an **inline value projection**
+(`{type, …storage properties}` for a whitelisted path-less value Object — `InputEvent` subclasses,
+e.g. the `InputEventKey`s of an `input/*` action), or the `str()` fallback for any other Object. A
+setting that does not exist is a clean `unknown_setting` error (exit 4), distinguishing a typo'd key
+from a setting genuinely holding null. `gda project set SECTION/KEY --value <string>` writes a setting, **coercing**
 the CLI value to the setting's **declared type** — read off the setting's current value, exactly as
 `node set` reads it off the node's property list — using the **same coercion rules** the node group
 established (#55; see "Property value coercion" under [`node`](#node)). It then persists
