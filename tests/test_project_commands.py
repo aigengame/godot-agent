@@ -165,6 +165,30 @@ def test_project_get_carries_packed_value_projection(monkeypatch):
     assert json.loads(result.stdout)["value"] == [10.0, 20.0]
 
 
+def test_project_get_carries_compound_value_projection_untouched(monkeypatch):
+    # A compound-valued setting (ADR-0035): the operation projects a Dictionary
+    # to a JSON object — here an InputMap action with an inline-projected
+    # InputEventKey in its events list — and the CLI carries the structure
+    # through --json untouched (value stays Any; nothing re-shapes it).
+    value = {
+        "deadzone": 0.5,
+        "events": [{"type": "InputEventKey", "keycode": 74, "pressed": False}],
+    }
+    payload = {"setting": "input/fire", "type": "Dictionary", "value": value}
+    inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(payload), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(app, ["project", "get", "input/fire", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["value"] == value
+    # The projection is indexable, the point of #381.
+    assert data["value"]["deadzone"] == 0.5
+    assert data["value"]["events"][0]["keycode"] == 74
+
+
 # --- project set ----------------------------------------------------------
 
 

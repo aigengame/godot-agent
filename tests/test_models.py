@@ -12,6 +12,7 @@ from gda.models import (
     ExportRunResult,
     GdaError,
     GdaErrorEnvelope,
+    InlineValueProjection,
     NodeAddResult,
     NodeConnectSignalResult,
     NodeDisconnectSignalResult,
@@ -19,6 +20,7 @@ from gda.models import (
     NodeGetResult,
     NodeListResult,
     NodeMoveResult,
+    NodeProperty,
     NodeRemoveResult,
     NodeSetResult,
     ProjectAddAutoloadResult,
@@ -26,6 +28,7 @@ from gda.models import (
     ProjectInfoResult,
     ProjectRemoveAutoloadResult,
     ProjectSetResult,
+    ReferenceProjection,
     ResourceCreateResult,
     ResourceGetResult,
     SceneCreateResult,
@@ -1104,3 +1107,91 @@ def test_diag_error_callstack_defaults_to_empty_for_a_bare_error():
 
     assert error.callstack == []
     assert error.function is None
+
+
+# --- value projection models (ADR-0035, #381) --------------------------------
+
+
+def test_reference_projection_round_trips_and_schema_is_valid():
+    # The read-side mirror of ADR-0033: a Resource-valued read renders as
+    # {type, resource_path} — never inlined. The named model surfaces the shape
+    # through the --schema / model chain (ADR-0004) rather than leaving it
+    # prose-only.
+    schema = ReferenceProjection.model_json_schema()
+    jsonschema.Draft202012Validator.check_schema(schema)
+
+    payload = {"type": "RectangleShape2D", "resource_path": "res://box.tres"}
+    ref = ReferenceProjection.model_validate(payload)
+
+    assert ref.type == "RectangleShape2D"
+    assert ref.resource_path == "res://box.tres"
+    dumped = json.loads(ref.model_dump_json())
+    assert dumped == payload
+    jsonschema.validate(dumped, schema)
+
+
+def test_inline_value_projection_preserves_extra_storage_properties():
+    # The whitelisted path-less value Object shape (ADR-0035): `type` is the
+    # declared discriminator; the class's own storage properties ride as extra
+    # fields (extra="allow") and survive a model_dump_json round trip intact.
+    schema = InlineValueProjection.model_json_schema()
+    jsonschema.Draft202012Validator.check_schema(schema)
+
+    payload = {
+        "type": "InputEventKey",
+        "keycode": 74,
+        "physical_keycode": 0,
+        "pressed": False,
+        "device": -1,
+    }
+    inline = InlineValueProjection.model_validate(payload)
+
+    assert inline.type == "InputEventKey"
+    dumped = json.loads(inline.model_dump_json())
+    assert dumped == payload
+    jsonschema.validate(dumped, schema)
+    # The projector excludes the Resource base bookkeeping, so the branch
+    # between the two Object projection kinds stays unambiguous: an inline
+    # projection never carries a resource_path.
+    assert "resource_path" not in dumped
+
+
+def test_node_property_round_trips_an_inline_value_projection_dict():
+    # A NodeProperty whose value is a compound projection stays plain JSON:
+    # `value` is Any (the recorded, bounded ADR-0035 exception to ADR-0004), so
+    # pydantic must NOT materialize the dict into a model instance — the human
+    # renderer json.dumps's it as-is.
+    payload = {
+        "name": "fire",
+        "type": "Dictionary",
+        "value": {
+            "deadzone": 0.5,
+            "events": [{"type": "InputEventKey", "keycode": 74, "pressed": False}],
+        },
+    }
+
+    prop = NodeProperty.model_validate(payload)
+
+    assert isinstance(prop.value, dict)
+    assert prop.value["deadzone"] == 0.5
+    assert prop.value["events"][0]["type"] == "InputEventKey"
+    assert prop.value["events"][0]["keycode"] == 74
+    assert json.loads(prop.model_dump_json()) == payload
+
+
+def test_node_property_round_trips_a_reference_projection_value():
+    # An Object-typed property read back after an ADR-0033 set: the value is
+    # the reference projection dict, distinguished from an inline value
+    # projection by the presence of resource_path.
+    payload = {
+        "name": "shape",
+        "type": "Object",
+        "value": {"type": "RectangleShape2D", "resource_path": "res://box.tres"},
+    }
+
+    prop = NodeProperty.model_validate(payload)
+
+    assert isinstance(prop.value, dict)
+    assert prop.value["type"] == "RectangleShape2D"
+    assert prop.value["resource_path"] == "res://box.tres"
+    assert json.loads(prop.model_dump_json()) == payload
