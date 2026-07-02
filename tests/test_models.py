@@ -26,9 +26,11 @@ from gda.models import (
     NodeRemoveResult,
     NodeSetResult,
     ProjectAddAutoloadResult,
+    ProjectAddInputActionResult,
     ProjectGetResult,
     ProjectInfoResult,
     ProjectRemoveAutoloadResult,
+    ProjectRemoveInputActionResult,
     ProjectSetResult,
     ReferenceProjection,
     ResourceCreateResult,
@@ -973,6 +975,41 @@ def test_project_remove_autoload_result_round_trips_the_unregistered_name():
     removed = ProjectRemoveAutoloadResult.model_validate(payload)
 
     assert removed.name == "Global"
+    assert json.loads(removed.model_dump_json()) == payload
+
+
+def test_project_add_input_action_result_round_trips_the_registered_action():
+    # project add-input-action echoes the action it registered (issue #380): the
+    # name, the persisted deadzone, and each key event with the raw token, the
+    # resolved keycode, and whether it was bound as physical_keycode. `kind`
+    # discriminates the event type so mouse/joypad kinds can extend it later.
+    payload = {
+        "name": "jump",
+        "deadzone": 0.2,
+        "events": [
+            {"kind": "key", "key": "J", "keycode": 74, "physical": False},
+            {"kind": "key", "key": "4194320", "keycode": 4194320, "physical": True},
+        ],
+    }
+
+    added = ProjectAddInputActionResult.model_validate(payload)
+
+    assert added.name == "jump"
+    assert added.deadzone == 0.2
+    assert [event.keycode for event in added.events] == [74, 4194320]
+    assert added.events[0].kind == "key"
+    assert added.events[1].physical is True
+    assert json.loads(added.model_dump_json()) == payload
+
+
+def test_project_remove_input_action_result_round_trips_the_unregistered_name():
+    # project remove-input-action echoes the name it unregistered (issue #380),
+    # so an agent can confirm which action was removed.
+    payload = {"name": "jump"}
+
+    removed = ProjectRemoveInputActionResult.model_validate(payload)
+
+    assert removed.name == "jump"
     assert json.loads(removed.model_dump_json()) == payload
 
 

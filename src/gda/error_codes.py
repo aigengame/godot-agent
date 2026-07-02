@@ -445,6 +445,13 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A project find-references target is empty or not a valid res:// path or class_name.",
     ),
     ErrorCodeSpec(
+        "invalid_key",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "An input-action key could not be resolved to a Godot keycode (unknown key name or non-positive keycode).",
+    ),
+    ErrorCodeSpec(
         "contract_violation",
         ErrorCategory.PARSE,
         EXIT_PARSE,

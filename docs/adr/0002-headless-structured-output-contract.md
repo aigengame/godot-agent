@@ -145,6 +145,7 @@ operation, and parse codes the CLI assigns).
 | `no_uid_assigned` | `operation` | `operation` | `4` | A resource path exists but has no UID assigned in the engine's UID cache. |
 | `unknown_setting` | `operation` | `operation` | `4` | A requested project setting does not exist in the project's ProjectSettings. |
 | `invalid_target` | `operation` | `operation` | `4` | A project find-references target is empty or not a valid `res://` path or `class_name`. |
+| `invalid_key` | `operation` | `operation` | `4` | An input-action key could not be resolved to a Godot keycode (unknown key name or non-positive keycode). |
 | `contract_violation` | `parse` | `parser` | `5` | The process claimed success but violated the structured-output contract. |
 | `tree_too_deep` | `parse` | `classifier` | `5` | The engine emitted a valid result tree that nests past gda's recursion limit; the payload is contract-conformant, the limit is wrapper-side (shares the `parse` exit code; the `code` distinguishes it from `contract_violation`). |
 | `daemon_not_running` | `live` | `classifier` | `6` | A live command found no running gda-daemon for the project; start one with `gda daemon start` (Phase 2, ADR-0017 / ADR-0021). |

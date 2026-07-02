@@ -444,6 +444,21 @@ engine-bookkeeping settings and the non-setting properties the engine's property
 are filtered out, so only real `ProjectSettings` keys appear. Like the rest of the group it requires
 a resolved project (`project_not_found`, exit 4, otherwise) and never instantiates a scene.
 
+**Input actions** (established by #380): `gda project add-input-action NAME --key K...` registers an
+InputMap action under `input/<name>` — the compound `{deadzone, events}` entry `project set` cannot
+express — with **key events only** for this slice (mouse/joypad kinds may extend it later). `--key`
+is repeatable and accepts a Godot key **name** (`J`, `Space`, `Escape`) or a raw base-10 **keycode**;
+an unresolvable token is a clean `invalid_key` error (exit 4, nothing saved). `--deadzone` overrides
+Godot's `0.5` default; `--physical` binds physical keycodes (keyboard position, layout-independent)
+instead of layout keycodes. The action is built from real `InputEventKey` objects and persisted via
+`ProjectSettings.save()`, so the serialization is exactly the engine's own `var_to_str` form — the
+editor and a running game load it identically to a hand-authored entry, and the action is immediately
+driveable by `gda input action NAME` in a live session started afterwards. Adding an existing action
+name is `already_exists` (never a silent clobber — remove first to replace; note the engine registers
+the built-in `ui_*` actions as defaults, so adding e.g. `ui_accept` reports `already_exists` by
+design). `gda project remove-input-action NAME` unregisters the action and persists `project.godot`;
+a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed save is `save_failed`.
+
 | Command | Description |
 | --- | --- |
 | `gda project info` | Project metadata (name, main scene, viewport, engine version) |
@@ -451,6 +466,7 @@ a resolved project (`project_not_found`, exit 4, otherwise) and never instantiat
 | `gda project list` | List the project's settings keys (customized by default; `--all` adds defaults, `--section` filters) |
 | `gda project set` | Modify a project setting (value coerced to its declared type) |
 | `gda project add-autoload` / `remove-autoload` | Register / unregister an autoload singleton |
+| `gda project add-input-action` / `remove-input-action` | Register / unregister an InputMap action (key events) |
 
 ### `resource`
 

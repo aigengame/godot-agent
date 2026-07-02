@@ -284,6 +284,74 @@ def test_daemon_serves_input_action_observed_via_game_get(tmp_path, daemon_runti
 
 
 @pytest.mark.e2e
+def test_add_input_action_makes_the_action_immediately_driveable(
+    tmp_path, daemon_runtime_dir
+):
+    # Issue #380's acceptance criterion: an action registered HEADLESSLY by
+    # `gda project add-input-action` is immediately driveable by `gda input action`
+    # in a live session. The fixture project declares NO [input] section — the
+    # action exists only because add-input-action persisted it. Ordering matters:
+    # the InputMap loads from project.godot at engine launch, so the headless add
+    # runs BEFORE `daemon start`.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(ACTION_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(ACTION_PLAYER_GD, encoding="utf-8")
+
+    env = {**os.environ}
+
+    def run(*args):
+        return subprocess.run(
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=90,
+        )
+
+    # Register the action headlessly FIRST — before any engine session exists.
+    added = run("project", "add-input-action", "move_right", "--key", "Right")
+    assert added.returncode == 0, added.stdout + added.stderr
+    assert json.loads(added.stdout)["name"] == "move_right"
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        before = run("game", "get", "/root/Main/Player", "--property", "position")
+        assert before.returncode == 0, before.stdout + before.stderr
+        before_x = next(
+            p
+            for p in json.loads(before.stdout)["properties"]
+            if p["name"] == "position"
+        )["value"][0]
+
+        # The freshly-registered action is in the running InputMap: pressing it
+        # moves the Player (which polls is_action_pressed each frame).
+        pressed = run("input", "action", "move_right")
+        assert pressed.returncode == 0, pressed.stdout + pressed.stderr
+        assert json.loads(pressed.stdout)["pressed"] is True
+
+        after = run("game", "get", "/root/Main/Player", "--property", "position")
+        assert after.returncode == 0, after.stdout + after.stderr
+        after_x = next(
+            p for p in json.loads(after.stdout)["properties"] if p["name"] == "position"
+        )["value"][0]
+        assert after_x > before_x
+
+        released = run("input", "action", "move_right", "--release")
+        assert released.returncode == 0, released.stdout + released.stderr
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
 def test_daemon_serves_input_sequence_across_frames(tmp_path, daemon_runtime_dir):
     # `input sequence` applies multiple key events across frames via the time-windowed
     # multi-frame base (#223), returned as ONE blocking result. Three Right presses at

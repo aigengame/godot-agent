@@ -2729,6 +2729,105 @@ class ProjectRemoveAutoloadResult(BaseModel):
     name: str = Field(description="The unregistered autoload's global name.")
 
 
+class ProjectAddInputActionParams(BaseModel):
+    """The operation params of ``gda project add-input-action`` (issue #380).
+
+    Registers an InputMap action: ``name`` is the action name (the key under the
+    ``input/`` section of ``project.godot``), bound to one or more keyboard keys.
+    The operation builds real ``InputEventKey`` events and persists the action
+    via ``ProjectSettings`` — never a hand-built string — so the serialization is
+    exactly the engine's own ``var_to_str`` form. The project is process context
+    (``--project``), not an operation param (ADR-0006).
+    """
+
+    name: str = Field(
+        description=(
+            "The input action's name — the key under the project's input/ section "
+            "and the name gda input action drives it by."
+        )
+    )
+    keys: list[str] = Field(
+        min_length=1,
+        description=(
+            "The keys to bind (at least one): each item is a Godot key NAME "
+            "(e.g. J, Space, Escape) or a base-10 keycode integer string."
+        ),
+    )
+    deadzone: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "The action's deadzone, 0..1 (the editor slider's bounds); "
+            "Godot's default is 0.5."
+        ),
+    )
+    physical: bool = Field(
+        default=False,
+        description=(
+            "Bind physical_keycode (keyboard position, layout-independent) "
+            "instead of keycode."
+        ),
+    )
+
+
+class InputActionKeyEvent(BaseModel):
+    """One key binding of a registered InputMap action (issue #380).
+
+    ``kind`` discriminates the event type so mouse/joypad kinds can extend the
+    shape later without breaking; this slice emits only ``key`` events. ``key``
+    echoes the raw ``--key`` token, ``keycode`` the Godot keycode it resolved to,
+    and ``physical`` whether it was bound as ``physical_keycode``.
+    """
+
+    kind: str = Field(
+        default="key", description="The event kind ('key' for this slice)."
+    )
+    key: str = Field(description="The raw --key token as given (name or keycode).")
+    keycode: int = Field(description="The Godot keycode the token resolved to.")
+    physical: bool = Field(
+        description="True when bound as physical_keycode instead of keycode."
+    )
+
+
+class ProjectAddInputActionResult(BaseModel):
+    """The result of ``gda project add-input-action``: the action it registered.
+
+    Echoes the action's ``name``, the ``deadzone`` persisted, and the resolved
+    key ``events`` exactly as they were bound — so an agent can confirm each key
+    token mapped to the intended keycode without re-reading ``project.godot``.
+    """
+
+    name: str = Field(description="The registered input action's name.")
+    deadzone: float = Field(description="The deadzone persisted with the action.")
+    events: list[InputActionKeyEvent] = Field(
+        description="The key events bound to the action, in --key order."
+    )
+
+
+class ProjectRemoveInputActionParams(BaseModel):
+    """The operation params of ``gda project remove-input-action`` (issue #380).
+
+    Unregisters an InputMap action by its ``name`` (the key under the ``input/``
+    section), then saves ``project.godot``. The project is process context
+    (``--project``), not an operation param (ADR-0006), so only ``name`` is an
+    input.
+    """
+
+    name: str = Field(description="The name of the input action to unregister.")
+
+
+class ProjectRemoveInputActionResult(BaseModel):
+    """The result of ``gda project remove-input-action``: the action it removed.
+
+    Echoes the ``name`` of the input action that was unregistered, so an agent
+    can confirm which action was removed; a subsequent ``project get`` of
+    ``input/<name>`` reports ``unknown_setting``.
+    """
+
+    name: str = Field(description="The unregistered input action's name.")
+
+
 class GameNode(BaseModel):
     """One node of the RUNNING game's runtime scene tree (Phase 2, ADR-0019).
 
