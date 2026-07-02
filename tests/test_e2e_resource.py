@@ -134,6 +134,32 @@ def test_resource_create_then_get_round_trip(godot_project):
 
 
 @pytest.mark.e2e
+def test_resource_get_projects_packed_arrays_as_json_lists(godot_project):
+    # ADR-0035: a Gradient's packed-array properties arrive structured — offsets
+    # (PackedFloat32Array) as a JSON number list, colors (PackedColorArray) as a
+    # list of [r, g, b, a] lists (each Color element re-enters the projection) —
+    # not the Variant str() dump.
+    resource_path = godot_project / "palette.tres"
+    created = _gda(
+        "resource", "create", str(resource_path), "--type", "Gradient", "--json"
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+
+    got = _gda("resource", "get", str(resource_path), "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    by_name = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+    assert by_name["offsets"]["type"] == "PackedFloat32Array"
+    assert by_name["offsets"]["value"] == [0.0, 1.0]
+    assert by_name["colors"]["type"] == "PackedColorArray"
+    # A default Gradient runs black -> white; each element is a 4-float list.
+    assert by_name["colors"]["value"] == [
+        [0.0, 0.0, 0.0, 1.0],
+        [1.0, 1.0, 1.0, 1.0],
+    ]
+
+
+@pytest.mark.e2e
 def test_resource_create_into_nested_dir_reports_created_dirs(godot_project):
     # create makes missing parent directories before saving and reports them,
     # outermost to innermost (mirrors scene/script create).

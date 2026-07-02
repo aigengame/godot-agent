@@ -154,7 +154,16 @@ def test_node_set_object_property_wires_ext_resource_end_to_end(godot_project):
     # the addressed node again — proving the wiring is not a torn file.
     got = gda("node", "get", "res://main.tscn", "--node", "Col", "--json")
     assert got.returncode == 0, got.stdout + got.stderr
-    assert json.loads(got.stdout)["type"] == "CollisionShape2D"
+    got_data = json.loads(got.stdout)
+    assert got_data["type"] == "CollisionShape2D"
+    # The read side reports the ADR-0035 reference projection — {type,
+    # resource_path}, the mirror of the write-side res:// reference — while the
+    # set echo above stays the raw path string (the documented asymmetry).
+    shape = next(p for p in got_data["properties"] if p["name"] == "shape")
+    assert shape["value"] == {
+        "type": "RectangleShape2D",
+        "resource_path": "res://box.tres",
+    }
 
 
 @pytest.mark.e2e
@@ -190,6 +199,18 @@ def test_resource_set_object_property_wires_ext_resource(godot_project):
     saved = (godot_project / "tex.tres").read_text(encoding="utf-8")
     assert 'ext_resource type="Gradient" path="res://grad.tres"' in saved
     assert "gradient = ExtResource(" in saved
+
+    # resource get reads the assigned value back as the ADR-0035 reference
+    # projection ({type, resource_path}), never an inlined dump.
+    got = gda("resource", "get", "res://tex.tres", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    gradient = next(
+        p for p in json.loads(got.stdout)["properties"] if p["name"] == "gradient"
+    )
+    assert gradient["value"] == {
+        "type": "Gradient",
+        "resource_path": "res://grad.tres",
+    }
 
 
 @pytest.mark.e2e
