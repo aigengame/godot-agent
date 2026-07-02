@@ -97,7 +97,15 @@ def test_daemon_serves_laser_combat(tmp_path, daemon_runtime_dir):
 
     def run(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [*GDA_CMD, *args, "--project", str(project), "--godot", str(GODOT), "--json"],
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(project),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
             capture_output=True,
             text=True,
             env=env,

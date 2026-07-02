@@ -25,7 +25,12 @@ import build_config
 def _valid_config() -> dict:
     """A fresh copy of a schema-valid combat config to mutate into invalid variants."""
     return {
-        "player_stats": {"max_hp": 100.0, "max_mp": 50.0, "attack": 10.0, "defense": 0.0},
+        "player_stats": {
+            "max_hp": 100.0,
+            "max_mp": 50.0,
+            "attack": 10.0,
+            "defense": 0.0,
+        },
         "enemy_stats": {"max_hp": 25.0, "max_mp": 0.0, "attack": 5.0, "defense": 0.0},
         "attack_scale": 1.0,
         "defense_scale": 1.0,
@@ -81,7 +86,9 @@ def _with(value: object, *path: str) -> dict:
         _with(0, "player_stats", "max_hp"),  # max_hp must be strictly positive
         _with(-1.0, "enemy_stats", "defense"),  # defense must be non-negative
         _with(-0.5, "player_stats", "attack"),  # attack must be non-negative
-        _with({**_valid_config()["player_stats"], "extra": 1}, "player_stats"),  # extra key in block
+        _with(
+            {**_valid_config()["player_stats"], "extra": 1}, "player_stats"
+        ),  # extra key in block
         _with(0, "attack_scale"),  # attack_scale strictly positive
         _with(-1.0, "min_damage"),  # min_damage non-negative
         _with(0, "iframe_duration"),  # i-frame window strictly positive
@@ -111,9 +118,7 @@ def test_invalid_json_rejected(bad: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "spec", build_config.SPECS, ids=lambda spec: spec.out_rel
-)
+@pytest.mark.parametrize("spec", build_config.SPECS, ids=lambda spec: spec.out_rel)
 def test_generated_resource_is_fresh(spec, tmp_path) -> None:
     """Each COMMITTED .tres matches a fresh build — JSON stays authoritative."""
     committed = build_config.GAME_DIR / spec.out_rel
