@@ -418,6 +418,9 @@ def test_project_add_input_action_persists_var_to_str_form_and_reports_keycodes(
     assert "Object(InputEventKey" in normalized
     assert '"keycode":74' in normalized
     assert '"keycode":32' in normalized
+    # The editor's device convention (InputMap ALL_DEVICES): a real keyboard
+    # event carries its own device id, so a device-pinned event would not fire.
+    assert '"device":-1' in normalized
 
 
 @pytest.mark.e2e

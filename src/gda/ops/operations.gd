@@ -2497,6 +2497,11 @@ func _op_project_add_input_action(params: Dictionary) -> void:
 			_fail(OP_ERROR_INVALID_KEY, "cannot resolve key to a Godot keycode: " + token)
 			return
 		var event := InputEventKey.new()
+		# Match from ANY device, the editor's convention (InputMap::ALL_DEVICES,
+		# -1): InputMap matching filters on device, and a real keyboard event
+		# carries DEVICE_ID_KEYBOARD (16), so the InputEventKey.new() default of
+		# device 0 would never match a physical key press.
+		event.device = -1
 		# --physical binds the keyboard POSITION (physical_keycode) instead of
 		# the layout symbol (keycode) — set only the requested one, exactly as
 		# the editor's "Physical" toggle does, never both.
