@@ -106,7 +106,13 @@ script="plugin.gd"
 
 @pytest.fixture
 def refgraph_project(tmp_path):
-    """A fixture project with real cross-references for the analysis commands."""
+    """A fixture project with real cross-references for the analysis commands.
+
+    Also plants binary artifacts (issue #378): an exported-build stand-in with
+    invalid-UTF-8 bytes under ``build/`` and an unreferenced binary asset. The
+    scan must never UTF-8-decode them (no engine ``Unicode parsing error`` on
+    stderr) while still enumerating them as graph nodes.
+    """
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
     (tmp_path / "hero.tscn").write_text(HERO_TSCN, encoding="utf-8")
@@ -115,6 +121,16 @@ def refgraph_project(tmp_path):
     (tmp_path / "game_state.gd").write_text(GAME_STATE_GD, encoding="utf-8")
     (tmp_path / "icon.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
     (tmp_path / "orphan.tres").write_text(ORPHAN_TRES, encoding="utf-8")
+    # An unreferenced binary ASSET: skipped decode must not drop it from the
+    # graph universe — it stays a find-unused candidate (issue #378).
+    (tmp_path / "orphan.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    # A binary build artifact whose bytes are invalid UTF-8 (0xf3 lead byte
+    # followed by a non-continuation byte — the exact shape the issue-#378 repro
+    # decoded into "Unicode parsing error: Byte d is not a correct continuation
+    # byte after f3").
+    build = tmp_path / "build"
+    build.mkdir()
+    (build / "fake.pck").write_bytes(b"\xf3\x0d\x00\xff" * 8)
     addons = tmp_path / "addons" / "widget"
     addons.mkdir(parents=True)
     (addons / "plugin.cfg").write_text(PLUGIN_CFG, encoding="utf-8")
@@ -229,6 +245,40 @@ def test_find_unused_resources_reports_the_orphan_and_is_consistent_with_find_re
         ).stdout
     )["references"]
     assert hero_refs != []  # referenced, hence not in unused
+
+
+@pytest.mark.e2e
+def test_find_references_skips_decoding_binary_artifacts(refgraph_project):
+    # The fixture plants build/fake.pck with invalid-UTF-8 bytes. The scan must
+    # dispatch on extension BEFORE reading, so the binary is never UTF-8-decoded
+    # — no engine "Unicode parsing error" on stderr (issue #378) — while the
+    # references over the text formats stay byte-for-byte unchanged.
+    proc = _gda(
+        refgraph_project, "project", "find-references", "res://util.gd", "--json"
+    )
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "Unicode parsing error" not in proc.stderr, proc.stderr
+    refs = json.loads(proc.stdout)["references"]
+    assert {(r["path"], r["kind"]) for r in refs} == {("res://main.gd", "preload")}
+
+
+@pytest.mark.e2e
+def test_find_unused_resources_skips_decoding_but_keeps_binary_graph_nodes(
+    refgraph_project,
+):
+    # Same clean-stderr guarantee for find-unused-resources (shared graph), AND
+    # the graph universe must not shrink (issue #378): binaries are skipped only
+    # for DECODING — they stay enumerated as graph nodes, so the unreferenced
+    # binary asset (orphan.png) and the build artifact are still unused
+    # candidates.
+    proc = _gda(refgraph_project, "project", "find-unused-resources", "--json")
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "Unicode parsing error" not in proc.stderr, proc.stderr
+    unused = json.loads(proc.stdout)["unused"]
+    assert "res://orphan.png" in unused
+    assert "res://build/fake.pck" in unused
 
 
 @pytest.mark.e2e

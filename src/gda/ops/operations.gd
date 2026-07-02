@@ -2909,7 +2909,15 @@ func _resolve_ref_path(ref: String, base_dir: String) -> String:
 # a preload/load/extends names one of those paths, or — when the target is a
 # class_name — when the file uses the class token as an identifier. The context is
 # the matched line, trimmed, so an agent locates the reference without re-reading.
+# Dispatches on extension BEFORE reading (issue #378): only the reference-bearing
+# text formats (_has_outgoing_references' .tscn/.tres/.gd set) are ever decoded,
+# so a binary artifact in the walked tree (an exported .pck/.app under build/)
+# never hits the engine's UTF-8 decode and never spams a per-file "Unicode
+# parsing error" to stderr. The graph universe is unchanged — only the decode
+# narrows, mirroring the ext-first shape of _outgoing_references_of.
 func _collect_references_from(path: String, target_paths: Dictionary, target_class: String, references: Array) -> void:
+	if not _has_outgoing_references(path):
+		return
 	var ext := path.get_extension().to_lower()
 	var text := FileAccess.get_file_as_string(path)
 	if text.is_empty():
