@@ -53,6 +53,14 @@ static func compute_velocity(
 	return v
 
 
+## Pure facing decision: a nonzero horizontal input re-aims the Player
+## (sign-normalized to -1/1), zero input preserves the current facing. Drives
+## the Laser Gun's projectile direction; the spawn facing (1.0, rightward) is
+## structural, not config.
+static func compute_facing(facing: float, input_dir: float) -> float:
+	return signf(input_dir) if input_dir != 0.0 else facing
+
+
 func _ready() -> void:
 	_config = load(CONFIG_PATH)
 	if _config == null:
