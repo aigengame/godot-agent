@@ -3515,10 +3515,11 @@ class InputActionResult(BaseModel):
 
 
 # The event types a `gda input sequence` may carry. A sequence event reuses the
-# single-frame ops' shapes (key / mouse click / mouse move / action) plus a `frame`
-# delay; the harness applies each event at its relative frame index. Bounding the
-# type model-side keeps an unknown type a usage/invalid_params error rather than a
-# request the harness must defend against (it still does, as live_invalid_event_spec).
+# single-frame ops' shapes (key / mouse click / mouse move / action) plus either a
+# process-clock `frame` offset (the original #221 behavior) or a physics-clock
+# `physics_frame` offset (#391). Bounding the type model-side keeps an unknown type
+# a usage/invalid_params error rather than a request the harness must defend
+# against (it still does, as live_invalid_event_spec).
 class InputEventType(str, Enum):
     """The kind of one event in a ``gda input sequence`` (#221)."""
 
@@ -3529,11 +3530,15 @@ class InputEventType(str, Enum):
 
 
 class InputSequenceEvent(BaseModel):
-    """One event in a ``gda input sequence``, applied at its relative frame (#221).
+    """One event in a ``gda input sequence``, applied at its relative clock offset.
 
     A tagged union over the single-frame ops: ``type`` selects the event shape and
-    ``frame`` is its 0-based relative frame offset within the window (events due at
-    the same frame index are applied together). The type-specific fields mirror the
+    either ``frame`` or ``physics_frame`` places it within the window. ``frame`` is
+    the original harness/process-frame clock, advanced by the harness ``_process``
+    loop; it is not Godot's fixed physics clock. ``physics_frame`` is the explicit
+    physics-clock offset, advanced by Godot ``_physics_process`` ticks, for sequences
+    that need deterministic simulation-duration input holds. Events due at the same
+    clock index are applied together. The type-specific fields mirror the
     single-frame params — ``key``/``modifiers``/``released`` for a key, ``x``/``y``/
     ``button``/``double`` for a mouse click, ``x``/``y`` for a mouse move,
     ``action``/``release``/``strength`` for an action. The required fields per type
@@ -3544,10 +3549,24 @@ class InputSequenceEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: InputEventType = Field(description="The event kind.")
-    frame: int = Field(
-        default=0,
+    frame: int | None = Field(
+        default=None,
         ge=0,
-        description="The 0-based relative frame offset to apply this event at.",
+        description=(
+            "The 0-based relative harness/process-frame offset to apply this event at. "
+            "This is the original `input sequence` clock, driven by the harness "
+            "`_process` loop; it is not Godot's fixed physics clock. Omit both "
+            "`frame` and `physics_frame` to use process frame 0."
+        ),
+    )
+    physics_frame: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "The 0-based relative physics-frame offset to apply this event at, driven "
+            "by Godot `_physics_process` ticks. Use this instead of `frame` when an "
+            "input hold must map to a deterministic physics simulation duration."
+        ),
     )
     # key fields
     key: str | None = Field(default=None, description="A key event's key name.")
@@ -3582,10 +3601,17 @@ class InputSequenceEvent(BaseModel):
 
     @model_validator(mode="after")
     def _check_event_shape(self) -> "InputSequenceEvent":
+        # Each event uses exactly one clock. No supplied clock keeps the original
+        # shorthand: process frame 0. Enforced model-side (ADR-0015) so argv JSON and
+        # --params-json reject the same malformed event before it reaches the harness.
+        if self.frame is not None and self.physics_frame is not None:
+            raise ValueError(
+                "a sequence event cannot set both 'frame' and 'physics_frame'."
+            )
+        if self.frame is None and self.physics_frame is None:
+            self.frame = 0
         # Each event type requires its own fields; the shared bounds (modifier set,
-        # strength range, button enum) are enforced by the fields above. Enforced
-        # model-side (ADR-0015) so the argv JSON and --params-json paths reject the
-        # same malformed event before it reaches the harness.
+        # strength range, button enum) are enforced by the fields above.
         if self.type is InputEventType.KEY:
             if not self.key:
                 raise ValueError("a 'key' sequence event requires 'key'.")
@@ -3603,43 +3629,67 @@ class InputSequenceEvent(BaseModel):
 
 
 class InputSequenceParams(BaseModel):
-    """The params of ``gda input sequence``: inject events across frames (#221).
+    """The params of ``gda input sequence``: inject events across process or physics frames.
 
     A multi-frame op (the time-windowed harness base, #223): ``events`` is a list of
-    :class:`InputSequenceEvent`, each applied at its relative ``frame`` index, and
-    the whole sequence returns as ONE blocking result (ADR-0017 one-shot RPC). The
-    window runs for as many frames as the largest event ``frame`` requires (at least
-    one). ``events`` must be non-empty; each event is validated model-side
-    (ADR-0015).
+    :class:`InputSequenceEvent`, each applied at either its relative ``frame`` index
+    (the original harness/process-frame clock) or its relative ``physics_frame``
+    index (the explicit Godot physics clock added for #391), and the whole sequence
+    returns as ONE blocking result (ADR-0017 one-shot RPC). A sequence must use one
+    clock throughout; mixing ``frame`` and ``physics_frame`` in the same request is
+    rejected. The window runs for as many selected-clock frames as the largest event
+    offset requires (at least one). ``events`` must be non-empty; each event is
+    validated model-side (ADR-0015).
 
-    The window the sequence requests — ``max(frame) + 1`` frames — is bounded
-    model-side to ``MAX_WINDOW_FRAMES`` (#223). The time-windowed harness base has
-    no harness-side timeout (it relies on its driver's model bounds, as
-    ``PerfMonitorParams`` enforces via ``frames``), so an unbounded event ``frame``
-    would let a single valid request monopolise the serialised live session until
-    ``live_timeout``. Rejecting it here makes it a structured ``invalid_params`` on
-    ``--params-json`` and a usage error (exit 2) on argv, never a live stall
-    (ADR-0015).
+    The window the sequence requests — ``max(offset) + 1`` frames on the selected
+    clock — is bounded model-side to ``MAX_WINDOW_FRAMES`` (#223). The time-windowed
+    harness base has no harness-side timeout (it relies on its driver's model
+    bounds, as ``PerfMonitorParams`` enforces via ``frames``), so an unbounded event
+    offset would let a single valid request monopolise the serialised live session
+    until ``live_timeout``. Rejecting it here makes it a structured
+    ``invalid_params`` on ``--params-json`` and a usage error (exit 2) on argv, never
+    a live stall (ADR-0015).
     """
 
     events: list[InputSequenceEvent] = Field(
         min_length=1,
-        description="The events to inject, each at its relative frame offset.",
+        description=(
+            "The events to inject, each at its relative process-clock `frame` "
+            "offset or physics-clock `physics_frame` offset."
+        ),
     )
 
     @model_validator(mode="after")
     def _check_window(self) -> "InputSequenceParams":
-        # The window spans one past the largest event frame (mirrors the harness's
-        # `max_frame + 1`). Bounding it to MAX_WINDOW_FRAMES — the same per-window
-        # ceiling perf enforces — keeps a sequence from holding the single-writer
-        # live session for an unbounded number of frames.
-        window = max(event.frame for event in self.events) + 1
+        # The window spans one past the largest event offset on exactly one clock
+        # (mirrors the harness's `max_offset + 1`). Bounding it to MAX_WINDOW_FRAMES
+        # — the same per-window ceiling perf enforces — keeps a sequence from
+        # holding the single-writer live session for an unbounded number of frames.
+        uses_physics = [event.physics_frame is not None for event in self.events]
+        if any(uses_physics) and not all(uses_physics):
+            raise ValueError(
+                "a sequence cannot mix process-clock 'frame' events with "
+                "physics-clock 'physics_frame' events."
+            )
+        selected_clock = "physics_frame" if all(uses_physics) else "frame"
+        window = (
+            max(
+                (
+                    event.physics_frame
+                    if selected_clock == "physics_frame"
+                    else event.frame
+                )
+                or 0
+                for event in self.events
+            )
+            + 1
+        )
         if window > MAX_WINDOW_FRAMES:
             raise ValueError(
                 f"the sequence requests a {window}-frame window (one past its "
-                f"largest event frame), exceeding the maximum of "
+                f"largest {selected_clock} offset), exceeding the maximum of "
                 f"{MAX_WINDOW_FRAMES} (the gda harness's per-window ceiling). "
-                "Use smaller relative frame offsets."
+                "Use smaller relative offsets."
             )
         return self
 
@@ -3647,14 +3697,25 @@ class InputSequenceParams(BaseModel):
 class InputSequenceResult(BaseModel):
     """The result of ``gda input sequence``: what the harness injected (#221).
 
-    Echoes the number of ``events`` applied and the number of ``frames`` the window
-    spanned (one past the largest event frame), confirming the whole sequence was
+    Echoes the ``clock`` used (``process`` for the original harness/process-frame
+    clock, ``physics`` for the explicit Godot physics clock), the number of
+    ``events`` applied, and the number of ``frames`` the window spanned on that
+    clock (one past the largest selected offset), confirming the whole sequence was
     injected over the window at frame boundaries (ADR-0020).
     """
 
     kind: str = Field(default="sequence", description="The op kind ('sequence').")
+    clock: str = Field(
+        default="process",
+        description=(
+            "The sequence clock: 'process' for harness/process-frame offsets, or "
+            "'physics' for Godot physics-frame offsets."
+        ),
+    )
     events: int = Field(description="The number of events injected.")
-    frames: int = Field(description="The number of frames the window spanned.")
+    frames: int = Field(
+        description="The number of selected-clock frames the window spanned."
+    )
 
 
 # --- screen (runtime viewport capture, #222) ----------------------------------

@@ -80,6 +80,14 @@ ACTION_MAIN_TSCN = (
     'script = ExtResource("1")\n'
 )
 
+PHYSICS_ACTION_PLAYER_GD = (
+    "extends Node2D\n"
+    "const SPEED := 120.0\n"
+    "func _physics_process(delta: float) -> void:\n"
+    '\tif Input.is_action_pressed("move_right"):\n'
+    "\t\tposition.x += SPEED * delta\n"
+)
+
 PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 
 # A project.godot whose [input] section declares `move_right` so the running
@@ -87,6 +95,19 @@ PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 ACTION_PROJECT_GODOT = project_godot(
     extra=(
         'run/main_scene="res://main.tscn"\n\n'
+        "[input]\n\n"
+        "move_right={\n"
+        '"deadzone": 0.5,\n'
+        '"events": []\n'
+        "}\n"
+    )
+)
+
+PHYSICS_ACTION_PROJECT_GODOT = project_godot(
+    extra=(
+        'run/main_scene="res://main.tscn"\n\n'
+        "[physics]\n\n"
+        "common/physics_ticks_per_second=60\n\n"
         "[input]\n\n"
         "move_right={\n"
         '"deadzone": 0.5,\n'
@@ -414,6 +435,93 @@ def test_daemon_serves_input_sequence_across_frames(tmp_path, daemon_runtime_dir
         )["value"][0]
         # Each of the 3 Right presses advances position.x by 10.
         assert after_x == before_x + 30.0
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_input_sequence_physics_frame_hold_matches_predicted_displacement(
+    tmp_path, daemon_runtime_dir
+):
+    # #391: `physics_frame` offsets are driven by Godot's physics clock, not the
+    # harness/process clock. Holding `move_right` for N physics frames should move a
+    # player that integrates in _physics_process by speed * (N / physics_fps), without
+    # first measuring an idle/process-to-physics ratio.
+    (tmp_path / "project.godot").write_text(
+        PHYSICS_ACTION_PROJECT_GODOT, encoding="utf-8"
+    )
+    (tmp_path / "main.tscn").write_text(ACTION_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(PHYSICS_ACTION_PLAYER_GD, encoding="utf-8")
+
+    env = {**os.environ}
+
+    def run(*args):
+        return subprocess.run(
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=90,
+        )
+
+    hold_frames = 12
+    physics_fps = 60
+    speed = 120.0
+    expected_delta = speed * (hold_frames / physics_fps)
+    tolerance = 0.1
+    events = json.dumps(
+        [
+            {
+                "type": "action",
+                "action": "move_right",
+                "physics_frame": 0,
+            },
+            {
+                "type": "action",
+                "action": "move_right",
+                "release": True,
+                "physics_frame": hold_frames,
+            },
+        ]
+    )
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        before = run("game", "get", "/root/Main/Player", "--property", "position")
+        assert before.returncode == 0, before.stdout + before.stderr
+        before_x = next(
+            p
+            for p in json.loads(before.stdout)["properties"]
+            if p["name"] == "position"
+        )["value"][0]
+
+        seq = run("input", "sequence", "--events", events)
+        assert seq.returncode == 0, seq.stdout + seq.stderr
+        seq_doc = json.loads(seq.stdout)
+        assert seq_doc["clock"] == "physics"
+        assert seq_doc["events"] == 2
+        # Includes the release tick: press at 0, release at N => N physics frames held.
+        assert seq_doc["frames"] == hold_frames + 1
+
+        after = run("game", "get", "/root/Main/Player", "--property", "position")
+        assert after.returncode == 0, after.stdout + after.stderr
+        after_x = next(
+            p for p in json.loads(after.stdout)["properties"] if p["name"] == "position"
+        )["value"][0]
+
+        actual_delta = after_x - before_x
+        assert abs(actual_delta - expected_delta) <= tolerance, (
+            f"expected {expected_delta} +/- {tolerance}, got {actual_delta}"
+        )
     finally:
         run("daemon", "stop")
 

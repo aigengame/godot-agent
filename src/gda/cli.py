@@ -1386,9 +1386,12 @@ def input_sequence(
         "--events",
         help=(
             "The events to inject, as a JSON array of event objects, each with a "
-            "'type' (key/mouse_click/mouse_move/action), an optional relative "
-            "'frame' offset, and the type's fields (e.g. "
-            '\'[{"type":"key","key":"Right","frame":0}]\').'
+            "'type' (key/mouse_click/mouse_move/action), either a relative "
+            "'frame' harness/process-frame offset or a 'physics_frame' physics-clock "
+            "offset, and the type's fields (e.g. "
+            '\'[{"type":"action","action":"move_right","physics_frame":0},'
+            '{"type":"action","action":"move_right","release":true,'
+            '"physics_frame":30}]\').'
         ),
     ),
     json_output: bool = json_option(),
@@ -1400,12 +1403,16 @@ def input_sequence(
     """Inject a sequence of events across frames in one blocking call (live).
 
     Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
-    applies the `--events` across frames at their relative frame offsets, returned
-    as one blocking result (reuses #223's time-windowed multi-frame base). A
-    malformed `--events` (not a JSON array, an empty list, or an ill-formed event)
-    is a usage error; with no daemon it reports `daemon_not_running`. An event's
-    action absent from the InputMap is `live_unknown_action`, an unresolvable key
-    `live_invalid_key`.
+    applies the `--events` across one selected clock, returned as one blocking
+    result (reuses #223's time-windowed multi-frame base). Existing `frame` offsets
+    are harness/process-frame ticks from the `_process` loop, not Godot physics
+    frames. Use `physics_frame` offsets instead when a press/release window must map
+    deterministically to physics simulation ticks, e.g. press an action at
+    `physics_frame: 0` and release it at `physics_frame: 30` for a 30-physics-frame
+    hold. A malformed `--events` (not a JSON array, an empty list, an ill-formed
+    event, or mixed `frame`/`physics_frame` clocks) is a usage error; with no daemon
+    it reports `daemon_not_running`. An event's action absent from the InputMap is
+    `live_unknown_action`, an unresolvable key `live_invalid_key`.
     """
     # --events is a JSON array on the argv path; the model is the source of truth for
     # the per-event shape (ADR-0015), so a parse or validation failure is a usage

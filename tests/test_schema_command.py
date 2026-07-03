@@ -1246,6 +1246,14 @@ def test_input_commands_schema_report_kind_live_and_are_model_derived():
         jsonschema.Draft202012Validator.check_schema(doc["input"])
         jsonschema.Draft202012Validator.check_schema(doc["output"])
 
+    sequence_input = docs[-1]["input"]
+    events_description = sequence_input["properties"]["events"]["description"]
+    assert "process-clock `frame`" in events_description
+    assert "physics-clock `physics_frame`" in events_description
+    sequence_event_props = sequence_input["$defs"]["InputSequenceEvent"]["properties"]
+    assert "harness/process-frame" in sequence_event_props["frame"]["description"]
+    assert "physics-frame" in sequence_event_props["physics_frame"]["description"]
+
 
 def test_sample_input_results_validate_against_emitted_output_schemas():
     # A sample --json payload of each input command satisfies the contract its
