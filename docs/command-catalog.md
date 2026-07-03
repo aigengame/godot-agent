@@ -102,8 +102,11 @@ suite). When an instanced sub-scene cannot be resolved on load (a broken depende
 scene *without* it, so a re-save would silently erase the instance and all its overrides;
 likewise, a declared node class unavailable in the running engine (e.g. an absent
 GDExtension) is silently substituted with a placeholder node, and a re-save would rewrite the
-node under the substitute type. Mutating node commands detect both and refuse with the
-registered `missing_dependency` error (exit 4), leaving the file untouched. Related trust boundary: instantiating executes `_init`
+node under the substitute type. A GDScript attached to the scene whose `preload("res://...")`
+target no longer exists is also refused before save with `missing_dependency`, naming the
+missing `res://` path so the dependency can be created first. Mutating node commands detect
+these cases and refuse with the registered `missing_dependency` error (exit 4), leaving the
+file untouched. Related trust boundary: instantiating executes `_init`
 of scripts already attached in the scene (#62) — treat headless mutation of an untrusted scene
 as running its code.
 
@@ -338,7 +341,9 @@ rejection modes so an agent gets the right remediation — a script that does **
 `script_compile_failed` (fix the syntax; check it with `script validate`), while one that compiles
 but whose native base is **incompatible** with the node (e.g. an `extends Node3D` script on a
 `Node2D`) is `incompatible_script_type` (attach it to a compatible node, or change the script's
-`extends`). Other failures reuse existing codes: a missing script is `path_not_found`, a non-`.gd` script is
+`extends`). If the script `preload("res://...")`s a target that does not exist, attach refuses
+with `missing_dependency` and names the missing `res://` path; create preloaded assets before
+attaching scripts that reference them. Other failures reuse existing codes: a missing script is `path_not_found`, a non-`.gd` script is
 `invalid_path`, a node path that resolves to nothing is `node_not_found`, a missing or non-scene
 file is `path_not_found`/`not_a_scene`, and a scene whose instances vanish or degrade on load is
 `missing_dependency` (the mutation-integrity boundary, #64).

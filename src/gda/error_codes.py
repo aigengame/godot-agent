@@ -215,8 +215,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
         "A scene's declared nodes vanished or degraded on load — an"
-        " unresolvable instanced sub-scene or an unavailable node class;"
-        " re-saving would silently drop or downgrade them.",
+        " unresolvable instanced sub-scene, an unavailable node class, or a"
+        " GDScript preload target that does not exist; re-saving would silently"
+        " drop or downgrade scene data.",
     ),
     ErrorCodeSpec(
         "uninstantiable_script",

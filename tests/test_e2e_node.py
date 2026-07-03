@@ -1004,6 +1004,88 @@ def test_node_add_refuses_scene_whose_sub_scene_cannot_resolve(godot_project):
     assert parent.read_text(encoding="utf-8") == before
 
 
+@pytest.mark.e2e
+def test_node_add_refuses_scene_whose_attached_script_preloads_missing_asset(
+    godot_project,
+):
+    # A scene mutation must not report clean success when an already-attached
+    # script has a now-missing preload target. The structured error names the
+    # missing res:// path and the scene remains byte-identical.
+    gda = _gda_project(godot_project)
+    assert (
+        gda(
+            "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
+        ).returncode
+        == 0
+    )
+    assert (
+        gda(
+            "scene",
+            "create",
+            "res://enemy_projectile.tscn",
+            "--root-type",
+            "Node2D",
+            "--json",
+        ).returncode
+        == 0
+    )
+    (godot_project / "enemy.gd").write_text(
+        'extends Node2D\n\nconst Projectile = preload("res://enemy_projectile.tscn")\n',
+        encoding="utf-8",
+    )
+    attached = gda(
+        "script",
+        "attach",
+        "res://main.tscn",
+        "--node",
+        ".",
+        "--script",
+        "res://enemy.gd",
+        "--json",
+    )
+    assert attached.returncode == 0, attached.stdout + attached.stderr
+    scene_path = godot_project / "main.tscn"
+    scene_text = scene_path.read_text(encoding="utf-8")
+    script_line = next(
+        line
+        for line in scene_text.splitlines()
+        if 'type="Script"' in line and 'path="res://enemy.gd"' in line
+    )
+    if "uid=" not in script_line:
+        scene_text = scene_text.replace(
+            script_line,
+            script_line.replace(
+                'path="res://enemy.gd"',
+                'uid="uid://bpreloadenemy" path="res://enemy.gd"',
+            ),
+        )
+        scene_path.write_text(scene_text, encoding="utf-8")
+    (godot_project / "enemy_projectile.tscn").unlink()
+    before = scene_path.read_text(encoding="utf-8")
+    script_line_before = next(
+        line
+        for line in before.splitlines()
+        if 'type="Script"' in line and 'path="res://enemy.gd"' in line
+    )
+    assert "uid=" in script_line_before
+
+    added = gda(
+        "node",
+        "add",
+        "res://main.tscn",
+        "--type",
+        "Marker2D",
+        "--name",
+        "M",
+        "--json",
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "res://enemy_projectile.tscn" in err["message"]
+    assert "res://enemy.gd" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
 # A child that loads as a valid PackedScene resource but cannot instantiate:
 # its root illegally declares a parent, which SceneState::instantiate refuses
 # with an engine null. The nested null propagates (packed_scene.cpp fails the

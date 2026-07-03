@@ -1388,6 +1388,9 @@ func _op_script_attach(params: Dictionary) -> void:
 	if not _require_existing_script(script_path):
 		root.free()
 		return  # _require_existing_script already recorded the failure
+	if not _validate_script_preload_dependencies(script_path):
+		root.free()
+		return  # _validate_script_preload_dependencies already recorded the failure
 
 	# load returns a non-null Script even for a .gd that does not compile (compile
 	# errors go to stderr; the resource still loads), so a null here is a genuine
@@ -3587,6 +3590,7 @@ func _load_for_mutation(params: Dictionary) -> Node:
 	# Snapshot every node's external script path NOW — the instant after
 	# instantiate, before any op-specific load can evict a sibling's script object
 	# (issue #164). _repack_and_save re-anchors from this snapshot on the way out.
+	_capture_source_attached_scripts(path)
 	_capture_external_scripts(root)
 	return root
 
@@ -3633,6 +3637,9 @@ func _repack_and_save(root: Node, path: String) -> bool:
 	if not _check_unchanged():
 		root.free()
 		return false
+	if not _validate_scene_script_preload_dependencies(root):
+		root.free()
+		return false
 	_reanchor_external_scripts(root)
 	var repacked := PackedScene.new()
 	var pack_err := repacked.pack(root)
@@ -3659,6 +3666,7 @@ func _repack_and_save(root: Node, path: String) -> bool:
 # carry. A single member is safe here — operations.gd is a one-shot process that
 # runs exactly one operation, so there is no cross-operation state to leak.
 var _captured_external_scripts: Dictionary = {}
+var _source_attached_scripts: Dictionary = {}
 
 
 # --- optimistic staleness guard for headless read-modify-write ops (issue #226) ---
@@ -3762,6 +3770,10 @@ func _capture_external_scripts_into(node: Node, root: Node) -> void:
 		_capture_external_scripts_into(child, root)
 
 
+func _capture_source_attached_scripts(scene_path: String) -> void:
+	_source_attached_scripts = _scene_attached_external_scripts(scene_path)
+
+
 # Repoint every captured node that STILL carries its captured script at the
 # SINGLE canonical cached resource for that script's res:// path, so a re-pack/save
 # never serializes two distinct in-memory objects under one path (issue #164 root
@@ -3798,6 +3810,219 @@ func _reanchor_external_scripts(root: Node) -> void:
 				captured_path, "Script", ResourceLoader.CACHE_MODE_REPLACE)
 		if canonical is Script:
 			node.set_script(canonical)
+
+
+# Validate the executable preload() dependencies that can make GDScript
+# compilation fail. This uses a focused lexer rather than the project-reference
+# graph's raw line scanner: comments and unrelated string literals must not block
+# a valid attach, while a real preload call may split its argument across lines.
+func _validate_script_preload_dependencies(script_path: String) -> bool:
+	for ref_path in _script_executable_preload_paths(script_path):
+		if not ref_path.begins_with("res://"):
+			continue
+		if FileAccess.file_exists(ref_path):
+			continue
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "script preload target does not exist: "
+				+ ref_path + " (referenced by " + script_path
+				+ ") — create the preloaded asset before attaching or saving the script")
+		return false
+	return true
+
+
+func _script_executable_preload_paths(script_path: String) -> Array[String]:
+	var out: Array[String] = []
+	var source := FileAccess.get_file_as_string(script_path)
+	if source.is_empty() and FileAccess.get_open_error() != OK:
+		return out
+	var base_dir := script_path.get_base_dir()
+	var index := 0
+	while index < source.length():
+		var token_index := _find_code_token(source, "preload", index)
+		if token_index == -1:
+			break
+		var after_token := token_index + "preload".length()
+		var open_paren := _skip_gdscript_space_and_comments(source, after_token)
+		if open_paren >= source.length() or source[open_paren] != "(":
+			index = after_token
+			continue
+		var arg_start := _skip_gdscript_space_and_comments(source, open_paren + 1)
+		var literal := _quoted_string_literal_at(source, arg_start)
+		if not bool(literal.get("ok", false)):
+			index = open_paren + 1
+			continue
+		out.append(_resolve_ref_path(String(literal["value"]), base_dir))
+		index = int(literal["end"])
+	return out
+
+
+func _find_code_token(source: String, token: String, from: int) -> int:
+	var index := from
+	while index < source.length():
+		var ch := source[index]
+		if ch == "#":
+			index = _skip_gdscript_line_comment(source, index)
+			continue
+		if ch == "\"" or ch == "'":
+			index = _skip_quoted_string_literal(source, index)
+			continue
+		if source.substr(index, token.length()) == token:
+			var before_ok := (
+					index == 0
+					or (not _is_identifier_char(source[index - 1]) and source[index - 1] != ".")
+			)
+			var after_index := index + token.length()
+			var after_ok := (
+					after_index >= source.length()
+					or not _is_identifier_char(source[after_index])
+			)
+			if before_ok and after_ok:
+				return index
+		index += 1
+	return -1
+
+
+func _skip_gdscript_space_and_comments(source: String, from: int) -> int:
+	var index := from
+	while index < source.length():
+		var ch := source[index]
+		if ch == " " or ch == "\t" or ch == "\r" or ch == "\n":
+			index += 1
+			continue
+		if ch == "#":
+			index = _skip_gdscript_line_comment(source, index)
+			continue
+		break
+	return index
+
+
+func _skip_gdscript_line_comment(source: String, from: int) -> int:
+	var index := from
+	while index < source.length() and source[index] != "\n":
+		index += 1
+	return index
+
+
+func _skip_quoted_string_literal(source: String, from: int) -> int:
+	var literal := _quoted_string_literal_at(source, from)
+	return int(literal["end"])
+
+
+func _quoted_string_literal_at(source: String, from: int) -> Dictionary:
+	if from >= source.length():
+		return {"ok": false, "value": "", "end": source.length()}
+	var quote := source[from]
+	if quote != "\"" and quote != "'":
+		return {"ok": false, "value": "", "end": from}
+	var triple := quote + quote + quote
+	if source.substr(from, 3) == triple:
+		var content_start := from + 3
+		var triple_end := source.find(triple, content_start)
+		if triple_end == -1:
+			return {"ok": false, "value": "", "end": source.length()}
+		return {
+			"ok": true,
+			"value": source.substr(content_start, triple_end - content_start),
+			"end": triple_end + 3,
+		}
+	var out := ""
+	var index := from + 1
+	while index < source.length():
+		var ch := source[index]
+		if ch == "\\":
+			if index + 1 >= source.length():
+				return {"ok": false, "value": "", "end": source.length()}
+			out += source[index + 1]
+			index += 2
+			continue
+		if ch == quote:
+			return {"ok": true, "value": out, "end": index + 1}
+		out += ch
+		index += 1
+	return {"ok": false, "value": "", "end": source.length()}
+
+
+# Mutating scene ops save the current instantiated tree. Validate every
+# file-backed script that would still be saved before packing, so a script whose
+# missing preload left only engine stderr cannot turn into a clean success.
+func _validate_scene_script_preload_dependencies(root: Node) -> bool:
+	for node_path: NodePath in _source_attached_scripts:
+		var node := root.get_node_or_null(node_path)
+		if node == null:
+			continue  # the op intentionally removed this node
+		var source_path: String = _source_attached_scripts[node_path]
+		var current: Variant = node.get_script()
+		if current is Script:
+			var current_path: String = (current as Script).resource_path
+			if not current_path.is_empty() and current_path != source_path:
+				continue  # the op intentionally replaced this node's script
+		if not _validate_script_preload_dependencies(source_path):
+			return false
+	return _validate_node_script_preload_dependencies(root)
+
+
+func _validate_node_script_preload_dependencies(node: Node) -> bool:
+	var script := node.get_script() as Script
+	if script != null:
+		var script_path := script.resource_path
+		if not script_path.is_empty() and not _validate_script_preload_dependencies(script_path):
+			return false
+	for child in node.get_children():
+		if not _validate_node_script_preload_dependencies(child):
+			return false
+	return true
+
+
+# The source scene's file-backed script bindings as {root-relative NodePath ->
+# script res:// path}. This catches scripts that Godot failed to materialize
+# because a preload target was missing: the node may still exist with no script,
+# so walking the instantiated tree alone cannot see the dependency.
+func _scene_attached_external_scripts(scene_path: String) -> Dictionary:
+	var text := FileAccess.get_file_as_string(scene_path)
+	if text.is_empty():
+		return {}
+	var script_resources := _scene_script_ext_resources(text)
+	var attached := {}
+	var current_node_path := ""
+	for line in text.split("\n"):
+		var stripped := line.strip_edges()
+		if stripped.begins_with("[node "):
+			current_node_path = _scene_node_path_from_header(stripped)
+			continue
+		if current_node_path.is_empty():
+			continue
+		if not stripped.begins_with("script") or stripped.find("ExtResource(") == -1:
+			continue
+		var resource_id := _first_quoted_after(stripped, stripped.find("ExtResource("))
+		if script_resources.has(resource_id):
+			attached[NodePath(current_node_path)] = script_resources[resource_id]
+	return attached
+
+
+func _scene_script_ext_resources(text: String) -> Dictionary:
+	var resources := {}
+	for line in text.split("\n"):
+		var stripped := line.strip_edges()
+		if not stripped.begins_with("[ext_resource"):
+			continue
+		if _quoted_attr(stripped, "type=") != "Script":
+			continue
+		var resource_id := _quoted_named_attr(stripped, "id")
+		var path := _quoted_attr(stripped, "path=")
+		if not resource_id.is_empty() and path.begins_with("res://"):
+			resources[resource_id] = path
+	return resources
+
+
+func _scene_node_path_from_header(header: String) -> String:
+	var name := _quoted_attr(header, "name=")
+	if name.is_empty():
+		return ""
+	var parent := _quoted_attr(header, "parent=")
+	if parent.is_empty():
+		return "."
+	if parent == ".":
+		return name
+	return parent + "/" + name
 
 
 # Node paths declared in the scene's state that did not materialize faithfully

@@ -1076,6 +1076,153 @@ def test_script_attach_non_compiling_script_yields_script_compile_failed(godot_p
 
 
 @pytest.mark.e2e
+def test_script_attach_missing_preload_target_yields_missing_dependency(
+    godot_project,
+):
+    # A missing preload target is a dependency-ordering problem, not generic
+    # prose-only compile stderr: the structured error names the missing res://
+    # path, and the scene is left untouched.
+    gda = _gda_project(godot_project)
+    assert (
+        gda(
+            "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
+        ).returncode
+        == 0
+    )
+    assert (
+        gda(
+            "script",
+            "create",
+            "res://enemy.gd",
+            "--content",
+            'extends Node2D\n\nconst Projectile = preload("res://missing_projectile.tscn")\n',
+            "--json",
+        ).returncode
+        == 0
+    )
+    before = (godot_project / "main.tscn").read_text(encoding="utf-8")
+
+    attached = gda(
+        "script",
+        "attach",
+        "res://main.tscn",
+        "--node",
+        ".",
+        "--script",
+        "res://enemy.gd",
+        "--json",
+    )
+
+    err = _assert_operation_error(attached, "missing_dependency")
+    assert "res://missing_projectile.tscn" in err["message"]
+    assert "res://enemy.gd" in err["message"]
+    assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_script_attach_ignores_preload_mentions_in_comments_and_strings(
+    godot_project,
+):
+    # The missing-preload gate must follow executable GDScript syntax, not the
+    # project reference graph's raw text scan. Mentioning future assets in comments
+    # or string literals is not a preload dependency and must not block attach.
+    gda = _gda_project(godot_project)
+    assert (
+        gda(
+            "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
+        ).returncode
+        == 0
+    )
+    assert (
+        gda(
+            "script",
+            "create",
+            "res://enemy.gd",
+            "--content",
+            "\n".join(
+                [
+                    "extends Node2D",
+                    "",
+                    '# preload("res://missing_projectile.tscn")',
+                    'var note := "preload(\\"res://also_missing.tscn\\")"',
+                    "",
+                ]
+            ),
+            "--json",
+        ).returncode
+        == 0
+    )
+
+    attached = gda(
+        "script",
+        "attach",
+        "res://main.tscn",
+        "--node",
+        ".",
+        "--script",
+        "res://enemy.gd",
+        "--json",
+    )
+
+    assert attached.returncode == 0, attached.stdout + attached.stderr
+    saved = (godot_project / "main.tscn").read_text(encoding="utf-8")
+    assert 'path="res://enemy.gd"' in saved
+
+
+@pytest.mark.e2e
+def test_script_attach_multiline_missing_preload_target_yields_missing_dependency(
+    godot_project,
+):
+    # A valid preload call may split the opening paren and string literal across
+    # lines. It should still get the same stable missing_dependency result as the
+    # single-line form.
+    gda = _gda_project(godot_project)
+    assert (
+        gda(
+            "scene", "create", "res://main.tscn", "--root-type", "Node2D", "--json"
+        ).returncode
+        == 0
+    )
+    assert (
+        gda(
+            "script",
+            "create",
+            "res://enemy.gd",
+            "--content",
+            "\n".join(
+                [
+                    "extends Node2D",
+                    "",
+                    "const Projectile = preload(",
+                    '    "res://missing_projectile.tscn"',
+                    ")",
+                    "",
+                ]
+            ),
+            "--json",
+        ).returncode
+        == 0
+    )
+    before = (godot_project / "main.tscn").read_text(encoding="utf-8")
+
+    attached = gda(
+        "script",
+        "attach",
+        "res://main.tscn",
+        "--node",
+        ".",
+        "--script",
+        "res://enemy.gd",
+        "--json",
+    )
+
+    err = _assert_operation_error(attached, "missing_dependency")
+    assert "res://missing_projectile.tscn" in err["message"]
+    assert "res://enemy.gd" in err["message"]
+    assert (godot_project / "main.tscn").read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
 def test_script_attach_incompatible_node_type_yields_incompatible_script_type(
     godot_project,
 ):
