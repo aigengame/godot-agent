@@ -3254,6 +3254,27 @@ func _quoted_attr(line: String, attr: String) -> String:
 	return _first_quoted_after(line, idx + attr.length())
 
 
+# Like _quoted_attr, but matches a full attribute name. This matters for
+# ext_resource id="..." because uid="..." also contains the substring "id=".
+func _quoted_named_attr(line: String, attr_name: String) -> String:
+	var needle := attr_name + "="
+	var from := 0
+	while true:
+		var idx := line.find(needle, from)
+		if idx == -1:
+			return ""
+		var left_ok := (
+				idx == 0
+				or line[idx - 1] == " "
+				or line[idx - 1] == "\t"
+				or line[idx - 1] == "["
+		)
+		if left_ok:
+			return _first_quoted_after(line, idx + needle.length())
+		from = idx + 1
+	return ""
+
+
 # The contents of the first quoted string (single or double quotes) at/after
 # `from` in `text`, or "" when there is none. Used to pull the literal-string
 # argument out of preload("...") / load("...") / path="..." without compiling.
@@ -4537,15 +4558,175 @@ func _remove_quiet(path: String) -> void:
 		DirAccess.remove_absolute(path)
 
 
+# Restore ext_resource ids that already existed in the target .tscn before
+# ResourceSaver re-serialized it. Scope is deliberately narrow: match resources by
+# their normalized ext_resource path, rewrite only id="..." attributes and
+# ExtResource("...") references, and leave all other saver canonicalization alone
+# (issue #393). If ResourceSaver collapses duplicate entries for the same path, keep
+# the first old id for that canonical path rather than accepting a freshly generated
+# id.
+func _restore_existing_ext_resource_ids(
+		scene_path: String,
+		original_text: String,
+		saved_text: String) -> String:
+	if original_text.is_empty() or saved_text.is_empty():
+		return saved_text
+	var base_dir := scene_path.get_base_dir()
+	var original_ids := _ext_resource_ids_by_path(original_text, base_dir)
+	if original_ids.is_empty():
+		return saved_text
+	var saved_entries := _ext_resource_entries_from_text(saved_text, base_dir)
+	if saved_entries.is_empty():
+		return saved_text
+
+	var reserved_ids := {}
+	for entry in saved_entries:
+		var ref_path := String(entry["normalized_path"])
+		if original_ids.has(ref_path):
+			for old_id in original_ids[ref_path]:
+				reserved_ids[String(old_id)] = true
+	if reserved_ids.is_empty():
+		return saved_text
+
+	var used_ids := {}
+	var id_remap := {}
+	var path_positions := {}
+	for entry in saved_entries:
+		var saved_id := String(entry["id"])
+		var ref_path := String(entry["normalized_path"])
+		var final_id := saved_id
+		if original_ids.has(ref_path):
+			var position := int(path_positions.get(ref_path, 0))
+			var old_ids: Array = original_ids[ref_path]
+			if position < old_ids.size():
+				final_id = String(old_ids[position])
+			path_positions[ref_path] = position + 1
+		elif reserved_ids.has(final_id):
+			final_id = _fresh_ext_resource_id(saved_id, used_ids, reserved_ids)
+		if used_ids.has(final_id):
+			final_id = _fresh_ext_resource_id(saved_id, used_ids, reserved_ids)
+		used_ids[final_id] = true
+		if final_id != saved_id:
+			id_remap[saved_id] = final_id
+
+	if id_remap.is_empty():
+		return saved_text
+	return _replace_ext_resource_ids(saved_text, id_remap)
+
+
+func _raw_ext_resource_entries_from_text(text: String) -> Array:
+	var entries: Array = []
+	for line in text.split("\n"):
+		var stripped := line.strip_edges()
+		if not stripped.begins_with("[ext_resource"):
+			continue
+		var ref_path := _quoted_named_attr(stripped, "path")
+		var id := _quoted_named_attr(stripped, "id")
+		if ref_path.is_empty() or id.is_empty():
+			continue
+		entries.append({"path": ref_path, "id": id})
+	return entries
+
+
+func _ext_resource_entries_from_text(text: String, base_dir: String) -> Array:
+	var entries: Array = []
+	for entry in _raw_ext_resource_entries_from_text(text):
+		var ref_path := String(entry["path"])
+		entries.append({
+			"path": ref_path,
+			"normalized_path": _normalize_ext_resource_path(ref_path, base_dir),
+			"id": String(entry["id"]),
+		})
+	return entries
+
+
+func _normalize_ext_resource_path(ref_path: String, base_dir: String) -> String:
+	if ref_path.begins_with("res://") or ref_path.begins_with("uid://") or ref_path.begins_with("user://"):
+		return ref_path
+	return base_dir.path_join(ref_path).simplify_path()
+
+
+func _ext_resource_ids_by_path(text: String, base_dir: String) -> Dictionary:
+	var by_path := {}
+	for entry in _ext_resource_entries_from_text(text, base_dir):
+		var ref_path := String(entry["normalized_path"])
+		if not by_path.has(ref_path):
+			by_path[ref_path] = []
+		(by_path[ref_path] as Array).append(String(entry["id"]))
+	return by_path
+
+
+func _fresh_ext_resource_id(seed: String, used_ids: Dictionary, reserved_ids: Dictionary) -> String:
+	var base := seed if not seed.is_empty() else "resource"
+	var index := 2
+	var candidate := base + "_gda" + str(index)
+	while used_ids.has(candidate) or reserved_ids.has(candidate):
+		index += 1
+		candidate = base + "_gda" + str(index)
+	return candidate
+
+
+func _replace_ext_resource_ids(text: String, id_remap: Dictionary) -> String:
+	var updated := text
+	var placeholders := {}
+	var index := 0
+	for saved_id in id_remap:
+		var placeholder := "__GDA_EXT_RESOURCE_ID_" + str(index) + "__"
+		while updated.find(placeholder) != -1:
+			index += 1
+			placeholder = "__GDA_EXT_RESOURCE_ID_" + str(index) + "__"
+		placeholders[placeholder] = String(id_remap[saved_id])
+		updated = _replace_ext_resource_id_attr(
+				updated,
+				String(saved_id),
+				placeholder)
+		updated = updated.replace(
+				'ExtResource("' + String(saved_id) + '")',
+				'ExtResource("' + placeholder + '")')
+		index += 1
+	for placeholder in placeholders:
+		updated = _replace_ext_resource_id_attr(
+				updated,
+				String(placeholder),
+				String(placeholders[placeholder]))
+		updated = updated.replace(
+				'ExtResource("' + String(placeholder) + '")',
+				'ExtResource("' + String(placeholders[placeholder]) + '")')
+	return updated
+
+
+func _replace_ext_resource_id_attr(text: String, old_id: String, new_id: String) -> String:
+	var old_attr := 'id="' + old_id + '"'
+	var new_attr := 'id="' + new_id + '"'
+	var lines := text.split("\n")
+	for index in lines.size():
+		var line := String(lines[index])
+		if line.strip_edges().begins_with("[ext_resource"):
+			lines[index] = line.replace(old_attr, new_attr)
+	return "\n".join(lines)
+
+
 # Save `res` to `path` atomically: ResourceSaver.save to a sibling temp, then rename
 # the temp over the target. Returns OK on success, or the first non-OK Error (with
 # the temp removed and the target untouched).
 func _atomic_save_resource(res: Resource, path: String) -> int:
+	var should_restore_ext_ids := (
+			path.get_extension().to_lower() == "tscn" and FileAccess.file_exists(path)
+	)
+	var original_text := FileAccess.get_file_as_string(path) if should_restore_ext_ids else ""
 	var tmp := _atomic_temp_path(path)
 	var save_err := ResourceSaver.save(res, tmp)
 	if save_err != OK:
 		_remove_quiet(tmp)
 		return save_err
+	if should_restore_ext_ids:
+		var saved_text := FileAccess.get_file_as_string(tmp)
+		var stable_text := _restore_existing_ext_resource_ids(path, original_text, saved_text)
+		if stable_text != saved_text:
+			var rewrite_err := _atomic_write_text(tmp, stable_text)
+			if rewrite_err != OK:
+				_remove_quiet(tmp)
+				return rewrite_err
 	var rename_err := DirAccess.rename_absolute(tmp, path)
 	if rename_err != OK:
 		_remove_quiet(tmp)
