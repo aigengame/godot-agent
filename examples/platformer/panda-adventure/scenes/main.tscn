@@ -1,42 +1,29 @@
-; Panda Adventure — main scene (S1 player traversal + S2 combat), hand-authored.
-;
-; Structure only: every visual (color/size/position) and the collision-shape
-; sizes are applied at RUNTIME from the derived PlayerConfig Resource by the two
-; controllers (gADR-0000 — no config baked into the scene). The RectangleShape2D
-; sub-resources start at a placeholder size that _ready overwrites from config.
-; Collision topology (S2, see project.godot [layer_names]): Platform=terrain(1),
-; Player=player(2) masking terrain only (passes through the Enemy — contact
-; damage is S4). The Enemy is runtime-instanced by LevelController from
-; enemy.tscn; Projectiles are runtime-instanced by PlayerController.
-[gd_scene load_steps=5 format=3]
+[gd_scene format=3]
 
-[ext_resource type="Script" path="res://src/controllers/level_controller.gd" id="1_level"]
-[ext_resource type="Script" path="res://src/controllers/player_controller.gd" id="2_player"]
+[ext_resource type="Script" path="res://src/controllers/level_controller.gd" id="1_lkauy"]
+[ext_resource type="Script" path="res://src/controllers/player_controller.gd" id="2_85amh"]
 
 [sub_resource type="RectangleShape2D" id="PlayerShape"]
 
 [sub_resource type="RectangleShape2D" id="PlatformShape"]
 
-[node name="Main" type="Node2D"]
-script = ExtResource("1_level")
+[node name="Main" type="Node2D" unique_id=1303069056]
+script = ExtResource("1_lkauy")
 
-[node name="Player" type="CharacterBody2D" parent="."]
+[node name="Player" type="CharacterBody2D" parent="." unique_id=190221684]
 collision_layer = 2
-collision_mask = 1
-script = ExtResource("2_player")
+script = ExtResource("2_85amh")
 
-[node name="Visual" type="ColorRect" parent="Player"]
+[node name="Visual" type="ColorRect" parent="Player" unique_id=1589511213]
 
-[node name="Collision" type="CollisionShape2D" parent="Player"]
+[node name="Collision" type="CollisionShape2D" parent="Player" unique_id=317821343]
 shape = SubResource("PlayerShape")
 
-[node name="Camera2D" type="Camera2D" parent="Player"]
+[node name="Camera2D" type="Camera2D" parent="Player" unique_id=861829757]
 
-[node name="Platform" type="StaticBody2D" parent="."]
-collision_layer = 1
-collision_mask = 1
+[node name="Platform" type="StaticBody2D" parent="." unique_id=1816504183]
 
-[node name="Visual" type="ColorRect" parent="Platform"]
+[node name="Visual" type="ColorRect" parent="Platform" unique_id=898818415]
 
-[node name="Collision" type="CollisionShape2D" parent="Platform"]
+[node name="Collision" type="CollisionShape2D" parent="Platform" unique_id=1288880102]
 shape = SubResource("PlatformShape")

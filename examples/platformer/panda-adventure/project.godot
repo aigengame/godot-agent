@@ -1,9 +1,10 @@
-; Panda Adventure — Godot project manifest (hand-authored).
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
 ;
-; gda has no `project create`, so this is the canonical project root. Keep it
-; minimal: later slices (S1–S9) extend it. The `data/generated/*.tres` the build
-; pipeline emits are derived artifacts that are COMMITTED (a freshness gate keeps
-; them byte-identical to a fresh build), regenerated from JSON via build_config.py.
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
@@ -11,15 +12,17 @@ config_version=5
 
 config/name="Panda Adventure"
 run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.6")
+
+[autoload]
+
+GdaHarness="*res://addons/gda_harness/gda_harness.gd"
+
+[debug]
+
+file_logging/enable_file_logging.pc=false
 
 [input]
-
-; S1 player-traversal actions plus the S2 `fire` action. move_left/move_right/
-; jump/fire are consumed by PlayerController (Input.get_axis /
-; is_action_just_pressed) and driven in the live e2e by `gda input action`.
-; Each movement action binds an arrow key plus a WASD/Space alternative; fire
-; binds J plus F. Hand-authored (project.godot is the canonical root); the
-; exact InputEventKey serialization was emitted by Godot itself (var_to_str).
 
 move_left={
 "deadzone": 0.5,
@@ -48,31 +51,12 @@ fire={
 
 [layer_names]
 
-; S2 collision topology (structural wiring, not balance data — gADR-0000 governs
-; config NUMBERS; what-can-damage-what lives here and in the scenes). Layer 5 is
-; reserved for S3's Gravity Field.
 2d_physics/layer_1="terrain"
 2d_physics/layer_2="player"
 2d_physics/layer_3="enemy"
 2d_physics/layer_4="projectile"
 2d_physics/layer_5="gravity_field"
 
-[debug]
-
-; Disable Godot's default desktop file logging so no engine launch writes a
-; shared user://logs/godot.log (the #180 RotatedFileLogger race under concurrent
-; launches). The `.pc` platform override is the operative one on desktop: its
-; default is `true` and wins over the base key at startup, so both are set off.
-file_logging/enable_file_logging=false
-file_logging/enable_file_logging.pc=false
-
 [rendering]
 
-; Import ETC2/ASTC compressed textures. Required for the macOS universal/arm64
-; export preset (S0 smoke-test); the exporter refuses universal/arm64 builds when
-; this is off. Harmless for desktop running.
 textures/vram_compression/import_etc2_astc=true
-
-[autoload]
-
-GdaHarness="*res://addons/gda_harness/gda_harness.gd"
