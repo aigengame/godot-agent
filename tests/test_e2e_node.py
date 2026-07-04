@@ -316,12 +316,252 @@ def test_node_add_builtin_type_reports_null_script_class(godot_project):
     assert data["script_class"] is None
 
 
+@pytest.mark.e2e
+def test_node_add_instance_preserves_existing_ext_resource_ids(godot_project):
+    # Acceptance criterion of #399, pinning the #393 contract for the
+    # composition write: instancing a scene into a host must keep every
+    # pre-existing ext_resource id (and the ExtResource("...") references
+    # pointing at them) byte-identical, while the newly introduced PackedScene
+    # ext_resource receives a fresh non-colliding id.
+    gda = _gda_project(godot_project)
+    (godot_project / "hero.gd").write_text("extends Node2D\n", encoding="utf-8")
+    (godot_project / "hud.tscn").write_text(
+        "\n".join(
+            [
+                "[gd_scene format=3]",
+                "",
+                '[node name="Hud" type="CanvasLayer"]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    scene_path = godot_project / "main.tscn"
+    scene_path.write_text(
+        "\n".join(
+            [
+                "[gd_scene load_steps=2 format=3]",
+                "",
+                '[ext_resource type="Script" path="res://hero.gd" id="1_lkauy"]',
+                "",
+                '[node name="main" type="Node2D"]',
+                'script = ExtResource("1_lkauy")',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--instance", "res://hud.tscn", "--json"
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    saved = scene_path.read_text(encoding="utf-8")
+    assert 'path="res://hero.gd" id="1_lkauy"' in saved
+    assert 'script = ExtResource("1_lkauy")' in saved
+    hud_id_match = re.search(r'path="res://hud\.tscn" id="([^"]+)"', saved)
+    assert hud_id_match, saved
+    hud_id = hud_id_match.group(1)
+    assert hud_id != "1_lkauy"
+    assert f'instance=ExtResource("{hud_id}")' in saved
+
+
+@pytest.mark.e2e
+def test_node_add_instance_composes_a_scene_and_round_trips(godot_project):
+    # Issue #399: `node add --instance` is the structured way to author a scene
+    # instance — Godot's standard composition primitive. The write must produce
+    # the canonical serialization (an ext_resource for the scene plus an
+    # instance=ExtResource(...) node entry, exactly what the editor writes),
+    # and the composed scene must LOAD: node get instantiates the host, so it
+    # proves the engine resolves the instanced child to its real root class.
+    gda = _gda_project(godot_project)
+    (godot_project / "hud.tscn").write_text(
+        "\n".join(
+            [
+                "[gd_scene format=3]",
+                "",
+                '[node name="Hud" type="CanvasLayer"]',
+                "",
+                '[node name="Score" type="Label" parent="."]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    main = godot_project / "main.tscn"
+    main.write_text(
+        "\n".join(
+            [
+                "[gd_scene format=3]",
+                "",
+                '[node name="Main" type="Node2D"]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--instance", "res://hud.tscn", "--json"
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    data = json.loads(added.stdout)
+    # The result identifies the composition: default name = filename stem,
+    # type = the instanced scene's resolved ROOT class, instance = the source.
+    assert data["scene_path"] == "res://main.tscn"
+    assert (data["path"], data["name"]) == ("hud", "hud")
+    assert data["type"] == "CanvasLayer"
+    assert data["script_class"] is None
+    assert data["instance"] == "res://hud.tscn"
+
+    saved = main.read_text(encoding="utf-8")
+    ext = re.search(
+        r'\[ext_resource type="PackedScene" path="res://hud\.tscn" id="([^"]+)"\]',
+        saved,
+    )
+    assert ext, saved
+    hud_entry = re.search(r'\[node name="hud" parent="\."[^\]]*\]', saved)
+    assert hud_entry, saved
+    assert f'instance=ExtResource("{ext.group(1)}")' in hud_entry.group(0)
+    # Canonical instance stub, as the editor writes it: no type= attribute —
+    # the type lives in the instanced scene (surfacing it on static reads is
+    # the companion issue #400). Engine-managed attrs (e.g. unique_id) may
+    # appear; only type= would mark a non-canonical dump.
+    assert "type=" not in hud_entry.group(0), saved
+    # The instanced scene's INTERNALS are referenced, never inlined into the
+    # host (the write-side mirror of instance semantics): no Label node entry.
+    assert 'type="Label"' not in saved
+
+    # Round-trip: the composed scene instantiates in the engine — the child
+    # resolves to the instanced scene's real root class, and its internal
+    # nodes exist under it.
+    got = gda("node", "get", "res://main.tscn", "--node", "hud", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    child = json.loads(got.stdout)
+    assert child["type"] == "CanvasLayer"
+
+    # Static reads reflect the composition (#399's last acceptance criterion):
+    # the instanced child appears in the host's tree under both readers. Its
+    # static `type` is deliberately NOT asserted here — surfacing it is the
+    # companion issue #400.
+    listed = gda("node", "list", "res://main.tscn", "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    children = json.loads(listed.stdout)["root"]["children"]
+    assert [c["name"] for c in children] == ["hud"]
+    assert children[0]["path"] == "hud"
+    read = gda("scene", "get", "res://main.tscn", "--json")
+    assert read.returncode == 0, read.stdout + read.stderr
+    assert [c["name"] for c in json.loads(read.stdout)["root"]["children"]] == ["hud"]
+
+    assert _no_gda_temp_siblings(godot_project)
+
+
 def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
     assert proc.returncode == 4, proc.stdout + proc.stderr
     err = json.loads(proc.stdout)["error"]
     assert err["category"] == "operation"
     assert err["code"] == code
     return err
+
+
+@pytest.mark.e2e
+def test_node_add_instance_missing_scene_yields_missing_dependency(godot_project):
+    # The #392/#396 dependency precedent applied to composition (#399): a
+    # missing instanced-scene path is a structured missing_dependency naming
+    # the path — never a silent or prose-only failure — and the host file
+    # stays untouched.
+    gda = _gda_project(godot_project)
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--instance", "res://ghost.tscn", "--json"
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "res://ghost.tscn" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_add_instance_with_broken_dependency_yields_missing_dependency(
+    godot_project,
+):
+    # PR #404 review: a --instance target that IS a scene file but whose own
+    # dependency graph is broken (an ext_resource pointing at a missing nested
+    # scene) is a dependency-shaped failure, not a "wrong kind of file" one:
+    # missing_dependency naming the instance path the caller passed (engine
+    # diagnostics name the nested culprit), never not_a_scene.
+    gda = _gda_project(godot_project)
+    (godot_project / "hud.tscn").write_text(
+        "\n".join(
+            [
+                "[gd_scene load_steps=2 format=3]",
+                "",
+                '[ext_resource type="PackedScene" path="res://ghost-child.tscn" id="1_ghost"]',
+                "",
+                '[node name="Hud" type="CanvasLayer"]',
+                "",
+                '[node name="Ghost" parent="." instance=ExtResource("1_ghost")]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--instance", "res://hud.tscn", "--json"
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "res://hud.tscn" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_add_instance_non_scene_file_yields_not_a_scene(godot_project):
+    # --instance must reference a PackedScene: a file that exists but loads as
+    # something else (a script here) is refused with not_a_scene, naming the
+    # offending path.
+    gda = _gda_project(godot_project)
+    (godot_project / "hero.gd").write_text("extends Node2D\n", encoding="utf-8")
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--instance", "res://hero.gd", "--json"
+    )
+
+    err = _assert_operation_error(added, "not_a_scene")
+    assert "res://hero.gd" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_add_instance_of_the_host_itself_yields_cyclic_target(godot_project):
+    # Instancing a scene into itself would serialize a self-reference that can
+    # never finish loading. The direct cycle is refused up front with the
+    # registered cyclic_target code, leaving the file untouched (deeper A→B→A
+    # cycles remain the engine's load-time problem, out of gda's guard).
+    gda = _gda_project(godot_project)
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--instance", "res://main.tscn", "--json"
+    )
+
+    err = _assert_operation_error(added, "cyclic_target")
+    assert "res://main.tscn" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
 
 
 @pytest.mark.e2e

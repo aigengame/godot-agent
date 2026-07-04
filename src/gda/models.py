@@ -620,14 +620,16 @@ class SceneDeleteResult(BaseModel):
 
 
 class NodeAddParams(BaseModel):
-    """The operation params of ``gda node add`` (issue #53).
+    """The operation params of ``gda node add`` (issue #53; instancing #399).
 
     ``path`` is the ``.tscn`` scene file to mutate. ``parent`` addresses the
-    parent node by node path. ``type`` is resolved first as a built-in Godot
-    node class, then as a ``class_name`` registered in the project's global
-    class list. ``name`` is explicit so the operation never silently derives a
-    name Godot later sanitizes; when the CLI caller omits ``--name``, it uses
-    the type name.
+    parent node by node path. Exactly one of ``type``/``instance`` selects what
+    is added: ``type`` is resolved first as a built-in Godot node class, then
+    as a ``class_name`` registered in the project's global class list;
+    ``instance`` composes an existing scene as an instanced child (#399).
+    ``name`` is explicit so the operation never silently derives a name Godot
+    later sanitizes; when the CLI caller omits ``--name``, it uses the type
+    name, or the instanced scene's filename stem.
     """
 
     path: NormalizedPath = Field(description="The .tscn scene file to mutate.")
@@ -638,26 +640,55 @@ class NodeAddParams(BaseModel):
             "root itself, 'Player/Arm' a nested node."
         ),
     )
-    type: str = Field(
+    type: str | None = Field(
+        default=None,
         description=(
             "Node type to add: a Godot node class (e.g. Sprite2D), or a "
-            "class_name registered in the project's global class list."
-        )
+            "class_name registered in the project's global class list. "
+            "Exactly one of type/instance must be given."
+        ),
+    )
+    instance: NormalizedPath | None = Field(
+        default=None,
+        description=(
+            "Scene file to add as an instanced child (e.g. res://hud.tscn) — "
+            "composes the scene under the parent, serialized as an "
+            "instance=ExtResource(...) entry. Exactly one of type/instance "
+            "must be given."
+        ),
     )
     name: str | None = Field(
         default=None,
         description=(
-            "Name for the new node. If omitted, the type name is used. Must be "
-            "non-empty and must not contain '.', ':', '@', '/', '\"', or '%'."
+            "Name for the new node. If omitted, the type name (or the "
+            "instanced scene's filename stem) is used. Must be non-empty and "
+            "must not contain '.', ':', '@', '/', '\"', or '%'."
         ),
     )
 
     @model_validator(mode="after")
-    def _default_name(self) -> "NodeAddParams":
-        # Derive the default node name from the type model-side (ADR-0015), so the
-        # argv and --params-json paths agree instead of the CLI deriving it.
+    def _exactly_one_mode_and_default_name(self) -> "NodeAddParams":
+        # Exactly one of type/instance selects what is added (#399). Enforced
+        # model-side (ADR-0015) so the argv and --params-json paths agree: the
+        # argv path converts the ValueError to a usage error, --params-json
+        # surfaces it as a structured invalid_params.
+        if self.type is None and self.instance is None:
+            raise ValueError(
+                "node add needs exactly one of --type or --instance "
+                "(neither was given)."
+            )
+        if self.type is not None and self.instance is not None:
+            raise ValueError(
+                "--type and --instance are mutually exclusive; pass exactly one."
+            )
+        # Derive the default node name model-side too, so the CLI never
+        # derives it: the type name, or the instanced scene's filename stem.
         if self.name is None:
-            self.name = self.type
+            self.name = (
+                self.type
+                if self.type is not None
+                else derive_scene_root_name(self.instance or "")
+            )
         return self
 
 
@@ -685,6 +716,14 @@ class NodeAddResult(BaseModel):
             "The class_name of the script attached to the created node, when "
             "the requested type resolved to a script class; null for a "
             "built-in type."
+        ),
+    )
+    instance: str | None = Field(
+        default=None,
+        description=(
+            "The res:// path of the scene this node instances, when the node "
+            "was added via --instance (#399); null for a type addition. For "
+            "an instance, `type` reports the instanced scene's root class."
         ),
     )
 

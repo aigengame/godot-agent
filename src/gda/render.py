@@ -409,8 +409,15 @@ def render_scene_delete(removed: "SceneDeleteResult") -> str:
 
 
 def render_node_add(added: "NodeAddResult") -> str:
-    """Render an added node as ``added <path> (<type>) to <scene>``."""
-    return f"added {added.path} ({added.type}) to {added.scene_path}"
+    """Render an added node as ``added <path> (<type>) to <scene>``.
+
+    A composition (#399) names its source too:
+    ``added <path> (<type>, instance of <src>) to <scene>``.
+    """
+    what = added.type
+    if added.instance is not None:
+        what = f"{added.type}, instance of {added.instance}"
+    return f"added {added.path} ({what}) to {added.scene_path}"
 
 
 def render_node_list(listed: "NodeListResult") -> str:

@@ -2143,12 +2143,21 @@ def delete(
 @node_app.command(cls=NODE_ADD_COMMAND.command_class())
 def add(
     path: str = typer.Argument(..., help="The .tscn scene file to mutate."),
-    node_type: str = typer.Option(
-        ...,
+    node_type: Optional[str] = typer.Option(
+        None,
         "--type",
         help=(
             "Node type to add: a Godot node class (e.g. Sprite2D), or a "
-            "class_name registered in the project's global class list."
+            "class_name registered in the project's global class list. "
+            "Exactly one of --type/--instance must be given."
+        ),
+    ),
+    instance: Optional[str] = typer.Option(
+        None,
+        "--instance",
+        help=(
+            "Scene file to add as an instanced child (e.g. res://hud.tscn). "
+            "Exactly one of --type/--instance must be given."
         ),
     ),
     parent: str = typer.Option(
@@ -2162,7 +2171,10 @@ def add(
     name: Optional[str] = typer.Option(
         None,
         "--name",
-        help="Name for the new node. Defaults to the type name.",
+        help=(
+            "Name for the new node. Defaults to the type name, or the "
+            "instanced scene's filename stem."
+        ),
     ),
     json_output: bool = json_option(),
     schema: bool = NODE_ADD_COMMAND.schema_option(),
@@ -2171,14 +2183,22 @@ def add(
     project: Optional[str] = project_option(),
 ) -> None:
     """Add a node to a scene file under the given parent node path."""
-    _dispatch(
-        NODE_ADD_COMMAND,
-        NodeAddParams(
+    # The exactly-one-of --type/--instance rule lives on the model (ADR-0015);
+    # the argv path keeps usage-error ergonomics (exit 2), --params-json
+    # surfaces the same rule as a structured invalid_params.
+    try:
+        params = NodeAddParams(
             path=path,
             parent=parent,
             type=node_type,
+            instance=instance,
             name=name,
-        ),
+        )
+    except (ValueError, ValidationError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _dispatch(
+        NODE_ADD_COMMAND,
+        params,
         json_output=json_output,
         godot=godot,
         project=project,

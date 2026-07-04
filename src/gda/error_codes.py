@@ -256,8 +256,9 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
         ErrorCodeSource.OPERATION,
-        "A node move targeted the node itself or one of its own descendants,"
-        " which would detach the moved subtree from the scene.",
+        "The write would create a cycle: a node move targeted the node itself"
+        " or one of its own descendants, or a scene instancing (node add"
+        " --instance) targeted the host scene itself.",
     ),
     ErrorCodeSpec(
         "unknown_property",

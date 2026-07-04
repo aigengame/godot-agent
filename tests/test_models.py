@@ -220,6 +220,7 @@ def test_node_add_result_round_trips():
         "name": "Hero",
         "type": "Sprite2D",
         "script_class": None,
+        "instance": None,
     }
 
     added = NodeAddResult.model_validate(payload)
@@ -235,6 +236,7 @@ def test_node_add_result_carries_the_class_name_of_a_script_addition():
         "name": "Hero",
         "type": "Node2D",
         "script_class": "Hero",
+        "instance": None,
     }
 
     added = NodeAddResult.model_validate(payload)

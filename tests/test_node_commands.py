@@ -26,6 +26,102 @@ from tests.support import (
 )
 
 
+# Canned node-add result for the --instance mode (issue #399): the op reports
+# the instanced scene's res:// path alongside the resolved root type.
+ADD_INSTANCE_RESULT = {
+    "scene_path": "/tmp/proj/main.tscn",
+    "path": "hud",
+    "name": "hud",
+    "type": "CanvasLayer",
+    "script_class": None,
+    "instance": "res://hud.tscn",
+}
+
+
+def test_node_add_instance_json_dispatches_instance_param_and_echoes_source(
+    monkeypatch,
+):
+    # Issue #399: `node add --instance` composes an existing .tscn as a child of
+    # the host scene — Godot's standard composition primitive. The dispatch
+    # carries the instance path instead of a type, the name defaults to the
+    # instanced scene's filename stem (model-side, ADR-0015), and the result
+    # echoes the instanced res:// path alongside the resolved root type.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(ADD_INSTANCE_RESULT)
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "node",
+            "add",
+            "/tmp/proj/main.tscn",
+            "--instance",
+            "res://hud.tscn",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["scene_path"] == "/tmp/proj/main.tscn"
+    # The instanced child is addressable like any added node; its reported type
+    # is the instanced scene's ROOT class, resolved by the engine.
+    assert (data["path"], data["name"], data["type"]) == ("hud", "hud", "CanvasLayer")
+    assert data["instance"] == "res://hud.tscn"
+    assert fake.calls == [
+        (
+            "node-add",
+            {
+                "path": "/tmp/proj/main.tscn",
+                "parent": ".",
+                "type": None,
+                "instance": "res://hud.tscn",
+                "name": "hud",
+            },
+        )
+    ]
+
+
+def test_node_add_type_and_instance_together_is_a_usage_error(monkeypatch):
+    # --type and --instance are mutually exclusive modes (issue #399): mixing
+    # them is a usage error (exit 2) that fires before any dispatch — the
+    # engine is never reached. The rule lives model-side (ADR-0015), so the
+    # --params-json path surfaces the same violation as invalid_params.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(ADD_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "node",
+            "add",
+            "/tmp/proj/main.tscn",
+            "--type",
+            "Sprite2D",
+            "--instance",
+            "res://hud.tscn",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
+def test_node_add_without_type_or_instance_is_a_usage_error(monkeypatch):
+    # No mode at all is a usage error too: add always needs exactly one of
+    # --type/--instance.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(ADD_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(app, ["node", "add", "/tmp/proj/main.tscn", "--json"])
+
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
 def test_node_add_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
     stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(ADD_RESULT)
@@ -66,6 +162,7 @@ def test_node_add_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
                 "path": "/tmp/proj/main.tscn",
                 "parent": ".",
                 "type": "Sprite2D",
+                "instance": None,
                 "name": "Hero",
             },
         )
@@ -263,6 +360,7 @@ def test_node_add_defaults_parent_to_root_and_name_to_type(monkeypatch):
                 "path": "/tmp/proj/main.tscn",
                 "parent": ".",
                 "type": "Sprite2D",
+                "instance": None,
                 "name": "Sprite2D",
             },
         )

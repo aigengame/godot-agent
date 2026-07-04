@@ -156,6 +156,19 @@ HUMAN_CASES = [
         "added Hero (Sprite2D) to /tmp/proj/main.tscn",
     ),
     (
+        "node-add-instance",
+        ["node", "add", "/tmp/proj/main.tscn", "--instance", "res://hud.tscn"],
+        {
+            "scene_path": "/tmp/proj/main.tscn",
+            "path": "hud",
+            "name": "hud",
+            "type": "CanvasLayer",
+            "script_class": None,
+            "instance": "res://hud.tscn",
+        },
+        "added hud (CanvasLayer, instance of res://hud.tscn) to /tmp/proj/main.tscn",
+    ),
+    (
         "node-list",
         ["node", "list", "/tmp/proj/main.tscn"],
         {
