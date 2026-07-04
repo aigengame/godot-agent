@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigengame.dev/panda-adventure/data/schema/gravity_config.schema.json",
+  "title": "Panda Adventure gravity configuration",
+  "description": "Authoritative config for S3 Gravity Gun + Gravity Field + MP economy (gADR-0000: JSON is the single source of truth). The field's EFFECT is data (gADR-0002): a velocity vector (direction x strength) applied within a radius for a duration — lift is the shipped default, slam/redirect are other values of the same params, not code paths. Converted by scripts/build_config.py into the derived data/generated/gravity_config.tres (GravityConfig).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mp_cost",
+    "wine_mp_restore",
+    "field_direction",
+    "field_strength",
+    "field_radius",
+    "field_duration",
+    "field_color",
+    "field_fade_duration",
+    "field_spawn_offset",
+    "enemy_max_gravity_offset",
+    "obstacle_color",
+    "obstacle_size",
+    "obstacle_position",
+    "obstacle_max_gravity_offset"
+  ],
+  "properties": {
+    "mp_cost": {
+      "description": "MP spent per Gravity Gun fire — the game's only MP sink; strictly positive (a free fire would unbudget the change-gravity pillar).",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "wine_mp_restore": {
+      "description": "MP restored by drinking Wine (the S3 minimal hook; the full Consumable system is S7); strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "field_direction": {
+      "description": "Direction of the field velocity as (x, y); normalized at runtime, so only the direction matters. Godot is +Y-down: lift = [0, -1] (the shipped fire default), slam = [0, 1], redirect = a horizontal or diagonal vector (gADR-0002).",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "field_strength": {
+      "description": "Magnitude of the field velocity in px/s; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "field_radius": {
+      "description": "Radius of the circular field area in pixels; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "field_duration": {
+      "description": "Seconds the field ACTS before expiring (the effect window; the fade-out after it is visual only); strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "field_color": {
+      "description": "Field block color as RGBA, each component in 0..1; the alpha carries the field's translucency.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "field_fade_duration": {
+      "description": "Seconds of the spawn fade-in and expiry fade-out tweens (the field's blockout animation); strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "field_spawn_offset": {
+      "description": "Field spawn offset (x, y) in pixels from the Player origin; x is scaled by facing (the Projectile's spawn pattern).",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "enemy_max_gravity_offset": {
+      "description": "Max total displacement (px) Gravity Fields can accumulate on the static Enemy — the clamp of its clamped-displacement integration (gADR-0002); strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "obstacle_color": {
+      "description": "Obstacle block color as RGBA, each component in 0..1.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "obstacle_size": {
+      "description": "Obstacle block size (width, height) in pixels; each strictly positive.",
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "obstacle_position": {
+      "description": "Obstacle center position (x, y) in pixels — the StaticBody2D origin. Placed clear of the Laser Gun's bolt line so the floating block never shields the Enemy.",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "obstacle_max_gravity_offset": {
+      "description": "Max total displacement (px) Gravity Fields can accumulate on the Obstacle — the clamp of its clamped-displacement integration (gADR-0002); strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    }
+  }
+}

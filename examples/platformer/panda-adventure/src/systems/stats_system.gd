@@ -32,3 +32,21 @@ func init_from(config: StatsConfigScript) -> void:
 ## Deduct damage from HP, clamping at 0 (HP never goes negative).
 func apply_damage(amount: float) -> void:
 	hp = maxf(hp - amount, 0.0)
+
+
+## Spend MP on a Gravity Gun fire — the game's only MP sink (S3, issue #332).
+## All-or-nothing gate: when the full cost is affordable it is deducted and
+## true is returned; otherwise NOTHING is spent and false is returned (so at
+## 0 MP the Gravity Gun cannot fire, and MP never goes negative).
+func spend_mp(cost: float) -> bool:
+	if mp < cost:
+		return false
+	mp -= cost
+	return true
+
+
+## Restore MP (the S3 Wine hook), capped at the actor's max_mp. The cap is a
+## PARAMETER, passed by the caller from its immutable stat block — config data
+## stays outside this runtime holder (gADR-0001).
+func restore_mp(amount: float, max_mp: float) -> void:
+	mp = minf(mp + amount, max_mp)

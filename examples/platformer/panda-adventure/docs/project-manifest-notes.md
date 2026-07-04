@@ -15,18 +15,24 @@ longer by hand-editing. The `data/generated/*.tres` it loads are derived artifac
 that are COMMITTED (a freshness gate keeps them byte-identical to a fresh build),
 regenerated from JSON via `scripts/build_config.py` (gADR-0000).
 
-**`[input]`.** S1 player-traversal actions plus the S2 `fire` action.
-`move_left`/`move_right`/`jump`/`fire` are consumed by PlayerController
-(`Input.get_axis` / `is_action_just_pressed`) and driven in the live e2e by
-`gda input action`. Each movement action binds an arrow key plus a WASD/Space
-alternative; `fire` binds J plus F. Originally hand-serialized (Godot's own
+**`[input]`.** S1 player-traversal actions plus the S2 `fire` action and the S3
+weapon/consumable actions. `move_left`/`move_right`/`jump`/`fire`/
+`switch_weapon`/`drink_wine` are consumed by PlayerController (`Input.get_axis`
+/ `is_action_just_pressed`) and driven in the live e2e by `gda input action`.
+Each movement action binds an arrow key plus a WASD/Space alternative; `fire`
+binds J plus F; `switch_weapon` binds Q plus Tab; `drink_wine` binds R. `fire`
+fires the CURRENT weapon — Laser Gun by default, Gravity Gun after
+`switch_weapon` (gADR-0002). Originally hand-serialized (Godot's own
 `var_to_str` output); since gda #380 landed, actions are authored with
 `gda project add-input-action <name> --key <k>...` instead.
 
-**`[layer_names]`.** S2 collision topology — structural wiring, not balance data
-(gADR-0000 governs config NUMBERS; what-can-damage-what lives here and in the
-scenes): 1 `terrain`, 2 `player`, 3 `enemy`, 4 `projectile`, 5 `gravity_field`
-(reserved for S3's Gravity Field).
+**`[layer_names]`.** S2+S3 collision topology — structural wiring, not balance
+data (gADR-0000 governs config NUMBERS; what-can-act-on-what lives here and in
+the scenes): 1 `terrain`, 2 `player`, 3 `enemy`, 4 `projectile`, 5
+`gravity_field`. Layer 5 is IN USE since S3: the Gravity Field Area2D
+(`gravity_field.tscn`, runtime-instanced by PlayerController) sits ON layer 5
+and masks `terrain|enemy` (5) — the Player's layer is invisible to it, which is
+the never-on-the-Player guarantee (gADR-0002, the Projectile's mask pattern).
 
 **`[debug]`.** Godot's default desktop file logging is disabled so no engine
 launch writes a shared `user://logs/godot.log` (the #180 RotatedFileLogger race
@@ -44,12 +50,20 @@ see `AGENTS.md` ("The gda daemon harness is COMMITTED").
 
 ## `scenes/main.tscn`
 
-Panda Adventure's main scene (S1 player traversal + S2 combat), hand-bootstrapped,
-now edited via gda scene ops. **Structure only**: every visual (color/size/position)
-and the collision-shape sizes are applied at RUNTIME from the derived config
-Resources by the controllers (gADR-0000 — no config baked into the scene). The
-`RectangleShape2D` sub-resources start at a placeholder size that `_ready`
-overwrites from config. Collision topology (S2, see `[layer_names]` above):
-Platform=`terrain`(1), Player=`player`(2) masking terrain only (passes through the
-Enemy — contact damage is S4). The Enemy is runtime-instanced by LevelController
-from `enemy.tscn`; Projectiles are runtime-instanced by PlayerController.
+Panda Adventure's main scene (S1 player traversal + S2 combat + S3 gravity),
+hand-bootstrapped, now edited via gda scene ops. **Structure only**: every visual
+(color/size/position) and the collision-shape sizes are applied at RUNTIME from
+the derived config Resources by the controllers (gADR-0000 — no config baked into
+the scene). The `RectangleShape2D` sub-resources start at a placeholder size that
+`_ready` overwrites from config. Collision topology (S2+S3, see `[layer_names]`
+above): Platform=`terrain`(1), Player=`player`(2) masking terrain only (passes
+through the Enemy — contact damage is S4), Obstacle=`terrain`(1) masking nothing.
+The Enemy is runtime-instanced by LevelController from `enemy.tscn`; Projectiles
+and Gravity Fields are runtime-instanced by PlayerController (from
+`projectile.tscn` / `gravity_field.tscn`).
+
+The S3 `Obstacle` (StaticBody2D + Visual + Collision, script
+`obstacle_controller.gd`) is the gravity-affectable environment prop: it floats
+clear of the Laser Gun's bolt line (placement is config —
+`GravityConfig.obstacle_position`, applied in `_ready`), the Player walks and
+jumps under it, and only a Gravity Field moves it (gADR-0002).

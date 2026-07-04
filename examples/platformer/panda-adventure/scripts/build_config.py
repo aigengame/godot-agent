@@ -8,12 +8,14 @@ Godot Resources under ``data/generated/`` that the runtime ``load()``s. Every
 byte-identical to a fresh build), never hand-edited: changing config means
 changing the JSON.
 
-Two sources feed four outputs (the ``SPECS`` table):
+Three sources feed five outputs (the ``SPECS`` table):
 
 - ``player_config.json`` -> ``player_config.tres`` (``PlayerConfig``, S1)
 - ``combat_config.json`` -> ``stats_player.tres`` + ``stats_enemy.tres``
   (``StatsConfig`` stat blocks, gADR-0001) and ``combat_config.tres``
   (``CombatConfig``) — S2
+- ``gravity_config.json`` -> ``gravity_config.tres`` (``GravityConfig``,
+  gADR-0002) — S3
 
 Dogfooding note: since gda's ADR-0032 static class_name scan (issue #360), ``gda
 resource create --type PlayerConfig`` CAN instantiate a project-local class in
@@ -102,6 +104,23 @@ _COMBAT_FIELDS: list[tuple[str, str]] = [
     ("hit_flash_duration", "float"),
 ]
 
+_GRAVITY_FIELDS: list[tuple[str, str]] = [
+    ("mp_cost", "float"),
+    ("wine_mp_restore", "float"),
+    ("field_direction", "vec2"),
+    ("field_strength", "float"),
+    ("field_radius", "float"),
+    ("field_duration", "float"),
+    ("field_color", "color"),
+    ("field_fade_duration", "float"),
+    ("field_spawn_offset", "vec2"),
+    ("enemy_max_gravity_offset", "float"),
+    ("obstacle_color", "color"),
+    ("obstacle_size", "vec2"),
+    ("obstacle_position", "vec2"),
+    ("obstacle_max_gravity_offset", "float"),
+]
+
 _PLAYER_SPEC = TresSpec(
     json_rel="data/json/player_config.json",
     schema_rel="data/schema/player_config.schema.json",
@@ -142,6 +161,15 @@ SPECS: list[TresSpec] = [
         script_class="CombatConfig",
         ext_id="1_combatconfig",
         fields=_COMBAT_FIELDS,
+    ),
+    TresSpec(
+        json_rel="data/json/gravity_config.json",
+        schema_rel="data/schema/gravity_config.schema.json",
+        out_rel="data/generated/gravity_config.tres",
+        script_res_path="res://src/resources/gravity_config.gd",
+        script_class="GravityConfig",
+        ext_id="1_gravityconfig",
+        fields=_GRAVITY_FIELDS,
     ),
 ]
 

@@ -46,6 +46,7 @@ func _ready() -> void:
 	_stats = StatsSystemScript.new()
 	_stats.init_from(_stats_config)
 	_apply_blockout(_combat)
+	add_to_group("gravity_affectable")  # gADR-0002 contract; see the S3 block below
 	GameLogScript.emit("info", "enemy_ready", {
 		"max_hp": _stats_config.max_hp,
 		"x": position.x,
@@ -105,3 +106,38 @@ func _play_hit_flash() -> void:
 		visual, "color", _combat.enemy_color, _combat.hit_flash_duration
 	)
 	recover.set_trans(Tween.TRANS_SINE)
+
+
+# --- S3 gravity-response contract (gADR-0002) --------------------------------
+# Kept as ONE self-contained block (plus the group join in _ready) so S4's
+# Archetype rewrite can carry it over verbatim: any body a Gravity Field acts
+# on joins "gravity_affectable" and implements apply_gravity_field.
+
+const GravityConfigScript := preload("res://src/resources/gravity_config.gd")
+const GravitySystemScript := preload("res://src/systems/gravity_system.gd")
+const GRAVITY_CONFIG_PATH := "res://data/generated/gravity_config.tres"
+
+# Lazily loaded (load() is cached) so this block stays independent of _ready.
+var _gravity_config: GravityConfigScript
+# Total displacement Gravity Fields have accumulated on this body — clamped at
+# config.enemy_max_gravity_offset, so a field can never fling it off-level.
+var _gravity_offset := Vector2.ZERO
+
+
+## Gravity-response contract (gADR-0002): a Gravity Field feeds this body its
+## field velocity each overlapping physics frame; this static Enemy integrates
+## it as clamped position displacement (pure decision in GravitySystem).
+func apply_gravity_field(field_velocity: Vector2, delta: float) -> void:
+	if _gravity_config == null:
+		_gravity_config = load(GRAVITY_CONFIG_PATH)
+		if _gravity_config == null:
+			push_error(
+				"EnemyController: could not load %s — run scripts/build_config.py."
+				% GRAVITY_CONFIG_PATH
+			)
+			return
+	var next := GravitySystemScript.compute_clamped_offset(
+		_gravity_offset, field_velocity, delta, _gravity_config.enemy_max_gravity_offset
+	)
+	position += next - _gravity_offset
+	_gravity_offset = next
