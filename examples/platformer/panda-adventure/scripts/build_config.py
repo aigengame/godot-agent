@@ -485,11 +485,13 @@ def _render_field(key: str, kind: str, value: Any) -> str:
 
 def _spawn_literal(entry: dict[str, Any]) -> str:
     """Render one Spawn Roster entry as its Godot Dictionary literal."""
-    return '{{"kind": "{kind}", "name": "{name}", "position": Vector2({x}, {y})}}'.format(
-        kind=entry["kind"],
-        name=entry["name"],
-        x=_num(entry["position"][0]),
-        y=_num(entry["position"][1]),
+    return (
+        '{{"kind": "{kind}", "name": "{name}", "position": Vector2({x}, {y})}}'.format(
+            kind=entry["kind"],
+            name=entry["name"],
+            x=_num(entry["position"][0]),
+            y=_num(entry["position"][1]),
+        )
     )
 
 

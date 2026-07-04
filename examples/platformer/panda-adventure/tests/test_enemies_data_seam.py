@@ -322,5 +322,3 @@ def test_enemy_kind_round_trips(gda, kind: str) -> None:
         assert props["projectile_spawn_offset"] == pytest.approx(
             config["projectile_spawn_offset"]
         )
-
-

@@ -247,9 +247,9 @@ def test_reconfigured_wave_count_plays_through(
             cleared = s.records("wave_cleared")
             assert len(cleared) >= n, f"wave {n} never cleared: {cleared}"
             if n < wave_count:
-                assert s.poll(lambda: s.records("wave_started")[-1]["fields"]["wave"] == n + 1), (
-                    f"wave {n + 1} never started"
-                )
+                assert s.poll(
+                    lambda: s.records("wave_started")[-1]["fields"]["wave"] == n + 1
+                ), f"wave {n + 1} never started"
                 assert s.poll(lambda: s.node_in_tree(f"W{n + 1}Target") is not None), (
                     f"wave {n + 1}'s target never spawned"
                 )
