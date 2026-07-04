@@ -86,6 +86,15 @@ the first live op. `screen capture` needs a windowed session
 | `input` | `key`, `mouse-click`, `mouse-move`, `action`, `sequence` |
 | `screen` | `capture`, `frames` (viewport PNGs; needs `--windowed`) |
 
+For `gda input sequence`, event `frame` offsets are the original
+harness/process-frame clock from the harness `_process` loop; they are not Godot's
+fixed physics frames. When input timing must map to physics simulation, use
+`physics_frame` offsets instead. To hold an action for N physics frames, press at
+`{"type":"action","action":"move_right","physics_frame":0}` and release at
+`{"type":"action","action":"move_right","release":true,"physics_frame":N}` in the
+same sequence. At Godot's default 60 Hz physics clock, N=30 is 0.5 seconds of
+physics simulation. Do not mix `frame` and `physics_frame` in one sequence.
+
 ### Structured logging from game code
 
 To emit a record `gda logger tail` reads back as a rich, field-carrying `LogRecord`,

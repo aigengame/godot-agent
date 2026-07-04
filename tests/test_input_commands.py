@@ -397,6 +397,58 @@ def test_input_sequence_injects_events_across_frames_through_the_live_channel(
     assert [e["frame"] for e in sent_events] == [0, 2, 4]
 
 
+def test_input_sequence_physics_frame_offsets_dispatch_through_the_live_channel(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(
+                {
+                    **INPUT_SEQUENCE_RESULT,
+                    "clock": "physics",
+                    "events": 2,
+                    "frames": 13,
+                }
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    events = [
+        {"type": "action", "action": "move_right", "physics_frame": 0},
+        {
+            "type": "action",
+            "action": "move_right",
+            "release": True,
+            "physics_frame": 12,
+        },
+    ]
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(events),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data["clock"] == "physics"
+    assert data["events"] == 2
+    assert data["frames"] == 13
+    assert fake.calls[0][0] == "input-sequence"
+    sent_events = fake.calls[0][1]["events"]
+    assert [e["physics_frame"] for e in sent_events] == [0, 12]
+    assert [e["frame"] for e in sent_events] == [None, None]
+
+
 def test_input_sequence_with_no_daemon_reports_daemon_not_running(
     monkeypatch, tmp_path
 ):
@@ -551,6 +603,73 @@ def test_input_sequence_over_window_frame_argv_is_a_usage_error(monkeypatch, tmp
     assert fake.calls == []
 
 
+def test_input_sequence_over_window_physics_frame_argv_is_a_usage_error(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(
+                [
+                    {
+                        "type": "action",
+                        "action": "move_right",
+                        "physics_frame": 999999,
+                    }
+                ]
+            ),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert fake.calls == []
+
+
+def test_input_sequence_mixed_process_and_physics_clocks_argv_is_a_usage_error(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(
+                [
+                    {"type": "key", "key": "Right", "frame": 0},
+                    {
+                        "type": "action",
+                        "action": "move_right",
+                        "physics_frame": 1,
+                    },
+                ]
+            ),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout + result.stderr
+    assert fake.calls == []
+
+
 def test_input_sequence_at_the_window_boundary_argv_is_accepted(monkeypatch, tmp_path):
     # The largest accepted relative frame is MAX_WINDOW_FRAMES - 1 (window ==
     # MAX_WINDOW_FRAMES). It passes the model and reaches the live seam unchanged.
@@ -583,7 +702,22 @@ def test_input_sequence_schema_reports_kind_live():
     result = CliRunner().invoke(app, ["input", "sequence", "--schema"])
 
     assert result.exit_code == 0, result.stdout + result.stderr
-    assert json.loads(result.stdout)["kind"] == "live"
+    schema = json.loads(result.stdout)
+    assert schema["kind"] == "live"
+    events_description = schema["input"]["properties"]["events"]["description"]
+    assert "process-clock `frame`" in events_description
+    assert "physics-clock `physics_frame`" in events_description
+    event_props = schema["input"]["$defs"]["InputSequenceEvent"]["properties"]
+    assert "harness/process-frame" in event_props["frame"]["description"]
+    assert "physics-frame" in event_props["physics_frame"]["description"]
+
+
+def test_input_sequence_help_names_process_and_physics_clocks():
+    result = CliRunner().invoke(app, ["input", "sequence", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "harness/process-frame" in result.stdout
+    assert "physics_frame" in result.stdout
 
 
 # --- model validation via --params-json (ADR-0015) ----------------------------
@@ -718,6 +852,42 @@ def test_input_sequence_params_json_over_window_frame_is_invalid_params(
     assert fake.calls == []
 
 
+def test_input_sequence_params_json_mixed_clock_fields_is_invalid_params(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--params-json",
+            json.dumps(
+                {
+                    "events": [
+                        {
+                            "type": "action",
+                            "action": "move_right",
+                            "frame": 0,
+                            "physics_frame": 0,
+                        }
+                    ]
+                }
+            ),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert fake.calls == []
+
+
 def test_input_sequence_params_json_at_the_window_boundary_dispatches(
     monkeypatch, tmp_path
 ):
@@ -749,6 +919,58 @@ def test_input_sequence_params_json_at_the_window_boundary_dispatches(
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert fake.calls[0][0] == "input-sequence"
+
+
+def test_input_sequence_params_json_physics_frame_dispatches(monkeypatch, tmp_path):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(
+                {
+                    **INPUT_SEQUENCE_RESULT,
+                    "clock": "physics",
+                    "events": 2,
+                    "frames": 31,
+                }
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--params-json",
+            json.dumps(
+                {
+                    "events": [
+                        {
+                            "type": "action",
+                            "action": "move_right",
+                            "physics_frame": 0,
+                        },
+                        {
+                            "type": "action",
+                            "action": "move_right",
+                            "release": True,
+                            "physics_frame": 30,
+                        },
+                    ]
+                }
+            ),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout)["clock"] == "physics"
+    assert fake.calls[0][0] == "input-sequence"
+    assert [e["physics_frame"] for e in fake.calls[0][1]["events"]] == [0, 30]
 
 
 def test_input_key_params_json_dispatches_like_argv(monkeypatch, tmp_path):

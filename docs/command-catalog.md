@@ -547,17 +547,25 @@ headless is unaffected (4.4+, cross-platform).
   `input mouse-click <x> <y> [--button left|right|middle] [--double]` /
   `input mouse-move <x> <y>`, and `input action <NAME> [--release] [--strength F]`
   each inject one event at a frame boundary (ADR-0020); the multi-frame
-  `input sequence --events <JSON>` applies a list of events across frames at their
-  relative frame offsets and returns as one blocking payload, on the gda harness's
-  time-windowed multi-frame base (the same base `perf monitor` uses, #223). The
+  `input sequence --events <JSON>` applies a list of events across one selected
+  clock and returns as one blocking payload, on the gda harness's time-windowed
+  multi-frame base (the same base `perf monitor` uses, #223). Existing sequence
+  event `frame` offsets are explicitly the harness/process-frame clock advanced by
+  the harness `_process` loop; they are preserved for compatibility and are **not**
+  Godot's fixed physics frames. For deterministic simulation-duration input, use
+  `physics_frame` offsets instead: press an action at `physics_frame: 0` and release
+  it at `physics_frame: N` to hold it for N Godot physics ticks (for the default
+  60 Hz physics clock, N = 30 is 0.5 seconds of physics simulation). A sequence must
+  use one clock throughout; mixing `frame` and `physics_frame` is rejected. The
   mouse ops are flat two-token commands (`mouse-click` / `mouse-move`), not a nested
   `mouse` sub-group, so each maps to a single `<group>_<command>` MCP tool name
   (ADR-0005/0011/0012). Key/mouse events ride the game's real input flow via the
   root viewport's `push_input` (scene-aware); actions go through
   `Input.action_press`/`action_release` against the running `InputMap`. The modifier
   set, mouse-button enum, action strength range (0..1), per-event shape, and the
-  sequence's frame window (`max(frame)+1` ≤ the per-window ceiling, the same bound
-  `perf monitor` enforces, #223) are bounded **model-side** (ADR-0015), so an
+  sequence's selected-clock window (`max(frame)+1` or `max(physics_frame)+1` ≤ the
+  per-window ceiling, the same bound `perf monitor` enforces, #223) are bounded
+  **model-side** (ADR-0015), so an
   out-of-contract request is a structured `invalid_params` (or argv usage error)
   before it reaches the harness. The two failures that need the live engine
   to decide are deferred to the harness: a key name the engine cannot resolve to a
