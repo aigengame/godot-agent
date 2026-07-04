@@ -66,6 +66,8 @@ const LIVE_ERROR_DISPLAY_UNAVAILABLE := "live_display_unavailable"
 # rejected before it reaches the harness — the harness no longer clamps. Mirrored
 # in src/gda/models.py (MAX_WINDOW_FRAMES); a test keeps the two in sync.
 const MAX_WINDOW_FRAMES := 600
+const WINDOW_CLOCK_PROCESS := "process"
+const WINDOW_CLOCK_PHYSICS := "physics"
 
 var _peer: StreamPeerUDS = null
 var _authed := false
@@ -85,8 +87,8 @@ var _pending = null
 var _pending_frames := 0
 # The active time-windowed collection, or null when none is running (#223). A
 # multi-frame handler sets this from _run instead of returning a payload; the
-# _process loop then advances it one frame per tick until it finalizes. See
-# _begin_window / _advance_window.
+# _process or _physics_process loop then advances it one frame per selected clock
+# tick until it finalizes. See _begin_window / _advance_window.
 var _window_state = null
 
 
@@ -158,12 +160,13 @@ func _process(_delta: float) -> void:
 			_send_scene_verification()
 			_scene_verified = true
 		return
-	# A time-windowed op owns the connection until it finalizes (#223): advance it
-	# one frame and serve nothing else this tick, so per-frame samples stay
-	# frame-coherent (ADR-0020) and the single-writer order is preserved (one op at
-	# a time). _advance_window replies once and clears _window_state when done.
+	# A time-windowed op owns the connection until it finalizes (#223): process-clock
+	# windows advance here, physics-clock windows advance in _physics_process. Either
+	# way, serve nothing else this tick so the single-writer order is preserved (one
+	# op at a time). _advance_window replies once and clears _window_state when done.
 	if _window_state != null:
-		_advance_window()
+		if _window_clock() == WINDOW_CLOCK_PROCESS:
+			_advance_window()
 		return
 	# Read one pending request when a full length prefix is available; the body
 	# follows in the same daemon write, so get_data does not block in practice.
@@ -187,6 +190,14 @@ func _process(_delta: float) -> void:
 			_pending = null
 			if reply != null:
 				_send_frame((reply as String).to_utf8_buffer())
+
+
+func _physics_process(_delta: float) -> void:
+	if _window_state == null:
+		return
+	if _window_clock() != WINDOW_CLOCK_PHYSICS:
+		return
+	_advance_window()
 
 
 func _send_frame(payload: PackedByteArray) -> void:
@@ -229,27 +240,41 @@ func _scene_matches(requested: String, current_path: String) -> bool:
 # --- Time-windowed multi-frame base (#223) ------------------------------------
 # A multi-frame handler does not return a finished payload from _run; instead it
 # calls _begin_window with a per-frame `sample` Callable and a `finalize` Callable,
-# returning null so _process keeps ticking. Each subsequent frame, _advance_window
-# calls `sample` once (frame-coherent, ADR-0020) and accumulates its return into a
-# samples Array; once `frames` samples are collected (or an error sample is
-# returned) it calls `finalize(samples)` for the final payload and replies once.
-# A truly stalled engine never runs _advance_window at all, so the window has no
-# timeout of its own — the daemon-level `live_timeout` is the stalled-engine guard.
-# #221's capture op reuses this same base by adding its own sample/finalize
-# Callables — no _process change.
+# returning null so _process or _physics_process keeps ticking on the selected
+# clock. Each subsequent selected-clock frame, _advance_window calls `sample` once
+# (frame-coherent, ADR-0020) and accumulates its return into a samples Array; once
+# `frames` samples are collected (or an error sample is returned) it calls
+# `finalize(samples)` for the final payload and replies once. A truly stalled
+# engine never runs _advance_window at all, so the window has no timeout of its own
+# — the daemon-level `live_timeout` is the stalled-engine guard. #221's capture op
+# reuses this same base by adding its own sample/finalize Callables — no _process
+# change.
 
-# Open a window: store its frame budget, sampler, and finalizer, then let
-# _process drive it. `frames` is the number of per-frame samples to collect; it is
-# already bounded to 1..MAX_WINDOW_FRAMES model-side (PerfMonitorParams, ADR-0015),
-# so the harness does not clamp. Returns null so _run's caller does not reply now.
-func _begin_window(frames: int, sample: Callable, finalize: Callable) -> Variant:
+# Open a window: store its frame budget, sampler, finalizer, and selected clock,
+# then let _process or _physics_process drive it. `frames` is the number of
+# per-frame samples to collect; it is already bounded to 1..MAX_WINDOW_FRAMES
+# model-side (PerfMonitorParams / InputSequenceParams, ADR-0015), so the harness
+# does not clamp. Returns null so _run's caller does not reply now.
+func _begin_window(
+		frames: int,
+		sample: Callable,
+		finalize: Callable,
+		clock: String = WINDOW_CLOCK_PROCESS) -> Variant:
 	_window_state = {
 		"budget": frames,
+		"clock": clock,
 		"samples": [],
 		"sample": sample,
 		"finalize": finalize,
 	}
 	return null
+
+
+func _window_clock() -> String:
+	if _window_state == null:
+		return WINDOW_CLOCK_PROCESS
+	var state: Dictionary = _window_state
+	return String(state.get("clock", WINDOW_CLOCK_PROCESS))
 
 
 # Advance the active window one frame. Collects one sample; finalizes once the
@@ -568,8 +593,10 @@ func _signal_arg_count(node: Node, signal_name: String) -> int:
 # (ADR-0015), so the harness only decides what needs the live engine: a key name
 # the engine cannot resolve (live_invalid_key) and an action the running InputMap
 # does not declare (live_unknown_action). `input sequence` reuses the time-windowed
-# multi-frame base (#223): each frame, the sampler applies the events due at that
-# frame index, and finalize returns the applied-events summary.
+# multi-frame base (#223): each selected-clock frame, the sampler applies the events
+# due at that index, and finalize returns the applied-events summary. Existing
+# `frame` offsets use the harness/process clock; #391's `physics_frame` offsets use
+# Godot's fixed physics clock.
 
 
 # The root Viewport push_input targets, the same surface real OS input flows
@@ -717,33 +744,44 @@ func _handle_input_action(params: Dictionary) -> String:
 	})
 
 
-# input sequence: inject a list of events across frames, returned as ONE blocking
-# result via the time-windowed multi-frame base (#223). The window spans one past
-# the largest event frame; each frame the sampler applies the events due at that
-# frame index. An event whose type the harness does not recognize aborts the window
-# with live_invalid_event_spec (the defensive arm — the model bounds the type).
+# input sequence: inject a list of events across either process or physics frames,
+# returned as ONE blocking result via the time-windowed multi-frame base (#223). The
+# window spans one past the largest selected-clock offset; each selected-clock frame
+# the sampler applies the events due at that index. An event whose type the harness
+# does not recognize aborts the window with live_invalid_event_spec (the defensive
+# arm — the model bounds the type).
 func _handle_input_sequence(params: Dictionary) -> Variant:
 	var raw_events: Variant = params.get("events", [])
 	if typeof(raw_events) != TYPE_ARRAY or (raw_events as Array).is_empty():
 		return _error(LIVE_ERROR_INVALID_EVENT_SPEC,
 				"input sequence needs a non-empty events list")
 	var events: Array = raw_events
-	# The window runs for as many frames as the largest event frame requires (at
-	# least one), so every event's relative frame index lands within the window.
-	var max_frame := 0
+	# The window runs for as many selected-clock frames as the largest event offset
+	# requires (at least one), so every event's relative index lands within it.
+	var uses_physics := false
+	var uses_process := false
+	var max_offset := 0
 	for event in events:
 		if typeof(event) == TYPE_DICTIONARY:
-			max_frame = maxi(max_frame, _int_param(event, "frame", 0))
-	var total_frames := max_frame + 1
+			if _sequence_event_uses_physics(event):
+				uses_physics = true
+			else:
+				uses_process = true
+			max_offset = maxi(max_offset, _sequence_event_offset(event))
+	if uses_physics and uses_process:
+		return _error(LIVE_ERROR_INVALID_EVENT_SPEC,
+				"input sequence cannot mix frame and physics_frame offsets")
+	var clock := WINDOW_CLOCK_PHYSICS if uses_physics else WINDOW_CLOCK_PROCESS
+	var total_frames := max_offset + 1
 	var frame_box := {"n": 0}
-	# The sampler applies every event due at the current frame index, then advances
-	# the frame clock. A bad event type aborts the window with a typed error sample.
+	# The sampler applies every event due at the current selected-clock index, then
+	# advances that clock. A bad event type aborts the window with a typed error sample.
 	var sample := func() -> Variant:
 		var current := int(frame_box["n"])
 		for event in events:
 			if typeof(event) != TYPE_DICTIONARY:
 				continue
-			if _int_param(event, "frame", 0) != current:
+			if _sequence_event_offset(event) != current:
 				continue
 			var err: Variant = _apply_sequence_event(event)
 			if err != null:
@@ -753,10 +791,21 @@ func _handle_input_sequence(params: Dictionary) -> Variant:
 	var finalize := func(_samples: Array) -> String:
 		return _ok({
 			"kind": "sequence",
+			"clock": clock,
 			"events": events.size(),
 			"frames": total_frames,
 		})
-	return _begin_window(total_frames, sample, finalize)
+	return _begin_window(total_frames, sample, finalize, clock)
+
+
+func _sequence_event_uses_physics(event: Dictionary) -> bool:
+	return event.has("physics_frame") and event.get("physics_frame") != null
+
+
+func _sequence_event_offset(event: Dictionary) -> int:
+	if _sequence_event_uses_physics(event):
+		return _int_param(event, "physics_frame", 0)
+	return _int_param(event, "frame", 0)
 
 
 # Apply one sequence event at a frame boundary. Returns null on success, or a typed
@@ -1246,4 +1295,3 @@ func _coerce_color(raw: String) -> Variant:
 		return Color(out[0], out[1], out[2])
 	return Color(out[0], out[1], out[2], out[3])
 # --- END shared coercion ---
-
