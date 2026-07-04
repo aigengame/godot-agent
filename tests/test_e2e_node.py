@@ -317,6 +317,57 @@ def test_node_add_builtin_type_reports_null_script_class(godot_project):
 
 
 @pytest.mark.e2e
+def test_node_add_instance_preserves_existing_ext_resource_ids(godot_project):
+    # Acceptance criterion of #399, pinning the #393 contract for the
+    # composition write: instancing a scene into a host must keep every
+    # pre-existing ext_resource id (and the ExtResource("...") references
+    # pointing at them) byte-identical, while the newly introduced PackedScene
+    # ext_resource receives a fresh non-colliding id.
+    gda = _gda_project(godot_project)
+    (godot_project / "hero.gd").write_text("extends Node2D\n", encoding="utf-8")
+    (godot_project / "hud.tscn").write_text(
+        "\n".join(
+            [
+                "[gd_scene format=3]",
+                "",
+                '[node name="Hud" type="CanvasLayer"]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    scene_path = godot_project / "main.tscn"
+    scene_path.write_text(
+        "\n".join(
+            [
+                '[gd_scene load_steps=2 format=3]',
+                "",
+                '[ext_resource type="Script" path="res://hero.gd" id="1_lkauy"]',
+                "",
+                '[node name="main" type="Node2D"]',
+                'script = ExtResource("1_lkauy")',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--instance", "res://hud.tscn", "--json"
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    saved = scene_path.read_text(encoding="utf-8")
+    assert 'path="res://hero.gd" id="1_lkauy"' in saved
+    assert 'script = ExtResource("1_lkauy")' in saved
+    hud_id_match = re.search(r'path="res://hud\.tscn" id="([^"]+)"', saved)
+    assert hud_id_match, saved
+    hud_id = hud_id_match.group(1)
+    assert hud_id != "1_lkauy"
+    assert f'instance=ExtResource("{hud_id}")' in saved
+
+
+@pytest.mark.e2e
 def test_node_add_instance_composes_a_scene_and_round_trips(godot_project):
     # Issue #399: `node add --instance` is the structured way to author a scene
     # instance — Godot's standard composition primitive. The write must produce
