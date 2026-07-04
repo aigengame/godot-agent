@@ -26,7 +26,9 @@ hardcoded. Per RULES.md, mocks cannot replace this end-to-end proof.
 
 Isolation: same throwaway-copy pattern as ``test_player_e2e`` (``daemon
 start`` mutates ``project.godot``); posix-only (AF_UNIX); headless —
-Linux-CI-friendly. The walk uses ``input sequence`` ``physics_frame`` offsets
+Linux-CI-friendly — except the final windowed visual-presence check, which is
+display-gated like ``test_e2e_screenshot.py`` (skips visibly where no window
+server is usable). The walk uses ``input sequence`` ``physics_frame`` offsets
 (the physics-clock schedule): displacement maps deterministically to held
 physics ticks (move_speed / 60 per tick), unlike idle-frame offsets.
 """
@@ -318,5 +320,122 @@ def test_daemon_serves_kill_reward_and_hud(tmp_path, daemon_runtime_dir):
         # trail's final value and the weapon readout is unchanged.
         assert poll(lambda: label("Hp") == expected_hp_label())
         assert label("Weapon") == "LASER GUN"
+    finally:
+        run("daemon", "stop")
+
+
+# Daemon error codes meaning "this environment cannot show a window" — a skip
+# signal, not a failure (the test_e2e_screenshot.py precedent, #345).
+_NO_DISPLAY_CODES = {"live_windowed_unavailable", "live_display_unavailable"}
+
+# The least non-background pixels the HUD probe box must contain for the HUD to
+# count as VISIBLE. Five lines of light text on the dark scene background light
+# up thousands of pixels; 200 keeps the assertion far from antialiasing noise
+# while still failing hard on an invisible/mispositioned/occluded HUD.
+_MIN_HUD_PIXELS = 200
+
+
+def _error_code(stdout: str) -> str | None:
+    """The gda error envelope's ``error.code`` from a CLI result, if any."""
+    try:
+        return json.loads(stdout).get("error", {}).get("code")
+    except (ValueError, AttributeError):
+        return None
+
+
+@pytest.mark.e2e
+def test_hud_is_visible_in_the_windowed_viewport(tmp_path, daemon_runtime_dir):
+    """The HUD actually RENDERS — pixels, not just Label.text data.
+
+    The headless gate above proves the HUD's data is right; a playtest showed
+    that is not the same as the player SEEING it (an invisible/mispositioned/
+    occluded HUD passes every ``game get`` assertion). So: boot a WINDOWED
+    session, ``screen capture`` the viewport, and count non-background pixels
+    inside the HUD's config-derived screen region — decoded by the engine's
+    own Image API via ``gda script run`` (``check_hud_pixels.gd``), keeping
+    the repo's no-image-decode-dependency convention. Display-gated like
+    ``test_e2e_screenshot.py``: skips (visibly, via -rs) where no window
+    server is usable, runs for real on a desktop.
+    """
+    from gda.display import windowed_unavailable_reason
+
+    reason = windowed_unavailable_reason()
+    if reason is not None:
+        pytest.skip(reason)
+    project = _make_project_copy(tmp_path / "game")
+    out = tmp_path / "hud.png"
+    env = {**os.environ}
+
+    def run(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(project),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=120,
+        )
+
+    try:
+        started = run("daemon", "start", "--windowed")
+        if started.returncode != 0:
+            code = _error_code(started.stdout)
+            if code in _NO_DISPLAY_CODES:
+                pytest.skip(f"windowed session unavailable ({code})")
+            raise AssertionError(started.stdout + started.stderr)
+
+        cap = run("screen", "capture", "--output", str(out))
+        if cap.returncode != 0:
+            code = _error_code(cap.stdout)
+            if code in _NO_DISPLAY_CODES:
+                pytest.skip(f"windowed session unavailable ({code})")
+            raise AssertionError(cap.stdout + cap.stderr)
+        assert json.loads(cap.stdout)["format"] == "png"
+
+        # Analyze with the engine's own Image API. The throwaway copy excludes
+        # tests/, so the checker runs against the committed game dir — only the
+        # capture path (env) and the shared authoritative hud config feed it.
+        check = subprocess.run(
+            [
+                *GDA_CMD,
+                "script",
+                "run",
+                "res://tests/gdscript/check_hud_pixels.gd",
+                "--project",
+                str(GAME_DIR),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env={**env, "HUD_CHECK_PNG": str(out)},
+            timeout=120,
+        )
+        assert check.returncode == 0, check.stdout + check.stderr
+        result = json.loads(check.stdout)
+        assert result["exit_status"] == 0, result
+        marker = next(
+            (
+                line.removeprefix("HUD_PIXELS: ")
+                for line in result["stdout"].splitlines()
+                if line.startswith("HUD_PIXELS: ")
+            ),
+            None,
+        )
+        assert marker is not None, result["stdout"]
+        pixels = json.loads(marker)
+        assert pixels["differing"] >= _MIN_HUD_PIXELS, (
+            f"HUD region shows only {pixels['differing']} non-background pixels "
+            f"(probe {pixels['probe']}, background {pixels['background']}) — "
+            "the HUD is not visibly rendering"
+        )
     finally:
         run("daemon", "stop")
