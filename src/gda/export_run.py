@@ -9,9 +9,9 @@ sentinel pipeline:
 
 1. **resolve** the preset via the existing ``export-get`` sentinel op — reusing
    #114's clean preset/project errors;
-2. **structured preflight** (effective destination + template readiness,
-   ADR-0010) that fails fast — ``export_path_unset`` / ``export_templates_missing``
-   — with NO native run;
+2. **structured preflight** (effective destination + template readiness + output
+   parent dirs, ADR-0010) that fails fast — ``export_path_unset`` /
+   ``export_templates_missing`` / ``invalid_path`` — with NO native run;
 3. the native ``--export-<mode>`` run, whose raw outcome
    :func:`gda.errors.classify_export_run` turns into the typed result.
 
@@ -42,6 +42,7 @@ from gda.binary import resolve_godot_binary
 from gda.errors import (
     Failure,
     classify_export_run,
+    export_output_parent_failure,
     export_path_unset_failure,
     export_templates_missing_failure,
 )
@@ -117,6 +118,53 @@ EXPORT_GET_COMMAND: HeadlessCommand[ExportGetResult] = HeadlessCommand(
 )
 
 
+def _resolve_configured_export_path(path: str, project: Optional[Path]) -> str:
+    """Resolve a preset export_path to the absolute artifact path (#403)."""
+    if not path or "://" in path:
+        return path
+    expanded = Path(path).expanduser()
+    if expanded.is_absolute():
+        return str(expanded)
+    base = Path.cwd() if project is None else project
+    if not base.is_absolute():
+        base = Path.cwd() / base
+    return str(base / expanded)
+
+
+def _ensure_output_parent_dirs(output_path: str) -> list[str] | Failure:
+    """Create the export destination's missing filesystem parent dirs (#402)."""
+    if "://" in output_path:
+        return []
+
+    parent = Path(output_path).parent
+    if str(parent) in {"", "."}:
+        return []
+    if parent.exists():
+        if parent.is_dir():
+            return []
+        return export_output_parent_failure(output_path, str(parent))
+
+    missing: list[Path] = []
+    cursor = parent
+    while not cursor.exists():
+        missing.append(cursor)
+        if cursor.parent == cursor:
+            break
+        cursor = cursor.parent
+
+    if cursor.exists() and not cursor.is_dir():
+        return export_output_parent_failure(output_path, str(cursor))
+
+    created_dirs = [str(path) for path in reversed(missing)]
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return export_output_parent_failure(output_path, str(parent))
+    if not parent.is_dir():
+        return export_output_parent_failure(output_path, str(parent))
+    return created_dirs
+
+
 def run_export_operation(
     *,
     preset: str,
@@ -154,13 +202,19 @@ def run_export_operation(
     if isinstance(got, Failure):
         return got
 
-    # Resolve the effective destination: --output (already CLI-normalized) wins
-    # over the preset's configured export_path (#170). This is what the native
-    # export writes to AND what the result reports as output_path.
-    output_path = output_override if output_override is not None else got.export_path
+    # Resolve the effective destination: --output (already CLI-normalized and
+    # invoker-cwd absolute for relative filesystem paths, #403) wins over the
+    # preset's configured export_path (#170). A configured relative export_path
+    # keeps Godot's project-relative convention, but we pass/report the absolute
+    # artifact path so the result is self-describing for consumers.
+    output_path = (
+        output_override
+        if output_override is not None
+        else _resolve_configured_export_path(got.export_path, project)
+    )
 
-    # Phase 2 (structured preflight, BEFORE any native run; ADR-0010). Two
-    # fail-fast checks, both decided from export get's structured fields rather
+    # Phase 2 (structured preflight, BEFORE any native run; ADR-0010). The first
+    # two fail-fast checks are decided from export get's structured fields rather
     # than from the engine's stderr (which ADR-0002 forbids parsing for codes):
     #
     #  - There must be a destination, for EVERY mode. --output supplies one
@@ -182,10 +236,17 @@ def run_export_operation(
     #    export_templates_missing, decided here rather than by string-matching the
     #    engine's "due to configuration errors" stderr (which also fires for a
     #    merely-misconfigured preset).
+    #  - Once the export is otherwise runnable, create the destination's missing
+    #    parent directories before the native export so a missing directory never
+    #    falls through to locale/version-dependent engine prose (#402). An
+    #    uncreatable parent is a structured invalid_path.
     if not output_path:
         return export_path_unset_failure(got.name)
     if mode is not ExportRunMode.PACK and not got.templates_installed:
         return export_templates_missing_failure(got.name, got.templates_version)
+    created_dirs = _ensure_output_parent_dirs(output_path)
+    if isinstance(created_dirs, Failure):
+        return created_dirs
 
     # Phase 3 (native run + classify): run the native export and classify its raw
     # outcome. The export-get resolved name (got.name) is authoritative throughout
@@ -220,4 +281,5 @@ def run_export_operation(
         platform=got.platform,
         mode=mode,
         output_path=output_path,
+        created_dirs=created_dirs,
     )

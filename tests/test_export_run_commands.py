@@ -3,9 +3,10 @@
 ``export run`` is the first command that does NOT route through operations.gd:
 the Godot export subsystem is editor-only C++, unreachable from a ``--script``
 SceneTree run, so the actual export is a native ``--export-release`` invocation
-(#121 fixes the mode to release; --mode/--output are deferred to #170). ``gda``
+(#121), selectable by ``--mode`` (#170). ``--output`` overrides the preset path
+and resolves relative filesystem paths against the invoker cwd (#403). ``gda``
 synthesizes the typed result from that subprocess's exit code, not from an
-ADR-0002 sentinel.
+ADR-0002 sentinel, after creating missing output parent dirs (#402).
 
 The command runs in three steps, the engine-touching ones behind injectable seams:
 
@@ -15,7 +16,8 @@ The command runs in three steps, the engine-touching ones behind injectable seam
 2. a structured preflight (on export-get's ``templates_installed`` and the
    configured ``export_path``) fails fast — export_templates_missing /
    export_path_unset — before any native export is spawned.
-3. the native ``ExportRunner`` performs the export to the configured path; its
+3. missing output parent directories are created and reported; then the native
+   ``ExportRunner`` performs the export to the effective path; its
    raw ``{stdout, stderr, exit_code}`` is classified into success or a
    ``GdaError``.
 
@@ -66,6 +68,14 @@ def _inject(monkeypatch, *, get=GET_RESULT, export=None):
     return get_runner, export_runner
 
 
+def _configured_output(project: Path) -> str:
+    return str(project / "build" / "game.x86_64")
+
+
+def _cwd_output(*parts: str) -> str:
+    return str(Path.cwd().joinpath(*parts))
+
+
 def test_export_run_params_json_drives_the_native_export_runner(monkeypatch, tmp_path):
     # export run is the native-export recipe (run_export_operation), NOT the
     # sentinel pipeline. --params-json (ADR-0015) must drive that SAME recipe, so
@@ -88,8 +98,12 @@ def test_export_run_params_json_drives_the_native_export_runner(monkeypatch, tmp
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
-    assert json.loads(result.stdout)["mode"] == "release"
-    assert export_runner.calls == [("Linux/X11", "release", "build/game.x86_64")]
+    data = json.loads(result.stdout)
+    assert data["mode"] == "release"
+    assert data["created_dirs"] == [str(tmp_path / "build")]
+    assert export_runner.calls == [
+        ("Linux/X11", "release", _configured_output(tmp_path))
+    ]
 
 
 def test_export_run_json_reports_configured_path_and_exit_zero(monkeypatch, tmp_path):
@@ -118,12 +132,15 @@ def test_export_run_json_reports_configured_path_and_exit_zero(monkeypatch, tmp_
     assert data["preset"] == "Linux/X11"
     assert data["platform"] == "Linux/X11"
     assert data["mode"] == "release"
-    # The reported output_path is the preset's configured export_path verbatim.
-    assert data["output_path"] == "build/game.x86_64"
+    # The reported output_path is the preset's configured export_path resolved
+    # against the project directory.
+    assert data["output_path"] == _configured_output(tmp_path)
+    assert data["created_dirs"] == [str(tmp_path / "build")]
     assert data["warnings"] == []
-    # The export ran for the preset, in release mode, to the CONFIGURED path
-    # (no --output override — that flag is deferred to #170).
-    assert export_runner.calls == [("Linux/X11", "release", "build/game.x86_64")]
+    # The export ran for the preset, in release mode, to the resolved configured path.
+    assert export_runner.calls == [
+        ("Linux/X11", "release", _configured_output(tmp_path))
+    ]
 
 
 def test_export_run_default_mode_is_release(monkeypatch, tmp_path):
@@ -148,7 +165,9 @@ def test_export_run_default_mode_is_release(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["mode"] == "release"
-    assert export_runner.calls == [("Linux/X11", "release", "build/game.x86_64")]
+    assert export_runner.calls == [
+        ("Linux/X11", "release", _configured_output(tmp_path))
+    ]
 
 
 def test_export_run_mode_selects_export_flavor(monkeypatch, tmp_path):
@@ -178,7 +197,9 @@ def test_export_run_mode_selects_export_flavor(monkeypatch, tmp_path):
         data = json.loads(result.stdout)
         assert data["mode"] == mode
         # The native export was driven with the selected mode, to the configured path.
-        assert export_runner.calls == [("Linux/X11", mode, "build/game.x86_64")]
+        assert export_runner.calls == [
+            ("Linux/X11", mode, _configured_output(tmp_path))
+        ]
 
 
 def test_export_run_rejects_unknown_mode(monkeypatch, tmp_path):
@@ -213,6 +234,7 @@ def test_export_run_output_overrides_configured_path(monkeypatch, tmp_path):
     # --output (issue #170) overrides the preset's configured export_path: the
     # native export is driven to the override, NOT the configured "build/game.x86_64",
     # and the result's output_path reports the effective destination.
+    monkeypatch.chdir(tmp_path)
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
     _, export_runner = _inject(monkeypatch)
 
@@ -233,16 +255,55 @@ def test_export_run_output_overrides_configured_path(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
-    # The reported output_path is the override (the effective destination).
-    assert data["output_path"] == "dist/custom.x86_64"
+    # The reported output_path is the override, resolved against the invoker cwd.
+    expected = _cwd_output("dist", "custom.x86_64")
+    assert data["output_path"] == expected
+    assert data["created_dirs"] == [str(tmp_path / "dist")]
     assert data["mode"] == "release"
-    assert export_runner.calls == [("Linux/X11", "release", "dist/custom.x86_64")]
+    assert export_runner.calls == [("Linux/X11", "release", expected)]
+
+
+def test_export_run_relative_output_resolves_against_invoker_cwd(monkeypatch, tmp_path):
+    # issue #403: export run's native process runs with cwd=<project>, so a
+    # relative --output must be absolutized against the invoker cwd before it
+    # reaches Godot. The JSON result reports the same absolute artifact path.
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    invoker_cwd = tmp_path / "caller"
+    invoker_cwd.mkdir()
+    monkeypatch.chdir(invoker_cwd)
+    _, export_runner = _inject(monkeypatch)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--output",
+            "./dist/custom.x86_64",
+            "--project",
+            str(project),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    expected = str(invoker_cwd / "dist" / "custom.x86_64")
+    data = json.loads(result.stdout)
+    assert data["output_path"] == expected
+    assert data["created_dirs"] == [str(invoker_cwd / "dist")]
+    assert export_runner.calls == [("Linux/X11", "release", expected)]
 
 
 def test_export_run_output_expands_leading_tilde(monkeypatch, tmp_path):
     # ADR-0006: --output is a filesystem path normalized ONCE at the CLI layer, so
     # a literal `~` is expanded to the user's home before it reaches the runner —
     # the artifact lands in $HOME, not a literal "~" directory.
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
     _, export_runner = _inject(monkeypatch)
 
@@ -262,10 +323,11 @@ def test_export_run_output_expands_leading_tilde(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 0, result.stdout + result.stderr
-    expanded = str((Path.home() / "builds/game.x86_64"))
+    expanded = str(home / "builds/game.x86_64")
     data = json.loads(result.stdout)
     # Both the native invocation and the reported destination carry the expanded path.
     assert data["output_path"] == expanded
+    assert data["created_dirs"] == [str(home), str(home / "builds")]
     assert export_runner.calls == [("Linux/X11", "release", expanded)]
 
 
@@ -273,6 +335,7 @@ def test_export_run_output_overrides_unset_configured_path(monkeypatch, tmp_path
     # --output supplies a destination even when the preset's configured export_path
     # is empty: the export_path_unset preflight no longer fires (there IS a place to
     # write), and the export runs to the override.
+    monkeypatch.chdir(tmp_path)
     (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
     get = {**GET_RESULT, "export_path": ""}
     _, export_runner = _inject(monkeypatch, get=get)
@@ -294,8 +357,10 @@ def test_export_run_output_overrides_unset_configured_path(monkeypatch, tmp_path
 
     assert result.exit_code == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)
-    assert data["output_path"] == "dist/custom.x86_64"
-    assert export_runner.calls == [("Linux/X11", "release", "dist/custom.x86_64")]
+    expected = _cwd_output("dist", "custom.x86_64")
+    assert data["output_path"] == expected
+    assert data["created_dirs"] == [str(tmp_path / "dist")]
+    assert export_runner.calls == [("Linux/X11", "release", expected)]
 
 
 def test_export_run_surfaces_advisory_warnings(monkeypatch, tmp_path):
@@ -409,7 +474,7 @@ def test_export_run_pack_skips_template_preflight_when_missing(monkeypatch, tmp_
     data = json.loads(result.stdout)
     assert data["mode"] == "pack"
     # The preflight was skipped for pack: the native export actually ran.
-    assert export_runner.calls == [("Linux/X11", "pack", "build/game.x86_64")]
+    assert export_runner.calls == [("Linux/X11", "pack", _configured_output(tmp_path))]
 
 
 def test_export_run_release_debug_still_require_templates_when_missing(
@@ -567,8 +632,25 @@ def test_export_run_schema_emits_contract_without_engine(monkeypatch):
     assert "preset" in schema["input"]["properties"]
     assert "mode" in schema["input"]["properties"]
     assert "output" in schema["input"]["properties"]
+    assert (
+        "invoker's current working directory"
+        in schema["input"]["properties"]["output"]["description"]
+    )
     assert "output_path" in schema["output"]["properties"]
+    assert (
+        "resolved absolute path"
+        in schema["output"]["properties"]["output_path"]["description"]
+    )
+    assert "created_dirs" in schema["output"]["properties"]
     assert "warnings" in schema["output"]["properties"]
+
+
+def test_export_run_help_documents_output_resolution():
+    result = CliRunner().invoke(app, ["export", "run", "--help"])
+
+    assert result.exit_code == 0
+    assert "--output" in result.stdout
+    assert "invoker's current working directory" in result.stdout
 
 
 def test_export_run_human_output_echoes_artifact(monkeypatch, tmp_path):
@@ -583,5 +665,6 @@ def test_export_run_human_output_echoes_artifact(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.stdout + result.stderr
     assert (
-        "exported Linux/X11 (Linux/X11, release) -> build/game.x86_64" in result.stdout
+        f"exported Linux/X11 (Linux/X11, release) -> {_configured_output(tmp_path)}"
+        in result.stdout
     )

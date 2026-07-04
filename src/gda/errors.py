@@ -550,6 +550,7 @@ def classify_export_run(
     platform: str,
     mode: ExportRunMode,
     output_path: str,
+    created_dirs: list[str],
 ) -> ExportRunResult | Failure:
     """Classify a native Godot export into a typed result or a ``Failure`` (issue #121).
 
@@ -589,7 +590,18 @@ def classify_export_run(
         platform=platform,
         mode=mode,
         output_path=output_path,
+        created_dirs=created_dirs,
         warnings=parse_export_warnings(output.stderr),
+    )
+
+
+def export_output_parent_failure(output_path: str, parent_path: str) -> Failure:
+    """The ``invalid_path`` failure for an uncreatable export output parent (#402)."""
+    return _failure(
+        "invalid_path",
+        "export output parent directory is not creatable: "
+        f"{parent_path} (for output path {output_path})",
+        "",
     )
 
 

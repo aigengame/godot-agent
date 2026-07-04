@@ -294,6 +294,26 @@ def normalize_path(path: str) -> str:
 NormalizedPath = Annotated[str, AfterValidator(normalize_path)]
 
 
+def normalize_export_output_path(path: str) -> str:
+    """Normalize an ``export run --output`` artifact path (#403).
+
+    Export runs the native Godot export with cwd set to the project directory.
+    A relative ``--output`` must therefore be made absolute against the invoker's
+    cwd before the runner sees it, or Godot writes into the project tree while
+    the result echoes an unlocatable relative string. Virtual paths keep the
+    shared path convention and pass through unchanged.
+    """
+    if "://" in path:
+        return path
+    expanded = Path(path).expanduser()
+    if expanded.is_absolute():
+        return str(expanded)
+    return str(Path.cwd() / expanded)
+
+
+ExportOutputPath = Annotated[str, AfterValidator(normalize_export_output_path)]
+
+
 def derive_scene_root_name(path: str) -> str:
     """Derive the default scene root name from the target file name."""
     filename = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
@@ -1845,9 +1865,13 @@ class ExportRunParams(BaseModel):
         default=ExportRunMode.RELEASE,
         description="The export flavor to run (release/debug/pack); default release.",
     )
-    output: NormalizedPath | None = Field(
+    output: ExportOutputPath | None = Field(
         default=None,
-        description="Override the preset's configured export_path; write the artifact here instead.",
+        description=(
+            "Override the preset's configured export_path; a relative filesystem "
+            "path is resolved against the invoker's current working directory "
+            "before export."
+        ),
     )
 
 
@@ -1856,9 +1880,12 @@ class ExportRunResult(BaseModel):
 
     Echoes the addressed preset's ``preset`` name and target ``platform`` (read
     from ``export_presets.cfg``), the ``mode`` that was run (the selected flavor,
-    ``release`` by default; #170), and the ``output_path`` the artifact was
-    written to — the effective destination, i.e. the ``--output`` override when
-    given, else the preset's *configured* ``export_path`` (#170).
+    ``release`` by default; #170), and the resolved absolute ``output_path`` the
+    artifact was written to — the effective destination, i.e. the ``--output``
+    override when given, else the preset's configured ``export_path`` resolved
+    against the project directory (#403). ``created_dirs`` lists output parent
+    directories created before the native export, from outermost to innermost
+    (#402).
     ``warnings`` carries the engine's non-fatal export warnings (e.g. a missing
     optional icon), parsed best-effort from the export's stderr; an export that
     succeeds cleanly reports ``warnings == []``. Unlike the sentinel operations,
@@ -1872,7 +1899,14 @@ class ExportRunResult(BaseModel):
         description="The preset's target platform (e.g. Linux/X11, Web, macOS)."
     )
     mode: ExportRunMode = Field(description="The export flavor that was run.")
-    output_path: str = Field(description="The path the export artifact was written to.")
+    output_path: str = Field(
+        description="The resolved absolute path the export artifact was written to."
+    )
+    created_dirs: list[str] = Field(
+        description=(
+            "Output parent directories created before export, from outermost to innermost."
+        )
+    )
     warnings: list[str] = Field(
         default_factory=list,
         description="The engine's non-fatal export warnings, parsed from stderr; empty on a clean export.",
