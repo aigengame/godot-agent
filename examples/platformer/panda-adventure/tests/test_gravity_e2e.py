@@ -318,9 +318,25 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
             episodes = records("enemy_suspended")[suspended_before:]
             return any(-r["fields"]["peak_offset_y"] >= min_rise for r in episodes)
 
+        def lift_evidence() -> str:
+            """One-shot scene forensics for the failure message (lazy: assert msg)."""
+            try:
+                return (
+                    f"min_rise={min_rise} "
+                    f"fires={[r['fields'] for r in records('gravity_fired')]} "
+                    f"episodes={[r['fields'] for r in records('enemy_suspended')]} "
+                    f"player_hits={len(records('player_hit'))} "
+                    f"player_died={bool(records('player_died'))} "
+                    f"player={node_position('/root/Main/Player')} "
+                    f"enemy={node_position('/root/Main/Enemy')}"
+                )
+            except Exception as exc:  # forensics must not mask the assertion
+                return f"evidence collection failed: {exc!r}"
+
         assert poll(enemy_lifted), (
             "the in-range Enemy should be lifted by the Gravity Field "
-            "(no enemy_suspended episode with peak rise >= min_rise)"
+            "(no enemy_suspended episode with peak rise >= min_rise): "
+            + lift_evidence()
         )
 
         # --- Drain the MP budget: every remaining full-cost fire succeeds...
