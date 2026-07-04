@@ -162,6 +162,32 @@ def test_scene_get_result_round_trips_a_nested_tree():
     assert json.loads(scene.model_dump_json()) == payload
 
 
+def test_scene_get_result_round_trips_an_instanced_node_marker():
+    payload = {
+        "path": "/p/main.tscn",
+        "root": {
+            "name": "main",
+            "type": "Node2D",
+            "children": [
+                {
+                    "name": "Hud",
+                    "type": "CanvasLayer",
+                    "instance_path": "res://scenes/hud.tscn",
+                    "instance_status": "resolved",
+                    "children": [],
+                }
+            ],
+        },
+    }
+
+    scene = SceneGetResult.model_validate(payload)
+
+    hud = scene.root.children[0]
+    assert hud.instance_path == "res://scenes/hud.tscn"
+    assert hud.instance_status == "resolved"
+    assert json.loads(scene.model_dump_json()) == payload
+
+
 def test_scene_list_result_round_trips_enumerated_scenes():
     # The scene-list operation enumerates the project's .tscn files (issue #54):
     # each entry carries its res:// path plus the root's name/type read cheaply
@@ -180,6 +206,26 @@ def test_scene_list_result_round_trips_enumerated_scenes():
     assert listed.scenes[0].path == "res://main.tscn"
     assert listed.scenes[1].root_type == "Control"
     assert listed.scenes[2].root_name is None
+    assert json.loads(listed.model_dump_json()) == payload
+
+
+def test_scene_list_result_round_trips_an_inherited_root_marker():
+    payload = {
+        "scenes": [
+            {
+                "path": "res://inherited_hud.tscn",
+                "root_name": "InheritedHud",
+                "root_type": "CanvasLayer",
+                "root_instance_path": "res://scenes/hud.tscn",
+                "root_instance_status": "resolved",
+            }
+        ]
+    }
+
+    listed = SceneListResult.model_validate(payload)
+
+    assert listed.scenes[0].root_instance_path == "res://scenes/hud.tscn"
+    assert listed.scenes[0].root_instance_status == "resolved"
     assert json.loads(listed.model_dump_json()) == payload
 
 

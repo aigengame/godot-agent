@@ -352,15 +352,44 @@ class SceneCreateResult(BaseModel):
     )
 
 
+class SceneInstanceStatus(str, Enum):
+    """Whether a statically-read instanced scene reference resolved."""
+
+    RESOLVED = "resolved"
+    MISSING = "missing"
+
+
 class SceneNode(BaseModel):
-    """One node of a scene's structured tree: name, type, nested children.
+    """One node of a scene's structured tree: name, type, instance marker, children.
 
     Recursive on purpose — the tree IS the contract: ``gda scene get`` reports
     arbitrarily nested scenes through this one shape.
     """
 
     name: str
-    type: str
+    type: str = Field(
+        description=(
+            "Godot node class. For an instanced scene node, this is the "
+            "instanced scene's root class when it can be resolved statically."
+        )
+    )
+    instance_path: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "The referenced PackedScene path when this node is an instanced "
+            "scene; null for a plain typed node."
+        ),
+    )
+    instance_status: SceneInstanceStatus | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "Whether the instanced scene reference resolved. Null for a plain "
+            "typed node; 'missing' means instance_path is visible but could not "
+            "be loaded as a PackedScene."
+        ),
+    )
     children: list["SceneNode"] = []
 
 
@@ -586,7 +615,30 @@ class ListedScene(BaseModel):
     )
     root_type: str | None = Field(
         default=None,
-        description="The scene root node's type, or null if the file could not be loaded as a scene.",
+        description=(
+            "The scene root node's type, resolving an inherited/instanced root "
+            "to the referenced scene's root type when possible; null if the "
+            "file could not be loaded as a scene."
+        ),
+    )
+    root_instance_path: str | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "The referenced PackedScene path when the scene root inherits or "
+            "instances another scene; null for a plain typed root or an "
+            "unloadable scene."
+        ),
+    )
+    root_instance_status: SceneInstanceStatus | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "Whether the root instance reference resolved. Null for a plain "
+            "typed root or an unloadable scene; 'missing' means "
+            "root_instance_path is visible but could not be loaded as a "
+            "PackedScene."
+        ),
     )
 
 

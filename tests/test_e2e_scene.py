@@ -262,6 +262,44 @@ NESTED_TSCN = """\
 """
 
 
+INSTANCED_HUD_TSCN = """\
+[gd_scene format=3]
+
+[node name="HudRoot" type="CanvasLayer"]
+"""
+
+
+HOST_WITH_INSTANCED_CHILD_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/hud.tscn" id="1_hud"]
+
+[node name="Main" type="Node2D"]
+
+[node name="Hud" parent="." instance=ExtResource("1_hud")]
+"""
+
+
+HOST_WITH_MISSING_INSTANCED_CHILD_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/missing_hud.tscn" id="1_missing"]
+
+[node name="Main" type="Node2D"]
+
+[node name="Hud" parent="." instance=ExtResource("1_missing")]
+"""
+
+
+INHERITED_HUD_ROOT_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/hud.tscn" id="1_hud"]
+
+[node name="InheritedHud" instance=ExtResource("1_hud")]
+"""
+
+
 @pytest.mark.e2e
 def test_scene_get_reports_nested_tree(godot_project):
     # Guards the SceneState parent/child reconstruction (issue #30): a scene
@@ -278,6 +316,50 @@ def test_scene_get_reports_nested_tree(godot_project):
     assert (hero["name"], hero["type"]) == ("Hero", "Sprite2D")
     hitbox = hero["children"][0]
     assert (hitbox["name"], hitbox["type"]) == ("Hitbox", "Area2D")
+
+
+@pytest.mark.e2e
+def test_scene_get_marks_instanced_child_and_resolves_its_root_type(godot_project):
+    # issue #400: SceneState.get_node_type() is empty for instanced nodes.
+    # Static reads still need to identify the node as an instance and expose the
+    # instanced scene's root type without instantiating the host scene.
+    (godot_project / "scenes").mkdir()
+    (godot_project / "scenes" / "hud.tscn").write_text(
+        INSTANCED_HUD_TSCN, encoding="utf-8"
+    )
+    (godot_project / "main.tscn").write_text(
+        HOST_WITH_INSTANCED_CHILD_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+
+    got = gda("scene", "get", "res://main.tscn", "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    hud = json.loads(got.stdout)["root"]["children"][0]
+    assert hud["name"] == "Hud"
+    assert hud["type"] == "CanvasLayer"
+    assert hud["instance_path"] == "res://scenes/hud.tscn"
+    assert hud["instance_status"] == "resolved"
+
+
+@pytest.mark.e2e
+def test_scene_get_marks_missing_instanced_child_reference(godot_project):
+    # issue #400: when the referenced scene is missing, the static read must
+    # still expose the instance marker so agents can branch on a broken
+    # instance instead of seeing only type="".
+    (godot_project / "main.tscn").write_text(
+        HOST_WITH_MISSING_INSTANCED_CHILD_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+
+    got = gda("scene", "get", "res://main.tscn", "--json")
+
+    assert got.returncode == 0, got.stdout + got.stderr
+    hud = json.loads(got.stdout)["root"]["children"][0]
+    assert hud["name"] == "Hud"
+    assert hud["type"] == ""
+    assert hud["instance_path"] == "res://scenes/missing_hud.tscn"
+    assert hud["instance_status"] == "missing"
 
 
 @pytest.mark.e2e
@@ -384,6 +466,31 @@ def test_scene_list_enumerates_created_scenes(godot_project):
     assert by_path["res://main.tscn"]["root_type"] == "Node2D"
     assert by_path["res://main.tscn"]["root_name"] == "main"
     assert by_path["res://ui/menu.tscn"]["root_type"] == "Control"
+
+
+@pytest.mark.e2e
+def test_scene_list_marks_inherited_scene_root_and_resolves_its_type(godot_project):
+    # issue #400 also affects scene list: an inherited scene root has an empty
+    # SceneState node type, so the listing needs the same instance marker and
+    # root-type resolution as scene get.
+    (godot_project / "scenes").mkdir()
+    (godot_project / "scenes" / "hud.tscn").write_text(
+        INSTANCED_HUD_TSCN, encoding="utf-8"
+    )
+    (godot_project / "inherited_hud.tscn").write_text(
+        INHERITED_HUD_ROOT_TSCN, encoding="utf-8"
+    )
+    gda = _gda_project(godot_project)
+
+    listed = gda("scene", "list", "--json")
+
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    scenes = json.loads(listed.stdout)["scenes"]
+    summary = {s["path"]: s for s in scenes}["res://inherited_hud.tscn"]
+    assert summary["root_name"] == "InheritedHud"
+    assert summary["root_type"] == "CanvasLayer"
+    assert summary["root_instance_path"] == "res://scenes/hud.tscn"
+    assert summary["root_instance_status"] == "resolved"
 
 
 @pytest.mark.e2e
