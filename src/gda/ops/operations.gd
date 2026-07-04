@@ -3578,7 +3578,11 @@ func _load_for_mutation(params: Dictionary) -> Node:
 	# env var, so it is dead code in production (mirrors GDA_TEST_PERTURB_BEFORE_SAVE).
 	if OS.has_environment("GDA_TEST_PERTURB_AFTER_LOAD"):
 		_test_perturb_target(path)
-	var root: Node = packed.instantiate()
+	# Mutating ops re-pack the host scene after editing the live tree. Instantiate
+	# the host as the edited main scene so pre-existing instance children retain
+	# their scene-instance state; otherwise the packer diffs them against class
+	# defaults and serializes non-canonical `type=` / inherited-property churn.
+	var root: Node = packed.instantiate(PackedScene.GEN_EDIT_STATE_MAIN)
 	if root == null:
 		# The engine returns null for a scene it cannot instantiate at all —
 		# e.g. an instanced sub-scene whose resource loads but instantiates to
