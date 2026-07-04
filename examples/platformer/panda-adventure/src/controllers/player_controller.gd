@@ -326,3 +326,45 @@ func _gravity_config() -> GravityConfigScript:
 				% GRAVITY_CONFIG_PATH
 			)
 	return _gravity_cfg
+
+
+# --- S6a Kill reward + HUD read surface (gADR-0004) ---------------------------
+# Kept as ONE self-contained append-only block (the S3/S4 parallel-merge
+# pattern): the reward RECEIVER (the spawner-side wiring lives in
+# LevelController) and the one public snapshot the HUD reads.
+
+
+## Receive one Kill reward: accumulate the defeated kind's Tier-derived
+## EXP/Gold onto this Player's own StatsSystem (the only mutation — pure
+## addition, StatsSystem.gain_reward) and log the accumulation trace. The
+## amounts and tier come from the defeated kind's derived config, read by the
+## caller (LevelController) — this method decides nothing.
+func gain_reward(exp_reward: float, gold_reward: float, tier: String) -> void:
+	if _stats == null:
+		return
+	_stats.gain_reward(exp_reward, gold_reward)
+	GameLogScript.emit("info", "reward_gained", {
+		"exp": exp_reward,
+		"gold": gold_reward,
+		"exp_total": _stats.exp_points,
+		"gold_total": _stats.gold,
+		"tier": tier,
+	})
+
+
+## The minimal public read surface the HUD pulls each frame (gADR-0004): one
+## snapshot Dictionary of the live stats (+ their config caps) and the Current
+## weapon, so the HUD never reaches into privates. Empty ({}) until _ready has
+## initialized the stats — a puller skips that frame.
+func hud_state() -> Dictionary:
+	if _stats == null or _stats_config == null:
+		return {}
+	return {
+		"hp": _stats.hp,
+		"max_hp": _stats_config.max_hp,
+		"mp": _stats.mp,
+		"max_mp": _stats_config.max_mp,
+		"exp": _stats.exp_points,
+		"gold": _stats.gold,
+		"weapon": _weapon,
+	}

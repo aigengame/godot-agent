@@ -1,4 +1,9 @@
 {
+  "tiers": {
+    "minion": { "exp_reward": 10.0, "gold_reward": 5.0 },
+    "elite": { "exp_reward": 40.0, "gold_reward": 20.0 },
+    "boss": { "exp_reward": 200.0, "gold_reward": 100.0 }
+  },
   "kinds": {
     "monster_minion_melee": {
       "faction": "monster",

@@ -1,0 +1,23 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://src/controllers/hud_controller.gd" id="1_vhfxv"]
+
+[node name="Hud" type="CanvasLayer" unique_id=1348255007]
+script = ExtResource("1_vhfxv")
+
+[node name="Stats" type="VBoxContainer" parent="." unique_id=934309046]
+
+[node name="HpLabel" type="Label" parent="Stats" unique_id=974451810]
+layout_mode = 2
+
+[node name="MpLabel" type="Label" parent="Stats" unique_id=221873651]
+layout_mode = 2
+
+[node name="ExpLabel" type="Label" parent="Stats" unique_id=374950307]
+layout_mode = 2
+
+[node name="GoldLabel" type="Label" parent="Stats" unique_id=1438675772]
+layout_mode = 2
+
+[node name="WeaponLabel" type="Label" parent="Stats" unique_id=1211773034]
+layout_mode = 2

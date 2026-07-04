@@ -23,3 +23,5 @@ keep_range_min = 0
 keep_range_max = 48
 attack_squash = Vector2(1.25, 0.75)
 attack_tween_duration = 0.18
+exp_reward = 10
+gold_reward = 5

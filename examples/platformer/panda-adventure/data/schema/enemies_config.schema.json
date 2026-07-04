@@ -2,11 +2,29 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aigengame.dev/panda-adventure/data/schema/enemies_config.schema.json",
   "title": "Panda Adventure enemy taxonomy configuration",
-  "description": "Authoritative config for the S4 Enemy taxonomy (gADR-0000, gADR-0003). `kinds` maps each Enemy Kind name to one point in Faction x Tier x Archetype plus its stat block (the same max_hp/max_mp/attack/defense shape as combat_config's stat_block — the symmetric damage-formula contract, gADR-0001), its blockout, and its Archetype-AI params. `spawns` is the Spawn Roster: the data-driven which-kind-spawns-where list the level consumes (the Wave slice will compose these entries per Wave). Converted by scripts/build_config.py into one derived EnemyConfig .tres per kind (data/generated/enemy_<kind>.tres) plus data/generated/enemy_roster.tres (EnemyRosterConfig); the per-kind derivation specs are themselves derived from `kinds`, so adding a kind is a JSON-only change. Cross-field rules this schema cannot express — the Steering Band interval, the melee contact-damage bound, spawn->kind referential integrity, and roster-name uniqueness — are enforced by build_config.validate_enemies_semantics before any resource is derived.",
+  "description": "Authoritative config for the S4 Enemy taxonomy (gADR-0000, gADR-0003) plus the S6a per-Tier Kill reward table (gADR-0004). `tiers` maps each Tier to its reward budget ({exp_reward, gold_reward}) — the AUTHORITY for what a kill awards; the builder resolves it into per-kind derived exp_reward/gold_reward fields so the runtime stays a dumb kind.<field> read. `kinds` maps each Enemy Kind name to one point in Faction x Tier x Archetype plus its stat block (the same max_hp/max_mp/attack/defense shape as combat_config's stat_block — the symmetric damage-formula contract, gADR-0001), its blockout, and its Archetype-AI params. `spawns` is the Spawn Roster: the data-driven which-kind-spawns-where list the level consumes (the Wave slice will compose these entries per Wave). Converted by scripts/build_config.py into one derived EnemyConfig .tres per kind (data/generated/enemy_<kind>.tres) plus data/generated/enemy_roster.tres (EnemyRosterConfig); the per-kind derivation specs are themselves derived from `kinds`, so adding a kind is a JSON-only change. Cross-field rules this schema cannot express — the Steering Band interval, the melee contact-damage bound, spawn->kind referential integrity, roster-name uniqueness, and Tier->reward coverage (every Tier a kind uses must have a `tiers` entry) — are enforced by build_config.validate_enemies_semantics before any resource is derived.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["kinds", "spawns"],
+  "required": ["tiers", "kinds", "spawns"],
   "$defs": {
+    "tier_reward": {
+      "description": "One Tier's Kill reward budget: the EXP and Gold awarded to the Player when an Enemy of this Tier dies (gADR-0004).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exp_reward", "gold_reward"],
+      "properties": {
+        "exp_reward": {
+          "description": "EXP awarded per kill of this Tier; non-negative.",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "gold_reward": {
+          "description": "Gold awarded per kill of this Tier; non-negative.",
+          "type": "number",
+          "minimum": 0.0
+        }
+      }
+    },
     "rgba": {
       "description": "A color as RGBA, each component in 0..1.",
       "type": "array",
@@ -69,7 +87,7 @@
           "enum": ["monster", "xenomorph", "alien", "robot"]
         },
         "tier": {
-          "description": "Power-and-reward grade axis (drives the stat budget; rewards are S6a).",
+          "description": "Power-and-reward grade axis: drives the stat budget, and keys this kind's Kill reward in the top-level `tiers` table (gADR-0004).",
           "enum": ["minion", "elite", "boss"]
         },
         "archetype": {
@@ -189,6 +207,17 @@
     }
   },
   "properties": {
+    "tiers": {
+      "description": "The per-Tier Kill reward table, keyed by Tier name (the same enum as a kind's `tier` axis). A subset is schema-valid; that every Tier actually USED by a kind has an entry here is a cross-field rule owned by build_config.validate_enemies_semantics.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "minion": { "$ref": "#/$defs/tier_reward" },
+        "elite": { "$ref": "#/$defs/tier_reward" },
+        "boss": { "$ref": "#/$defs/tier_reward" }
+      }
+    },
     "kinds": {
       "description": "Enemy Kind definitions, keyed by kind name.",
       "type": "object",

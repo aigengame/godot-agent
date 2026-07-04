@@ -133,6 +133,22 @@ The runtime holder of one actor's live HP/MP/EXP/Gold, instantiated per actor fr
 Block and mutated only in memory — never persisted back to config (gADR-0001).
 _Avoid_: stats manager, game state
 
+**Kill reward**:
+The EXP and Gold awarded to the Player when an Enemy dies, keyed by the enemy's Tier in the
+authoritative per-Tier reward table and resolved to per-kind derived fields by the builder
+(gADR-0004). Accumulated onto the Player's StatsSystem; the risk→reward half of the
+death/reward story.
+_Avoid_: drop (that is the S7 item story), loot, bounty
+
+### UI
+
+**HUD**:
+The always-on screen-space overlay surfacing the Player's live HP, MP, EXP, Gold, and Current
+weapon at a glance (GDD "HUD & UI"), reading the Player's public snapshot each frame rather
+than the Player's internals (gADR-0004). Diegetic-light and unobtrusive; a blockout of Labels
+until the asset pass.
+_Avoid_: status bar, overlay UI, GUI (the HUD is one specific surface, not all UI)
+
 ### Combat
 
 **CombatSystem**:

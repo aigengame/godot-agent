@@ -1,10 +1,11 @@
 class_name LevelController
 extends Node2D
 
-## Scene-level director for S1+S2+S4: applies the data-driven Platform
-## blockout, spawns the Spawn Roster's enemies, and emits the boot log. The
-## Player self-configures (PlayerController); this owns the rest of the level
-## so config application stays out of the physics body.
+## Scene-level director for S1+S2+S4+S6a: applies the data-driven Platform
+## blockout, spawns the Spawn Roster's enemies, wires each spawn's death to
+## the Kill reward (gADR-0004), and emits the boot log. The Player
+## self-configures (PlayerController); this owns the rest of the level so
+## config application stays out of the physics body.
 ##
 ## Visuals and geometry are data (gADR-0000): the derived PlayerConfig /
 ## EnemyRosterConfig / EnemyConfig Resources, never hardcoded. Loaded here and
@@ -95,4 +96,21 @@ func _spawn_enemies() -> void:
 		enemy.setup(kind)
 		enemy.name = spawn["name"]
 		enemy.position = spawn["position"]
+		# S6a Kill reward (gADR-0004): the spawner owns the death->reward
+		# wiring, binding the spawned kind so the award reads its Tier-derived
+		# fields — the EnemyController stays reward-agnostic (it only emits
+		# died) and the Player only receives.
+		enemy.died.connect(_on_enemy_died.bind(kind))
 		add_child(enemy)
+
+
+## Award one Kill reward (S6a, gADR-0004): the dying kind's Tier-derived
+## EXP/Gold go to the Player (looked up by group, the S4 pattern — no cached
+## reference to go stale), which accumulates them onto its own StatsSystem and
+## logs reward_gained. No decision here beyond delivery: the amounts are dumb
+## per-kind fields the builder resolved from the per-Tier table.
+func _on_enemy_died(kind: EnemyConfigScript) -> void:
+	var player := get_tree().get_first_node_in_group("player")
+	if player == null or not player.has_method("gain_reward"):
+		return
+	player.gain_reward(kind.exp_reward, kind.gold_reward, kind.tier)

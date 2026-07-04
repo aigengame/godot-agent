@@ -50,8 +50,8 @@ see `AGENTS.md` ("The gda daemon harness is COMMITTED").
 
 ## `scenes/main.tscn`
 
-Panda Adventure's main scene (S1 player traversal + S2 combat + S3 gravity),
-hand-bootstrapped, now edited via gda scene ops. **Structure only**: every visual
+Panda Adventure's main scene (S1 player traversal + S2 combat + S3 gravity +
+S6a HUD), hand-bootstrapped, now edited via gda scene ops. **Structure only**: every visual
 (color/size/position) and the collision-shape sizes are applied at RUNTIME from
 the derived config Resources by the controllers (gADR-0000 — no config baked into
 the scene). The `RectangleShape2D` sub-resources start at a placeholder size that
@@ -71,3 +71,14 @@ The S3 `Obstacle` (StaticBody2D + Visual + Collision, script
 clear of the Laser Gun's bolt line (placement is config —
 `GravityConfig.obstacle_position`, applied in `_ready`), the Player walks and
 jumps under it, and only a Gravity Field moves it (gADR-0002).
+
+The S6a `Hud` is an **instance node** of the gda-authored `scenes/hud.tscn` (a
+CanvasLayer — screen-space, unaffected by the Player's follow-camera — holding
+the Stats Label column; placement/pulse numbers come from `HudConfig` at
+runtime, gADR-0004). It is deliberately the LAST child so the Player's
+`_ready` (group join + stats init) precedes the HUD's first read; the HUD's
+per-frame group lookup would self-heal anyway. Its `[node ... instance=
+ExtResource(...)]` line (plus the PackedScene ext_resource) was hand-added:
+gda's `node add` authors type nodes only and has no scene-instance op (a gda
+gap surfaced by this slice) — this file remains the sanctioned hand-edit
+fallback. No collision/physics: the HUD is layer-less UI.
