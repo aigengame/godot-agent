@@ -14,12 +14,12 @@ session:
   in-range Obstacle is lifted, the out-of-range Enemy does NOT move (the field
   is LOCAL), and the Player never moves off its resting y (never affected —
   the collision mask, gADR-0002);
-- walking into range and firing again lifts the Enemy while the field feeds
-  it (gADR-0002 suspension on the S4 mobile Enemy), proven by the per-episode
-  ``enemy_suspended`` peak-displacement record — the MONOTONIC observable; a
-  positional snapshot races the 2 s field lifetime against CLI round-trip
-  latency and loses deterministically on slow CI runners (#406). The clamp
-  math itself is pinned headless in the logic seam;
+- walking in engages the S4 mobile Enemy, and a live-position retreat →
+  re-face → fire choreography (ONE physics_frame input sequence, so its
+  timing is engine-deterministic) drops the field on the chasing Enemy; the
+  per-episode ``enemy_suspended`` peak-displacement record proves the lift
+  (gADR-0002 suspension) — a monotonic observable, immune to CI pacing
+  (#406). The clamp math itself is pinned headless in the logic seam;
 - repeated fires drain MP to 0; at 0 MP the fire is refused
   (``gravity_blocked``, no new field) — the MP gate;
 - ``drink_wine`` restores MP (``wine_drunk``) and the Gravity Gun fires again;
@@ -104,7 +104,6 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         - player_cfg["platform_size"][1] / 2.0
         - player_cfg["player_size"][1] / 2.0
     )
-    start_x = player_cfg["player_start"][0]
     env = {**os.environ}
 
     def run(*args: str) -> subprocess.CompletedProcess:
@@ -150,15 +149,25 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         raise AssertionError(f"position not returned for {path}")
 
     def tap(action: str) -> None:
-        """One press+release of an InputMap action (one is_action_just_pressed)."""
+        """One press+release of an InputMap action (one is_action_just_pressed).
+
+        physics_frame offsets: the game consumes input in _physics_process, and
+        the idle-frame clock drifts against the physics clock on loaded CI
+        runners, so all injected input rides the physics clock (#406).
+        """
         seq = run(
             "input",
             "sequence",
             "--events",
             json.dumps(
                 [
-                    {"type": "action", "action": action, "frame": 0},
-                    {"type": "action", "action": action, "release": True, "frame": 4},
+                    {"type": "action", "action": action, "physics_frame": 0},
+                    {
+                        "type": "action",
+                        "action": action,
+                        "release": True,
+                        "physics_frame": 4,
+                    },
                 ]
             ),
         )
@@ -248,19 +257,33 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         # ...and it NEVER acts on the Player (mask guarantee): still resting.
         assert node_position("/root/Main/Player")[1] == pytest.approx(rest_y, abs=2.0)
 
-        # --- Walk into range of the Enemy, fire, and the field lifts it
-        # (gADR-0002 suspension).
+        # --- Engage the Enemy and lift it with a field (gADR-0002 suspension).
         #
-        # Sequence `frame` offsets are IDLE frames, and a headless session's
-        # idle rate is decoupled from the 60Hz physics clock, so a fixed-length
-        # walk is not portable. Walk in SHORT bounded bursts with position
-        # feedback instead, until the Player is inside the (wide, geometry-
-        # derived) firing window: |field_center_x - enemy_x| within the field
-        # radius plus the Enemy's half width, with a safety margin.
-        reach = gravity["field_radius"] + combat["enemy_size"][0] / 2.0
-        walk_lo = enemy_pos[0] - gravity["field_spawn_offset"][0] - reach + 30.0
-        walk_hi = enemy_pos[0] - gravity["field_spawn_offset"][0] + reach - 30.0
-        walk_mid = (walk_lo + walk_hi) / 2.0
+        # Since S4 the Enemy is a mobile melee CharacterBody2D (gADR-0003): it
+        # aggros as the Player nears, chases into its keep band (a 2D distance
+        # <= keep_range_max), and enemy bodies do not collide with the Player,
+        # so by fire time it may stand ON the Player — while the field spawns
+        # field_spawn_offset in FRONT of the facing. A shot aimed by the
+        # CONFIG spawn window can then miss the Enemy entirely (#406, CI run
+        # 28703817301: enemy 4.7 px behind the Player, field center 124.7 px
+        # away, zero suspension frames). So walk in only until ENGAGED (live
+        # gap <= the spawn offset), and aim the shot from LIVE positions.
+        enemies_cfg = build_config.load_json(
+            GAME_DIR / "data" / "json" / "enemies_config.json"
+        )
+        enemy_spawn = next(s for s in enemies_cfg["spawns"] if s["name"] == "Enemy")
+        enemy_speed = enemies_cfg["kinds"][enemy_spawn["kind"]]["move_speed"]
+        player_speed = player_cfg["move_speed"]
+        spawn_offset_x = gravity["field_spawn_offset"][0]
+        platform_left = (
+            player_cfg["platform_position"][0] - player_cfg["platform_size"][0] / 2.0
+        )
+        platform_right = (
+            player_cfg["platform_position"][0] + player_cfg["platform_size"][0] / 2.0
+        )
+        # Godot's default fixed physics tick rate; project.godot does not
+        # override physics/common/physics_ticks_per_second.
+        physics_fps = 60.0
 
         def burst_right() -> None:
             seq = run(
@@ -269,50 +292,115 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
                 "--events",
                 json.dumps(
                     [
-                        {"type": "action", "action": "move_right", "frame": 0},
+                        {"type": "action", "action": "move_right", "physics_frame": 0},
                         {
                             "type": "action",
                             "action": "move_right",
                             "release": True,
-                            "frame": 12,
+                            "physics_frame": 12,
                         },
                     ]
                 ),
             )
             assert seq.returncode == 0, seq.stdout + seq.stderr
 
-        player_x = start_x
+        def live_gap() -> float:
+            """Signed Enemy-minus-Player x gap from live positions."""
+            return (
+                node_position("/root/Main/Enemy")[0]
+                - node_position("/root/Main/Player")[0]
+            )
+
+        gap = live_gap()
         for _ in range(40):
-            player_x = node_position("/root/Main/Player")[0]
-            if player_x >= walk_mid - 40.0:
+            if abs(gap) <= spawn_offset_x:
                 break
             burst_right()
-        assert walk_lo <= player_x <= walk_hi, (
-            f"the Player did not stop inside the firing window: x={player_x}, "
-            f"window=[{walk_lo}, {walk_hi}]"
+            gap = live_gap()
+        assert abs(gap) <= spawn_offset_x, (
+            f"the Player never engaged the Enemy: gap={gap}"
         )
 
-        # Since S4 the Enemy is a mobile CharacterBody2D: entering the firing
-        # window also enters the melee kind's aggro range, so the Enemy may be
-        # chasing (its x is not stable) and it hangs suspended only WHILE a
-        # field feeds it (gADR-0002 suspension), falling back once the field
-        # expires. A positional snapshot of that transient state races the
-        # field_duration window against CLI round-trip latency and loses
-        # deterministically on slow CI runners (#406). The contract observable
-        # is therefore the MONOTONIC per-episode `enemy_suspended` record the
-        # Enemy emits when a suspension episode ends, carrying the episode's
-        # peak clamped displacement from the real integration; the lift
-        # direction and the clamp math stay pinned headless in the logic seam
+        # The suspension shot: retreat AWAY from the chasing Enemy until the
+        # gap reopens to ~field_spawn_offset, re-face, and fire — the field
+        # then spawns on the Enemy. The whole choreography is ONE input
+        # sequence on the physics clock, so its geometry cannot be stretched
+        # by CLI round-trip latency; only the pre-read gap is approximate
+        # (bounded by the keep band), and the field radius absorbs it.
+        reface_frames = 4
+
+        def suspension_shot() -> None:
+            px = node_position("/root/Main/Player")[0]
+            ex = node_position("/root/Main/Enemy")[0]
+            # Retreat away from the Enemy; an overlapped (on-Player) Enemy
+            # goes left, where the walk-in left the most platform room.
+            away = -1.0 if ex >= px - 10.0 else 1.0
+            open_rate = (player_speed - enemy_speed) / physics_fps
+            close_rate = (player_speed + enemy_speed) / physics_fps
+            # The gap the retreat must open so the Enemy sits on the field
+            # center at the fire frame, after the re-face tap (and the fire
+            # press two frames later) close part of it again.
+            target_gap = spawn_offset_x + close_rate * (reface_frames + 2.0)
+            retreat_frames = math.ceil(max(0.0, target_gap - abs(ex - px)) / open_rate)
+            # Never retreat off the platform.
+            room = (
+                px - platform_left - 60.0 if away < 0.0 else platform_right - 60.0 - px
+            )
+            retreat_frames = max(
+                0, min(retreat_frames, int(room * physics_fps / player_speed))
+            )
+            move_action = "move_left" if away < 0.0 else "move_right"
+            face_action = "move_right" if away < 0.0 else "move_left"
+            t0 = retreat_frames
+            seq = run(
+                "input",
+                "sequence",
+                "--events",
+                json.dumps(
+                    [
+                        {"type": "action", "action": move_action, "physics_frame": 0},
+                        {
+                            "type": "action",
+                            "action": move_action,
+                            "release": True,
+                            "physics_frame": t0,
+                        },
+                        {
+                            "type": "action",
+                            "action": face_action,
+                            "physics_frame": t0 + 1,
+                        },
+                        {
+                            "type": "action",
+                            "action": face_action,
+                            "release": True,
+                            "physics_frame": t0 + 1 + reface_frames,
+                        },
+                        {
+                            "type": "action",
+                            "action": "fire",
+                            "physics_frame": t0 + 2 + reface_frames,
+                        },
+                        {
+                            "type": "action",
+                            "action": "fire",
+                            "release": True,
+                            "physics_frame": t0 + 6 + reface_frames,
+                        },
+                    ]
+                ),
+            )
+            assert seq.returncode == 0, seq.stdout + seq.stderr
+
+        # The lift observable is the MONOTONIC per-episode `enemy_suspended`
+        # record the Enemy emits when a suspension episode ends, carrying the
+        # episode's peak clamped displacement from the real integration — a
+        # positional snapshot of the transient suspension would race the
+        # field_duration window against CLI latency (#406). The lift direction
+        # and the clamp math stay pinned headless in the logic seam
         # (GravitySystem).
         min_rise = 0.5 * min(enemy_clamp, gravity["field_radius"])
         suspended_before = len(records("enemy_suspended"))
-        tap("fire")
-        assert poll(lambda: len(records("gravity_fired")) >= 2), (
-            "the in-range fire should spend MP and spawn a field"
-        )
-        assert records("gravity_fired")[1]["fields"]["mp_after"] == pytest.approx(
-            mp_max - 2 * mp_cost
-        )
 
         def enemy_lifted() -> bool:
             episodes = records("enemy_suspended")[suspended_before:]
@@ -333,14 +421,28 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
             except Exception as exc:  # forensics must not mask the assertion
                 return f"evidence collection failed: {exc!r}"
 
-        assert poll(enemy_lifted), (
+        # The pre-read gap can be stale by one chase step, so allow a couple
+        # of re-aimed shots; each spends one mp_cost and the MP ledger below
+        # is count-agnostic.
+        lifted = False
+        for _ in range(3):
+            suspension_shot()
+            if poll(enemy_lifted, timeout=8.0):
+                lifted = True
+                break
+        assert lifted, (
             "the in-range Enemy should be lifted by the Gravity Field "
             "(no enemy_suspended episode with peak rise >= min_rise): "
             + lift_evidence()
         )
 
+        # Every fire so far spent exactly one mp_cost from the S2 StatsSystem,
+        # however many shots the lift needed.
+        for i, r in enumerate(records("gravity_fired")):
+            assert r["fields"]["mp_after"] == pytest.approx(mp_max - (i + 1) * mp_cost)
+
         # --- Drain the MP budget: every remaining full-cost fire succeeds...
-        fires_so_far = 2
+        fires_so_far = len(records("gravity_fired"))
         n_more = int((mp_max - fires_so_far * mp_cost) // mp_cost)
         leftover = mp_max - (fires_so_far + n_more) * mp_cost  # < mp_cost by def
         for _ in range(n_more):
