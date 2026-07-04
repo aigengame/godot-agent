@@ -340,7 +340,7 @@ def test_node_add_instance_preserves_existing_ext_resource_ids(godot_project):
     scene_path.write_text(
         "\n".join(
             [
-                '[gd_scene load_steps=2 format=3]',
+                "[gd_scene load_steps=2 format=3]",
                 "",
                 '[ext_resource type="Script" path="res://hero.gd" id="1_lkauy"]',
                 "",

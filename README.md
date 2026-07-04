@@ -383,7 +383,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 
 | Command | What it does |
 | ------- | ------------ |
-| `node add` | Add a node under a parent (built-in type or `class_name` script). |
+| `node add` | Add a node under a parent: a built-in type, a `class_name` script, or `--instance` to compose another scene as an instanced child. |
 | `node get` | Read a node's properties (by node path) as typed JSON. |
 | `node list` | List a scene's node tree with each node's path relative to the root. |
 | `node set` | Set a node property, coercing the value to its declared Godot type. |

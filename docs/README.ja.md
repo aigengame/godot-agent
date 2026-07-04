@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bdfb40b3f5d988d7c078a350821170b3579839c160396778620e9cc635573504 -->
+<!-- gda-readme-i18n: source=README.md sha256=54d955c0d26c2607586676502e2380782317721823423a92bcba9d359467cd81 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -398,7 +398,7 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 
 | コマンド | 機能 |
 | ------- | ------------ |
-| `node add` | 親の下にノードを追加します(組み込みタイプまたは `class_name` スクリプト)。 |
+| `node add` | 親の下にノードを追加します: 組み込みタイプ、`class_name` スクリプト、または `--instance` で別のシーンをインスタンス化した子として合成します。 |
 | `node get` | ノードのプロパティを(ノードパスで指定して)型付き JSON として読み取ります。 |
 | `node list` | シーンのノードツリーを、各ノードのルートからの相対パスとともに一覧します。 |
 | `node set` | ノードのプロパティを設定します。値は宣言された Godot の型に変換されます。 |

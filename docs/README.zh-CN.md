@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bdfb40b3f5d988d7c078a350821170b3579839c160396778620e9cc635573504 -->
+<!-- gda-readme-i18n: source=README.md sha256=54d955c0d26c2607586676502e2380782317721823423a92bcba9d359467cd81 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -381,7 +381,7 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `node add` | 在某个父节点下添加一个节点（内置类型或带 `class_name` 的脚本）。 |
+| `node add` | 在某个父节点下添加一个节点：内置类型、带 `class_name` 的脚本，或用 `--instance` 把另一个场景作为实例化子节点组合进来。 |
 | `node get` | 按节点路径读取一个节点的属性，输出带类型的 JSON。 |
 | `node list` | 列出一个场景的节点树，并给出每个节点相对于根的路径。 |
 | `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。 |

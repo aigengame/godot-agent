@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=bdfb40b3f5d988d7c078a350821170b3579839c160396778620e9cc635573504 -->
+<!-- gda-readme-i18n: source=README.md sha256=54d955c0d26c2607586676502e2380782317721823423a92bcba9d359467cd81 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -392,7 +392,7 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `node add` | Añade un nodo bajo un padre (tipo integrado o script con `class_name`). |
+| `node add` | Añade un nodo bajo un padre: un tipo integrado, un script con `class_name`, o `--instance` para componer otra escena como hijo instanciado. |
 | `node get` | Lee las propiedades de un nodo (por ruta de nodo) como JSON tipado. |
 | `node list` | Lista el árbol de nodos de una escena con la ruta de cada nodo relativa a la raíz. |
 | `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. |

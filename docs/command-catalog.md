@@ -126,6 +126,21 @@ arguments — is a script problem, not an unknown type, and is refused with the 
 `uninstantiable_script` error (exit 4) naming the script: repair the script (or re-import),
 don't change the type name. Either way the scene file is left untouched.
 
+**Scene instancing** (#399): `node add --instance <scene>` composes an existing scene as an
+instanced child — Godot's standard composition primitive — instead of constructing a typed
+node; `--type` and `--instance` are mutually exclusive (exactly one, enforced model-side so
+argv and `--params-json` agree). The write produces the canonical serialization the editor
+produces: an `ext_resource type="PackedScene"` entry plus an `instance=ExtResource(...)`
+node stub with no `type=` attribute, the instance's internals referenced, never inlined
+(pre-existing `ext_resource` ids stay byte-identical per the mutation-write rule above).
+The default `--name` is the instanced scene's filename stem. The result echoes the composed
+`res://` path as `instance` and reports `type` as the instanced scene's resolved root class.
+Failures follow the dependency ladder: a missing scene file is `missing_dependency` naming
+the path, a file that loads as something else is `not_a_scene`, and instancing the host into
+itself is refused as `cyclic_target` — all exit 4, file untouched. Instantiating the
+composed scene runs the `_init` of scripts inside it: the same trust boundary as the
+`class_name` path (#62).
+
 **Property reporting and value coercion** (established by #55): `gda node get` instantiates the
 scene and reports the addressed node's **storage** properties (the ones that serialize into the
 `.tscn`) as typed JSON — each a `{name, type, value}` triple where `type` is the property's
@@ -249,7 +264,7 @@ reuses `path_not_found` / `not_a_scene`. All failures exit 4 and leave the file 
 
 | Command | Description |
 | --- | --- |
-| `gda node add` | Add a node (by type or `class_name` script) into a scene |
+| `gda node add` | Add a node (by type, `class_name` script, or `--instance` scene composition) into a scene |
 | `gda node remove` | Remove a node from a scene |
 | `gda node get` | Read a node's properties (typed JSON) |
 | `gda node list` | List nodes in a scene (optionally filtered by type/group) |
