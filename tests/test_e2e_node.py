@@ -454,6 +454,66 @@ def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dic
 
 
 @pytest.mark.e2e
+def test_node_add_instance_missing_scene_yields_missing_dependency(godot_project):
+    # The #392/#396 dependency precedent applied to composition (#399): a
+    # missing instanced-scene path is a structured missing_dependency naming
+    # the path — never a silent or prose-only failure — and the host file
+    # stays untouched.
+    gda = _gda_project(godot_project)
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--instance", "res://ghost.tscn", "--json"
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "res://ghost.tscn" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_add_instance_non_scene_file_yields_not_a_scene(godot_project):
+    # --instance must reference a PackedScene: a file that exists but loads as
+    # something else (a script here) is refused with not_a_scene, naming the
+    # offending path.
+    gda = _gda_project(godot_project)
+    (godot_project / "hero.gd").write_text("extends Node2D\n", encoding="utf-8")
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--instance", "res://hero.gd", "--json"
+    )
+
+    err = _assert_operation_error(added, "not_a_scene")
+    assert "res://hero.gd" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_add_instance_of_the_host_itself_yields_cyclic_target(godot_project):
+    # Instancing a scene into itself would serialize a self-reference that can
+    # never finish loading. The direct cycle is refused up front with the
+    # registered cyclic_target code, leaving the file untouched (deeper A→B→A
+    # cycles remain the engine's load-time problem, out of gda's guard).
+    gda = _gda_project(godot_project)
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--instance", "res://main.tscn", "--json"
+    )
+
+    err = _assert_operation_error(added, "cyclic_target")
+    assert "res://main.tscn" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
 def test_node_add_to_missing_scene_yields_path_not_found(godot_project):
     missing = godot_project / "missing.tscn"
 

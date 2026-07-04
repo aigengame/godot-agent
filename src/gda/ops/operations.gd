@@ -524,7 +524,7 @@ func _op_node_add(params: Dictionary) -> void:
 	var instance_path := _string_param(params, "instance")
 	var node: Node = null
 	if instance_path != "":
-		node = _instantiate_scene_instance(instance_path)
+		node = _instantiate_scene_instance(instance_path, path)
 	else:
 		node = _instantiate_node_type(type)
 	if node == null:
@@ -4157,8 +4157,15 @@ func _instantiate_node_type(type: String) -> Node:
 # mirrors the dependency precedent (#392/#396): a missing file is the
 # composition's missing dependency, a file that loads as something else is
 # not_a_scene, and a scene that loads but instantiates to nothing (its own
-# dependencies broken) is missing_dependency again.
-func _instantiate_scene_instance(instance_path: String) -> Node:
+# dependencies broken) is missing_dependency again. The direct self-cycle
+# (instancing the host into itself) is refused up front as cyclic_target — the
+# write would serialize a self-reference that can never finish loading; deeper
+# A→B→A cycles stay the engine's load-time problem, outside this guard.
+func _instantiate_scene_instance(instance_path: String, host_path: String) -> Node:
+	if ProjectSettings.globalize_path(instance_path) == ProjectSettings.globalize_path(host_path):
+		_fail(OP_ERROR_CYCLIC_TARGET, "cannot instance a scene into itself: " + instance_path
+				+ " — the composition would create a cycle")
+		return null
 	if not ResourceLoader.exists(instance_path):
 		_fail(OP_ERROR_MISSING_DEPENDENCY, "instanced scene not found: " + instance_path
 				+ " — --instance must reference an existing scene file; check the path and --project")
