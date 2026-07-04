@@ -29,10 +29,13 @@ const CombatConfigScript := preload("res://src/resources/combat_config.gd")
 const StatsSystemScript := preload("res://src/systems/stats_system.gd")
 const CombatSystemScript := preload("res://src/systems/combat_system.gd")
 const EnemyAIScript := preload("res://src/systems/enemy_ai.gd")
+const GravitySystemScript := preload("res://src/systems/gravity_system.gd")
+const GravityConfigScript := preload("res://src/resources/gravity_config.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const EnemyProjectileScene := preload("res://scenes/enemy_projectile.tscn")
 
 const COMBAT_CONFIG_PATH := "res://data/generated/combat_config.tres"
+const GRAVITY_CONFIG_PATH := "res://data/generated/gravity_config.tres"
 
 var _kind: EnemyConfigScript
 var _combat: CombatConfigScript
@@ -43,9 +46,17 @@ var _last_hit_time := -INF
 # When this enemy last attacked. -INF = never, so the first attack is ready
 # immediately (EnemyAI.is_attack_ready's sentinel contract).
 var _last_attack_time := -INF
-# Buffered Gravity Field contribution (gADR-0002, S3): folded into the next
-# velocity integration, then consumed — see apply_gravity_field.
+# Buffered Gravity Field velocity (gADR-0002, S3): while a field feeds this,
+# the next physics frame SUSPENDS steering/gravity and applies the clamped
+# field displacement instead — see apply_gravity_field/_physics_process.
 var _field_velocity := Vector2.ZERO
+# Total displacement Gravity Fields have accumulated on this body, bounded by
+# GravityConfig.enemy_max_gravity_offset (a field never flings it off-level);
+# shed once the enemy is back on the floor with no field acting.
+var _gravity_offset := Vector2.ZERO
+# The derived GravityConfig, lazily loaded (load() is cached) so the gravity
+# block stays independent of _ready (the S3 pattern).
+var _gravity_config: GravityConfigScript
 
 
 ## Hand this enemy its Enemy Kind. Called by the spawner BEFORE add_child, so
@@ -83,6 +94,25 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if _kind == null or _stats == null:
 		return
+	# Suspended in a Gravity Field (gADR-0002): while a field feeds velocity,
+	# the clamped displacement REPLACES steering/gravity integration — the
+	# enemy hangs in the field (the GDD's "suspend a cluster of enemies in a
+	# Gravity Field, then shoot them") and its own gravity resumes the first
+	# un-fielded frame. Same pure decision as the Obstacle's
+	# (GravitySystem.compute_clamped_offset).
+	if _field_velocity != Vector2.ZERO:
+		var next := GravitySystemScript.compute_clamped_offset(
+			_gravity_offset, _field_velocity, delta, _gravity_clamp()
+		)
+		position += next - _gravity_offset
+		_gravity_offset = next
+		_field_velocity = Vector2.ZERO
+		velocity = Vector2.ZERO
+		return
+	# Back on the floor with no field acting: the field displacement has been
+	# shed by normal gravity, so a future field starts a fresh clamp budget.
+	if _gravity_offset != Vector2.ZERO and is_on_floor():
+		_gravity_offset = Vector2.ZERO
 	var player := _player()
 	var move_dir := 0.0
 	if player != null:
@@ -97,10 +127,6 @@ func _physics_process(delta: float) -> void:
 		velocity.y += _kind.gravity * delta
 		if velocity.y > _kind.max_fall_speed:
 			velocity.y = _kind.max_fall_speed
-	# Fold in the buffered Gravity Field contribution (gADR-0002), then consume
-	# it — the field re-applies each frame it still contains this enemy.
-	velocity += _field_velocity
-	_field_velocity = Vector2.ZERO
 	move_and_slide()
 	if player != null and EnemyAIScript.can_attack(
 		position, player.position, _kind, _last_attack_time, _now()
@@ -108,11 +134,26 @@ func _physics_process(delta: float) -> void:
 		_attack(player)
 
 
-## Gravity-response contract (gADR-0002, owned and documented by S3): fold a
-## Gravity Field's velocity into this body's velocity integration. Buffered and
-## consumed in _physics_process so the steering overwrite cannot drop it.
-func apply_gravity_field(field_velocity: Vector2, delta: float) -> void:
-	_field_velocity += field_velocity * delta
+## Gravity-response contract (gADR-0002, owned and documented by S3): buffer a
+## Gravity Field's velocity; the next _physics_process integrates it as clamped
+## displacement (suspension) with its own delta, so the steering overwrite
+## cannot drop it and the observable lift matches the Obstacle's.
+func apply_gravity_field(field_velocity: Vector2, _delta: float) -> void:
+	_field_velocity += field_velocity
+
+
+## The field-displacement clamp from the derived GravityConfig (gADR-0002),
+## lazily loaded like the S3 block on the other responders.
+func _gravity_clamp() -> float:
+	if _gravity_config == null:
+		_gravity_config = load(GRAVITY_CONFIG_PATH)
+		if _gravity_config == null:
+			push_error(
+				"EnemyController: could not load %s — run scripts/build_config.py."
+				% GRAVITY_CONFIG_PATH
+			)
+			return 0.0
+	return _gravity_config.enemy_max_gravity_offset
 
 
 ## Resolve one incoming hit from an attacker's stat block. Inside the i-frame
