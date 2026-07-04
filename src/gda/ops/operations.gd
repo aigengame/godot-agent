@@ -521,10 +521,15 @@ func _op_node_add(params: Dictionary) -> void:
 		return
 
 	var type := _string_param(params, "type")
-	var node := _instantiate_node_type(type)
+	var instance_path := _string_param(params, "instance")
+	var node: Node = null
+	if instance_path != "":
+		node = _instantiate_scene_instance(instance_path)
+	else:
+		node = _instantiate_node_type(type)
 	if node == null:
 		root.free()
-		return  # _instantiate_node_type already recorded the failure
+		return  # the instantiation helper already recorded the failure
 
 	# A parentless node never has its name rewritten: _is_valid_node_name already
 	# rejected the chars Godot sanitizes, and the @-dedup suffix is only appended
@@ -547,6 +552,7 @@ func _op_node_add(params: Dictionary) -> void:
 		"name": node_name,
 		"type": node_type,
 		"script_class": script_class,
+		"instance": instance_path if instance_path != "" else null,
 	})
 
 
@@ -4139,6 +4145,42 @@ func _instantiate_node_type(type: String) -> Node:
 			_fail(OP_ERROR_INVALID_NODE_TYPE, "not an instantiable Node class, and no .gd script declares class_name " + type
 					+ " (check for a misspelled name, or declare it with `class_name " + type + "`)")
 			return null
+
+
+# node-add --instance (#399): materialize the scene to compose as a child of
+# the host. Instantiation stamps the child root's scene_file_path — the marker
+# PackedScene.pack() keys on to serialize the child as an
+# instance=ExtResource(...) stub — its descendants stay owned by the instanced
+# root, so they are referenced, never inlined into the host. Instantiating runs
+# the _init of any script inside the instanced scene: the same Project-code
+# execution surface as the class_name path (ADR-0009). The failure ladder
+# mirrors the dependency precedent (#392/#396): a missing file is the
+# composition's missing dependency, a file that loads as something else is
+# not_a_scene, and a scene that loads but instantiates to nothing (its own
+# dependencies broken) is missing_dependency again.
+func _instantiate_scene_instance(instance_path: String) -> Node:
+	if not ResourceLoader.exists(instance_path):
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "instanced scene not found: " + instance_path
+				+ " — --instance must reference an existing scene file; check the path and --project")
+		return null
+	var packed := ResourceLoader.load(instance_path, "PackedScene") as PackedScene
+	if packed == null:
+		_fail(OP_ERROR_NOT_A_SCENE, "not a scene: " + instance_path
+				+ " — --instance must reference a PackedScene (.tscn/.scn)")
+		return null
+	# GEN_EDIT_STATE_INSTANCE retains the child's scene_instance_state — what
+	# the packer's states-stack walk keys on to emit the canonical instance
+	# stub: no type= attribute, and properties diffed against the instanced
+	# scene's own state rather than class defaults. Editor-build-only, which is
+	# the build gda drives (issue #164's documented assumption); a plain
+	# instantiate() would leave the state empty and serialize a non-canonical
+	# type= + class-default property dump alongside the instance= reference.
+	var child := packed.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	if child == null:
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: " + instance_path
+				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
+		return null
+	return child
 
 
 # Instantiate a class_name from its resolved script. Resolution (ADR-0032:

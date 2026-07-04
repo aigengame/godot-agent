@@ -316,6 +316,84 @@ def test_node_add_builtin_type_reports_null_script_class(godot_project):
     assert data["script_class"] is None
 
 
+@pytest.mark.e2e
+def test_node_add_instance_composes_a_scene_and_round_trips(godot_project):
+    # Issue #399: `node add --instance` is the structured way to author a scene
+    # instance — Godot's standard composition primitive. The write must produce
+    # the canonical serialization (an ext_resource for the scene plus an
+    # instance=ExtResource(...) node entry, exactly what the editor writes),
+    # and the composed scene must LOAD: node get instantiates the host, so it
+    # proves the engine resolves the instanced child to its real root class.
+    gda = _gda_project(godot_project)
+    (godot_project / "hud.tscn").write_text(
+        "\n".join(
+            [
+                "[gd_scene format=3]",
+                "",
+                '[node name="Hud" type="CanvasLayer"]',
+                "",
+                '[node name="Score" type="Label" parent="."]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    main = godot_project / "main.tscn"
+    main.write_text(
+        "\n".join(
+            [
+                "[gd_scene format=3]",
+                "",
+                '[node name="Main" type="Node2D"]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--instance", "res://hud.tscn", "--json"
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    data = json.loads(added.stdout)
+    # The result identifies the composition: default name = filename stem,
+    # type = the instanced scene's resolved ROOT class, instance = the source.
+    assert data["scene_path"] == "res://main.tscn"
+    assert (data["path"], data["name"]) == ("hud", "hud")
+    assert data["type"] == "CanvasLayer"
+    assert data["script_class"] is None
+    assert data["instance"] == "res://hud.tscn"
+
+    saved = main.read_text(encoding="utf-8")
+    ext = re.search(
+        r'\[ext_resource type="PackedScene" path="res://hud\.tscn" id="([^"]+)"\]',
+        saved,
+    )
+    assert ext, saved
+    hud_entry = re.search(r'\[node name="hud" parent="\."[^\]]*\]', saved)
+    assert hud_entry, saved
+    assert f'instance=ExtResource("{ext.group(1)}")' in hud_entry.group(0)
+    # Canonical instance stub, as the editor writes it: no type= attribute —
+    # the type lives in the instanced scene (surfacing it on static reads is
+    # the companion issue #400). Engine-managed attrs (e.g. unique_id) may
+    # appear; only type= would mark a non-canonical dump.
+    assert "type=" not in hud_entry.group(0), saved
+    # The instanced scene's INTERNALS are referenced, never inlined into the
+    # host (the write-side mirror of instance semantics): no Label node entry.
+    assert 'type="Label"' not in saved
+
+    # Round-trip: the composed scene instantiates in the engine — the child
+    # resolves to the instanced scene's real root class, and its internal
+    # nodes exist under it.
+    got = gda("node", "get", "res://main.tscn", "--node", "hud", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    child = json.loads(got.stdout)
+    assert child["type"] == "CanvasLayer"
+
+    assert _no_gda_temp_siblings(godot_project)
+
+
 def _assert_operation_error(proc: subprocess.CompletedProcess, code: str) -> dict:
     assert proc.returncode == 4, proc.stdout + proc.stderr
     err = json.loads(proc.stdout)["error"]
