@@ -42,8 +42,34 @@ _Avoid_: 小怪 as a synonym for the Monster Faction; "level" (collides with the
 
 **Archetype**:
 An enemy's combat style: Melee, Ranged, or Tank. Drives AI behavior and attack pattern.
-Independent of Faction and Tier.
+Independent of Faction and Tier. Melee and Ranged behave since S4; Tank is representable in
+the data model but its AI behavior is deferred (gADR-0003).
 _Avoid_: class, role; using 流派 loosely
+
+**Enemy Kind**:
+One concrete enemy definition — a named point in Faction × Tier × Archetype plus its Stat
+Block, blockout, and Archetype-AI params — keyed by name in the authoritative enemies config
+and derived to one `EnemyConfig` Resource per kind (gADR-0003). What a Spawn Roster entry
+references and what the spawner injects into an enemy instance.
+_Avoid_: enemy type, enemy class, variant
+
+**Spawn Roster**:
+The data-driven which-kind-spawns-where list: ordered entries of (Enemy Kind, node name,
+position) the level consumes at boot (gADR-0003). The Wave slice composes Waves as roster
+entries over time; S4 ships a single default entry.
+_Avoid_: spawn table, wave list
+
+**Aggro Range**:
+The distance within which an enemy notices the Player and its Archetype AI activates —
+beyond it the enemy stands dormant, neither steering nor attacking.
+_Avoid_: detection radius, sight range, leash
+
+**Steering Band**:
+The per-kind distance band `[keep_range_min, keep_range_max]` the Archetype AI steers to
+hold: close in beyond it, back off inside it, hold within it. Closing distance (Melee — a
+band ending point-blank, min 0) and keeping distance (Ranged — a standoff band) are the SAME
+rule with different data (gADR-0003).
+_Avoid_: comfort zone, preferred range
 
 ### Weapons
 
@@ -115,6 +141,13 @@ the death rule — static, deterministic, and clock-free, shared unchanged by th
 controllers and the offline Monte-Carlo balancing sim (gADR-0001). Controllers orchestrate
 (clock, mutation, tween, log); decisions live only here.
 _Avoid_: damage manager, battle system
+
+**EnemyAI**:
+The pure Archetype-AI decision functions — Steering-Band steering and aggro/range/cooldown
+attack gating — static, deterministic, and clock-free like CombatSystem (positions and time
+are parameters, gADR-0003). Controllers orchestrate (clock, velocity integration, attack
+delivery, tween, log); AI decisions live only here.
+_Avoid_: ai manager, behavior tree, brain
 
 **TTK** (Time To Kill):
 How long it takes the player to kill a given enemy. Paired with TTD to tune combat pacing.

@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="EnemyConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/resources/enemy_config.gd" id="1_enemyconfig"]
+
+[resource]
+script = ExtResource("1_enemyconfig")
+faction = "robot"
+tier = "elite"
+archetype = "ranged"
+max_hp = 60
+max_mp = 0
+attack = 8
+defense = 2
+color = Color(0.3, 0.55, 0.85, 1)
+size = Vector2(56, 72)
+move_speed = 200
+gravity = 1400
+max_fall_speed = 1200
+aggro_range = 700
+attack_range = 520
+attack_cooldown = 1.4
+keep_range_min = 220
+keep_range_max = 380
+attack_squash = Vector2(0.8, 1.2)
+attack_tween_duration = 0.15
+projectile_color = Color(0.35, 0.8, 1, 1)
+projectile_size = Vector2(14, 6)
+projectile_speed = 520
+projectile_lifetime = 2
+projectile_spawn_offset = Vector2(30, 0)

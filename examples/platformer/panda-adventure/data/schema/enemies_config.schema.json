@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigengame.dev/panda-adventure/data/schema/enemies_config.schema.json",
+  "title": "Panda Adventure enemy taxonomy configuration",
+  "description": "Authoritative config for the S4 Enemy taxonomy (gADR-0000, gADR-0003). `kinds` maps each Enemy Kind name to one point in Faction x Tier x Archetype plus its stat block (the same max_hp/max_mp/attack/defense shape as combat_config's stat_block — the symmetric damage-formula contract, gADR-0001), its blockout, and its Archetype-AI params. `spawns` is the Spawn Roster: the data-driven which-kind-spawns-where list the level consumes (the Wave slice will compose these entries per Wave). Converted by scripts/build_config.py into one derived EnemyConfig .tres per kind (data/generated/enemy_<kind>.tres) plus data/generated/enemy_roster.tres (EnemyRosterConfig); the per-kind derivation specs are themselves derived from `kinds`, so adding a kind is a JSON-only change. Cross-field rules this schema cannot express — the Steering Band interval, the melee contact-damage bound, spawn->kind referential integrity, and roster-name uniqueness — are enforced by build_config.validate_enemies_semantics before any resource is derived.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kinds", "spawns"],
+  "$defs": {
+    "rgba": {
+      "description": "A color as RGBA, each component in 0..1.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "size2": {
+      "description": "A block size (width, height) in pixels; each strictly positive.",
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "vec2": {
+      "description": "A 2D vector (x, y) in pixels.",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "enemy_kind": {
+      "description": "One Enemy Kind: the three orthogonal taxonomy axes, the stat block (shape-compatible with combat_config's stat_block), the blockout, and the Archetype-AI params. Ranged kinds additionally carry their bolt's projectile_* block (enforced by the if/then below).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "faction",
+        "tier",
+        "archetype",
+        "max_hp",
+        "max_mp",
+        "attack",
+        "defense",
+        "color",
+        "size",
+        "move_speed",
+        "gravity",
+        "max_fall_speed",
+        "aggro_range",
+        "attack_range",
+        "attack_cooldown",
+        "keep_range_min",
+        "keep_range_max",
+        "attack_squash",
+        "attack_tween_duration"
+      ],
+      "if": { "properties": { "archetype": { "const": "ranged" } } },
+      "then": {
+        "required": [
+          "projectile_color",
+          "projectile_size",
+          "projectile_speed",
+          "projectile_lifetime",
+          "projectile_spawn_offset"
+        ]
+      },
+      "properties": {
+        "faction": {
+          "description": "Visual-and-lore family axis (cosmetic and narrative only).",
+          "enum": ["monster", "xenomorph", "alien", "robot"]
+        },
+        "tier": {
+          "description": "Power-and-reward grade axis (drives the stat budget; rewards are S6a).",
+          "enum": ["minion", "elite", "boss"]
+        },
+        "archetype": {
+          "description": "Combat-style axis, driving AI behavior and attack delivery. Tank is representable but its AI behavior is deferred (gADR-0003).",
+          "enum": ["melee", "ranged", "tank"]
+        },
+        "max_hp": {
+          "description": "Maximum (and starting) HP; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "max_mp": {
+          "description": "Maximum (and starting) MP; non-negative (enemies spend no MP in Phase 1).",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "attack": {
+          "description": "Attack stat fed to the symmetric damage formula when this kind attacks; non-negative.",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "defense": {
+          "description": "Defense/mitigation stat fed to the damage formula when this kind defends; non-negative.",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "color": { "$ref": "#/$defs/rgba" },
+        "size": { "$ref": "#/$defs/size2" },
+        "move_speed": {
+          "description": "Horizontal steering speed in px/s; non-negative.",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "gravity": {
+          "description": "Downward acceleration in px/s^2 while airborne; non-negative (0 = floating kind).",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "max_fall_speed": {
+          "description": "Terminal fall speed in px/s; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "aggro_range": {
+          "description": "Distance within which the Archetype AI activates (Aggro Range); strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "attack_range": {
+          "description": "Maximum distance at which an attack may fire; strictly positive. For melee kinds it must not exceed keep_range_max — melee damage is contact damage, gated to the point-blank band (enforced by build_config.validate_enemies_semantics; not expressible here).",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "attack_cooldown": {
+          "description": "Seconds between attacks; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "keep_range_min": {
+          "description": "Steering Band lower edge: back off when the Player is closer than this; non-negative (0 = never back off, the Melee shape). Must not exceed keep_range_max (enforced by build_config.validate_enemies_semantics; not expressible here).",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "keep_range_max": {
+          "description": "Steering Band upper edge: close in while the Player is farther than this; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "attack_squash": {
+          "description": "Visual scale punch at the moment of an attack (the attack-telegraph tween); each component strictly positive.",
+          "type": "array",
+          "items": { "type": "number", "exclusiveMinimum": 0.0 },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "attack_tween_duration": {
+          "description": "Seconds for the attack squash to recover to normal scale; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "projectile_color": { "$ref": "#/$defs/rgba" },
+        "projectile_size": { "$ref": "#/$defs/size2" },
+        "projectile_speed": {
+          "description": "Enemy bolt travel speed in px/s; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "projectile_lifetime": {
+          "description": "Seconds before an unhit enemy bolt despawns; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "projectile_spawn_offset": {
+          "description": "Enemy bolt spawn offset (x, y) from the enemy origin; x is scaled by the aim direction's sign.",
+          "$ref": "#/$defs/vec2"
+        }
+      }
+    },
+    "spawn": {
+      "description": "One Spawn Roster entry: which Enemy Kind spawns, under what node name, at what center position.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "position"],
+      "properties": {
+        "kind": {
+          "description": "The Enemy Kind key in `kinds` this entry spawns (referential integrity enforced by build_config.validate_enemies_semantics).",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "name": {
+          "description": "The spawned node's name; unique within the roster for addressability (enforced by build_config.validate_enemies_semantics).",
+          "type": "string",
+          "minLength": 1
+        },
+        "position": { "$ref": "#/$defs/vec2" }
+      }
+    }
+  },
+  "properties": {
+    "kinds": {
+      "description": "Enemy Kind definitions, keyed by kind name.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": { "$ref": "#/$defs/enemy_kind" }
+    },
+    "spawns": {
+      "description": "The Spawn Roster the level consumes at boot.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/spawn" }
+    }
+  }
+}

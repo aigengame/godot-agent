@@ -2,8 +2,8 @@
 
 The full combat loop through the gda CLI against a running Engine session:
 
-- ``gda game tree`` shows the runtime-spawned Enemy (StaticBody2D) next to the
-  S1 blockout;
+- ``gda game tree`` shows the runtime-spawned Enemy (a CharacterBody2D since
+  S4's Archetype AI made enemies mobile) next to the S1 blockout;
 - ``gda input sequence`` presses ``fire`` and the bolt crosses the level into
   the Enemy: ``gda logger tail`` returns rich ``laser_fired`` and ``enemy_hit``
   records whose damage/hp match the AUTHORITATIVE JSON through the data-driven
@@ -146,11 +146,14 @@ def test_daemon_serves_laser_combat(tmp_path, daemon_runtime_dir):
         assert started.returncode == 0, started.stdout + started.stderr
 
         # The runtime-spawned Enemy is in the live tree with the S1 blockout.
+        # CharacterBody2D since S4 (enemies move); the default Spawn Roster
+        # keeps this flow's melee minion dormant (aggro_range < the distance),
+        # so the S2 combat expectations below hold unchanged.
         tree = run("game", "tree")
         assert tree.returncode == 0, tree.stdout + tree.stderr
         root = json.loads(tree.stdout)["root"]
         enemy = _find_node(root, "Enemy")
-        assert enemy is not None and enemy["type"] == "StaticBody2D", root
+        assert enemy is not None and enemy["type"] == "CharacterBody2D", root
         assert _find_node(root, "Player") is not None, root
 
         # Its boot record carries the data-driven stat block.

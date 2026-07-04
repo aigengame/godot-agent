@@ -55,12 +55,16 @@ hand-bootstrapped, now edited via gda scene ops. **Structure only**: every visua
 (color/size/position) and the collision-shape sizes are applied at RUNTIME from
 the derived config Resources by the controllers (gADR-0000 — no config baked into
 the scene). The `RectangleShape2D` sub-resources start at a placeholder size that
-`_ready` overwrites from config. Collision topology (S2+S3, see `[layer_names]`
-above): Platform=`terrain`(1), Player=`player`(2) masking terrain only (passes
-through the Enemy — contact damage is S4), Obstacle=`terrain`(1) masking nothing.
-The Enemy is runtime-instanced by LevelController from `enemy.tscn`; Projectiles
-and Gravity Fields are runtime-instanced by PlayerController (from
-`projectile.tscn` / `gravity_field.tscn`).
+`_ready` overwrites from config. Collision topology (S2–S4, see `[layer_names]`
+above): Platform=`terrain`(1); Player=`player`(2) masking terrain only; the S4
+Enemy (`enemy`(3), a CharacterBody2D) also masks terrain only — Player and Enemy
+bodies pass through each other by design: S4's melee damage is a range-gated
+`take_hit` (gADR-0003), not a physics contact, so neither body can shove the
+other; Obstacle=`terrain`(1) masking nothing. Enemies are runtime-instanced by
+LevelController from `enemy.tscn` per the Spawn Roster; Projectiles are
+runtime-instanced by PlayerController (`projectile.tscn`, masks terrain|enemy)
+and by Ranged enemies (`enemy_projectile.tscn`, masks terrain|player); Gravity
+Fields by PlayerController (`gravity_field.tscn`).
 
 The S3 `Obstacle` (StaticBody2D + Visual + Collision, script
 `obstacle_controller.gd`) is the gravity-affectable environment prop: it floats

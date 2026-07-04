@@ -14,8 +14,9 @@ session:
   in-range Obstacle is lifted, the out-of-range Enemy does NOT move (the field
   is LOCAL), and the Player never moves off its resting y (never affected —
   the collision mask, gADR-0002);
-- walking into range and firing again lifts the Enemy up to exactly its
-  config displacement clamp (clamped-displacement integration, gADR-0002);
+- walking into range and firing again lifts the Enemy while the field feeds
+  it (gADR-0002 suspension on the S4 mobile Enemy; the clamp math itself is
+  pinned headless in the logic seam);
 - repeated fires drain MP to 0; at 0 MP the fire is refused
   (``gravity_blocked``, no new field) — the MP gate;
 - ``drink_wine`` restores MP (``wine_drunk``) and the Gravity Gun fires again;
@@ -244,8 +245,8 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         # ...and it NEVER acts on the Player (mask guarantee): still resting.
         assert node_position("/root/Main/Player")[1] == pytest.approx(rest_y, abs=2.0)
 
-        # --- Walk into range of the Enemy, fire, and the field lifts it up to
-        # exactly the config displacement clamp (gADR-0002).
+        # --- Walk into range of the Enemy, fire, and the field lifts it
+        # (gADR-0002 suspension).
         #
         # Sequence `frame` offsets are IDLE frames, and a headless session's
         # idle rate is decoupled from the 60Hz physics clock, so a fixed-length
@@ -288,6 +289,16 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
             f"window=[{walk_lo}, {walk_hi}]"
         )
 
+        # Since S4 the Enemy is a mobile CharacterBody2D: entering the firing
+        # window also enters the melee kind's aggro range, so the Enemy may be
+        # chasing (its x is not stable) and it hangs suspended only WHILE a
+        # field feeds it (gADR-0002 suspension), falling back once the field
+        # expires. The contract observable is therefore a field-driven RISE
+        # against the live pre-fire baseline — not the S2-era "parked exactly
+        # at the clamp"; the lift direction and the clamp math stay pinned
+        # headless in the logic seam (GravitySystem).
+        enemy_y_before = node_position("/root/Main/Enemy")[1]
+        min_rise = 0.5 * min(enemy_clamp, gravity["field_radius"])
         tap("fire")
         assert poll(lambda: len(records("gravity_fired")) >= 2), (
             "the in-range fire should spend MP and spawn a field"
@@ -296,14 +307,8 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
             mp_max - 2 * mp_cost
         )
         assert poll(
-            lambda: (
-                node_position("/root/Main/Enemy")[1]
-                == pytest.approx(enemy_pos[1] - enemy_clamp, abs=3.0)
-            )
-        ), "the in-range Enemy should be lifted to exactly its displacement clamp"
-        assert node_position("/root/Main/Enemy")[0] == pytest.approx(
-            enemy_pos[0], abs=1.0
-        )
+            lambda: enemy_y_before - node_position("/root/Main/Enemy")[1] >= min_rise
+        ), "the in-range Enemy should be lifted by the Gravity Field"
 
         # --- Drain the MP budget: every remaining full-cost fire succeeds...
         fires_so_far = 2
