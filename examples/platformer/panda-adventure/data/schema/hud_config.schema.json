@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigengame.dev/panda-adventure/data/schema/hud_config.schema.json",
+  "title": "Panda Adventure HUD configuration",
+  "description": "Authoritative config for the S6a HUD blockout (gADR-0000, gADR-0004): the overlay's placement margin and the value-change pulse tween. The HUD's CONTENT (live HP/MP/EXP/Gold + Current weapon) is fixed by the GDD's 'HUD & UI' section; concrete layout/styling beyond these numbers is a later asset concern. Converted by scripts/build_config.py into the derived data/generated/hud_config.tres (HudConfig).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["margin", "value_punch_scale", "value_tween_duration"],
+  "properties": {
+    "margin": {
+      "description": "Offset (x, y) in pixels of the HUD stat column from the viewport's top-left corner; each non-negative.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "value_punch_scale": {
+      "description": "Scale punch applied to a HUD label the moment its value changes (the blockout 'juice' tween, recovering to 1.0); each component strictly positive.",
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "value_tween_duration": {
+      "description": "Seconds for the value-change punch to recover to normal scale; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    }
+  }
+}

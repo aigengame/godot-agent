@@ -54,3 +54,10 @@ extends "res://src/resources/stats_config.gd"
 @export var projectile_speed: float
 @export var projectile_lifetime: float
 @export var projectile_spawn_offset: Vector2
+
+# S6a Kill reward (gADR-0004): what defeating this kind awards the Player.
+# DERIVED per kind by the builder from the authoritative per-Tier reward table
+# (enemies_config.json's `tiers`, keyed by this kind's `tier`) — the runtime
+# reads dumb fields; retuning a Tier's reward stays a single JSON edit.
+@export var exp_reward: float
+@export var gold_reward: float

@@ -8,7 +8,7 @@ Godot Resources under ``data/generated/`` that the runtime ``load()``s. Every
 byte-identical to a fresh build), never hand-edited: changing config means
 changing the JSON.
 
-Four sources feed the outputs (``specs_for``/``SPECS``):
+Five sources feed the outputs (``specs_for``/``SPECS``):
 
 - ``player_config.json`` -> ``player_config.tres`` (``PlayerConfig``, S1)
 - ``combat_config.json`` -> ``stats_player.tres`` + ``stats_enemy.tres``
@@ -21,6 +21,13 @@ Four sources feed the outputs (``specs_for``/``SPECS``):
   Roster) — S4 (gADR-0003). The per-kind specs are DERIVED by iterating the
   JSON's ``kinds`` (gADR-0001: a new actor kind is config, not code — adding a
   kind is a JSON-only change), while the non-enemy specs stay a static table.
+  Since S6a (gADR-0004) the same source also carries the per-Tier Kill-reward
+  table (``tiers``), resolved into per-kind derived ``exp_reward``/
+  ``gold_reward`` fields by ``resolve_enemy_rewards`` before rendering: the
+  runtime stays a dumb ``kind.<field>`` read while the reward AUTHORITY stays
+  per-Tier data.
+- ``hud_config.json`` -> ``hud_config.tres`` (``HudConfig``, the HUD blockout
+  numbers — gADR-0004) — S6a.
 
 Dogfooding note: since gda's ADR-0032 static class_name scan (issue #360), ``gda
 resource create --type PlayerConfig`` CAN instantiate a project-local class in
@@ -35,6 +42,7 @@ one-line summary per file).
 
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -129,7 +137,9 @@ _GRAVITY_FIELDS: list[tuple[str, str]] = [
 
 # One Enemy Kind's field layout (gADR-0003): the three taxonomy axes, the stat
 # block (same four fields as _STAT_BLOCK_FIELDS — the symmetric damage-formula
-# shape, gADR-0001), the blockout, and the Archetype-AI params.
+# shape, gADR-0001), the blockout, the Archetype-AI params, and the S6a Kill
+# reward (gADR-0004) — the last two are DERIVED per kind from the top-level
+# per-Tier ``tiers`` table by ``resolve_enemy_rewards``, not authored per kind.
 _ENEMY_KIND_FIELDS: list[tuple[str, str]] = [
     ("faction", "string"),
     ("tier", "string"),
@@ -150,6 +160,8 @@ _ENEMY_KIND_FIELDS: list[tuple[str, str]] = [
     ("keep_range_max", "float"),
     ("attack_squash", "vec2"),
     ("attack_tween_duration", "float"),
+    ("exp_reward", "float"),
+    ("gold_reward", "float"),
 ]
 
 # Ranged kinds additionally carry their bolt's blockout+motion (schema-enforced
@@ -164,6 +176,15 @@ _ENEMY_KIND_RANGED_FIELDS: list[tuple[str, str]] = _ENEMY_KIND_FIELDS + [
 
 _ROSTER_FIELDS: list[tuple[str, str]] = [
     ("spawns", "spawn_list"),
+]
+
+# The S6a HUD blockout numbers (gADR-0004): overlay placement and the
+# value-change pulse tween. Layout/styling beyond these stays a later asset
+# concern (GDD "HUD & UI").
+_HUD_FIELDS: list[tuple[str, str]] = [
+    ("margin", "vec2"),
+    ("value_punch_scale", "vec2"),
+    ("value_tween_duration", "float"),
 ]
 
 
@@ -246,6 +267,15 @@ _STATIC_SPECS: list[TresSpec] = [
         ext_id="1_gravityconfig",
         fields=_GRAVITY_FIELDS,
     ),
+    TresSpec(
+        json_rel="data/json/hud_config.json",
+        schema_rel="data/schema/hud_config.schema.json",
+        out_rel="data/generated/hud_config.tres",
+        script_res_path="res://src/resources/hud_config.gd",
+        script_class="HudConfig",
+        ext_id="1_hudconfig",
+        fields=_HUD_FIELDS,
+    ),
 ]
 
 _ROSTER_SPEC = TresSpec(
@@ -309,9 +339,20 @@ def validate_enemies_semantics(document: Any) -> Any:
       references a defined Enemy Kind.
     - **Roster names are unique**: each spawn's node ``name`` addresses one
       enemy (duplicate names would silently shadow in the scene tree).
+    - **Tier -> reward coverage** (gADR-0004): every Tier a kind uses must
+      have a reward entry in the top-level ``tiers`` table — a kind whose
+      kill could award nothing is a config bug, caught before any resource
+      derives.
     """
     kinds = document["kinds"]
+    tiers = document["tiers"]
     for name, kind in kinds.items():
+        if kind["tier"] not in tiers:
+            raise jsonschema.ValidationError(
+                f"kind {name!r} uses tier {kind['tier']!r} but 'tiers' has no "
+                "reward entry for it — every used Tier needs its Kill reward "
+                "(gADR-0004)"
+            )
         if kind["keep_range_min"] > kind["keep_range_max"]:
             raise jsonschema.ValidationError(
                 f"kind {name!r}: keep_range_min ({kind['keep_range_min']}) must "
@@ -340,6 +381,25 @@ def validate_enemies_semantics(document: Any) -> Any:
             )
         seen_names.add(spawn["name"])
     return document
+
+
+def resolve_enemy_rewards(document: Any) -> Any:
+    """Resolve the per-Tier Kill-reward table into per-kind derived fields.
+
+    Returns a COPY of the enemies document where every kind carries
+    ``exp_reward``/``gold_reward`` read from ``tiers[kind["tier"]]``
+    (gADR-0004). Runs after schema + semantic validation (which guarantee the
+    tier entry exists), wherever an enemies-sourced spec is rendered, so the
+    derived ``enemy_<kind>.tres`` stays a dumb per-kind read while the JSON
+    keeps a single per-Tier authority — retuning a Tier's reward is one edit,
+    never three.
+    """
+    resolved = copy.deepcopy(document)
+    for kind in resolved["kinds"].values():
+        reward = resolved["tiers"][kind["tier"]]
+        kind["exp_reward"] = reward["exp_reward"]
+        kind["gold_reward"] = reward["gold_reward"]
+    return resolved
 
 
 def enemy_kind_specs(root: Path = GAME_DIR) -> list[TresSpec]:
@@ -458,8 +518,11 @@ def build_spec(
     validate_config(document, load_schema(root / spec.schema_rel))
     if spec.json_rel == _ENEMIES_JSON_REL:
         # The enemies source carries cross-field rules the schema cannot
-        # express (gADR-0003) — enforce them before deriving any resource.
+        # express (gADR-0003) — enforce them before deriving any resource,
+        # then resolve the per-Tier rewards into the per-kind derived fields
+        # the specs render (gADR-0004).
         validate_enemies_semantics(document)
+        document = resolve_enemy_rewards(document)
     target = out_path if out_path is not None else root / spec.out_rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(render_spec(spec, document), encoding="utf-8")
