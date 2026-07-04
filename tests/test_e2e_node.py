@@ -1144,6 +1144,24 @@ position = Vector2(3, 4)
 """
 
 
+PLAIN_INSTANCE_CHILD_TSCN = """\
+[gd_scene format=3]
+
+[node name="Child" type="Node2D"]
+position = Vector2(5, 6)
+"""
+
+PLAIN_INSTANCE_PARENT_TSCN = """\
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://{child}" id="1_child"]
+
+[node name="Parent" type="Node2D"]
+
+[node name="ChildInstance" parent="." instance=ExtResource("1_child")]
+{instance_override}"""
+
+
 def _write_instance_fixture(
     project, child: str = "child.tscn", child_content: str = CHILD_TSCN
 ):
@@ -1151,6 +1169,24 @@ def _write_instance_fixture(
     (project / "child.tscn").write_text(child_content, encoding="utf-8")
     parent = project / "parent.tscn"
     parent.write_text(PARENT_TSCN.format(child=child), encoding="utf-8")
+    return parent
+
+
+def _write_plain_instance_fixture(
+    project,
+    *,
+    instance_override: str = "position = Vector2(10, 20)\n",
+    child: str = "child.tscn",
+):
+    """Write parent.tscn with a plain pre-existing instance child."""
+    (project / child).write_text(PLAIN_INSTANCE_CHILD_TSCN, encoding="utf-8")
+    parent = project / "parent.tscn"
+    parent.write_text(
+        PLAIN_INSTANCE_PARENT_TSCN.format(
+            child=child, instance_override=instance_override
+        ),
+        encoding="utf-8",
+    )
     return parent
 
 
@@ -1193,6 +1229,71 @@ def test_node_add_preserves_editable_instance_overrides(godot_project):
     # A node added under the editable instance.
     assert '[node name="Extra" type="Marker2D" parent="ChildInstance/Inner"' in saved
     # And the node this command added.
+    assert '[node name="M" type="Marker2D" parent="."' in saved
+
+
+@pytest.mark.e2e
+def test_node_add_preserves_preexisting_plain_instance_stub(godot_project):
+    # Issue #405: an unrelated mutating save must keep a pre-existing instance
+    # child in the editor-canonical stub form. The `instance=` reference and the
+    # genuine host-side override survive, but the instance node itself must not
+    # gain a class `type=` attribute.
+    parent = _write_plain_instance_fixture(godot_project)
+
+    added = _gda(
+        "node",
+        "add",
+        str(parent),
+        "--type",
+        "Marker2D",
+        "--name",
+        "M",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    saved = parent.read_text(encoding="utf-8")
+    child_instance_lines = [
+        line for line in saved.splitlines() if 'name="ChildInstance"' in line
+    ]
+    assert len(child_instance_lines) == 1
+    child_instance_line = child_instance_lines[0]
+    assert "instance=ExtResource(" in child_instance_line
+    assert " type=" not in child_instance_line
+    assert "position = Vector2(10, 20)" in saved
+    assert '[node name="M" type="Marker2D" parent="."' in saved
+
+
+@pytest.mark.e2e
+def test_node_add_does_not_promote_instance_baseline_to_host_override(godot_project):
+    # Issue #405: properties inherited from the instanced scene's own state are
+    # not host overrides. Repacking the host after an unrelated mutation must not
+    # serialize them into the host scene.
+    parent = _write_plain_instance_fixture(godot_project, instance_override="")
+
+    added = _gda(
+        "node",
+        "add",
+        str(parent),
+        "--type",
+        "Marker2D",
+        "--name",
+        "M",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    saved = parent.read_text(encoding="utf-8")
+    child_instance_line = [
+        line for line in saved.splitlines() if 'name="ChildInstance"' in line
+    ][0]
+    assert "instance=ExtResource(" in child_instance_line
+    assert " type=" not in child_instance_line
+    assert "position = Vector2(5, 6)" not in saved
     assert '[node name="M" type="Marker2D" parent="."' in saved
 
 
