@@ -15,8 +15,11 @@ session:
   is LOCAL), and the Player never moves off its resting y (never affected —
   the collision mask, gADR-0002);
 - walking into range and firing again lifts the Enemy while the field feeds
-  it (gADR-0002 suspension on the S4 mobile Enemy; the clamp math itself is
-  pinned headless in the logic seam);
+  it (gADR-0002 suspension on the S4 mobile Enemy), proven by the per-episode
+  ``enemy_suspended`` peak-displacement record — the MONOTONIC observable; a
+  positional snapshot races the 2 s field lifetime against CLI round-trip
+  latency and loses deterministically on slow CI runners (#406). The clamp
+  math itself is pinned headless in the logic seam;
 - repeated fires drain MP to 0; at 0 MP the fire is refused
   (``gravity_blocked``, no new field) — the MP gate;
 - ``drink_wine`` restores MP (``wine_drunk``) and the Gravity Gun fires again;
@@ -293,12 +296,16 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         # window also enters the melee kind's aggro range, so the Enemy may be
         # chasing (its x is not stable) and it hangs suspended only WHILE a
         # field feeds it (gADR-0002 suspension), falling back once the field
-        # expires. The contract observable is therefore a field-driven RISE
-        # against the live pre-fire baseline — not the S2-era "parked exactly
-        # at the clamp"; the lift direction and the clamp math stay pinned
-        # headless in the logic seam (GravitySystem).
-        enemy_y_before = node_position("/root/Main/Enemy")[1]
+        # expires. A positional snapshot of that transient state races the
+        # field_duration window against CLI round-trip latency and loses
+        # deterministically on slow CI runners (#406). The contract observable
+        # is therefore the MONOTONIC per-episode `enemy_suspended` record the
+        # Enemy emits when a suspension episode ends, carrying the episode's
+        # peak clamped displacement from the real integration; the lift
+        # direction and the clamp math stay pinned headless in the logic seam
+        # (GravitySystem).
         min_rise = 0.5 * min(enemy_clamp, gravity["field_radius"])
+        suspended_before = len(records("enemy_suspended"))
         tap("fire")
         assert poll(lambda: len(records("gravity_fired")) >= 2), (
             "the in-range fire should spend MP and spawn a field"
@@ -306,9 +313,15 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         assert records("gravity_fired")[1]["fields"]["mp_after"] == pytest.approx(
             mp_max - 2 * mp_cost
         )
-        assert poll(
-            lambda: enemy_y_before - node_position("/root/Main/Enemy")[1] >= min_rise
-        ), "the in-range Enemy should be lifted by the Gravity Field"
+
+        def enemy_lifted() -> bool:
+            episodes = records("enemy_suspended")[suspended_before:]
+            return any(-r["fields"]["peak_offset_y"] >= min_rise for r in episodes)
+
+        assert poll(enemy_lifted), (
+            "the in-range Enemy should be lifted by the Gravity Field "
+            "(no enemy_suspended episode with peak rise >= min_rise)"
+        )
 
         # --- Drain the MP budget: every remaining full-cost fire succeeds...
         fires_so_far = 2
