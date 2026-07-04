@@ -138,6 +138,8 @@ cover scripts, and Resource-typed fields take a `res://` path, not a coerced lit
 verifies the script compiles, checks its base type against the node, and reports any
 script it displaced. Setting the `script` property with `node set` is refused with an
 actionable `use_script_attach` error that points you back here.
+Create any assets a script `preload("res://...")` references before attaching that
+script; missing preload targets fail as `missing_dependency` and name the missing path.
 
 ```bash
 gda script attach game/main.tscn --node Player --script res://player.gd --project game --json
@@ -194,6 +196,8 @@ assignment is headless-only (`node set` / `resource set`).
 - Node paths are relative to the scene root; `.` is the root itself.
 - `--value` is coerced to the property's declared Godot type — the same coercion
   for `node set`, `resource set`, `project set`, and live `game set`.
+- Create preloaded assets before attaching scripts that reference them; a missing
+  `preload("res://...")` target is reported as `missing_dependency`.
 - For large or scripted input, pass one JSON object with `--params-json '{...}'`
   (or `--params-json -` to read it from stdin) instead of individual flags.
 - Live ops with no daemon report `daemon_not_running` (exit `6`) and name the
