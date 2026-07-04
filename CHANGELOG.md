@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/aigengame/godot-agent/compare/v0.2.1...v0.3.0) (2026-07-04)
+
+
+### Features
+
+* **node:** scene instancing via node add --instance ([#404](https://github.com/aigengame/godot-agent/issues/404)) ([dec0906](https://github.com/aigengame/godot-agent/commit/dec09065d41093cba2a0cb3a5bfef12e2ae25726))
+
+
+### Bug Fixes
+
+* **scene:** preserve instance stubs on mutation ([#407](https://github.com/aigengame/godot-agent/issues/407)) ([0495976](https://github.com/aigengame/godot-agent/commit/04959764742582a377c268d2aad17788ede8e7eb))
+* **scene:** surface static scene instance identity ([#410](https://github.com/aigengame/godot-agent/issues/410)) ([1eac135](https://github.com/aigengame/godot-agent/commit/1eac135a96d410cfc49d70075b9cc74b01389690))
+
 ## [0.2.1](https://github.com/aigengame/godot-agent/compare/v0.2.0...v0.2.1) (2026-07-04)
 
 
