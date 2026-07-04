@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1](https://github.com/aigengame/godot-agent/compare/v0.2.0...v0.2.1) (2026-07-04)
+
+
+### Bug Fixes
+
+* **input:** add physics-clock input sequence duration ([#395](https://github.com/aigengame/godot-agent/issues/395)) ([ce5b69f](https://github.com/aigengame/godot-agent/commit/ce5b69fa0f55ad727d7d98cefe5bab6bd6df0f96))
+* **scene:** preserve ext_resource ids on mutation ([#394](https://github.com/aigengame/godot-agent/issues/394)) ([b27c2f6](https://github.com/aigengame/godot-agent/commit/b27c2f60630f9acb62d1f25187f818ee709182e2))
+* **script:** report missing preload dependencies ([#396](https://github.com/aigengame/godot-agent/issues/396)) ([ae24dba](https://github.com/aigengame/godot-agent/commit/ae24dba96c34c6261bc1eb33e63d08830d76bdfe))
+
 ## [0.2.0](https://github.com/aigengame/godot-agent/compare/v0.1.51...v0.2.0) (2026-07-02)
 
 
