@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="EnemyConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/resources/enemy_config.gd" id="1_enemyconfig"]
+
+[resource]
+script = ExtResource("1_enemyconfig")
+faction = "monster"
+tier = "minion"
+archetype = "melee"
+max_hp = 25
+max_mp = 0
+attack = 5
+defense = 0
+color = Color(0.75, 0.2, 0.55, 1)
+size = Vector2(48, 48)
+move_speed = 140
+gravity = 1400
+max_fall_speed = 1200
+aggro_range = 240
+attack_range = 48
+attack_cooldown = 1.2
+keep_range_min = 0
+keep_range_max = 48
+attack_squash = Vector2(1.25, 0.75)
+attack_tween_duration = 0.18

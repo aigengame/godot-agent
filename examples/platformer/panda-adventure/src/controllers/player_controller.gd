@@ -32,6 +32,7 @@ const PlayerConfigScript := preload("res://src/resources/player_config.gd")
 const StatsConfigScript := preload("res://src/resources/stats_config.gd")
 const CombatConfigScript := preload("res://src/resources/combat_config.gd")
 const StatsSystemScript := preload("res://src/systems/stats_system.gd")
+const CombatSystemScript := preload("res://src/systems/combat_system.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const ProjectileScene := preload("res://scenes/projectile.tscn")
 
@@ -45,6 +46,12 @@ var _combat: CombatConfigScript
 var _stats: StatsSystemScript
 # Current aim (-1 left / 1 right); spawn faces right (structural, not config).
 var _facing := 1.0
+# S4 damage-receiving state: when the Player last took a hit (-INF = never, so
+# the first hit always lands — CombatSystem.is_invulnerable's sentinel), and a
+# death latch so player_died is logged exactly once (respawn/game-over is out
+# of scope for Phase 1).
+var _last_hit_time := -INF
+var _dead := false
 
 
 ## Pure movement decision (no node/physics access): given the current velocity,
@@ -97,6 +104,8 @@ func _ready() -> void:
 			% [CONFIG_PATH, STATS_PATH, COMBAT_CONFIG_PATH]
 		)
 		return
+	# S4: enemies find their target by this group (EnemyController._player).
+	add_to_group("player")
 	_stats = StatsSystemScript.new()
 	_stats.init_from(_stats_config)
 	_apply_blockout(_config)
@@ -169,6 +178,45 @@ func _fire() -> void:
 		"spawn_x": bolt.position.x,
 		"spawn_y": bolt.position.y,
 	})
+
+
+## S4 damage-receiving path: resolve one incoming hit from an attacker's stat
+## block — the SAME symmetric pipeline as the Enemy's (CombatSystem.compute_damage
+## with the roles swapped, gADR-0001), i-frame gated so a single overlap cannot
+## chain hits. On death: log player_died once; respawn/game-over is out of
+## scope for Phase 1 (a later slice owns it).
+func take_hit(attacker: StatsConfigScript) -> void:
+	if _stats == null or _dead:
+		return
+	var now := _now()
+	if CombatSystemScript.is_invulnerable(_last_hit_time, now, _combat.iframe_duration):
+		return
+	_last_hit_time = now
+	var damage := CombatSystemScript.compute_damage(attacker, _stats_config, _combat)
+	_stats.apply_damage(damage)
+	GameLogScript.emit("info", "player_hit", {"damage": damage, "hp_left": _stats.hp})
+	_play_hit_flash()
+	if CombatSystemScript.is_dead(_stats.hp):
+		_dead = true
+		GameLogScript.emit("info", "player_died", {"x": position.x, "y": position.y})
+
+
+## The runtime clock feeding the pure i-frame decision; the Monte-Carlo sim
+## supplies its own simulated time instead.
+func _now() -> float:
+	return Time.get_ticks_msec() / 1000.0
+
+
+## The hit "juice": flash the Player block to the shared hit color and tween
+## back to its own color (the same property-tween as the Enemy's, per the GDD).
+func _play_hit_flash() -> void:
+	var visual := $Visual as ColorRect
+	visual.color = _combat.hit_flash_color
+	var tween := create_tween()
+	var recover := tween.tween_property(
+		visual, "color", _config.player_color, _combat.hit_flash_duration
+	)
+	recover.set_trans(Tween.TRANS_SINE)
 
 
 ## The blockout "animation": a brief squash-stretch of the Player block on landing

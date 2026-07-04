@@ -1,57 +1,118 @@
 class_name EnemyController
-extends StaticBody2D
+extends CharacterBody2D
 
-## Drives the S2 static Enemy block: applies its data-driven blockout in _ready,
-## owns its live StatsSystem, and resolves incoming hits — i-frame gate, the
-## symmetric damage formula, a hit-flash property tween (the blockout
-## "animation"), and death at 0 HP (died signal + removal). It does not move or
-## attack; Archetype AI and enemy->Player damage are S4.
+## Drives one spawned Enemy of a data-driven Enemy Kind (S4, gADR-0003): applies
+## the kind's blockout in _ready, owns its live StatsSystem, runs its Archetype
+## AI each physics frame (pure EnemyAI decisions -> velocity integration +
+## attack delivery), and resolves incoming hits (i-frame gate, the symmetric
+## damage formula, hit-flash tween, death at 0 HP: died signal + removal).
 ##
-## Decisions stay PURE (CombatSystem, gADR-0001): this controller only
-## orchestrates — it reads the real clock, mutates its StatsSystem, tweens, and
-## logs. Stats and every number come from the derived StatsConfig/CombatConfig
-## Resources (gADR-0000). Cross-script references use preload() (no editor
-## class cache in this never-imported project).
+## The kind (EnemyConfig) is INJECTED by the spawner via setup() before
+## add_child, so one scene serves every kind. Attack delivery branches on the
+## Archetype: Melee lands a contact hit (player.take_hit with this kind as the
+## attacker stat block — the SAME CombatSystem.compute_damage with roles
+## swapped, gADR-0001); Ranged fires an enemy bolt (the shared
+## ProjectileController in the player-masked scene variant); Tank AI is
+## DEFERRED (gADR-0003) — EnemyAI returns no move and no attack for it.
+##
+## Decisions stay PURE (CombatSystem + EnemyAI, gADR-0001/0003): this controller
+## only orchestrates — it reads the real clock, integrates velocity, mutates its
+## StatsSystem, tweens, and logs. Every number comes from the derived
+## EnemyConfig/CombatConfig Resources (gADR-0000). Cross-script references use
+## preload() (no editor class cache in this never-imported project).
 
 signal died
 
 const StatsConfigScript := preload("res://src/resources/stats_config.gd")
+const EnemyConfigScript := preload("res://src/resources/enemy_config.gd")
 const CombatConfigScript := preload("res://src/resources/combat_config.gd")
 const StatsSystemScript := preload("res://src/systems/stats_system.gd")
 const CombatSystemScript := preload("res://src/systems/combat_system.gd")
+const EnemyAIScript := preload("res://src/systems/enemy_ai.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
+const EnemyProjectileScene := preload("res://scenes/enemy_projectile.tscn")
 
-const STATS_PATH := "res://data/generated/stats_enemy.tres"
-const CONFIG_PATH := "res://data/generated/combat_config.tres"
+const COMBAT_CONFIG_PATH := "res://data/generated/combat_config.tres"
 
-var _stats_config: StatsConfigScript
+var _kind: EnemyConfigScript
 var _combat: CombatConfigScript
 var _stats: StatsSystemScript
 # When this defender last took a hit (seconds). -INF = never hit, so the first
 # hit always lands (CombatSystem.is_invulnerable's sentinel contract).
 var _last_hit_time := -INF
+# When this enemy last attacked. -INF = never, so the first attack is ready
+# immediately (EnemyAI.is_attack_ready's sentinel contract).
+var _last_attack_time := -INF
+# Buffered Gravity Field contribution (gADR-0002, S3): folded into the next
+# velocity integration, then consumed — see apply_gravity_field.
+var _field_velocity := Vector2.ZERO
+
+
+## Hand this enemy its Enemy Kind. Called by the spawner BEFORE add_child, so
+## _ready sees the kind (the Projectile setup() pattern).
+func setup(kind: EnemyConfigScript) -> void:
+	_kind = kind
 
 
 func _ready() -> void:
-	_stats_config = load(STATS_PATH)
-	_combat = load(CONFIG_PATH)
-	if _stats_config == null or _combat == null:
-		# The derived .tres are committed; guard loudly rather than crash on a
-		# half-checkout, pointing at the pipeline that regenerates them from JSON.
+	_combat = load(COMBAT_CONFIG_PATH)
+	if _kind == null or _combat == null:
+		# The derived .tres are committed and the spawner must setup() first;
+		# guard loudly rather than crash, pointing at the pipeline.
 		push_error(
-			"EnemyController: could not load %s / %s — run scripts/build_config.py."
-			% [STATS_PATH, CONFIG_PATH]
+			"EnemyController: missing kind (setup() before add_child) or %s — run scripts/build_config.py."
+			% COMBAT_CONFIG_PATH
 		)
 		return
+	# Gravity-response contract (gADR-0002): the S3 Gravity Field acts on this
+	# group via apply_gravity_field.
+	add_to_group("gravity_affectable")
 	_stats = StatsSystemScript.new()
-	_stats.init_from(_stats_config)
-	_apply_blockout(_combat)
-	add_to_group("gravity_affectable")  # gADR-0002 contract; see the S3 block below
+	_stats.init_from(_kind)
+	_apply_blockout(_kind)
 	GameLogScript.emit("info", "enemy_ready", {
-		"max_hp": _stats_config.max_hp,
+		"max_hp": _kind.max_hp,
+		"faction": _kind.faction,
+		"tier": _kind.tier,
+		"archetype": _kind.archetype,
 		"x": position.x,
 		"y": position.y,
 	})
+
+
+func _physics_process(delta: float) -> void:
+	if _kind == null or _stats == null:
+		return
+	var player := _player()
+	var move_dir := 0.0
+	if player != null:
+		move_dir = EnemyAIScript.compute_move_dir(position, player.position, _kind)
+	velocity.x = move_dir * _kind.move_speed
+	# Vertical: accumulate gravity while airborne (capped at terminal velocity);
+	# shed leftover downward velocity on the floor.
+	if is_on_floor():
+		if velocity.y > 0.0:
+			velocity.y = 0.0
+	else:
+		velocity.y += _kind.gravity * delta
+		if velocity.y > _kind.max_fall_speed:
+			velocity.y = _kind.max_fall_speed
+	# Fold in the buffered Gravity Field contribution (gADR-0002), then consume
+	# it — the field re-applies each frame it still contains this enemy.
+	velocity += _field_velocity
+	_field_velocity = Vector2.ZERO
+	move_and_slide()
+	if player != null and EnemyAIScript.can_attack(
+		position, player.position, _kind, _last_attack_time, _now()
+	):
+		_attack(player)
+
+
+## Gravity-response contract (gADR-0002, owned and documented by S3): fold a
+## Gravity Field's velocity into this body's velocity integration. Buffered and
+## consumed in _physics_process so the steering overwrite cannot drop it.
+func apply_gravity_field(field_velocity: Vector2, delta: float) -> void:
+	_field_velocity += field_velocity * delta
 
 
 ## Resolve one incoming hit from an attacker's stat block. Inside the i-frame
@@ -63,7 +124,7 @@ func take_hit(attacker: StatsConfigScript) -> void:
 	if CombatSystemScript.is_invulnerable(_last_hit_time, now, _combat.iframe_duration):
 		return
 	_last_hit_time = now
-	var damage := CombatSystemScript.compute_damage(attacker, _stats_config, _combat)
+	var damage := CombatSystemScript.compute_damage(attacker, _kind, _combat)
 	_stats.apply_damage(damage)
 	GameLogScript.emit("info", "enemy_hit", {"damage": damage, "hp_left": _stats.hp})
 	_play_hit_flash()
@@ -73,71 +134,94 @@ func take_hit(attacker: StatsConfigScript) -> void:
 		queue_free()
 
 
-## The runtime clock feeding the pure i-frame decision; the Monte-Carlo sim
-## supplies its own simulated time instead.
+## Deliver one attack per the Archetype: Melee lands a contact hit, Ranged
+## fires an enemy bolt at the Player. Cooldown stamped here (orchestration);
+## the decision to attack was EnemyAI's.
+func _attack(player: Node2D) -> void:
+	_last_attack_time = _now()
+	GameLogScript.emit("info", "enemy_attack", {
+		"archetype": _kind.archetype,
+		"faction": _kind.faction,
+		"tier": _kind.tier,
+		"x": position.x,
+	})
+	_play_attack_tween()
+	if _kind.archetype == "ranged":
+		_fire_bolt(player)
+	elif player.has_method("take_hit"):
+		player.take_hit(_kind)
+
+
+## Fire one enemy bolt aimed at the Player, configured from this kind's
+## projectile block. The bolt is the SHARED ProjectileController in the
+## enemy_projectile.tscn variant (mask = terrain|player), a child of this
+## enemy's PARENT so it flies in world space.
+func _fire_bolt(player: Node2D) -> void:
+	var aim := (player.position - position).normalized()
+	if aim == Vector2.ZERO:
+		return
+	var bolt := EnemyProjectileScene.instantiate()
+	bolt.setup(aim, _kind)
+	bolt.configure(
+		_kind.projectile_color,
+		_kind.projectile_size,
+		_kind.projectile_speed,
+		_kind.projectile_lifetime,
+	)
+	var offset := _kind.projectile_spawn_offset
+	bolt.position = position + Vector2(signf(aim.x) * offset.x, offset.y)
+	get_parent().add_child(bolt)
+
+
+## The Player, looked up by group each frame (PlayerController joins "player"
+## in _ready) — no cached reference to go stale.
+func _player() -> Node2D:
+	return get_tree().get_first_node_in_group("player") as Node2D
+
+
+## The runtime clock feeding the pure i-frame/cooldown decisions; the
+## Monte-Carlo sim supplies its own simulated time instead.
 func _now() -> float:
 	return Time.get_ticks_msec() / 1000.0
 
 
-## Apply the data-driven blockout: the Enemy block centered on the body origin.
+## Apply the kind's data-driven blockout: the Enemy block centered on the body
+## origin (color = Faction flavor, size = Tier read at a glance, per the GDD).
 ## The collision shape is CREATED here (RectangleShape2D.new sized from config):
 ## gda cannot author inline sub-resources (#365), so the scene ships shape=null.
-func _apply_blockout(config: CombatConfigScript) -> void:
-	var half := config.enemy_size / 2.0
+func _apply_blockout(kind: EnemyConfigScript) -> void:
+	var half := kind.size / 2.0
 
 	var visual := $Visual as ColorRect
-	visual.color = config.enemy_color
-	visual.size = config.enemy_size
+	visual.color = kind.color
+	visual.size = kind.size
 	visual.position = -half
+	visual.pivot_offset = half  # scale/tween about the block center
 
 	var shape := RectangleShape2D.new()
-	shape.size = config.enemy_size
+	shape.size = kind.size
 	($Collision as CollisionShape2D).shape = shape
 
 
-## The blockout "animation": flash the block to the hit color and tween back to
-## its own color (a property-tween, per the GDD — the S2 sibling of S1's
-## landing squash).
+## The hit "juice": flash the block to the shared hit color and tween back to
+## the kind's own color (a property-tween, per the GDD).
 func _play_hit_flash() -> void:
 	var visual := $Visual as ColorRect
 	visual.color = _combat.hit_flash_color
 	var tween := create_tween()
 	var recover := tween.tween_property(
-		visual, "color", _combat.enemy_color, _combat.hit_flash_duration
+		visual, "color", _kind.color, _combat.hit_flash_duration
 	)
 	recover.set_trans(Tween.TRANS_SINE)
 
 
-# --- S3 gravity-response contract (gADR-0002) --------------------------------
-# Kept as ONE self-contained block (plus the group join in _ready) so S4's
-# Archetype rewrite can carry it over verbatim: any body a Gravity Field acts
-# on joins "gravity_affectable" and implements apply_gravity_field.
-
-const GravityConfigScript := preload("res://src/resources/gravity_config.gd")
-const GravitySystemScript := preload("res://src/systems/gravity_system.gd")
-const GRAVITY_CONFIG_PATH := "res://data/generated/gravity_config.tres"
-
-# Lazily loaded (load() is cached) so this block stays independent of _ready.
-var _gravity_config: GravityConfigScript
-# Total displacement Gravity Fields have accumulated on this body — clamped at
-# config.enemy_max_gravity_offset, so a field can never fling it off-level.
-var _gravity_offset := Vector2.ZERO
-
-
-## Gravity-response contract (gADR-0002): a Gravity Field feeds this body its
-## field velocity each overlapping physics frame; this static Enemy integrates
-## it as clamped position displacement (pure decision in GravitySystem).
-func apply_gravity_field(field_velocity: Vector2, delta: float) -> void:
-	if _gravity_config == null:
-		_gravity_config = load(GRAVITY_CONFIG_PATH)
-		if _gravity_config == null:
-			push_error(
-				"EnemyController: could not load %s — run scripts/build_config.py."
-				% GRAVITY_CONFIG_PATH
-			)
-			return
-	var next := GravitySystemScript.compute_clamped_offset(
-		_gravity_offset, field_velocity, delta, _gravity_config.enemy_max_gravity_offset
+## The attack telegraph: punch the block's scale to the kind's attack squash
+## and tween back (the S4 sibling of S1's landing squash).
+func _play_attack_tween() -> void:
+	var visual := $Visual as ColorRect
+	visual.scale = _kind.attack_squash
+	var tween := create_tween()
+	var recover := tween.tween_property(
+		visual, "scale", Vector2.ONE, _kind.attack_tween_duration
 	)
-	position += next - _gravity_offset
-	_gravity_offset = next
+	recover.set_trans(Tween.TRANS_SINE)
