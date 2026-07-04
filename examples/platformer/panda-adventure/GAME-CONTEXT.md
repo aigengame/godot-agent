@@ -68,6 +68,26 @@ gravity-affectable obstacles and on enemies within its range (lifting, slamming,
 redirecting them) — never on the player. The basis of the "改变重力" core-loop pillar.
 _Avoid_: global gravity, gravity flip, zero-g (it is a local field, not a world toggle)
 
+**Gravity Field params**:
+The data-driven description of one field's effect (gADR-0002): a velocity vector —
+direction (normalized) × strength — applied within a radius for a duration. Lift
+(upward) is the shipped fire default; slam and redirect are other data values of the
+SAME params, never separate mechanics.
+_Avoid_: field modes, gravity types, effect kinds
+
+**Gravity-affectable**:
+The opt-in response contract for any body a Gravity Field can act on: it joins the
+`gravity_affectable` group and implements `apply_gravity_field(field_velocity, delta)`,
+integrating the field velocity its own way (gADR-0002). The Enemy and the Obstacle are
+the S3 members; the Player never is (excluded by collision mask, not code).
+_Avoid_: pushable, liftable, physics-enabled
+
+**Current weapon**:
+The Player's weapon-switch state: which Equipment gun `fire` fires. Toggled between
+the Laser Gun and the Gravity Gun by the `switch_weapon` action; the spawn default is
+the Laser Gun.
+_Avoid_: active gun, weapon slot, loadout state
+
 ### Stats
 
 **MP**:
@@ -119,6 +139,12 @@ _Avoid_: mantou, steamed bun, bread
 A Consumable that restores MP.
 _Avoid_: jiu, sake, alcohol
 
+**Wine hook**:
+S3's minimal MP-restore path standing in for the S7 Consumable system: the
+`drink_wine` action restores a config amount of MP (capped at max MP) with no
+inventory and no item count. S7 replaces the hook's supply side, not its effect.
+_Avoid_: inventory, consumable system (that is S7)
+
 **Equipment**:
 An item the Player wields or wears persistently — the Laser Gun, the Gravity Gun, and the
 Spacesuit. Contrast with Consumable.
@@ -134,6 +160,12 @@ _Avoid_: armor (generic), suit
 A timed segment of the demo level that spawns a specific composition of enemies
 (Faction × Tier × Archetype). The demo defaults to four; the count is data-driven, not hardcoded.
 _Avoid_: round, stage; level (the demo is a single level)
+
+**Obstacle**:
+A gravity-affectable environment block on the terrain layer that a Gravity Field can
+lift, slam, or redirect — the level-as-a-weapon half of the change-gravity pillar. A
+prop, not an actor: it never attacks, damages, or moves on its own.
+_Avoid_: crate (flavor), prop (generic), hazard
 
 <!-- Format reminder — **Term**: one/two-sentence definition (what it IS, not what it does);
      _Avoid_: rejected synonyms. Group natural clusters under ### subheadings. -->

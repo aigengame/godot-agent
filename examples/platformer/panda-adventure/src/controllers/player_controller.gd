@@ -12,6 +12,13 @@ extends CharacterBody2D
 ## Player owns its live StatsSystem (all four stats; HP untouched until S4's
 ## enemy->Player damage).
 ##
+## S3 adds the Gravity Gun + weapon switch + MP economy (gADR-0002):
+## `switch_weapon` toggles which gun `fire` fires (the Laser Gun is the spawn
+## default), the Gravity Gun spends MP (StatsSystem.spend_mp — at 0 MP it
+## cannot fire) to spawn a Gravity Field, and `drink_wine` restores MP (the
+## minimal Wine hook; the full Consumable system is S7). See the S3 block at
+## the end of this file.
+##
 ## Movement params and visuals are data (gADR-0000): a derived PlayerConfig
 ## Resource, never hardcoded. compute_velocity is static and node-free so the
 ## logic seam can exercise it headless (tests/gdscript/test_player_logic.gd via
@@ -137,8 +144,12 @@ func _physics_process(delta: float) -> void:
 	if is_on_floor() and not was_on_floor:
 		_play_landing_tween()
 
+	if Input.is_action_just_pressed("switch_weapon"):
+		_switch_weapon()
+	if Input.is_action_just_pressed("drink_wine"):
+		_drink_wine()
 	if Input.is_action_just_pressed("fire"):
-		_fire()
+		_fire_current_weapon()
 
 
 ## Fire the Laser Gun: spawn one Projectile bolt aimed by the facing, offset
@@ -169,3 +180,101 @@ func _play_landing_tween() -> void:
 	var recover := tween.tween_property(visual, "scale", Vector2.ONE, _config.landing_tween_duration)
 	recover.set_trans(Tween.TRANS_SINE)
 	GameLogScript.emit("info", "player_land", {"floor_y": position.y})
+
+
+# --- S3 Gravity Gun + weapon switch + MP economy (gADR-0002) ------------------
+# Kept as ONE self-contained block: S4 adds take_hit/i-frames to this file in
+# parallel, so the S3 additions stay append-only (GDScript accepts class-level
+# declarations after methods).
+
+const GravityConfigScript := preload("res://src/resources/gravity_config.gd")
+const GravityFieldScene := preload("res://scenes/gravity_field.tscn")
+const GRAVITY_CONFIG_PATH := "res://data/generated/gravity_config.tres"
+
+# The two Equipment guns `fire` can drive. Structural identifiers (they name
+# code paths and log values, not tunable numbers — gADR-0000 governs numbers).
+const WEAPON_LASER := "laser_gun"
+const WEAPON_GRAVITY := "gravity_gun"
+
+# Current weapon — which gun `fire` fires. The spawn default is the Laser Gun.
+var _weapon := WEAPON_LASER
+# The derived GravityConfig, lazily loaded (load() is cached) so _ready's S2
+# load block stays untouched for the parallel S4 merge.
+var _gravity_cfg: GravityConfigScript
+
+
+## Pure weapon-switch decision: toggle between the two guns. Anything outside
+## the two-gun set falls back to the spawn default (Laser Gun), so the state
+## can never leave the set.
+static func compute_next_weapon(weapon: String) -> String:
+	return WEAPON_GRAVITY if weapon == WEAPON_LASER else WEAPON_LASER
+
+
+## `fire` fires the CURRENT weapon: the Laser Gun spawns a Projectile (_fire,
+## S2 unchanged), the Gravity Gun spends MP to spawn a Gravity Field.
+func _fire_current_weapon() -> void:
+	if _weapon == WEAPON_GRAVITY:
+		_fire_gravity_gun()
+	else:
+		_fire()
+
+
+func _switch_weapon() -> void:
+	_weapon = compute_next_weapon(_weapon)
+	GameLogScript.emit("info", "weapon_switched", {"weapon": _weapon})
+
+
+## Fire the Gravity Gun: spend MP first (StatsSystem.spend_mp is the gate — on
+## insufficient MP nothing is spent and no field spawns), then spawn one
+## Gravity Field offset from the Player origin by the config offset (x scaled
+## by the facing, the Projectile's spawn pattern). The field is a child of the
+## Player's PARENT (the level), so it stays fixed in world space.
+func _fire_gravity_gun() -> void:
+	var cfg := _gravity_config()
+	if cfg == null or _stats == null:
+		return
+	var mp_before := _stats.mp
+	if not _stats.spend_mp(cfg.mp_cost):
+		GameLogScript.emit("info", "gravity_blocked", {
+			"mp": _stats.mp,
+			"mp_cost": cfg.mp_cost,
+		})
+		return
+	var field := GravityFieldScene.instantiate()
+	var offset := cfg.field_spawn_offset
+	field.position = position + Vector2(_facing * offset.x, offset.y)
+	get_parent().add_child(field)
+	GameLogScript.emit("info", "gravity_fired", {
+		"mp_before": mp_before,
+		"mp_after": _stats.mp,
+		"field_x": field.position.x,
+		"field_y": field.position.y,
+	})
+
+
+## Drink Wine — the S3 minimal MP-restore hook (the full Consumable system with
+## inventory/counts is S7, so nothing is consumed from anywhere yet): restore
+## the config amount, capped at the stat block's max_mp.
+func _drink_wine() -> void:
+	var cfg := _gravity_config()
+	if cfg == null or _stats == null or _stats_config == null:
+		return
+	var mp_before := _stats.mp
+	_stats.restore_mp(cfg.wine_mp_restore, _stats_config.max_mp)
+	GameLogScript.emit("info", "wine_drunk", {
+		"mp_before": mp_before,
+		"mp_after": _stats.mp,
+	})
+
+
+## The derived GravityConfig with the standard loud guard, lazily loaded so the
+## S2 _ready block stays untouched.
+func _gravity_config() -> GravityConfigScript:
+	if _gravity_cfg == null:
+		_gravity_cfg = load(GRAVITY_CONFIG_PATH)
+		if _gravity_cfg == null:
+			push_error(
+				"PlayerController: could not load %s — run scripts/build_config.py."
+				% GRAVITY_CONFIG_PATH
+			)
+	return _gravity_cfg
