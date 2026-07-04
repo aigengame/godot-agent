@@ -8,6 +8,7 @@ verification of ``node add``'s effect.
 
 import json
 import os
+import re
 import subprocess
 
 import pytest
@@ -37,6 +38,19 @@ def _gda_env(extra_env: dict, *args: str) -> subprocess.CompletedProcess:
         text=True,
         env={**os.environ, **extra_env},
     )
+
+
+def _gda_project(project):
+    """``gda`` bound to ``--project`` so ``res://`` ext_resources resolve."""
+
+    def gda(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [*GDA_CMD, *args, "--godot", str(GODOT), "--project", str(project)],
+            capture_output=True,
+            text=True,
+        )
+
+    return gda
 
 
 def _no_gda_temp_siblings(project) -> bool:
@@ -134,6 +148,131 @@ def test_node_add_under_nested_parent_path(godot_project):
     assert hero["path"] == "Hero"
     assert hero["children"][0]["path"] == "Hero/Hitbox"
     assert hero["children"][0]["type"] == "Area2D"
+
+
+@pytest.mark.e2e
+def test_node_add_preserves_existing_ext_resource_ids_on_scene_repack(godot_project):
+    # Issue #393: a shared scene mutation must not let Godot's text saver re-key
+    # pre-existing ext_resource ids and every ExtResource("...") reference that
+    # points at them. Drive `gda` over a real .tscn write rather than a
+    # string helper: node add exercises the shared _load_for_mutation ->
+    # _repack_and_save tail, then script attach proves a newly introduced resource
+    # still receives a fresh non-colliding id.
+    gda = _gda_project(godot_project)
+    scene_path = godot_project / "main.tscn"
+    (godot_project / "hero.gd").write_text("extends Node2D\n", encoding="utf-8")
+    (godot_project / "enemy.gd").write_text("extends Node2D\n", encoding="utf-8")
+    (godot_project / "obstacle.gd").write_text("extends Node2D\n", encoding="utf-8")
+    scene_path.write_text(
+        "\n".join(
+            [
+                '[gd_scene load_steps=3 format=3 uid="uid://stableids"]',
+                "",
+                '[ext_resource type="Script" uid="uid://bhero" path="res://hero.gd" id="1_lkauy"]',
+                '[ext_resource type="Script" path="enemy.gd" id="2_85amh"]',
+                "",
+                '[node name="main" type="Node2D"]',
+                'script = ExtResource("1_lkauy")',
+                "",
+                '[node name="Enemy" type="Node2D" parent="."]',
+                'script = ExtResource("2_85amh")',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    added = gda(
+        "node",
+        "add",
+        "res://main.tscn",
+        "--type",
+        "Node2D",
+        "--name",
+        "Obstacle",
+        "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    after_add = scene_path.read_text(encoding="utf-8")
+    assert 'path="res://hero.gd" id="1_lkauy"' in after_add
+    assert 'path="res://enemy.gd" id="2_85amh"' in after_add
+    assert 'script = ExtResource("1_lkauy")' in after_add
+    assert 'script = ExtResource("2_85amh")' in after_add
+    assert '[node name="Obstacle" type="Node2D" parent="."' in after_add
+
+    attached = gda(
+        "script",
+        "attach",
+        "res://main.tscn",
+        "--node",
+        "Obstacle",
+        "--script",
+        "res://obstacle.gd",
+        "--json",
+    )
+
+    assert attached.returncode == 0, attached.stdout + attached.stderr
+    saved = scene_path.read_text(encoding="utf-8")
+    assert 'path="res://hero.gd" id="1_lkauy"' in saved
+    assert 'path="res://enemy.gd" id="2_85amh"' in saved
+    assert 'script = ExtResource("1_lkauy")' in saved
+    assert 'script = ExtResource("2_85amh")' in saved
+    obstacle_id_match = re.search(
+        r'path="res://obstacle\.gd" id="([^"]+)"',
+        saved,
+    )
+    assert obstacle_id_match, saved
+    obstacle_id = obstacle_id_match.group(1)
+    assert obstacle_id not in {"1_lkauy", "2_85amh"}
+    assert f'script = ExtResource("{obstacle_id}")' in saved
+
+
+@pytest.mark.e2e
+def test_node_add_preserves_first_id_when_duplicate_ext_resource_path_is_canonicalized(
+    godot_project,
+):
+    # ResourceSaver canonicalizes duplicate ext_resources for the same path down to
+    # one entry. gda should keep the first old id for that canonical path instead of
+    # accepting a new random id.
+    gda = _gda_project(godot_project)
+    scene_path = godot_project / "main.tscn"
+    (godot_project / "hero.gd").write_text("extends Node2D\n", encoding="utf-8")
+    scene_path.write_text(
+        "\n".join(
+            [
+                "[gd_scene load_steps=3 format=3]",
+                "",
+                '[ext_resource type="Script" path="res://hero.gd" id="1_first"]',
+                '[ext_resource type="Script" path="res://hero.gd" id="2_second"]',
+                "",
+                '[node name="main" type="Node2D"]',
+                'script = ExtResource("1_first")',
+                "",
+                '[node name="Twin" type="Node2D" parent="."]',
+                'script = ExtResource("2_second")',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    added = gda(
+        "node",
+        "add",
+        "res://main.tscn",
+        "--type",
+        "Marker2D",
+        "--name",
+        "M",
+        "--json",
+    )
+
+    assert added.returncode == 0, added.stdout + added.stderr
+    saved = scene_path.read_text(encoding="utf-8")
+    assert 'path="res://hero.gd" id="1_first"' in saved
+    assert 'script = ExtResource("1_first")' in saved
+    assert "2_second" not in saved
 
 
 @pytest.mark.e2e
@@ -1856,10 +1995,12 @@ def test_node_move_to_current_parent_is_a_noop_preserving_sibling_order(godot_pr
             "node", "add", str(scene_path), "--type", "Node2D", "--name", name, "--json"
         )
         assert added.returncode == 0, added.stdout + added.stderr
+    before = scene_path.read_text(encoding="utf-8")
 
     moved = _gda("node", "move", str(scene_path), "--node", "A", "--to", ".", "--json")
 
     assert moved.returncode == 0, moved.stdout + moved.stderr
+    assert scene_path.read_text(encoding="utf-8") == before
     data = json.loads(moved.stdout)
     # The node is reported at its (unchanged) home.
     assert data["new_parent"] == "."

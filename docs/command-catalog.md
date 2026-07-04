@@ -107,6 +107,13 @@ registered `missing_dependency` error (exit 4), leaving the file untouched. Rela
 of scripts already attached in the scene (#62) — treat headless mutation of an untrusted scene
 as running its code.
 
+Scene mutation writes also preserve existing `.tscn` `ext_resource` ids and matching
+`ExtResource("...")` references after Godot's text saver re-serializes the file. Matching is by
+the resource path's canonical `res://` form, so relative `path="..."` entries keep their old ids
+after Godot writes them as `res://...`. Other text-saver canonicalization remains Godot-owned:
+non-resource-id formatting may change, and duplicate `ext_resource` entries for the same path may
+collapse to one canonical entry; when that happens, `gda` keeps the first old id for that path.
+
 **Type resolution** (sharpened by #65): `node add --type` resolves a built-in `Node` class
 first, then a `class_name` from the project's global class list (which exists only after a
 project import — pass `--project`). A type that resolves to neither is refused with
