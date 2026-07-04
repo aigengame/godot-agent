@@ -54,6 +54,13 @@ var _field_velocity := Vector2.ZERO
 # GravityConfig.enemy_max_gravity_offset (a field never flings it off-level);
 # shed once the enemy is back on the floor with no field acting.
 var _gravity_offset := Vector2.ZERO
+# The largest field displacement of the CURRENT suspension episode, reported by
+# one `enemy_suspended` record when the episode ends. Suspension itself is
+# transient (the enemy falls back the first un-fielded frame), so the log must
+# carry the peak — an observer polling positions can miss the whole episode.
+var _suspension_peak := Vector2.ZERO
+# Whether a field fed this body last physics frame — the episode edge detector.
+var _suspended := false
 # The derived GravityConfig, lazily loaded (load() is cached) so the gravity
 # block stays independent of _ready (the S3 pattern).
 var _gravity_config: GravityConfigScript
@@ -106,9 +113,22 @@ func _physics_process(delta: float) -> void:
 		)
 		position += next - _gravity_offset
 		_gravity_offset = next
+		if next.length() > _suspension_peak.length():
+			_suspension_peak = next
+		_suspended = true
 		_field_velocity = Vector2.ZERO
 		velocity = Vector2.ZERO
 		return
+	# The suspension episode just ended (first un-fielded frame): report its
+	# peak displacement — the durable observable of a transient state, one
+	# record per episode (not per-frame spam).
+	if _suspended:
+		_suspended = false
+		GameLogScript.emit("info", "enemy_suspended", {
+			"peak_offset_x": _suspension_peak.x,
+			"peak_offset_y": _suspension_peak.y,
+		})
+		_suspension_peak = Vector2.ZERO
 	# Back on the floor with no field acting: the field displacement has been
 	# shed by normal gravity, so a future field starts a fresh clamp budget.
 	if _gravity_offset != Vector2.ZERO and is_on_floor():
