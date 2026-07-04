@@ -442,18 +442,24 @@ def test_node_add_instance_composes_a_scene_and_round_trips(godot_project):
     child = json.loads(got.stdout)
     assert child["type"] == "CanvasLayer"
 
-    # Static reads reflect the composition (#399's last acceptance criterion):
-    # the instanced child appears in the host's tree under both readers. Its
-    # static `type` is deliberately NOT asserted here — surfacing it is the
-    # companion issue #400.
+    # Static reads reflect the composition (#399's last acceptance criterion)
+    # and surface the instance identity (#400): the child is an instance of the
+    # source scene, and its static type resolves to that scene's root class.
     listed = gda("node", "list", "res://main.tscn", "--json")
     assert listed.returncode == 0, listed.stdout + listed.stderr
     children = json.loads(listed.stdout)["root"]["children"]
     assert [c["name"] for c in children] == ["hud"]
     assert children[0]["path"] == "hud"
+    assert children[0]["type"] == "CanvasLayer"
+    assert children[0]["instance_path"] == "res://hud.tscn"
+    assert children[0]["instance_status"] == "resolved"
     read = gda("scene", "get", "res://main.tscn", "--json")
     assert read.returncode == 0, read.stdout + read.stderr
-    assert [c["name"] for c in json.loads(read.stdout)["root"]["children"]] == ["hud"]
+    scene_child = json.loads(read.stdout)["root"]["children"][0]
+    assert scene_child["name"] == "hud"
+    assert scene_child["type"] == "CanvasLayer"
+    assert scene_child["instance_path"] == "res://hud.tscn"
+    assert scene_child["instance_status"] == "resolved"
 
     assert _no_gda_temp_siblings(godot_project)
 

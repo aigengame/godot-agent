@@ -123,6 +123,10 @@ def test_scene_get_schema_emits_model_derived_contract_without_other_args():
     assert doc["input"] == SceneGetParams.model_json_schema()
     assert doc["output"] == SceneGetResult.model_json_schema()
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    scene_node = doc["output"]["$defs"]["SceneNode"]["properties"]
+    assert "instanced scene" in scene_node["type"]["description"]
+    assert "referenced PackedScene path" in scene_node["instance_path"]["description"]
+    assert "missing" in scene_node["instance_status"]["description"]
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -169,6 +173,13 @@ def test_scene_list_schema_emits_model_derived_contract_without_a_project():
     assert doc["output"] == SceneListResult.model_json_schema()
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     assert doc["input"].get("properties", {}) == {}
+    listed_scene = doc["output"]["$defs"]["ListedScene"]["properties"]
+    assert "inherited/instanced root" in listed_scene["root_type"]["description"]
+    assert (
+        "referenced PackedScene path"
+        in listed_scene["root_instance_path"]["description"]
+    )
+    assert "missing" in listed_scene["root_instance_status"]["description"]
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 

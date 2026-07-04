@@ -61,6 +61,16 @@ they are provenance, not status markers.
 | `gda scene list` | Enumerate scenes in the project |
 | `gda scene get-exports` | List `@export` properties declared by a scene's nodes |
 
+**Static instance reporting** (established by #400): `scene get` reads the stored
+`SceneState` without instantiating the host scene, but an instanced node is still
+identifiable. Its `type` is resolved to the referenced scene's root node type
+when the referenced `PackedScene` loads, and the node carries `instance_path`
+plus `instance_status` (`resolved` or `missing`) so agents can distinguish an
+instance from a plain typed node. `scene list` applies the same rule to an
+inherited/instanced root through `root_type`, `root_instance_path`, and
+`root_instance_status`. A missing referenced scene keeps the marker and reports
+`missing` rather than silently appearing as only `type: ""`.
+
 **Export reporting** (established by #58): `gda scene get-exports` loads a scene, instantiates
 it, and reports — per node, keyed by the same canonical node path `node get`/`node set`
 address by (`.` for the root) — the `@export` properties the node's attached script declares:

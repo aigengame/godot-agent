@@ -307,10 +307,11 @@ func _op_scene_get(params: Dictionary) -> void:
 	var packed: PackedScene = _load_scene(params)
 	if packed == null:
 		return  # _load_scene already recorded the failure
+	var path := _string_param(params, "path")
 
 	_succeed({
-		"path": _string_param(params, "path"),
-		"root": _tree_from_state(packed.get_state()),
+		"path": path,
+		"root": _tree_from_state(packed.get_state(), false, _scene_instance_paths_by_node_path(path)),
 	})
 
 
@@ -565,10 +566,11 @@ func _op_node_list(params: Dictionary) -> void:
 	var packed: PackedScene = _load_scene(params)
 	if packed == null:
 		return  # _load_scene already recorded the failure
+	var path := _string_param(params, "path")
 
 	_succeed({
-		"scene_path": _string_param(params, "path"),
-		"root": _tree_from_state(packed.get_state(), true),
+		"scene_path": path,
+		"root": _tree_from_state(packed.get_state(), true, _scene_instance_paths_by_node_path(path)),
 	})
 
 
@@ -3484,10 +3486,19 @@ func _scene_summary(path: String) -> Dictionary:
 	var state := packed.get_state()
 	if state == null or state.get_node_count() == 0:
 		return {"path": path, "root_name": null, "root_type": null}
+	var root_fields := _state_node_projection_fields(state, 0)
+	var instance_paths := _scene_instance_paths_by_node_path(path)
+	if instance_paths.has("."):
+		var instance_path := String(instance_paths["."])
+		root_fields["instance_path"] = instance_path
+		if not root_fields.has("instance_status"):
+			root_fields["instance_status"] = _scene_instance_status_for_path(instance_path)
 	return {
 		"path": path,
 		"root_name": String(state.get_node_name(0)),
-		"root_type": String(state.get_node_type(0)),
+		"root_type": root_fields["type"],
+		"root_instance_path": root_fields.get("instance_path", null),
+		"root_instance_status": root_fields.get("instance_status", null),
 	}
 
 
@@ -4366,18 +4377,94 @@ func _normalize_state_path(state: SceneState, index: int) -> String:
 # each node's path in the emitted tree (node-list's addressing contract),
 # normalized to the root-relative form node add accepts and reports: the
 # state's "./Hero" prefix form becomes "Hero", the root stays ".".
-func _tree_from_state(state: SceneState, with_paths := false) -> Dictionary:
+func _packed_scene_root_type(packed: PackedScene, depth := 0) -> String:
+	if packed == null or depth > 16:
+		return ""
+	var state := packed.get_state()
+	if state == null or state.get_node_count() == 0:
+		return ""
+	var root_type := String(state.get_node_type(0))
+	if not root_type.is_empty():
+		return root_type
+	var root_instance := state.get_node_instance(0)
+	if root_instance != null:
+		return _packed_scene_root_type(root_instance, depth + 1)
+	return ""
+
+
+func _state_node_projection_fields(state: SceneState, index: int) -> Dictionary:
+	var fields := {"type": String(state.get_node_type(index))}
+	var instance := state.get_node_instance(index)
+	if instance != null:
+		fields["instance_status"] = "resolved"
+		var instance_path := String(instance.resource_path)
+		if not instance_path.is_empty():
+			fields["instance_path"] = instance_path
+		var root_type := _packed_scene_root_type(instance)
+		if fields["type"].is_empty() and not root_type.is_empty():
+			fields["type"] = root_type
+		return fields
+
+	var placeholder_path := String(state.get_node_instance_placeholder(index))
+	if not placeholder_path.is_empty():
+		fields["instance_path"] = placeholder_path
+		fields["instance_status"] = "missing"
+	return fields
+
+
+func _scene_instance_status_for_path(path: String) -> String:
+	return "resolved" if ResourceLoader.exists(path, "PackedScene") else "missing"
+
+
+# SceneState exposes whether a node is an instance and can resolve the root type,
+# but the public PackedScene object it returns does not reliably carry the
+# original ext_resource path. Recover that marker from the .tscn header text and
+# merge it into the SceneState projection.
+func _scene_instance_paths_by_node_path(path: String) -> Dictionary:
+	var text := FileAccess.get_file_as_string(path)
+	if text.is_empty():
+		return {}
+	var ext_resources_by_id := {}
+	for entry in _ext_resource_entries_from_text(text, path.get_base_dir()):
+		ext_resources_by_id[String(entry["id"])] = String(entry["normalized_path"])
+
+	var instance_paths := {}
+	for line in text.split("\n"):
+		var stripped := line.strip_edges()
+		if not stripped.begins_with("[node ") or stripped.find("instance=ExtResource(") == -1:
+			continue
+		var id := _first_quoted_after(stripped, stripped.find("instance=ExtResource("))
+		if id.is_empty() or not ext_resources_by_id.has(id):
+			continue
+		var node_path := _scene_node_path_from_header(stripped)
+		if not node_path.is_empty():
+			instance_paths[node_path] = ext_resources_by_id[id]
+	return instance_paths
+
+
+func _tree_from_state(state: SceneState, with_paths := false, instance_paths_by_node_path := {}) -> Dictionary:
 	var by_path := {}
 	var root: Dictionary = {}
 	for i in state.get_node_count():
+		var projection_fields := _state_node_projection_fields(state, i)
 		var state_path := String(state.get_node_path(i))
+		var normalized_path := _normalize_state_path(state, i)
+		if instance_paths_by_node_path.has(normalized_path):
+			var instance_path := String(instance_paths_by_node_path[normalized_path])
+			projection_fields["instance_path"] = instance_path
+			if not projection_fields.has("instance_status"):
+				projection_fields["instance_status"] = _scene_instance_status_for_path(instance_path)
 		var node := {
 			"name": String(state.get_node_name(i)),
-			"type": String(state.get_node_type(i)),
+			"type": projection_fields["type"],
 			"children": [],
 		}
+		if projection_fields.has("instance_path"):
+			node["instance_path"] = projection_fields["instance_path"]
+		if projection_fields.has("instance_status"):
+			node["instance_status"] = projection_fields["instance_status"]
 		if with_paths:
-			node["path"] = _normalize_state_path(state, i)
+			node["path"] = normalized_path
 		by_path[state_path] = node
 		if i == 0:
 			root = node
