@@ -136,8 +136,12 @@ node stub with no `type=` attribute, the instance's internals referenced, never 
 The default `--name` is the instanced scene's filename stem. The result echoes the composed
 `res://` path as `instance` and reports `type` as the instanced scene's resolved root class.
 Failures follow the dependency ladder: a missing scene file is `missing_dependency` naming
-the path, a file that loads as something else is `not_a_scene`, and instancing the host into
-itself is refused as `cyclic_target` — all exit 4, file untouched. Instantiating the
+the path; a file not recognized as a PackedScene is `not_a_scene` (the wrong KIND of file);
+a scene-typed file that fails to load, or whose declared nodes vanish/degrade on
+instantiation because a nested dependency is missing (the #64 hazard, guarded for the
+instanced scene too), is `missing_dependency` naming the instance path with diagnostics
+carrying the nested culprit; instancing the host into itself is refused as `cyclic_target`
+— all exit 4, file untouched. Instantiating the
 composed scene runs the `_init` of scripts inside it: the same trust boundary as the
 `class_name` path (#62).
 

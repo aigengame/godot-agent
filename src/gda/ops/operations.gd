@@ -4156,11 +4156,15 @@ func _instantiate_node_type(type: String) -> Node:
 # execution surface as the class_name path (ADR-0009). The failure ladder
 # mirrors the dependency precedent (#392/#396): a missing file is the
 # composition's missing dependency, a file that loads as something else is
-# not_a_scene, and a scene that loads but instantiates to nothing (its own
-# dependencies broken) is missing_dependency again. The direct self-cycle
-# (instancing the host into itself) is refused up front as cyclic_target — the
-# write would serialize a self-reference that can never finish loading; deeper
-# A→B→A cycles stay the engine's load-time problem, outside this guard.
+# not_a_scene (keyed on the RECOGNIZED type — the wrong KIND of file), while a
+# scene-typed file that fails to load, instantiates to nothing, or silently
+# drops declared nodes (the engine instantiates around a missing nested
+# dependency, the #64 hazard) is dependency-shaped: missing_dependency naming
+# the instance path the caller passed, with the engine diagnostics carrying
+# the nested culprit (PR #404 review). The direct self-cycle (instancing the
+# host into itself) is refused up front as cyclic_target — the write would
+# serialize a self-reference that can never finish loading; deeper A→B→A
+# cycles stay the engine's load-time problem, outside this guard.
 func _instantiate_scene_instance(instance_path: String, host_path: String) -> Node:
 	if ProjectSettings.globalize_path(instance_path) == ProjectSettings.globalize_path(host_path):
 		_fail(OP_ERROR_CYCLIC_TARGET, "cannot instance a scene into itself: " + instance_path
@@ -4170,10 +4174,14 @@ func _instantiate_scene_instance(instance_path: String, host_path: String) -> No
 		_fail(OP_ERROR_MISSING_DEPENDENCY, "instanced scene not found: " + instance_path
 				+ " — --instance must reference an existing scene file; check the path and --project")
 		return null
-	var packed := ResourceLoader.load(instance_path, "PackedScene") as PackedScene
-	if packed == null:
+	if not ResourceLoader.exists(instance_path, "PackedScene"):
 		_fail(OP_ERROR_NOT_A_SCENE, "not a scene: " + instance_path
 				+ " — --instance must reference a PackedScene (.tscn/.scn)")
+		return null
+	var packed := ResourceLoader.load(instance_path, "PackedScene") as PackedScene
+	if packed == null:
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "instanced scene failed to load: " + instance_path
+				+ " — a dependency is missing or the file is broken; see diagnostics")
 		return null
 	# GEN_EDIT_STATE_INSTANCE retains the child's scene_instance_state — what
 	# the packer's states-stack walk keys on to emit the canonical instance
@@ -4186,6 +4194,17 @@ func _instantiate_scene_instance(instance_path: String, host_path: String) -> No
 	if child == null:
 		_fail(OP_ERROR_MISSING_DEPENDENCY, "scene failed to instantiate: " + instance_path
 				+ " — an instanced sub-scene is unresolvable or empty; check the scene's dependencies and --project")
+		return null
+	# The #64 vanished-node guard, applied to the INSTANCED scene: the engine
+	# instantiates around a missing nested dependency (or substitutes an
+	# unavailable class), so composing the degraded tree would bake the loss
+	# into the host. Refuse instead, naming what did not materialize.
+	var unmaterialized := _unmaterialized_node_paths(packed.get_state(), child)
+	if not unmaterialized.is_empty():
+		child.free()
+		_fail(OP_ERROR_MISSING_DEPENDENCY, "instanced scene nodes vanished or degraded on load: "
+				+ instance_path + " (" + ", ".join(unmaterialized)
+				+ ") — check the scene's dependencies and --project")
 		return null
 	return child
 

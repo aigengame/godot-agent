@@ -442,6 +442,19 @@ def test_node_add_instance_composes_a_scene_and_round_trips(godot_project):
     child = json.loads(got.stdout)
     assert child["type"] == "CanvasLayer"
 
+    # Static reads reflect the composition (#399's last acceptance criterion):
+    # the instanced child appears in the host's tree under both readers. Its
+    # static `type` is deliberately NOT asserted here — surfacing it is the
+    # companion issue #400.
+    listed = gda("node", "list", "res://main.tscn", "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    children = json.loads(listed.stdout)["root"]["children"]
+    assert [c["name"] for c in children] == ["hud"]
+    assert children[0]["path"] == "hud"
+    read = gda("scene", "get", "res://main.tscn", "--json")
+    assert read.returncode == 0, read.stdout + read.stderr
+    assert [c["name"] for c in json.loads(read.stdout)["root"]["children"]] == ["hud"]
+
     assert _no_gda_temp_siblings(godot_project)
 
 
@@ -470,6 +483,44 @@ def test_node_add_instance_missing_scene_yields_missing_dependency(godot_project
 
     err = _assert_operation_error(added, "missing_dependency")
     assert "res://ghost.tscn" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+def test_node_add_instance_with_broken_dependency_yields_missing_dependency(
+    godot_project,
+):
+    # PR #404 review: a --instance target that IS a scene file but whose own
+    # dependency graph is broken (an ext_resource pointing at a missing nested
+    # scene) is a dependency-shaped failure, not a "wrong kind of file" one:
+    # missing_dependency naming the instance path the caller passed (engine
+    # diagnostics name the nested culprit), never not_a_scene.
+    gda = _gda_project(godot_project)
+    (godot_project / "hud.tscn").write_text(
+        "\n".join(
+            [
+                "[gd_scene load_steps=2 format=3]",
+                "",
+                '[ext_resource type="PackedScene" path="res://ghost-child.tscn" id="1_ghost"]',
+                "",
+                '[node name="Hud" type="CanvasLayer"]',
+                "",
+                '[node name="Ghost" parent="." instance=ExtResource("1_ghost")]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = gda(
+        "node", "add", "res://main.tscn", "--instance", "res://hud.tscn", "--json"
+    )
+
+    err = _assert_operation_error(added, "missing_dependency")
+    assert "res://hud.tscn" in err["message"]
     assert scene_path.read_text(encoding="utf-8") == before
 
 
