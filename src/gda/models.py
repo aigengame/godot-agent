@@ -667,15 +667,28 @@ class NodeAddParams(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _default_name(self) -> "NodeAddParams":
-        # Derive the default node name model-side (ADR-0015), so the argv and
-        # --params-json paths agree instead of the CLI deriving it: the type
-        # name, or the instanced scene's filename stem (#399).
+    def _exactly_one_mode_and_default_name(self) -> "NodeAddParams":
+        # Exactly one of type/instance selects what is added (#399). Enforced
+        # model-side (ADR-0015) so the argv and --params-json paths agree: the
+        # argv path converts the ValueError to a usage error, --params-json
+        # surfaces it as a structured invalid_params.
+        if self.type is None and self.instance is None:
+            raise ValueError(
+                "node add needs exactly one of --type or --instance "
+                "(neither was given)."
+            )
+        if self.type is not None and self.instance is not None:
+            raise ValueError(
+                "--type and --instance are mutually exclusive; pass exactly one."
+            )
+        # Derive the default node name model-side too, so the CLI never
+        # derives it: the type name, or the instanced scene's filename stem.
         if self.name is None:
-            if self.type is not None:
-                self.name = self.type
-            elif self.instance is not None:
-                self.name = derive_scene_root_name(self.instance)
+            self.name = (
+                self.type
+                if self.type is not None
+                else derive_scene_root_name(self.instance or "")
+            )
         return self
 
 

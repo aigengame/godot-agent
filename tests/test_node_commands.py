@@ -82,6 +82,46 @@ def test_node_add_instance_json_dispatches_instance_param_and_echoes_source(
     ]
 
 
+def test_node_add_type_and_instance_together_is_a_usage_error(monkeypatch):
+    # --type and --instance are mutually exclusive modes (issue #399): mixing
+    # them is a usage error (exit 2) that fires before any dispatch — the
+    # engine is never reached. The rule lives model-side (ADR-0015), so the
+    # --params-json path surfaces the same violation as invalid_params.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(ADD_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "node",
+            "add",
+            "/tmp/proj/main.tscn",
+            "--type",
+            "Sprite2D",
+            "--instance",
+            "res://hud.tscn",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
+def test_node_add_without_type_or_instance_is_a_usage_error(monkeypatch):
+    # No mode at all is a usage error too: add always needs exactly one of
+    # --type/--instance.
+    fake = inject_runner(
+        monkeypatch, RunResult(stdout=sentinel(ADD_RESULT), stderr="", exit_code=0)
+    )
+
+    result = CliRunner().invoke(app, ["node", "add", "/tmp/proj/main.tscn", "--json"])
+
+    assert result.exit_code == 2
+    assert fake.calls == []
+
+
 def test_node_add_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     # Engine banner noise around the sentinel, diagnostics on stderr (ADR-0002).
     stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(ADD_RESULT)

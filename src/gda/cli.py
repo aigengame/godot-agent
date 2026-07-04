@@ -2183,15 +2183,22 @@ def add(
     project: Optional[str] = project_option(),
 ) -> None:
     """Add a node to a scene file under the given parent node path."""
-    _dispatch(
-        NODE_ADD_COMMAND,
-        NodeAddParams(
+    # The exactly-one-of --type/--instance rule lives on the model (ADR-0015);
+    # the argv path keeps usage-error ergonomics (exit 2), --params-json
+    # surfaces the same rule as a structured invalid_params.
+    try:
+        params = NodeAddParams(
             path=path,
             parent=parent,
             type=node_type,
             instance=instance,
             name=name,
-        ),
+        )
+    except (ValueError, ValidationError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    _dispatch(
+        NODE_ADD_COMMAND,
+        params,
         json_output=json_output,
         godot=godot,
         project=project,
