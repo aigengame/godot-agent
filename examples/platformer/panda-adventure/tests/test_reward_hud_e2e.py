@@ -91,7 +91,7 @@ def test_daemon_serves_kill_reward_and_hud(tmp_path, daemon_runtime_dir):
     player_cfg = build_config.load_json(
         GAME_DIR / "data" / "json" / "player_config.json"
     )
-    default_spawn = enemies["spawns"][0]
+    default_spawn = enemies["waves"][0]["spawns"][0]
     kind = enemies["kinds"][default_spawn["kind"]]
     reward = enemies["tiers"][kind["tier"]]
     player_stats = combat["player_stats"]

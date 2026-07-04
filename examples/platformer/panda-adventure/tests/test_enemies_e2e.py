@@ -16,9 +16,12 @@ session, one scenario per archetype:
   BACKS OFF until the distance is restored.
 
 Both scenarios tune via DATA: the throwaway project copy's
-``enemies_config.json`` is rewritten (kind params + Spawn Roster) before the
-config build — the shipped default roster stays conservative so the S1/S2
-flows are untouched. Per RULES.md, mocks cannot replace this end-to-end proof.
+``enemies_config.json`` is rewritten (kind params + a single-wave schedule,
+gADR-0005) before the config build — the shipped default schedule stays
+conservative so the S1/S2 flows are untouched. Since S5 retuned the shipped
+Elite to its compact Wave-2 profile, the ranged scenario sets its hot
+long-range numbers here explicitly (the same move the melee scenario always
+made). Per RULES.md, mocks cannot replace this end-to-end proof.
 
 Isolation: same throwaway-copy pattern as ``test_player_e2e`` (``daemon
 start`` mutates ``project.godot``); posix-only (AF_UNIX); headless.
@@ -173,11 +176,15 @@ def test_melee_enemy_closes_distance_and_damages_player(tmp_path, daemon_runtime
         kind["aggro_range"] = 600.0
         kind["move_speed"] = 80.0
         kind["attack_cooldown"] = 1.0
-        config["spawns"] = [
+        config["waves"] = [
             {
-                "kind": "monster_minion_melee",
-                "name": "Enemy",
-                "position": [640.0, 452.0],
+                "spawns": [
+                    {
+                        "kind": "monster_minion_melee",
+                        "name": "Enemy",
+                        "position": [640.0, 452.0],
+                    }
+                ]
             }
         ]
         return config
@@ -277,6 +284,13 @@ def test_ranged_enemy_keeps_distance_and_damages_from_afar(
 
     def ranged_roster(config: dict) -> dict:
         kind = config["kinds"]["robot_elite_ranged"]
+        # The HOT long-range scenario profile, explicit since S5 retuned the
+        # shipped default to the compact Wave-2 encounter (gADR-0005): aggro
+        # across the whole platform, bolts at standoff range, a wide band.
+        kind["aggro_range"] = 700.0
+        kind["attack_range"] = 520.0
+        kind["keep_range_min"] = 220.0
+        kind["keep_range_max"] = 380.0
         # Rest the elite on the platform top (bodies are center-origin).
         player_cfg = build_config.load_json(
             GAME_DIR / "data" / "json" / "player_config.json"
@@ -284,11 +298,15 @@ def test_ranged_enemy_keeps_distance_and_damages_from_afar(
         platform_top = (
             player_cfg["platform_position"][1] - player_cfg["platform_size"][1] / 2.0
         )
-        config["spawns"] = [
+        config["waves"] = [
             {
-                "kind": "robot_elite_ranged",
-                "name": "Enemy",
-                "position": [640.0, platform_top - kind["size"][1] / 2.0],
+                "spawns": [
+                    {
+                        "kind": "robot_elite_ranged",
+                        "name": "Enemy",
+                        "position": [640.0, platform_top - kind["size"][1] / 2.0],
+                    }
+                ]
             }
         ]
         return config

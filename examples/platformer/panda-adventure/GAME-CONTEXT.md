@@ -55,8 +55,9 @@ _Avoid_: enemy type, enemy class, variant
 
 **Spawn Roster**:
 The data-driven which-kind-spawns-where list: ordered entries of (Enemy Kind, node name,
-position) the level consumes at boot (gADR-0003). The Wave slice composes Waves as roster
-entries over time; S4 ships a single default entry.
+position) — since S5 the composition of ONE Wave, spawned when that Wave starts
+(gADR-0003, gADR-0005). Spawn names are unique across the whole Wave schedule for
+addressability.
 _Avoid_: spawn table, wave list
 
 **Aggro Range**:
@@ -206,9 +207,25 @@ _Avoid_: armor (generic), suit
 ### Level
 
 **Wave**:
-A timed segment of the demo level that spawns a specific composition of enemies
-(Faction × Tier × Archetype). The demo defaults to four; the count is data-driven, not hardcoded.
+A segment of the demo level that spawns a specific composition of enemies
+(Faction × Tier × Archetype) — one Spawn Roster in the Wave schedule. Waves advance in
+sequence as each is cleared (gADR-0005). The demo defaults to four; the count is
+data-driven, not hardcoded.
 _Avoid_: round, stage; level (the demo is a single level)
+
+**Wave schedule**:
+The ordered, data-driven list of Waves the level plays through: the `waves` array of the
+authoritative enemies config, derived to the `WaveScheduleConfig` Resource the level
+consumes (gADR-0005). The wave count is the array's length — config, never code. It
+replaced the S4 top-level boot roster (whose single entry became Wave 1).
+_Avoid_: wave list, spawn table, roster (that names one Wave's composition)
+
+**Boss slot**:
+The final Wave of the demo's default schedule, composing the boss-Tier kind — the Boss's
+data-driven arrival point. A property of the demo composition, not a schedule invariant
+(a reconfigured schedule need not end on a Boss); the Boss's behavior itself is S8
+(Tank AI deferred, gADR-0003).
+_Avoid_: final boss wave (as a system rule), boss fight (that is the S8 behavior)
 
 **Obstacle**:
 A gravity-affectable environment block on the terrain layer that a Gravity Field can
