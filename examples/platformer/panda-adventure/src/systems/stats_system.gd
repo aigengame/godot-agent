@@ -8,9 +8,10 @@ extends Resource
 ## and never saved back (gADR-0001): the .tres stays a derived, immutable config
 ## artifact; live mutation exists only in memory, per run.
 ##
-## All four stats live now, but S2 exercises only HP: MP is spent by the Gravity
-## Gun (S3), EXP/Gold accumulate from kill rewards (S6a). EXP is named
-## `exp_points` in code because `exp` would shadow the built-in exp().
+## All four stats are live: HP takes damage (S2/S4), MP is spent by the Gravity
+## Gun and restored by Wine (S3), EXP/Gold accumulate from Kill rewards
+## (gain_reward, S6a — gADR-0004). EXP is named `exp_points` in code because
+## `exp` would shadow the built-in exp().
 
 const StatsConfigScript := preload("res://src/resources/stats_config.gd")
 
@@ -50,3 +51,13 @@ func spend_mp(cost: float) -> bool:
 ## stays outside this runtime holder (gADR-0001).
 func restore_mp(amount: float, max_mp: float) -> void:
 	mp = minf(mp + amount, max_mp)
+
+
+## Accumulate one Kill reward (S6a, gADR-0004): EXP and Gold only ever grow
+## from their accumulation identity (0) — uncapped, unspent in Phase 1. The
+## amounts are PARAMETERS, passed by the caller from the defeated kind's
+## derived config — reward numbers stay outside this runtime holder
+## (gADR-0001).
+func gain_reward(exp_amount: float, gold_amount: float) -> void:
+	exp_points += exp_amount
+	gold += gold_amount

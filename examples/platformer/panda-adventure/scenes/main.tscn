@@ -3,6 +3,7 @@
 [ext_resource type="Script" path="res://src/controllers/level_controller.gd" id="1_f5q0d"]
 [ext_resource type="Script" path="res://src/controllers/player_controller.gd" id="2_idpsm"]
 [ext_resource type="Script" path="res://src/controllers/obstacle_controller.gd" id="3_e5m6w"]
+[ext_resource type="PackedScene" path="res://scenes/hud.tscn" id="4_hud6a"]
 
 [sub_resource type="RectangleShape2D" id="PlayerShape"]
 
@@ -36,3 +37,5 @@ script = ExtResource("3_e5m6w")
 [node name="Visual" type="ColorRect" parent="Obstacle" unique_id=356445025]
 
 [node name="Collision" type="CollisionShape2D" parent="Obstacle" unique_id=1884195731]
+
+[node name="Hud" parent="." instance=ExtResource("4_hud6a")]
