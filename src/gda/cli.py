@@ -872,7 +872,10 @@ def game_get(
     property: Optional[str] = typer.Option(
         None,
         "--property",
-        help="If set, read only this one property instead of the whole storage surface.",
+        help=(
+            "If set, read only this property: storage first, then an attached "
+            "script variable. Without it, list only the storage surface."
+        ),
     ),
     json_output: bool = json_option(),
     schema: bool = GAME_GET_COMMAND.schema_option(),
@@ -887,7 +890,9 @@ def game_get(
     (absolute) node path `game tree` reports — not a `.tscn` file. With no daemon
     it reports `daemon_not_running`; a path that resolves to no running node is
     `live_node_not_found`; `--property` naming an absent property is
-    `live_unknown_property`.
+    `live_unknown_property`. A named plain script variable on the node's attached
+    script is addressable explicitly after storage properties are checked; unfiltered
+    reads keep the storage-property listing and do not dump script variables.
     """
     _dispatch(
         GAME_GET_COMMAND,
@@ -955,15 +960,21 @@ def game_set(
         help="Runtime node path as `game tree` reports it (absolute, e.g. /root/Main/Player).",
     ),
     property: str = typer.Option(
-        ..., "--property", help="The property to set (e.g. position, visible)."
+        ...,
+        "--property",
+        help=(
+            "The property to set (e.g. position, visible): storage first, then an "
+            "attached script variable."
+        ),
     ),
     value: str = typer.Option(
         ...,
         "--value",
         help=(
             "The value to set, as a string. Coerced to the property's declared "
-            "Godot type (the same coercion `node set` uses); an uncoercible value "
-            "is a clean error."
+            "or inferred target Godot type (the same coercion `node set` uses, "
+            "including JSON objects for Dictionary and JSON arrays for Array); "
+            "an uncoercible value is a clean error."
         ),
     ),
     json_output: bool = json_option(),
@@ -976,12 +987,13 @@ def game_set(
 
     The live counterpart of `node set`: routes through gda-daemon to the engine
     session (kind = LIVE, ADR-0017), addressed by the runtime (absolute) node path.
-    The gda harness coerces `--value` to the property's declared Godot type — the
-    SAME coercion table `node set` uses — and applies it at a frame boundary
-    (ADR-0020); the mutation is bound to the session, not persisted to disk. With
-    no daemon it reports `daemon_not_running`; an absent node is
-    `live_node_not_found`, an absent property `live_unknown_property`, an
-    uncoercible value `live_uncoercible_value`.
+    The gda harness coerces `--value` to the property's declared or inferred target
+    Godot type — the SAME coercion table `node set` uses — and applies it at a frame
+    boundary (ADR-0020); the mutation is bound to the session, not persisted to disk.
+    A named plain script variable on the node's attached script is settable explicitly
+    after storage properties are checked. With no daemon it reports
+    `daemon_not_running`; an absent node is `live_node_not_found`, an absent
+    property `live_unknown_property`, an uncoercible value `live_uncoercible_value`.
     """
     _dispatch(
         GAME_SET_COMMAND,

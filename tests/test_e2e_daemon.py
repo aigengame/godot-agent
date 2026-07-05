@@ -268,6 +268,20 @@ PROJECTION_MAIN_TSCN = (
     'script = ExtResource("1")\n'
 )
 
+SCRIPT_VARIABLE_PLAYER_GD = (
+    'extends Node2D\nvar _items := {"wine": 1}\nvar _tags := ["starter"]\n'
+)
+READONLY_SCRIPT_VARIABLE_PLAYER_GD = (
+    "extends Node2D\nvar readonly: int:\n\tget:\n\t\treturn 1\n"
+)
+SCRIPT_VARIABLE_MAIN_TSCN = (
+    "[gd_scene load_steps=2 format=3]\n\n"
+    '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
+    '[node name="Main" type="Node2D"]\n\n'
+    '[node name="Player" type="Node2D" parent="."]\n'
+    'script = ExtResource("1")\n'
+)
+
 
 @pytest.mark.e2e
 def test_daemon_game_get_projects_compound_values_with_live_fallback(
@@ -299,6 +313,194 @@ def test_daemon_game_get_projects_compound_values_with_live_fallback(
         # into the runtime tree — just the existing string form.
         buddy = props["buddy"]
         assert isinstance(buddy["value"], str)
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_get_reads_explicit_plain_script_dictionary_variable(
+    tmp_path, daemon_runtime_dir
+):
+    # #422: a plain non-exported script variable is addressable when explicitly
+    # named, but it remains outside the unfiltered storage-property listing.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        got = run("game", "get", "/root/Main/Player", "--property", "_items")
+        assert got.returncode == 0, got.stdout + got.stderr
+        doc = json.loads(got.stdout)
+        assert doc["path"] == "/root/Main/Player"
+        assert doc["properties"] == [
+            {"name": "_items", "type": "Dictionary", "value": {"wine": 1}}
+        ]
+
+        unfiltered = run("game", "get", "/root/Main/Player")
+        assert unfiltered.returncode == 0, unfiltered.stdout + unfiltered.stderr
+        prop_names = {p["name"] for p in json.loads(unfiltered.stdout)["properties"]}
+        assert "_items" not in prop_names
+        assert "_tags" not in prop_names
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_mutates_explicit_plain_script_dictionary_variable(
+    tmp_path, daemon_runtime_dir
+):
+    # #422: script-variable writes are live-session state seeding only. A later
+    # read in the same session observes the mutation; nothing is persisted.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "_items",
+            "--value",
+            '{"wine":2}',
+        )
+        assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+        assert json.loads(was_set.stdout) == {
+            "path": "/root/Main/Player",
+            "property": "_items",
+            "type": "Dictionary",
+            "value": {"wine": 2},
+        }
+
+        got = run("game", "get", "/root/Main/Player", "--property", "_items")
+        assert got.returncode == 0, got.stdout + got.stderr
+        assert json.loads(got.stdout)["properties"] == [
+            {"name": "_items", "type": "Dictionary", "value": {"wine": 2}}
+        ]
+
+        tags_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "_tags",
+            "--value",
+            '["rare","consumable"]',
+        )
+        assert tags_set.returncode == 0, tags_set.stdout + tags_set.stderr
+        assert json.loads(tags_set.stdout) == {
+            "path": "/root/Main/Player",
+            "property": "_tags",
+            "type": "Array",
+            "value": ["rare", "consumable"],
+        }
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_get_unknown_explicit_script_variable_reports_unknown_property(
+    tmp_path, daemon_runtime_dir
+):
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        got = run("game", "get", "/root/Main/Player", "--property", "_typo")
+        assert got.returncode == 6, got.stdout + got.stderr
+        error = json.loads(got.stdout)["error"]
+        assert error["code"] == "live_unknown_property"
+        assert error["message"] == (
+            "node /root/Main/Player has no runtime, storage, or script property: _typo"
+        )
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_uncoercible_script_variable_reports_target_type(
+    tmp_path, daemon_runtime_dir
+):
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "_items",
+            "--value",
+            "not-json",
+        )
+        assert was_set.returncode == 6, was_set.stdout + was_set.stderr
+        error = json.loads(was_set.stdout)["error"]
+        assert error["code"] == "live_uncoercible_value"
+        assert error["message"] == (
+            "cannot coerce value not-json to Dictionary for script variable _items "
+            "on node /root/Main/Player"
+        )
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_readonly_script_variable_reports_uncoercible_value(
+    tmp_path, daemon_runtime_dir
+):
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(
+        READONLY_SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8"
+    )
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        got = run("game", "get", "/root/Main/Player", "--property", "readonly")
+        assert got.returncode == 0, got.stdout + got.stderr
+        assert json.loads(got.stdout)["properties"] == [
+            {"name": "readonly", "type": "int", "value": 1}
+        ]
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "readonly",
+            "--value",
+            "2",
+        )
+        assert was_set.returncode == 6, was_set.stdout + was_set.stderr
+        error = json.loads(was_set.stdout)["error"]
+        assert error["code"] == "live_uncoercible_value"
+        assert error["message"] == (
+            "cannot set value 2 as int for script variable readonly "
+            "on node /root/Main/Player"
+        )
     finally:
         run("daemon", "stop")
 

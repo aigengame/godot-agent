@@ -572,14 +572,14 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "A live game get or set targeted a property the running node does not expose for the requested operation (no such readable storage property for get, or no such settable property for set).",
+        "A live game get or set targeted a property name the running node does not expose as an addressable runtime, storage, or attached-script property.",
     ),
     ErrorCodeSpec(
         "live_uncoercible_value",
         ErrorCategory.LIVE,
         EXIT_LIVE,
         ErrorCodeSource.CLASSIFIER,
-        "A live game set value cannot be coerced to the running property's declared Godot type.",
+        "A live game set value cannot be coerced to the addressed runtime property's or script variable's Godot type.",
     ),
     # `gda diag` is a daemon-served live op (#224): the daemon reads the Session log
     # it launched the engine with (`--log-file`) and serves diagnostics from it,

@@ -382,8 +382,12 @@ func _handle_game_get(params: Dictionary) -> String:
 			"value": _jsonify(node.get(prop_name)),
 		})
 	if has_filter and properties.is_empty():
+		var script_property := _explicit_script_variable_property(node, wanted)
+		if not script_property.is_empty():
+			properties.append(script_property)
+	if has_filter and properties.is_empty():
 		return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
-				"node " + path + " has no readable property: " + wanted)
+				_unknown_runtime_property_message(path, wanted))
 
 	return _ok({
 		"path": path,
@@ -391,6 +395,25 @@ func _handle_game_get(params: Dictionary) -> String:
 		"type": node.get_class(),
 		"properties": properties,
 	})
+
+
+func _explicit_script_variable_property(node: Node, prop_name: String) -> Dictionary:
+	for prop in node.get_property_list():
+		if String(prop.get("name", "")) != prop_name:
+			continue
+		var usage := int(prop.get("usage", 0))
+		if (usage & PROPERTY_USAGE_SCRIPT_VARIABLE) == 0:
+			continue
+		var value: Variant = node.get(prop_name)
+		var declared_type := int(prop.get("type", TYPE_NIL))
+		if declared_type == TYPE_NIL:
+			declared_type = typeof(value)
+		return {
+			"name": prop_name,
+			"type": _type_name(declared_type),
+			"value": _jsonify(value),
+		}
+	return {}
 
 
 # game rect: resolve a node by its ABSOLUTE runtime path, require it to be a
@@ -431,26 +454,59 @@ func _handle_game_set(params: Dictionary) -> String:
 				"no node at runtime path: " + path)
 
 	var prop_name := _string_param(params, "property")
-	var declared_type := _property_type(node, prop_name)
-	if declared_type == TYPE_NIL:
+	var prop_info := _runtime_set_property_info(node, prop_name)
+	if prop_info.is_empty():
 		return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
-				"node " + path + " has no settable property: " + prop_name)
+				_unknown_runtime_property_message(path, prop_name))
+	var declared_type := int(prop_info.get("type", TYPE_NIL))
+	var source := String(prop_info.get("source", "property"))
 
 	var raw_value := _string_param(params, "value")
 	var coerced: Variant = _coerce_value(raw_value, declared_type)
 	if coerced == null:
+		var subject := "script variable " + prop_name \
+				if source == "script variable" else "property " + prop_name
 		return _error(LIVE_ERROR_UNCOERCIBLE_VALUE,
 				"cannot coerce value " + raw_value.c_escape()
-				+ " to " + _type_name(declared_type) + " for property " + prop_name
+				+ " to " + _type_name(declared_type) + " for " + subject
 				+ " on node " + path)
 
+	var before: Variant = node.get(prop_name)
 	node.set(prop_name, coerced)
+	var current: Variant = node.get(prop_name)
+	if source == "script variable" and before != coerced and current == before:
+		return _error(LIVE_ERROR_UNCOERCIBLE_VALUE,
+				"cannot set value " + raw_value.c_escape()
+				+ " as " + _type_name(declared_type)
+				+ " for script variable " + prop_name
+				+ " on node " + path)
 	return _ok({
 		"path": path,
 		"property": prop_name,
 		"type": _type_name(declared_type),
-		"value": _jsonify(node.get(prop_name)),
+		"value": _jsonify(current),
 	})
+
+
+func _runtime_set_property_info(node: Node, prop_name: String) -> Dictionary:
+	var storage_type := _property_type(node, prop_name)
+	if storage_type != TYPE_NIL:
+		return {"type": storage_type, "source": "property"}
+	for prop in node.get_property_list():
+		if String(prop.get("name", "")) != prop_name:
+			continue
+		var usage := int(prop.get("usage", 0))
+		if (usage & PROPERTY_USAGE_SCRIPT_VARIABLE) == 0:
+			continue
+		var declared_type := int(prop.get("type", TYPE_NIL))
+		if declared_type == TYPE_NIL:
+			declared_type = typeof(node.get(prop_name))
+		return {"type": declared_type, "source": "script variable"}
+	return {}
+
+
+func _unknown_runtime_property_message(path: String, prop_name: String) -> String:
+	return "node " + path + " has no runtime, storage, or script property: " + prop_name
 
 
 # --- perf (runtime performance monitoring, #223) ------------------------------
@@ -1232,6 +1288,10 @@ func _coerce_value(raw: String, type: int) -> Variant:
 			return raw
 		TYPE_STRING_NAME:
 			return StringName(raw)
+		TYPE_DICTIONARY:
+			return _coerce_dictionary(raw)
+		TYPE_ARRAY:
+			return _coerce_array(raw)
 		TYPE_VECTOR2:
 			var parts: Variant = _coerce_float_list(raw, 2)
 			return Vector2(parts[0], parts[1]) if parts != null else null
@@ -1321,4 +1381,18 @@ func _coerce_color(raw: String) -> Variant:
 	if out.size() == 3:
 		return Color(out[0], out[1], out[2])
 	return Color(out[0], out[1], out[2], out[3])
+
+
+func _coerce_dictionary(raw: String) -> Variant:
+	var parsed: Variant = JSON.parse_string(raw)
+	if parsed is Dictionary:
+		return parsed
+	return null
+
+
+func _coerce_array(raw: String) -> Variant:
+	var parsed: Variant = JSON.parse_string(raw)
+	if parsed is Array:
+		return parsed
+	return null
 # --- END shared coercion ---
