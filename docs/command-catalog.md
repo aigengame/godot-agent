@@ -586,14 +586,18 @@ headless is unaffected (4.4+, cross-platform).
   tree (shipped — the Phase-2 bootstrap tracer, #7); runtime node property `game get` /
   `game set` (shipped, #220) read and mutate a running node's live properties — the live
   counterparts of headless `node get` / `node set`, applying the **same** value-coercion
-  table and round-tripping `set`→`get`. They address the node by its **runtime (absolute)
-  path** as `game tree` reports it (e.g. `/root/Main/Player`), in contrast to the on-disk
-  node group's **root-relative** path: the live tree has no `.tscn` scene root to be
-  relative to, and the headless resolver rejects absolute paths, so the harness resolves
-  off the running `SceneTree` root. A `set` applies at a frame boundary (ADR-0020) and is
-  bound to the session, not persisted; a missing node is `live_node_not_found`, an absent
-  property `live_unknown_property`, an uncoercible value `live_uncoercible_value`. The
-  on-disk counterparts stay under `scene` / `node` (ADR-0019).
+  table and round-tripping `set`→`get`. `game rect` (shipped, #419) reads a running
+  `Control`'s rendered viewport-space rectangle via `Control.get_global_rect()`, returning
+  `position` and `size` as the existing Vector2 projection. These commands address the
+  node by its **runtime (absolute) path** as `game tree` reports it (e.g.
+  `/root/Main/Player`), in contrast to the on-disk node group's **root-relative** path:
+  the live tree has no `.tscn` scene root to be relative to, and the headless resolver
+  rejects absolute paths, so the harness resolves off the running `SceneTree` root. A
+  `set` applies at a frame boundary (ADR-0020) and is bound to the session, not persisted;
+  a missing node is `live_node_not_found`, an absent property `live_unknown_property`, an
+  uncoercible value `live_uncoercible_value`, and a `game rect` target that is not a
+  `Control` is `live_not_control`. The on-disk counterparts stay under `scene` / `node`
+  (ADR-0019).
 - **`input` (input simulation):** runtime input injection into the running game
   (shipped, #221). Single-frame ops `input key <KEY> [--modifiers …] [--released]`,
   `input mouse-click <x> <y> [--button left|right|middle] [--double]` /
