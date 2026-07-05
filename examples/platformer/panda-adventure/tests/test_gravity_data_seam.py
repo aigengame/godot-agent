@@ -29,7 +29,6 @@ def _valid_config() -> dict:
     """A fresh copy of a schema-valid gravity config to mutate into invalid variants."""
     return {
         "mp_cost": 10.0,
-        "wine_mp_restore": 15.0,
         "field_direction": [0.0, -1.0],
         "field_strength": 260.0,
         "field_radius": 96.0,
@@ -79,7 +78,7 @@ def _with(value: object, key: str) -> dict:
         _without("field_direction"),  # missing field param
         _without("obstacle_position"),  # missing obstacle placement
         _with(0, "mp_cost"),  # a free fire would unbudget the pillar
-        _with(-5.0, "wine_mp_restore"),  # restore must be strictly positive
+        _with(15.0, "wine_mp_restore"),  # migrated to items_config (gADR-0008)
         _with(0, "field_strength"),  # strength strictly positive
         _with(0, "field_radius"),  # radius strictly positive
         _with(0, "field_duration"),  # effect window strictly positive
@@ -136,7 +135,6 @@ def test_gravity_config_round_trips(gda) -> None:
     # Scalar float fields.
     for float_field in (
         "mp_cost",
-        "wine_mp_restore",
         "field_strength",
         "field_radius",
         "field_duration",

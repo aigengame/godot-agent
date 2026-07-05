@@ -104,9 +104,10 @@ func _init() -> void:
 		_fail("format_weapon should render gravity_gun as GRAVITY GUN")
 		return
 
-	# Behavior 9 — format_lines maps a full hud_state() snapshot to the six
+	# Behavior 9 — format_lines maps a full hud_state() snapshot to the eight
 	# display strings in one place (the whole readout pinned at once; the
-	# snapshot carries the S6b Level since gADR-0006).
+	# snapshot carries the S6b Level since gADR-0006 and the S7 Consumable
+	# counts since gADR-0008 — integers, format_amount passes them through).
 	var lines: Dictionary = HudControllerScript.format_lines({
 		"hp": 95.0,
 		"max_hp": MAX_HP,
@@ -116,6 +117,8 @@ func _init() -> void:
 		"exp": 50.0,
 		"gold": 25.0,
 		"weapon": "gravity_gun",
+		"bun": 2,
+		"wine": 0,
 	})
 	var expected := {
 		"hp": "HP 95/100",
@@ -124,6 +127,8 @@ func _init() -> void:
 		"exp": "EXP 50",
 		"gold": "GOLD 25",
 		"weapon": "GRAVITY GUN",
+		"bun": "BUN 2",
+		"wine": "WINE 0",
 	}
 	for key: String in expected:
 		if lines.get(key) != expected[key]:

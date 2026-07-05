@@ -17,10 +17,10 @@ extends Resource
 ## The @export fields carry NO default literals on purpose: a default would read
 ## as a second config source competing with the authoritative JSON (gADR-0000).
 
-# MP economy — firing the Gravity Gun is the game's only MP sink; Wine is the
-# S3 minimal restore hook (the full Consumable system is S7).
+# MP economy — firing the Gravity Gun is the game's only MP sink. The Wine
+# restore that refills this budget lives in ItemsConfig since S7 (gADR-0008:
+# one items authority; wine_mp_restore migrated out of this source).
 @export var mp_cost: float
-@export var wine_mp_restore: float
 
 # Gravity Field params — the data-driven effect (gADR-0002): velocity =
 # direction.normalized() * strength (px/s), acting within radius for duration

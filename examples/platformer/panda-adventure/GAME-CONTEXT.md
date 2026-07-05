@@ -194,22 +194,35 @@ _Avoid_: TDD (reserved repo-wide for Test-Driven Development); time-to-down
 ### Items
 
 **Consumable**:
-An item used up on use. The demo's consumables are the Bun and the Wine.
+An item used up on use. The demo's consumables are the Bun and the Wine. Since S7
+(gADR-0008) a Consumable's use verb is supply-gated: it consumes one from the Item count
+hook (a refused, empty-handed use logs `consumable_blocked`), applies the capped restore,
+and plays the consume flash. Using at full HP/MP still consumes — the gate is supply,
+not need; the cap bounds the effect.
 _Avoid_: potion, drug
 
 **Bun**:
-A Consumable that restores HP.
+A Consumable that restores HP (capped at max HP), used by the `eat_bun` action.
 _Avoid_: mantou, steamed bun, bread
 
 **Wine**:
-A Consumable that restores MP.
+A Consumable that restores MP (capped at max MP), used by the `drink_wine` action.
 _Avoid_: jiu, sake, alcohol
 
 **Wine hook**:
-S3's minimal MP-restore path standing in for the S7 Consumable system: the
-`drink_wine` action restores a config amount of MP (capped at max MP) with no
-inventory and no item count. S7 replaces the hook's supply side, not its effect.
-_Avoid_: inventory, consumable system (that is S7)
+S3's minimal MP-restore path that stood in for the S7 Consumable system: the
+`drink_wine` action restored a config amount of MP with no inventory and no item count.
+CLOSED by S7 (gADR-0008): the action and its capped effect remain, now supply-gated on
+the Item count hook, and the restore amount reads from the items authority
+(`items_config.json` — migrated out of the gravity config). A historical term.
+_Avoid_: inventory, consumable system (that is the S7 whole)
+
+**Items authority**:
+The single authoritative source for every item number (gADR-0008):
+`items_config.json` → the derived `ItemsConfig` — the Consumable restore amounts, the
+consume-flash juice, and the Spacesuit's defense bonus. No item effect reads from any
+other config source.
+_Avoid_: item config scattering, per-slice item keys
 
 **Equipment**:
 An item the Player wields or wears persistently — the Laser Gun, the Gravity Gun, and the
@@ -233,13 +246,17 @@ Item count hook (gADR-0006). A Pickup persists until collected.
 _Avoid_: drop (the table entry / the event), power-up, collectible
 
 **Item count hook**:
-S6b's minimal per-item count Dictionary on the Player where collected Consumable drops land —
-the supply side of the S7 Consumable story, standing in for a real inventory exactly as the
-Wine hook stands in for use-effects: S7 consumes these counts, S6b only fills them.
-_Avoid_: inventory, bag (both are S7+ concepts)
+S6b's per-item count Dictionary on the Player where collected Consumable drops land — the
+supply side of the Consumable story. Since S7 (gADR-0008) both ends are live: S6b's
+collection fills the counts, S7's use verbs consume them (and the HUD BUN/WINE lines
+surface them). Still not a full inventory — no menu, no selector (a later story).
+_Avoid_: inventory, bag (both are menu-story concepts)
 
 **Spacesuit**:
-The Player's armor — the only piece of defensive Equipment in the demo.
+The Player's armor — the only piece of defensive Equipment in the demo. Worn from spawn
+(persistent); its config defense bonus is composed onto the Player's base stat block
+(`ItemSystem.effective_defender`) to feed the damage formula's mitigation term — the
+formula itself is untouched (S7, gADR-0008).
 _Avoid_: armor (generic), suit
 
 ### Level

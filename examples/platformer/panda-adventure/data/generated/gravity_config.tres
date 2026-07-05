@@ -5,7 +5,6 @@
 [resource]
 script = ExtResource("1_gravityconfig")
 mp_cost = 10
-wine_mp_restore = 15
 field_direction = Vector2(0, -1)
 field_strength = 260
 field_radius = 96

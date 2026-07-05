@@ -9,6 +9,10 @@ assertion). Checkpoints over the current player-visible surface:
 
 - the HUD column is visible at boot (absorbs S6a's per-feature windowed
   check from ``test_reward_hud_e2e.py`` — the seam's first checkpoint);
+- the S7 BUN/WINE supply lines are visible at boot, probed at their LIVE
+  rendered rects (``gda game rect``, the gda #419 capability — the
+  container-managed Labels' rects are readable now, so the item-lines region
+  is exact, not structural);
 - Wave 1's Enemy Kind blockout and the Obstacle blockout are visible at
   their config spawn regions (S4/S3);
 - the Gravity Field's translucent blockout is visible while active after a
@@ -87,14 +91,15 @@ _REGION_PAD = 24.0
 # (Platform top, Obstacle bottom) so the blend reference stays unoccluded.
 _PROBE_CLEARANCE = 8.0
 # The probe box over the HUD column, anchored at the config margin (the S6a
-# probe grown to six lines). A fixed box, not the live VBox rect: Labels
-# render text past their container rect (no clip), and container-managed
-# Controls expose no offset/rect properties to the live reader — the rendered
-# extent is only ever approximated structurally.
-_HUD_PROBE_SIZE = (280.0, 190.0)
+# probe, grown to the eight-line column since S7). A fixed box padded past
+# the live VBox rect: Labels render text past their container rect (no
+# clip), so the whole-column extent stays a structural approximation. (The
+# per-Label rendered rects ARE readable live since gda #419 — `game rect` —
+# which the S7 item-lines check below uses for its exact region.)
+_HUD_PROBE_SIZE = (280.0, 250.0)
 # The HUD column's line order (hud_controller.LINES): hp, mp, level, exp,
-# gold, weapon — the EXP/GOLD readout band is lines 3..4 of 6.
-_HUD_LINES = 6
+# gold, weapon, bun, wine — the EXP/GOLD readout band is lines 3..4 of 8.
+_HUD_LINES = 8
 _EXP_LINE = 3
 _GOLD_LINE = 4
 # Padding on the readout band, absorbing the VBox's row separation.
@@ -103,9 +108,13 @@ _READOUT_PAD = 6.0
 # --- Presence thresholds ---
 
 # Non-background pixels the HUD column region must show (S6a precedent):
-# six lines of light text light up thousands; 200 stays far from
+# eight lines of light text light up thousands; 200 stays far from
 # antialiasing noise while failing hard on an invisible/mispositioned HUD.
 _MIN_HUD_PIXELS = 200
+# Non-background pixels the two S7 item lines ("BUN 0" / "WINE 0") must show
+# inside their live-read rects: two short text lines at the whole-column
+# threshold's per-line rate (~33), held conservative.
+_MIN_ITEM_PIXELS = 60
 # Per-channel delta that counts a pixel as "not background" / "changed"
 # (S6a precedent).
 _CHANNEL_DELTA = 0.15
@@ -248,6 +257,15 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     def label(key: str) -> str:
         return prop(_HUD_LABEL % key, "text")
 
+    def rendered_rect(path: str) -> list[float]:
+        """A Control's LIVE rendered viewport rect ([x, y, w, h]) via
+        `gda game rect` (gda #419) — exact even for container-managed
+        Controls, whose offsets the property reader cannot see."""
+        got = run("game", "rect", path)
+        assert got.returncode == 0, got.stdout + got.stderr
+        doc = json.loads(got.stdout)
+        return [*doc["position"], *doc["size"]]
+
     def tap(action: str) -> None:
         seq = run(
             "input",
@@ -314,6 +332,10 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         assert (stats_left, stats_top) == pytest.approx(tuple(hud_cfg["margin"])), (
             "the rendered HUD column is not anchored at the config margin"
         )
+        # The S7 item lines' LIVE rendered rects (gda #419): the exact region
+        # the BUN/WINE presence check probes in the boot capture.
+        bun_rect = rendered_rect(_HUD_LABEL % "Bun")
+        wine_rect = rendered_rect(_HUD_LABEL % "Wine")
         boot_png, boot_doc = capture("boot")
         dims = (boot_doc["width"], boot_doc["height"])
 
@@ -433,6 +455,15 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     # live Stats offsets) + the structural probe size.
     hud_region = [stats_left, stats_top, _HUD_PROBE_SIZE[0], _HUD_PROBE_SIZE[1]]
 
+    # The S7 item-lines region: the UNION of the two Labels' live rendered
+    # rects (gda #419 — exact, no structural row math). Both sit at the
+    # column's tail, so the union is one contiguous two-line band.
+    item_x0 = min(bun_rect[0], wine_rect[0])
+    item_y0 = min(bun_rect[1], wine_rect[1])
+    item_x1 = max(bun_rect[0] + bun_rect[2], wine_rect[0] + wine_rect[2])
+    item_y1 = max(bun_rect[1] + bun_rect[3], wine_rect[1] + wine_rect[3])
+    item_region = [item_x0, item_y0, item_x1 - item_x0, item_y1 - item_y0]
+
     # The EXP/Gold readout band: lines _EXP_LINE.._GOLD_LINE of the HUD
     # column's uniform row stack, full probe width (Label text renders past
     # the 1px-wide shrink-wrapped VBox rect), padded for the row separation.
@@ -458,6 +489,19 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
             },
             _MIN_HUD_PIXELS,
             "the HUD column is not visibly rendering at boot",
+        ),
+        (
+            {
+                "name": "item_lines",
+                "mode": "background_delta",
+                "image": "boot",
+                "rect": pad_rect(item_region, 4.0),
+                # Same top-right background sample as the hud_column check.
+                "reference": [dims[0] - 8, 8],
+                "min_delta": _CHANNEL_DELTA,
+            },
+            _MIN_ITEM_PIXELS,
+            "the S7 BUN/WINE supply lines are not visibly rendering at boot",
         ),
         (
             {

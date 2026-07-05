@@ -46,11 +46,19 @@ func spend_mp(cost: float) -> bool:
 	return true
 
 
-## Restore MP (the S3 Wine hook), capped at the actor's max_mp. The cap is a
-## PARAMETER, passed by the caller from its immutable stat block — config data
-## stays outside this runtime holder (gADR-0001).
+## Restore MP (Wine — the S3 hook, supply-gated since S7/gADR-0008), capped at
+## the actor's max_mp. The cap is a PARAMETER, passed by the caller from its
+## immutable stat block — config data stays outside this runtime holder
+## (gADR-0001).
 func restore_mp(amount: float, max_mp: float) -> void:
 	mp = minf(mp + amount, max_mp)
+
+
+## Restore HP (Bun, S7 — restore_mp's mirror, gADR-0008), capped at the
+## actor's max_hp. The cap is a PARAMETER from the immutable stat block, like
+## every cap here (gADR-0001).
+func restore_hp(amount: float, max_hp: float) -> void:
+	hp = minf(hp + amount, max_hp)
 
 
 ## Accumulate one Kill reward (S6a, gADR-0004): EXP and Gold only ever grow

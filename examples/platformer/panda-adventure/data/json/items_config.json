@@ -1,0 +1,8 @@
+{
+  "bun_hp_restore": 25.0,
+  "wine_mp_restore": 15.0,
+  "spacesuit_defense": 2.0,
+  "bun_flash_color": [0.4, 0.95, 0.45, 1.0],
+  "wine_flash_color": [0.45, 0.6, 1.0, 1.0],
+  "consume_flash_duration": 0.25
+}

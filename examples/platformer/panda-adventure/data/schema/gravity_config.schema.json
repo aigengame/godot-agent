@@ -7,7 +7,6 @@
   "additionalProperties": false,
   "required": [
     "mp_cost",
-    "wine_mp_restore",
     "field_direction",
     "field_strength",
     "field_radius",
@@ -23,12 +22,7 @@
   ],
   "properties": {
     "mp_cost": {
-      "description": "MP spent per Gravity Gun fire — the game's only MP sink; strictly positive (a free fire would unbudget the change-gravity pillar).",
-      "type": "number",
-      "exclusiveMinimum": 0.0
-    },
-    "wine_mp_restore": {
-      "description": "MP restored by drinking Wine (the S3 minimal hook; the full Consumable system is S7); strictly positive.",
+      "description": "MP spent per Gravity Gun fire — the game's only MP sink; strictly positive (a free fire would unbudget the change-gravity pillar). The Wine restore that refills this budget lives in items_config.json since S7 (gADR-0008).",
       "type": "number",
       "exclusiveMinimum": 0.0
     },

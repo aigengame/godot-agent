@@ -8,7 +8,7 @@ Godot Resources under ``data/generated/`` that the runtime ``load()``s. Every
 byte-identical to a fresh build), never hand-edited: changing config means
 changing the JSON.
 
-Six sources feed the outputs (``specs_for``/``SPECS``):
+Seven sources feed the outputs (``specs_for``/``SPECS``):
 
 - ``player_config.json`` -> ``player_config.tres`` (``PlayerConfig``, S1)
 - ``combat_config.json`` -> ``stats_player.tres`` + ``stats_enemy.tres``
@@ -36,6 +36,10 @@ Six sources feed the outputs (``specs_for``/``SPECS``):
   length + 1, config never code — plus the Drop/Pickup blockout and juice,
   gADR-0006) — S6b. The curve's strict monotonicity is a cross-field rule
   enforced by ``validate_progression_semantics``.
+- ``items_config.json`` -> ``items_config.tres`` (``ItemsConfig``: the
+  Consumable restore amounts — ``wine_mp_restore`` migrated here from
+  ``gravity_config.json`` — the consume-flash juice, and the Spacesuit's
+  defense bonus, gADR-0008) — S7.
 
 Dogfooding note: since gda's ADR-0032 static class_name scan (issue #360), ``gda
 resource create --type PlayerConfig`` CAN instantiate a project-local class in
@@ -132,7 +136,6 @@ _COMBAT_FIELDS: list[tuple[str, str]] = [
 
 _GRAVITY_FIELDS: list[tuple[str, str]] = [
     ("mp_cost", "float"),
-    ("wine_mp_restore", "float"),
     ("field_direction", "vec2"),
     ("field_strength", "float"),
     ("field_radius", "float"),
@@ -204,6 +207,18 @@ _HUD_FIELDS: list[tuple[str, str]] = [
     ("margin", "vec2"),
     ("value_punch_scale", "vec2"),
     ("value_tween_duration", "float"),
+]
+
+# The S7 Items & Equipment numbers (gADR-0008): the Consumable restore
+# amounts (wine_mp_restore migrated from _GRAVITY_FIELDS — one items
+# authority), the consume-flash juice, and the Spacesuit's defense bonus.
+_ITEMS_FIELDS: list[tuple[str, str]] = [
+    ("bun_hp_restore", "float"),
+    ("wine_mp_restore", "float"),
+    ("spacesuit_defense", "float"),
+    ("bun_flash_color", "color"),
+    ("wine_flash_color", "color"),
+    ("consume_flash_duration", "float"),
 ]
 
 # The S6b progression loop (gADR-0006): the leveling curve (cumulative EXP
@@ -321,6 +336,15 @@ _STATIC_SPECS: list[TresSpec] = [
         script_class="ProgressionConfig",
         ext_id="1_progressionconfig",
         fields=_PROGRESSION_FIELDS,
+    ),
+    TresSpec(
+        json_rel="data/json/items_config.json",
+        schema_rel="data/schema/items_config.schema.json",
+        out_rel="data/generated/items_config.tres",
+        script_res_path="res://src/resources/items_config.gd",
+        script_class="ItemsConfig",
+        ext_id="1_itemsconfig",
+        fields=_ITEMS_FIELDS,
     ),
 ]
 
