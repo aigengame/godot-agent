@@ -26,6 +26,7 @@ Typer → resolve → preflight → export → classify → JSON pipeline runs e
 """
 
 import json
+import re
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -47,6 +48,12 @@ GET_RESULT = {
     "templates_installed": True,
     "templates_version": "4.6.3.stable",
 }
+
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _plain(text: str) -> str:
+    return ANSI_ESCAPE.sub("", text)
 
 
 def _inject(monkeypatch, *, get=GET_RESULT, export=None):
@@ -649,8 +656,9 @@ def test_export_run_help_documents_output_resolution():
     result = CliRunner().invoke(app, ["export", "run", "--help"])
 
     assert result.exit_code == 0
-    assert "--output" in result.stdout
-    assert "invoker's current working directory" in result.stdout
+    help_text = _plain(result.stdout)
+    assert "--output" in help_text
+    assert "invoker's current working directory" in help_text
 
 
 def test_export_run_human_output_echoes_artifact(monkeypatch, tmp_path):
