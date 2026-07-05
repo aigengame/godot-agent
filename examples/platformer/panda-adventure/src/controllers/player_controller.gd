@@ -543,12 +543,13 @@ func _defender_stats() -> StatsConfigScript:
 
 
 ## Eat a Bun — restore HP capped at the stat block's max_hp, consuming one
-## from the item-count hook (or refusing, consumable_blocked). Gated on the
-## death latch: a restored corpse would contradict player_died (respawn is a
-## later slice's story).
+## from the item-count hook (or refusing, consumable_blocked). Supply is the
+## ONLY gate (gADR-0008): the S4 death latch stops the damage/death records,
+## not verbs — like moving and firing, item use stays live after player_died
+## until a later slice owns game-over/respawn.
 func _eat_bun() -> void:
 	var cfg := _items_config()
-	if cfg == null or _stats == null or _stats_config == null or _dead:
+	if cfg == null or _stats == null or _stats_config == null:
 		return
 	if not _try_consume(ITEM_BUN):
 		return

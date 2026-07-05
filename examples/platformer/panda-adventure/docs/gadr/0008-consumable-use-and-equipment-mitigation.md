@@ -35,7 +35,11 @@ We decide four things:
   count). Using a Consumable at full HP/MP still consumes it: the gate is
   one-input (supply), the cap already bounds the effect, and the S3 hook set
   the restore-at-cap semantics — a "need" gate would be a second decision
-  axis the GDD never asked for.
+  axis the GDD never asked for. The S4 death latch is not a gate either: in
+  Phase 1 death latches the damage/death records only — movement, firing,
+  and item use all stay live after `player_died` — so an alive-gate on a use
+  verb would be a one-verb outlier, not a contract; the game-over/respawn
+  slice owns that state when it lands.
 - **The Spacesuit composes an effective defender; the formula is untouched.**
   `ItemSystem.effective_defender(base, defense_bonus)` (pure, static) builds
   a FRESH `StatsConfig` copying the base stat block with `defense` raised by

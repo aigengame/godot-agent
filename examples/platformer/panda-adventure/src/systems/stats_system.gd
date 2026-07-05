@@ -56,8 +56,7 @@ func restore_mp(amount: float, max_mp: float) -> void:
 
 ## Restore HP (Bun, S7 — restore_mp's mirror, gADR-0008), capped at the
 ## actor's max_hp. The cap is a PARAMETER from the immutable stat block, like
-## every cap here (gADR-0001). Restoring a dead actor is the CALLER's gate
-## (the death latch), not this holder's.
+## every cap here (gADR-0001).
 func restore_hp(amount: float, max_hp: float) -> void:
 	hp = minf(hp + amount, max_hp)
 
