@@ -67,6 +67,7 @@ drink_wine={
 2d_physics/layer_3="enemy"
 2d_physics/layer_4="projectile"
 2d_physics/layer_5="gravity_field"
+2d_physics/layer_6="pickup"
 
 [rendering]
 

@@ -1,12 +1,14 @@
 class_name LevelController
 extends Node2D
 
-## Scene-level director for S1+S2+S4+S5+S6a: applies the data-driven Platform
-## blockout, plays the Wave schedule (gADR-0005) — spawning each Wave's Spawn
-## Roster, folding deaths through the pure WaveSystem, and advancing on clear
-## — wires each spawn's death to the Kill reward (gADR-0004), and emits the
-## boot log. The Player self-configures (PlayerController); this owns the rest
-## of the level so config application stays out of the physics body.
+## Scene-level director for S1+S2+S4+S5+S6a+S6b: applies the data-driven
+## Platform blockout, plays the Wave schedule (gADR-0005) — spawning each
+## Wave's Spawn Roster, folding deaths through the pure WaveSystem, and
+## advancing on clear — wires each spawn's death to the Kill reward
+## (gADR-0004) and to its Drop-table roll (gADR-0006: pickups scattered at
+## the death position), and emits the boot log. The Player self-configures
+## (PlayerController); this owns the rest of the level so config application
+## stays out of the physics body.
 ##
 ## Visuals and geometry are data (gADR-0000): the derived PlayerConfig /
 ## WaveScheduleConfig / EnemyConfig Resources, never hardcoded. Loaded here and
@@ -25,12 +27,16 @@ extends Node2D
 const PlayerConfigScript := preload("res://src/resources/player_config.gd")
 const EnemyConfigScript := preload("res://src/resources/enemy_config.gd")
 const WaveScheduleConfigScript := preload("res://src/resources/wave_schedule_config.gd")
+const ProgressionConfigScript := preload("res://src/resources/progression_config.gd")
 const WaveSystemScript := preload("res://src/systems/wave_system.gd")
+const EconomySystemScript := preload("res://src/systems/economy_system.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const EnemyScene := preload("res://scenes/enemy.tscn")
+const PickupScene := preload("res://scenes/pickup.tscn")
 
 const CONFIG_PATH := "res://data/generated/player_config.tres"
 const SCHEDULE_PATH := "res://data/generated/wave_schedule.tres"
+const PROGRESSION_CONFIG_PATH := "res://data/generated/progression_config.tres"
 # The per-kind derived EnemyConfig path convention (matches build_config's
 # SPECS outputs) — structural wiring, not a config number.
 const ENEMY_KIND_TRES := "res://data/generated/enemy_%s.tres"
@@ -42,6 +48,9 @@ const ENEMY_KIND_TRES := "res://data/generated/enemy_%s.tres"
 var _schedule: WaveScheduleConfigScript
 var _wave_index := 0
 var _alive := 0
+# The derived ProgressionConfig (S6b: the pickup scatter spacing), lazily
+# loaded (load() is cached) so _ready's load block stays untouched.
+var _progression_cfg: ProgressionConfigScript
 
 
 func _ready() -> void:
@@ -117,9 +126,11 @@ func _start_wave(index: int) -> void:
 		# S6a Kill reward (gADR-0004): the spawner owns the death->reward
 		# wiring, binding the spawned kind so the award reads its Tier-derived
 		# fields — the EnemyController stays reward-agnostic (it only emits
-		# died) and the Player only receives. The same died edge feeds the
-		# wave fold in _on_enemy_died.
-		enemy.died.connect(_on_enemy_died.bind(kind))
+		# died) and the Player only receives. The enemy node itself is bound
+		# too (S6b, gADR-0006): at emit time it is still in the tree
+		# (queue_free is deferred), so its name/position anchor the drops.
+		# The same died edge feeds the wave fold in _on_enemy_died.
+		enemy.died.connect(_on_enemy_died.bind(enemy, kind))
 		add_child(enemy)
 		enemy.play_spawn_tween(_schedule.spawn_squash, _schedule.spawn_tween_duration)
 		_alive += 1
@@ -130,11 +141,13 @@ func _start_wave(index: int) -> void:
 	})
 
 
-## One enemy of the current Wave died: award the Kill reward, then fold the
-## death through the pure WaveSystem (gADR-0005) — advance to the next Wave on
-## clear, or report the whole schedule done after the final one.
-func _on_enemy_died(kind: EnemyConfigScript) -> void:
+## One enemy of the current Wave died: award the Kill reward, roll and spawn
+## its Drop-table drops (S6b, gADR-0006), then fold the death through the pure
+## WaveSystem (gADR-0005) — advance to the next Wave on clear, or report the
+## whole schedule done after the final one.
+func _on_enemy_died(enemy: Node2D, kind: EnemyConfigScript) -> void:
 	_award_kill(kind)
+	_spawn_drops(kind, enemy.name, enemy.position)
 	var decision: Dictionary = WaveSystemScript.resolve_death(
 		_alive, _wave_index, _schedule.waves.size()
 	)
@@ -159,3 +172,43 @@ func _award_kill(kind: EnemyConfigScript) -> void:
 	if player == null or not player.has_method("gain_reward"):
 		return
 	player.gain_reward(kind.exp_reward, kind.gold_reward, kind.tier)
+
+
+## Roll and spawn one death's drops (S6b, gADR-0006): one randf() per
+## Drop-table entry feeds the PURE EconomySystem.resolve_drops (the roll is
+## orchestration, like the clock — the decision stays parameter-injected and
+## testable), and each resolved drop instances pickup.tscn on the
+## deterministic scatter row centered on the death position. Pickup names are
+## derived from the schedule-unique spawn name (gADR-0005), so drops stay
+## addressable. The Pickup self-applies its blockout and logs pickup_spawned
+## (PickupController._ready).
+func _spawn_drops(kind: EnemyConfigScript, source_name: String, death_position: Vector2) -> void:
+	var cfg := _progression_config()
+	if cfg == null:
+		return
+	var rolls: Array = []
+	for _entry in kind.drop_table:
+		rolls.append(randf())
+	var drops: Array = EconomySystemScript.resolve_drops(kind.drop_table, rolls)
+	for i in drops.size():
+		var drop: Dictionary = drops[i]
+		var pickup := PickupScene.instantiate()
+		pickup.setup(drop["item"], drop["amount"])
+		pickup.name = "%sDrop%d" % [source_name, i]
+		pickup.position = death_position + EconomySystemScript.drop_offset(
+			i, drops.size(), cfg.pickup_spacing
+		)
+		add_child(pickup)
+
+
+## The derived ProgressionConfig with the standard loud guard, lazily loaded
+## (the S3 GravityConfig pattern) so _ready's load block stays untouched.
+func _progression_config() -> ProgressionConfigScript:
+	if _progression_cfg == null:
+		_progression_cfg = load(PROGRESSION_CONFIG_PATH)
+		if _progression_cfg == null:
+			push_error(
+				"LevelController: could not load %s — run scripts/build_config.py."
+				% PROGRESSION_CONFIG_PATH
+			)
+	return _progression_cfg
