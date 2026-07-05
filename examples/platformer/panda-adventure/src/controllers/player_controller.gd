@@ -58,23 +58,35 @@ var _facing := 1.0
 # of scope for Phase 1).
 var _last_hit_time := -INF
 var _dead := false
+# The time scale a Time Dilation Field imposes (S8, gADR-0009): 1.0 = full
+# speed. Set by the field via the time_dilatable contract each overlap frame,
+# reset to 1.0 the frame the Player leaves (or the field expires).
+var _time_dilation := 1.0
 
 
 ## Pure movement decision (no node/physics access): given the current velocity,
 ## the horizontal input axis (-1..1), whether jump fired this frame, whether the
-## body is on the floor, the config, and the physics delta, return the next
-## velocity. Godot is +Y-down: jump_velocity is negative (up), gravity positive.
+## body is on the floor, the config, the physics delta, and the time scale a
+## Time Dilation Field imposes (1.0 = full speed), return the next velocity.
+## Godot is +Y-down: jump_velocity is negative (up), gravity positive.
+##
+## Dilation is FULL slow motion of the body sim (gADR-0009): speeds and the
+## jump impulse scale by the factor, gravity by the factor SQUARED — the same
+## jump arc traced at 1/factor the pace (height v²/2g is factor-invariant), the
+## floaty slow-mo jump that sells the zone. Input still registers instantly:
+## slowed, never stunned.
 static func compute_velocity(
 	velocity: Vector2,
 	input_dir: float,
 	jump_pressed: bool,
 	on_floor: bool,
 	config: PlayerConfigScript,
-	delta: float
+	delta: float,
+	time_scale: float = 1.0
 ) -> Vector2:
 	var v := velocity
 	# Horizontal is driven straight from input — instantaneous for the blockout.
-	v.x = input_dir * config.move_speed
+	v.x = input_dir * config.move_speed * time_scale
 	# Vertical: jump only from the floor (no double-jump in this slice); when
 	# airborne, accumulate gravity, capped at terminal velocity.
 	if on_floor:
@@ -82,11 +94,11 @@ static func compute_velocity(
 		if v.y > 0.0:
 			v.y = 0.0
 		if jump_pressed:
-			v.y = config.jump_velocity
+			v.y = config.jump_velocity * time_scale
 	else:
-		v.y += config.gravity * delta
-		if v.y > config.max_fall_speed:
-			v.y = config.max_fall_speed
+		v.y += config.gravity * time_scale * time_scale * delta
+		if v.y > config.max_fall_speed * time_scale:
+			v.y = config.max_fall_speed * time_scale
 	return v
 
 
@@ -112,6 +124,10 @@ func _ready() -> void:
 		return
 	# S4: enemies find their target by this group (EnemyController._player).
 	add_to_group("player")
+	# Time-dilation response contract (S8, gADR-0009): the Time Dilation Field
+	# acts on this group via set_time_dilation — the Player is the design
+	# target of the Boss's zone (and is NEVER gravity_affectable, gADR-0002).
+	add_to_group("time_dilatable")
 	_stats = StatsSystemScript.new()
 	_stats.init_from(_stats_config)
 	_apply_blockout(_config)
@@ -153,7 +169,9 @@ func _physics_process(delta: float) -> void:
 	var was_on_floor := is_on_floor()
 
 	_facing = compute_facing(_facing, input_dir)
-	velocity = compute_velocity(velocity, input_dir, jump_pressed, was_on_floor, _config, delta)
+	velocity = compute_velocity(
+		velocity, input_dir, jump_pressed, was_on_floor, _config, delta, _time_dilation
+	)
 	move_and_slide()
 
 	# Landing this frame (airborne last frame, on the floor now) → play the squash.
@@ -179,6 +197,10 @@ func _fire() -> void:
 		return
 	var bolt := ProjectileScene.instantiate()
 	bolt.setup(Vector2(_facing, 0.0), _stats_config)
+	# The PLAYER's bolts opt into the Time Dilation Field's contract (S8,
+	# gADR-0009) — the enemy-bolt variant never joins, so only the Player's
+	# side slows inside the Boss's zone.
+	bolt.add_to_group("time_dilatable")
 	var offset := _combat.projectile_spawn_offset
 	bolt.position = position + Vector2(_facing * offset.x, offset.y)
 	get_parent().add_child(bolt)
@@ -187,6 +209,18 @@ func _fire() -> void:
 		"spawn_x": bolt.position.x,
 		"spawn_y": bolt.position.y,
 	})
+
+
+## Time-dilation response contract (S8, gADR-0009): a Time Dilation Field
+## feeds the factor here each overlap frame and resets it to 1.0 on exit or
+## expiry; compute_velocity integrates it as full slow motion. Logged on the
+## CHANGE edge only (enter/exit — never per-frame spam), the durable
+## observable of being slowed for gda logger tail.
+func set_time_dilation(factor: float) -> void:
+	if is_equal_approx(factor, _time_dilation):
+		return
+	_time_dilation = factor
+	GameLogScript.emit("info", "player_time_dilated", {"factor": factor})
 
 
 ## S4 damage-receiving path: resolve one incoming hit from an attacker's stat

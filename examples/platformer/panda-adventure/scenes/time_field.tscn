@@ -1,0 +1,12 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://src/controllers/time_field_controller.gd" id="1_dnifm"]
+
+[node name="TimeField" type="Area2D" unique_id=1868146374]
+collision_layer = 64
+collision_mask = 10
+script = ExtResource("1_dnifm")
+
+[node name="Visual" type="ColorRect" parent="." unique_id=1205938033]
+
+[node name="Collision" type="CollisionShape2D" parent="." unique_id=752293698]

@@ -73,6 +73,7 @@ eat_bun={
 2d_physics/layer_4="projectile"
 2d_physics/layer_5="gravity_field"
 2d_physics/layer_6="pickup"
+2d_physics/layer_7="time_field"
 
 [rendering]
 

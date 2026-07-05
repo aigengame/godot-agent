@@ -105,5 +105,43 @@ func _init() -> void:
 		_fail("airborne jump: expected gravity y=%s, got %s" % [GRAVITY * 0.1, air_jump.y])
 		return
 
+	# Behavior 6 — time dilation (S8, gADR-0009): a Time Dilation Field's
+	# factor scales the body sim as FULL slow motion — speed and the jump
+	# impulse by the factor, gravity by the factor squared (the same jump arc
+	# traced slower: height v^2/2g is factor-invariant), terminal velocity by
+	# the factor. The default factor 1.0 is the exact pre-S8 rule (behaviors
+	# 1-5 above prove it by omission).
+	const FACTOR := 0.5
+	var slow_right := PlayerControllerScript.compute_velocity(
+		Vector2.ZERO, 1.0, false, true, config, 0.1, FACTOR
+	)
+	if not is_equal_approx(slow_right.x, MOVE_SPEED * FACTOR):
+		_fail("dilated move: expected x=%s, got %s" % [MOVE_SPEED * FACTOR, slow_right.x])
+		return
+	var slow_jump := PlayerControllerScript.compute_velocity(
+		Vector2.ZERO, 0.0, true, true, config, 0.1, FACTOR
+	)
+	if not is_equal_approx(slow_jump.y, JUMP_VELOCITY * FACTOR):
+		_fail("dilated jump: expected y=%s, got %s" % [JUMP_VELOCITY * FACTOR, slow_jump.y])
+		return
+	var slow_fall := PlayerControllerScript.compute_velocity(
+		Vector2.ZERO, 0.0, false, false, config, 0.1, FACTOR
+	)
+	if not is_equal_approx(slow_fall.y, GRAVITY * FACTOR * FACTOR * 0.1):
+		_fail(
+			"dilated gravity: expected y=%s, got %s"
+			% [GRAVITY * FACTOR * FACTOR * 0.1, slow_fall.y]
+		)
+		return
+	var slow_terminal := PlayerControllerScript.compute_velocity(
+		Vector2(0.0, MAX_FALL_SPEED), 0.0, false, false, config, 0.1, FACTOR
+	)
+	if not is_equal_approx(slow_terminal.y, MAX_FALL_SPEED * FACTOR):
+		_fail(
+			"dilated terminal: expected y=%s, got %s"
+			% [MAX_FALL_SPEED * FACTOR, slow_terminal.y]
+		)
+		return
+
 	print("LOGIC_SEAM: PASS")
 	quit(0)
