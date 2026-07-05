@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/aigengame/godot-agent/compare/v0.5.0...v0.6.0) (2026-07-05)
+
+
+### Features
+
+* **game:** address script variables in live get/set ([#424](https://github.com/aigengame/godot-agent/issues/424)) ([c437c6e](https://github.com/aigengame/godot-agent/commit/c437c6ebb77cbe5c009c883c866959429fb813f4))
+
 ## [0.5.0](https://github.com/aigengame/godot-agent/compare/v0.4.0...v0.5.0) (2026-07-05)
 
 
