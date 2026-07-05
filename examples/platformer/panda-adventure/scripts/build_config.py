@@ -543,9 +543,7 @@ def enemy_kind_specs(root: Path = GAME_DIR) -> list[TresSpec]:
     new kind up automatically.
     """
     document = load_json(root / _ENEMIES_JSON_REL)
-    return [
-        _enemy_kind_spec(name, kind) for name, kind in document["kinds"].items()
-    ]
+    return [_enemy_kind_spec(name, kind) for name, kind in document["kinds"].items()]
 
 
 def specs_for(root: Path = GAME_DIR) -> list[TresSpec]:

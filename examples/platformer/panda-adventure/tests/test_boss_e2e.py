@@ -216,9 +216,7 @@ class _Session:
 
 
 @pytest.mark.e2e
-def test_boss_warp_rotation_slows_the_player_and_releases(
-    tmp_path, daemon_runtime_dir
-):
+def test_boss_warp_rotation_slows_the_player_and_releases(tmp_path, daemon_runtime_dir):
     """One full Warp rotation, live: tell -> formula blink -> zone -> release."""
     project = _make_project_copy(tmp_path / "game")
     enemies = json.loads(
@@ -266,9 +264,7 @@ def test_boss_warp_rotation_slows_the_player_and_releases(
         assert field["duration"] == pytest.approx(boss["time_field_duration"])
 
         # The Boss actually moved in the runtime tree, not just in the log.
-        assert s.position("/root/Main/Boss")[0] == pytest.approx(
-            blink["to_x"], abs=2.0
-        )
+        assert s.position("/root/Main/Boss")[0] == pytest.approx(blink["to_x"], abs=2.0)
 
         # The Player is inside the zone: the dilation EDGE record fires with
         # the config factor.
@@ -282,8 +278,7 @@ def test_boss_warp_rotation_slows_the_player_and_releases(
         slow_dx = s.held_walk(_WALK_TICKS)
         full_cover = _WALK_TICKS * move_speed / 60.0
         assert slow_dx == pytest.approx(full_cover * factor, rel=0.2), (
-            f"walk inside the zone should cover ~{factor} x {full_cover}, "
-            f"got {slow_dx}"
+            f"walk inside the zone should cover ~{factor} x {full_cover}, got {slow_dx}"
         )
 
         # Tank melee is un-deferred: the landing-adjacent Boss swings and
