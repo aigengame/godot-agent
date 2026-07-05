@@ -189,7 +189,12 @@ def test_retuning_a_tier_is_one_json_edit(tmp_path) -> None:
     _stage_inputs(tmp_path)
     enemies_path = tmp_path / "data/json/enemies_config.json"
     config = json.loads(enemies_path.read_text(encoding="utf-8"))
-    config["tiers"]["minion"] = {"exp_reward": 77.0, "gold_reward": 33.0}
+    config["tiers"]["minion"] = {
+        "exp_reward": 77.0,
+        "gold_reward": 33.0,
+        # Since S6b a Tier entry also carries its drops table (gADR-0006).
+        "drops": config["tiers"]["minion"]["drops"],
+    }
     enemies_path.write_text(json.dumps(config), encoding="utf-8")
 
     build_config.build_all(root=tmp_path)
