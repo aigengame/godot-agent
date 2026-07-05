@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/aigengame/godot-agent/compare/v0.4.0...v0.5.0) (2026-07-05)
+
+
+### Features
+
+* **game:** add rendered Control rect live command ([#420](https://github.com/aigengame/godot-agent/issues/420)) ([0a550fb](https://github.com/aigengame/godot-agent/commit/0a550fb6f49d5b793b3ec89683fa2eabe63737a6))
+
 ## [0.4.0](https://github.com/aigengame/godot-agent/compare/v0.3.1...v0.4.0) (2026-07-05)
 
 
