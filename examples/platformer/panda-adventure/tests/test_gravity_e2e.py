@@ -22,7 +22,10 @@ session:
   (#406). The clamp math itself is pinned headless in the logic seam;
 - repeated fires drain MP to 0; at 0 MP the fire is refused
   (``gravity_blocked``, no new field) — the MP gate;
-- ``drink_wine`` restores MP (``wine_drunk``) and the Gravity Gun fires again;
+- with no Wine held, ``drink_wine`` is REFUSED too (``consumable_blocked`` —
+  the S7 supply gate, gADR-0008): MP stays drained and the Gravity Gun stays
+  blocked. The restore/re-arm half of the economy loop lives in
+  ``test_items_e2e.py``, where the supply exists;
 - switching back re-arms the Laser Gun (``laser_fired`` again) — the weapon
   toggle round-trips.
 
@@ -91,7 +94,6 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
     )
     mp_max = combat["player_stats"]["max_mp"]
     mp_cost = gravity["mp_cost"]
-    wine_restore = gravity["wine_mp_restore"]
     obstacle_pos = gravity["obstacle_position"]
     enemy_pos = combat["enemy_position"]
     enemy_clamp = gravity["enemy_max_gravity_offset"]
@@ -470,22 +472,27 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
             "a refused fire must not spawn a field"
         )
 
-        # --- Wine restores MP (capped at max), re-arming the Gravity Gun.
+        # --- With no Wine held, drink_wine is REFUSED (the S7 supply gate,
+        # gADR-0008): nothing restored, the budget stays drained, and the
+        # Gravity Gun stays blocked. The restore/re-arm half lives in
+        # test_items_e2e.py, where the supply exists.
         tap("drink_wine")
-        drunk = poll(lambda: records("wine_drunk"))
-        assert drunk, "no gda_log 'wine_drunk' record"
-        assert drunk[-1]["fields"]["mp_before"] == pytest.approx(leftover)
-        restored = min(leftover + wine_restore, mp_max)
-        assert drunk[-1]["fields"]["mp_after"] == pytest.approx(restored)
-
-        # Config sanity for the next step: one Wine must re-arm at least one fire.
-        assert restored >= mp_cost, "gravity_config: wine_mp_restore < mp_cost"
-        tap("fire")
-        assert poll(lambda: len(records("gravity_fired")) >= total_fires + 1), (
-            "after Wine the Gravity Gun should fire again"
+        wine_blocked = poll(
+            lambda: [
+                r
+                for r in records("consumable_blocked")
+                if r["fields"]["item"] == "wine"
+            ]
         )
-        assert records("gravity_fired")[-1]["fields"]["mp_after"] == pytest.approx(
-            restored - mp_cost
+        assert wine_blocked, "no gda_log 'consumable_blocked' record for wine"
+        assert wine_blocked[-1]["fields"]["count"] == 0
+        assert not records("wine_drunk"), "a refused drink must not restore MP"
+        tap("fire")
+        assert poll(lambda: len(records("gravity_blocked")) >= 2), (
+            "with the budget still drained the Gravity Gun must stay blocked"
+        )
+        assert len(records("gravity_fired")) == total_fires, (
+            "a refused drink must not re-arm the Gravity Gun"
         )
 
         # --- Switch back: `fire` drives the Laser Gun again (the toggle

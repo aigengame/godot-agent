@@ -74,11 +74,17 @@ def _make_project_copy(dst: Path, mutate_enemies) -> Path:
 
 
 def _expected_player_damage(kind: dict, combat: dict, player_stats: dict) -> float:
-    """The data-driven formula with the roles swapped: enemy kind -> Player."""
+    """The data-driven formula with the roles swapped: enemy kind -> Player.
+
+    The Player defends with the SPACESUIT-composed block since S7
+    (gADR-0008): base defense + the items config's suit bonus.
+    """
+    items = build_config.load_json(GAME_DIR / "data" / "json" / "items_config.json")
     return max(
         combat["min_damage"],
         kind["attack"] * combat["attack_scale"]
-        - player_stats["defense"] * combat["defense_scale"],
+        - (player_stats["defense"] + items["spacesuit_defense"])
+        * combat["defense_scale"],
     )
 
 

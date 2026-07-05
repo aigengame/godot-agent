@@ -79,3 +79,11 @@ Consequences:
   committed one — but it feeds playtests, and a stale build misled one. The
   demo's docs (AGENTS.md) now expect a `gda export run` refresh at wave
   close, and this slice ships one built from current main.
+
+> **Outcome (2026-07-05).** The "container-managed Controls expose no
+> offset/rect to the live reader" constraint that forced the HUD's structural
+> probe boxes was filed as gda #419 and fixed in gda v0.5.0: `gda game rect`
+> reads a Control's rendered viewport rect live. New checkpoints may probe
+> exact per-Control rects (the S7 BUN/WINE item-lines check is the first);
+> the whole-column box stays structural because Label text renders past its
+> container rect regardless.

@@ -9,9 +9,11 @@ dormant melee minion is both the damage source and the kill target):
   (read via ``gda game get`` on its ``text``) renders the AUTHORITATIVE
   JSON's boot values — full HP/MP, EXP/Gold at 0, the Laser Gun current;
 - the HUD tracks the weapon toggle both ways (``switch_weapon`` ->
-  ``GRAVITY GUN`` -> back), the MP spend (a Gravity Gun fire drops the MP
-  readout by ``mp_cost``) and the Wine restore (back up, capped at max) —
-  the S3 economy surfaced live;
+  ``GRAVITY GUN`` -> back) and the MP spend (a Gravity Gun fire drops the MP
+  readout by ``mp_cost``) — the S3 economy surfaced live. The Wine RESTORE
+  needs supply since S7 (gADR-0008): with none held ``drink_wine`` is
+  refused (``consumable_blocked``) and the readout stays put; the restore
+  readout lives in ``test_items_e2e.py``, where the supply exists;
 - walking into the minion's Aggro Range brings it to point-blank and its
   contact hits show up in the HP readout (recomputed from the ``player_hit``
   records — the HUD must agree with the log trail);
@@ -89,6 +91,7 @@ def test_daemon_serves_kill_reward_and_hud(tmp_path, daemon_runtime_dir):
     enemies = build_config.load_json(GAME_DIR / "data" / "json" / "enemies_config.json")
     combat = build_config.load_json(GAME_DIR / "data" / "json" / "combat_config.json")
     gravity = build_config.load_json(GAME_DIR / "data" / "json" / "gravity_config.json")
+    items = build_config.load_json(GAME_DIR / "data" / "json" / "items_config.json")
     player_cfg = build_config.load_json(
         GAME_DIR / "data" / "json" / "player_config.json"
     )
@@ -99,8 +102,8 @@ def test_daemon_serves_kill_reward_and_hud(tmp_path, daemon_runtime_dir):
     max_hp = player_stats["max_hp"]
     max_mp = player_stats["max_mp"]
     mp_cost = gravity["mp_cost"]
-    mp_after_wine = min(max_mp - mp_cost + gravity["wine_mp_restore"], max_mp)
-    # The symmetric damage formula, both directions (gADR-0001).
+    # The symmetric damage formula, both directions (gADR-0001). The Player
+    # defends with the SPACESUIT-composed block since S7 (gADR-0008).
     laser_damage = max(
         combat["min_damage"],
         player_stats["attack"] * combat["attack_scale"]
@@ -109,7 +112,8 @@ def test_daemon_serves_kill_reward_and_hud(tmp_path, daemon_runtime_dir):
     contact_damage = max(
         combat["min_damage"],
         kind["attack"] * combat["attack_scale"]
-        - player_stats["defense"] * combat["defense_scale"],
+        - (player_stats["defense"] + items["spacesuit_defense"])
+        * combat["defense_scale"],
     )
     shots_to_kill = math.ceil(kind["max_hp"] / laser_damage)
     iframe = combat["iframe_duration"]
@@ -205,7 +209,7 @@ def test_daemon_serves_kill_reward_and_hud(tmp_path, daemon_runtime_dir):
         root = json.loads(tree.stdout)["root"]
         hud = _find_node(root, "Hud")
         assert hud is not None and hud["type"] == "CanvasLayer", root
-        for key in ("Hp", "Mp", "Exp", "Gold", "Weapon"):
+        for key in ("Hp", "Mp", "Exp", "Gold", "Weapon", "Bun", "Wine"):
             assert _find_node(hud, f"{key}Label") is not None, hud
 
         # Its boot record carries the initial snapshot from the data.
@@ -241,11 +245,17 @@ def test_daemon_serves_kill_reward_and_hud(tmp_path, daemon_runtime_dir):
         assert poll(
             lambda: label("Mp") == f"MP {round(max_mp - mp_cost)}/{round(max_mp)}"
         ), "HUD should surface the MP spend"
+        # With no Wine held the restore is REFUSED (the S7 supply gate,
+        # gADR-0008): the MP readout stays on the spent value. The restore
+        # readout is proven in test_items_e2e.py, where the supply exists.
         tap("drink_wine")
-        assert poll(lambda: records("wine_drunk")), "no wine_drunk record"
-        assert poll(
-            lambda: label("Mp") == f"MP {round(mp_after_wine)}/{round(max_mp)}"
-        ), "HUD should surface the Wine restore"
+        assert poll(lambda: records("consumable_blocked")), (
+            "no consumable_blocked record for the supply-less wine"
+        )
+        assert not records("wine_drunk"), "a refused drink must not restore MP"
+        assert label("Mp") == f"MP {round(max_mp - mp_cost)}/{round(max_mp)}", (
+            "a refused drink must leave the MP readout on the spent value"
+        )
         tap("switch_weapon")
         assert poll(lambda: label("Weapon") == "LASER GUN"), (
             "HUD should show the Laser Gun after switching back"
