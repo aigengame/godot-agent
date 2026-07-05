@@ -72,6 +72,33 @@ band ending point-blank, min 0) and keeping distance (Ranged — a standoff band
 rule with different data (gADR-0003).
 _Avoid_: comfort zone, preferred range
 
+### Boss abilities
+
+**Warp**:
+The Boss's signature spacetime-distortion ability family — ONE narrative hook with two
+expressions: the space-warping Warp Blink and the time-warping Time Dilation Field (S8).
+Grounded in the black-hole-edge setting: the Boss bends spacetime, the Player bends gravity.
+_Avoid_: portal (implies a persistent traversable gate); time-warp as the umbrella (that names
+only the field half)
+
+**Warp Blink**:
+The Boss's space-warp translocation — after a charge-up tell it instantly relocates to a
+configured offset from the Player's position at cast time (clamped to the arena), then stands
+in a brief no-attack recovery window. The Tank Boss's engage tool against kiting; deterministic,
+never random.
+_Avoid_: portal, teleport (generic), dash (it does not traverse the space between)
+
+**Time Dilation Field**:
+The Boss's time-warp expression — a static, duration-bound circular zone cast at a point
+(typically the Warp Blink landing) that slows time for the Player's whole body simulation
+(movement, jump, AND gravity — full slow motion) and for the Player's laser Projectiles inside
+it, by a config time factor. Input registration, the Gravity Gun and its Gravity Fields, the
+Boss, and everything else run at full speed — the counterplay is spatial (leave the zone), and
+the Gravity Gun stays the full-speed answer. The mirror of the Gravity Field: the Player bends
+gravity, the Boss bends time.
+_Avoid_: slow zone (generic), stun/root/freeze (input still registers — the body is slowed,
+not locked), aura (it does not follow the Boss)
+
 ### Weapons
 
 **Laser Gun**:
