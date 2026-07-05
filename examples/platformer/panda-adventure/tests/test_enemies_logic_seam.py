@@ -29,7 +29,7 @@ def test_logic_seam_archetype_ai_decisions(gda) -> None:
     The seam covers: Melee closing distance (both sides) and holding
     point-blank; Ranged closing to, holding, and defending its Steering Band
     (keeping distance both sides); the Aggro Range gate; full-2D distance and
-    the dx == 0 no-steer case; the deferred Tank (never moves, never attacks);
+    the dx == 0 no-steer case; the Tank running the same band rule (un-deferred, gADR-0009);
     the cooldown boundary (ready at expiry, not within, -INF sentinel); and
     can_attack's range x cooldown x aggro composition. We read gda's
     passed-through ``exit_status`` (0 == all assertions held) and require the

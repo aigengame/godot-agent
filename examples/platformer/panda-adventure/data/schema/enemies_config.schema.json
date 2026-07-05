@@ -79,14 +79,16 @@
       "type": "object",
       "additionalProperties": false,
       "dependentRequired": {
-        "warp_cooldown": ["warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration"],
-        "warp_trigger_range": ["warp_cooldown", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration"],
-        "warp_offset": ["warp_cooldown", "warp_trigger_range", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration"],
-        "warp_tell_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration"],
-        "warp_recovery_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "time_field_radius", "time_field_factor", "time_field_duration"],
-        "time_field_radius": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration"],
-        "time_field_factor": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_duration"],
-        "time_field_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor"]
+        "warp_cooldown": ["warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_trigger_range": ["warp_cooldown", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_offset": ["warp_cooldown", "warp_trigger_range", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_tell_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_recovery_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "time_field_radius": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "time_field_factor": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "time_field_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_color", "time_field_fade_duration"],
+        "time_field_color": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_fade_duration"],
+        "time_field_fade_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color"]
       },
       "required": [
         "faction",
@@ -259,6 +261,15 @@
         },
         "time_field_duration": {
           "description": "Seconds the field persists after the blink drops it; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "time_field_color": {
+          "description": "Time Dilation Field zone color (RGBA; alpha is the translucency of the overlay block).",
+          "$ref": "#/$defs/rgba"
+        },
+        "time_field_fade_duration": {
+          "description": "Seconds of the field's spawn fade-in / expiry fade-out tween; strictly positive.",
           "type": "number",
           "exclusiveMinimum": 0.0
         }

@@ -96,8 +96,10 @@ We decide six things:
   TTK/TTD later): `warp_cooldown` 8.0, `warp_trigger_range` 200.0,
   `warp_offset` [60, 0], `warp_tell_duration` 0.5, `warp_recovery_duration`
   0.4, `time_field_radius` 160.0, `time_field_factor` 0.5,
-  `time_field_duration` 3.0. `EnemyConfig` and the builder derive them as
-  optional fields.
+  `time_field_duration` 3.0, plus the zone's blockout juice
+  (`time_field_color`, `time_field_fade_duration` — the Gravity Field's
+  visual pattern). `EnemyConfig` and the builder derive them as optional
+  fields.
 - `EnemyAI` loses its Tank special-cases; new pure decisions (warp gate,
   landing point, in-field membership) live beside it, node/clock-free, so the
   logic seam covers them headless.

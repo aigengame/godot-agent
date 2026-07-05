@@ -37,9 +37,13 @@ _WARP_KEYS: list[str] = [
     "time_field_radius",
     "time_field_factor",
     "time_field_duration",
+    "time_field_color",
+    "time_field_fade_duration",
 ]
 
-_WARP_SCALAR_KEYS = [k for k in _WARP_KEYS if k != "warp_offset"]
+_WARP_SCALAR_KEYS = [
+    k for k in _WARP_KEYS if k not in ("warp_offset", "time_field_color")
+]
 
 
 def _valid_config() -> dict:
@@ -112,6 +116,8 @@ def test_partial_warp_block_rejected(missing: str) -> None:
         _with(1.0, *_BOSS, "time_field_factor"),  # factor 1 is dead config
         _with(1.5, *_BOSS, "time_field_factor"),  # the field never accelerates
         _with(0, *_BOSS, "time_field_duration"),  # duration strictly positive
+        _with([0.5, 0.5, 0.5], *_BOSS, "time_field_color"),  # too few components
+        _with(0, *_BOSS, "time_field_fade_duration"),  # fade strictly positive
     ],
 )
 def test_out_of_range_warp_values_rejected(bad: dict) -> None:
@@ -146,3 +152,7 @@ def test_boss_warp_fields_round_trip(gda) -> None:
     for key in _WARP_SCALAR_KEYS:
         assert props[key] == pytest.approx(config[key]), key
     assert props["warp_offset"] == pytest.approx(config["warp_offset"])
+    # Colors are float32 in Godot — compare with a tolerance.
+    assert props["time_field_color"] == pytest.approx(
+        config["time_field_color"], abs=1e-5
+    )

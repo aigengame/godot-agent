@@ -81,3 +81,5 @@ extends "res://src/resources/stats_config.gd"
 @export var time_field_radius: float
 @export var time_field_factor: float
 @export var time_field_duration: float
+@export var time_field_color: Color
+@export var time_field_fade_duration: float

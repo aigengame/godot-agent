@@ -34,3 +34,5 @@ warp_recovery_duration = 0.4
 time_field_radius = 160
 time_field_factor = 0.5
 time_field_duration = 3
+time_field_color = Color(0.45, 0.3, 0.85, 0.35)
+time_field_fade_duration = 0.25

@@ -203,6 +203,8 @@ _ENEMY_KIND_WARP_FIELDS: list[tuple[str, str]] = [
     ("time_field_radius", "float"),
     ("time_field_factor", "float"),
     ("time_field_duration", "float"),
+    ("time_field_color", "color"),
+    ("time_field_fade_duration", "float"),
 ]
 
 # The Wave schedule's own fields (gADR-0005): the spawn-telegraph tween
