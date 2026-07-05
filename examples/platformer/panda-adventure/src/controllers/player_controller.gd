@@ -19,6 +19,12 @@ extends CharacterBody2D
 ## minimal Wine hook; the full Consumable system is S7). See the S3 block at
 ## the end of this file.
 ##
+## S7 adds the Consumable use verbs + the Spacesuit (gADR-0008): `eat_bun` and
+## `drink_wine` consume the S6b item-count hook (supply-gated, capped restore,
+## consume flash), and the worn Spacesuit composes the effective defender
+## (base defense + config bonus) that take_hit feeds the damage formula's
+## mitigation term. See the S7 block at the end of this file.
+##
 ## Movement params and visuals are data (gADR-0000): a derived PlayerConfig
 ## Resource, never hardcoded. compute_velocity is static and node-free so the
 ## logic seam can exercise it headless (tests/gdscript/test_player_logic.gd via
@@ -114,6 +120,7 @@ func _ready() -> void:
 		"jump_velocity": _config.jump_velocity,
 		"max_hp": _stats_config.max_hp,
 	})
+	_equip_spacesuit()
 
 
 ## Apply the data-driven blockout: the Player block (visual + collision centered
@@ -157,6 +164,8 @@ func _physics_process(delta: float) -> void:
 		_switch_weapon()
 	if Input.is_action_just_pressed("drink_wine"):
 		_drink_wine()
+	if Input.is_action_just_pressed("eat_bun"):
+		_eat_bun()
 	if Input.is_action_just_pressed("fire"):
 		_fire_current_weapon()
 
@@ -192,7 +201,10 @@ func take_hit(attacker: StatsConfigScript) -> void:
 	if CombatSystemScript.is_invulnerable(_last_hit_time, now, _combat.iframe_duration):
 		return
 	_last_hit_time = now
-	var damage := CombatSystemScript.compute_damage(attacker, _stats_config, _combat)
+	# The defender is the SPACESUIT-composed stat block (S7, gADR-0008): base
+	# defense + the worn Equipment's bonus, feeding the formula's mitigation
+	# term with the formula itself untouched.
+	var damage := CombatSystemScript.compute_damage(attacker, _defender_stats(), _combat)
 	_stats.apply_damage(damage)
 	GameLogScript.emit("info", "player_hit", {"damage": damage, "hp_left": _stats.hp})
 	_play_hit_flash()
@@ -300,18 +312,24 @@ func _fire_gravity_gun() -> void:
 	})
 
 
-## Drink Wine — the S3 minimal MP-restore hook (the full Consumable system with
-## inventory/counts is S7, so nothing is consumed from anywhere yet): restore
-## the config amount, capped at the stat block's max_mp.
+## Drink Wine — restore MP capped at the stat block's max_mp. Since S7 the S3
+## hook is supply-gated (gADR-0008): one Wine is consumed from the item-count
+## hook (or the use is refused, consumable_blocked) and the restore amount
+## reads from the one items authority (ItemsConfig — migrated out of
+## GravityConfig). The use juice + count land in the log record.
 func _drink_wine() -> void:
-	var cfg := _gravity_config()
+	var cfg := _items_config()
 	if cfg == null or _stats == null or _stats_config == null:
+		return
+	if not _try_consume(ITEM_WINE):
 		return
 	var mp_before := _stats.mp
 	_stats.restore_mp(cfg.wine_mp_restore, _stats_config.max_mp)
+	_play_consume_flash(cfg.wine_flash_color)
 	GameLogScript.emit("info", "wine_drunk", {
 		"mp_before": mp_before,
 		"mp_after": _stats.mp,
+		"count": _items[ITEM_WINE],
 	})
 
 
@@ -371,6 +389,10 @@ func hud_state() -> Dictionary:
 		"exp": _stats.exp_points,
 		"gold": _stats.gold,
 		"weapon": _weapon,
+		# S7 (gADR-0008): the Consumable supply, so the HUD can surface what
+		# the use verbs can spend.
+		"bun": int(_items.get(ITEM_BUN, 0)),
+		"wine": int(_items.get(ITEM_WINE, 0)),
 	}
 
 
@@ -471,3 +493,112 @@ func _progression_config() -> ProgressionConfigScript:
 				% PROGRESSION_CONFIG_PATH
 			)
 	return _progression_cfg
+
+
+# --- S7 Consumable use + Spacesuit Equipment (gADR-0008) ----------------------
+# Kept as ONE self-contained append-only block (the S3/S4 parallel-merge
+# pattern): the use verbs that CONSUME the S6b item-count hook (supply-gated,
+# capped restore, consume flash — pure gating in ItemSystem) and the worn
+# Spacesuit's composed defender feeding take_hit's mitigation term.
+
+const ItemsConfigScript := preload("res://src/resources/items_config.gd")
+const ItemSystemScript := preload("res://src/systems/item_system.gd")
+const ITEMS_CONFIG_PATH := "res://data/generated/items_config.tres"
+
+# The two Consumables' item names — the CLOSED Phase-1 drop vocabulary's
+# non-gold entries (gADR-0006). Structural identifiers (they name _items keys
+# and log values, not tunable numbers — the WEAPON_* pattern).
+const ITEM_BUN := "bun"
+const ITEM_WINE := "wine"
+
+# The Spacesuit-composed effective defender (base stat block + config defense
+# bonus), built once at ready — the Spacesuit is worn from spawn (persistent
+# Equipment, GDD). Null until _equip_spacesuit (or when config failed to
+# load); _defender_stats falls back to the bare stat block.
+var _defender: StatsConfigScript
+# The derived ItemsConfig, lazily loaded (load() is cached) so _ready's S2
+# load block stays untouched (the S3 GravityConfig pattern).
+var _items_cfg: ItemsConfigScript
+
+
+## Wear the Spacesuit: compose the effective defender (pure ItemSystem
+## decision — the base .tres is load()-aliased immutable config and is never
+## mutated, gADR-0001) and log the module entry with the config bonus.
+func _equip_spacesuit() -> void:
+	var cfg := _items_config()
+	if cfg == null or _stats_config == null:
+		return
+	_defender = ItemSystemScript.effective_defender(_stats_config, cfg.spacesuit_defense)
+	GameLogScript.emit("info", "spacesuit_equipped", {
+		"defense_bonus": cfg.spacesuit_defense,
+		"defense_total": _defender.defense,
+	})
+
+
+## The defender stat block take_hit feeds the damage formula: the
+## Spacesuit-composed block, or the bare base block until/unless the suit
+## initialized (the formula contract is unchanged either way).
+func _defender_stats() -> StatsConfigScript:
+	return _defender if _defender != null else _stats_config
+
+
+## Eat a Bun — restore HP capped at the stat block's max_hp, consuming one
+## from the item-count hook (or refusing, consumable_blocked). Gated on the
+## death latch: a restored corpse would contradict player_died (respawn is a
+## later slice's story).
+func _eat_bun() -> void:
+	var cfg := _items_config()
+	if cfg == null or _stats == null or _stats_config == null or _dead:
+		return
+	if not _try_consume(ITEM_BUN):
+		return
+	var hp_before := _stats.hp
+	_stats.restore_hp(cfg.bun_hp_restore, _stats_config.max_hp)
+	_play_consume_flash(cfg.bun_flash_color)
+	GameLogScript.emit("info", "bun_eaten", {
+		"hp_before": hp_before,
+		"hp_after": _stats.hp,
+		"count": _items[ITEM_BUN],
+	})
+
+
+## The shared Consumable supply gate (gADR-0008): consume one `item` from the
+## S6b item-count hook and report true, or refuse (nothing consumed, one
+## consumable_blocked record — the gravity_blocked pattern) when none is
+## held. Supply is the only input; the restore caps bound the effect.
+func _try_consume(item: String) -> bool:
+	var count := int(_items.get(item, 0))
+	if not ItemSystemScript.can_consume(count):
+		GameLogScript.emit("info", "consumable_blocked", {"item": item, "count": count})
+		return false
+	_items[item] = ItemSystemScript.consumed(count)
+	return true
+
+
+## The consume "juice": flash the Player block to the used item's config
+## color and tween back to its own color (the hit-flash idiom; one shared
+## duration — two flavors of one verb, gADR-0008).
+func _play_consume_flash(flash_color: Color) -> void:
+	var cfg := _items_config()
+	if cfg == null:
+		return
+	var visual := $Visual as ColorRect
+	visual.color = flash_color
+	var tween := create_tween()
+	var recover := tween.tween_property(
+		visual, "color", _config.player_color, cfg.consume_flash_duration
+	)
+	recover.set_trans(Tween.TRANS_SINE)
+
+
+## The derived ItemsConfig with the standard loud guard, lazily loaded so the
+## S2 _ready block stays untouched (the S3 GravityConfig pattern).
+func _items_config() -> ItemsConfigScript:
+	if _items_cfg == null:
+		_items_cfg = load(ITEMS_CONFIG_PATH)
+		if _items_cfg == null:
+			push_error(
+				"PlayerController: could not load %s — run scripts/build_config.py."
+				% ITEMS_CONFIG_PATH
+			)
+	return _items_cfg

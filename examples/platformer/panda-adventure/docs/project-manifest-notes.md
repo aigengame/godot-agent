@@ -15,15 +15,17 @@ longer by hand-editing. The `data/generated/*.tres` it loads are derived artifac
 that are COMMITTED (a freshness gate keeps them byte-identical to a fresh build),
 regenerated from JSON via `scripts/build_config.py` (gADR-0000).
 
-**`[input]`.** S1 player-traversal actions plus the S2 `fire` action and the S3
-weapon/consumable actions. `move_left`/`move_right`/`jump`/`fire`/
-`switch_weapon`/`drink_wine` are consumed by PlayerController (`Input.get_axis`
-/ `is_action_just_pressed`) and driven in the live e2e by `gda input action`.
-Each movement action binds an arrow key plus a WASD/Space alternative; `fire`
-binds J plus F; `switch_weapon` binds Q plus Tab; `drink_wine` binds R. `fire`
-fires the CURRENT weapon — Laser Gun by default, Gravity Gun after
-`switch_weapon` (gADR-0002). Originally hand-serialized (Godot's own
-`var_to_str` output); since gda #380 landed, actions are authored with
+**`[input]`.** S1 player-traversal actions plus the S2 `fire` action, the S3
+weapon/consumable actions, and the S7 `eat_bun`. `move_left`/`move_right`/
+`jump`/`fire`/`switch_weapon`/`drink_wine`/`eat_bun` are consumed by
+PlayerController (`Input.get_axis` / `is_action_just_pressed`) and driven in
+the live e2e by `gda input action`. Each movement action binds an arrow key
+plus a WASD/Space alternative; `fire` binds J plus F; `switch_weapon` binds Q
+plus Tab; `drink_wine` binds R; `eat_bun` binds E. `fire` fires the CURRENT
+weapon — Laser Gun by default, Gravity Gun after `switch_weapon` (gADR-0002).
+Both consumable verbs are supply-gated on the S6b item counts since S7
+(gADR-0008). Originally hand-serialized (Godot's own `var_to_str` output);
+since gda #380 landed, actions are authored with
 `gda project add-input-action <name> --key <k>...` instead.
 
 **`[layer_names]`.** S2+S3 collision topology — structural wiring, not balance

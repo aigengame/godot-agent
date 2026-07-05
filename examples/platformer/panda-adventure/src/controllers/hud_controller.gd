@@ -1,9 +1,10 @@
 class_name HudController
 extends CanvasLayer
 
-## Drives the HUD blockout (S6a, gADR-0004; +Level since S6b, gADR-0006): six
-## Labels in a screen-space column surfacing the Player's live HP, MP, Level,
-## EXP, Gold, and Current weapon — the GDD's "HUD & UI" contract — so the
+## Drives the HUD blockout (S6a, gADR-0004; +Level since S6b, gADR-0006;
+## +Consumable counts since S7, gADR-0008): eight Labels in a screen-space
+## column surfacing the Player's live HP, MP, Level, EXP, Gold, Current
+## weapon, and the Bun/Wine supply — the GDD's "HUD & UI" contract — so the
 ## player reads state without leaving the action. A CanvasLayer renders in
 ## screen space, untouched by the S1 follow-camera.
 ##
@@ -27,10 +28,10 @@ const GameLogScript := preload("res://src/util/game_log.gd")
 
 const HUD_CONFIG_PATH := "res://data/generated/hud_config.tres"
 
-# The six surfaced values, in display order: each maps a snapshot to its
+# The eight surfaced values, in display order: each maps a snapshot to its
 # Label node name. Structural wiring (what the HUD shows is the GDD contract),
 # not config numbers.
-const LINES := ["hp", "mp", "level", "exp", "gold", "weapon"]
+const LINES := ["hp", "mp", "level", "exp", "gold", "weapon", "bun", "wine"]
 
 var _config: HudConfigScript
 # Whether the first snapshot has been rendered (it populates silently and logs
@@ -58,11 +59,11 @@ static func format_weapon(weapon: String) -> String:
 	return weapon.replace("_", " ").to_upper()
 
 
-## Pure mapping from the Player's hud_state() snapshot to the six display
+## Pure mapping from the Player's hud_state() snapshot to the eight display
 ## strings, keyed like LINES. The single place the snapshot's shape meets the
 ## format decisions, so the seam can pin the whole readout at once. The Level
-## readout (S6b) reuses format_amount: an integer level passes through floori
-## unchanged.
+## readout (S6b) reuses format_amount (an integer level passes through floori
+## unchanged), and so do the S7 Consumable counts (integers by construction).
 static func format_lines(state: Dictionary) -> Dictionary:
 	return {
 		"hp": format_bar("HP", state["hp"], state["max_hp"]),
@@ -71,6 +72,8 @@ static func format_lines(state: Dictionary) -> Dictionary:
 		"exp": format_amount("EXP", state["exp"]),
 		"gold": format_amount("GOLD", state["gold"]),
 		"weapon": format_weapon(state["weapon"]),
+		"bun": format_amount("BUN", state["bun"]),
+		"wine": format_amount("WINE", state["wine"]),
 	}
 
 
@@ -117,6 +120,8 @@ func _process(_delta: float) -> void:
 			"exp": state["exp"],
 			"gold": state["gold"],
 			"weapon": state["weapon"],
+			"bun": state["bun"],
+			"wine": state["wine"],
 		})
 
 

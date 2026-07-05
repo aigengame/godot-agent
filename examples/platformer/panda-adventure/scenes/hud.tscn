@@ -24,3 +24,9 @@ layout_mode = 2
 
 [node name="WeaponLabel" type="Label" parent="Stats" unique_id=1749857655]
 layout_mode = 2
+
+[node name="BunLabel" type="Label" parent="Stats" unique_id=1502238084]
+layout_mode = 2
+
+[node name="WineLabel" type="Label" parent="Stats" unique_id=1079145550]
+layout_mode = 2
