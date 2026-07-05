@@ -282,7 +282,28 @@ def test_configured_export_path_parent_dirs_are_created_and_reported(tmp_path):
     assert export_runner.calls == [("Linux/X11", "release", str(expected))]
 
 
-def test_uncreatable_output_parent_returns_invalid_path_before_native_run(tmp_path):
+def test_configured_export_path_keeps_literal_tilde_project_relative(tmp_path):
+    # A preset export_path is Godot configuration, not a CLI path: "~" remains a
+    # literal project-relative path component instead of expanding to $HOME.
+    project = tmp_path / "project"
+    project.mkdir()
+    get_runner = _get_runner({**GET_RESULT, "export_path": "~/build/game.zip"})
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+
+    outcome = _run(
+        get_runner=get_runner,
+        export_runner=export_runner,
+        project=project,
+    )
+
+    expected = project / "~" / "build" / "game.zip"
+    assert isinstance(outcome, ExportRunResult)
+    assert outcome.output_path == str(expected)
+    assert outcome.created_dirs == [str(project / "~"), str(project / "~" / "build")]
+    assert export_runner.calls == [("Linux/X11", "release", str(expected))]
+
+
+def test_uncreatable_output_parent_returns_export_failure_before_native_run(tmp_path):
     # If a path component that must be a directory is already a file, report a
     # typed operation error naming the output path instead of delegating to
     # Godot's locale/version-dependent stderr.
@@ -300,7 +321,7 @@ def test_uncreatable_output_parent_returns_invalid_path_before_native_run(tmp_pa
     )
 
     assert isinstance(outcome, Failure)
-    assert outcome.error.code == "invalid_path"
+    assert outcome.error.code == "export_output_parent_failed"
     assert str(output) in outcome.error.message
     assert str(blocking_file) in outcome.error.message
     assert outcome.error.diagnostics == ""

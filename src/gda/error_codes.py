@@ -405,6 +405,13 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "An export run needs the export templates for the running engine version, which are not installed.",
     ),
     ErrorCodeSpec(
+        "export_output_parent_failed",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.CLASSIFIER,
+        "An export run could not create the output parent directory before native export.",
+    ),
+    ErrorCodeSpec(
         "export_failed",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,

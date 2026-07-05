@@ -657,8 +657,9 @@ def test_export_run_help_documents_output_resolution():
 
     assert result.exit_code == 0
     help_text = _plain(result.stdout)
+    normalized = " ".join(help_text.split())
     assert "--output" in help_text
-    assert "invoker's current working directory" in help_text
+    assert "invoker's current working directory" in normalized
 
 
 def test_export_run_human_output_echoes_artifact(monkeypatch, tmp_path):

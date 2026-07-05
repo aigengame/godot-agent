@@ -596,9 +596,9 @@ def classify_export_run(
 
 
 def export_output_parent_failure(output_path: str, parent_path: str) -> Failure:
-    """The ``invalid_path`` failure for an uncreatable export output parent (#402)."""
+    """The classifier-source failure for an uncreatable export output parent (#402)."""
     return _failure(
-        "invalid_path",
+        "export_output_parent_failed",
         "export output parent directory is not creatable: "
         f"{parent_path} (for output path {output_path})",
         "",

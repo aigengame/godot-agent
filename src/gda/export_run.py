@@ -11,7 +11,8 @@ sentinel pipeline:
    #114's clean preset/project errors;
 2. **structured preflight** (effective destination + template readiness + output
    parent dirs, ADR-0010) that fails fast — ``export_path_unset`` /
-   ``export_templates_missing`` / ``invalid_path`` — with NO native run;
+   ``export_templates_missing`` / ``export_output_parent_failed`` — with NO
+   native run;
 3. the native ``--export-<mode>`` run, whose raw outcome
    :func:`gda.errors.classify_export_run` turns into the typed result.
 
@@ -122,13 +123,13 @@ def _resolve_configured_export_path(path: str, project: Optional[Path]) -> str:
     """Resolve a preset export_path to the absolute artifact path (#403)."""
     if not path or "://" in path:
         return path
-    expanded = Path(path).expanduser()
-    if expanded.is_absolute():
-        return str(expanded)
+    configured = Path(path)
+    if configured.is_absolute():
+        return str(configured)
     base = Path.cwd() if project is None else project
     if not base.is_absolute():
         base = Path.cwd() / base
-    return str(base / expanded)
+    return str(base / configured)
 
 
 def _ensure_output_parent_dirs(output_path: str) -> list[str] | Failure:
@@ -239,7 +240,7 @@ def run_export_operation(
     #  - Once the export is otherwise runnable, create the destination's missing
     #    parent directories before the native export so a missing directory never
     #    falls through to locale/version-dependent engine prose (#402). An
-    #    uncreatable parent is a structured invalid_path.
+    #    uncreatable parent is a structured export_output_parent_failed.
     if not output_path:
         return export_path_unset_failure(got.name)
     if mode is not ExportRunMode.PACK and not got.templates_installed:
