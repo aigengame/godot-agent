@@ -25,3 +25,4 @@ attack_squash = Vector2(1.1, 0.9)
 attack_tween_duration = 0.2
 exp_reward = 200
 gold_reward = 100
+drop_table = [{"item": "gold", "amount": 50, "chance": 1}, {"item": "bun", "amount": 2, "chance": 1}, {"item": "wine", "amount": 2, "chance": 1}]

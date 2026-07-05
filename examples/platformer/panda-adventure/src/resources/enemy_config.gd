@@ -61,3 +61,9 @@ extends "res://src/resources/stats_config.gd"
 # reads dumb fields; retuning a Tier's reward stays a single JSON edit.
 @export var exp_reward: float
 @export var gold_reward: float
+
+# S6b Drop table (gADR-0006): what defeating this kind may leave behind as
+# Pickups — an Array of {"item": String, "amount": int, "chance": float}
+# entries, each rolled independently (EconomySystem.resolve_drops). DERIVED
+# per kind from the same per-Tier table as the rewards above.
+@export var drop_table: Array

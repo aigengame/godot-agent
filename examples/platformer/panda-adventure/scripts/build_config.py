@@ -8,7 +8,7 @@ Godot Resources under ``data/generated/`` that the runtime ``load()``s. Every
 byte-identical to a fresh build), never hand-edited: changing config means
 changing the JSON.
 
-Five sources feed the outputs (``specs_for``/``SPECS``):
+Six sources feed the outputs (``specs_for``/``SPECS``):
 
 - ``player_config.json`` -> ``player_config.tres`` (``PlayerConfig``, S1)
 - ``combat_config.json`` -> ``stats_player.tres`` + ``stats_enemy.tres``
@@ -26,9 +26,16 @@ Five sources feed the outputs (``specs_for``/``SPECS``):
   per-Tier Kill-reward table (``tiers``), resolved into per-kind derived
   ``exp_reward``/``gold_reward`` fields by ``resolve_enemy_rewards`` before
   rendering: the runtime stays a dumb ``kind.<field>`` read while the reward
-  AUTHORITY stays per-Tier data.
+  AUTHORITY stays per-Tier data. Since S6b (gADR-0006) each Tier entry also
+  carries its Drop table (``drops``), resolved into a per-kind derived
+  ``drop_table`` field by the same resolver.
 - ``hud_config.json`` -> ``hud_config.tres`` (``HudConfig``, the HUD blockout
   numbers — gADR-0004) — S6a.
+- ``progression_config.json`` -> ``progression_config.tres``
+  (``ProgressionConfig``: the leveling curve — max level is the curve's
+  length + 1, config never code — plus the Drop/Pickup blockout and juice,
+  gADR-0006) — S6b. The curve's strict monotonicity is a cross-field rule
+  enforced by ``validate_progression_semantics``.
 
 Dogfooding note: since gda's ADR-0032 static class_name scan (issue #360), ``gda
 resource create --type PlayerConfig`` CAN instantiate a project-local class in
@@ -66,7 +73,11 @@ class TresSpec:
     is a one-line change. Types: "color" (4-array -> Color), "vec2" (2-array ->
     Vector2), "float" (scalar -> bare number), "string" (str -> quoted String),
     "wave_list" (waves -> Array of {"spawns": Array of Dictionary}, S5's Wave
-    schedule). The schema is the validation authority; keep the two in step.
+    schedule), "number_list" (number array -> Array, S6b's leveling curve),
+    "drop_list" (drop entries -> Array of Dictionary, S6b's per-kind Drop
+    table), "item_style_map" (item name -> {"color": Color, "size": Vector2},
+    S6b's pickup blockout). The schema is the validation authority; keep the
+    two in step.
     """
 
     json_rel: str
@@ -138,9 +149,10 @@ _GRAVITY_FIELDS: list[tuple[str, str]] = [
 
 # One Enemy Kind's field layout (gADR-0003): the three taxonomy axes, the stat
 # block (same four fields as _STAT_BLOCK_FIELDS — the symmetric damage-formula
-# shape, gADR-0001), the blockout, the Archetype-AI params, and the S6a Kill
-# reward (gADR-0004) — the last two are DERIVED per kind from the top-level
-# per-Tier ``tiers`` table by ``resolve_enemy_rewards``, not authored per kind.
+# shape, gADR-0001), the blockout, the Archetype-AI params, the S6a Kill
+# reward (gADR-0004), and the S6b Drop table (gADR-0006) — the last three are
+# DERIVED per kind from the top-level per-Tier ``tiers`` table by
+# ``resolve_enemy_rewards``, not authored per kind.
 _ENEMY_KIND_FIELDS: list[tuple[str, str]] = [
     ("faction", "string"),
     ("tier", "string"),
@@ -163,6 +175,7 @@ _ENEMY_KIND_FIELDS: list[tuple[str, str]] = [
     ("attack_tween_duration", "float"),
     ("exp_reward", "float"),
     ("gold_reward", "float"),
+    ("drop_table", "drop_list"),
 ]
 
 # Ranged kinds additionally carry their bolt's blockout+motion (schema-enforced
@@ -193,11 +206,29 @@ _HUD_FIELDS: list[tuple[str, str]] = [
     ("value_tween_duration", "float"),
 ]
 
+# The S6b progression loop (gADR-0006): the leveling curve (cumulative EXP
+# thresholds — the max level is the array's length + 1, config never code)
+# plus the level-up flash and the Drop/Pickup blockout and juice.
+_PROGRESSION_FIELDS: list[tuple[str, str]] = [
+    ("level_curve", "number_list"),
+    ("level_up_flash_color", "color"),
+    ("level_up_flash_duration", "float"),
+    ("drop_items", "item_style_map"),
+    ("pickup_spacing", "float"),
+    ("pickup_spawn_squash", "vec2"),
+    ("pickup_spawn_tween_duration", "float"),
+    ("pickup_collect_tween_duration", "float"),
+]
+
 
 # The S4 enemies source (gADR-0003) — one json_rel shared by the derived
 # per-kind specs and the Wave-schedule spec.
 _ENEMIES_JSON_REL = "data/json/enemies_config.json"
 _ENEMIES_SCHEMA_REL = "data/schema/enemies_config.schema.json"
+
+# The S6b progression source (gADR-0006) — carries its own cross-field rule
+# (the strictly increasing leveling curve, validate_progression_semantics).
+_PROGRESSION_JSON_REL = "data/json/progression_config.json"
 
 
 def _enemy_kind_spec(kind: str, archetype: str) -> TresSpec:
@@ -281,6 +312,15 @@ _STATIC_SPECS: list[TresSpec] = [
         script_class="HudConfig",
         ext_id="1_hudconfig",
         fields=_HUD_FIELDS,
+    ),
+    TresSpec(
+        json_rel=_PROGRESSION_JSON_REL,
+        schema_rel="data/schema/progression_config.schema.json",
+        out_rel="data/generated/progression_config.tres",
+        script_res_path="res://src/resources/progression_config.gd",
+        script_class="ProgressionConfig",
+        ext_id="1_progressionconfig",
+        fields=_PROGRESSION_FIELDS,
     ),
 ]
 
@@ -398,19 +438,42 @@ def resolve_enemy_rewards(document: Any) -> Any:
     """Resolve the per-Tier Kill-reward table into per-kind derived fields.
 
     Returns a COPY of the enemies document where every kind carries
-    ``exp_reward``/``gold_reward`` read from ``tiers[kind["tier"]]``
-    (gADR-0004). Runs after schema + semantic validation (which guarantee the
-    tier entry exists), wherever an enemies-sourced spec is rendered, so the
-    derived ``enemy_<kind>.tres`` stays a dumb per-kind read while the JSON
-    keeps a single per-Tier authority — retuning a Tier's reward is one edit,
-    never three.
+    ``exp_reward``/``gold_reward`` (gADR-0004) and ``drop_table`` (the Tier's
+    ``drops``, gADR-0006) read from ``tiers[kind["tier"]]``. Runs after
+    schema + semantic validation (which guarantee the tier entry exists),
+    wherever an enemies-sourced spec is rendered, so the derived
+    ``enemy_<kind>.tres`` stays a dumb per-kind read while the JSON keeps a
+    single per-Tier authority — retuning a Tier's reward or drops is one
+    edit, never three.
     """
     resolved = copy.deepcopy(document)
     for kind in resolved["kinds"].values():
         reward = resolved["tiers"][kind["tier"]]
         kind["exp_reward"] = reward["exp_reward"]
         kind["gold_reward"] = reward["gold_reward"]
+        kind["drop_table"] = reward["drops"]
     return resolved
+
+
+def validate_progression_semantics(document: Any) -> Any:
+    """Enforce the progression cross-field rule vanilla JSON Schema cannot.
+
+    The leveling curve must be STRICTLY increasing (gADR-0006): each entry is
+    a cumulative EXP threshold, so a flat or decreasing step would make a
+    level unreachable-then-instant — a config bug, caught before the resource
+    derives. Raises :class:`jsonschema.ValidationError` (the same failure
+    type as the schema gate) so a bad config fails the build loudly either
+    way.
+    """
+    curve = document["level_curve"]
+    for i in range(1, len(curve)):
+        if curve[i] <= curve[i - 1]:
+            raise jsonschema.ValidationError(
+                f"level_curve must be strictly increasing, but entry {i} "
+                f"({curve[i]}) does not exceed entry {i - 1} ({curve[i - 1]}) "
+                "— each entry is a cumulative EXP threshold (gADR-0006)"
+            )
+    return document
 
 
 def enemy_kind_specs(root: Path = GAME_DIR) -> list[TresSpec]:
@@ -480,6 +543,34 @@ def _render_field(key: str, kind: str, value: Any) -> str:
             for wave in value
         )
         return f"[{waves}]"
+    if kind == "number_list":
+        # A plain number Array (S6b's leveling curve), in source order.
+        return "[{}]".format(", ".join(_num(entry) for entry in value))
+    if kind == "drop_list":
+        # A per-kind Drop table (gADR-0006): an Array of {item, amount,
+        # chance} Dictionaries in source order.
+        drops = ", ".join(
+            '{{"item": "{item}", "amount": {amount}, "chance": {chance}}}'.format(
+                item=entry["item"],
+                amount=_num(entry["amount"]),
+                chance=_num(entry["chance"]),
+            )
+            for entry in value
+        )
+        return f"[{drops}]"
+    if kind == "item_style_map":
+        # The pickup blockout per droppable item (gADR-0006): item name ->
+        # {"color": Color, "size": Vector2}, in source key order (JSON parsing
+        # preserves it — the enemy_kind_specs determinism note).
+        styles = ", ".join(
+            '"{item}": {{"color": {color}, "size": {size}}}'.format(
+                item=item,
+                color=_render_field("color", "color", style["color"]),
+                size=_render_field("size", "vec2", style["size"]),
+            )
+            for item, style in value.items()
+        )
+        return f"{{{styles}}}"
     raise ValueError(f"unknown field kind {kind!r} for {key!r}")
 
 
@@ -541,9 +632,13 @@ def build_spec(
         # The enemies source carries cross-field rules the schema cannot
         # express (gADR-0003) — enforce them before deriving any resource,
         # then resolve the per-Tier rewards into the per-kind derived fields
-        # the specs render (gADR-0004).
+        # the specs render (gADR-0004/gADR-0006).
         validate_enemies_semantics(document)
         document = resolve_enemy_rewards(document)
+    if spec.json_rel == _PROGRESSION_JSON_REL:
+        # The progression source's own cross-field rule: the leveling curve
+        # is strictly increasing (gADR-0006).
+        validate_progression_semantics(document)
     target = out_path if out_path is not None else root / spec.out_rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(render_spec(spec, document), encoding="utf-8")
