@@ -67,3 +67,17 @@ extends "res://src/resources/stats_config.gd"
 # entries, each rolled independently (EconomySystem.resolve_drops). DERIVED
 # per kind from the same per-Tier table as the rewards above.
 @export var drop_table: Array
+
+# S8 Warp kit (gADR-0009): presence-gated per-kind ability params — a kind
+# carries the whole block or none (schema-enforced all-or-none), keyed to
+# NEITHER Tier nor Archetype (the projectile_* precedent). A kind with no
+# block leaves warp_cooldown at 0.0 — the has-Warp predicate (the JSON floor
+# is strictly positive, so 0 is unreachable for a real Warp kind).
+@export var warp_cooldown: float
+@export var warp_trigger_range: float
+@export var warp_offset: Vector2
+@export var warp_tell_duration: float
+@export var warp_recovery_duration: float
+@export var time_field_radius: float
+@export var time_field_factor: float
+@export var time_field_duration: float

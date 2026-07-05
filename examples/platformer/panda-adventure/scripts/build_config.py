@@ -183,12 +183,26 @@ _ENEMY_KIND_FIELDS: list[tuple[str, str]] = [
 
 # Ranged kinds additionally carry their bolt's blockout+motion (schema-enforced
 # via if/then on archetype == "ranged").
-_ENEMY_KIND_RANGED_FIELDS: list[tuple[str, str]] = _ENEMY_KIND_FIELDS + [
+_ENEMY_KIND_PROJECTILE_FIELDS: list[tuple[str, str]] = [
     ("projectile_color", "color"),
     ("projectile_size", "vec2"),
     ("projectile_speed", "float"),
     ("projectile_lifetime", "float"),
     ("projectile_spawn_offset", "vec2"),
+]
+
+# The S8 Warp kit (gADR-0009): presence-gated per-kind ability params — a kind
+# carries the whole block or none of it (schema dependentRequired), keyed to
+# neither Tier nor Archetype. Presence of the FIRST key selects the block.
+_ENEMY_KIND_WARP_FIELDS: list[tuple[str, str]] = [
+    ("warp_cooldown", "float"),
+    ("warp_trigger_range", "float"),
+    ("warp_offset", "vec2"),
+    ("warp_tell_duration", "float"),
+    ("warp_recovery_duration", "float"),
+    ("time_field_radius", "float"),
+    ("time_field_factor", "float"),
+    ("time_field_duration", "float"),
 ]
 
 # The Wave schedule's own fields (gADR-0005): the spawn-telegraph tween
@@ -246,14 +260,20 @@ _ENEMIES_SCHEMA_REL = "data/schema/enemies_config.schema.json"
 _PROGRESSION_JSON_REL = "data/json/progression_config.json"
 
 
-def _enemy_kind_spec(kind: str, archetype: str) -> TresSpec:
+def _enemy_kind_spec(kind: str, definition: dict[str, Any]) -> TresSpec:
     """The TresSpec for one Enemy Kind: kinds.<kind> -> enemy_<kind>.tres.
 
-    The field layout follows the kind's archetype: ranged kinds carry their
+    The field layout follows the kind's own data: ranged kinds carry their
     bolt's projectile block on top of the base layout (the schema's if/then
-    requires it), every other archetype renders the base layout.
+    requires it), and a Warp kind carries the warp block (presence-gated —
+    the schema's dependentRequired makes it all-or-none, gADR-0009). The two
+    compose: a ranged Warp kind would render both.
     """
-    fields = _ENEMY_KIND_RANGED_FIELDS if archetype == "ranged" else _ENEMY_KIND_FIELDS
+    fields = list(_ENEMY_KIND_FIELDS)
+    if definition["archetype"] == "ranged":
+        fields += _ENEMY_KIND_PROJECTILE_FIELDS
+    if "warp_cooldown" in definition:
+        fields += _ENEMY_KIND_WARP_FIELDS
     return TresSpec(
         json_rel=_ENEMIES_JSON_REL,
         schema_rel=_ENEMIES_SCHEMA_REL,
@@ -440,6 +460,16 @@ def validate_enemies_semantics(document: Any) -> Any:
                 f"not exceed keep_range_max ({kind['keep_range_max']}) — melee "
                 "damage is contact damage, gated to the point-blank band"
             )
+        if (
+            "warp_cooldown" in kind
+            and kind["warp_trigger_range"] < kind["attack_range"]
+        ):
+            raise jsonschema.ValidationError(
+                f"kind {name!r}: warp_trigger_range "
+                f"({kind['warp_trigger_range']}) must not undercut attack_range "
+                f"({kind['attack_range']}) — the Warp Blink is an engage tool; "
+                "the Boss never warps inside a brawl (gADR-0009)"
+            )
     seen_names: set[str] = set()
     for wave_number, wave in enumerate(document["waves"], start=1):
         for spawn in wave["spawns"]:
@@ -512,8 +542,7 @@ def enemy_kind_specs(root: Path = GAME_DIR) -> list[TresSpec]:
     """
     document = load_json(root / _ENEMIES_JSON_REL)
     return [
-        _enemy_kind_spec(name, kind["archetype"])
-        for name, kind in document["kinds"].items()
+        _enemy_kind_spec(name, kind) for name, kind in document["kinds"].items()
     ]
 
 

@@ -140,7 +140,15 @@
       "keep_range_min": 0.0,
       "keep_range_max": 80.0,
       "attack_squash": [1.1, 0.9],
-      "attack_tween_duration": 0.2
+      "attack_tween_duration": 0.2,
+      "warp_cooldown": 8.0,
+      "warp_trigger_range": 200.0,
+      "warp_offset": [60.0, 0.0],
+      "warp_tell_duration": 0.5,
+      "warp_recovery_duration": 0.4,
+      "time_field_radius": 160.0,
+      "time_field_factor": 0.5,
+      "time_field_duration": 3.0
     }
   },
   "spawn_squash": [0.3, 0.3],
