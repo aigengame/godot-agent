@@ -44,10 +44,16 @@ The model:
   The checker is a GENERIC counting probe — modes: background-delta,
   color-match, alpha-blend-match, image-delta — that knows nothing about the
   game; it counts matching pixels per spec'd region and reports. WHAT to
-  probe (regions, colors, thresholds) is decided on the Python side, derived
-  from the authoritative JSON configs and runtime rects read live (the
-  settled follow-camera anchors world→screen mapping; Control rects come from
-  `gda game get`), never hardcoded.
+  probe is decided on the Python side, and splits in two:
+  - the asserted **game truth** — blockout colors, sizes, spawn/config
+    positions, the HUD margin — derives from the authoritative JSON configs
+    and live reads (the settled follow-camera anchors world→screen mapping;
+    the Stats column's readable offsets), never hardcoded;
+  - the probe **mechanics** — presence thresholds, paddings, tolerances, and
+    structural probe boxes — are structural TEST constants, named and
+    commented as such in the gate. They encode capture-noise policy (what
+    counts as "present" on a real GPU), not game data, and deliberately have
+    no authoritative-config home.
 - **Timing knobs may be retuned in the throwaway copy.** Where a capture must
   land inside a transient visual's lifetime, the test may lengthen a DURATION
   in its throwaway project copy (the waves-e2e chance-retune precedent).
@@ -59,6 +65,11 @@ Consequences:
 - The S6a HUD check (PR #398: `check_hud_pixels.gd` + the windowed test in
   `test_reward_hud_e2e.py`) is absorbed as this seam's first checkpoint and
   deleted from its original home — no duplicated windowed sessions.
+- The probe's matching logic is itself pinned WITHOUT a display: a headless
+  engine-tier test authors tiny synthetic PNG fixtures with the engine's own
+  Image API and asserts exact positive/negative counts per mode
+  (`test_visual_smoke_probe.py`), so the shared probe cannot silently break
+  while the windowed gate is skipping.
 - The current player-visible surface maps to checkpoints in one boot →
   gravity-fire → kill walk: HUD column at boot (S6a), Enemy Kind and Obstacle
   blockouts at their spawn regions (S4), the Gravity Field's translucent
