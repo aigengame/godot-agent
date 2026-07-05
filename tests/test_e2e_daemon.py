@@ -42,6 +42,19 @@ MAIN_TSCN = (
 )
 PROJECT_GODOT = project_godot(extra='run/main_scene="res://main.tscn"')
 
+RECT_MAIN_TSCN = (
+    "[gd_scene format=3]\n\n"
+    '[node name="Main" type="Control"]\n\n'
+    '[node name="HUD" type="VBoxContainer" parent="."]\n'
+    "offset_left = 24.0\n"
+    "offset_top = 24.0\n"
+    "offset_right = 184.0\n"
+    "offset_bottom = 72.0\n\n"
+    '[node name="Stats" type="Label" parent="HUD"]\n'
+    "custom_minimum_size = Vector2(160, 48)\n"
+    'text = "HP"\n'
+)
+
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
 
@@ -149,6 +162,89 @@ def test_daemon_serves_game_get_set_round_trip(tmp_path, daemon_runtime_dir):
         position = next(p for p in get_doc["properties"] if p["name"] == "position")
         assert position["type"] == "Vector2"
         assert position["value"] == [10.0, 20.0]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_rect_reads_free_positioned_control_rect(
+    tmp_path, daemon_runtime_dir
+):
+    # #419: `game rect` reads rendered viewport-space geometry, not storage
+    # properties, so a free-positioned Control reports get_global_rect().
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(RECT_MAIN_TSCN, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        rect = run("game", "rect", "/root/Main/HUD")
+        assert rect.returncode == 0, rect.stdout + rect.stderr
+        doc = json.loads(rect.stdout)
+        assert doc["path"] == "/root/Main/HUD"
+        assert doc["name"] == "HUD"
+        assert doc["type"] == "VBoxContainer"
+        assert doc["position"] == [24.0, 24.0]
+        assert doc["size"] == [160.0, 48.0]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_rect_reads_container_managed_child_rect(
+    tmp_path, daemon_runtime_dir
+):
+    # #419: container-managed Controls have layout output even when a storage
+    # property read is the wrong surface. `game rect` returns the rendered rect.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(RECT_MAIN_TSCN, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        position = run(
+            "game",
+            "get",
+            "/root/Main/HUD/Stats",
+            "--property",
+            "position",
+        )
+        assert position.returncode == 6, position.stdout + position.stderr
+        assert json.loads(position.stdout)["error"]["code"] == "live_unknown_property"
+
+        rect = run("game", "rect", "/root/Main/HUD/Stats")
+        assert rect.returncode == 0, rect.stdout + rect.stderr
+        doc = json.loads(rect.stdout)
+        assert doc["path"] == "/root/Main/HUD/Stats"
+        assert doc["name"] == "Stats"
+        assert doc["type"] == "Label"
+        assert doc["position"] == [24.0, 24.0]
+        assert doc["size"] == [160.0, 48.0]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_rect_rejects_non_control_node(tmp_path, daemon_runtime_dir):
+    # #419: the command is intentionally Control-specific; a live node that
+    # exists but is not a Control gets a typed LIVE error.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(MAIN_TSCN, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        rect = run("game", "rect", "/root/Main/Player")
+        assert rect.returncode == 6, rect.stdout + rect.stderr
+        error = json.loads(rect.stdout)["error"]
+        assert error["code"] == "live_not_control"
+        assert error["category"] == "live"
     finally:
         run("daemon", "stop")
 

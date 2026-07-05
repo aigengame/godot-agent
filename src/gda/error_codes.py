@@ -561,6 +561,13 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "A live game operation's node path does not resolve to a node in the running scene tree.",
     ),
     ErrorCodeSpec(
+        "live_not_control",
+        ErrorCategory.LIVE,
+        EXIT_LIVE,
+        ErrorCodeSource.CLASSIFIER,
+        "A live game rect operation targeted a running node that is not a Control.",
+    ),
+    ErrorCodeSpec(
         "live_unknown_property",
         ErrorCategory.LIVE,
         EXIT_LIVE,

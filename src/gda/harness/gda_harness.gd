@@ -32,6 +32,7 @@ const LOG_MARKER := "<<<GDA:LOG>>>"
 # The live operations this harness serves, keyed by their wire op name (#220, #223).
 const OP_GAME_TREE := "game-tree"
 const OP_GAME_GET := "game-get"
+const OP_GAME_RECT := "game-rect"
 const OP_GAME_SET := "game-set"
 const OP_PERF_MONITORS := "perf-monitors"
 const OP_PERF_MONITOR := "perf-monitor"
@@ -48,6 +49,7 @@ const OP_SCREEN_FRAMES := "screen-frames"
 # relay is mapped by classify_live, not misrouted to contract_violation; a Python
 # mirror test (tests/test_error_registry.py) keeps these in sync with the registry.
 const LIVE_ERROR_NODE_NOT_FOUND := "live_node_not_found"
+const LIVE_ERROR_NOT_CONTROL := "live_not_control"
 const LIVE_ERROR_UNKNOWN_PROPERTY := "live_unknown_property"
 const LIVE_ERROR_UNCOERCIBLE_VALUE := "live_uncoercible_value"
 const LIVE_ERROR_PERF_NODE_NOT_FOUND := "live_perf_node_not_found"
@@ -321,6 +323,8 @@ func _run(request) -> Variant:
 			return _handle_game_tree()
 		OP_GAME_GET:
 			return _handle_game_get(params)
+		OP_GAME_RECT:
+			return _handle_game_rect(params)
 		OP_GAME_SET:
 			return _handle_game_set(params)
 		OP_PERF_MONITORS:
@@ -386,6 +390,30 @@ func _handle_game_get(params: Dictionary) -> String:
 		"name": String(node.name),
 		"type": node.get_class(),
 		"properties": properties,
+	})
+
+
+# game rect: resolve a node by its ABSOLUTE runtime path, require it to be a
+# Control, and report its rendered viewport-space rect. This reads layout output
+# via Control.get_global_rect(), not a storage property surface.
+func _handle_game_rect(params: Dictionary) -> String:
+	var path := _string_param(params, "node")
+	var node := _resolve_runtime_node(path)
+	if node == null:
+		return _error(LIVE_ERROR_NODE_NOT_FOUND,
+				"no node at runtime path: " + path)
+	if not (node is Control):
+		return _error(LIVE_ERROR_NOT_CONTROL,
+				"node at runtime path is not a Control: " + path)
+
+	var control: Control = node as Control
+	var rect := control.get_global_rect()
+	return _ok({
+		"path": path,
+		"name": String(control.name),
+		"type": control.get_class(),
+		"position": _jsonify(rect.position),
+		"size": _jsonify(rect.size),
 	})
 
 

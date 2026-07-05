@@ -32,6 +32,7 @@ from gda.errors import (
     Failure,
     classify_diag_errors,
     classify_game_get,
+    classify_game_rect,
     classify_game_set,
     classify_game_tree,
     classify_info,
@@ -86,6 +87,8 @@ from gda.models import (
     ExportRunResult,
     GameGetParams,
     GameGetResult,
+    GameRectParams,
+    GameRectResult,
     GameSetParams,
     GameSetResult,
     GameTreeParams,
@@ -217,6 +220,7 @@ from gda.render import (
     render_export_list,
     render_export_run,
     render_game_get,
+    render_game_rect,
     render_game_set,
     render_game_tree,
     render_input_action,
@@ -888,6 +892,46 @@ def game_get(
     _dispatch(
         GAME_GET_COMMAND,
         GameGetParams(node=node, property=property),
+        json_output=json_output,
+        godot=godot,
+        project=project,
+    )
+
+
+GAME_RECT_COMMAND: HeadlessCommand[GameRectResult] = HeadlessCommand(
+    operation="game-rect",
+    input_model=GameRectParams,
+    output_model=GameRectResult,
+    render=render_game_rect,
+    classify=classify_game_rect,
+    kind=ExecutionKind.LIVE,
+)
+
+
+@game_app.command(name="rect", cls=GAME_RECT_COMMAND.command_class())
+def game_rect(
+    node: str = typer.Argument(
+        ...,
+        help="Runtime Control path as `game tree` reports it (absolute, e.g. /root/Main/HUD).",
+    ),
+    json_output: bool = json_option(),
+    schema: bool = GAME_RECT_COMMAND.schema_option(),
+    params_json: Optional[str] = params_json_option(),
+    godot: Optional[str] = godot_option(),
+    project: Optional[str] = project_option(),
+) -> None:
+    """Read a running Control's rendered viewport rect (live).
+
+    Routes through gda-daemon to the engine session's runtime SceneTree
+    (kind = LIVE, ADR-0017), addressed by the runtime node path `game tree`
+    reports. The returned rect is Control.get_global_rect(): viewport-space
+    top-left position and laid-out size. With no daemon it reports
+    `daemon_not_running`; a path that resolves to no running node is
+    `live_node_not_found`; a non-Control node is `live_not_control`.
+    """
+    _dispatch(
+        GAME_RECT_COMMAND,
+        GameRectParams(node=node),
         json_output=json_output,
         godot=godot,
         project=project,
