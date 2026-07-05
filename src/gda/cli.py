@@ -2176,6 +2176,14 @@ def add(
             "instanced scene's filename stem."
         ),
     ),
+    index: Optional[int] = typer.Option(
+        None,
+        "--index",
+        help=(
+            "0-based sibling index under the parent where the child is inserted. "
+            "Omit to append; child_count appends."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = NODE_ADD_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -2193,6 +2201,7 @@ def add(
             type=node_type,
             instance=instance,
             name=name,
+            index=index,
         )
     except (ValueError, ValidationError) as exc:
         raise typer.BadParameter(str(exc)) from exc
@@ -2367,6 +2376,14 @@ def move_node(
             "moved node or one of its descendants (a cyclic target)."
         ),
     ),
+    index: Optional[int] = typer.Option(
+        None,
+        "--index",
+        help=(
+            "Final 0-based sibling index under --to. Omit to append on "
+            "cross-parent moves and no-op on same-parent moves."
+        ),
+    ),
     json_output: bool = json_option(),
     schema: bool = NODE_MOVE_COMMAND.schema_option(),
     params_json: Optional[str] = params_json_option(),
@@ -2376,7 +2393,7 @@ def move_node(
     """Reparent a node (and its subtree) under a new parent node path."""
     _dispatch(
         NODE_MOVE_COMMAND,
-        NodeMoveParams(path=path, node=node, to=to),
+        NodeMoveParams(path=path, node=node, to=to, index=index),
         json_output=json_output,
         godot=godot,
         project=project,

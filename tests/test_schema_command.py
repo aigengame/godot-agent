@@ -263,6 +263,10 @@ def test_node_add_schema_emits_model_derived_contract_without_other_args():
     parent_description = doc["input"]["properties"]["parent"]["description"]
     assert "scene root" in parent_description
     assert "'.'" in parent_description
+    index_description = doc["input"]["properties"]["index"]["description"]
+    assert "0-based" in index_description
+    assert "Omit to append" in index_description
+    assert "child_count" in index_description
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -399,6 +403,10 @@ def test_node_move_schema_emits_model_derived_contract_without_other_args():
     assert "scene root" in node_description
     to_description = doc["input"]["properties"]["to"]["description"]
     assert "cyclic" in to_description
+    index_description = doc["input"]["properties"]["index"]["description"]
+    assert "0-based" in index_description
+    assert "same-parent move is a no-op" in index_description
+    assert "target_child_count" in index_description
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 

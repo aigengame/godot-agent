@@ -171,6 +171,46 @@ def test_node_add_json_maps_success_to_json_object_and_exit_zero(monkeypatch):
     assert "engine diagnostic" in result.stderr
 
 
+def test_node_add_index_dispatches_destination_index(monkeypatch):
+    # Issue #415: `--index` is part of the structured authoring request, not
+    # prose. The CLI forwards the 0-based insertion index to the operation; the
+    # operation owns range validation because the valid upper bound depends on
+    # the resolved parent at runtime.
+    stdout = sentinel({**ADD_RESULT, "path": "Level", "name": "Level"})
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "node",
+            "add",
+            "/tmp/proj/main.tscn",
+            "--type",
+            "Label",
+            "--name",
+            "Level",
+            "--index",
+            "1",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls == [
+        (
+            "node-add",
+            {
+                "path": "/tmp/proj/main.tscn",
+                "parent": ".",
+                "type": "Label",
+                "instance": None,
+                "name": "Level",
+                "index": 1,
+            },
+        )
+    ]
+
+
 def test_node_list_json_emits_node_tree_with_paths_and_exit_zero(monkeypatch):
     # node list is the node-group verifier (issue #53): it reports the scene's
     # tree like scene get, but each node carries its node path — the address an
@@ -336,6 +376,43 @@ def test_node_move_json_echoes_the_reparented_node_and_exit_zero(monkeypatch):
         (
             "node-move",
             {"path": "/tmp/proj/main.tscn", "node": "Hero", "to": "Enemies"},
+        )
+    ]
+
+
+def test_node_move_index_dispatches_destination_index(monkeypatch):
+    # Issue #415: `node move --index` requests the moved node's final 0-based
+    # sibling position under --to. The operation validates the range after it
+    # resolves the source and destination parents.
+    stdout = "Godot Engine v4.6.3.stable.official\n" + sentinel(MOVE_RESULT)
+    fake = inject_runner(monkeypatch, RunResult(stdout=stdout, stderr="", exit_code=0))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "node",
+            "move",
+            "/tmp/proj/main.tscn",
+            "--node",
+            "Hero",
+            "--to",
+            "Enemies",
+            "--index",
+            "1",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert fake.calls == [
+        (
+            "node-move",
+            {
+                "path": "/tmp/proj/main.tscn",
+                "node": "Hero",
+                "to": "Enemies",
+                "index": 1,
+            },
         )
     ]
 

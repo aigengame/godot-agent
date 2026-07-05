@@ -65,6 +65,16 @@ def _create_scene(scene_path) -> None:
     assert created.returncode == 0, created.stdout + created.stderr
 
 
+def _root_children(scene_path) -> list[dict]:
+    listed = _gda("node", "list", str(scene_path), "--json")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    return json.loads(listed.stdout)["root"]["children"]
+
+
+def _root_child_names(scene_path) -> list[str]:
+    return [child["name"] for child in _root_children(scene_path)]
+
+
 @pytest.mark.e2e
 def test_node_add_then_list_round_trip(godot_project):
     scene_path = godot_project / "main.tscn"
@@ -100,6 +110,43 @@ def test_node_add_then_list_round_trip(godot_project):
     hero = root["children"][0]
     assert (hero["name"], hero["type"], hero["path"]) == ("Hero", "Sprite2D", "Hero")
     assert hero["children"] == []
+
+
+@pytest.mark.e2e
+def test_node_add_index_inserts_at_zero_based_sibling_position(godot_project):
+    # Issue #415: sibling order is authored structure. `--index 2` inserts the
+    # new child before the old child at index 2; omitting --index remains append.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    for name in ("HP", "MP", "EXP"):
+        added = _gda(
+            "node",
+            "add",
+            str(scene_path),
+            "--type",
+            "Label",
+            "--name",
+            name,
+            "--json",
+        )
+        assert added.returncode == 0, added.stdout + added.stderr
+
+    inserted = _gda(
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Label",
+        "--name",
+        "Level",
+        "--index",
+        "2",
+        "--json",
+    )
+
+    assert inserted.returncode == 0, inserted.stdout + inserted.stderr
+    assert json.loads(inserted.stdout)["path"] == "Level"
+    assert _root_child_names(scene_path) == ["HP", "MP", "Level", "EXP"]
 
 
 @pytest.mark.e2e
@@ -741,6 +788,48 @@ def test_node_add_name_collision_yields_duplicate_node_name(godot_project):
 
     err = _assert_operation_error(again, "duplicate_node_name")
     assert "Hero" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("index", ["-1", "2"])
+def test_node_add_invalid_index_yields_invalid_child_index_and_leaves_file_unchanged(
+    godot_project,
+    index,
+):
+    # Issue #415: gda's structured index API is explicit 0-based insertion.
+    # Negative indexes are rejected even though Godot's raw move_child accepts
+    # them, and child_count+1 is out of range.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    first = _gda(
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Label",
+        "--name",
+        "HP",
+        "--json",
+    )
+    assert first.returncode == 0, first.stdout + first.stderr
+    before = scene_path.read_text(encoding="utf-8")
+
+    added = _gda(
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Label",
+        "--name",
+        "MP",
+        "--index",
+        index,
+        "--json",
+    )
+
+    err = _assert_operation_error(added, "invalid_child_index")
+    assert index in err["message"]
     assert scene_path.read_text(encoding="utf-8") == before
 
 
@@ -2150,6 +2239,58 @@ def test_node_move_reparents_node_and_subtree_round_trip(godot_project):
 
 
 @pytest.mark.e2e
+def test_node_move_index_places_reparented_node_in_destination_order(godot_project):
+    # Issue #415: for cross-parent moves, --index is interpreted against the
+    # destination parent's children before the move. Index 0 places the moved
+    # subtree before all existing destination children.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    for name, parent in (
+        ("Hero", "."),
+        ("Hitbox", "Hero"),
+        ("Enemies", "."),
+        ("Slime", "Enemies"),
+        ("Bat", "Enemies"),
+    ):
+        added = _gda(
+            "node",
+            "add",
+            str(scene_path),
+            "--type",
+            "Node2D",
+            "--name",
+            name,
+            "--parent",
+            parent,
+            "--json",
+        )
+        assert added.returncode == 0, added.stdout + added.stderr
+
+    moved = _gda(
+        "node",
+        "move",
+        str(scene_path),
+        "--node",
+        "Hero",
+        "--to",
+        "Enemies",
+        "--index",
+        "0",
+        "--json",
+    )
+
+    assert moved.returncode == 0, moved.stdout + moved.stderr
+    data = json.loads(moved.stdout)
+    assert data["path"] == "Enemies/Hero"
+    root_children = _root_children(scene_path)
+    by_name = {child["name"]: child for child in root_children}
+    assert "Hero" not in by_name
+    enemies_children = by_name["Enemies"]["children"]
+    assert [child["name"] for child in enemies_children] == ["Hero", "Slime", "Bat"]
+    assert enemies_children[0]["children"][0]["path"] == "Enemies/Hero/Hitbox"
+
+
+@pytest.mark.e2e
 def test_node_move_to_root_reparents_under_the_root(godot_project):
     # The target may be the root itself ('.'): a deeply nested node can be moved
     # up to be a direct child of the scene root.
@@ -2167,6 +2308,119 @@ def test_node_move_to_root_reparents_under_the_root(godot_project):
     listed = _gda("node", "list", str(scene_path), "--json")
     names = {c["name"] for c in json.loads(listed.stdout)["root"]["children"]}
     assert names == {"A", "B"}
+
+
+@pytest.mark.e2e
+def test_node_move_index_reorders_same_parent_without_rebuilding_node(godot_project):
+    # Issue #415: same-parent `node move --index` is a reorder, not the legacy
+    # no-op and not remove+re-add. The moved node keeps its subtree and stored
+    # properties while its sibling position changes.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    for name in ("HP", "MP", "EXP"):
+        added = _gda(
+            "node",
+            "add",
+            str(scene_path),
+            "--type",
+            "Label",
+            "--name",
+            name,
+            "--json",
+        )
+        assert added.returncode == 0, added.stdout + added.stderr
+    set_text = _gda(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        "EXP",
+        "--property",
+        "text",
+        "--value",
+        "xp",
+        "--json",
+    )
+    assert set_text.returncode == 0, set_text.stdout + set_text.stderr
+    child = _gda(
+        "node",
+        "add",
+        str(scene_path),
+        "--type",
+        "Marker2D",
+        "--name",
+        "Icon",
+        "--parent",
+        "EXP",
+        "--json",
+    )
+    assert child.returncode == 0, child.stdout + child.stderr
+
+    moved = _gda(
+        "node",
+        "move",
+        str(scene_path),
+        "--node",
+        "EXP",
+        "--to",
+        ".",
+        "--index",
+        "1",
+        "--json",
+    )
+
+    assert moved.returncode == 0, moved.stdout + moved.stderr
+    assert json.loads(moved.stdout)["path"] == "EXP"
+    root_children = _root_children(scene_path)
+    assert [child["name"] for child in root_children] == ["HP", "EXP", "MP"]
+    exp = root_children[1]
+    assert exp["children"][0]["path"] == "EXP/Icon"
+    got = _gda("node", "get", str(scene_path), "--node", "EXP", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    properties = {
+        prop["name"]: prop["value"] for prop in json.loads(got.stdout)["properties"]
+    }
+    assert properties["text"] == "xp"
+
+
+@pytest.mark.e2e
+def test_node_move_invalid_index_yields_invalid_child_index_and_leaves_file_unchanged(
+    godot_project,
+):
+    # Same-parent move accepts final indexes 0..child_count-1. child_count is
+    # outside that range and must fail before saving anything.
+    scene_path = godot_project / "main.tscn"
+    _create_scene(scene_path)
+    for name in ("HP", "MP", "EXP"):
+        added = _gda(
+            "node",
+            "add",
+            str(scene_path),
+            "--type",
+            "Label",
+            "--name",
+            name,
+            "--json",
+        )
+        assert added.returncode == 0, added.stdout + added.stderr
+    before = scene_path.read_text(encoding="utf-8")
+
+    moved = _gda(
+        "node",
+        "move",
+        str(scene_path),
+        "--node",
+        "EXP",
+        "--to",
+        ".",
+        "--index",
+        "3",
+        "--json",
+    )
+
+    err = _assert_operation_error(moved, "invalid_child_index")
+    assert "3" in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
 
 
 @pytest.mark.e2e

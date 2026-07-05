@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=54d955c0d26c2607586676502e2380782317721823423a92bcba9d359467cd81 -->
+<!-- gda-readme-i18n: source=README.md sha256=6d608025337e57ffee1ef9386f71745eafa6bbee170a3b0df84680307db5b8ec -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -392,13 +392,13 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 
 | Comando | Qué hace |
 | ------- | ------------ |
-| `node add` | Añade un nodo bajo un padre: un tipo integrado, un script con `class_name`, o `--instance` para componer otra escena como hijo instanciado. |
+| `node add` | Añade un nodo bajo un padre, opcionalmente en `--index`: un tipo integrado, un script con `class_name`, o `--instance` para componer otra escena como hijo instanciado. |
 | `node get` | Lee las propiedades de un nodo (por ruta de nodo) como JSON tipado. |
 | `node list` | Lista el árbol de nodos de una escena con la ruta de cada nodo relativa a la raíz. |
 | `node set` | Define una propiedad de nodo, forzando el valor a su tipo de Godot declarado. |
 | `node remove` | Elimina un nodo (y su subárbol) por ruta de nodo. |
 | `node duplicate` | Duplica un nodo (y su subárbol) bajo su padre. |
-| `node move` | Reasigna un nodo (y su subárbol) a un nuevo padre. |
+| `node move` | Reasigna un nodo (y su subárbol) a un nuevo padre, o lo reordena con `--index`. |
 | `node connect-signal` | Conecta la señal de un nodo origen al método de un nodo destino. |
 | `node disconnect-signal` | Desconecta una conexión señal→método existente. |
 

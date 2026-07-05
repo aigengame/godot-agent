@@ -114,6 +114,7 @@ operation, and parse codes the CLI assigns).
 | `invalid_node_type` | `operation` | `operation` | `4` | A requested node type is neither an instantiable `Node` class nor a registered `class_name`. |
 | `invalid_node_name` | `operation` | `operation` | `4` | A requested node name is empty or would be rewritten by Godot. |
 | `duplicate_node_name` | `operation` | `operation` | `4` | The parent node already has a child with the requested name. |
+| `invalid_child_index` | `operation` | `operation` | `4` | A requested child insertion or move index is outside the valid sibling range. |
 | `missing_dependency` | `operation` | `operation` | `4` | A scene's declared nodes vanished or degraded on load — an unresolvable instanced sub-scene, an unavailable node class, or a GDScript preload target that does not exist; re-saving would silently drop or downgrade scene data. |
 | `uninstantiable_script` | `operation` | `operation` | `4` | A registered `class_name`'s script can no longer be loaded, compiled, or constructed, so it cannot be instantiated as a node or a resource. |
 | `ambiguous_class_name` | `operation` | `operation` | `4` | A `class_name` is declared in more than one `.gd` script, so a request naming it (node add, resource create, or find-references) cannot resolve it to a single script; the conflicting script paths are named (ADR-0032). |

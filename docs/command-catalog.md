@@ -155,6 +155,16 @@ carrying the nested culprit; instancing the host into itself is refused as `cycl
 composed scene runs the `_init` of scripts inside it: the same trust boundary as the
 `class_name` path (#62).
 
+**Sibling order authoring** (#415): `node add --index <n>` inserts the new child at a
+0-based sibling index under `--parent`; omitting `--index` appends as before, and
+`--index child_count` is the explicit append position. Valid `node add` indexes are
+`0..child_count` before insertion. `node move --index <n>` places the moved node at its final
+0-based sibling index under `--to`: for a same-parent move the range is `0..child_count-1`,
+and for a different-parent move it is `0..target_child_count` before the move. Omitting
+`--index` preserves existing behavior: a same-parent move is a successful no-op that leaves
+the file untouched, while a cross-parent move appends under the destination. Negative or
+out-of-range indexes fail with `invalid_child_index` (exit 4), leaving the file untouched.
+
 **Property reporting and value coercion** (established by #55): `gda node get` instantiates the
 scene and reports the addressed node's **storage** properties (the ones that serialize into the
 `.tscn`) as typed JSON — each a `{name, type, value}` triple where `type` is the property's
@@ -233,16 +243,19 @@ corrupting the scene.
   `Hero3`, …), skipping any name already taken — including the engine's internal children. It
   returns the copy's new node path. Duplicating the root (`--node .`) is `cannot_target_root` —
   the root has no parent to host a sibling copy.
-- `gda node move SCENE --node <node-path> --to <new-parent-path>` reparents a node **and its whole
-  subtree** under the target parent, returning the node's new node path. The target is addressed
-  by node path like any other (`--to .` is the root). An invalid target (no such parent) is
+- `gda node move SCENE --node <node-path> --to <new-parent-path> [--index <n>]` reparents a node
+  **and its whole subtree** under the target parent, returning the node's new node path. With
+  `--index`, it also places the moved node at that 0-based destination sibling index; when
+  `--to` is the node's existing parent, `--index` performs a same-parent reorder without
+  remove+re-add churn. The target is addressed by node path like any other (`--to .` is the root).
+  An invalid target (no such parent) is
   `parent_not_found`, and a target that already has a child with the moved node's name is
   `duplicate_node_name` — both the same codes `node add` reports. A **cyclic** target — the moved
   node itself or one of its **own descendants** — would detach the subtree from the scene and is
   refused with the registered `cyclic_target` code. Moving the root (`--node .`) is
   `cannot_target_root` — the root has no parent to be reparented out of. Moving a node to the
-  parent it **already sits under** is a successful **no-op** that leaves the file untouched —
-  re-homing it under the same parent would reorder siblings, which is meaningful in Godot. The
+  parent it **already sits under** without `--index` is a successful **no-op** that leaves the
+  file untouched. The
   reparent preserves the moved node's own **local transform** (a purely structural move, no
   transform churn) and the instance state of any instanced sub-scene it carries — its
   `instance=ExtResource(...)`, its `[editable ...]` marker, and its inherited/override children are
@@ -278,12 +291,12 @@ reuses `path_not_found` / `not_a_scene`. All failures exit 4 and leave the file 
 
 | Command | Description |
 | --- | --- |
-| `gda node add` | Add a node (by type, `class_name` script, or `--instance` scene composition) into a scene |
+| `gda node add` | Add a node (by type, `class_name` script, or `--instance` scene composition) into a scene, optionally at `--index` |
 | `gda node remove` | Remove a node from a scene |
 | `gda node get` | Read a node's properties (typed JSON) |
 | `gda node list` | List nodes in a scene (optionally filtered by type/group) |
 | `gda node set` | Set a node property (type-coerced) |
-| `gda node move` | Reparent a node |
+| `gda node move` | Reparent or reorder a node |
 | `gda node duplicate` | Duplicate a node |
 | `gda node connect-signal` / `disconnect-signal` | Wire / unwire a signal to a method |
 

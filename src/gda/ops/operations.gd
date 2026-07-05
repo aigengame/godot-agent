@@ -41,6 +41,7 @@ const OP_ERROR_PARENT_NOT_FOUND := "parent_not_found"
 const OP_ERROR_INVALID_NODE_TYPE := "invalid_node_type"
 const OP_ERROR_INVALID_NODE_NAME := "invalid_node_name"
 const OP_ERROR_DUPLICATE_NODE_NAME := "duplicate_node_name"
+const OP_ERROR_INVALID_CHILD_INDEX := "invalid_child_index"
 const OP_ERROR_MISSING_DEPENDENCY := "missing_dependency"
 const OP_ERROR_UNINSTANTIABLE_SCRIPT := "uninstantiable_script"
 const OP_ERROR_AMBIGUOUS_CLASS_NAME := "ambiguous_class_name"
@@ -520,6 +521,15 @@ func _op_node_add(params: Dictionary) -> void:
 		root.free()
 		_fail(OP_ERROR_DUPLICATE_NODE_NAME, "parent " + parent_path + " already has a child named: " + node_name)
 		return
+	var has_index := _has_int_param(params, "index")
+	var insert_index := _int_param(params, "index") if has_index else -1
+	var child_count := parent.get_child_count()
+	if has_index and (insert_index < 0 or insert_index > child_count):
+		root.free()
+		_fail(OP_ERROR_INVALID_CHILD_INDEX, "child index " + str(insert_index)
+				+ " is out of range for parent " + parent_path
+				+ ": expected 0.." + str(child_count))
+		return
 
 	var type := _string_param(params, "type")
 	var instance_path := _string_param(params, "instance")
@@ -538,6 +548,8 @@ func _op_node_add(params: Dictionary) -> void:
 	# assigned name is final; no post-assignment recheck is needed.
 	node.name = node_name
 	parent.add_child(node)
+	if has_index:
+		parent.move_child(node, insert_index)
 	node.owner = root
 
 	# Capture the node's identity off the live tree before re-saving frees it.
@@ -895,15 +907,28 @@ func _op_node_move(params: Dictionary) -> void:
 				+ " — a node cannot become a child of its own subtree")
 		return
 
-	# Same-parent move: the node is already under the requested parent, so this is
-	# a successful no-op. Report its current identity and return WITHOUT reparenting
-	# or re-saving — re-homing it under the same parent would append it to the end
-	# and silently reorder siblings (issue #56 review), and there is nothing to
-	# persist that is not already on disk.
+	var has_index := _has_int_param(params, "index")
+	var requested_index := _int_param(params, "index") if has_index else -1
+
+	# Same-parent move without --index: the node is already under the requested
+	# parent, so this remains the legacy successful no-op. With --index, the same
+	# request becomes an explicit sibling reorder and is persisted with move_child.
 	if node.get_parent() == target:
 		var here_name := String(node.name)
 		var here_type := node.get_class()
-		root.free()
+		var sibling_count := target.get_child_count()
+		if has_index and (requested_index < 0 or requested_index >= sibling_count):
+			root.free()
+			_fail(OP_ERROR_INVALID_CHILD_INDEX, "child index " + str(requested_index)
+					+ " is out of range for parent " + target_path
+					+ ": expected 0.." + str(sibling_count - 1))
+			return
+		if has_index and requested_index != node.get_index():
+			target.move_child(node, requested_index)
+			if not _repack_and_save(root, path):
+				return  # _repack_and_save already recorded the failure (and freed root)
+		else:
+			root.free()
 		_succeed({
 			"scene_path": path,
 			"source_path": node_path,
@@ -923,11 +948,20 @@ func _op_node_move(params: Dictionary) -> void:
 		_fail(OP_ERROR_DUPLICATE_NODE_NAME, "target " + target_path
 				+ " already has a child named: " + node_name)
 		return
+	var target_child_count := target.get_child_count()
+	if has_index and (requested_index < 0 or requested_index > target_child_count):
+		root.free()
+		_fail(OP_ERROR_INVALID_CHILD_INDEX, "child index " + str(requested_index)
+				+ " is out of range for parent " + target_path
+				+ ": expected 0.." + str(target_child_count))
+		return
 
 	# reparent(target, false) preserves the moved node's and its descendants'
 	# owners (so an instanced sub-scene keeps its overrides and editable marker)
 	# and keeps the node's LOCAL transform (a purely structural move, no churn).
 	node.reparent(target, false)
+	if has_index:
+		target.move_child(node, requested_index)
 
 	# Capture the moved node's new identity off the live tree before re-saving.
 	var new_path := String(root.get_path_to(node))
@@ -4573,6 +4607,14 @@ func _resolve_object_value(prop_name: String, prop_entry: Dictionary, raw_value:
 		return null
 
 	return loaded
+
+
+func _has_int_param(params: Dictionary, key: String) -> bool:
+	return params.has(key) and params[key] != null
+
+
+func _int_param(params: Dictionary, key: String) -> int:
+	return int(params.get(key, 0))
 
 
 # --- BEGIN shared coercion (keep byte-identical: operations.gd <-> gda_harness.gd) ---

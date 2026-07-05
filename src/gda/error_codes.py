@@ -210,6 +210,13 @@ ERROR_CODES: tuple[ErrorCodeSpec, ...] = (
         "The parent node already has a child with the requested name.",
     ),
     ErrorCodeSpec(
+        "invalid_child_index",
+        ErrorCategory.OPERATION,
+        EXIT_OPERATION,
+        ErrorCodeSource.OPERATION,
+        "A requested child insertion or move index is outside the valid sibling range.",
+    ),
+    ErrorCodeSpec(
         "missing_dependency",
         ErrorCategory.OPERATION,
         EXIT_OPERATION,
