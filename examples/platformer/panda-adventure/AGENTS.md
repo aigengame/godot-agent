@@ -64,6 +64,11 @@ See `./docs/agents/domain.md` for the authoritative detail.
   restores the project byte-for-byte (ADR-0028), and it stays dormant in a plain run. **Don't delete
   it or run `gda daemon uninstall`.** On a gda upgrade `daemon start` may re-materialize a newer
   harness — commit that diff to keep it in sync.
+- **Keep the local export fresh** — `build/PandaAdventure.app` is a LOCAL, gitignored export
+  artifact (`gda export run --preset macOS`), never committed — but human playtests run it, and a
+  stale build once misled one (#401). **Re-export at wave close** (part of the closing slice's DoD)
+  and smoke it: the app boots and logs `hud_ready` (release templates don't flush stdout per print —
+  read it through a pty, or just launch it and look). See gADR-0007's consequences.
 
 ## gda feedback (dogfooding)
 
