@@ -737,6 +737,15 @@ class NodeAddParams(BaseModel):
             "must not contain '.', ':', '@', '/', '\"', or '%'."
         ),
     )
+    index: int | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "Optional 0-based sibling index under the parent where the new "
+            "child is inserted. Omit to append. Valid runtime range is "
+            "0..child_count before insertion, so child_count appends."
+        ),
+    )
 
     @model_validator(mode="after")
     def _exactly_one_mode_and_default_name(self) -> "NodeAddParams":
@@ -1047,6 +1056,17 @@ class NodeMoveParams(BaseModel):
             "addresses the root itself, 'Enemies' a nested node. Must not be the "
             "moved node itself or one of its descendants (a cyclic target)."
         )
+    )
+    index: int | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "Optional final 0-based sibling index under the destination parent. "
+            "Omit to preserve existing behavior: same-parent move is a no-op, "
+            "and cross-parent move appends. With the same parent, valid runtime "
+            "range is 0..child_count-1; with a different parent, 0..target_child_count "
+            "before the move, so target_child_count appends."
+        ),
     )
 
 

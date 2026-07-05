@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=54d955c0d26c2607586676502e2380782317721823423a92bcba9d359467cd81 -->
+<!-- gda-readme-i18n: source=README.md sha256=6d608025337e57ffee1ef9386f71745eafa6bbee170a3b0df84680307db5b8ec -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -398,13 +398,13 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 
 | コマンド | 機能 |
 | ------- | ------------ |
-| `node add` | 親の下にノードを追加します: 組み込みタイプ、`class_name` スクリプト、または `--instance` で別のシーンをインスタンス化した子として合成します。 |
+| `node add` | 親の下にノードを追加します。必要なら `--index` で位置を指定できます: 組み込みタイプ、`class_name` スクリプト、または `--instance` で別のシーンをインスタンス化した子として合成します。 |
 | `node get` | ノードのプロパティを(ノードパスで指定して)型付き JSON として読み取ります。 |
 | `node list` | シーンのノードツリーを、各ノードのルートからの相対パスとともに一覧します。 |
 | `node set` | ノードのプロパティを設定します。値は宣言された Godot の型に変換されます。 |
 | `node remove` | ノード(およびそのサブツリー)をノードパスで指定して削除します。 |
 | `node duplicate` | ノード(およびそのサブツリー)を親の下に複製します。 |
-| `node move` | ノード(およびそのサブツリー)を新しい親の下に付け替えます。 |
+| `node move` | ノード(およびそのサブツリー)を新しい親の下に付け替えるか、`--index` で兄弟順を並べ替えます。 |
 | `node connect-signal` | ソースノードのシグナルをターゲットノードのメソッドに接続します。 |
 | `node disconnect-signal` | 既存のシグナル → メソッド接続を解除します。 |
 

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=54d955c0d26c2607586676502e2380782317721823423a92bcba9d359467cd81 -->
+<!-- gda-readme-i18n: source=README.md sha256=6d608025337e57ffee1ef9386f71745eafa6bbee170a3b0df84680307db5b8ec -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -381,13 +381,13 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 
 | 命令 | 作用 |
 | ------- | ------------ |
-| `node add` | 在某个父节点下添加一个节点：内置类型、带 `class_name` 的脚本，或用 `--instance` 把另一个场景作为实例化子节点组合进来。 |
+| `node add` | 在某个父节点下添加一个节点，可用 `--index` 指定位置：内置类型、带 `class_name` 的脚本，或用 `--instance` 把另一个场景作为实例化子节点组合进来。 |
 | `node get` | 按节点路径读取一个节点的属性，输出带类型的 JSON。 |
 | `node list` | 列出一个场景的节点树，并给出每个节点相对于根的路径。 |
 | `node set` | 设置一个节点属性，并把值强制转换为它声明的 Godot 类型。 |
 | `node remove` | 按节点路径移除一个节点（及其子树）。 |
 | `node duplicate` | 在父节点下复制一个节点（及其子树）。 |
-| `node move` | 把一个节点（及其子树）重新挂到一个新的父节点下。 |
+| `node move` | 把一个节点（及其子树）重新挂到新的父节点下，或用 `--index` 调整同级顺序。 |
 | `node connect-signal` | 把源节点的信号接到目标节点的方法上。 |
 | `node disconnect-signal` | 断开一个已有的「信号→方法」连接。 |
 
