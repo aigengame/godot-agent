@@ -138,8 +138,24 @@ _Avoid_: stats manager, game state
 The EXP and Gold awarded to the Player when an Enemy dies, keyed by the enemy's Tier in the
 authoritative per-Tier reward table and resolved to per-kind derived fields by the builder
 (gADR-0004). Accumulated onto the Player's StatsSystem; the risk→reward half of the
-death/reward story.
-_Avoid_: drop (that is the S7 item story), loot, bounty
+death/reward story. Instant and guaranteed — contrast the Drop table's Pickups, which
+must be collected (gADR-0006).
+_Avoid_: drop (that is the Drop-table story, S6b), loot, bounty
+
+**Level**:
+The Player's progression grade, derived PURELY from the accumulated EXP total against the
+Leveling curve (GrowthSystem — level 1 at start, one level per threshold reached, gADR-0006).
+Readout-only in Phase 1: a level-up changes no stat yet, it logs, flashes, and ticks the HUD's
+LV line.
+_Avoid_: rank; tier (that is the enemy axis); using "level" for the demo's stage (the demo is
+a single level in the map sense — context disambiguates)
+
+**Leveling curve**:
+The data-driven, strictly increasing array of cumulative EXP thresholds the Player levels up
+along — entry k is the total EXP that reaches level k+2, so the max level is the array's
+length + 1: config, never code (gADR-0006, the waves.size() idiom). Authored in
+`progression_config.json` and derived to the `ProgressionConfig` Resource.
+_Avoid_: XP table, growth formula (it is authored data, not a formula)
 
 ### UI
 
@@ -199,6 +215,28 @@ _Avoid_: inventory, consumable system (that is S7)
 An item the Player wields or wears persistently — the Laser Gun, the Gravity Gun, and the
 Spacesuit. Contrast with Consumable.
 _Avoid_: gear, loadout
+
+### Drops
+
+**Drop table**:
+A Tier's data-driven list of what a kill may leave behind: `{item, amount, chance}` entries,
+each rolled independently, authored per Tier in the same reward table as the Kill reward and
+resolved to a per-kind derived `drop_table` field by the builder (gADR-0006, extending
+gADR-0004's per-Tier authority). The item vocabulary is closed for Phase 1: gold, Bun, Wine.
+_Avoid_: loot table, drop rates (those are the entries' `chance` fields, not the table)
+
+**Pickup**:
+The world block one resolved drop becomes — spawned on a deterministic row centered on the
+death position, touchable ONLY by the Player (its own collision layer masks nothing else),
+collected by walking into it: gold accumulates onto the Player's Gold, an item lands in the
+Item count hook (gADR-0006). A Pickup persists until collected.
+_Avoid_: drop (the table entry / the event), power-up, collectible
+
+**Item count hook**:
+S6b's minimal per-item count Dictionary on the Player where collected Consumable drops land —
+the supply side of the S7 Consumable story, standing in for a real inventory exactly as the
+Wine hook stands in for use-effects: S7 consumes these counts, S6b only fills them.
+_Avoid_: inventory, bag (both are S7+ concepts)
 
 **Spacesuit**:
 The Player's armor — the only piece of defensive Equipment in the demo.
