@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/aigengame/godot-agent/compare/v0.3.1...v0.4.0) (2026-07-05)
+
+
+### Features
+
+* **node:** add child index insertion and reorder ([#416](https://github.com/aigengame/godot-agent/issues/416)) ([1c5e9e0](https://github.com/aigengame/godot-agent/commit/1c5e9e0488d66e860b01ba29cec2959bd44faf0c))
+
 ## [0.3.1](https://github.com/aigengame/godot-agent/compare/v0.3.0...v0.3.1) (2026-07-05)
 
 
