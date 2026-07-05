@@ -308,6 +308,26 @@ def test_daemon_serves_leveling_and_drop_collection(tmp_path, daemon_runtime_dir
             assert got["fields"]["amount"] == expected["amount"]
             assert got["fields"]["count"] == expected["amount"]
 
+        # --- The kill-flow trace is ORDERED as the gADR-0006 logger contract
+        # promises — the cause precedes its effects: enemy_died before the
+        # award/level records (the spawner's handlers run synchronously
+        # INSIDE the died signal, so this order is a deliberate emit-before-
+        # signal choice, not a given), every pickup spawned before anything
+        # is collected.
+        proc = run("logger", "tail")
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        trace = [
+            r["message"]
+            for r in json.loads(proc.stdout)["records"]
+            if r["origin"] == "gda_log"
+        ]
+        assert trace.index("enemy_died") < trace.index("reward_gained"), trace
+        assert trace.index("reward_gained") < trace.index("level_up"), trace
+        assert trace.index("level_up") < trace.index("pickup_spawned"), trace
+        last_spawned = len(trace) - 1 - trace[::-1].index("pickup_spawned")
+        assert last_spawned < trace.index("gold_collected"), trace
+        assert last_spawned < trace.index("item_collected"), trace
+
         # The HUD surfaces the full accumulation: kill reward + dropped gold.
         assert poll(lambda: label("Gold") == f"GOLD {int(gold_total)}"), (
             f"Gold readout never showed the drops: {label('Gold')}"

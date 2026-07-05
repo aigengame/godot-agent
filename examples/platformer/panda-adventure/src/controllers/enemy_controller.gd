@@ -190,8 +190,13 @@ func take_hit(attacker: StatsConfigScript) -> void:
 	GameLogScript.emit("info", "enemy_hit", {"damage": damage, "hp_left": _stats.hp})
 	_play_hit_flash()
 	if CombatSystemScript.is_dead(_stats.hp):
-		died.emit()
+		# The death record precedes the signal: signal handlers run
+		# SYNCHRONOUSLY (the spawner awards, levels, and spawns pickups
+		# inside died.emit()), so logging first is what keeps the observable
+		# kill flow causal — enemy_died -> reward_gained -> level_up ->
+		# pickup_spawned -> collections (the gADR-0006 logger contract).
 		GameLogScript.emit("info", "enemy_died", {"x": position.x, "y": position.y})
+		died.emit()
 		queue_free()
 
 

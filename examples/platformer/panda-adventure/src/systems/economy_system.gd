@@ -7,8 +7,8 @@ extends RefCounted
 ## decision shape, gADR-0001): the rolls are PARAMETERS — the LevelController
 ## supplies randf() per entry at runtime, the logic seam and the offline
 ## balancing sim supply chosen values — so chance behavior pins headless.
-## The LevelController orchestrates: it rolls, instances pickup.tscn per
-## resolved drop, and logs the drop_spawned records.
+## The LevelController orchestrates: it rolls and instances pickup.tscn per
+## resolved drop; each Pickup logs its own pickup_spawned record.
 
 
 ## Resolve one death's drops: entry i of `drop_table` (the derived per-kind
