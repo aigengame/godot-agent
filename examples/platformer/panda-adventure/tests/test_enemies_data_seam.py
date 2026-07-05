@@ -3,17 +3,20 @@
 Proves the JSON -> Resource pipeline (gADR-0000) for the S4 enemies config: the
 authoritative ``enemies_config.json`` validates against its schema, bad config
 is rejected (axis enums, stat-block signs, the ranged-kind projectile
-requirement, malformed Spawn Roster entries), the cross-field rules JSON Schema
-cannot express are enforced by ``build_config.validate_enemies_semantics`` (the
-Steering Band interval, the melee contact-damage bound, spawn->kind referential
-integrity, roster-name uniqueness — gADR-0003) and wired into the build, adding
-an Enemy Kind is a JSON-only change (the per-kind specs derive from the JSON),
-and the derived per-kind ``EnemyConfig`` .tres plus the ``EnemyRosterConfig``
-.tres round-trip back through gda with their declared Godot types. Freshness of
-every committed .tres (including the enemy outputs, whose specs derive from the
-JSON's ``kinds``) is covered by ``test_combat_data_seam.py``'s
-SPECS-parametrized gate. Fast tier — never ``e2e``; the round-trip drives
-one-shot ``gda`` headless ops under the ``engine`` gate.
+requirement, malformed Spawn Roster entries — expressed through the ``waves``
+paths since S5/gADR-0005 replaced the top-level roster with the Wave
+schedule), the cross-field rules JSON Schema cannot express are enforced by
+``build_config.validate_enemies_semantics`` (the Steering Band interval, the
+melee contact-damage bound, spawn->kind referential integrity, spawn-name
+uniqueness — gADR-0003/gADR-0005) and wired into the build, adding an Enemy
+Kind is a JSON-only change (the per-kind specs derive from the JSON), and the
+derived per-kind ``EnemyConfig`` .tres round-trips back through gda with its
+declared Godot types (the Wave schedule's own seam is
+``test_waves_data_seam.py``). Freshness of every committed .tres (including
+the enemy outputs, whose specs derive from the JSON's ``kinds``) is covered by
+``test_combat_data_seam.py``'s SPECS-parametrized gate. Fast tier — never
+``e2e``; the round-trip drives one-shot ``gda`` headless ops under the
+``engine`` gate.
 """
 
 from __future__ import annotations
@@ -112,18 +115,19 @@ def test_build_rejects_semantically_invalid_config(tmp_path) -> None:
 
 
 def test_default_spawn_matches_legacy_combat_expectations() -> None:
-    """The shipped default roster still serves the S2 combat e2e unchanged.
+    """The shipped Wave-1 spawn still serves the S2 combat e2e unchanged.
 
     ``test_combat_e2e.py`` derives its expectations from combat_config.json's
     ``enemy_stats`` block and ``enemy_position`` (which STAY, per the S2 data
-    contract), while the runtime enemy is now the roster's default kind. Until
-    the planned consolidation of the two sources (gADR-0003 follow-up), this
-    guard makes any drift between them fail here — fast tier — rather than
-    deep inside the live e2e.
+    contract), while the runtime enemy is now Wave 1's default kind (the S4
+    boot roster became Wave 1 of the schedule, gADR-0005). Until the planned
+    consolidation of the two sources (gADR-0003 follow-up), this guard makes
+    any drift between them fail here — fast tier — rather than deep inside
+    the live e2e.
     """
     enemies = build_config.load_json(build_config.ENEMIES_JSON_PATH)
     combat = build_config.load_json(build_config.COMBAT_JSON_PATH)
-    default = enemies["spawns"][0]
+    default = enemies["waves"][0]["spawns"][0]
     kind = enemies["kinds"][default["kind"]]
     assert default["name"] == "Enemy"
     assert default["position"] == combat["enemy_position"]
@@ -160,11 +164,16 @@ _MELEE = ("kinds", "monster_minion_melee")
 _RANGED = ("kinds", "robot_elite_ranged")
 
 
+def _wave_of(*entries: dict) -> list[dict]:
+    """A one-wave ``waves`` value wrapping the given spawn entries (gADR-0005)."""
+    return [{"spawns": list(entries)}]
+
+
 @pytest.mark.parametrize(
     "bad",
     [
         _without("kinds"),  # missing the kind table
-        _without("spawns"),  # missing the Spawn Roster
+        _without("waves"),  # missing the Wave schedule
         _with({}, "kinds"),  # at least one kind required
         _without(*_MELEE, "faction"),  # missing an axis
         _without(*_MELEE, "max_hp"),  # missing a stat-block field
@@ -186,18 +195,23 @@ _RANGED = ("kinds", "robot_elite_ranged")
         _without(*_RANGED, "projectile_speed"),
         _without(*_RANGED, "projectile_color"),
         _with(0, *_RANGED, "projectile_speed"),  # bolt speed strictly positive
-        # Spawn Roster shape.
-        _with([{"kind": "monster_minion_melee"}], "spawns"),  # entry missing fields
+        # Spawn Roster entry shape (through a wave, gADR-0005).
+        _with(_wave_of({"kind": "monster_minion_melee"}), "waves"),  # missing fields
         _with(
-            [{"kind": "Bad Kind!", "name": "Enemy", "position": [0.0, 0.0]}], "spawns"
+            _wave_of({"kind": "Bad Kind!", "name": "Enemy", "position": [0.0, 0.0]}),
+            "waves",
         ),  # kind key off-pattern
         _with(
-            [{"kind": "monster_minion_melee", "name": "", "position": [0.0, 0.0]}],
-            "spawns",
+            _wave_of(
+                {"kind": "monster_minion_melee", "name": "", "position": [0.0, 0.0]}
+            ),
+            "waves",
         ),  # empty node name
         _with(
-            [{"kind": "monster_minion_melee", "name": "Enemy", "position": [640.0]}],
-            "spawns",
+            _wave_of(
+                {"kind": "monster_minion_melee", "name": "Enemy", "position": [640.0]}
+            ),
+            "waves",
         ),  # position: too few components
         {**_valid_config(), "extra": 1},  # unexpected extra top-level key
     ],
@@ -210,7 +224,7 @@ def test_invalid_json_rejected(bad: dict) -> None:
 
 def _dup_spawns() -> dict:
     entry = {"kind": "monster_minion_melee", "name": "Enemy", "position": [0.0, 0.0]}
-    return _with([entry, {**entry, "position": [100.0, 0.0]}], "spawns")
+    return _with(_wave_of(entry, {**entry, "position": [100.0, 0.0]}), "waves")
 
 
 @pytest.mark.parametrize(
@@ -224,10 +238,11 @@ def _dup_spawns() -> dict:
         _with(64.0, *_MELEE, "attack_range"),
         # Spawn -> kind referential integrity.
         _with(
-            [{"kind": "no_such_kind", "name": "Enemy", "position": [0.0, 0.0]}],
-            "spawns",
+            _wave_of({"kind": "no_such_kind", "name": "Enemy", "position": [0.0, 0.0]}),
+            "waves",
         ),
-        # Roster names must be unique for addressability.
+        # Spawn names must be unique for addressability — here WITHIN one
+        # wave; the cross-wave flavor is test_waves_data_seam.py's.
         _dup_spawns(),
     ],
 )
@@ -244,9 +259,10 @@ def test_semantically_invalid_config_rejected(bad: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Round-trip: the derived per-kind EnemyConfig .tres and the EnemyRosterConfig
-# .tres load back through gda with their declared Godot types, compared to the
-# AUTHORITATIVE JSON (never hardcoded values).
+# Round-trip: the derived per-kind EnemyConfig .tres loads back through gda
+# with its declared Godot types, compared to the AUTHORITATIVE JSON (never
+# hardcoded values). The WaveScheduleConfig round-trip lives in
+# test_waves_data_seam.py.
 # ---------------------------------------------------------------------------
 
 
@@ -306,20 +322,3 @@ def test_enemy_kind_round_trips(gda, kind: str) -> None:
         assert props["projectile_spawn_offset"] == pytest.approx(
             config["projectile_spawn_offset"]
         )
-
-
-@pytest.mark.engine
-def test_enemy_roster_round_trips(gda) -> None:
-    """The EnemyRosterConfig .tres round-trips the Spawn Roster structurally.
-
-    gda projects the Array-of-Dictionary spawns as structured JSON (ADR-0035):
-    each entry's kind/name come back as strings and its position as the [x, y]
-    Vector2 projection, matching the authoritative JSON.
-    """
-    spawns = build_config.load_json(build_config.ENEMIES_JSON_PATH)["spawns"]
-    props = _get_props(gda, "res://data/generated/enemy_roster.tres")
-    assert len(props["spawns"]) == len(spawns)
-    for got, expected in zip(props["spawns"], spawns):
-        assert got["kind"] == expected["kind"]
-        assert got["name"] == expected["name"]
-        assert got["position"] == pytest.approx(expected["position"])

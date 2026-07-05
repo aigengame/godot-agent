@@ -39,11 +39,11 @@
       "move_speed": 200.0,
       "gravity": 1400.0,
       "max_fall_speed": 1200.0,
-      "aggro_range": 700.0,
-      "attack_range": 520.0,
+      "aggro_range": 260.0,
+      "attack_range": 240.0,
       "attack_cooldown": 1.4,
-      "keep_range_min": 220.0,
-      "keep_range_max": 380.0,
+      "keep_range_min": 140.0,
+      "keep_range_max": 200.0,
       "attack_squash": [0.8, 1.2],
       "attack_tween_duration": 0.15,
       "projectile_color": [0.35, 0.8, 1.0, 1.0],
@@ -51,6 +51,53 @@
       "projectile_speed": 520.0,
       "projectile_lifetime": 2.0,
       "projectile_spawn_offset": [30.0, 0.0]
+    },
+    "xenomorph_minion_melee": {
+      "faction": "xenomorph",
+      "tier": "minion",
+      "archetype": "melee",
+      "max_hp": 15.0,
+      "max_mp": 0.0,
+      "attack": 4.0,
+      "defense": 0.0,
+      "color": [0.2, 0.8, 0.6, 1.0],
+      "size": [40.0, 40.0],
+      "move_speed": 160.0,
+      "gravity": 1400.0,
+      "max_fall_speed": 1200.0,
+      "aggro_range": 240.0,
+      "attack_range": 40.0,
+      "attack_cooldown": 1.0,
+      "keep_range_min": 0.0,
+      "keep_range_max": 40.0,
+      "attack_squash": [1.25, 0.75],
+      "attack_tween_duration": 0.15
+    },
+    "xenomorph_minion_ranged": {
+      "faction": "xenomorph",
+      "tier": "minion",
+      "archetype": "ranged",
+      "max_hp": 12.0,
+      "max_mp": 0.0,
+      "attack": 3.0,
+      "defense": 0.0,
+      "color": [0.15, 0.7, 0.55, 1.0],
+      "size": [40.0, 48.0],
+      "move_speed": 170.0,
+      "gravity": 1400.0,
+      "max_fall_speed": 1200.0,
+      "aggro_range": 260.0,
+      "attack_range": 230.0,
+      "attack_cooldown": 1.6,
+      "keep_range_min": 130.0,
+      "keep_range_max": 190.0,
+      "attack_squash": [0.8, 1.2],
+      "attack_tween_duration": 0.15,
+      "projectile_color": [0.4, 1.0, 0.7, 1.0],
+      "projectile_size": [12.0, 5.0],
+      "projectile_speed": 460.0,
+      "projectile_lifetime": 1.6,
+      "projectile_spawn_offset": [24.0, 0.0]
     },
     "alien_boss_tank": {
       "faction": "alien",
@@ -74,7 +121,30 @@
       "attack_tween_duration": 0.2
     }
   },
-  "spawns": [
-    { "kind": "monster_minion_melee", "name": "Enemy", "position": [640.0, 452.0] }
+  "spawn_squash": [0.3, 0.3],
+  "spawn_tween_duration": 0.25,
+  "waves": [
+    {
+      "spawns": [
+        { "kind": "monster_minion_melee", "name": "Enemy", "position": [640.0, 452.0] }
+      ]
+    },
+    {
+      "spawns": [
+        { "kind": "robot_elite_ranged", "name": "EliteRobot", "position": [760.0, 440.0] }
+      ]
+    },
+    {
+      "spawns": [
+        { "kind": "xenomorph_minion_melee", "name": "SwarmMeleeA", "position": [680.0, 456.0] },
+        { "kind": "xenomorph_minion_melee", "name": "SwarmMeleeB", "position": [740.0, 456.0] },
+        { "kind": "xenomorph_minion_ranged", "name": "SwarmRanged", "position": [770.0, 452.0] }
+      ]
+    },
+    {
+      "spawns": [
+        { "kind": "alien_boss_tank", "name": "Boss", "position": [700.0, 412.0] }
+      ]
+    }
   ]
 }

@@ -17,15 +17,16 @@ Five sources feed the outputs (``specs_for``/``SPECS``):
 - ``gravity_config.json`` -> ``gravity_config.tres`` (``GravityConfig``,
   gADR-0002) — S3
 - ``enemies_config.json`` -> one ``enemy_<kind>.tres`` (``EnemyConfig``) per
-  Enemy Kind plus ``enemy_roster.tres`` (``EnemyRosterConfig``, the Spawn
-  Roster) — S4 (gADR-0003). The per-kind specs are DERIVED by iterating the
-  JSON's ``kinds`` (gADR-0001: a new actor kind is config, not code — adding a
-  kind is a JSON-only change), while the non-enemy specs stay a static table.
-  Since S6a (gADR-0004) the same source also carries the per-Tier Kill-reward
-  table (``tiers``), resolved into per-kind derived ``exp_reward``/
-  ``gold_reward`` fields by ``resolve_enemy_rewards`` before rendering: the
-  runtime stays a dumb ``kind.<field>`` read while the reward AUTHORITY stays
-  per-Tier data.
+  Enemy Kind plus ``wave_schedule.tres`` (``WaveScheduleConfig``, the Wave
+  schedule — S5, gADR-0005: each wave one Spawn Roster; the wave COUNT is the
+  ``waves`` array's length, config never code). The per-kind specs are DERIVED
+  by iterating the JSON's ``kinds`` (gADR-0001: a new actor kind is config,
+  not code — adding a kind is a JSON-only change), while the non-enemy specs
+  stay a static table. Since S6a (gADR-0004) the same source also carries the
+  per-Tier Kill-reward table (``tiers``), resolved into per-kind derived
+  ``exp_reward``/``gold_reward`` fields by ``resolve_enemy_rewards`` before
+  rendering: the runtime stays a dumb ``kind.<field>`` read while the reward
+  AUTHORITY stays per-Tier data.
 - ``hud_config.json`` -> ``hud_config.tres`` (``HudConfig``, the HUD blockout
   numbers — gADR-0004) — S6a.
 
@@ -64,8 +65,8 @@ class TresSpec:
     is byte-stable (the freshness gate depends on it) and adding a config field
     is a one-line change. Types: "color" (4-array -> Color), "vec2" (2-array ->
     Vector2), "float" (scalar -> bare number), "string" (str -> quoted String),
-    "spawn_list" (spawn entries -> Array of Dictionary, S4's Spawn Roster). The
-    schema is the validation authority; keep the two in step.
+    "wave_list" (waves -> Array of {"spawns": Array of Dictionary}, S5's Wave
+    schedule). The schema is the validation authority; keep the two in step.
     """
 
     json_rel: str
@@ -174,8 +175,13 @@ _ENEMY_KIND_RANGED_FIELDS: list[tuple[str, str]] = _ENEMY_KIND_FIELDS + [
     ("projectile_spawn_offset", "vec2"),
 ]
 
-_ROSTER_FIELDS: list[tuple[str, str]] = [
-    ("spawns", "spawn_list"),
+# The Wave schedule's own fields (gADR-0005): the spawn-telegraph tween
+# numbers (they belong to the wave system, not to any one kind) plus the
+# ordered waves themselves.
+_WAVE_SCHEDULE_FIELDS: list[tuple[str, str]] = [
+    ("spawn_squash", "vec2"),
+    ("spawn_tween_duration", "float"),
+    ("waves", "wave_list"),
 ]
 
 # The S6a HUD blockout numbers (gADR-0004): overlay placement and the
@@ -189,7 +195,7 @@ _HUD_FIELDS: list[tuple[str, str]] = [
 
 
 # The S4 enemies source (gADR-0003) — one json_rel shared by the derived
-# per-kind specs and the roster spec.
+# per-kind specs and the Wave-schedule spec.
 _ENEMIES_JSON_REL = "data/json/enemies_config.json"
 _ENEMIES_SCHEMA_REL = "data/schema/enemies_config.schema.json"
 
@@ -278,14 +284,14 @@ _STATIC_SPECS: list[TresSpec] = [
     ),
 ]
 
-_ROSTER_SPEC = TresSpec(
+_WAVE_SCHEDULE_SPEC = TresSpec(
     json_rel=_ENEMIES_JSON_REL,
     schema_rel=_ENEMIES_SCHEMA_REL,
-    out_rel="data/generated/enemy_roster.tres",
-    script_res_path="res://src/resources/enemy_roster_config.gd",
-    script_class="EnemyRosterConfig",
-    ext_id="1_rosterconfig",
-    fields=_ROSTER_FIELDS,
+    out_rel="data/generated/wave_schedule.tres",
+    script_res_path="res://src/resources/wave_schedule_config.gd",
+    script_class="WaveScheduleConfig",
+    ext_id="1_waveschedule",
+    fields=_WAVE_SCHEDULE_FIELDS,
 )
 
 # S1 back-compat conveniences (existing tests and callers import these; they are
@@ -335,10 +341,12 @@ def validate_enemies_semantics(document: Any) -> Any:
     - **Melee damage is contact damage**: a melee kind's ``attack_range`` must
       not exceed ``keep_range_max`` — the attack gate cannot reach beyond the
       point-blank band the steering holds.
-    - **Spawn -> kind referential integrity**: every Spawn Roster entry
-      references a defined Enemy Kind.
-    - **Roster names are unique**: each spawn's node ``name`` addresses one
-      enemy (duplicate names would silently shadow in the scene tree).
+    - **Spawn -> kind referential integrity**: every spawn entry of every
+      Wave references a defined Enemy Kind.
+    - **Spawn names are unique across the whole Wave schedule** (gADR-0005):
+      ``queue_free`` on a cleared wave's last corpse is deferred, so the next
+      wave can spawn while the dying node is still in the tree — a same-name
+      spawn would be silently renamed by Godot and break addressability.
     - **Tier -> reward coverage** (gADR-0004): every Tier a kind uses must
       have a reward entry in the top-level ``tiers`` table — a kind whose
       kill could award nothing is a config bug, caught before any resource
@@ -369,17 +377,20 @@ def validate_enemies_semantics(document: Any) -> Any:
                 "damage is contact damage, gated to the point-blank band"
             )
     seen_names: set[str] = set()
-    for spawn in document["spawns"]:
-        if spawn["kind"] not in kinds:
-            raise jsonschema.ValidationError(
-                f"spawn {spawn['name']!r} references unknown kind {spawn['kind']!r}"
-            )
-        if spawn["name"] in seen_names:
-            raise jsonschema.ValidationError(
-                f"duplicate spawn name {spawn['name']!r} — roster names must be "
-                "unique for addressability"
-            )
-        seen_names.add(spawn["name"])
+    for wave_number, wave in enumerate(document["waves"], start=1):
+        for spawn in wave["spawns"]:
+            if spawn["kind"] not in kinds:
+                raise jsonschema.ValidationError(
+                    f"wave {wave_number} spawn {spawn['name']!r} references "
+                    f"unknown kind {spawn['kind']!r}"
+                )
+            if spawn["name"] in seen_names:
+                raise jsonschema.ValidationError(
+                    f"duplicate spawn name {spawn['name']!r} (wave {wave_number}) "
+                    "— spawn names must be unique across the Wave schedule for "
+                    "addressability (gADR-0005)"
+                )
+            seen_names.add(spawn["name"])
     return document
 
 
@@ -421,8 +432,8 @@ def enemy_kind_specs(root: Path = GAME_DIR) -> list[TresSpec]:
 
 def specs_for(root: Path = GAME_DIR) -> list[TresSpec]:
     """Every declared output under ``root``: the static table plus the
-    JSON-derived per-kind enemy specs and the roster."""
-    return [*_STATIC_SPECS, *enemy_kind_specs(root), _ROSTER_SPEC]
+    JSON-derived per-kind enemy specs and the Wave schedule."""
+    return [*_STATIC_SPECS, *enemy_kind_specs(root), _WAVE_SCHEDULE_SPEC]
 
 
 # The committed game's spec list (tests parametrize over it; ``build_all``
@@ -457,21 +468,31 @@ def _render_field(key: str, kind: str, value: Any) -> str:
     if kind == "string":
         # Schema-constrained enum/pattern values (no quotes/escapes possible).
         return f'"{value}"'
-    if kind == "spawn_list":
-        # The Spawn Roster: an Array of {kind, name, position} Dictionaries,
-        # rendered one-line-per-build deterministically (byte-stable, like every
-        # other kind, so the freshness gate holds).
-        entries = ", ".join(
-            '{{"kind": "{kind}", "name": "{name}", "position": Vector2({x}, {y})}}'.format(
-                kind=entry["kind"],
-                name=entry["name"],
-                x=_num(entry["position"][0]),
-                y=_num(entry["position"][1]),
+    if kind == "wave_list":
+        # The Wave schedule: an Array of {"spawns": [...]} Dictionaries, each
+        # spawn a {kind, name, position} Dictionary (the gADR-0003 entry
+        # shape), rendered deterministically (byte-stable, like every other
+        # kind, so the freshness gate holds).
+        waves = ", ".join(
+            '{{"spawns": [{spawns}]}}'.format(
+                spawns=", ".join(_spawn_literal(entry) for entry in wave["spawns"])
             )
-            for entry in value
+            for wave in value
         )
-        return f"[{entries}]"
+        return f"[{waves}]"
     raise ValueError(f"unknown field kind {kind!r} for {key!r}")
+
+
+def _spawn_literal(entry: dict[str, Any]) -> str:
+    """Render one Spawn Roster entry as its Godot Dictionary literal."""
+    return (
+        '{{"kind": "{kind}", "name": "{name}", "position": Vector2({x}, {y})}}'.format(
+            kind=entry["kind"],
+            name=entry["name"],
+            x=_num(entry["position"][0]),
+            y=_num(entry["position"][1]),
+        )
+    )
 
 
 def render_spec(spec: TresSpec, document: dict[str, Any]) -> str:

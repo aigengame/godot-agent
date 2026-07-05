@@ -276,6 +276,21 @@ func _play_hit_flash() -> void:
 	recover.set_trans(Tween.TRANS_SINE)
 
 
+## The spawn telegraph (S5, gADR-0005): punch the block's scale from the Wave
+## schedule's spawn squash and tween back to normal (the attack-squash shape).
+## PUBLIC: the numbers live on the schedule config — they belong to the wave
+## system, not to any one kind — so the spawner (LevelController) hands them
+## in after add_child (once _ready has applied the blockout).
+func play_spawn_tween(squash: Vector2, duration: float) -> void:
+	if _kind == null:
+		return
+	var visual := $Visual as ColorRect
+	visual.scale = squash
+	var tween := create_tween()
+	var recover := tween.tween_property(visual, "scale", Vector2.ONE, duration)
+	recover.set_trans(Tween.TRANS_SINE)
+
+
 ## The attack telegraph: punch the block's scale to the kind's attack squash
 ## and tween back (the S4 sibling of S1's landing squash).
 func _play_attack_tween() -> void:

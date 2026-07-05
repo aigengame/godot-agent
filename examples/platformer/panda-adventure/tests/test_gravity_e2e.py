@@ -271,7 +271,12 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         enemies_cfg = build_config.load_json(
             GAME_DIR / "data" / "json" / "enemies_config.json"
         )
-        enemy_spawn = next(s for s in enemies_cfg["spawns"] if s["name"] == "Enemy")
+        enemy_spawn = next(
+            s
+            for wave in enemies_cfg["waves"]
+            for s in wave["spawns"]
+            if s["name"] == "Enemy"
+        )
         enemy_speed = enemies_cfg["kinds"][enemy_spawn["kind"]]["move_speed"]
         player_speed = player_cfg["move_speed"]
         spawn_offset_x = gravity["field_spawn_offset"][0]
