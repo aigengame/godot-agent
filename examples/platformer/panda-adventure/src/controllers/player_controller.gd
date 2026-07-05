@@ -336,7 +336,8 @@ func _gravity_config() -> GravityConfigScript:
 
 ## Receive one Kill reward: accumulate the defeated kind's Tier-derived
 ## EXP/Gold onto this Player's own StatsSystem (the only mutation — pure
-## addition, StatsSystem.gain_reward) and log the accumulation trace. The
+## addition, StatsSystem.gain_reward) and log the accumulation trace, then
+## re-resolve the level the new EXP total implies (S6b, gADR-0006). The
 ## amounts and tier come from the defeated kind's derived config, read by the
 ## caller (LevelController) — this method decides nothing.
 func gain_reward(exp_reward: float, gold_reward: float, tier: String) -> void:
@@ -350,12 +351,14 @@ func gain_reward(exp_reward: float, gold_reward: float, tier: String) -> void:
 		"gold_total": _stats.gold,
 		"tier": tier,
 	})
+	_check_level_up()
 
 
 ## The minimal public read surface the HUD pulls each frame (gADR-0004): one
-## snapshot Dictionary of the live stats (+ their config caps) and the Current
-## weapon, so the HUD never reaches into privates. Empty ({}) until _ready has
-## initialized the stats — a puller skips that frame.
+## snapshot Dictionary of the live stats (+ their config caps), the current
+## Level (S6b), and the Current weapon, so the HUD never reaches into
+## privates. Empty ({}) until _ready has initialized the stats — a puller
+## skips that frame.
 func hud_state() -> Dictionary:
 	if _stats == null or _stats_config == null:
 		return {}
@@ -364,7 +367,107 @@ func hud_state() -> Dictionary:
 		"max_hp": _stats_config.max_hp,
 		"mp": _stats.mp,
 		"max_mp": _stats_config.max_mp,
+		"level": _level,
 		"exp": _stats.exp_points,
 		"gold": _stats.gold,
 		"weapon": _weapon,
 	}
+
+
+# --- S6b Leveling curve + drop collection (gADR-0006) -------------------------
+# Kept as ONE self-contained append-only block (the S3/S4 parallel-merge
+# pattern): the level the accumulated EXP implies (a pure GrowthSystem
+# re-resolution after each reward) and the receiving end of a Pickup's drop.
+
+const ProgressionConfigScript := preload("res://src/resources/progression_config.gd")
+const GrowthSystemScript := preload("res://src/systems/growth_system.gd")
+const PROGRESSION_CONFIG_PATH := "res://data/generated/progression_config.tres"
+
+# The Player's current Level — DERIVED runtime state (gADR-0006): always the
+# pure GrowthSystem.resolve_level of the live EXP total, cached only so the
+# old->new edge is detectable for the level_up log + flash. Starts at level 1.
+var _level := 1
+# The S6b item-count hook (item name -> count): where dropped Consumables
+# land until S7's inventory/use story consumes them (the S3 Wine-hook
+# pattern: the supply side exists, the use side is the later slice). Runtime
+# state, never persisted (gADR-0001).
+var _items := {}
+# The derived ProgressionConfig, lazily loaded (load() is cached) so _ready's
+# S2 load block stays untouched (the S3 GravityConfig pattern).
+var _progression_cfg: ProgressionConfigScript
+
+
+## Re-resolve the Level implied by the live EXP total against the data-driven
+## leveling curve (pure GrowthSystem decision; the curve comes from the
+## derived config — max level is curve length + 1, config never code). On a
+## rise: log level_up (from/to covers a multi-threshold jump in one record)
+## and play the flash. EXP only ever grows, so the level never goes down.
+func _check_level_up() -> void:
+	var cfg := _progression_config()
+	if cfg == null or _stats == null:
+		return
+	var resolved := GrowthSystemScript.resolve_level(_stats.exp_points, cfg.level_curve)
+	if resolved <= _level:
+		return
+	var from := _level
+	_level = resolved
+	GameLogScript.emit("info", "level_up", {
+		"from": from,
+		"to": _level,
+		"exp_total": _stats.exp_points,
+	})
+	_play_level_up_flash()
+
+
+## Receive one collected Pickup's drop (called by PickupController on
+## contact): gold accumulates onto this Player's own StatsSystem
+## (StatsSystem.gain_gold — Gold's second source next to the Kill reward),
+## any other item lands in the S6b item-count hook. Each path logs its
+## accumulation trace. The item/amount come from the Pickup's injected drop
+## (resolved from the defeated kind's derived Drop table) — this method
+## decides nothing.
+func collect_drop(item: String, amount: int) -> void:
+	if _stats == null:
+		return
+	if item == "gold":
+		_stats.gain_gold(float(amount))
+		GameLogScript.emit("info", "gold_collected", {
+			"amount": amount,
+			"gold_total": _stats.gold,
+		})
+		return
+	_items[item] = int(_items.get(item, 0)) + amount
+	GameLogScript.emit("info", "item_collected", {
+		"item": item,
+		"amount": amount,
+		"count": _items[item],
+	})
+
+
+## The level-up "juice": flash the Player block to the config level-up color
+## and tween back to its own color (the positive sibling of the hit flash —
+## a property-tween, per the GDD).
+func _play_level_up_flash() -> void:
+	var cfg := _progression_config()
+	if cfg == null:
+		return
+	var visual := $Visual as ColorRect
+	visual.color = cfg.level_up_flash_color
+	var tween := create_tween()
+	var recover := tween.tween_property(
+		visual, "color", _config.player_color, cfg.level_up_flash_duration
+	)
+	recover.set_trans(Tween.TRANS_SINE)
+
+
+## The derived ProgressionConfig with the standard loud guard, lazily loaded
+## so the S2 _ready block stays untouched (the S3 GravityConfig pattern).
+func _progression_config() -> ProgressionConfigScript:
+	if _progression_cfg == null:
+		_progression_cfg = load(PROGRESSION_CONFIG_PATH)
+		if _progression_cfg == null:
+			push_error(
+				"PlayerController: could not load %s — run scripts/build_config.py."
+				% PROGRESSION_CONFIG_PATH
+			)
+	return _progression_cfg

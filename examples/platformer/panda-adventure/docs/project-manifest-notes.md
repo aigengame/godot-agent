@@ -29,10 +29,13 @@ fires the CURRENT weapon — Laser Gun by default, Gravity Gun after
 **`[layer_names]`.** S2+S3 collision topology — structural wiring, not balance
 data (gADR-0000 governs config NUMBERS; what-can-act-on-what lives here and in
 the scenes): 1 `terrain`, 2 `player`, 3 `enemy`, 4 `projectile`, 5
-`gravity_field`. Layer 5 is IN USE since S3: the Gravity Field Area2D
+`gravity_field`, 6 `pickup`. Layer 5 is IN USE since S3: the Gravity Field Area2D
 (`gravity_field.tscn`, runtime-instanced by PlayerController) sits ON layer 5
 and masks `terrain|enemy` (5) — the Player's layer is invisible to it, which is
 the never-on-the-Player guarantee (gADR-0002, the Projectile's mask pattern).
+Layer 6 is the S6b Pickup (`pickup.tscn`, an Area2D runtime-instanced by
+LevelController per resolved drop, gADR-0006): ON layer 6, masking `player` (2)
+ONLY — nothing but the Player can touch a drop, and a drop blocks nothing.
 
 **`[debug]`.** Godot's default desktop file logging is disabled so no engine
 launch writes a shared `user://logs/godot.log` (the #180 RotatedFileLogger race
@@ -64,7 +67,9 @@ other; Obstacle=`terrain`(1) masking nothing. Enemies are runtime-instanced by
 LevelController from `enemy.tscn` per the Spawn Roster; Projectiles are
 runtime-instanced by PlayerController (`projectile.tscn`, masks terrain|enemy)
 and by Ranged enemies (`enemy_projectile.tscn`, masks terrain|player); Gravity
-Fields by PlayerController (`gravity_field.tscn`).
+Fields by PlayerController (`gravity_field.tscn`); Pickups by LevelController
+per resolved drop (`pickup.tscn`, `pickup`(6) masking `player`(2) only —
+gADR-0006).
 
 The S3 `Obstacle` (StaticBody2D + Visual + Collision, script
 `obstacle_controller.gd`) is the gravity-affectable environment prop: it floats

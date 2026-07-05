@@ -1,11 +1,11 @@
 class_name HudController
 extends CanvasLayer
 
-## Drives the HUD blockout (S6a, gADR-0004): five Labels in a screen-space
-## column surfacing the Player's live HP, MP, EXP, Gold, and Current weapon —
-## the GDD's "HUD & UI" contract — so the player reads state without leaving
-## the action. A CanvasLayer renders in screen space, untouched by the S1
-## follow-camera.
+## Drives the HUD blockout (S6a, gADR-0004; +Level since S6b, gADR-0006): six
+## Labels in a screen-space column surfacing the Player's live HP, MP, Level,
+## EXP, Gold, and Current weapon — the GDD's "HUD & UI" contract — so the
+## player reads state without leaving the action. A CanvasLayer renders in
+## screen space, untouched by the S1 follow-camera.
 ##
 ## Read model: the HUD PULLS the Player's public `hud_state()` snapshot each
 ## process frame (gADR-0004) — at five values a frame that costs nothing and
@@ -27,10 +27,10 @@ const GameLogScript := preload("res://src/util/game_log.gd")
 
 const HUD_CONFIG_PATH := "res://data/generated/hud_config.tres"
 
-# The five surfaced values, in display order: each maps a snapshot to its
+# The six surfaced values, in display order: each maps a snapshot to its
 # Label node name. Structural wiring (what the HUD shows is the GDD contract),
 # not config numbers.
-const LINES := ["hp", "mp", "exp", "gold", "weapon"]
+const LINES := ["hp", "mp", "level", "exp", "gold", "weapon"]
 
 var _config: HudConfigScript
 # Whether the first snapshot has been rendered (it populates silently and logs
@@ -58,13 +58,16 @@ static func format_weapon(weapon: String) -> String:
 	return weapon.replace("_", " ").to_upper()
 
 
-## Pure mapping from the Player's hud_state() snapshot to the five display
+## Pure mapping from the Player's hud_state() snapshot to the six display
 ## strings, keyed like LINES. The single place the snapshot's shape meets the
-## format decisions, so the seam can pin the whole readout at once.
+## format decisions, so the seam can pin the whole readout at once. The Level
+## readout (S6b) reuses format_amount: an integer level passes through floori
+## unchanged.
 static func format_lines(state: Dictionary) -> Dictionary:
 	return {
 		"hp": format_bar("HP", state["hp"], state["max_hp"]),
 		"mp": format_bar("MP", state["mp"], state["max_mp"]),
+		"level": format_amount("LV", state["level"]),
 		"exp": format_amount("EXP", state["exp"]),
 		"gold": format_amount("GOLD", state["gold"]),
 		"weapon": format_weapon(state["weapon"]),
@@ -110,6 +113,7 @@ func _process(_delta: float) -> void:
 		GameLogScript.emit("info", "hud_ready", {
 			"hp": state["hp"],
 			"mp": state["mp"],
+			"level": state["level"],
 			"exp": state["exp"],
 			"gold": state["gold"],
 			"weapon": state["weapon"],

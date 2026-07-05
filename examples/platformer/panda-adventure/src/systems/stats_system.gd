@@ -61,3 +61,13 @@ func restore_mp(amount: float, max_mp: float) -> void:
 func gain_reward(exp_amount: float, gold_amount: float) -> void:
 	exp_points += exp_amount
 	gold += gold_amount
+
+
+## Accumulate collected drop Gold (S6b, gADR-0006): the Pickup path's pure
+## addition — Gold's second source next to the Kill reward's gain_reward,
+## same uncapped accumulation, no EXP side. The amount is a PARAMETER, read
+## by the caller from the collected Pickup (whose value came from the
+## defeated kind's derived drop_table) — drop numbers stay outside this
+## runtime holder (gADR-0001).
+func gain_gold(amount: float) -> void:
+	gold += amount

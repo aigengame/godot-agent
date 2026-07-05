@@ -1,8 +1,30 @@
 {
   "tiers": {
-    "minion": { "exp_reward": 10.0, "gold_reward": 5.0 },
-    "elite": { "exp_reward": 40.0, "gold_reward": 20.0 },
-    "boss": { "exp_reward": 200.0, "gold_reward": 100.0 }
+    "minion": {
+      "exp_reward": 10.0,
+      "gold_reward": 5.0,
+      "drops": [
+        { "item": "gold", "amount": 3, "chance": 1.0 },
+        { "item": "bun", "amount": 1, "chance": 0.25 }
+      ]
+    },
+    "elite": {
+      "exp_reward": 40.0,
+      "gold_reward": 20.0,
+      "drops": [
+        { "item": "gold", "amount": 10, "chance": 1.0 },
+        { "item": "wine", "amount": 1, "chance": 0.5 }
+      ]
+    },
+    "boss": {
+      "exp_reward": 200.0,
+      "gold_reward": 100.0,
+      "drops": [
+        { "item": "gold", "amount": 50, "chance": 1.0 },
+        { "item": "bun", "amount": 2, "chance": 1.0 },
+        { "item": "wine", "amount": 2, "chance": 1.0 }
+      ]
+    }
   },
   "kinds": {
     "monster_minion_melee": {

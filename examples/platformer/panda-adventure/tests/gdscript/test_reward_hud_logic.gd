@@ -104,13 +104,15 @@ func _init() -> void:
 		_fail("format_weapon should render gravity_gun as GRAVITY GUN")
 		return
 
-	# Behavior 9 — format_lines maps a full hud_state() snapshot to the five
-	# display strings in one place (the whole readout pinned at once).
+	# Behavior 9 — format_lines maps a full hud_state() snapshot to the six
+	# display strings in one place (the whole readout pinned at once; the
+	# snapshot carries the S6b Level since gADR-0006).
 	var lines: Dictionary = HudControllerScript.format_lines({
 		"hp": 95.0,
 		"max_hp": MAX_HP,
 		"mp": 40.0,
 		"max_mp": MAX_MP,
+		"level": 3,
 		"exp": 50.0,
 		"gold": 25.0,
 		"weapon": "gravity_gun",
@@ -118,6 +120,7 @@ func _init() -> void:
 	var expected := {
 		"hp": "HP 95/100",
 		"mp": "MP 40/50",
+		"level": "LV 3",
 		"exp": "EXP 50",
 		"gold": "GOLD 25",
 		"weapon": "GRAVITY GUN",

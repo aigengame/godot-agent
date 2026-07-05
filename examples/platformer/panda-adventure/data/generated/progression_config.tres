@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ProgressionConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/resources/progression_config.gd" id="1_progressionconfig"]
+
+[resource]
+script = ExtResource("1_progressionconfig")
+level_curve = [10, 50, 150, 280]
+level_up_flash_color = Color(1, 0.9, 0.3, 1)
+level_up_flash_duration = 0.4
+drop_items = {"gold": {"color": Color(1, 0.85, 0.2, 1), "size": Vector2(14, 14)}, "bun": {"color": Color(0.95, 0.8, 0.55, 1), "size": Vector2(18, 14)}, "wine": {"color": Color(0.7, 0.15, 0.35, 1), "size": Vector2(12, 20)}}
+pickup_spacing = 30
+pickup_spawn_squash = Vector2(0.3, 0.3)
+pickup_spawn_tween_duration = 0.25
+pickup_collect_tween_duration = 0.15

@@ -2,16 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aigengame.dev/panda-adventure/data/schema/enemies_config.schema.json",
   "title": "Panda Adventure enemy taxonomy configuration",
-  "description": "Authoritative config for the S4 Enemy taxonomy (gADR-0000, gADR-0003), the S6a per-Tier Kill reward table (gADR-0004), and the S5 Wave schedule (gADR-0005). `tiers` maps each Tier to its reward budget ({exp_reward, gold_reward}) — the AUTHORITY for what a kill awards; the builder resolves it into per-kind derived exp_reward/gold_reward fields so the runtime stays a dumb kind.<field> read. `kinds` maps each Enemy Kind name to one point in Faction x Tier x Archetype plus its stat block (the same max_hp/max_mp/attack/defense shape as combat_config's stat_block — the symmetric damage-formula contract, gADR-0001), its blockout, and its Archetype-AI params. `waves` is the Wave schedule: the ordered list of Waves the level plays through, each Wave one Spawn Roster (the which-kind-spawns-where entries of gADR-0003); the wave COUNT is the array's length — config, never code. `spawn_squash`/`spawn_tween_duration` are the spawn-telegraph tween numbers (the wave system's juice, gADR-0005). Converted by scripts/build_config.py into one derived EnemyConfig .tres per kind (data/generated/enemy_<kind>.tres) plus data/generated/wave_schedule.tres (WaveScheduleConfig); the per-kind derivation specs are themselves derived from `kinds`, so adding a kind is a JSON-only change. Cross-field rules this schema cannot express — the Steering Band interval, the melee contact-damage bound, spawn->kind referential integrity across every wave, spawn-name uniqueness across the whole schedule, and Tier->reward coverage (every Tier a kind uses must have a `tiers` entry) — are enforced by build_config.validate_enemies_semantics before any resource is derived.",
+  "description": "Authoritative config for the S4 Enemy taxonomy (gADR-0000, gADR-0003), the S6a per-Tier Kill reward table (gADR-0004), and the S5 Wave schedule (gADR-0005). `tiers` maps each Tier to its reward budget ({exp_reward, gold_reward, drops}) — the AUTHORITY for what a kill awards and drops (gADR-0004, gADR-0006); the builder resolves it into per-kind derived exp_reward/gold_reward/drop_table fields so the runtime stays a dumb kind.<field> read. `kinds` maps each Enemy Kind name to one point in Faction x Tier x Archetype plus its stat block (the same max_hp/max_mp/attack/defense shape as combat_config's stat_block — the symmetric damage-formula contract, gADR-0001), its blockout, and its Archetype-AI params. `waves` is the Wave schedule: the ordered list of Waves the level plays through, each Wave one Spawn Roster (the which-kind-spawns-where entries of gADR-0003); the wave COUNT is the array's length — config, never code. `spawn_squash`/`spawn_tween_duration` are the spawn-telegraph tween numbers (the wave system's juice, gADR-0005). Converted by scripts/build_config.py into one derived EnemyConfig .tres per kind (data/generated/enemy_<kind>.tres) plus data/generated/wave_schedule.tres (WaveScheduleConfig); the per-kind derivation specs are themselves derived from `kinds`, so adding a kind is a JSON-only change. Cross-field rules this schema cannot express — the Steering Band interval, the melee contact-damage bound, spawn->kind referential integrity across every wave, spawn-name uniqueness across the whole schedule, and Tier->reward coverage (every Tier a kind uses must have a `tiers` entry) — are enforced by build_config.validate_enemies_semantics before any resource is derived.",
   "type": "object",
   "additionalProperties": false,
   "required": ["tiers", "kinds", "spawn_squash", "spawn_tween_duration", "waves"],
   "$defs": {
     "tier_reward": {
-      "description": "One Tier's Kill reward budget: the EXP and Gold awarded to the Player when an Enemy of this Tier dies (gADR-0004).",
+      "description": "One Tier's Kill reward budget: the EXP and Gold awarded to the Player when an Enemy of this Tier dies (gADR-0004), plus the Tier's Drop table (gADR-0006) — the same per-Tier reward authority extended to drops.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["exp_reward", "gold_reward"],
+      "required": ["exp_reward", "gold_reward", "drops"],
       "properties": {
         "exp_reward": {
           "description": "EXP awarded per kill of this Tier; non-negative.",
@@ -22,6 +22,34 @@
           "description": "Gold awarded per kill of this Tier; non-negative.",
           "type": "number",
           "minimum": 0.0
+        },
+        "drops": {
+          "description": "The Tier's Drop table: what a kill of this Tier may leave behind as Pickups (gADR-0006). May be empty (a Tier that drops nothing); each entry rolls independently.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/drop_entry" }
+        }
+      }
+    },
+    "drop_entry": {
+      "description": "One Drop-table entry: the item a Pickup carries, how much of it, and the independent probability the entry drops at all. Every item name has a pickup blockout style in progression_config.json's drop_items (all Phase-1 items required there — coverage by construction).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item", "amount", "chance"],
+      "properties": {
+        "item": {
+          "description": "What drops: gold (accumulates onto the Player's Gold), or a Consumable item (bun/wine — counted by the S6b item hook; S7 owns their use-effects).",
+          "enum": ["gold", "bun", "wine"]
+        },
+        "amount": {
+          "description": "How much one Pickup of this entry carries (gold value, or item count); a whole number, at least 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "chance": {
+          "description": "Independent drop probability in (0, 1]: 1.0 always drops; a 0 chance would be dead config and is rejected.",
+          "type": "number",
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0
         }
       }
     },

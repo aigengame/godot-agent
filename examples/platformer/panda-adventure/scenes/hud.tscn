@@ -13,11 +13,14 @@ layout_mode = 2
 [node name="MpLabel" type="Label" parent="Stats" unique_id=221873651]
 layout_mode = 2
 
-[node name="ExpLabel" type="Label" parent="Stats" unique_id=374950307]
+[node name="LevelLabel" type="Label" parent="Stats" unique_id=549201072]
 layout_mode = 2
 
-[node name="GoldLabel" type="Label" parent="Stats" unique_id=1438675772]
+[node name="ExpLabel" type="Label" parent="Stats" unique_id=1319412645]
 layout_mode = 2
 
-[node name="WeaponLabel" type="Label" parent="Stats" unique_id=1211773034]
+[node name="GoldLabel" type="Label" parent="Stats" unique_id=167964984]
+layout_mode = 2
+
+[node name="WeaponLabel" type="Label" parent="Stats" unique_id=1749857655]
 layout_mode = 2
