@@ -3108,13 +3108,17 @@ def run_export(
         "--mode",
         help="The export flavor to run (release/debug/pack); default release.",
     ),
-    # --output (#170): override the preset's configured export_path. A filesystem
-    # path normalized ONCE at the CLI layer (ADR-0006: ~ expanded), like every
-    # other path-taking command.
+    # --output (#170/#403): override the preset's configured export_path. A
+    # filesystem path is normalized ONCE at the params-model layer: ~ expands and
+    # relative paths resolve against the invoker's cwd before the native export
+    # runner changes cwd to the project.
     output: Optional[str] = typer.Option(
         None,
         "--output",
-        help="Override the preset's configured export_path; write the artifact here instead.",
+        help=(
+            "Override the preset's configured export_path; relative filesystem "
+            "paths resolve against the invoker's current working directory."
+        ),
     ),
     json_output: bool = json_option(),
     schema: bool = EXPORT_RUN_COMMAND.schema_option(),
@@ -3135,14 +3139,17 @@ def run_export(
     (issue #187), so this command is the same thin shape as every other: build
     params → invoke the operation → emit.
 
-    ``--mode`` selects the export flavor (release/debug/pack; default release) and
-    ``--output`` overrides the preset's configured ``export_path``; both are
-    reflected in the native invocation and the reported result (#170).
+    ``--mode`` selects the export flavor (release/debug/pack; default release).
+    ``--output`` overrides the preset's configured ``export_path`` and resolves a
+    relative filesystem path against the invoker's current working directory;
+    preset ``export_path`` values keep Godot's project-relative convention. The
+    reported ``output_path`` is the resolved artifact path, and missing output
+    parent directories are created and reported in ``created_dirs`` (#402/#403).
     """
     # Build the params model from the argv options (the single source of truth,
-    # ADR-0015): ExportRunParams.output is a NormalizedPath, so the model ~-expands
-    # it (ADR-0006) — argv and --params-json normalize identically. Dispatch through
-    # the descriptor's recipe (ADR-0023), exactly like every other recipe command.
+    # ADR-0015): ExportRunParams.output is an ExportOutputPath, so argv and
+    # --params-json normalize identically. Dispatch through the descriptor's
+    # recipe (ADR-0023), exactly like every other recipe command.
     _dispatch_recipe(
         EXPORT_RUN_COMMAND,
         ExportRunParams(preset=preset, mode=mode, output=output),

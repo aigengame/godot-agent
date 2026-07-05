@@ -32,7 +32,8 @@ def _classify(output: RunResult) -> ExportRunResult | Failure:
         preset="Linux/X11",
         platform="Linux/X11",
         mode=ExportRunMode.RELEASE,
-        output_path="build/game.x86_64",
+        output_path="/tmp/project/build/game.x86_64",
+        created_dirs=[],
     )
 
 
@@ -45,7 +46,8 @@ def test_clean_export_synthesizes_success_result():
         preset="Linux/X11",
         platform="Linux/X11",
         mode=ExportRunMode.RELEASE,
-        output_path="build/game.x86_64",
+        output_path="/tmp/project/build/game.x86_64",
+        created_dirs=[],
         warnings=[],
     )
 

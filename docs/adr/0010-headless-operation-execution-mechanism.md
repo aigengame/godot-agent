@@ -73,7 +73,11 @@ native run:
   structured fields, with **no** native export spawned — in particular
   `export_templates_missing` is *not* inferred from the engine's "due to configuration
   errors" stderr (which would violate ADR-0002 and also misfires for a
-  merely-misconfigured preset).
+  merely-misconfigured preset). After those checks pass, `gda` creates any missing
+  filesystem parent directories for the resolved output path; if that preflight cannot
+  create the parent, it returns the classifier-source `export_output_parent_failed`
+  before Godot runs, rather than letting locale/version-dependent engine prose decide
+  the public error.
 - **Native run (classifier on exit code).** Only the export execution itself uses the
   native CLI mode. A clean exit is the typed success result (with any advisory
   `WARNING` lines parsed off stderr as best-effort diagnostics); any non-zero exit is

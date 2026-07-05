@@ -2,7 +2,8 @@
 
 ``export run`` is the one command whose recipe — resolve the preset via
 ``export-get`` → structured preflight (effective destination + template
-readiness, ADR-0010) → native ``--export-<mode>`` run → classify — used to live
+readiness + output parent dirs, ADR-0010) → native ``--export-<mode>`` run →
+classify — used to live
 inside the Typer function and could only be exercised through a CliRunner. The
 recipe now lives in :func:`gda.export_run.run_export_operation`, a PURE function
 that RETURNS the outcome (never emits/exits).
@@ -68,6 +69,7 @@ def _run(
     preset: str = "Linux/X11",
     mode: ExportRunMode = ExportRunMode.RELEASE,
     output_override: str | None = None,
+    project: Path = Path("/tmp/project"),
 ):
     """Invoke the operation with both seams pinned to the given fakes."""
     return run_export_operation(
@@ -75,31 +77,87 @@ def _run(
         mode=mode,
         output_override=output_override,
         godot="/tmp/Godot",
-        project=Path("/tmp/project"),
+        project=project,
         make_runner=lambda binary, project=None: get_runner,
         make_export_runner=lambda binary, project=None: export_runner,
     )
 
 
-def test_success_returns_typed_result_to_configured_path():
+def test_success_returns_typed_result_to_configured_path(tmp_path):
     # The happy path: export-get resolves the preset, the preflight passes, the
     # native export exits clean, and the operation RETURNS the typed
     # ExportRunResult (not an emitted envelope) targeting the configured path.
+    project = tmp_path / "project"
+    project.mkdir()
     get_runner = _get_runner()
     export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
 
-    outcome = _run(get_runner=get_runner, export_runner=export_runner)
+    outcome = _run(get_runner=get_runner, export_runner=export_runner, project=project)
+    expected = str(project / "build" / "game.x86_64")
 
     assert isinstance(outcome, ExportRunResult)
     assert outcome.preset == "Linux/X11"
     assert outcome.platform == "Linux/X11"
     assert outcome.mode is ExportRunMode.RELEASE
-    assert outcome.output_path == "build/game.x86_64"
+    assert outcome.output_path == expected
     assert outcome.warnings == []
     # Phase sequencing: export-get ran first, then the native export to the
     # configured path keyed on the export-get-resolved name.
     assert get_runner.calls == [("export-get", {"preset": "Linux/X11"})]
-    assert export_runner.calls == [("Linux/X11", "release", "build/game.x86_64")]
+    assert export_runner.calls == [("Linux/X11", "release", expected)]
+
+
+def test_configured_export_path_reports_absolute_project_path(tmp_path):
+    # issue #403: a preset export_path keeps Godot's project-relative convention,
+    # but the native invocation/result should carry the resolved absolute path so
+    # consumers can locate the artifact without knowing the export runner cwd.
+    project = tmp_path / "project"
+    project.mkdir()
+    get_runner = _get_runner()
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+
+    outcome = run_export_operation(
+        preset="Linux/X11",
+        mode=ExportRunMode.RELEASE,
+        output_override=None,
+        godot="/tmp/Godot",
+        project=project,
+        make_runner=lambda binary, project=None: get_runner,
+        make_export_runner=lambda binary, project=None: export_runner,
+    )
+
+    assert isinstance(outcome, ExportRunResult)
+    expected = str(project / "build" / "game.x86_64")
+    assert outcome.output_path == expected
+    assert export_runner.calls == [("Linux/X11", "release", expected)]
+
+
+def test_configured_export_path_with_relative_project_reports_absolute_path(
+    monkeypatch, tmp_path
+):
+    # issue #403 also applies when --project was given as a relative path:
+    # resolve_project_dir preserves that relative path, so export run must anchor
+    # it to the invoker cwd before resolving the preset's export_path.
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(tmp_path)
+    get_runner = _get_runner()
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+
+    outcome = run_export_operation(
+        preset="Linux/X11",
+        mode=ExportRunMode.RELEASE,
+        output_override=None,
+        godot="/tmp/Godot",
+        project=Path("project"),
+        make_runner=lambda binary, project=None: get_runner,
+        make_export_runner=lambda binary, project=None: export_runner,
+    )
+
+    expected = str(project / "build" / "game.x86_64")
+    assert isinstance(outcome, ExportRunResult)
+    assert outcome.output_path == expected
+    assert export_runner.calls == [("Linux/X11", "release", expected)]
 
 
 def test_phase1_failure_returns_the_failure():
@@ -137,39 +195,137 @@ def test_export_path_unset_when_no_override_and_empty_configured_path():
     assert export_runner.calls == []
 
 
-def test_output_override_supplies_destination_when_configured_path_empty():
+def test_output_override_supplies_destination_when_configured_path_empty(tmp_path):
     # An --output override supplies a destination even when the configured
     # export_path is empty: the unset preflight does NOT fire and the export runs
     # to the override (override-wins-over-configured).
     get_runner = _get_runner({**GET_RESULT, "export_path": ""})
     export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+    output = str(tmp_path / "dist" / "custom.x86_64")
 
     outcome = _run(
         get_runner=get_runner,
         export_runner=export_runner,
-        output_override="dist/custom.x86_64",
+        output_override=output,
+        project=tmp_path / "project",
     )
 
     assert isinstance(outcome, ExportRunResult)
-    assert outcome.output_path == "dist/custom.x86_64"
-    assert export_runner.calls == [("Linux/X11", "release", "dist/custom.x86_64")]
+    assert outcome.output_path == output
+    assert export_runner.calls == [("Linux/X11", "release", output)]
 
 
-def test_output_override_wins_over_configured_path():
+def test_output_override_wins_over_configured_path(tmp_path):
     # When BOTH a configured export_path and an --output override exist, the
     # override wins, for both the native invocation and the reported output_path.
+    get_runner = _get_runner()
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+    output = str(tmp_path / "dist" / "custom.x86_64")
+
+    outcome = _run(
+        get_runner=get_runner,
+        export_runner=export_runner,
+        output_override=output,
+        project=tmp_path / "project",
+    )
+
+    assert isinstance(outcome, ExportRunResult)
+    assert outcome.output_path == output
+    assert export_runner.calls == [("Linux/X11", "release", output)]
+
+
+def test_output_override_parent_dirs_are_created_and_reported(tmp_path):
+    # issue #402: the native export should not be allowed to fail with raw engine
+    # prose just because the requested destination's parent dirs are missing.
+    # The structured preflight creates them before the native run and reports
+    # exactly what it created, outermost to innermost.
+    get_runner = _get_runner({**GET_RESULT, "export_path": ""})
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+    output = tmp_path / "dist" / "nested" / "custom.x86_64"
+
+    outcome = _run(
+        get_runner=get_runner,
+        export_runner=export_runner,
+        output_override=str(output),
+        project=tmp_path / "project",
+    )
+
+    assert isinstance(outcome, ExportRunResult)
+    assert output.parent.is_dir()
+    assert outcome.created_dirs == [
+        str(tmp_path / "dist"),
+        str(tmp_path / "dist" / "nested"),
+    ]
+    assert export_runner.calls == [("Linux/X11", "release", str(output))]
+
+
+def test_configured_export_path_parent_dirs_are_created_and_reported(tmp_path):
+    # issue #402 composes with #403: the preset's configured relative export_path
+    # is first resolved against the project directory, then that absolute parent
+    # directory is created before the native export runs.
+    project = tmp_path / "project"
+    project.mkdir()
     get_runner = _get_runner()
     export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
 
     outcome = _run(
         get_runner=get_runner,
         export_runner=export_runner,
-        output_override="dist/custom.x86_64",
+        project=project,
     )
 
+    expected = project / "build" / "game.x86_64"
     assert isinstance(outcome, ExportRunResult)
-    assert outcome.output_path == "dist/custom.x86_64"
-    assert export_runner.calls == [("Linux/X11", "release", "dist/custom.x86_64")]
+    assert expected.parent.is_dir()
+    assert outcome.output_path == str(expected)
+    assert outcome.created_dirs == [str(project / "build")]
+    assert export_runner.calls == [("Linux/X11", "release", str(expected))]
+
+
+def test_configured_export_path_keeps_literal_tilde_project_relative(tmp_path):
+    # A preset export_path is Godot configuration, not a CLI path: "~" remains a
+    # literal project-relative path component instead of expanding to $HOME.
+    project = tmp_path / "project"
+    project.mkdir()
+    get_runner = _get_runner({**GET_RESULT, "export_path": "~/build/game.zip"})
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+
+    outcome = _run(
+        get_runner=get_runner,
+        export_runner=export_runner,
+        project=project,
+    )
+
+    expected = project / "~" / "build" / "game.zip"
+    assert isinstance(outcome, ExportRunResult)
+    assert outcome.output_path == str(expected)
+    assert outcome.created_dirs == [str(project / "~"), str(project / "~" / "build")]
+    assert export_runner.calls == [("Linux/X11", "release", str(expected))]
+
+
+def test_uncreatable_output_parent_returns_export_failure_before_native_run(tmp_path):
+    # If a path component that must be a directory is already a file, report a
+    # typed operation error naming the output path instead of delegating to
+    # Godot's locale/version-dependent stderr.
+    get_runner = _get_runner({**GET_RESULT, "export_path": ""})
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+    blocking_file = tmp_path / "dist"
+    blocking_file.write_text("not a directory\n", encoding="utf-8")
+    output = blocking_file / "custom.x86_64"
+
+    outcome = _run(
+        get_runner=get_runner,
+        export_runner=export_runner,
+        output_override=str(output),
+        project=tmp_path / "project",
+    )
+
+    assert isinstance(outcome, Failure)
+    assert outcome.error.code == "export_output_parent_failed"
+    assert str(output) in outcome.error.message
+    assert str(blocking_file) in outcome.error.message
+    assert outcome.error.diagnostics == ""
+    assert export_runner.calls == []
 
 
 def test_templates_missing_for_release_and_debug():
@@ -189,20 +345,26 @@ def test_templates_missing_for_release_and_debug():
         assert export_runner.calls == [], mode
 
 
-def test_pack_is_exempt_from_templates_preflight():
+def test_pack_is_exempt_from_templates_preflight(tmp_path):
     # --mode pack produces project data only and needs NO platform templates: with
     # templates_installed=False, pack does NOT emit export_templates_missing — it
     # proceeds straight to the native runner.
+    project = tmp_path / "project"
+    project.mkdir()
     get_runner = _get_runner({**GET_RESULT, "templates_installed": False})
     export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
 
     outcome = _run(
-        get_runner=get_runner, export_runner=export_runner, mode=ExportRunMode.PACK
+        get_runner=get_runner,
+        export_runner=export_runner,
+        mode=ExportRunMode.PACK,
+        project=project,
     )
+    expected = str(project / "build" / "game.x86_64")
 
     assert isinstance(outcome, ExportRunResult)
     assert outcome.mode is ExportRunMode.PACK
-    assert export_runner.calls == [("Linux/X11", "pack", "build/game.x86_64")]
+    assert export_runner.calls == [("Linux/X11", "pack", expected)]
 
 
 # --- Transactional harness strip (ADR-0018: a shipped build must never carry the
@@ -225,10 +387,11 @@ def _project_with_harness(tmp_path: Path) -> Path:
 
 def _run_export_in(project: Path, export_runner) -> object:
     """Invoke run_export_operation against a real ``project`` with seams pinned."""
+    output = project / "build" / "game.zip"
     return run_export_operation(
         preset="Linux/X11",
         mode=ExportRunMode.PACK,  # pack: no template preflight, runs the native seam
-        output_override="build/game.zip",
+        output_override=str(output),
         godot="/tmp/Godot",
         project=project,
         make_runner=lambda binary, project=None: _get_runner(),
@@ -298,7 +461,9 @@ def test_export_is_a_noop_when_no_harness_installed(tmp_path):
     assert isinstance(outcome, ExportRunResult)
     assert not (tmp_path / "addons" / "gda_harness").exists()
     assert "GdaHarness" not in (tmp_path / "project.godot").read_text(encoding="utf-8")
-    assert export_runner.calls == [("Linux/X11", "pack", "build/game.zip")]
+    assert export_runner.calls == [
+        ("Linux/X11", "pack", str(tmp_path / "build" / "game.zip"))
+    ]
 
 
 def test_export_restores_a_stale_harness_body_unchanged_not_a_fresh_install(tmp_path):
@@ -345,10 +510,12 @@ def test_export_does_not_add_autoload_for_a_stray_harness_file(tmp_path):
     assert stray.read_bytes() == b"extends Node\n# stray, no autoload entry\n"
 
 
-def test_native_nonzero_exit_returns_export_failed():
+def test_native_nonzero_exit_returns_export_failed(tmp_path):
     # A non-zero native export with no recognized stderr signature is classified
     # as the generic export_failed Failure; the engine's stderr is preserved as
     # advisory diagnostics.
+    project = tmp_path / "project"
+    project.mkdir()
     get_runner = _get_runner()
     export_runner = FakeExportRunner(
         RunResult(
@@ -356,7 +523,7 @@ def test_native_nonzero_exit_returns_export_failed():
         )
     )
 
-    outcome = _run(get_runner=get_runner, export_runner=export_runner)
+    outcome = _run(get_runner=get_runner, export_runner=export_runner, project=project)
 
     assert isinstance(outcome, Failure)
     assert outcome.error.code == "export_failed"

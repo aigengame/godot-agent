@@ -40,6 +40,13 @@ inventing its own.
 This applies to every path-taking command, not just `scene` — it is the project
 of record for the whole Phase-1 surface.
 
+`gda export run --output` is the one export-specific filesystem carve-out: the
+native export process runs with the Godot project as its cwd, so a relative
+`--output` is resolved against the invoker's cwd before the native export is
+spawned. Preset-configured `export_path` values are not CLI paths and keep
+Godot's project-relative export semantics; in particular, `~` in a preset value
+is a literal path component, not shell-style home expansion.
+
 ## Consequences
 
 - `res://` resolves deterministically against the chosen project regardless of

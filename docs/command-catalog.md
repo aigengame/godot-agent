@@ -527,6 +527,16 @@ a missing action is `unknown_setting`, mirroring `remove-autoload`. A failed sav
 | `gda export run` | Run an export preset via headless CLI |
 | `gda export get` | Export-template install status / preset info |
 
+`gda export run` resolves its effective destination before the native export:
+`--output` wins over the preset's `export_path`; a relative `--output` resolves
+against the invoker's current working directory, while a preset `export_path`
+keeps Godot's project-relative convention (including a literal `~` path
+component; no shell-style home expansion). The JSON `output_path` is the
+resolved absolute artifact path. Missing output parent directories are created
+before the native export and reported in `created_dirs`, outermost to innermost;
+an uncreatable parent is reported as `export_output_parent_failed` before Godot
+runs.
+
 ### Asset-file groups (create/edit files; headless)
 
 These create or edit resource files (`.gdshader`, `.tres`) and so are headless.

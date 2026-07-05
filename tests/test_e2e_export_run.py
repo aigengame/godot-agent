@@ -2,8 +2,8 @@
 
 Unlike every other command, ``export run`` does not route through operations.gd:
 the export subsystem is editor-only, so the export is a native ``--export-release``
-invocation, and ``gda`` synthesizes the typed result from the subprocess's exit
-code (#121 fixes the mode to release; --mode/--output are deferred to #170). These
+invocation by default, and ``gda`` synthesizes the typed result from the subprocess's exit
+code (#121; ``--mode`` / ``--output`` are selectable via #170). These
 tests exercise that REAL path — the real ``SubprocessExportRunner`` spawning the
 real Godot, classified by the real ``classify_export_run`` — plus the real
 ``export get`` structured template-readiness preflight.
@@ -22,8 +22,10 @@ so when templates are absent that release test asserts the structured
 project data only (a PCK/ZIP) and needs **no** platform export templates, so the
 pack test must RUN — not skip — on a template-less machine: it asserts exit 0 and
 the ``.pck`` on disk, giving the on-disk verification a release export cannot give
-here. The structured-failure paths that need no templates (unknown preset, unset
-path) run unconditionally.
+here. ``--output`` relative paths resolve against the invoker's cwd (#403); preset
+``export_path`` values keep Godot's project-relative convention. The
+structured-failure paths that need no templates (unknown preset, unset path) run
+unconditionally.
 """
 
 import json
@@ -116,8 +118,8 @@ def test_export_run_unknown_preset_reuses_export_get_error(godot_project):
 @pytest.mark.e2e
 def test_export_run_unset_path_yields_export_path_unset(godot_project):
     # A preset whose configured export_path is empty is export_path_unset —
-    # reported before any export runs, so it needs no templates (--output, which
-    # could have supplied a path, is deferred to #170).
+    # reported before any export runs, so it needs no templates. --output could
+    # have supplied the effective destination, but this call intentionally omits it.
     (godot_project / "export_presets.cfg").write_text(
         EXPORT_PRESETS_CFG, encoding="utf-8"
     )
@@ -136,7 +138,7 @@ def test_export_run_writes_to_configured_export_path(godot_project):
     # PRIMARY acceptance behavior (#121): `gda export run --preset NAME` (no
     # --output) exports to the preset's CONFIGURED export_path. The preset writes
     # to res://build/game.x86_64, so the artifact lands at <project>/build/... and
-    # the reported output_path is the configured string verbatim.
+    # the reported output_path is the resolved absolute artifact path.
     #
     # The configured parent directory is created first (a real export writes the
     # binary there). When templates are absent the real export cannot complete —
@@ -156,7 +158,6 @@ def test_export_run_writes_to_configured_export_path(godot_project):
     )
     configured_rel = "build/game.x86_64"
     artifact = godot_project / configured_rel
-    artifact.parent.mkdir(parents=True, exist_ok=True)  # the preset's configured dir
     gda = _gda_project(godot_project)
 
     run = gda("export", "run", "--preset", "Linux/X11", "--json")
@@ -180,8 +181,10 @@ def test_export_run_writes_to_configured_export_path(godot_project):
     assert data["preset"] == "Linux/X11"
     assert data["platform"] == "Linux/X11"
     assert data["mode"] == "release"
-    # (b) The reported output_path equals the preset's configured export_path.
-    assert data["output_path"] == configured_rel
+    # (b) The reported output_path is the preset export_path resolved against the
+    # project directory, and the missing parent directory was created pre-export.
+    assert data["output_path"] == str(artifact)
+    assert data["created_dirs"] == [str(artifact.parent)]
     assert isinstance(data["warnings"], list)
     # (a) The artifact was actually written to the configured path on disk.
     assert artifact.exists(), f"expected artifact at configured path {artifact}"
@@ -206,9 +209,7 @@ def test_export_run_pack_writes_pck_without_templates(godot_project):
     (godot_project / "main.gd").write_text(
         "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
     )
-    override_rel = "dist/packed.pck"
-    artifact = godot_project / override_rel
-    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact = godot_project / "dist" / "packed.pck"
     configured = godot_project / "build/game.x86_64"
     gda = _gda_project(godot_project)
 
@@ -220,7 +221,7 @@ def test_export_run_pack_writes_pck_without_templates(godot_project):
         "--mode",
         "pack",
         "--output",
-        override_rel,
+        str(artifact),
         "--json",
     )
 
@@ -230,7 +231,8 @@ def test_export_run_pack_writes_pck_without_templates(godot_project):
     assert data["mode"] == "pack"
     # The reported output_path is the override, and the .pck lands there on disk —
     # NOT at the preset's configured export_path.
-    assert data["output_path"] == override_rel
+    assert data["output_path"] == str(artifact)
+    assert data["created_dirs"] == [str(artifact.parent)]
     assert artifact.exists(), f"expected .pck at the override path {artifact}"
     assert not configured.exists(), "the override must not write the configured path"
 
@@ -251,9 +253,7 @@ def test_export_run_pack_accepts_a_relative_project(godot_project):
     (godot_project / "main.gd").write_text(
         "extends Node\n\nfunc _ready() -> void:\n\tpass\n", encoding="utf-8"
     )
-    override_rel = "dist/packed.pck"
-    artifact = godot_project / override_rel
-    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact = godot_project / "dist" / "packed.pck"
 
     # Drive gda from the project's PARENT with a RELATIVE --project (the failing
     # case) — NOT the absolute path _gda_project passes.
@@ -267,7 +267,7 @@ def test_export_run_pack_accepts_a_relative_project(godot_project):
             "--mode",
             "pack",
             "--output",
-            override_rel,
+            str(artifact),
             "--json",
             "--godot",
             str(GODOT),
@@ -284,7 +284,8 @@ def test_export_run_pack_accepts_a_relative_project(godot_project):
     assert run.returncode == 0, run.stdout + run.stderr
     data = json.loads(run.stdout)
     assert data["mode"] == "pack"
-    assert data["output_path"] == override_rel
+    assert data["output_path"] == str(artifact)
+    assert data["created_dirs"] == [str(artifact.parent)]
     # The .pck landed INSIDE the project — the relative --project resolved to the
     # same directory an absolute one would, exactly as the editor resolves it.
     assert artifact.exists(), f"expected .pck at {artifact} for a relative --project"
@@ -312,9 +313,7 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
     assert harness_file.exists(), "precondition: harness installed on disk"
     assert HARNESS_AUTOLOAD_NAME in project_godot.read_text(encoding="utf-8")
 
-    override_rel = "dist/packed.zip"
-    artifact = godot_project / override_rel
-    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact = godot_project / "dist" / "packed.zip"
     gda = _gda_project(godot_project)
 
     run = gda(
@@ -325,11 +324,14 @@ def test_export_run_pack_omits_installed_harness_and_restores_it(godot_project):
         "--mode",
         "pack",
         "--output",
-        override_rel,
+        str(artifact),
         "--json",
     )
 
     assert run.returncode == 0, run.stdout + run.stderr
+    data = json.loads(run.stdout)
+    assert data["output_path"] == str(artifact)
+    assert data["created_dirs"] == [str(artifact.parent)]
     assert artifact.exists(), f"expected .zip at the override path {artifact}"
     with zipfile.ZipFile(artifact) as zf:
         names = zf.namelist()

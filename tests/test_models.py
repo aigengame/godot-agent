@@ -651,14 +651,16 @@ def test_export_run_result_round_trips_each_mode():
             "preset": "Linux/X11",
             "platform": "Linux/X11",
             "mode": mode.value,
-            "output_path": "build/game.x86_64",
+            "output_path": "/tmp/project/build/game.x86_64",
+            "created_dirs": [],
             "warnings": [],
         }
 
         ran = ExportRunResult.model_validate(payload)
 
         assert ran.mode is mode
-        assert ran.output_path == "build/game.x86_64"
+        assert ran.output_path == "/tmp/project/build/game.x86_64"
+        assert ran.created_dirs == []
         assert json.loads(ran.model_dump_json()) == payload
 
 
@@ -671,6 +673,7 @@ def test_export_run_result_reports_overridden_output_path():
         "platform": "Linux/X11",
         "mode": "pack",
         "output_path": "/tmp/dist/game.pck",
+        "created_dirs": ["/tmp/dist"],
         "warnings": ["No export template found at the expected icon path."],
     }
 
@@ -678,6 +681,7 @@ def test_export_run_result_reports_overridden_output_path():
 
     assert ran.mode is ExportRunMode.PACK
     assert ran.output_path == "/tmp/dist/game.pck"
+    assert ran.created_dirs == ["/tmp/dist"]
     assert ran.warnings == ["No export template found at the expected icon path."]
     assert json.loads(ran.model_dump_json()) == payload
 
