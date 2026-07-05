@@ -1034,6 +1034,78 @@ def test_node_set_coerces_and_round_trips_via_get(
 
 
 @pytest.mark.e2e
+def test_node_set_coerces_json_dictionary_and_array_via_get(godot_project):
+    # #422 extends the shared coercion block, so the headless operations.gd side
+    # must accept the same JSON container forms the live harness accepts.
+    scene_path = godot_project / "main.tscn"
+    (godot_project / "player.gd").write_text(
+        "extends Node2D\n"
+        '@export var stats: Dictionary = {"hp": 1}\n'
+        '@export var tags: Array = ["starter"]\n',
+        encoding="utf-8",
+    )
+    scene_path.write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script = ExtResource("1")\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    stats_set = gda(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        ".",
+        "--property",
+        "stats",
+        "--value",
+        '{"hp":7,"state":"ready"}',
+        "--json",
+    )
+    assert stats_set.returncode == 0, stats_set.stdout + stats_set.stderr
+    assert json.loads(stats_set.stdout) == {
+        "scene_path": str(scene_path),
+        "path": ".",
+        "property": "stats",
+        "type": "Dictionary",
+        "value": {"hp": 7, "state": "ready"},
+    }
+
+    tags_set = gda(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        ".",
+        "--property",
+        "tags",
+        "--value",
+        '["rare","consumable"]',
+        "--json",
+    )
+    assert tags_set.returncode == 0, tags_set.stdout + tags_set.stderr
+    assert json.loads(tags_set.stdout) == {
+        "scene_path": str(scene_path),
+        "path": ".",
+        "property": "tags",
+        "type": "Array",
+        "value": ["rare", "consumable"],
+    }
+
+    got = gda("node", "get", str(scene_path), "--node", ".", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    props = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+    assert props["stats"]["value"] == {
+        "hp": 7,
+        "state": "ready",
+    }
+    assert props["tags"]["value"] == ["rare", "consumable"]
+
+
+@pytest.mark.e2e
 def test_node_set_unknown_property_yields_unknown_property_and_leaves_file_unchanged(
     godot_project,
 ):

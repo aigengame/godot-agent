@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6e5b0755318c784495719397c6afdf6496a75c9d031dc676ff5e1a59d70d692a -->
+<!-- gda-readme-i18n: source=README.md sha256=235551b65421a770a544d8ae977ae30067c34c56f5adf8eeb1170684191de707 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -468,9 +468,9 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | 命令 | 作用 |
 | ------- | ------------ |
 | `game tree` | 读取正在运行的游戏的运行时场景树（在 `_ready` 之后）。 |
-| `game get` | 按节点路径读取一个运行时节点的实时属性。 |
+| `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
 | `game rect` | 按节点路径读取一个运行时 Control 的渲染后视口矩形。 |
-| `game set` | 在正在运行的游戏上设置一个运行时节点属性。 |
+| `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量。 |
 
 **`diag`** — 运行时诊断
 

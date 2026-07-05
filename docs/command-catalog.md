@@ -183,16 +183,18 @@ mutation integrity boundary above. The supported target types and the string for
 | `float` | a number literal (e.g. `1.5`, `3`) | a JSON number |
 | `String` | any string, verbatim | the string |
 | `StringName` | any string, verbatim | the string |
+| `Dictionary` | a JSON object string (e.g. `{"hp":7}`) | a JSON object |
+| `Array` | a JSON array string (e.g. `["wine","key"]`) | a JSON array |
 | `Vector2` | two comma-separated floats: `x,y` (e.g. `10,20`) | `[x, y]` |
 | `Vector2i` | two comma-separated integers: `x,y` | `[x, y]` |
 | `Color` | `#rrggbb` / `#rrggbbaa`, or 3–4 comma-separated floats in 0..1 (`r,g,b[,a]`) | `[r, g, b, a]` |
 
 Whitespace around a value or a component is tolerated. A property of any other type is still
 reported by `node get` — compound values arrive structured through the shared value projection
-(ADR-0035): a `Dictionary` as a JSON object, an `Array`/packed array as a JSON array, an `Object` as
-a reference / inline value projection or the `str()` fallback (see [`project`](#project)) — but
-`node set` cannot coerce to it yet and refuses with `uncoercible_value` — the coercible set grows as
-later slices need it.
+(ADR-0035): packed arrays project as JSON arrays, and an `Object` as a reference / inline value
+projection or the `str()` fallback (see [`project`](#project)) — but `node set` cannot coerce to
+those remaining types yet and refuses with `uncoercible_value` unless a separate assignment contract
+below applies.
 
 **Object-typed property assignment by `res://` reference** (ADR-0033, #363): for an **Object-typed**
 property that expects a Resource (sub)class — e.g. a `CollisionShape2D`'s `shape` (`Shape2D`) — `gda
@@ -207,7 +209,7 @@ resource — the same shape a subsequent `get` reads back (pass `--project` so `
 is a **separate, headless-only** step from the shared coercion above — value coercion keys only off
 the Variant type, but resolving an Object needs the expected-class hint on the property-list entry — so
 assigning a Resource on the live `gda game set` is **out of scope** and the coercion mirror is
-untouched. Its failure modes are **distinct structured codes**, never `uncoercible_value`: a non-`res://`
+unchanged for Object assignment. Its failure modes are **distinct structured codes**, never `uncoercible_value`: a non-`res://`
 value is `expected_resource_path`; a path that does not load as a Resource is `not_a_resource`; a loaded
 resource whose type is incompatible with the property's expected class is `resource_type_mismatch`. The
 **`script` property is excluded** and routed to `script attach` (#118) — setting it returns the
@@ -222,9 +224,12 @@ addressed `.tres` resource property's declared type and round-trips through `res
 as `node set` round-trips through `node get`; here `unknown_property` names a property absent on the
 **resource** rather than a node. The live `gda game set` (#220) applies the same coercion table to a
 **running** node's runtime property (the gda harness carries a verbatim copy of the coercion helpers,
-kept in sync by a drift test) and round-trips through `game get`; its failures are the LIVE-category
-`live_unknown_property` / `live_uncoercible_value` (the harness reports them in-band, mapped by the
-live classifier — see [Phase 2 — live domain commands](#phase-2--live-domain-commands-served-by-gda-daemon)).
+kept in sync by a drift test). When a `game get` / `game set` property name is explicit, the harness
+checks storage properties first, then attached-script variables; unfiltered `game get` keeps the
+storage-property listing and does not dump plain script variables. Live set round-trips through
+`game get`; its failures are the LIVE-category `live_unknown_property` / `live_uncoercible_value`
+(the harness reports them in-band, mapped by the live classifier — see
+[Phase 2 — live domain commands](#phase-2--live-domain-commands-served-by-gda-daemon)).
 
 **Structural edits** (established by #56): three commands restructure the node tree within a
 scene file, each a `load → locate → restructure → pack → save` round-trip that reuses the
@@ -584,9 +589,12 @@ headless is unaffected (4.4+, cross-platform).
 
 - **`game` (the running game's scene graph):** `game tree` reads the runtime scene
   tree (shipped — the Phase-2 bootstrap tracer, #7); runtime node property `game get` /
-  `game set` (shipped, #220) read and mutate a running node's live properties — the live
-  counterparts of headless `node get` / `node set`, applying the **same** value-coercion
-  table and round-tripping `set`→`get`. `game rect` (shipped, #419) reads a running
+  `game set` (shipped, #220, extended by #422) read and mutate a running node's live
+  properties — the live counterparts of headless `node get` / `node set`, applying the
+  **same** value-coercion table and round-tripping `set`→`get`. When a property is
+  explicitly named, storage properties are preferred and plain attached-script variables
+  are addressable as a fallback; unfiltered `game get` keeps the storage-property listing.
+  `game rect` (shipped, #419) reads a running
   `Control`'s rendered viewport-space rectangle via `Control.get_global_rect()`, returning
   `position` and `size` as the existing Vector2 projection. These commands address the
   node by its **runtime (absolute) path** as `game tree` reports it (e.g.

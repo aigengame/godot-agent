@@ -191,6 +191,8 @@ forms — several of which are not obvious from `--help`:
   (`"Vector2(48,72)"`) is **rejected** (`uncoercible_value`).
 - `Color` — `#rrggbb` / `#rrggbbaa`, or 3–4 **comma-separated** floats in 0..1:
   `--value "0.2,0.6,1,1"`.
+- `Dictionary` — a JSON object string: `--value '{"wine":2}'`.
+- `Array` — a JSON array string: `--value '["wine","key"]'`.
 - An **Object-typed** (Resource) property — a `res://….tres` path, as above.
 
 Whitespace is trimmed for the numeric forms — `bool`, `int` / `float`, the
@@ -198,7 +200,9 @@ Whitespace is trimmed for the numeric forms — `bool`, `int` / `float`, the
 `String` / `StringName` (taken verbatim) or the `res://` path (matched literally, so a
 leading space fails as `expected_resource_path`). The value-typed forms are shared by
 `node set`, `resource set`, `project set`, and live `game set`; the `res://` Resource
-assignment is headless-only (`node set` / `resource set`).
+assignment is headless-only (`node set` / `resource set`). For live `game get` /
+`game set`, an explicitly named attached-script variable is addressable after storage
+properties are checked; unfiltered `game get` still lists only storage properties.
 
 ## Tips
 

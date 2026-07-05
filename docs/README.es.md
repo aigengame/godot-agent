@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6e5b0755318c784495719397c6afdf6496a75c9d031dc676ff5e1a59d70d692a -->
+<!-- gda-readme-i18n: source=README.md sha256=235551b65421a770a544d8ae977ae30067c34c56f5adf8eeb1170684191de707 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -479,9 +479,9 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | Comando | Qué hace |
 | ------- | ------------ |
 | `game tree` | Lee el árbol de escena en runtime del juego en ejecución (después de `_ready`). |
-| `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo. |
+| `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo; los nombres explícitos pueden acceder a variables del script adjunto. |
 | `game rect` | Lee el rectángulo renderizado en viewport de un Control de runtime por ruta de nodo. |
-| `game set` | Define una propiedad de un nodo de runtime en el juego en ejecución. |
+| `game set` | Define una propiedad de un nodo de runtime, o una variable explícita del script adjunto, en el juego en ejecución. |
 
 **`diag`** — diagnósticos de runtime
 

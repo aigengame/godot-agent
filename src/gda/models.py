@@ -3012,34 +3012,40 @@ _RUNTIME_NODE_DESC = (
 
 
 class GameGetParams(BaseModel):
-    """The params of ``gda game get``: read a running node's runtime properties (#220).
+    """The params of ``gda game get``: read a running node's runtime properties (#220, #422).
 
     The live counterpart of :class:`NodeGetParams`, addressed by the runtime
     (absolute) node path rather than a ``.tscn`` file + root-relative node path:
     there is no file, only the live SceneTree of the engine session. ``property``
-    optionally narrows the read to one property.
+    optionally narrows the read to one property. When explicitly named, a plain
+    attached-script variable is addressable after storage properties are checked;
+    unfiltered reads still list only the storage-property surface.
     """
 
     node: str = Field(description=_RUNTIME_NODE_DESC)
     property: str | None = Field(
         default=None,
-        description="If set, read only this one property instead of the whole storage surface.",
+        description=(
+            "If set, read only this one property. Explicit names first match the "
+            "storage surface, then attached-script variables; unset keeps the "
+            "default storage-property listing."
+        ),
     )
 
 
 class GameGetResult(BaseModel):
-    """The result of ``gda game get``: a running node's runtime properties (#220).
+    """The result of ``gda game get``: a running node's runtime properties (#220, #422).
 
     The live counterpart of :class:`NodeGetResult` (no ``scene_path`` — there is
     no file): echoes the addressed node (runtime ``path``/``name``/``type``) and
-    its storage properties, each a typed :class:`NodeProperty`, so an agent reads
-    the running node's live state and can feed any property back into ``game set``.
+    its storage properties, each a typed :class:`NodeProperty`; an explicitly named
+    plain attached-script variable can also appear as the single returned property.
     Each value goes through the same recursive value projection the headless reads
-    use (ADR-0035): compound values arrive structured, and a whitelisted value
-    Object (an ``InputEvent`` subclass) as an :class:`InlineValueProjection` —
-    while a NON-whitelisted runtime Object (e.g. a live ``Node``-valued property)
-    stays the ``str()`` fallback, the whitelist being the boundary that keeps the
-    shared projection safe on the live side.
+    use (ADR-0035): compound values arrive structured, and a whitelisted value Object
+    (an ``InputEvent`` subclass) as an :class:`InlineValueProjection` — while a
+    NON-whitelisted runtime Object (e.g. a live ``Node``-valued property) stays the
+    ``str()`` fallback, the whitelist being the boundary that keeps the shared
+    projection safe on the live side.
     """
 
     path: str = Field(description="The addressed node's runtime (absolute) path.")
@@ -3080,23 +3086,31 @@ class GameRectResult(BaseModel):
 
 
 class GameSetParams(BaseModel):
-    """The params of ``gda game set``: mutate a running node's runtime property (#220).
+    """The params of ``gda game set``: mutate a running node's runtime property (#220, #422).
 
     The live counterpart of :class:`NodeSetParams`, addressed by the runtime
     (absolute) node path. ``property`` names the property; ``value`` is the CLI
-    string value, coerced to the property's declared Godot type by the gda harness
-    (the SAME coercion table headless ``node set`` uses) and applied at a frame
-    boundary (ADR-0020). The mutation is bound to the session, not persisted.
+    string value, coerced to the property's declared or inferred target Godot type
+    by the gda harness (the SAME coercion table headless ``node set`` uses) and
+    applied at a frame boundary (ADR-0020). Explicit names first target storage
+    properties, then plain attached-script variables; script-variable mutations
+    are bound to the session, not persisted.
     """
 
     node: str = Field(description=_RUNTIME_NODE_DESC)
-    property: str = Field(description="The property to set (e.g. position, visible).")
+    property: str = Field(
+        description=(
+            "The property to set (e.g. position, visible). Explicit names first "
+            "target storage properties, then attached-script variables."
+        )
+    )
     value: str = Field(
         description=(
             "The value to set, as a string. The gda harness coerces it to the "
-            "property's declared Godot type (the same coercion the node group "
-            "established; see the command catalog's 'Property value coercion'); "
-            "an uncoercible value is a clean error."
+            "property's declared or inferred target Godot type (the same coercion "
+            "the node group established, including JSON objects for Dictionary and "
+            "JSON arrays for Array; see the command catalog's 'Property value "
+            "coercion'); an uncoercible value is a clean error."
         )
     )
 
@@ -3113,7 +3127,7 @@ class GameSetResult(BaseModel):
     path: str = Field(description="The addressed node's runtime (absolute) path.")
     property: str
     type: str = Field(
-        description="The property's declared Godot type the value was coerced to."
+        description="The property's declared or inferred target Godot type the value was coerced to."
     )
     value: Any = Field(
         description=(

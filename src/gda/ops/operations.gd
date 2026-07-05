@@ -4780,6 +4780,10 @@ func _coerce_value(raw: String, type: int) -> Variant:
 			return raw
 		TYPE_STRING_NAME:
 			return StringName(raw)
+		TYPE_DICTIONARY:
+			return _coerce_dictionary(raw)
+		TYPE_ARRAY:
+			return _coerce_array(raw)
 		TYPE_VECTOR2:
 			var parts: Variant = _coerce_float_list(raw, 2)
 			return Vector2(parts[0], parts[1]) if parts != null else null
@@ -4869,6 +4873,20 @@ func _coerce_color(raw: String) -> Variant:
 	if out.size() == 3:
 		return Color(out[0], out[1], out[2])
 	return Color(out[0], out[1], out[2], out[3])
+
+
+func _coerce_dictionary(raw: String) -> Variant:
+	var parsed: Variant = JSON.parse_string(raw)
+	if parsed is Dictionary:
+		return parsed
+	return null
+
+
+func _coerce_array(raw: String) -> Variant:
+	var parsed: Variant = JSON.parse_string(raw)
+	if parsed is Array:
+		return parsed
+	return null
 # --- END shared coercion ---
 
 

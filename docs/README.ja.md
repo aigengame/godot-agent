@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=6e5b0755318c784495719397c6afdf6496a75c9d031dc676ff5e1a59d70d692a -->
+<!-- gda-readme-i18n: source=README.md sha256=235551b65421a770a544d8ae977ae30067c34c56f5adf8eeb1170684191de707 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -485,9 +485,9 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | コマンド | 機能 |
 | ------- | ------------ |
 | `game tree` | 実行中ゲームのランタイムシーンツリーを読み取ります(`_ready` の後)。 |
-| `game get` | ランタイムノードのライブプロパティをノードパスで指定して読み取ります。 |
+| `game get` | ランタイムノードのライブプロパティをノードパスで読み取ります。明示名ならアタッチ済みスクリプト変数も対象にできます。 |
 | `game rect` | ランタイム Control のレンダリング済みビューポート矩形をノードパスで読み取ります。 |
-| `game set` | 実行中ゲームのランタイムノードのプロパティを設定します。 |
+| `game set` | 実行中ゲームのランタイムノードプロパティ、または明示名のアタッチ済みスクリプト変数を設定します。 |
 
 **`diag`** — ランタイム診断
 
