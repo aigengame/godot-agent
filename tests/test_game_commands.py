@@ -15,6 +15,7 @@ from gda.exit_codes import EXIT_LIVE
 from gda.runner import RunResult
 from tests.support import (
     GAME_GET_RESULT,
+    GAME_RECT_RESULT,
     GAME_SET_RESULT,
     GAME_TREE_RESULT,
     error_sentinel,
@@ -246,6 +247,91 @@ def test_game_get_schema_is_self_describing():
     schema = json.loads(result.stdout)
     assert "input" in schema and "output" in schema
     assert schema["kind"] == "live"
+
+
+# --- game rect (live rendered Control rect read) -----------------------------
+
+
+def test_game_rect_emits_rendered_control_rect_through_the_live_channel(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(GAME_RECT_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "rect",
+            "/root/Main/HUD/Stats",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    data = json.loads(result.stdout)
+    assert data == GAME_RECT_RESULT
+    assert fake.calls == [("game-rect", {"node": "/root/Main/HUD/Stats"})]
+
+
+def test_game_rect_non_control_reports_live_not_control(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel("live_not_control", "node is not a Control"),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "rect",
+            "/root/Main/Player",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "live_not_control"
+    assert error["category"] == "live"
+
+
+def test_game_rect_missing_node_reports_live_node_not_found(monkeypatch, tmp_path):
+    inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=error_sentinel("live_node_not_found", "no node at runtime path"),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "game",
+            "rect",
+            "/root/Main/Ghost",
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == EXIT_LIVE, result.stdout + result.stderr
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "live_node_not_found"
+    assert error["category"] == "live"
 
 
 # --- game set (live runtime property write) ----------------------------------

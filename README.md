@@ -471,6 +471,7 @@ flags — `gda --help` is the authoritative list of what is installed.
 | ------- | ------------ |
 | `game tree` | Read the running game's runtime scene tree (after `_ready`). |
 | `game get` | Read a runtime node's live properties by node path. |
+| `game rect` | Read a runtime Control's rendered viewport rect by node path. |
 | `game set` | Set a runtime node property on the running game. |
 
 **`diag`** — runtime diagnostics

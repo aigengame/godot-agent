@@ -60,6 +60,7 @@ BARE_FAIL_CODE = re.compile(r'_fail\(\s*"[a-z_]+"')
 # Python daemon client, NOT the harness, so they are not mirrored in GDScript.
 HARNESS_LIVE_ERROR_CODES = (
     "live_node_not_found",
+    "live_not_control",
     "live_unknown_property",
     "live_uncoercible_value",
     "live_perf_node_not_found",

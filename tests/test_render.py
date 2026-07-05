@@ -22,6 +22,7 @@ from gda.models import (
     DaemonUninstallResult,
     EngineVersion,
     GameGetResult,
+    GameRectResult,
     GameSetResult,
     ListedNode,
     ListedScript,
@@ -47,6 +48,7 @@ from gda.render import (
     render_daemon_uninstall,
     render_engine_version,
     render_game_get,
+    render_game_rect,
     render_game_set,
     render_node_properties,
     render_node_set,
@@ -199,6 +201,20 @@ def test_render_game_get_renders_runtime_properties_by_absolute_path():
     )
     rendered = render_game_get(result)
     assert rendered == "/root/Main/Player (Node2D)\n  position (Vector2) = [10.0, 20.0]"
+
+
+def test_render_game_rect_renders_the_runtime_control_rect():
+    result = GameRectResult(
+        path="/root/Main/HUD/Stats",
+        name="Stats",
+        type="VBoxContainer",
+        position=[24.0, 24.0],
+        size=[160.0, 48.0],
+    )
+    assert (
+        render_game_rect(result) == "/root/Main/HUD/Stats (VBoxContainer) "
+        "position=[24.0, 24.0] size=[160.0, 48.0]"
+    )
 
 
 def test_render_game_set_renders_the_set_runtime_property():

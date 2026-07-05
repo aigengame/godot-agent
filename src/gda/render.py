@@ -39,6 +39,7 @@ if TYPE_CHECKING:
         ExportRunResult,
         GameGetResult,
         GameNode,
+        GameRectResult,
         GameSetResult,
         GameTreeResult,
         InputActionResult,
@@ -187,6 +188,14 @@ def render_game_get(got: "GameGetResult") -> str:
         for prop in got.properties
     ]
     return "\n".join([header, *lines])
+
+
+def render_game_rect(rect: "GameRectResult") -> str:
+    """Render a Control's runtime rendered rect as one viewport-space line."""
+    return (
+        f"{rect.path} ({rect.type}) "
+        f"position={format_value(rect.position)} size={format_value(rect.size)}"
+    )
 
 
 def render_game_set(was_set: "GameSetResult") -> str:

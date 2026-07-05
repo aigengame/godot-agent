@@ -3048,6 +3048,37 @@ class GameGetResult(BaseModel):
     properties: list[NodeProperty]
 
 
+class GameRectParams(BaseModel):
+    """The params of ``gda game rect``: read a running Control's rendered rect (#419).
+
+    Addressed by the same runtime (absolute) node path as ``game get``. The
+    command is intentionally Control-specific: layout-dependent geometry is not
+    a storage-property read and must come from ``Control.get_global_rect()`` in
+    the running SceneTree.
+    """
+
+    node: str = Field(description=_RUNTIME_NODE_DESC)
+
+
+class GameRectResult(BaseModel):
+    """The result of ``gda game rect``: a Control's rendered viewport-space rect.
+
+    ``position`` and ``size`` are the two Vector2 projections from
+    ``Control.get_global_rect()``; no Rect2 projection is added to the shared
+    value projection surface.
+    """
+
+    path: str = Field(description="The addressed node's runtime (absolute) path.")
+    name: str
+    type: str = Field(description="The node's engine class (e.g. VBoxContainer).")
+    position: list[float] = Field(
+        description="The rendered viewport-space top-left point, as [x, y]."
+    )
+    size: list[float] = Field(
+        description="The rendered viewport-space size, as [width, height]."
+    )
+
+
 class GameSetParams(BaseModel):
     """The params of ``gda game set``: mutate a running node's runtime property (#220).
 

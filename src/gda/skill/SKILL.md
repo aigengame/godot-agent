@@ -79,7 +79,7 @@ the first live op. `screen capture` needs a windowed session
 | Group | Commands |
 | ----- | -------- |
 | `daemon` | `start`, `stop`, `status`, `uninstall` (lifecycle; installs the in-game harness) |
-| `game` | `tree`, `get`, `set` (the running game's runtime scene graph) |
+| `game` | `tree`, `get`, `rect`, `set` (the running game's runtime scene graph) |
 | `diag` | `errors` (structured runtime errors with callstacks; survive a crash) |
 | `logger` | `tail` (the running game's structured log stream; `--raw` for verbatim lines, `--level <min>` to filter by severity, `--limit N`) |
 | `perf` | `monitors`, `monitor` (counters now / a property-or-signal timeline) |

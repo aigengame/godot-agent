@@ -54,6 +54,7 @@ from gda.models import (
     ExportRunMode,
     ExportRunResult,
     GameGetResult,
+    GameRectResult,
     GameSetResult,
     GameTreeResult,
     GdaError,
@@ -454,6 +455,11 @@ def classify_game_tree(result: RunResult, binary: Path) -> GameTreeResult | Fail
 def classify_game_get(result: RunResult, binary: Path) -> GameGetResult | Failure:
     """The per-command live classifier for ``gda game get`` (mirrors ``classify_game_tree``)."""
     return classify_live(result, binary, GameGetResult)
+
+
+def classify_game_rect(result: RunResult, binary: Path) -> GameRectResult | Failure:
+    """The per-command live classifier for ``gda game rect`` (mirrors ``classify_game_tree``)."""
+    return classify_live(result, binary, GameRectResult)
 
 
 def classify_game_set(result: RunResult, binary: Path) -> GameSetResult | Failure:

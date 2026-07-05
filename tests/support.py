@@ -483,6 +483,16 @@ GAME_SET_RESULT = {
     "value": [10.0, 20.0],
 }
 
+# Sample ``gda game rect`` result — a running Control's rendered viewport-space
+# rectangle, addressed by the absolute runtime path (#419).
+GAME_RECT_RESULT = {
+    "path": "/root/Main/HUD/Stats",
+    "name": "Stats",
+    "type": "VBoxContainer",
+    "position": [24.0, 24.0],
+    "size": [160.0, 48.0],
+}
+
 # Sample ``gda diag errors`` result — the running game's runtime errors,
 # daemon-served from the Session log (#224). Shared by the diag-command
 # success/schema/render tests. ``errors`` carries warnings too, distinguished by
