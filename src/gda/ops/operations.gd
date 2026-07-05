@@ -4609,6 +4609,14 @@ func _resolve_object_value(prop_name: String, prop_entry: Dictionary, raw_value:
 	return loaded
 
 
+func _has_int_param(params: Dictionary, key: String) -> bool:
+	return params.has(key) and params[key] != null
+
+
+func _int_param(params: Dictionary, key: String) -> int:
+	return int(params.get(key, 0))
+
+
 # --- BEGIN shared coercion (keep byte-identical: operations.gd <-> gda_harness.gd) ---
 # These pure property-introspection / value-coercion helpers are DUPLICATED
 # verbatim into src/gda/harness/gda_harness.gd: operations.gd runs via
@@ -4645,14 +4653,6 @@ func _string_param(params: Dictionary, key: String) -> String:
 	if value is String:
 		return value
 	return ""
-
-
-func _has_int_param(params: Dictionary, key: String) -> bool:
-	return params.has(key) and params[key] != null
-
-
-func _int_param(params: Dictionary, key: String) -> int:
-	return int(params.get(key, 0))
 
 
 # The Godot type name for a Variant.Type, as node get / node set report it
