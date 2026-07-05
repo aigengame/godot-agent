@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/aigengame/godot-agent/compare/v0.3.0...v0.3.1) (2026-07-05)
+
+
+### Bug Fixes
+
+* **export:** resolve export output paths ([#411](https://github.com/aigengame/godot-agent/issues/411)) ([84cfd90](https://github.com/aigengame/godot-agent/commit/84cfd9019a8803daa3446ea88e24f0185b898591))
+
 ## [0.3.0](https://github.com/aigengame/godot-agent/compare/v0.2.1...v0.3.0) (2026-07-04)
 
 
