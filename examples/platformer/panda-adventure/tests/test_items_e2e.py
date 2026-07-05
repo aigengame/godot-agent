@@ -365,9 +365,9 @@ def test_daemon_serves_consumable_use_and_spacesuit(tmp_path, daemon_runtime_dir
         tap("fire")
         assert poll(lambda: records("gravity_fired")), "no gravity_fired record"
         mp_now = max_mp - mp_cost
-        assert poll(
-            lambda: label("Mp") == f"MP {round(mp_now)}/{round(max_mp)}"
-        ), "HUD should surface the MP spend"
+        assert poll(lambda: label("Mp") == f"MP {round(mp_now)}/{round(max_mp)}"), (
+            "HUD should surface the MP spend"
+        )
         tap("drink_wine")
         drunk = poll(lambda: records("wine_drunk"))
         assert drunk, "no gda_log 'wine_drunk' record"
@@ -391,9 +391,9 @@ def test_daemon_serves_consumable_use_and_spacesuit(tmp_path, daemon_runtime_dir
         # use -> empty), not a one-way faucet.
         blocked_before = len(records("consumable_blocked"))
         tap("drink_wine")
-        assert poll(
-            lambda: len(records("consumable_blocked")) == blocked_before + 1
-        ), "the emptied wine supply must refuse"
+        assert poll(lambda: len(records("consumable_blocked")) == blocked_before + 1), (
+            "the emptied wine supply must refuse"
+        )
         assert records("consumable_blocked")[-1]["fields"] == {
             "item": "wine",
             "count": 0,
