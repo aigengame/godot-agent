@@ -143,7 +143,7 @@
       "attack_tween_duration": 0.2,
       "warp_cooldown": 8.0,
       "warp_trigger_range": 200.0,
-      "warp_offset": [60.0, 0.0],
+      "warp_offset": [60.0, -32.0],
       "warp_tell_duration": 0.5,
       "warp_recovery_duration": 0.4,
       "time_field_radius": 160.0,
