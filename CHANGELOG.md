@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/aigengame/godot-agent/compare/v0.6.1...v0.6.2) (2026-07-06)
+
+
+### Bug Fixes
+
+* **export:** report native export progress ([#432](https://github.com/aigengame/godot-agent/issues/432)) ([9a42a49](https://github.com/aigengame/godot-agent/commit/9a42a490975106c56562816163b420eae880cf3d))
+
 ## [0.6.1](https://github.com/aigengame/godot-agent/compare/v0.6.0...v0.6.1) (2026-07-06)
 
 
