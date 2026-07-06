@@ -107,6 +107,33 @@ def test_success_returns_typed_result_to_configured_path(tmp_path):
     assert export_runner.calls == [("Linux/X11", "release", expected)]
 
 
+def test_export_run_reports_native_export_progress_on_stderr(capsys, tmp_path):
+    # issue #431: after export-get resolves the preset, the long native export
+    # phase gets its own human progress line on stderr, while the operation result
+    # and native runner invocation stay unchanged.
+    project = tmp_path / "project"
+    project.mkdir()
+    get_runner = _get_runner()
+    export_runner = FakeExportRunner(RunResult(stdout="", stderr="", exit_code=0))
+
+    outcome = _run(get_runner=get_runner, export_runner=export_runner, project=project)
+
+    expected_output = str(project / "build" / "game.x86_64")
+    assert capsys.readouterr().err == (
+        'gda: exporting preset "Linux/X11" (release) ...\n'
+    )
+    assert outcome == ExportRunResult(
+        preset="Linux/X11",
+        platform="Linux/X11",
+        mode=ExportRunMode.RELEASE,
+        output_path=expected_output,
+        created_dirs=[str(project / "build")],
+        warnings=[],
+    )
+    assert get_runner.calls == [("export-get", {"preset": "Linux/X11"})]
+    assert export_runner.calls == [("Linux/X11", "release", expected_output)]
+
+
 def test_configured_export_path_reports_absolute_project_path(tmp_path):
     # issue #403: a preset export_path keeps Godot's project-relative convention,
     # but the native invocation/result should carry the resolved absolute path so
