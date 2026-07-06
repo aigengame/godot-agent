@@ -243,6 +243,14 @@ extends Resource
 """
 
 
+DROP_TABLE_STATS_GD = """\
+class_name DropTableStats
+extends Resource
+
+@export var drop_items: Dictionary = {"seed": 1}
+"""
+
+
 @pytest.mark.e2e
 def test_resource_create_by_class_name_round_trips_typed_fields(godot_project):
     # The class_name half of --type's contract for resources (issue #342): a
@@ -354,6 +362,71 @@ def test_resource_create_by_class_name_round_trips_a_set_via_get(godot_project):
     # Round-trip: get reports the value set persisted to the custom .tres.
     assert by_name["speed"]["type"] == "float"
     assert by_name["speed"]["value"] == 9.5
+
+
+@pytest.mark.e2e
+def test_resource_set_preserves_json_container_integer_and_float_types(
+    godot_project,
+):
+    # #427: resource set writes through ResourceSaver, so verify both the
+    # structured readback and the .tres text preserve JSON integer spelling.
+    (godot_project / "drop_table_stats.gd").write_text(
+        DROP_TABLE_STATS_GD, encoding="utf-8"
+    )
+    _import_project(godot_project)
+    resource_path = godot_project / "drop_table.tres"
+    created = _gda(
+        "resource",
+        "create",
+        str(resource_path),
+        "--type",
+        "DropTableStats",
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+
+    was_set = _gda(
+        "resource",
+        "set",
+        str(resource_path),
+        "--property",
+        "drop_items",
+        "--value",
+        '{"a":2,"b":2.0,"items":[1,1.5]}',
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    set_value = json.loads(was_set.stdout)["value"]
+    assert type(set_value["a"]) is int
+    assert type(set_value["b"]) is float
+    assert type(set_value["items"][0]) is int
+    assert type(set_value["items"][1]) is float
+
+    text = resource_path.read_text(encoding="utf-8")
+    assert '"a": 2,' in text
+    assert '"a": 2.0' not in text
+    assert '"b": 2.0' in text
+
+    got = _gda(
+        "resource",
+        "get",
+        str(resource_path),
+        "--project",
+        str(godot_project),
+        "--json",
+    )
+    assert got.returncode == 0, got.stdout + got.stderr
+    by_name = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+    got_value = by_name["drop_items"]["value"]
+    assert type(got_value["a"]) is int
+    assert type(got_value["b"]) is float
+    assert type(got_value["items"][0]) is int
+    assert type(got_value["items"][1]) is float
 
 
 # A registered class_name whose script is healthy but NOT Resource-derived: a

@@ -15,6 +15,12 @@ from gda.models import EngineVersion, GdaErrorEnvelope, InfoParams
 from tests.support import VERSION_INFO
 
 
+def _assert_json_container_number_rule(description: str) -> None:
+    lower = description.lower()
+    assert "json integer" in lower
+    assert "json float" in lower
+
+
 def test_info_schema_emits_json_object_with_input_output_and_error():
     result = CliRunner().invoke(app, ["info", "--schema"])
 
@@ -317,6 +323,7 @@ def test_node_set_schema_emits_model_derived_contract_without_other_args():
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     value_description = doc["input"]["properties"]["value"]["description"]
     assert "coerce" in value_description.lower()
+    _assert_json_container_number_rule(value_description)
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -870,7 +877,28 @@ def test_resource_set_schema_emits_model_derived_contract_without_other_args():
     assert doc["error"] == GdaErrorEnvelope.model_json_schema()
     value_description = doc["input"]["properties"]["value"]["description"]
     assert "coerce" in value_description.lower()
+    _assert_json_container_number_rule(value_description)
     assert "property" in doc["output"]["properties"]
+    jsonschema.Draft202012Validator.check_schema(doc["input"])
+    jsonschema.Draft202012Validator.check_schema(doc["output"])
+
+
+def test_project_set_schema_emits_model_derived_contract_without_other_args():
+    # The ADR-0004 hard gate for project set: the bare --schema flag — no
+    # setting/--value — short-circuits into the self-description, including the
+    # shared value-coercion contract.
+    from gda.models import ProjectSetParams, ProjectSetResult
+
+    result = CliRunner().invoke(app, ["project", "set", "--schema"])
+
+    assert result.exit_code == 0
+    doc = json.loads(result.stdout)
+    assert doc["input"] == ProjectSetParams.model_json_schema()
+    assert doc["output"] == ProjectSetResult.model_json_schema()
+    assert doc["error"] == GdaErrorEnvelope.model_json_schema()
+    value_description = doc["input"]["properties"]["value"]["description"]
+    assert "coerce" in value_description.lower()
+    _assert_json_container_number_rule(value_description)
     jsonschema.Draft202012Validator.check_schema(doc["input"])
     jsonschema.Draft202012Validator.check_schema(doc["output"])
 
@@ -1191,7 +1219,9 @@ def test_game_get_rect_set_schemas_report_kind_live_and_are_model_derived():
     # The runtime-node param documents the absolute-path addressing agents must use.
     assert "absolute" in get_doc["input"]["properties"]["node"]["description"]
     assert "absolute" in rect_doc["input"]["properties"]["node"]["description"]
-    assert "coerce" in set_doc["input"]["properties"]["value"]["description"].lower()
+    value_description = set_doc["input"]["properties"]["value"]["description"]
+    assert "coerce" in value_description.lower()
+    _assert_json_container_number_rule(value_description)
     jsonschema.Draft202012Validator.check_schema(get_doc["input"])
     jsonschema.Draft202012Validator.check_schema(get_doc["output"])
     jsonschema.Draft202012Validator.check_schema(rect_doc["input"])

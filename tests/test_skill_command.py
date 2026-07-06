@@ -73,6 +73,14 @@ def test_skill_json_content_round_trips_the_bundled_file():
     assert data["content"] == SKILL_MD.read_text(encoding="utf-8")
 
 
+def test_skill_documents_json_container_number_preservation():
+    # #427: the packaged gda skill is the agent-facing command catalog, so it
+    # must teach the same Dictionary/Array JSON number rule that --schema exposes.
+    lower = BUNDLED.lower()
+    assert "json integer" in lower
+    assert "json float" in lower
+
+
 def test_skill_description_is_within_the_skill_frontmatter_limit():
     # An Agent Skill `description` is the one thing an agent sees when deciding to
     # load the Skill; the SKILL.md spec caps it at 1024 chars.

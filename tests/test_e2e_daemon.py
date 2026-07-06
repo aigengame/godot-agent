@@ -408,6 +408,48 @@ def test_daemon_game_set_mutates_explicit_plain_script_dictionary_variable(
 
 
 @pytest.mark.e2e
+def test_daemon_game_set_preserves_json_container_integer_and_float_types(
+    tmp_path, daemon_runtime_dir
+):
+    # #427 live-side parity: the mirrored harness coercion must preserve JSON
+    # integer vs float values in the same session state that game get observes.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "_items",
+            "--value",
+            '{"a":2,"b":2.0,"items":[1,1.5]}',
+        )
+        assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+        set_value = json.loads(was_set.stdout)["value"]
+        assert type(set_value["a"]) is int
+        assert type(set_value["b"]) is float
+        assert type(set_value["items"][0]) is int
+        assert type(set_value["items"][1]) is float
+
+        got = run("game", "get", "/root/Main/Player", "--property", "_items")
+        assert got.returncode == 0, got.stdout + got.stderr
+        got_value = json.loads(got.stdout)["properties"][0]["value"]
+        assert type(got_value["a"]) is int
+        assert type(got_value["b"]) is float
+        assert type(got_value["items"][0]) is int
+        assert type(got_value["items"][1]) is float
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
 def test_daemon_game_get_unknown_explicit_script_variable_reports_unknown_property(
     tmp_path, daemon_runtime_dir
 ):

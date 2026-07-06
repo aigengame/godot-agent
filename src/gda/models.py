@@ -927,7 +927,10 @@ class NodeSetParams(BaseModel):
         description=(
             "The value to set, as a string. The operation coerces it to the "
             "property's declared Godot type (see the command catalog's "
-            "'Property value coercion'); an uncoercible value is a clean error."
+            "'Property value coercion'). For Dictionary/Array JSON values, JSON "
+            "integer literals stay int and JSON float literals stay float; typed "
+            "containers assign entries through their declared container type. An "
+            "uncoercible value is a clean error."
         )
     )
 
@@ -2130,7 +2133,10 @@ class ResourceSetParams(BaseModel):
         description=(
             "The value to set, as a string. The operation coerces it to the "
             "property's declared Godot type (see the command catalog's 'Property "
-            "value coercion'); an uncoercible value is a clean error."
+            "value coercion'). For Dictionary/Array JSON values, JSON integer "
+            "literals stay int and JSON float literals stay float; typed "
+            "containers assign entries through their declared container type. An "
+            "uncoercible value is a clean error."
         )
     )
 
@@ -2780,7 +2786,10 @@ class ProjectSetParams(BaseModel):
         description=(
             "The value to set, as a string. The operation coerces it to the "
             "setting's declared Godot type (see the command catalog's 'Property "
-            "value coercion'); an uncoercible value is a clean error."
+            "value coercion'). For Dictionary/Array JSON values, JSON integer "
+            "literals stay int and JSON float literals stay float; typed "
+            "containers assign entries through their declared container type. An "
+            "uncoercible value is a clean error."
         )
     )
 
@@ -3110,7 +3119,10 @@ class GameSetParams(BaseModel):
             "property's declared or inferred target Godot type (the same coercion "
             "the node group established, including JSON objects for Dictionary and "
             "JSON arrays for Array; see the command catalog's 'Property value "
-            "coercion'); an uncoercible value is a clean error."
+            "coercion'). For Dictionary/Array JSON values, JSON integer literals "
+            "stay int and JSON float literals stay float; typed containers assign "
+            "entries through their declared container type. An uncoercible value "
+            "is a clean error."
         )
     )
 

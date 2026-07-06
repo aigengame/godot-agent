@@ -1106,6 +1106,104 @@ def test_node_set_coerces_json_dictionary_and_array_via_get(godot_project):
 
 
 @pytest.mark.e2e
+def test_node_set_preserves_json_container_integer_and_float_types(godot_project):
+    # #427: JSON object/array coercion must preserve number spelling inside the
+    # container. Python's json loader keeps 2 as int and 2.0 as float, so this
+    # verifies the public CLI round-trip without peeking at Godot internals.
+    scene_path = godot_project / "main.tscn"
+    (godot_project / "player.gd").write_text(
+        'extends Node2D\n@export var stats: Dictionary = {"a": 0}\n',
+        encoding="utf-8",
+    )
+    scene_path.write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script = ExtResource("1")\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    was_set = gda(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        ".",
+        "--property",
+        "stats",
+        "--value",
+        '{"a":2,"b":2.0,"items":[1,1.5]}',
+        "--json",
+    )
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    set_value = json.loads(was_set.stdout)["value"]
+    assert type(set_value["a"]) is int
+    assert type(set_value["b"]) is float
+    assert type(set_value["items"][0]) is int
+    assert type(set_value["items"][1]) is float
+
+    got = gda("node", "get", str(scene_path), "--node", ".", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    props = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+    got_value = props["stats"]["value"]
+    assert type(got_value["a"]) is int
+    assert type(got_value["b"]) is float
+    assert type(got_value["items"][0]) is int
+    assert type(got_value["items"][1]) is float
+
+
+@pytest.mark.e2e
+def test_node_set_typed_dictionary_coerces_entries_to_declared_value_type(
+    godot_project,
+):
+    # Godot 4.4 typed Dictionary support: a Dictionary[String, int] property
+    # should accept JSON floats that Godot can coerce to the declared int value
+    # type, then read back as JSON integers.
+    scene_path = godot_project / "main.tscn"
+    (godot_project / "player.gd").write_text(
+        'extends Node2D\n@export var counts: Dictionary[String, int] = {"seed": 1}\n',
+        encoding="utf-8",
+    )
+    scene_path.write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script = ExtResource("1")\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    was_set = gda(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        ".",
+        "--property",
+        "counts",
+        "--value",
+        '{"a":2.0,"b":3}',
+        "--json",
+    )
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    set_value = json.loads(was_set.stdout)["value"]
+    assert set_value == {"a": 2, "b": 3}
+    assert type(set_value["a"]) is int
+    assert type(set_value["b"]) is int
+
+    got = gda("node", "get", str(scene_path), "--node", ".", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    props = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+    got_value = props["counts"]["value"]
+    assert got_value == {"a": 2, "b": 3}
+    assert type(got_value["a"]) is int
+    assert type(got_value["b"]) is int
+
+
+@pytest.mark.e2e
 def test_node_set_unknown_property_yields_unknown_property_and_leaves_file_unchanged(
     godot_project,
 ):
