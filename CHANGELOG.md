@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/aigengame/godot-agent/compare/v0.6.0...v0.6.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* **value-coercion:** preserve JSON container integer types ([#428](https://github.com/aigengame/godot-agent/issues/428)) ([51d442a](https://github.com/aigengame/godot-agent/commit/51d442ab3f921963e79186ad192fb3932015c9fa))
+
 ## [0.6.0](https://github.com/aigengame/godot-agent/compare/v0.5.0...v0.6.0) (2026-07-05)
 
 
