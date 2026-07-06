@@ -40,6 +40,7 @@ const CombatConfigScript := preload("res://src/resources/combat_config.gd")
 const StatsSystemScript := preload("res://src/systems/stats_system.gd")
 const CombatSystemScript := preload("res://src/systems/combat_system.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
+const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
 const ProjectileScene := preload("res://scenes/projectile.tscn")
 
 const CONFIG_PATH := "res://data/generated/player_config.tres"
@@ -116,16 +117,10 @@ static func compute_facing(facing: float, input_dir: float) -> float:
 
 
 func _ready() -> void:
-	_config = load(CONFIG_PATH)
-	_stats_config = load(STATS_PATH)
-	_combat = load(COMBAT_CONFIG_PATH)
+	_config = GeneratedConfigScript.load_config(CONFIG_PATH)
+	_stats_config = GeneratedConfigScript.load_config(STATS_PATH)
+	_combat = GeneratedConfigScript.load_config(COMBAT_CONFIG_PATH)
 	if _config == null or _stats_config == null or _combat == null:
-		# The derived .tres are committed; guard loudly rather than crash on a
-		# half-checkout, pointing at the pipeline that regenerates them from JSON.
-		push_error(
-			"PlayerController: could not load %s / %s / %s — run scripts/build_config.py."
-			% [CONFIG_PATH, STATS_PATH, COMBAT_CONFIG_PATH]
-		)
 		return
 	# S4: enemies find their target by this group (EnemyController._player).
 	add_to_group("player")
@@ -378,12 +373,7 @@ func _drink_wine() -> void:
 ## S2 _ready block stays untouched.
 func _gravity_config() -> GravityConfigScript:
 	if _gravity_cfg == null:
-		_gravity_cfg = load(GRAVITY_CONFIG_PATH)
-		if _gravity_cfg == null:
-			push_error(
-				"PlayerController: could not load %s — run scripts/build_config.py."
-				% GRAVITY_CONFIG_PATH
-			)
+		_gravity_cfg = GeneratedConfigScript.load_config(GRAVITY_CONFIG_PATH)
 	return _gravity_cfg
 
 
@@ -527,12 +517,7 @@ func _play_level_up_flash() -> void:
 ## so the S2 _ready block stays untouched (the S3 GravityConfig pattern).
 func _progression_config() -> ProgressionConfigScript:
 	if _progression_cfg == null:
-		_progression_cfg = load(PROGRESSION_CONFIG_PATH)
-		if _progression_cfg == null:
-			push_error(
-				"PlayerController: could not load %s — run scripts/build_config.py."
-				% PROGRESSION_CONFIG_PATH
-			)
+		_progression_cfg = GeneratedConfigScript.load_config(PROGRESSION_CONFIG_PATH)
 	return _progression_cfg
 
 
@@ -637,10 +622,5 @@ func _play_consume_flash(flash_color: Color) -> void:
 ## S2 _ready block stays untouched (the S3 GravityConfig pattern).
 func _items_config() -> ItemsConfigScript:
 	if _items_cfg == null:
-		_items_cfg = load(ITEMS_CONFIG_PATH)
-		if _items_cfg == null:
-			push_error(
-				"PlayerController: could not load %s — run scripts/build_config.py."
-				% ITEMS_CONFIG_PATH
-			)
+		_items_cfg = GeneratedConfigScript.load_config(ITEMS_CONFIG_PATH)
 	return _items_cfg

@@ -41,6 +41,7 @@ const GravitySystemScript := preload("res://src/systems/gravity_system.gd")
 const GravityConfigScript := preload("res://src/resources/gravity_config.gd")
 const LevelConfigScript := preload("res://src/resources/level_config.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
+const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
 const EnemyProjectileScene := preload("res://scenes/enemy_projectile.tscn")
 const TimeFieldScene := preload("res://scenes/time_field.tscn")
 
@@ -101,14 +102,13 @@ func setup(kind: EnemyConfigScript) -> void:
 
 
 func _ready() -> void:
-	_combat = load(COMBAT_CONFIG_PATH)
-	if _kind == null or _combat == null:
-		# The derived .tres are committed and the spawner must setup() first;
-		# guard loudly rather than crash, pointing at the pipeline.
-		push_error(
-			"EnemyController: missing kind (setup() before add_child) or %s — run scripts/build_config.py."
-			% COMBAT_CONFIG_PATH
-		)
+	_combat = GeneratedConfigScript.load_config(COMBAT_CONFIG_PATH)
+	if _combat == null:
+		return
+	if _kind == null:
+		# The spawner must setup() before add_child; guard loudly rather than
+		# crash on an enemy that was never handed its kind (not a pipeline fault).
+		push_error("EnemyController: missing kind — setup() must run before add_child.")
 		return
 	# Gravity-response contract (gADR-0002): the S3 Gravity Field acts on this
 	# group via apply_gravity_field.
@@ -267,12 +267,8 @@ func _blink(player: Node2D) -> void:
 ## rampart, never half off the Arena's edge.
 func _arena_bounds() -> Vector2:
 	if _level_config == null:
-		_level_config = load(LEVEL_CONFIG_PATH)
+		_level_config = GeneratedConfigScript.load_config(LEVEL_CONFIG_PATH)
 		if _level_config == null:
-			push_error(
-				"EnemyController: could not load %s — run scripts/build_config.py."
-				% LEVEL_CONFIG_PATH
-			)
 			return Vector2(position.x, position.x)  # degenerate: land in place
 	var half_body := _kind.size.x / 2.0
 	return Vector2(
@@ -293,12 +289,8 @@ func apply_gravity_field(field_velocity: Vector2, _delta: float) -> void:
 ## lazily loaded like the S3 block on the other responders.
 func _gravity_clamp() -> float:
 	if _gravity_config == null:
-		_gravity_config = load(GRAVITY_CONFIG_PATH)
+		_gravity_config = GeneratedConfigScript.load_config(GRAVITY_CONFIG_PATH)
 		if _gravity_config == null:
-			push_error(
-				"EnemyController: could not load %s — run scripts/build_config.py."
-				% GRAVITY_CONFIG_PATH
-			)
 			return 0.0
 	return _gravity_config.enemy_max_gravity_offset
 

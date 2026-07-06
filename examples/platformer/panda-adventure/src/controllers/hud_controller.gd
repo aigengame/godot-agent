@@ -25,6 +25,7 @@ extends CanvasLayer
 
 const HudConfigScript := preload("res://src/resources/hud_config.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
+const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
 
 const HUD_CONFIG_PATH := "res://data/generated/hud_config.tres"
 
@@ -78,14 +79,8 @@ static func format_lines(state: Dictionary) -> Dictionary:
 
 
 func _ready() -> void:
-	_config = load(HUD_CONFIG_PATH)
+	_config = GeneratedConfigScript.load_config(HUD_CONFIG_PATH)
 	if _config == null:
-		# The derived .tres is committed; guard loudly rather than crash,
-		# pointing at the pipeline that regenerates it from JSON.
-		push_error(
-			"HudController: could not load %s — run scripts/build_config.py."
-			% HUD_CONFIG_PATH
-		)
 		return
 	($Stats as VBoxContainer).position = _config.margin
 

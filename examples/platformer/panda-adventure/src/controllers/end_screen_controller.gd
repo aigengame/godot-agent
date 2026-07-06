@@ -22,6 +22,7 @@ extends CanvasLayer
 
 const LevelConfigScript := preload("res://src/resources/level_config.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
+const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
 
 const LEVEL_CONFIG_PATH := "res://data/generated/level_config.tres"
 
@@ -35,14 +36,8 @@ var _config: LevelConfigScript
 
 
 func _ready() -> void:
-	_config = load(LEVEL_CONFIG_PATH)
+	_config = GeneratedConfigScript.load_config(LEVEL_CONFIG_PATH)
 	if _config == null:
-		# The derived .tres is committed; guard loudly rather than crash,
-		# pointing at the pipeline that regenerates it from JSON.
-		push_error(
-			"EndScreenController: could not load %s — run scripts/build_config.py."
-			% LEVEL_CONFIG_PATH
-		)
 		return
 	# Above the HUD's default layer (structural: the closure overlay outranks
 	# the readout), hidden until an End state shows it.

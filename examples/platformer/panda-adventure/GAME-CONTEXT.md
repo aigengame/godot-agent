@@ -266,6 +266,19 @@ mechanic: a VFX carries no gameplay or damage semantics of its own.
 _Avoid_: particles (an implementation), juice (broader — includes camera/audio
 feel), effects system
 
+**Derived-Resource loader**:
+The single seam every static-path derived-`.tres` config load routes through — one
+canonical loud guard that returns the loaded Resource or, on a null load, emits the one
+pipeline-pointing `push_error` (naming the missing path) and returns null. The read-side
+home of gADR-0000's "Resource is a derived artifact" contract: a committed `.tres` is
+promised present, so a null load means a half-checkout or a skipped build, not a gameplay
+condition — one remediation string to update when the builder moves (gADR-0011), not one
+copy per controller. A data-keyed lookup — a path built from authored data, like the wave
+schedule's per-kind EnemyConfig — is deliberately outside the seam: its null means the
+authored data references a kind that does not exist, a reference-integrity fault owned by
+its caller, not a pipeline fault.
+_Avoid_: config loader (generic), resource manager
+
 ### Tooling
 
 **Panda Adventure Editor**:
