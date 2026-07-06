@@ -64,3 +64,9 @@ We split three ways:
   not a tunable); S6a adds accumulation without touching the split.
 - In code the EXP field is `exp_points` (`exp` would shadow the built-in
   `exp()`); docs and the glossary keep saying EXP.
+
+> **Amendment (2026-07-06, gADR-0011).** The first consequence is superseded: the
+> Monte-Carlo balancing pipeline is now Python and does not reuse `CombatSystem` +
+> `StatsSystem` directly. The seam's balancing role becomes generating the golden
+> parity fixtures (ground truth, via `gda script run`) that pin the Python model.
+> The static, clock-free decision shape and its testability rationale stand.

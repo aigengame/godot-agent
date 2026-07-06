@@ -175,8 +175,8 @@ The Player's progression grade, derived PURELY from the accumulated EXP total ag
 Leveling curve (GrowthSystem — level 1 at start, one level per threshold reached, gADR-0006).
 Readout-only in Phase 1: a level-up changes no stat yet, it logs, flashes, and ticks the HUD's
 LV line.
-_Avoid_: rank; tier (that is the enemy axis); using "level" for the demo's stage (the demo is
-a single level in the map sense — context disambiguates)
+_Avoid_: rank; tier (that is the enemy axis); using "level" for the demo's stage (that stage
+is the proper noun Level 1)
 
 **Leveling curve**:
 The data-driven, strictly increasing array of cumulative EXP thresholds the Player levels up
@@ -199,8 +199,9 @@ _Avoid_: status bar, overlay UI, GUI (the HUD is one specific surface, not all U
 **CombatSystem**:
 The pure decision functions of combat — the damage formula, the i-frame window check, and
 the death rule — static, deterministic, and clock-free, shared unchanged by the runtime
-controllers and the offline Monte-Carlo balancing sim (gADR-0001). Controllers orchestrate
-(clock, mutation, tween, log); decisions live only here.
+controllers (gADR-0001). For the Balancing pipeline it is the parity fixtures' ground-truth
+oracle — no longer the sim engine (gADR-0011). Controllers orchestrate (clock, mutation,
+tween, log); decisions live only here.
 _Avoid_: damage manager, battle system
 
 **EnemyAI**:
@@ -218,6 +219,81 @@ _Avoid_: DPS (a rate, not a time)
 How long it takes an enemy or a wave to kill the player — the player's survival time. The
 symmetric counterpart of TTK.
 _Avoid_: TDD (reserved repo-wide for Test-Driven Development); time-to-down
+
+### Pipelines
+
+**Tool Script**:
+A reusable Python pipeline script that produces or processes project content — the
+asset pipelines (preprocess → acquire → postprocess) and the Balancing pipeline
+alike. Designed game-agnostic — a reusable, input-driven core with per-game
+configuration, with pluggable output emitters (JSON/XML/Resource/…) for reuse
+beyond this demo. In this project its structured output always lands in the JSON
+authority (config numbers or asset references) and flows through the JSON →
+Resource derivation — never bypassing JSON to write `.tres` directly; generated
+asset files land under the assets tree and are referenced from config, never
+hardcoded.
+_Avoid_: build script (that names the JSON→Resource builder), helper script, tool
+(too generic)
+
+**Asset pipeline**:
+The Tool Script family that produces the game's binary assets — textures, sprite
+frames, audio, fonts. Preprocess builds a style-and-size **asset spec** (the shared
+style descriptor plus the Scale spec's target dimensions and format/licensing
+constraints); the acquire stage fulfills it in one of two modes — online
+search-and-download from open-asset sites, or generation (built-in model or
+external MCP backend); postprocess conforms the result (crop/transform/normalize
+to the spec) and records provenance and license in the asset manifest. Artifacts
+are asset files PLUS their JSON references — asset references are data
+(gADR-0000); the view resolves assets from config, never hardcoded paths.
+_Avoid_: art pipeline (audio and fonts too), downloader / generator (each names
+only one acquire mode)
+
+**Scale spec**:
+The unified size/scale standard every visual element conforms to — the anchor
+dimensions and inter-element proportion rules that asset generation, post-processing,
+and wiring all target. Two layers: the qualitative proportion rules and anchor
+rationale live in the GDD (extending its blockout scale-ratio rules); the
+authoritative numeric table is data (JSON), consumed by the pipelines and the game
+alike (gADR-0000: numbers are not in the GDD). An early Phase 2 deliverable — not
+yet authored.
+_Avoid_: art bible (broader), size chart, blockout ratios (the Phase 1 subset)
+
+**VFX**:
+The view-layer presentation effects — hit flashes, explosions, pickup glints, Warp
+telegraphs and the like — produced as assets by the visual pipeline (sprite-frame
+animations, particle textures) and fired from the view-integration hooks. Never a
+mechanic: a VFX carries no gameplay or damage semantics of its own.
+_Avoid_: particles (an implementation), juice (broader — includes camera/audio
+feel), effects system
+
+### Tooling
+
+**Panda Adventure Editor**:
+The in-game visual editing-and-debugging tool — a separate entry scene of the same
+Godot project that a human (HITL) launches to edit Level 1's content, tune numbers,
+and playtest in place; agents keep driving `gda` instead. It writes only the JSON
+authority — spatial content (platform segments, Arena, backdrop, Wave/Spawn
+rosters) by direct manipulation, numbers by structured forms as the hand-tune
+channel — and re-derives Resources through the one Python builder, never a second
+derivation path. Ships with instant edit↔play switching and a minimal debug
+palette (wave jump, god-mode, spawn-on-demand).
+_Avoid_: level editor (it also debugs and tunes), editor plugin (the rejected
+form), the editor (ambiguous with the Godot editor)
+
+### Balancing
+
+**Balancing pipeline**:
+The numeric-design pipeline that computes and sets the game's tuning numbers — Stat
+Blocks, wave frequency/density, TTK/TTD targets, difficulty and Leveling curves —
+against design intent: built and first-tuned in Phase 2, re-tuned against playtest
+feedback in Phase 3. Twin engines, both Python inside the Tool Script framework —
+Monte-Carlo encounter simulation validates encounter-level numbers; a
+system-dynamics model (first-order nonlinear ODEs over the growth/economy stocks
+and flows) predicts long-term balance trajectories. Deliberately isolated from the
+game's GDScript (reusable across games): it reads and writes the same JSON
+authority the game derives from, and never imports game code.
+_Avoid_: balance patch, number tweaking; balancing sim (that names only the
+Monte-Carlo half)
 
 ### Items
 
@@ -289,6 +365,16 @@ _Avoid_: armor (generic), suit
 
 ### Level
 
+**Level 1**:
+The demo's single playable level as a product — the same Great-Wall arc as the
+Phase 1 blockout (same layout, Wave schedule, and Boss finale), productionized by
+the Phase 2 pipelines: real visuals/audio/UI wired in and numbers initial-tuned.
+A proper noun in the map sense; the Player's progression grade stays **Level**.
+The numbering anticipates architecture-level multi-level extensibility only (one
+`Level authority` config per level) — additional levels stay out of scope.
+_Avoid_: the demo level (its pre-name), stage, map; level (lowercase — collides
+with the Player grade)
+
 **Wave**:
 A segment of the demo level that spawns a specific composition of enemies
 (Faction × Tier × Archetype) — one Spawn Roster in the Wave schedule. Waves advance in
@@ -309,6 +395,17 @@ data-driven arrival point. A property of the demo composition, not a schedule in
 (a reconfigured schedule need not end on a Boss); the Boss's behavior — Tank band AI plus
 the Warp kit — is S8's (gADR-0009).
 _Avoid_: final boss wave (as a system rule), boss fight (that is the S8 behavior)
+
+**View skin**:
+The derived rendering layer that dresses the data-authored level geometry: tile
+placements and backdrop layers computed as a pure function of the `Level authority`'s
+segments — never a second, hand-authored terrain source (gADR-0010 untouched:
+collision and geometry stay the segments'). The Phase 2 upgrade path of the
+`Great-Wall blockout`: its tile vocabulary must compose the wall's presentation —
+spans, parapets, corners, towers — AND the background efficiently, in one consistent
+style.
+_Avoid_: tilemap (an implementation node, not the concept), decoration layer,
+second terrain authority
 
 **Obstacle**:
 A gravity-affectable environment block on the terrain layer that a Gravity Field can
