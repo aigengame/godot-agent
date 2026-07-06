@@ -100,6 +100,15 @@ gravity, the Boss bends time.
 _Avoid_: slow zone (generic), stun/root/freeze (input still registers — the body is slowed,
 not locked), aura (it does not follow the Boss)
 
+**Warp driver**:
+The enemy-owned module that drives the Warp rotation — the three-phase (tell → blink → recovery)
+orchestration state machine wrapped around the pure `WarpSystem` decisions (the gate and the
+far-side landing formula). It reads the clock, stamps the cooldown, runs the phases, tweens,
+logs, relocates the Boss, and drops the Time Dilation Field; the single hook home the Boss's
+animation and VFX edges attach to, exposing a public phase read instead of `_physics_process`
+internals.
+_Avoid_: warp system (the pure statics it calls), warp AI (it is orchestration, not decision)
+
 ### Weapons
 
 **Laser Gun**:

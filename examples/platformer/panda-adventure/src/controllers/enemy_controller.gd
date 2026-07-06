@@ -36,18 +36,15 @@ const CombatConfigScript := preload("res://src/resources/combat_config.gd")
 const StatsSystemScript := preload("res://src/systems/stats_system.gd")
 const CombatSystemScript := preload("res://src/systems/combat_system.gd")
 const EnemyAIScript := preload("res://src/systems/enemy_ai.gd")
-const WarpSystemScript := preload("res://src/systems/warp_system.gd")
 const GravitySystemScript := preload("res://src/systems/gravity_system.gd")
 const GravityConfigScript := preload("res://src/resources/gravity_config.gd")
-const LevelConfigScript := preload("res://src/resources/level_config.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
+const EnemyWarpDriverScript := preload("res://src/controllers/enemy_warp_driver.gd")
 const EnemyProjectileScene := preload("res://scenes/enemy_projectile.tscn")
-const TimeFieldScene := preload("res://scenes/time_field.tscn")
 
 const COMBAT_CONFIG_PATH := "res://data/generated/combat_config.tres"
 const GRAVITY_CONFIG_PATH := "res://data/generated/gravity_config.tres"
-const LEVEL_CONFIG_PATH := "res://data/generated/level_config.tres"
 
 var _kind: EnemyConfigScript
 var _combat: CombatConfigScript
@@ -76,23 +73,16 @@ var _suspended := false
 # The derived GravityConfig, lazily loaded (load() is cached) so the gravity
 # block stays independent of _ready (the S3 pattern).
 var _gravity_config: GravityConfigScript
-# S8 Warp rotation state (gADR-0009). When this enemy last STARTED a warp
-# (-INF = never, the is_attack_ready sentinel: the first warp is gated by
-# distance alone); the current phase ("" = none, "tell", "recovery") and when
-# it ends. Phases suspend steering and attack — the tell is the telegraph,
-# the recovery is the fair-exchange window.
-var _last_warp_time := -INF
-var _warp_phase := ""
-var _warp_phase_until := 0.0
-# The spawn-telegraph numbers, cached from play_spawn_tween so the blink can
-# replay the SAME rematerialize squash at its landing (the schedule owns
-# them, gADR-0005 — an enemy spawned outside the wave system just skips it).
+# The Warp driver (S8, gADR-0009): the enemy-owned three-phase (tell -> blink ->
+# recovery) rotation state machine. Constructed for every kind; a kind without
+# the Warp kit never opens its gate, so it stays inert. Holds the warp state and
+# the four rotation methods that used to interleave this _physics_process.
+var _warp: EnemyWarpDriverScript
+# The spawn-telegraph numbers, cached from play_spawn_tween so the Warp driver's
+# blink can replay the SAME rematerialize squash at its landing (the schedule
+# owns them, gADR-0005 — an enemy spawned outside the wave system just skips it).
 var _spawn_squash := Vector2.ONE
 var _spawn_tween_duration := 0.0
-# The derived LevelConfig (the level authority: the authored Arena interval,
-# gADR-0010 — was the PlayerConfig platform extent until S9), lazily loaded
-# for the landing's arena clamp.
-var _level_config: LevelConfigScript
 
 
 ## Hand this enemy its Enemy Kind. Called by the spawner BEFORE add_child, so
@@ -115,6 +105,7 @@ func _ready() -> void:
 	add_to_group("gravity_affectable")
 	_stats = StatsSystemScript.new()
 	_stats.init_from(_kind)
+	_warp = EnemyWarpDriverScript.new(self)
 	_apply_blockout(_kind)
 	GameLogScript.emit("info", "enemy_ready", {
 		"max_hp": _kind.max_hp,
@@ -166,13 +157,10 @@ func _physics_process(delta: float) -> void:
 	# and attack (vertical settling only); otherwise the pure gate may open a
 	# new cast. Gravity Fields still act above — a suspension mid-tell moves
 	# the Boss, never cancels the warp.
-	if _warp_phase != "":
-		_warp_tick(delta, player)
+	if _warp.is_active():
+		_warp.tick(delta, player)
 		return
-	if player != null and WarpSystemScript.should_warp(
-		position, player.position, _kind, _last_warp_time, _now()
-	):
-		_begin_warp_tell()
+	if _warp.try_begin(player):
 		return
 	var move_dir := 0.0
 	if player != null:
@@ -192,89 +180,6 @@ func _physics_process(delta: float) -> void:
 		position, player.position, _kind, _last_attack_time, _now()
 	):
 		_attack(player)
-
-
-## Start the Warp tell (gADR-0009): stamp the cooldown at the DECISION moment
-## (the cooldown spans the whole rotation), telegraph with a charge-shrink
-## tween toward the spawn squash, and suspend normal AI until the tell ends.
-func _begin_warp_tell() -> void:
-	_last_warp_time = _now()
-	_warp_phase = "tell"
-	_warp_phase_until = _now() + _kind.warp_tell_duration
-	velocity = Vector2.ZERO
-	GameLogScript.emit("info", "warp_tell", {"x": position.x, "y": position.y})
-	var visual := $Visual as ColorRect
-	var tween := create_tween()
-	tween.tween_property(visual, "scale", _spawn_squash, _kind.warp_tell_duration)
-
-
-## Advance the in-flight Warp phase each physics frame: hold (with vertical
-## settling only — a blink may land above the platform) until the phase ends,
-## then tell -> blink + field drop, recovery -> normal AI resumes next frame.
-func _warp_tick(delta: float, player: Node2D) -> void:
-	velocity.x = 0.0
-	if is_on_floor():
-		if velocity.y > 0.0:
-			velocity.y = 0.0
-	else:
-		velocity.y += _kind.gravity * delta
-		if velocity.y > _kind.max_fall_speed:
-			velocity.y = _kind.max_fall_speed
-	move_and_slide()
-	if _now() < _warp_phase_until:
-		return
-	if _warp_phase == "tell":
-		_blink(player)
-	else:
-		_warp_phase = ""
-
-
-## The blink itself: relocate to the pure far-side landing, drop the Time
-## Dilation Field there at the SAME instant (the zone is the warp's wake,
-## gADR-0009), replay the spawn squash as the rematerialize telegraph, and
-## enter the no-attack recovery window. A Player gone from the tree (never in
-## Phase 1 — death latches, the node stays) just cancels the cast.
-func _blink(player: Node2D) -> void:
-	if player == null:
-		_warp_phase = ""
-		($Visual as ColorRect).scale = Vector2.ONE
-		return
-	var bounds := _arena_bounds()
-	var landing := WarpSystemScript.warp_landing(
-		position, player.position, _kind, bounds.x, bounds.y
-	)
-	GameLogScript.emit("info", "warp_blink", {
-		"from_x": position.x,
-		"from_y": position.y,
-		"to_x": landing.x,
-		"to_y": landing.y,
-	})
-	position = landing
-	velocity = Vector2.ZERO
-	var field := TimeFieldScene.instantiate()
-	field.configure(_kind)
-	field.position = landing
-	get_parent().add_child(field)
-	play_spawn_tween(_spawn_squash, _spawn_tween_duration)
-	_warp_phase = "recovery"
-	_warp_phase_until = _now() + _kind.warp_recovery_duration
-
-
-## The landing clamp's x range (min, max): the authored Arena interval — the
-## level authority's arena_min_x/arena_max_x (gADR-0010, replacing the S8
-## platform-extent derivation: a multi-segment Great Wall has no single
-## extent) — inset by half this kind's width so the body lands ON the
-## rampart, never half off the Arena's edge.
-func _arena_bounds() -> Vector2:
-	if _level_config == null:
-		_level_config = GeneratedConfigScript.load_config(LEVEL_CONFIG_PATH)
-		if _level_config == null:
-			return Vector2(position.x, position.x)  # degenerate: land in place
-	var half_body := _kind.size.x / 2.0
-	return Vector2(
-		_level_config.arena_min_x + half_body,
-		_level_config.arena_max_x - half_body
-	)
 
 
 ## Gravity-response contract (gADR-0002, owned and documented by S3): buffer a
