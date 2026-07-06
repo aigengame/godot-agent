@@ -77,6 +77,11 @@ var _level_cfg: LevelConfigScript
 
 
 func _ready() -> void:
+	# The Game-flow director owns the End state; this node forwards the edges
+	# (S9, gADR-0010; extracted #453). Constructed BEFORE the config guards —
+	# its _init has zero config dependencies, and _process calls its retry poll
+	# unconditionally, so a guard's early return must still leave it in place.
+	_flow = GameFlowDirectorScript.new(self)
 	var config: PlayerConfigScript = GeneratedConfigScript.load_config(CONFIG_PATH)
 	if config == null:
 		return
@@ -89,9 +94,6 @@ func _ready() -> void:
 		push_error("LevelController: %s has no platforms." % LEVEL_CONFIG_PATH)
 		return
 	_apply_level(_level_cfg)
-	# The Game-flow director owns the End state; this node forwards the edges
-	# (S9, gADR-0010; extracted #453).
-	_flow = GameFlowDirectorScript.new(self)
 	var player := get_tree().get_first_node_in_group("player")
 	if player != null:
 		# The lose edge (S9, gADR-0010): the Player's S4 death latch now
