@@ -199,8 +199,9 @@ _Avoid_: status bar, overlay UI, GUI (the HUD is one specific surface, not all U
 **CombatSystem**:
 The pure decision functions of combat — the damage formula, the i-frame window check, and
 the death rule — static, deterministic, and clock-free, shared unchanged by the runtime
-controllers and the offline Monte-Carlo balancing sim (gADR-0001). Controllers orchestrate
-(clock, mutation, tween, log); decisions live only here.
+controllers (gADR-0001). For the Balancing pipeline it is the parity fixtures' ground-truth
+oracle — no longer the sim engine (gADR-0011). Controllers orchestrate (clock, mutation,
+tween, log); decisions live only here.
 _Avoid_: damage manager, battle system
 
 **EnemyAI**:
@@ -223,7 +224,7 @@ _Avoid_: TDD (reserved repo-wide for Test-Driven Development); time-to-down
 
 **Tool Script**:
 A reusable Python pipeline script that produces or processes project content — the
-asset pipelines (preprocess → generate → postprocess) and the Balancing pipeline
+asset pipelines (preprocess → acquire → postprocess) and the Balancing pipeline
 alike. Designed game-agnostic — a reusable, input-driven core with per-game
 configuration, with pluggable output emitters (JSON/XML/Resource/…) for reuse
 beyond this demo. In this project its structured output always lands in the JSON

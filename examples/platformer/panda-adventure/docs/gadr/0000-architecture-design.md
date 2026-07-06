@@ -33,3 +33,10 @@ a source of truth.
 - A JSON→Resource conversion step (with JSON Schema validation) is required machinery.
 - Drift between JSON and Resource is prevented by treating the Resource strictly as a derived
   output of the authoritative JSON.
+
+> **Clarification (2026-07-06, gADR-0011/0012).** "Not hand-tuned in the editor"
+> means not hand-edited in the **Godot editor** and never authored in `.tres` —
+> the JSON authority stays the only authoring surface. It does not preclude the
+> Panda Adventure Editor's structured hand-tune channel (gADR-0012), which writes
+> that same JSON authority and coexists with the Balancing pipeline under
+> gADR-0011's validate/solve collision rules.

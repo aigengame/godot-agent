@@ -5,9 +5,10 @@ status: accepted
 # Panda Adventure Editor: an in-game tool mode writing only the JSON authority
 
 Phase 2's scope adds a visual editor for editing and debugging Level 1's content —
-a component absent from every prior record (#324, gADR-0000…0011). This record
-settles its form, user, scope, and authority discipline, decided in the 2026-07-06
-Phase 2 scoping interview.
+a component absent from every record predating the 2026-07-06 amendment (the
+original #324 scope and gADR-0000…0011); the amended #324 now carries the Editor
+track (stories 25–28). This record settles its form, user, scope, and authority
+discipline, decided in the same 2026-07-06 Phase 2 scoping interview.
 
 We decide five things:
 

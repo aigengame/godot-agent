@@ -105,3 +105,8 @@ The model:
   block) — the spec derivation and the freshness gate follow the JSON, so a
   kind missing its committed `.tres` (or violating a cross-field rule) fails
   the fast tier, not the runtime.
+
+> **Amendment (2026-07-06, gADR-0011).** The balancing consequence is superseded:
+> the sim no longer reuses `EnemyAI` + `CombatSystem` directly — the Balancing
+> pipeline is Python (gADR-0011), and these seams serve as the ground-truth oracle
+> for its golden parity fixtures instead. Per-kind TTK/TTD knobs stand.
