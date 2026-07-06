@@ -8,7 +8,7 @@ Godot Resources under ``data/generated/`` that the runtime ``load()``s. Every
 byte-identical to a fresh build), never hand-edited: changing config means
 changing the JSON.
 
-Eight sources feed the outputs (``specs_for``/``SPECS``):
+Nine sources feed the outputs (``specs_for``/``SPECS``):
 
 - ``player_config.json`` -> ``player_config.tres`` (``PlayerConfig``, S1;
   the platform blockout migrated OUT to ``level_config.json`` in S9,
@@ -47,6 +47,18 @@ Eight sources feed the outputs (``specs_for``/``SPECS``):
   Arena interval that clamps the Warp Blink's landing, and the End screen's
   blockout numbers). Its cross-field rules (unique segment names, a real
   Arena interval) are enforced by ``validate_level_semantics``.
+- ``scale_spec.json`` -> ``scale_spec.tres`` (``ScaleSpecConfig``, the Scale
+  spec — gADR-0013): the SINGLE authority for element dimensions. Its own
+  ``.tres`` carries only the pixel-art/presentation anchors (PPU, tile size,
+  the Design base, the stretch policy, the platform thickness); every
+  per-ELEMENT dimension (the Player box, per-kind enemy/bolt boxes, the
+  field radii, the pickup boxes, the HUD margin and font sizes) is COMPOSED
+  by ``compose_scale_spec`` into the source document each consumer's derived
+  Resource renders from — one authored home, N derived projections (the
+  gADR-0004 per-Tier-table pattern, widened). Its cross-FILE rules — two-way
+  kind integrity with the enemies config, strict Tier size ordering, two-way
+  pickup-item integrity with the progression config, and level-segment
+  tile-grid alignment — are enforced by ``validate_scale_semantics``.
 
 Dogfooding note: since gda's ADR-0032 static class_name scan (issue #360), ``gda
 resource create --type PlayerConfig`` CAN instantiate a project-local class in
@@ -83,6 +95,7 @@ class TresSpec:
     is byte-stable (the freshness gate depends on it) and adding a config field
     is a one-line change. Types: "color" (4-array -> Color), "vec2" (2-array ->
     Vector2), "float" (scalar -> bare number), "string" (str -> quoted String),
+    "bool" (bool -> true/false, the Scale spec's snap flag),
     "wave_list" (waves -> Array of {"spawns": Array of Dictionary}, S5's Wave
     schedule), "number_list" (number array -> Array, S6b's leveling curve),
     "drop_list" (drop entries -> Array of Dictionary, S6b's per-kind Drop
@@ -131,9 +144,6 @@ _COMBAT_FIELDS: list[tuple[str, str]] = [
     ("projectile_speed", "float"),
     ("projectile_lifetime", "float"),
     ("projectile_spawn_offset", "vec2"),
-    ("enemy_color", "color"),
-    ("enemy_size", "vec2"),
-    ("enemy_position", "vec2"),
     ("hit_flash_color", "color"),
     ("hit_flash_duration", "float"),
 ]
@@ -222,9 +232,11 @@ _WAVE_SCHEDULE_FIELDS: list[tuple[str, str]] = [
 
 # The S6a HUD blockout numbers (gADR-0004): overlay placement and the
 # value-change pulse tween. Layout/styling beyond these stays a later asset
-# concern (GDD "HUD & UI").
+# concern (GDD "HUD & UI"). ``margin`` and ``font_size`` are COMPOSED from the
+# Scale spec (gADR-0013) — authored in scale_spec.json, not hud_config.json.
 _HUD_FIELDS: list[tuple[str, str]] = [
     ("margin", "vec2"),
+    ("font_size", "float"),
     ("value_punch_scale", "vec2"),
     ("value_tween_duration", "float"),
 ]
@@ -275,10 +287,36 @@ _PROGRESSION_FIELDS: list[tuple[str, str]] = [
 ]
 
 
+# The Scale spec's own fields (gADR-0013): ONLY the pixel-art and presentation
+# anchors — per-element dimensions are composed into their consumers' documents
+# by ``compose_scale_spec`` instead of rendering here.
+_SCALE_FIELDS: list[tuple[str, str]] = [
+    ("ppu", "float"),
+    ("tile_size", "float"),
+    ("design_base", "vec2"),
+    ("stretch_mode", "string"),
+    ("stretch_aspect", "string"),
+    ("texture_filter", "string"),
+    ("snap_2d_transforms_to_pixel", "bool"),
+    ("platform_thickness", "float"),
+]
+
+
 # The S4 enemies source (gADR-0003) — one json_rel shared by the derived
 # per-kind specs and the Wave-schedule spec.
 _ENEMIES_JSON_REL = "data/json/enemies_config.json"
 _ENEMIES_SCHEMA_REL = "data/schema/enemies_config.schema.json"
+
+# The P2-S0 Scale spec source (gADR-0013) — the single authority for element
+# dimensions, composed into every other source by ``compose_scale_spec``.
+_SCALE_JSON_REL = "data/json/scale_spec.json"
+_SCALE_SCHEMA_REL = "data/schema/scale_spec.schema.json"
+
+# The remaining sources ``compose_scale_spec`` keys its injection map on.
+_PLAYER_JSON_REL = "data/json/player_config.json"
+_COMBAT_JSON_REL = "data/json/combat_config.json"
+_GRAVITY_JSON_REL = "data/json/gravity_config.json"
+_HUD_JSON_REL = "data/json/hud_config.json"
 
 # The S6b progression source (gADR-0006) — carries its own cross-field rule
 # (the strictly increasing leveling curve, validate_progression_semantics).
@@ -403,6 +441,15 @@ _STATIC_SPECS: list[TresSpec] = [
         script_class="LevelConfig",
         ext_id="1_levelconfig",
         fields=_LEVEL_FIELDS,
+    ),
+    TresSpec(
+        json_rel=_SCALE_JSON_REL,
+        schema_rel=_SCALE_SCHEMA_REL,
+        out_rel="data/generated/scale_spec.tres",
+        script_res_path="res://src/resources/scale_spec_config.gd",
+        script_class="ScaleSpecConfig",
+        ext_id="1_scalespecconfig",
+        fields=_SCALE_FIELDS,
     ),
 ]
 
@@ -624,6 +671,205 @@ def validate_level_semantics(document: Any) -> Any:
     return document
 
 
+def load_scale_spec(root: Path = GAME_DIR) -> dict[str, Any]:
+    """Load and schema-validate ``root``'s Scale spec (gADR-0013)."""
+    document = load_json(root / _SCALE_JSON_REL)
+    validate_config(document, load_schema(root / _SCALE_SCHEMA_REL))
+    return document
+
+
+def compose_scale_spec(document: Any, json_rel: str, scale: dict[str, Any]) -> Any:
+    """Compose the Scale spec's element dimensions into one source document.
+
+    The write side of gADR-0013's single size authority: every migrated
+    dimension is injected back into the source document its derived Resource
+    renders from, so the runtime keeps its existing per-module config shape
+    while the numbers have ONE authored home (the gADR-0004 per-Tier-table
+    pattern, widened). Mutates and returns ``document``; a source that carries
+    no dimensions (e.g. items_config) passes through unchanged. Raises
+    :class:`jsonschema.ValidationError` when the spec lacks an entry the
+    source needs — the same failure type as the schema gate, so a bad config
+    fails the build loudly (the full two-way rules live in
+    ``validate_scale_semantics``; these are the composition-side guards).
+    """
+    if json_rel == _PLAYER_JSON_REL:
+        document["player_size"] = scale["player_size"]
+    elif json_rel == _COMBAT_JSON_REL:
+        document["projectile_size"] = scale["player_projectile_size"]
+    elif json_rel == _GRAVITY_JSON_REL:
+        document["field_radius"] = scale["gravity_field_radius"]
+        document["obstacle_size"] = scale["obstacle_size"]
+    elif json_rel == _ENEMIES_JSON_REL:
+        for name, kind in document["kinds"].items():
+            box = scale["enemy_boxes"].get(name)
+            if box is None:
+                raise jsonschema.ValidationError(
+                    f"kind {name!r} has no enemy_boxes entry in scale_spec.json "
+                    "— every Enemy Kind's box lives in the Scale spec "
+                    "(gADR-0013)"
+                )
+            kind["size"] = box["size"]
+            if kind["archetype"] == "ranged":
+                if "projectile_size" not in box:
+                    raise jsonschema.ValidationError(
+                        f"ranged kind {name!r} has no projectile_size in its "
+                        "scale_spec.json enemy_boxes entry (gADR-0013)"
+                    )
+                kind["projectile_size"] = box["projectile_size"]
+            if "warp_cooldown" in kind:
+                if "time_field_radius" not in box:
+                    raise jsonschema.ValidationError(
+                        f"Warp kind {name!r} has no time_field_radius in its "
+                        "scale_spec.json enemy_boxes entry (gADR-0013)"
+                    )
+                kind["time_field_radius"] = box["time_field_radius"]
+    elif json_rel == _HUD_JSON_REL:
+        document["margin"] = scale["hud_margin"]
+        document["font_size"] = scale["hud_font_size"]
+    elif json_rel == _PROGRESSION_JSON_REL:
+        for item, style in document["drop_items"].items():
+            size = scale["pickup_sizes"].get(item)
+            if size is None:
+                raise jsonschema.ValidationError(
+                    f"drop item {item!r} has no pickup_sizes entry in "
+                    "scale_spec.json (gADR-0013)"
+                )
+            style["size"] = size
+        document["pickup_spacing"] = scale["pickup_spacing"]
+    elif json_rel == _LEVEL_JSON_REL:
+        document["end_title_font_size"] = scale["end_title_font_size"]
+        document["end_hint_font_size"] = scale["end_hint_font_size"]
+    return document
+
+
+def load_composed(json_rel: str, root: Path = GAME_DIR) -> Any:
+    """Load one authored source with the Scale spec's dimensions composed in.
+
+    The read-side twin of ``build_spec``'s composition (gADR-0013): the exact
+    document a derived Resource renders from, for tests and tools that need
+    expectation values without rebuilding. The Scale spec itself loads
+    validated and unchanged.
+    """
+    document = load_json(root / json_rel)
+    if json_rel == _SCALE_JSON_REL:
+        return validate_config(document, load_schema(root / _SCALE_SCHEMA_REL))
+    return compose_scale_spec(document, json_rel, load_scale_spec(root))
+
+
+# The Tier axis in ascending power order — the GDD's at-a-glance size
+# staircase (Minion near the Player, Elite above, Boss the largest).
+_TIER_ORDER = ["minion", "elite", "boss"]
+
+
+def validate_scale_semantics(scale: dict[str, Any], root: Path = GAME_DIR) -> Any:
+    """Enforce the Scale spec's cross-FILE rules (gADR-0013).
+
+    Runs after (and assumes) schema validation, when the Scale spec's own
+    resource builds; raises :class:`jsonschema.ValidationError` — the same
+    failure type as the schema gate — so a bad config fails the build loudly
+    either way. The rules:
+
+    - **Two-way kind integrity**: every Enemy Kind in the enemies config has
+      an ``enemy_boxes`` entry, and every entry names a defined kind — adding
+      a kind touches both authored files, and the gate catches a miss.
+    - **Optional keys follow the kind's shape**: an entry carries
+      ``projectile_size`` iff its kind is ranged, and ``time_field_radius``
+      iff its kind carries the Warp block.
+    - **Strict Tier size ordering** (the GDD rule, machine-enforced): every
+      lower-Tier box stays strictly below every higher-Tier box on BOTH
+      dimensions — Tier must read at a glance.
+    - **Two-way pickup-item integrity**: ``pickup_sizes`` and the progression
+      config's ``drop_items`` name the same item vocabulary.
+    - **The tile grid**: every level segment dimension and the standard
+      ``platform_thickness`` are multiples of ``tile_size``, so the View
+      skin's tile vocabulary composes seamlessly (level GEOMETRY stays
+      authored content in the Level authority; the spec only constrains it
+      to the grid).
+    """
+    enemies = load_json(root / _ENEMIES_JSON_REL)
+    progression = load_json(root / _PROGRESSION_JSON_REL)
+    level = load_json(root / _LEVEL_JSON_REL)
+
+    kinds = enemies["kinds"]
+    boxes = scale["enemy_boxes"]
+    for name in kinds:
+        if name not in boxes:
+            raise jsonschema.ValidationError(
+                f"kind {name!r} has no enemy_boxes entry in scale_spec.json — "
+                "every Enemy Kind's box lives in the Scale spec (gADR-0013)"
+            )
+    for name in boxes:
+        if name not in kinds:
+            raise jsonschema.ValidationError(
+                f"enemy_boxes entry {name!r} names no kind in "
+                "enemies_config.json — a stale box is a config bug (gADR-0013)"
+            )
+    for name, kind in kinds.items():
+        box = boxes[name]
+        if (kind["archetype"] == "ranged") != ("projectile_size" in box):
+            raise jsonschema.ValidationError(
+                f"kind {name!r}: enemy_boxes carries projectile_size iff the "
+                "kind is ranged (gADR-0013)"
+            )
+        if ("warp_cooldown" in kind) != ("time_field_radius" in box):
+            raise jsonschema.ValidationError(
+                f"kind {name!r}: enemy_boxes carries time_field_radius iff "
+                "the kind carries the Warp block (gADR-0013)"
+            )
+
+    by_tier: dict[str, list[tuple[str, list[float]]]] = {
+        tier: [] for tier in _TIER_ORDER
+    }
+    for name, kind in kinds.items():
+        by_tier[kind["tier"]].append((name, boxes[name]["size"]))
+    present = [tier for tier in _TIER_ORDER if by_tier[tier]]
+    for lower, higher in zip(present, present[1:]):
+        for axis, label in ((0, "width"), (1, "height")):
+            low_name, low_size = max(by_tier[lower], key=lambda e: e[1][axis])
+            high_name, high_size = min(by_tier[higher], key=lambda e: e[1][axis])
+            if low_size[axis] >= high_size[axis]:
+                raise jsonschema.ValidationError(
+                    f"Tier size ordering broken: {lower} {low_name!r} {label} "
+                    f"({low_size[axis]}) must stay strictly below {higher} "
+                    f"{high_name!r} {label} ({high_size[axis]}) — Tier reads "
+                    "at a glance (gADR-0013)"
+                )
+
+    drop_items = progression["drop_items"]
+    pickup_sizes = scale["pickup_sizes"]
+    for item in drop_items:
+        if item not in pickup_sizes:
+            raise jsonschema.ValidationError(
+                f"drop item {item!r} has no pickup_sizes entry in "
+                "scale_spec.json (gADR-0013)"
+            )
+    for item in pickup_sizes:
+        if item not in drop_items:
+            raise jsonschema.ValidationError(
+                f"pickup_sizes entry {item!r} names no drop item in "
+                "progression_config.json (gADR-0013)"
+            )
+
+    tile = scale["tile_size"]
+    for platform in level["platforms"]:
+        for axis, label in ((0, "width"), (1, "height")):
+            if platform["size"][axis] % tile != 0:
+                raise jsonschema.ValidationError(
+                    f"segment {platform['name']!r} {label} "
+                    f"({platform['size'][axis]}) is not a multiple of the "
+                    f"tile_size ({tile}) — segment geometry must land on the "
+                    "tile grid so the View skin composes seamlessly "
+                    "(gADR-0013)"
+                )
+    if scale["platform_thickness"] % tile != 0:
+        raise jsonschema.ValidationError(
+            f"platform_thickness ({scale['platform_thickness']}) is not a "
+            f"multiple of the tile_size ({tile}) — the standard slab is a "
+            "grid multiple (gADR-0013)"
+        )
+    return scale
+
+
 def enemy_kind_specs(root: Path = GAME_DIR) -> list[TresSpec]:
     """One TresSpec per Enemy Kind, DERIVED from ``root``'s enemies JSON.
 
@@ -676,6 +922,8 @@ def _render_field(key: str, kind: str, value: Any) -> str:
     if kind == "string":
         # Schema-constrained enum/pattern values (no quotes/escapes possible).
         return f'"{value}"'
+    if kind == "bool":
+        return "true" if value else "false"
     if kind == "wave_list":
         # The Wave schedule: an Array of {"spawns": [...]} Dictionaries, each
         # spawn a {kind, name, position} Dictionary (the gADR-0003 entry
@@ -789,6 +1037,14 @@ def build_spec(
     """
     document = load_json(root / spec.json_rel)
     validate_config(document, load_schema(root / spec.schema_rel))
+    if spec.json_rel == _SCALE_JSON_REL:
+        # The Scale spec's own cross-FILE rules (gADR-0013): kind and pickup
+        # integrity, Tier size ordering, and the tile grid.
+        validate_scale_semantics(document, root=root)
+    else:
+        # Compose the Scale spec's dimensions into the source document
+        # (gADR-0013): one authored home, N derived projections.
+        document = compose_scale_spec(document, spec.json_rel, load_scale_spec(root))
     if spec.json_rel == _ENEMIES_JSON_REL:
         # The enemies source carries cross-field rules the schema cannot
         # express (gADR-0003) — enforce them before deriving any resource,
@@ -825,9 +1081,15 @@ def build(
     schema_path: Path = SCHEMA_PATH,
     out_path: Path = GENERATED_TRES,
 ) -> Path:
-    """Validate the authoritative player JSON and write its ``.tres`` (S1 API)."""
+    """Validate the authoritative player JSON and write its ``.tres`` (S1 API).
+
+    Composes the committed Scale spec's dimensions in (gADR-0013) — this
+    convenience API always reads the game's own scale_spec.json; a copied
+    root goes through ``build_spec``/``build_all``.
+    """
     config = load_json(json_path)
     validate_config(config, load_schema(schema_path))
+    config = compose_scale_spec(config, _PLAYER_JSON_REL, load_scale_spec())
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(render_tres(config), encoding="utf-8")
     return out_path

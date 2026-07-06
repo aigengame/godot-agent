@@ -1,0 +1,31 @@
+{
+  "ppu": 1.0,
+  "tile_size": 16.0,
+  "design_base": [1280.0, 720.0],
+  "stretch_mode": "canvas_items",
+  "stretch_aspect": "expand",
+  "texture_filter": "nearest",
+  "snap_2d_transforms_to_pixel": true,
+  "platform_thickness": 48.0,
+  "player_size": [48.0, 64.0],
+  "player_projectile_size": [18.0, 6.0],
+  "gravity_field_radius": 96.0,
+  "obstacle_size": [40.0, 40.0],
+  "enemy_boxes": {
+    "monster_minion_melee": { "size": [48.0, 48.0] },
+    "robot_elite_ranged": { "size": [56.0, 72.0], "projectile_size": [14.0, 6.0] },
+    "xenomorph_minion_melee": { "size": [40.0, 40.0] },
+    "xenomorph_minion_ranged": { "size": [40.0, 48.0], "projectile_size": [12.0, 5.0] },
+    "alien_boss_tank": { "size": [96.0, 128.0], "time_field_radius": 160.0 }
+  },
+  "pickup_sizes": {
+    "gold": [14.0, 14.0],
+    "bun": [18.0, 14.0],
+    "wine": [12.0, 20.0]
+  },
+  "pickup_spacing": 30.0,
+  "hud_margin": [24.0, 24.0],
+  "hud_font_size": 16.0,
+  "end_title_font_size": 64.0,
+  "end_hint_font_size": 24.0
+}

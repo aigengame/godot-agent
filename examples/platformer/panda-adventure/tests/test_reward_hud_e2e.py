@@ -88,14 +88,12 @@ def _find_node(node: dict, name: str) -> dict | None:
 def test_daemon_serves_kill_reward_and_hud(tmp_path, daemon_runtime_dir):
     project = _make_project_copy(tmp_path / "game")
     # Every expectation derives from the AUTHORITATIVE JSON, never hardcoded.
-    enemies = build_config.load_json(GAME_DIR / "data" / "json" / "enemies_config.json")
-    combat = build_config.load_json(GAME_DIR / "data" / "json" / "combat_config.json")
-    gravity = build_config.load_json(GAME_DIR / "data" / "json" / "gravity_config.json")
-    items = build_config.load_json(GAME_DIR / "data" / "json" / "items_config.json")
-    player_cfg = build_config.load_json(
-        GAME_DIR / "data" / "json" / "player_config.json"
-    )
-    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    enemies = build_config.load_composed("data/json/enemies_config.json")
+    combat = build_config.load_composed("data/json/combat_config.json")
+    gravity = build_config.load_composed("data/json/gravity_config.json")
+    items = build_config.load_composed("data/json/items_config.json")
+    player_cfg = build_config.load_composed("data/json/player_config.json")
+    level_cfg = build_config.load_composed("data/json/level_config.json")
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     default_spawn = enemies["waves"][0]["spawns"][0]
     kind = enemies["kinds"][default_spawn["kind"]]

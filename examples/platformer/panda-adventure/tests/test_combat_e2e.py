@@ -80,11 +80,13 @@ def _expected_damage(combat: dict) -> float:
 def test_daemon_serves_laser_combat(tmp_path, daemon_runtime_dir):
     project = _make_project_copy(tmp_path / "game")
     # Every expectation derives from the AUTHORITATIVE JSON, never hardcoded.
-    combat = build_config.load_json(GAME_DIR / "data" / "json" / "combat_config.json")
-    player_cfg = build_config.load_json(
-        GAME_DIR / "data" / "json" / "player_config.json"
-    )
-    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    combat = build_config.load_composed("data/json/combat_config.json")
+    # The Wave-1 spawn is the position authority (gADR-0005); the duplicated
+    # legacy combat enemy_position was deleted by gADR-0013.
+    enemies = build_config.load_composed("data/json/enemies_config.json")
+    enemy_spawn = enemies["waves"][0]["spawns"][0]["position"]
+    player_cfg = build_config.load_composed("data/json/player_config.json")
+    level_cfg = build_config.load_composed("data/json/level_config.json")
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     damage = _expected_damage(combat)
     max_hp = combat["enemy_stats"]["max_hp"]
@@ -162,7 +164,7 @@ def test_daemon_serves_laser_combat(tmp_path, daemon_runtime_dir):
         ready = poll(lambda: records("enemy_ready"))
         assert ready, "no gda_log 'enemy_ready' record"
         assert ready[0]["fields"]["max_hp"] == pytest.approx(max_hp)
-        assert ready[0]["fields"]["x"] == pytest.approx(combat["enemy_position"][0])
+        assert ready[0]["fields"]["x"] == pytest.approx(enemy_spawn[0])
 
         # Let the Player settle on the platform before firing (S1-proven poll).
         assert poll(lambda: abs(player_y() - rest_y) <= 2.0), (

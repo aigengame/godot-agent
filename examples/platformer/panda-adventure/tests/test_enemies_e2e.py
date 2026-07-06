@@ -79,7 +79,7 @@ def _expected_player_damage(kind: dict, combat: dict, player_stats: dict) -> flo
     The Player defends with the SPACESUIT-composed block since S7
     (gADR-0008): base defense + the items config's suit bonus.
     """
-    items = build_config.load_json(GAME_DIR / "data" / "json" / "items_config.json")
+    items = build_config.load_composed("data/json/items_config.json")
     return max(
         combat["min_damage"],
         kind["attack"] * combat["attack_scale"]
@@ -171,7 +171,7 @@ def _rest_y(player_cfg: dict, rampart: dict) -> float:
 
 def _rampart() -> dict:
     """The main fight platform from the authoritative level config."""
-    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    level_cfg = build_config.load_composed("data/json/level_config.json")
     return next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
 
 
@@ -203,13 +203,9 @@ def test_melee_enemy_closes_distance_and_damages_player(tmp_path, daemon_runtime
 
     project = _make_project_copy(tmp_path / "game", hot_melee)
     # Every expectation derives from the copy's AUTHORITATIVE JSON.
-    enemies = json.loads(
-        (project / "data" / "json" / "enemies_config.json").read_text(encoding="utf-8")
-    )
-    combat = build_config.load_json(GAME_DIR / "data" / "json" / "combat_config.json")
-    player_cfg = build_config.load_json(
-        GAME_DIR / "data" / "json" / "player_config.json"
-    )
+    enemies = build_config.load_composed("data/json/enemies_config.json", root=project)
+    combat = build_config.load_composed("data/json/combat_config.json")
+    player_cfg = build_config.load_composed("data/json/player_config.json")
     rampart = _rampart()
     kind = enemies["kinds"]["monster_minion_melee"]
     damage = _expected_player_damage(kind, combat, combat["player_stats"])
@@ -304,7 +300,11 @@ def test_ranged_enemy_keeps_distance_and_damages_from_afar(
         kind["attack_range"] = 520.0
         kind["keep_range_min"] = 220.0
         kind["keep_range_max"] = 380.0
-        # Rest the elite on the platform top (bodies are center-origin).
+        # Rest the elite on the platform top (bodies are center-origin). The
+        # body box is a Scale-spec dimension (gADR-0013), not in this source.
+        box = build_config.load_scale_spec()["enemy_boxes"]["robot_elite_ranged"][
+            "size"
+        ]
         rampart = _rampart()
         platform_top = rampart["position"][1] - rampart["size"][1] / 2.0
         config["waves"] = [
@@ -313,7 +313,7 @@ def test_ranged_enemy_keeps_distance_and_damages_from_afar(
                     {
                         "kind": "robot_elite_ranged",
                         "name": "Enemy",
-                        "position": [640.0, platform_top - kind["size"][1] / 2.0],
+                        "position": [640.0, platform_top - box[1] / 2.0],
                     }
                 ]
             }
@@ -321,13 +321,9 @@ def test_ranged_enemy_keeps_distance_and_damages_from_afar(
         return config
 
     project = _make_project_copy(tmp_path / "game", ranged_roster)
-    enemies = json.loads(
-        (project / "data" / "json" / "enemies_config.json").read_text(encoding="utf-8")
-    )
-    combat = build_config.load_json(GAME_DIR / "data" / "json" / "combat_config.json")
-    player_cfg = build_config.load_json(
-        GAME_DIR / "data" / "json" / "player_config.json"
-    )
+    enemies = build_config.load_composed("data/json/enemies_config.json", root=project)
+    combat = build_config.load_composed("data/json/combat_config.json")
+    player_cfg = build_config.load_composed("data/json/player_config.json")
     kind = enemies["kinds"]["robot_elite_ranged"]
     damage = _expected_player_damage(kind, combat, combat["player_stats"])
     band_min = kind["keep_range_min"]

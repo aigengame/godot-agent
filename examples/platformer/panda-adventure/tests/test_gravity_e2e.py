@@ -87,17 +87,18 @@ def _find_node(node: dict, name: str) -> dict | None:
 def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
     project = _make_project_copy(tmp_path / "game")
     # Every expectation derives from the AUTHORITATIVE JSON, never hardcoded.
-    gravity = build_config.load_json(GAME_DIR / "data" / "json" / "gravity_config.json")
-    combat = build_config.load_json(GAME_DIR / "data" / "json" / "combat_config.json")
-    player_cfg = build_config.load_json(
-        GAME_DIR / "data" / "json" / "player_config.json"
-    )
-    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    gravity = build_config.load_composed("data/json/gravity_config.json")
+    combat = build_config.load_composed("data/json/combat_config.json")
+    enemies = build_config.load_composed("data/json/enemies_config.json")
+    player_cfg = build_config.load_composed("data/json/player_config.json")
+    level_cfg = build_config.load_composed("data/json/level_config.json")
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     mp_max = combat["player_stats"]["max_mp"]
     mp_cost = gravity["mp_cost"]
     obstacle_pos = gravity["obstacle_position"]
-    enemy_pos = combat["enemy_position"]
+    # The Wave-1 spawn is the position authority (gADR-0005); the duplicated
+    # legacy combat enemy_position was deleted by gADR-0013.
+    enemy_pos = enemies["waves"][0]["spawns"][0]["position"]
     enemy_clamp = gravity["enemy_max_gravity_offset"]
     # The field velocity the runtime derives from the data (direction x strength).
     direction = gravity["field_direction"]
@@ -272,9 +273,7 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         # 28703817301: enemy 4.7 px behind the Player, field center 124.7 px
         # away, zero suspension frames). So walk in only until ENGAGED (live
         # gap <= the spawn offset), and aim the shot from LIVE positions.
-        enemies_cfg = build_config.load_json(
-            GAME_DIR / "data" / "json" / "enemies_config.json"
-        )
+        enemies_cfg = build_config.load_composed("data/json/enemies_config.json")
         enemy_spawn = next(
             s
             for wave in enemies_cfg["waves"]

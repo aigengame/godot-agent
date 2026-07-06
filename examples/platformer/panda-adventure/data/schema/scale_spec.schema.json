@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigengame.dev/panda-adventure/data/schema/scale_spec.schema.json",
+  "title": "Panda Adventure Scale spec",
+  "description": "The Scale spec (gADR-0013): the SINGLE authority for element dimensions and the pixel-art/presentation anchors. Every per-element size number lives here — migrated out of the per-domain configs — and scripts/build_config.py composes them back into each consumer's derived Resource (compose_scale_spec), so the runtime keeps reading its own config shape while sizes have one authored home. The pipelines (asset generation/postprocess) read their target dimensions from this same file. Cross-file rules — two-way kind integrity with enemies_config.json, strict Tier size ordering, two-way pickup-item integrity with progression_config.json, and level-segment tile-grid alignment — live in build_config.validate_scale_semantics. project.godot's display block MIRRORS the presentation fields (the engine reads it directly, so it cannot be derived); the data-seam test cross-checks the mirror.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ppu",
+    "tile_size",
+    "design_base",
+    "stretch_mode",
+    "stretch_aspect",
+    "texture_filter",
+    "snap_2d_transforms_to_pixel",
+    "platform_thickness",
+    "player_size",
+    "player_projectile_size",
+    "gravity_field_radius",
+    "obstacle_size",
+    "enemy_boxes",
+    "pickup_sizes",
+    "pickup_spacing",
+    "hud_margin",
+    "hud_font_size",
+    "end_title_font_size",
+    "end_hint_font_size"
+  ],
+  "$defs": {
+    "size2": {
+      "description": "A block size (width, height) in world pixels; each strictly positive.",
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "enemy_box": {
+      "description": "One Enemy Kind's dimensions: the body box, plus the bolt box for a ranged kind and the Time Dilation Field radius for a Warp kind. Which optional keys a kind must carry is a cross-file rule (projectile_size iff ranged, time_field_radius iff the kind has the Warp block) enforced by build_config.validate_scale_semantics.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size"],
+      "properties": {
+        "size": { "$ref": "#/$defs/size2" },
+        "projectile_size": { "$ref": "#/$defs/size2" },
+        "time_field_radius": {
+          "description": "Time Dilation Field radius in world pixels; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        }
+      }
+    }
+  },
+  "properties": {
+    "ppu": {
+      "description": "Art-pixel to world-pixel ratio. 1.0 = assets are authored at native world resolution (gADR-0013's pixel-art regime); a future chunkier regime would raise it. Strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "tile_size": {
+      "description": "The terrain tile unit in world pixels — the grid the View skin's tile vocabulary composes on. Every level segment dimension must be a multiple of it (validate_scale_semantics). A whole number of pixels.",
+      "type": "number",
+      "exclusiveMinimum": 0.0,
+      "multipleOf": 1.0
+    },
+    "design_base": {
+      "description": "The Design base (GAME-CONTEXT): the fixed design-space viewport (width, height) the game is authored and framed against — NOT an output resolution; outputs are covered by the stretch policy. Mirrored into project.godot's display/window/size settings.",
+      "type": "array",
+      "items": { "type": "number", "exclusiveMinimum": 0.0, "multipleOf": 1.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "stretch_mode": {
+      "description": "Godot stretch mode (display/window/stretch/mode). canvas_items renders 2D at native output resolution (crisp text on phones — the gADR-0013 choice); viewport would render at the design base and upscale the framebuffer.",
+      "enum": ["canvas_items", "viewport", "disabled"]
+    },
+    "stretch_aspect": {
+      "description": "Godot stretch aspect (display/window/stretch/aspect). expand keeps the design-base height and widens the view on wider outputs (Android 19.5:9-20:9 sees MORE world, never less).",
+      "enum": ["expand", "keep", "keep_width", "keep_height", "ignore"]
+    },
+    "texture_filter": {
+      "description": "Default canvas texture filter (rendering/textures/canvas_textures/default_texture_filter). nearest keeps the pixel-art grid hard-edged under scaling.",
+      "enum": ["nearest", "linear"]
+    },
+    "snap_2d_transforms_to_pixel": {
+      "description": "Mirror of rendering/2d/snap/snap_2d_transforms_to_pixel: snap 2D transforms to whole pixels so sub-pixel camera motion does not shimmer nearest-filtered pixel art.",
+      "type": "boolean"
+    },
+    "platform_thickness": {
+      "description": "The standard walkable-segment thickness in world pixels — the rampart/parapet slab the Editor defaults new segments to. A tile-grid multiple (validate_scale_semantics); segment GEOMETRY stays authored content in level_config.json.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "player_size": {
+      "description": "Player box (width, height) in world pixels — the actor reference height (GDD Scale Spec chapter) and the Player sprite's canvas target.",
+      "$ref": "#/$defs/size2"
+    },
+    "player_projectile_size": {
+      "description": "The Laser Gun bolt's box (width, height) in world pixels.",
+      "$ref": "#/$defs/size2"
+    },
+    "gravity_field_radius": {
+      "description": "Gravity Field radius in world pixels; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "obstacle_size": {
+      "description": "Obstacle box (width, height) in world pixels.",
+      "$ref": "#/$defs/size2"
+    },
+    "enemy_boxes": {
+      "description": "Per-Kind enemy dimensions, keyed by the SAME kind names as enemies_config.json's `kinds` (two-way integrity enforced by validate_scale_semantics). Per-Kind exact boxes with Faction body-shape variety; the issue-level 'boxes per Tier' anchor lands as the enforced strict Tier size ordering (every Minion box < every Elite box < the Boss box), not as per-Tier numbers (gADR-0013).",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": { "$ref": "#/$defs/enemy_box" }
+    },
+    "pickup_sizes": {
+      "description": "Pickup box per droppable item name — the closed Phase-1 item vocabulary, mirroring progression_config.json's drop_items (two-way integrity enforced by validate_scale_semantics; the style's COLOR stays in progression_config).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gold", "bun", "wine"],
+      "properties": {
+        "gold": { "$ref": "#/$defs/size2" },
+        "bun": { "$ref": "#/$defs/size2" },
+        "wine": { "$ref": "#/$defs/size2" }
+      }
+    },
+    "pickup_spacing": {
+      "description": "Horizontal spacing in world pixels between one death's scattered Pickups; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "hud_margin": {
+      "description": "Offset (x, y) in design-space pixels of the HUD stat column from the viewport's top-left corner; each non-negative.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "hud_font_size": {
+      "description": "HUD label font size in design-space pixels (previously the implicit engine default, made explicit by gADR-0013); a strictly positive whole number.",
+      "type": "number",
+      "exclusiveMinimum": 0.0,
+      "multipleOf": 1.0
+    },
+    "end_title_font_size": {
+      "description": "End screen verdict-title font size in design-space pixels; a strictly positive whole number.",
+      "type": "number",
+      "exclusiveMinimum": 0.0,
+      "multipleOf": 1.0
+    },
+    "end_hint_font_size": {
+      "description": "End screen retry-hint font size in design-space pixels; a strictly positive whole number.",
+      "type": "number",
+      "exclusiveMinimum": 0.0,
+      "multipleOf": 1.0
+    }
+  }
+}

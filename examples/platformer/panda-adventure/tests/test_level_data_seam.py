@@ -69,8 +69,6 @@ def test_sample_json_passes_schema_and_semantics() -> None:
         "end_overlay_color",
         "end_win_color",
         "end_lose_color",
-        "end_title_font_size",
-        "end_hint_font_size",
         "end_fade_duration",
     ],
 )
@@ -86,7 +84,7 @@ def test_missing_required_key_rejected(missing: str) -> None:
         _with("platforms", []),  # a level with no ground is a config bug
         _with("background_color", [0.1, 0.1, 1.5, 1.0]),  # component out of 0..1
         _with("platform_color", [0.1, 0.1]),  # too few components
-        _with("end_title_font_size", 0),  # strictly positive
+        _with("end_title_font_size", 64.0),  # font sizes live in scale_spec
         _with("end_fade_duration", -0.4),  # strictly positive
         _with("arena_min_x", "west"),  # wrong type
         {**_valid_config(), "extra": 1},  # unexpected extra key
@@ -159,11 +157,12 @@ def test_build_produces_round_trippable_resource(gda) -> None:
     """The derived .tres round-trips back through gda against the JSON.
 
     Reading each field back via ``gda resource get`` and comparing to the
-    *authoritative JSON* (not hardcoded values) proves the JSON->Resource
-    conversion preserves value and Godot type — including the platform_list
-    rendering of the Great-Wall segments (name/position/size per entry).
+    *composed authority* (the level source with the Scale spec's End-screen
+    font sizes composed in, gADR-0013 — never hardcoded values) proves the
+    JSON->Resource conversion preserves value and Godot type — including the
+    platform_list rendering of the Great-Wall segments.
     """
-    config = build_config.load_json(build_config.LEVEL_JSON_PATH)
+    config = build_config.load_composed("data/json/level_config.json")
 
     result = gda("resource", "get", _TRES_RES_PATH, "--json")
     assert result.returncode == 0, result.stdout + result.stderr

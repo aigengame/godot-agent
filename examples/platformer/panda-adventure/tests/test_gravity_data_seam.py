@@ -31,14 +31,12 @@ def _valid_config() -> dict:
         "mp_cost": 10.0,
         "field_direction": [0.0, -1.0],
         "field_strength": 260.0,
-        "field_radius": 96.0,
         "field_duration": 2.0,
         "field_color": [0.35, 0.65, 1.0, 0.35],
         "field_fade_duration": 0.25,
         "field_spawn_offset": [120.0, 0.0],
         "enemy_max_gravity_offset": 120.0,
         "obstacle_color": [0.62, 0.45, 0.25, 1.0],
-        "obstacle_size": [40.0, 40.0],
         "obstacle_position": [320.0, 360.0],
         "obstacle_max_gravity_offset": 160.0,
     }
@@ -79,8 +77,9 @@ def _with(value: object, key: str) -> dict:
         _without("obstacle_position"),  # missing obstacle placement
         _with(0, "mp_cost"),  # a free fire would unbudget the pillar
         _with(15.0, "wine_mp_restore"),  # migrated to items_config (gADR-0008)
+        _with(96.0, "field_radius"),  # migrated to scale_spec (gADR-0013)
+        _with([40.0, 40.0], "obstacle_size"),  # migrated to scale_spec (gADR-0013)
         _with(0, "field_strength"),  # strength strictly positive
-        _with(0, "field_radius"),  # radius strictly positive
         _with(0, "field_duration"),  # effect window strictly positive
         _with(0, "field_fade_duration"),  # fade tween strictly positive
         _with(0, "enemy_max_gravity_offset"),  # clamp strictly positive
@@ -89,8 +88,6 @@ def _with(value: object, key: str) -> dict:
         _with([0.0, -1.0, 0.0], "field_direction"),  # direction: too many
         _with([0.35, 0.65, 1.0], "field_color"),  # color: too few components
         _with([0.35, 0.65, 1.5, 0.35], "field_color"),  # color: out of 0..1
-        _with([40.0], "obstacle_size"),  # size: too few components
-        _with([0.0, 40.0], "obstacle_size"),  # size: component must be > 0
         _with([120.0, 0.0, 1.0], "field_spawn_offset"),  # offset: too many
         _with("strong", "field_strength"),  # wrong type
         {**_valid_config(), "extra": 1},  # unexpected extra top-level key
@@ -115,8 +112,12 @@ def _properties_by_name(get_result: dict) -> dict:
 
 @pytest.mark.engine
 def test_gravity_config_round_trips(gda) -> None:
-    """The GravityConfig .tres round-trips every field through gda."""
-    config = build_config.load_json(GRAVITY_JSON_PATH)
+    """The GravityConfig .tres round-trips every field through gda.
+
+    Compared to the COMPOSED authority: field_radius and obstacle_size are
+    authored in scale_spec.json (gADR-0013) and composed in by the builder.
+    """
+    config = build_config.load_composed("data/json/gravity_config.json")
     result = gda("resource", "get", f"res://{GRAVITY_TRES_REL}", "--json")
     assert result.returncode == 0, result.stdout + result.stderr
     props = _properties_by_name(json.loads(result.stdout))

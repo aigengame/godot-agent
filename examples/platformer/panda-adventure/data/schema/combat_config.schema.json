@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aigengame.dev/panda-adventure/data/schema/combat_config.schema.json",
   "title": "Panda Adventure combat configuration",
-  "description": "Authoritative config for S2 Laser Gun combat (gADR-0000: JSON is the single source of truth). Converted by scripts/build_config.py into three derived Resources: data/generated/stats_player.tres and stats_enemy.tres (StatsConfig stat blocks — the same shape for attacker and defender, gADR-0001) and data/generated/combat_config.tres (CombatConfig: damage-formula params, i-frame window, projectile and enemy blockout).",
+  "description": "Authoritative config for S2 Laser Gun combat (gADR-0000: JSON is the single source of truth). Converted by scripts/build_config.py into three derived Resources: data/generated/stats_player.tres and stats_enemy.tres (StatsConfig stat blocks — the same shape for attacker and defender, gADR-0001) and data/generated/combat_config.tres (CombatConfig: damage-formula params, i-frame window, and the Projectile color/motion/juice). The projectile_size box migrated OUT to scale_spec.json (gADR-0013), composed back in by the builder; the legacy S2 static-enemy block (enemy_color/enemy_size/enemy_position, superseded by per-kind wave spawning since S4) was deleted with it.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -13,13 +13,9 @@
     "min_damage",
     "iframe_duration",
     "projectile_color",
-    "projectile_size",
     "projectile_speed",
     "projectile_lifetime",
     "projectile_spawn_offset",
-    "enemy_color",
-    "enemy_size",
-    "enemy_position",
     "hit_flash_color",
     "hit_flash_duration"
   ],
@@ -83,13 +79,6 @@
       "minItems": 4,
       "maxItems": 4
     },
-    "projectile_size": {
-      "description": "Projectile block size (width, height) in pixels; each strictly positive.",
-      "type": "array",
-      "items": { "type": "number", "exclusiveMinimum": 0.0 },
-      "minItems": 2,
-      "maxItems": 2
-    },
     "projectile_speed": {
       "description": "Projectile travel speed in px/s; strictly positive.",
       "type": "number",
@@ -102,27 +91,6 @@
     },
     "projectile_spawn_offset": {
       "description": "Projectile spawn offset (x, y) in pixels from the Player origin; x is scaled by facing.",
-      "type": "array",
-      "items": { "type": "number" },
-      "minItems": 2,
-      "maxItems": 2
-    },
-    "enemy_color": {
-      "description": "Enemy block color as RGBA, each component in 0..1.",
-      "type": "array",
-      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
-      "minItems": 4,
-      "maxItems": 4
-    },
-    "enemy_size": {
-      "description": "Enemy block size (width, height) in pixels; each strictly positive.",
-      "type": "array",
-      "items": { "type": "number", "exclusiveMinimum": 0.0 },
-      "minItems": 2,
-      "maxItems": 2
-    },
-    "enemy_position": {
-      "description": "Enemy center position (x, y) in pixels — the StaticBody2D origin.",
       "type": "array",
       "items": { "type": "number" },
       "minItems": 2,

@@ -5,15 +5,13 @@
     { "name": "Rampart", "position": [560.0, 500.0], "size": [1760.0, 48.0] },
     { "name": "WestTower", "position": [-240.0, 404.0], "size": [160.0, 144.0] },
     { "name": "EastTower", "position": [1360.0, 404.0], "size": [160.0, 144.0] },
-    { "name": "WestParapet", "position": [-40.0, 452.0], "size": [140.0, 48.0] },
-    { "name": "EastParapet", "position": [1080.0, 452.0], "size": [140.0, 48.0] }
+    { "name": "WestParapet", "position": [-40.0, 452.0], "size": [144.0, 48.0] },
+    { "name": "EastParapet", "position": [1080.0, 452.0], "size": [144.0, 48.0] }
   ],
   "arena_min_x": -160.0,
   "arena_max_x": 1280.0,
   "end_overlay_color": [0.02, 0.02, 0.05, 0.6],
   "end_win_color": [1.0, 0.85, 0.3, 1.0],
   "end_lose_color": [0.9, 0.25, 0.2, 1.0],
-  "end_title_font_size": 64.0,
-  "end_hint_font_size": 24.0,
   "end_fade_duration": 0.4
 }

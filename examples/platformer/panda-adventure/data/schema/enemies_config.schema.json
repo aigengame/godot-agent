@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aigengame.dev/panda-adventure/data/schema/enemies_config.schema.json",
   "title": "Panda Adventure enemy taxonomy configuration",
-  "description": "Authoritative config for the S4 Enemy taxonomy (gADR-0000, gADR-0003), the S6a per-Tier Kill reward table (gADR-0004), and the S5 Wave schedule (gADR-0005). `tiers` maps each Tier to its reward budget ({exp_reward, gold_reward, drops}) — the AUTHORITY for what a kill awards and drops (gADR-0004, gADR-0006); the builder resolves it into per-kind derived exp_reward/gold_reward/drop_table fields so the runtime stays a dumb kind.<field> read. `kinds` maps each Enemy Kind name to one point in Faction x Tier x Archetype plus its stat block (the same max_hp/max_mp/attack/defense shape as combat_config's stat_block — the symmetric damage-formula contract, gADR-0001), its blockout, and its Archetype-AI params. `waves` is the Wave schedule: the ordered list of Waves the level plays through, each Wave one Spawn Roster (the which-kind-spawns-where entries of gADR-0003); the wave COUNT is the array's length — config, never code. `spawn_squash`/`spawn_tween_duration` are the spawn-telegraph tween numbers (the wave system's juice, gADR-0005). Converted by scripts/build_config.py into one derived EnemyConfig .tres per kind (data/generated/enemy_<kind>.tres) plus data/generated/wave_schedule.tres (WaveScheduleConfig); the per-kind derivation specs are themselves derived from `kinds`, so adding a kind is a JSON-only change. Cross-field rules this schema cannot express — the Steering Band interval, the melee contact-damage bound, spawn->kind referential integrity across every wave, spawn-name uniqueness across the whole schedule, and Tier->reward coverage (every Tier a kind uses must have a `tiers` entry) — are enforced by build_config.validate_enemies_semantics before any resource is derived.",
+  "description": "Authoritative config for the S4 Enemy taxonomy (gADR-0000, gADR-0003), the S6a per-Tier Kill reward table (gADR-0004), and the S5 Wave schedule (gADR-0005). `tiers` maps each Tier to its reward budget ({exp_reward, gold_reward, drops}) — the AUTHORITY for what a kill awards and drops (gADR-0004, gADR-0006); the builder resolves it into per-kind derived exp_reward/gold_reward/drop_table fields so the runtime stays a dumb kind.<field> read. `kinds` maps each Enemy Kind name to one point in Faction x Tier x Archetype plus its stat block (the same max_hp/max_mp/attack/defense shape as combat_config's stat_block — the symmetric damage-formula contract, gADR-0001) and its Archetype-AI params; the body box, the bolt box, and the Time Dilation Field radius migrated to scale_spec.json's enemy_boxes (gADR-0013), composed back in by the builder. `waves` is the Wave schedule: the ordered list of Waves the level plays through, each Wave one Spawn Roster (the which-kind-spawns-where entries of gADR-0003); the wave COUNT is the array's length — config, never code. `spawn_squash`/`spawn_tween_duration` are the spawn-telegraph tween numbers (the wave system's juice, gADR-0005). Converted by scripts/build_config.py into one derived EnemyConfig .tres per kind (data/generated/enemy_<kind>.tres) plus data/generated/wave_schedule.tres (WaveScheduleConfig); the per-kind derivation specs are themselves derived from `kinds`, so adding a kind is a JSON-only change. Cross-field rules this schema cannot express — the Steering Band interval, the melee contact-damage bound, spawn->kind referential integrity across every wave, spawn-name uniqueness across the whole schedule, and Tier->reward coverage (every Tier a kind uses must have a `tiers` entry) — are enforced by build_config.validate_enemies_semantics before any resource is derived.",
   "type": "object",
   "additionalProperties": false,
   "required": ["tiers", "kinds", "spawn_squash", "spawn_tween_duration", "waves"],
@@ -60,13 +60,6 @@
       "minItems": 4,
       "maxItems": 4
     },
-    "size2": {
-      "description": "A block size (width, height) in pixels; each strictly positive.",
-      "type": "array",
-      "items": { "type": "number", "exclusiveMinimum": 0.0 },
-      "minItems": 2,
-      "maxItems": 2
-    },
     "vec2": {
       "description": "A 2D vector (x, y) in pixels.",
       "type": "array",
@@ -75,20 +68,19 @@
       "maxItems": 2
     },
     "enemy_kind": {
-      "description": "One Enemy Kind: the three orthogonal taxonomy axes, the stat block (shape-compatible with combat_config's stat_block), the blockout, and the Archetype-AI params. Ranged kinds additionally carry their bolt's projectile_* block (enforced by the if/then below). A kind MAY carry the presence-gated Warp block (gADR-0009) — the warp_*/time_field_* params of the Boss's Warp kit, keyed to neither Tier nor Archetype; the dependentRequired map makes the block all-or-none.",
+      "description": "One Enemy Kind: the three orthogonal taxonomy axes, the stat block (shape-compatible with combat_config's stat_block) and the Archetype-AI params; the body/bolt boxes and the Time Dilation Field radius live in scale_spec.json's enemy_boxes (gADR-0013). Ranged kinds additionally carry their bolt's projectile motion/color block (enforced by the if/then below). A kind MAY carry the presence-gated Warp block (gADR-0009) — the warp_*/time_field_* params of the Boss's Warp kit, keyed to neither Tier nor Archetype; the dependentRequired map makes the block all-or-none.",
       "type": "object",
       "additionalProperties": false,
       "dependentRequired": {
-        "warp_cooldown": ["warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
-        "warp_trigger_range": ["warp_cooldown", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
-        "warp_offset": ["warp_cooldown", "warp_trigger_range", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
-        "warp_tell_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
-        "warp_recovery_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
-        "time_field_radius": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
-        "time_field_factor": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_duration", "time_field_color", "time_field_fade_duration"],
-        "time_field_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_color", "time_field_fade_duration"],
-        "time_field_color": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_fade_duration"],
-        "time_field_fade_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color"]
+        "warp_cooldown": ["warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_trigger_range": ["warp_cooldown", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_offset": ["warp_cooldown", "warp_trigger_range", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_tell_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_recovery_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "time_field_factor": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "time_field_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_color", "time_field_fade_duration"],
+        "time_field_color": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_fade_duration"],
+        "time_field_fade_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color"]
       },
       "required": [
         "faction",
@@ -99,7 +91,6 @@
         "attack",
         "defense",
         "color",
-        "size",
         "move_speed",
         "gravity",
         "max_fall_speed",
@@ -115,7 +106,6 @@
       "then": {
         "required": [
           "projectile_color",
-          "projectile_size",
           "projectile_speed",
           "projectile_lifetime",
           "projectile_spawn_offset"
@@ -155,7 +145,6 @@
           "minimum": 0.0
         },
         "color": { "$ref": "#/$defs/rgba" },
-        "size": { "$ref": "#/$defs/size2" },
         "move_speed": {
           "description": "Horizontal steering speed in px/s; non-negative.",
           "type": "number",
@@ -209,7 +198,6 @@
           "exclusiveMinimum": 0.0
         },
         "projectile_color": { "$ref": "#/$defs/rgba" },
-        "projectile_size": { "$ref": "#/$defs/size2" },
         "projectile_speed": {
           "description": "Enemy bolt travel speed in px/s; strictly positive.",
           "type": "number",
@@ -247,11 +235,6 @@
           "description": "Seconds of the no-attack recovery window after landing (the fair-exchange window); non-negative.",
           "type": "number",
           "minimum": 0.0
-        },
-        "time_field_radius": {
-          "description": "Time Dilation Field radius in pixels; strictly positive.",
-          "type": "number",
-          "exclusiveMinimum": 0.0
         },
         "time_field_factor": {
           "description": "The time scale applied to the Player's body sim and laser bolts inside the field, strictly inside (0, 1): 0 would freeze (a stun, rejected), 1 would be dead config, and the field never accelerates.",

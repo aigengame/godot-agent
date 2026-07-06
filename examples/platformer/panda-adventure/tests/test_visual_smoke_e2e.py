@@ -243,13 +243,11 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     project = _make_project_copy(tmp_path / "game")
 
     # Every expectation derives from the AUTHORITATIVE JSON, never hardcoded.
-    enemies = build_config.load_json(GAME_DIR / "data" / "json" / "enemies_config.json")
-    gravity = build_config.load_json(GAME_DIR / "data" / "json" / "gravity_config.json")
-    combat = build_config.load_json(GAME_DIR / "data" / "json" / "combat_config.json")
-    player_cfg = build_config.load_json(
-        GAME_DIR / "data" / "json" / "player_config.json"
-    )
-    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    enemies = build_config.load_composed("data/json/enemies_config.json")
+    gravity = build_config.load_composed("data/json/gravity_config.json")
+    combat = build_config.load_composed("data/json/combat_config.json")
+    player_cfg = build_config.load_composed("data/json/player_config.json")
+    level_cfg = build_config.load_composed("data/json/level_config.json")
     # The Great-Wall fight platform (gADR-0010): the level authority's
     # "Rampart" segment — the ground line every world-space bound derives from.
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
@@ -399,7 +397,7 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         stats_top = prop("/root/Main/Hud/Stats", "offset_top")
         stats_bottom = prop("/root/Main/Hud/Stats", "offset_bottom")
         row_pitch = (stats_bottom - stats_top) / _HUD_LINES
-        hud_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "hud_config.json")
+        hud_cfg = build_config.load_composed("data/json/hud_config.json")
         assert (stats_left, stats_top) == pytest.approx(tuple(hud_cfg["margin"])), (
             "the rendered HUD column is not anchored at the config margin"
         )

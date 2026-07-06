@@ -100,7 +100,8 @@ def test_default_wave_two_stays_dormant_at_the_legacy_kill_positions() -> None:
     loosen the margin.
     """
     config = _config()
-    player_cfg = _player_config()
+    # Composed: player_size is authored in scale_spec.json (gADR-0013).
+    player_cfg = build_config.load_composed("data/json/player_config.json")
     rampart = _rampart()
     rest_y = (
         rampart["position"][1]
