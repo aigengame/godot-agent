@@ -30,12 +30,13 @@ gda node set scene.tscn --node Col --property shape --value res://shapes/box.tre
 
 **Explicit contract edges:**
 
-- **The shared `_coerce_value` is unchanged.** Its `(raw, type)` signature carries only the
-  `Variant.Type` (`TYPE_OBJECT`), not the property's expected class, and it is **byte-identical
-  mirrored** into the [gda harness](../../CONTEXT.md) for `game set` (ADR live layer). Object
-  resolution is therefore a **separate, headless-only step** in `node set` / `resource set` that reads
-  the property's expected-class hint from its property-list entry. Assigning a Resource on a live
-  `game set` is **out of scope**; the mirror stays green.
+- **Object resolution stays outside shared `_coerce_value`.** The shared coercion helper is
+  **byte-identical mirrored** into the [gda harness](../../CONTEXT.md) for `game set` (ADR live layer).
+  Since #427, its `(raw, type, current = null)` signature may use the current value only for
+  typed `Dictionary` / `Array` container assignment; it still does **not** carry the property's
+  expected Resource class. Object resolution is therefore a **separate, headless-only step** in
+  `node set` / `resource set` that reads the expected-class hint from the full property-list entry.
+  Assigning a Resource on a live `game set` is **out of scope**; the mirror stays green.
 - **The `script` property is excluded** from this generic Object path and routed to **`script attach`**
   (#118) — the one authoritative way to bind a script. `node set --property script` returns an
   **actionable** [Operation-reported error code](../../CONTEXT.md) pointing at `script attach`, never a
@@ -49,7 +50,8 @@ gda node set scene.tscn --node Col --property shape --value res://shapes/box.tre
   structured code. The concrete `GdaError` codes are **not fixed here** — since `GdaError.code` is
   public ABI whose authoritative source is the error registry (ADR-0002), the implementation slice
   (#363) mints them and registers them there when it lands (the ADR-0031 pattern).
-- **Value-typed coercion** (scalar / `Vector2` / `Color`) is unchanged.
+- **Value-typed coercion** (scalar / `Vector2` / `Color`, plus JSON container coercion) remains
+  separate from Object reference loading.
 
 ## Considered options
 
@@ -83,4 +85,5 @@ gda node set scene.tscn --node Col --property shape --value res://shapes/box.tre
 - **Ties to ADR-0032:** script-`class_name`-typed property validation will reuse ADR-0032's unified
   `class_name` resolver when that extension (or the deferred inline sub-resource work) lands.
 - **The mirrored `_coerce_value` stays byte-identical**; the mirror test (`operations.gd` ↔
-  `gda_harness.gd`) is unaffected.
+  `gda_harness.gd`) remains the guard. Container type context introduced by #427 is mirrored; Object
+  expected-class context is not.

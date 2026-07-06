@@ -671,8 +671,8 @@ func _op_node_set(params: Dictionary) -> void:
 	if declared_type == TYPE_OBJECT:
 		# Object-typed property: assign an EXISTING Resource referenced by a res://
 		# path (ADR-0033, #363). A separate, headless-only step from the shared
-		# _coerce_value (it needs the expected-class hint the (raw, type) signature
-		# cannot carry); it records its own distinct structured failure.
+		# _coerce_value (it needs the expected-class hint that Variant.Type/current
+		# container context cannot carry); it records its own distinct structured failure.
 		var resolved := _resolve_object_value(prop_name,
 				_storage_property_entry(node, prop_name), raw_value, "node " + node_path)
 		if resolved == null:
@@ -685,7 +685,8 @@ func _op_node_set(params: Dictionary) -> void:
 		# resource_path, so re-packing serializes it as an ext_resource.
 		stored_value = _jsonify(resolved)
 	else:
-		var coerced: Variant = _coerce_value(raw_value, declared_type)
+		var current_value: Variant = node.get(prop_name)
+		var coerced: Variant = _coerce_value(raw_value, declared_type, current_value)
 		if coerced == null:
 			root.free()
 			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
@@ -1731,7 +1732,8 @@ func _op_resource_set(params: Dictionary) -> void:
 		# resource_path, so re-saving serializes it as an ext_resource.
 		stored_value = _jsonify(resolved)
 	else:
-		var coerced: Variant = _coerce_value(raw_value, declared_type)
+		var current_value: Variant = resource.get(prop_name)
+		var coerced: Variant = _coerce_value(raw_value, declared_type, current_value)
 		if coerced == null:
 			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
 					+ " to " + _type_name(declared_type) + " for property " + prop_name
@@ -2363,9 +2365,10 @@ func _op_project_set(params: Dictionary) -> void:
 				+ " — project set edits an existing setting; it never creates one")
 		return
 
-	var declared_type := typeof(ProjectSettings.get_setting(setting))
+	var current_value: Variant = ProjectSettings.get_setting(setting)
+	var declared_type := typeof(current_value)
 	var raw_value := _string_param(params, "value")
-	var coerced: Variant = _coerce_value(raw_value, declared_type)
+	var coerced: Variant = _coerce_value(raw_value, declared_type, current_value)
 	if coerced == null:
 		_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value " + raw_value.c_escape()
 				+ " to " + _type_name(declared_type) + " for project setting " + setting)
@@ -4514,11 +4517,11 @@ func _tree_from_state(state: SceneState, with_paths := false, instance_paths_by_
 # node set / resource set assign an EXISTING Resource — referenced by a `res://`
 # path — to an Object-typed property that expects a Resource (sub)class (e.g.
 # CollisionShape2D.shape). This is a SEPARATE, headless-only step from the shared
-# _coerce_value block below: value coercion keys only off the Variant.Type, but
-# resolving an Object needs the property's expected-CLASS hint, which lives on the
-# property-list entry — so this deliberately is NOT mirrored into the harness (a
-# live `game set` Object assignment is out of scope, ADR-0033) and the byte-identical
-# coercion mirror stays untouched.
+# _coerce_value block below: scalar coercion keys off Variant.Type and typed-container
+# coercion may use the current Dictionary/Array value, but resolving an Object needs
+# the property's expected-CLASS hint, which lives on the property-list entry — so this
+# deliberately is NOT mirrored into the harness (a live `game set` Object assignment is
+# out of scope, ADR-0033) and the byte-identical coercion mirror stays untouched.
 #
 # The full storage-property list entry (name/type/hint/hint_string/class_name/usage)
 # for `prop_name` on `target` (a Node or a Resource — both are Objects with a
@@ -4768,7 +4771,9 @@ func _jsonify(value: Variant, depth: int = 0) -> Variant:
 # Returns null when the value cannot be coerced to that type, which the caller
 # reports as the clean uncoercible_value error. null is unambiguous as a
 # failure signal because no supported target type coerces TO null.
-func _coerce_value(raw: String, type: int) -> Variant:
+# `current` lets typed Dictionary/Array properties/settings provide the
+# destination type Godot should assign into; untyped and scalar coercion ignores it.
+func _coerce_value(raw: String, type: int, current: Variant = null) -> Variant:
 	match type:
 		TYPE_BOOL:
 			return _coerce_bool(raw)
@@ -4781,9 +4786,9 @@ func _coerce_value(raw: String, type: int) -> Variant:
 		TYPE_STRING_NAME:
 			return StringName(raw)
 		TYPE_DICTIONARY:
-			return _coerce_dictionary(raw)
+			return _coerce_dictionary(raw, current)
 		TYPE_ARRAY:
-			return _coerce_array(raw)
+			return _coerce_array(raw, current)
 		TYPE_VECTOR2:
 			var parts: Variant = _coerce_float_list(raw, 2)
 			return Vector2(parts[0], parts[1]) if parts != null else null
@@ -4875,18 +4880,44 @@ func _coerce_color(raw: String) -> Variant:
 	return Color(out[0], out[1], out[2], out[3])
 
 
-func _coerce_dictionary(raw: String) -> Variant:
+func _coerce_dictionary(raw: String, current: Variant = null) -> Variant:
 	var parsed: Variant = JSON.parse_string(raw)
-	if parsed is Dictionary:
-		return parsed
-	return null
+	if not (parsed is Dictionary):
+		return null
+	var variant: Variant = str_to_var(raw)
+	if not (variant is Dictionary):
+		return null
+	var dictionary: Dictionary = variant
+	if current is Dictionary:
+		var current_dictionary: Dictionary = current
+		if current_dictionary.is_typed():
+			var typed_dictionary: Dictionary = current_dictionary.duplicate()
+			typed_dictionary.clear()
+			typed_dictionary.assign(dictionary)
+			if typed_dictionary.size() != dictionary.size():
+				return null
+			return typed_dictionary
+	return dictionary
 
 
-func _coerce_array(raw: String) -> Variant:
+func _coerce_array(raw: String, current: Variant = null) -> Variant:
 	var parsed: Variant = JSON.parse_string(raw)
-	if parsed is Array:
-		return parsed
-	return null
+	if not (parsed is Array):
+		return null
+	var variant: Variant = str_to_var(raw)
+	if not (variant is Array):
+		return null
+	var array: Array = variant
+	if current is Array:
+		var current_array: Array = current
+		if current_array.is_typed():
+			var typed_array: Array = current_array.duplicate()
+			typed_array.clear()
+			typed_array.assign(array)
+			if typed_array.size() != array.size():
+				return null
+			return typed_array
+	return array
 # --- END shared coercion ---
 
 

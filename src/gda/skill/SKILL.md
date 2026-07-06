@@ -191,8 +191,11 @@ forms — several of which are not obvious from `--help`:
   (`"Vector2(48,72)"`) is **rejected** (`uncoercible_value`).
 - `Color` — `#rrggbb` / `#rrggbbaa`, or 3–4 **comma-separated** floats in 0..1:
   `--value "0.2,0.6,1,1"`.
-- `Dictionary` — a JSON object string: `--value '{"wine":2}'`.
-- `Array` — a JSON array string: `--value '["wine","key"]'`.
+- `Dictionary` — a JSON object string: `--value '{"wine":2}'`. In Dictionary/Array
+  JSON values, JSON integer literals stay int and JSON float literals stay float;
+  typed containers assign entries through their declared container type.
+- `Array` — a JSON array string: `--value '["wine","key"]'`. The same JSON
+  integer/float preservation rule applies to array elements.
 - An **Object-typed** (Resource) property — a `res://….tres` path, as above.
 
 Whitespace is trimmed for the numeric forms — `bool`, `int` / `float`, the

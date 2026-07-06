@@ -463,7 +463,8 @@ func _handle_game_set(params: Dictionary) -> String:
 	var source := String(prop_info.get("source", "property"))
 
 	var raw_value := _string_param(params, "value")
-	var coerced: Variant = _coerce_value(raw_value, declared_type)
+	var before: Variant = node.get(prop_name)
+	var coerced: Variant = _coerce_value(raw_value, declared_type, before)
 	if coerced == null:
 		var subject := "script variable " + prop_name \
 				if source == "script variable" else "property " + prop_name
@@ -472,7 +473,6 @@ func _handle_game_set(params: Dictionary) -> String:
 				+ " to " + _type_name(declared_type) + " for " + subject
 				+ " on node " + path)
 
-	var before: Variant = node.get(prop_name)
 	node.set(prop_name, coerced)
 	var current: Variant = node.get(prop_name)
 	if source == "script variable" and before != coerced and current == before:
@@ -1277,7 +1277,9 @@ func _jsonify(value: Variant, depth: int = 0) -> Variant:
 # Returns null when the value cannot be coerced to that type, which the caller
 # reports as the clean uncoercible_value error. null is unambiguous as a
 # failure signal because no supported target type coerces TO null.
-func _coerce_value(raw: String, type: int) -> Variant:
+# `current` lets typed Dictionary/Array properties/settings provide the
+# destination type Godot should assign into; untyped and scalar coercion ignores it.
+func _coerce_value(raw: String, type: int, current: Variant = null) -> Variant:
 	match type:
 		TYPE_BOOL:
 			return _coerce_bool(raw)
@@ -1290,9 +1292,9 @@ func _coerce_value(raw: String, type: int) -> Variant:
 		TYPE_STRING_NAME:
 			return StringName(raw)
 		TYPE_DICTIONARY:
-			return _coerce_dictionary(raw)
+			return _coerce_dictionary(raw, current)
 		TYPE_ARRAY:
-			return _coerce_array(raw)
+			return _coerce_array(raw, current)
 		TYPE_VECTOR2:
 			var parts: Variant = _coerce_float_list(raw, 2)
 			return Vector2(parts[0], parts[1]) if parts != null else null
@@ -1384,16 +1386,42 @@ func _coerce_color(raw: String) -> Variant:
 	return Color(out[0], out[1], out[2], out[3])
 
 
-func _coerce_dictionary(raw: String) -> Variant:
+func _coerce_dictionary(raw: String, current: Variant = null) -> Variant:
 	var parsed: Variant = JSON.parse_string(raw)
-	if parsed is Dictionary:
-		return parsed
-	return null
+	if not (parsed is Dictionary):
+		return null
+	var variant: Variant = str_to_var(raw)
+	if not (variant is Dictionary):
+		return null
+	var dictionary: Dictionary = variant
+	if current is Dictionary:
+		var current_dictionary: Dictionary = current
+		if current_dictionary.is_typed():
+			var typed_dictionary: Dictionary = current_dictionary.duplicate()
+			typed_dictionary.clear()
+			typed_dictionary.assign(dictionary)
+			if typed_dictionary.size() != dictionary.size():
+				return null
+			return typed_dictionary
+	return dictionary
 
 
-func _coerce_array(raw: String) -> Variant:
+func _coerce_array(raw: String, current: Variant = null) -> Variant:
 	var parsed: Variant = JSON.parse_string(raw)
-	if parsed is Array:
-		return parsed
-	return null
+	if not (parsed is Array):
+		return null
+	var variant: Variant = str_to_var(raw)
+	if not (variant is Array):
+		return null
+	var array: Array = variant
+	if current is Array:
+		var current_array: Array = current
+		if current_array.is_typed():
+			var typed_array: Array = current_array.duplicate()
+			typed_array.clear()
+			typed_array.assign(array)
+			if typed_array.size() != array.size():
+				return null
+			return typed_array
+	return array
 # --- END shared coercion ---

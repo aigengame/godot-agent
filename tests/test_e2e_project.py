@@ -163,6 +163,42 @@ def test_project_set_coerces_persists_and_round_trips_via_get(godot_project):
 
 
 @pytest.mark.e2e
+def test_project_set_preserves_json_container_integer_and_float_types(godot_project):
+    # #427: project set uses ProjectSettings' current value as the target type
+    # source. A customized Dictionary setting must preserve JSON int vs float
+    # values through set, save, and a fresh project get.
+    (godot_project / "project.godot").write_text(
+        project_godot(extra='[gda]\n\nstats={"seed":1}\n'),
+        encoding="utf-8",
+    )
+
+    was_set = _gda(
+        godot_project,
+        "project",
+        "set",
+        "gda/stats",
+        "--value",
+        '{"a":2,"b":2.0,"items":[1,1.5]}',
+        "--json",
+    )
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    set_value = json.loads(was_set.stdout)["value"]
+    assert type(set_value["a"]) is int
+    assert type(set_value["b"]) is float
+    assert type(set_value["items"][0]) is int
+    assert type(set_value["items"][1]) is float
+
+    got = _gda(godot_project, "project", "get", "gda/stats", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    got_value = json.loads(got.stdout)["value"]
+    assert type(got_value["a"]) is int
+    assert type(got_value["b"]) is float
+    assert type(got_value["items"][0]) is int
+    assert type(got_value["items"][1]) is float
+
+
+@pytest.mark.e2e
 def test_project_set_string_setting_round_trips(godot_project):
     # A String-typed setting takes the CLI value verbatim and round-trips.
     was_set = _gda(
