@@ -161,12 +161,18 @@ class _Session:
         assert find(json.loads(tree.stdout)["root"]), tree.stdout
 
 
-def _rest_y(player_cfg: dict) -> float:
+def _rest_y(player_cfg: dict, rampart: dict) -> float:
     return (
-        player_cfg["platform_position"][1]
-        - player_cfg["platform_size"][1] / 2.0
+        rampart["position"][1]
+        - rampart["size"][1] / 2.0
         - player_cfg["player_size"][1] / 2.0
     )
+
+
+def _rampart() -> dict:
+    """The main fight platform from the authoritative level config."""
+    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    return next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
 
 
 @pytest.mark.e2e
@@ -204,6 +210,7 @@ def test_melee_enemy_closes_distance_and_damages_player(tmp_path, daemon_runtime
     player_cfg = build_config.load_json(
         GAME_DIR / "data" / "json" / "player_config.json"
     )
+    rampart = _rampart()
     kind = enemies["kinds"]["monster_minion_melee"]
     damage = _expected_player_damage(kind, combat, combat["player_stats"])
     s = _Session(project)
@@ -218,7 +225,7 @@ def test_melee_enemy_closes_distance_and_damages_player(tmp_path, daemon_runtime
         assert ready, "no gda_log 'enemy_ready' record"
         assert ready[0]["fields"]["archetype"] == "melee"
         assert ready[0]["fields"]["max_hp"] == pytest.approx(kind["max_hp"])
-        s.wait_player_landed(_rest_y(player_cfg))
+        s.wait_player_landed(_rest_y(player_cfg, rampart))
 
         # Melee damage is CONTACT damage (gADR-0003): attack_range is pinned
         # inside the Steering Band by the data-seam invariant, so the band's
@@ -232,10 +239,10 @@ def test_melee_enemy_closes_distance_and_damages_player(tmp_path, daemon_runtime
         # exceed it or point-blank would be unreachable. Tune data if this
         # trips; never loosen the assertions below.
         dy = abs(
-            _rest_y(player_cfg)
+            _rest_y(player_cfg, rampart)
             - (
-                player_cfg["platform_position"][1]
-                - player_cfg["platform_size"][1] / 2.0
+                rampart["position"][1]
+                - rampart["size"][1] / 2.0
                 - kind["size"][1] / 2.0
             )
         )
@@ -298,12 +305,8 @@ def test_ranged_enemy_keeps_distance_and_damages_from_afar(
         kind["keep_range_min"] = 220.0
         kind["keep_range_max"] = 380.0
         # Rest the elite on the platform top (bodies are center-origin).
-        player_cfg = build_config.load_json(
-            GAME_DIR / "data" / "json" / "player_config.json"
-        )
-        platform_top = (
-            player_cfg["platform_position"][1] - player_cfg["platform_size"][1] / 2.0
-        )
+        rampart = _rampart()
+        platform_top = rampart["position"][1] - rampart["size"][1] / 2.0
         config["waves"] = [
             {
                 "spawns": [
@@ -338,7 +341,7 @@ def test_ranged_enemy_keeps_distance_and_damages_from_afar(
         ready = s.poll(lambda: s.records("enemy_ready"))
         assert ready, "no gda_log 'enemy_ready' record"
         assert ready[0]["fields"]["archetype"] == "ranged"
-        s.wait_player_landed(_rest_y(player_cfg))
+        s.wait_player_landed(_rest_y(player_cfg, _rampart()))
 
         # DAMAGES FROM AFAR: bolts land while the enemy stays at standoff
         # distance — every hit arrives with the gap still outside the band's

@@ -28,9 +28,6 @@ def _valid_config() -> dict:
         "jump_velocity": -650.0,
         "gravity": 1400.0,
         "max_fall_speed": 1200.0,
-        "platform_color": [0.36, 0.30, 0.24, 1.0],
-        "platform_size": [800.0, 48.0],
-        "platform_position": [400.0, 500.0],
         "camera_smoothing_speed": 5.0,
         "landing_squash": [1.2, 0.8],
         "landing_tween_duration": 0.15,
@@ -87,12 +84,9 @@ def test_build_produces_round_trippable_resource(gda) -> None:
 
     # Color is stored as float32 in Godot, so compare with a tolerance.
     assert props["player_color"] == pytest.approx(config["player_color"], abs=1e-5)
-    assert props["platform_color"] == pytest.approx(config["platform_color"], abs=1e-5)
     # Vector2 fields.
     assert props["player_size"] == pytest.approx(config["player_size"])
     assert props["player_start"] == pytest.approx(config["player_start"])
-    assert props["platform_size"] == pytest.approx(config["platform_size"])
-    assert props["platform_position"] == pytest.approx(config["platform_position"])
     assert props["landing_squash"] == pytest.approx(config["landing_squash"])
     # Scalar float fields.
     assert props["move_speed"] == pytest.approx(config["move_speed"])
@@ -134,11 +128,11 @@ def test_generated_resource_is_fresh(tmp_path) -> None:
         _without("player_size"),  # missing required vector
         _with("player_color", [0.2, 0.6, 1.0]),  # color: too few components
         _with("player_color", [0.2, 0.6, 1.0, 1.0, 0.5]),  # color: too many
-        _with("platform_color", [0.2, 0.6, 1.5, 1.0]),  # color: component out of 0..1
+        _with("player_color", [0.2, 0.6, 1.5, 1.0]),  # color: component out of 0..1
         _with("player_size", [64.0]),  # size: too few components
         _with("player_size", [0.0, 64.0]),  # size: component must be > 0
         _with("player_start", [100.0]),  # position: too few components
-        _with("platform_position", [1.0, 2.0, 3.0]),  # position: too many
+        _with("player_start", [1.0, 2.0, 3.0]),  # position: too many
         _with("move_speed", 0),  # speed must be strictly positive
         _with("gravity", -1.0),  # gravity must be positive
         _with("jump_velocity", 0),  # jump must be strictly negative (upward)

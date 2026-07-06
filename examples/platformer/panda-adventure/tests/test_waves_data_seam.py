@@ -42,6 +42,12 @@ def _player_config() -> dict:
     return build_config.load_json(build_config.JSON_PATH)
 
 
+def _rampart() -> dict:
+    """The main fight platform from the authoritative level config."""
+    level_cfg = build_config.load_json(build_config.LEVEL_JSON_PATH)
+    return next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
+
+
 # ---------------------------------------------------------------------------
 # The demo default: the GDD four-Wave arc, asserted structurally from the
 # authoritative JSON (compositions, not balance numbers).
@@ -95,9 +101,10 @@ def test_default_wave_two_stays_dormant_at_the_legacy_kill_positions() -> None:
     """
     config = _config()
     player_cfg = _player_config()
+    rampart = _rampart()
     rest_y = (
-        player_cfg["platform_position"][1]
-        - player_cfg["platform_size"][1] / 2.0
+        rampart["position"][1]
+        - rampart["size"][1] / 2.0
         - player_cfg["player_size"][1] / 2.0
     )
     wave_one = config["waves"][0]["spawns"][0]

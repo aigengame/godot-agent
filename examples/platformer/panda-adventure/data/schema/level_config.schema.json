@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigengame.dev/panda-adventure/data/schema/level_config.schema.json",
+  "title": "Panda Adventure level configuration",
+  "description": "Authoritative config for the S9 level authority (gADR-0010): the Great-Wall blockout segments, the backdrop, the Arena interval that clamps the Warp Blink's landing, and the End screen's blockout numbers. Converted to data/generated/level_config.tres (a LevelConfig Resource) by scripts/build_config.py. Cross-field rules (unique platform names, a real Arena interval) live in validate_level_semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "background_color",
+    "platform_color",
+    "platforms",
+    "arena_min_x",
+    "arena_max_x",
+    "end_overlay_color",
+    "end_win_color",
+    "end_lose_color",
+    "end_title_font_size",
+    "end_hint_font_size",
+    "end_fade_duration"
+  ],
+  "properties": {
+    "background_color": {
+      "description": "Level backdrop clear color as RGBA, each component in 0..1 — the black-hole-edge flavor.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "platform_color": {
+      "description": "Shared color of every Great-Wall segment as RGBA, each component in 0..1 — one wall, one material.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "platforms": {
+      "description": "The Great-Wall blockout: ordered named segments, runtime-instanced by the level (gADR-0010). At least one segment — a level with no ground is a config bug.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "position", "size"],
+        "properties": {
+          "name": {
+            "description": "Segment node name — unique across the list (it becomes a sibling of the spawns under Main; the gADR-0005 addressability argument).",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "position": {
+            "description": "Segment center position (x, y) in pixels — the StaticBody2D origin.",
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "size": {
+            "description": "Segment block size (width, height) in pixels; each strictly positive.",
+            "type": "array",
+            "items": { "type": "number", "exclusiveMinimum": 0.0 },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
+    "arena_min_x": {
+      "description": "West edge of the Arena — the authored combat span whose interval clamps the Warp Blink's landing (gADR-0010). Must stay strictly below arena_max_x (validate_level_semantics).",
+      "type": "number"
+    },
+    "arena_max_x": {
+      "description": "East edge of the Arena; strictly above arena_min_x (validate_level_semantics).",
+      "type": "number"
+    },
+    "end_overlay_color": {
+      "description": "End screen full-screen dim color as RGBA, each component in 0..1 (the alpha is the dim strength).",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "end_win_color": {
+      "description": "End screen title color for the won End state, RGBA in 0..1.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "end_lose_color": {
+      "description": "End screen title color for the lost End state, RGBA in 0..1.",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "end_title_font_size": {
+      "description": "End screen verdict-title font size in pixels; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "end_hint_font_size": {
+      "description": "End screen retry-hint font size in pixels; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    },
+    "end_fade_duration": {
+      "description": "Seconds for the End screen fade-in tween; strictly positive.",
+      "type": "number",
+      "exclusiveMinimum": 0.0
+    }
+  }
+}

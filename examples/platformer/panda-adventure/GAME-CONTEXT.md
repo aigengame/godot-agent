@@ -316,6 +316,60 @@ lift, slam, or redirect — the level-as-a-weapon half of the change-gravity pil
 prop, not an actor: it never attacks, damages, or moves on its own.
 _Avoid_: crate (flavor), prop (generic), hazard
 
+**Great-Wall blockout**:
+The demo level's data-composed platform geometry: the ordered, named segments —
+one long rampart span, two flank towers, two parapet steps — of the level
+authority's `platforms` list, runtime-instanced by the level (gADR-0010). The
+GDD's rampart motif realized as blocks; segments are data, never scene-baked.
+_Avoid_: map, tilemap, terrain (the physics layer name, not the geometry)
+
+**Level authority**:
+The single authoritative source for the level's own numbers (gADR-0010):
+`level_config.json` → the derived `LevelConfig` — the Great-Wall blockout, the
+backdrop color, the Arena, and the End screen's blockout numbers. The platform
+fields migrated here out of the player config (the gADR-0008 one-authority
+pattern).
+_Avoid_: level data scattering, player config (its old home)
+
+**Arena**:
+The authored open span of the Great-Wall rampart where combat lives — the
+explicit `arena_min_x`/`arena_max_x` interval in the `Level authority` that
+clamps the Warp Blink's landing (gADR-0010, replacing S8's platform-extent
+derivation). Authored data, not a derived extent.
+_Avoid_: platform extent (the rejected derivation), level bounds
+
+### Game flow
+
+**End state**:
+The terminal state of one run — won (the Wave schedule cleared) or lost (the
+Player's HP reached 0) — resolved from `playing` by the pure GameStateSystem;
+the first transition latches (gADR-0010). Winning keys to the SCHEDULE, not the
+Boss: the Boss slot stays a property of the demo composition (gADR-0005).
+_Avoid_: game over (only the lost half), victory (only the won half)
+
+**World freeze**:
+The End-state halt of gameplay: every non-CanvasLayer child of the level gets
+its processing disabled at a frame boundary — never a tree pause, which would
+sever the gda harness's live channel (gADR-0010). The HUD keeps the final
+readout; the frozen bolts and fields are the finale's tableau.
+_Avoid_: pause (the rejected mechanism), slow-mo (that is the Time Dilation
+Field), stop
+
+**End screen**:
+The level-owned overlay announcing the End state — a dimmed blockout with the
+verdict title and the retry hint, faded in by tween; its numbers live in the
+`Level authority`, its copy is structural (gADR-0010). Not part of the HUD —
+gADR-0004's LINES contract is untouched.
+_Avoid_: HUD (a different surface), menu, game-over screen (it also announces
+the win)
+
+**Retry**:
+The restart verb that closes the GDD's one-more-try loop: the `retry` action
+(Enter), live only in an End state, reloads the level scene so the whole run
+re-derives from config — a fresh run, never an in-place respawn (gADR-0010).
+_Avoid_: respawn (the rejected in-place variant), restart level (the demo is a
+single level)
+
 <!-- Format reminder — **Term**: one/two-sentence definition (what it IS, not what it does);
      _Avoid_: rejected synonyms. Group natural clusters under ### subheadings. -->
 

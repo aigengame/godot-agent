@@ -71,16 +71,35 @@ def _make_project_copy(dst: Path) -> dict:
 
     Returns the copy's enemies document (the authority the expectations
     derive from). Two data-only edits (the waves-e2e reconfiguration
-    precedent): the schedule shrinks to its first wave alone (the shipped
-    wave-2 Elite spawns within aggro of the kill spot and would interfere
-    with the collection walk), and the minion Tier's drop table becomes
-    exactly one Bun + one Wine, both certain (the gADR-0006 chance-retune
-    precedent) — the Consumable supply this test consumes.
+    precedent): the schedule keeps its first wave for the kill and parks a
+    dormant sentinel wave far east behind it (the shipped wave-2 Elite
+    spawns within aggro of the kill spot and would interfere with the
+    collection walk — and since S9, gADR-0010, clearing the WHOLE schedule
+    wins the run and freezes the world, so a bare one-wave schedule would
+    freeze the Player before the collection leg); and the minion Tier's
+    drop table becomes exactly one Bun + one Wine, both certain (the
+    gADR-0006 chance-retune precedent) — the Consumable supply this test
+    consumes.
     """
     shutil.copytree(GAME_DIR, dst, ignore=_COPY_IGNORE)
     enemies_path = dst / "data" / "json" / "enemies_config.json"
     enemies = json.loads(enemies_path.read_text(encoding="utf-8"))
-    enemies["waves"] = [enemies["waves"][0]]
+    sentinel_kind = enemies["waves"][0]["spawns"][0]["kind"]
+    enemies["waves"] = [
+        enemies["waves"][0],
+        {
+            "spawns": [
+                {
+                    "kind": sentinel_kind,
+                    "name": "EndSentinel",
+                    # Far east on the rampart, outside every walk and aggro
+                    # radius of this scenario — it exists only to keep the
+                    # schedule un-cleared (the run stays `playing`).
+                    "position": [1200.0, 452.0],
+                }
+            ]
+        },
+    ]
     minion_tier = enemies["kinds"][enemies["waves"][0]["spawns"][0]["kind"]]["tier"]
     enemies["tiers"][minion_tier]["drops"] = [
         {"item": "bun", "amount": 1, "chance": 1.0},
@@ -103,6 +122,8 @@ def test_daemon_serves_consumable_use_and_spacesuit(tmp_path, daemon_runtime_dir
     player_cfg = build_config.load_json(
         GAME_DIR / "data" / "json" / "player_config.json"
     )
+    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     default_spawn = enemies["waves"][0]["spawns"][0]
     kind = enemies["kinds"][default_spawn["kind"]]
     drops = enemies["tiers"][kind["tier"]]["drops"]
@@ -139,8 +160,8 @@ def test_daemon_serves_consumable_use_and_spacesuit(tmp_path, daemon_runtime_dir
     shots_to_kill = math.ceil(kind["max_hp"] / laser_damage)
     iframe = combat["iframe_duration"]
     rest_y = (
-        player_cfg["platform_position"][1]
-        - player_cfg["platform_size"][1] / 2.0
+        rampart["position"][1]
+        - rampart["size"][1] / 2.0
         - player_cfg["player_size"][1] / 2.0
     )
     start_x = player_cfg["player_start"][0]
