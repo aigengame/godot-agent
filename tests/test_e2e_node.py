@@ -1204,6 +1204,55 @@ def test_node_set_typed_dictionary_coerces_entries_to_declared_value_type(
 
 
 @pytest.mark.e2e
+def test_node_set_typed_array_coerces_elements_to_declared_element_type(
+    godot_project,
+):
+    # #427 documents typed containers, not only typed Dictionary. Keep the Array
+    # symmetry covered so Array[int] continues to assign through its declared
+    # element type.
+    scene_path = godot_project / "main.tscn"
+    (godot_project / "player.gd").write_text(
+        "extends Node2D\n@export var counts: Array[int] = [1]\n",
+        encoding="utf-8",
+    )
+    scene_path.write_text(
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
+        '[node name="Main" type="Node2D"]\n'
+        'script = ExtResource("1")\n',
+        encoding="utf-8",
+    )
+    gda = _gda_project(godot_project)
+
+    was_set = gda(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        ".",
+        "--property",
+        "counts",
+        "--value",
+        "[2.0,3]",
+        "--json",
+    )
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    set_value = json.loads(was_set.stdout)["value"]
+    assert set_value == [2, 3]
+    assert type(set_value[0]) is int
+    assert type(set_value[1]) is int
+
+    got = gda("node", "get", str(scene_path), "--node", ".", "--json")
+    assert got.returncode == 0, got.stdout + got.stderr
+    props = {p["name"]: p for p in json.loads(got.stdout)["properties"]}
+    got_value = props["counts"]["value"]
+    assert got_value == [2, 3]
+    assert type(got_value[0]) is int
+    assert type(got_value[1]) is int
+
+
+@pytest.mark.e2e
 def test_node_set_unknown_property_yields_unknown_property_and_leaves_file_unchanged(
     godot_project,
 ):

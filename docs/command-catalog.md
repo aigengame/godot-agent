@@ -189,6 +189,14 @@ mutation integrity boundary above. The supported target types and the string for
 | `Vector2i` | two comma-separated integers: `x,y` | `[x, y]` |
 | `Color` | `#rrggbb` / `#rrggbbaa`, or 3–4 comma-separated floats in 0..1 (`r,g,b[,a]`) | `[r, g, b, a]` |
 
+For `Dictionary` / `Array` JSON values, JSON integer literals stay Godot `int` and JSON float
+literals stay `float` (for example, `{"a":2,"b":2.0}` keeps distinct `int` and `float` entries).
+When the existing destination is a typed `Dictionary` or typed `Array`, assignment goes through that
+typed container so Godot coerces keys, values, or elements through the declared container type
+(for example, `Dictionary[String, int]` or `Array[int]`). The same JSON container rule is shared by
+`node set`, `resource set`, `project set`, and live `game set`; Object `res://` assignment below is a
+separate headless-only contract.
+
 Whitespace around a value or a component is tolerated. A property of any other type is still
 reported by `node get` — compound values arrive structured through the shared value projection
 (ADR-0035): packed arrays project as JSON arrays, and an `Object` as a reference / inline value
@@ -206,8 +214,9 @@ create` and `resource set` this completes the external sub-resource workflow wit
 32,64` → `node set scene.tscn --node Col --property shape --value res://box.tres`). The result echoes
 `type` `"Object"` and `value` the ADR-0035 **reference projection** (`{type, resource_path}`) of the assigned
 resource — the same shape a subsequent `get` reads back (pass `--project` so `res://` resolves). This
-is a **separate, headless-only** step from the shared coercion above — value coercion keys only off
-the Variant type, but resolving an Object needs the expected-class hint on the property-list entry — so
+is a **separate, headless-only** step from the shared coercion above — scalar coercion keys off the
+Variant type and container coercion may use the current typed container value, but neither carries the
+expected-class hint on the property-list entry — so
 assigning a Resource on the live `gda game set` is **out of scope** and the coercion mirror is
 unchanged for Object assignment. Its failure modes are **distinct structured codes**, never `uncoercible_value`: a non-`res://`
 value is `expected_resource_path`; a path that does not load as a Resource is `not_a_resource`; a loaded
