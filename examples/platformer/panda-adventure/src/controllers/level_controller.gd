@@ -1,40 +1,52 @@
 class_name LevelController
 extends Node2D
 
-## Scene-level director for S1+S2+S4+S5+S6a+S6b: applies the data-driven
-## Platform blockout, plays the Wave schedule (gADR-0005) — spawning each
+## Scene-level director for S1+S2+S4+S5+S6a+S6b+S9: applies the data-driven
+## Great-Wall blockout (gADR-0010) — the backdrop plus the runtime-instanced
+## platform segments — plays the Wave schedule (gADR-0005) — spawning each
 ## Wave's Spawn Roster, folding deaths through the pure WaveSystem, and
 ## advancing on clear — wires each spawn's death to the Kill reward
 ## (gADR-0004) and to its Drop-table roll (gADR-0006: pickups scattered at
-## the death position), and emits the boot log. The Player self-configures
-## (PlayerController); this owns the rest of the level so config application
-## stays out of the physics body.
+## the death position), and emits the boot log. Since S9 it also owns the
+## run's End state (gADR-0010): the schedule's all-cleared decision and the
+## Player's death fold through the pure GameStateSystem into won/lost, which
+## freezes the world (never a tree pause — that would sever the gda
+## harness's live channel), shows the End screen, and arms Retry (the
+## `retry` action reloads the scene, so the whole run re-derives from
+## config). The Player self-configures (PlayerController); this owns the
+## rest of the level so config application stays out of the physics body.
 ##
-## Visuals and geometry are data (gADR-0000): the derived PlayerConfig /
-## WaveScheduleConfig / EnemyConfig Resources, never hardcoded. Loaded here and
-## in the actor controllers — load() is cached, so all observe the same
-## instance.
+## Visuals and geometry are data (gADR-0000): the derived LevelConfig /
+## PlayerConfig / WaveScheduleConfig / EnemyConfig Resources, never
+## hardcoded. Loaded here and in the actor controllers — load() is cached,
+## so all observe the same instance.
 ##
 ## Enemies are runtime-instanced from enemy.tscn rather than baked into
 ## main.tscn: which kind spawns where, in which Wave, is the data-driven Wave
 ## schedule (gADR-0003/gADR-0005). The wave COUNT is waves.size() — config,
-## never code (#334).
+## never code (#334). The Great-Wall segments follow the same pattern since
+## S9: platform.tscn instanced per `platforms` entry, geometry config never
+## scene-baked (gADR-0010).
 ##
 ## preload() over the global class_name registry: this project has no
 ## editor-generated global_script_class_cache, so a bare PlayerConfig / GameLog
 ## type name would not resolve in a headless runtime.
 
 const PlayerConfigScript := preload("res://src/resources/player_config.gd")
+const LevelConfigScript := preload("res://src/resources/level_config.gd")
 const EnemyConfigScript := preload("res://src/resources/enemy_config.gd")
 const WaveScheduleConfigScript := preload("res://src/resources/wave_schedule_config.gd")
 const ProgressionConfigScript := preload("res://src/resources/progression_config.gd")
 const WaveSystemScript := preload("res://src/systems/wave_system.gd")
+const GameStateSystemScript := preload("res://src/systems/game_state_system.gd")
 const EconomySystemScript := preload("res://src/systems/economy_system.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const EnemyScene := preload("res://scenes/enemy.tscn")
 const PickupScene := preload("res://scenes/pickup.tscn")
+const PlatformScene := preload("res://scenes/platform.tscn")
 
 const CONFIG_PATH := "res://data/generated/player_config.tres"
+const LEVEL_CONFIG_PATH := "res://data/generated/level_config.tres"
 const SCHEDULE_PATH := "res://data/generated/wave_schedule.tres"
 const PROGRESSION_CONFIG_PATH := "res://data/generated/progression_config.tres"
 # The per-kind derived EnemyConfig path convention (matches build_config's
@@ -51,6 +63,14 @@ var _alive := 0
 # The derived ProgressionConfig (S6b: the pickup scatter spacing), lazily
 # loaded (load() is cached) so _ready's load block stays untouched.
 var _progression_cfg: ProgressionConfigScript
+# The run's game-flow state (S9, gADR-0010): playing until the schedule
+# clears (won) or the Player dies (lost) — the pure GameStateSystem owns the
+# transitions, this node owns the consequences (freeze, End screen, Retry).
+# Runtime state; a Retry reload resets it by construction.
+var _state := GameStateSystemScript.STATE_PLAYING
+# The derived LevelConfig (S9): the Great-Wall blockout, the Arena, and the
+# End screen numbers.
+var _level_cfg: LevelConfigScript
 
 
 func _ready() -> void:
@@ -61,7 +81,19 @@ func _ready() -> void:
 			% CONFIG_PATH
 		)
 		return
-	_apply_platform(config)
+	_level_cfg = load(LEVEL_CONFIG_PATH)
+	if _level_cfg == null or _level_cfg.platforms.is_empty():
+		push_error(
+			"LevelController: could not load %s (or it has no platforms) — run scripts/build_config.py."
+			% LEVEL_CONFIG_PATH
+		)
+		return
+	_apply_level(_level_cfg)
+	var player := get_tree().get_first_node_in_group("player")
+	if player != null:
+		# The lose edge (S9, gADR-0010): the Player's S4 death latch now
+		# reports here, folding into the End state exactly once.
+		player.died.connect(_on_player_died)
 	_schedule = load(SCHEDULE_PATH)
 	if _schedule == null or _schedule.waves.is_empty():
 		push_error(
@@ -80,21 +112,46 @@ func _ready() -> void:
 	})
 
 
-## Apply the data-driven Platform blockout: the Great-Wall block (visual +
-## collision centered on the body origin) and its position. All from config.
-func _apply_platform(config: PlayerConfigScript) -> void:
-	var half := config.platform_size / 2.0
-	var platform := $Platform as StaticBody2D
+func _process(_delta: float) -> void:
+	# Retry is live ONLY in an End state (gADR-0010): mid-run, Enter does
+	# nothing. This node stays processing through the World freeze (only
+	# CHILDREN are disabled), so the retry read survives it.
+	if not GameStateSystemScript.can_retry(_state):
+		return
+	if Input.is_action_just_pressed("retry"):
+		_retry()
 
-	var visual := platform.get_node("Visual") as ColorRect
-	visual.color = config.platform_color
-	visual.size = config.platform_size
-	visual.position = -half
 
-	var shape := (platform.get_node("Collision") as CollisionShape2D).shape as RectangleShape2D
-	shape.size = config.platform_size
+## Apply the data-driven Great-Wall blockout (S9, gADR-0010): the backdrop
+## clear color and one platform.tscn instance per `platforms` segment (visual
+## + collision centered on the body origin — the S1 slab's shape, now per
+## segment). The collision shape is CREATED here (RectangleShape2D.new sized
+## from config): gda cannot author inline sub-resources (#365), so the scene
+## ships shape=null (the ObstacleController pattern). All from config.
+func _apply_level(config: LevelConfigScript) -> void:
+	RenderingServer.set_default_clear_color(config.background_color)
+	for entry: Dictionary in config.platforms:
+		var segment := PlatformScene.instantiate()
+		segment.name = entry["name"]
+		segment.position = entry["position"]
+		var size: Vector2 = entry["size"]
+		var half := size / 2.0
 
-	platform.position = config.platform_position
+		var visual := segment.get_node("Visual") as ColorRect
+		visual.color = config.platform_color
+		visual.size = size
+		visual.position = -half
+
+		var shape := RectangleShape2D.new()
+		shape.size = size
+		(segment.get_node("Collision") as CollisionShape2D).shape = shape
+
+		add_child(segment)
+	GameLogScript.emit("info", "level_ready", {
+		"platforms": config.platforms.size(),
+		"arena_min_x": config.arena_min_x,
+		"arena_max_x": config.arena_max_x,
+	})
 
 
 ## Start one Wave (gADR-0005): spawn its Spawn Roster and arm the live count
@@ -160,6 +217,10 @@ func _on_enemy_died(enemy: Node2D, kind: EnemyConfigScript) -> void:
 		GameLogScript.emit("info", "all_waves_cleared", {
 			"total": _schedule.waves.size(),
 		})
+		# The win edge (S9, gADR-0010): the SCHEDULE clearing wins the run —
+		# never "the Boss died"; the Boss slot stays demo composition
+		# (gADR-0005).
+		_enter_end_state(GameStateSystemScript.EVENT_ALL_WAVES_CLEARED)
 
 
 ## Award one Kill reward (S6a, gADR-0004): the dying kind's Tier-derived
@@ -212,3 +273,68 @@ func _progression_config() -> ProgressionConfigScript:
 				% PROGRESSION_CONFIG_PATH
 			)
 	return _progression_cfg
+
+
+# --- S9 End state + Retry (gADR-0010) ------------------------------------------
+# Kept as ONE self-contained append-only block (the S3/S4 parallel-merge
+# pattern): the two upstream edges fold through the pure GameStateSystem; the
+# consequences — the World freeze, the End screen, the verdict log, Retry —
+# live here.
+
+
+## The lose edge: the Player's S4 death latch fired (exactly once).
+func _on_player_died() -> void:
+	_enter_end_state(GameStateSystemScript.EVENT_PLAYER_DIED)
+
+
+## Fold one game-flow event through the pure GameStateSystem (gADR-0010). On
+## the FIRST transition into an End state: log the verdict (the durable
+## observable for gda logger tail), then apply the consequences at the frame
+## boundary — both edges arrive from physics callbacks (an enemy's attack, the
+## last death's wave fold), so the freeze is deferred rather than flipping
+## process modes mid-callback. The latch lives in the pure decision: a second
+## event never re-enters.
+func _enter_end_state(event: String) -> void:
+	var decision: Dictionary = GameStateSystemScript.resolve_event(_state, event)
+	if not decision["changed"]:
+		return
+	_state = decision["state"]
+	if _state == GameStateSystemScript.STATE_WON:
+		GameLogScript.emit("info", "game_won", {"waves": _schedule.waves.size()})
+	else:
+		GameLogScript.emit("info", "game_lost", {"wave": _wave_index + 1})
+	_apply_end_state.call_deferred()
+
+
+## The End state's consequences, applied at the frame boundary: freeze the
+## world, then show the End screen (its fade tween runs on the un-frozen
+## CanvasLayer). Split from _enter_end_state so the deferral covers both.
+func _apply_end_state() -> void:
+	_freeze_world()
+	var end_screen := get_node_or_null("EndScreen")
+	if end_screen != null and end_screen.has_method("show_end"):
+		end_screen.show_end(_state == GameStateSystemScript.STATE_WON)
+
+
+## The World freeze (gADR-0010): disable processing on every non-CanvasLayer
+## child — actors, bolts, fields, pickups halt where they are (the finale's
+## time-stopped tableau) while the HUD keeps its final readout and the End
+## screen runs its fade. NEVER get_tree().paused: the gda harness autoload
+## serves the live IPC channel from _process under the default pause mode, so
+## a tree pause would sever gda's live channel exactly when an e2e wants to
+## observe the End state and press retry. This node itself stays processing —
+## only children are disabled — so the Retry read in _process survives.
+func _freeze_world() -> void:
+	for child in get_children():
+		if child is CanvasLayer:
+			continue
+		child.process_mode = Node.PROCESS_MODE_DISABLED
+
+
+## Retry (gADR-0010): log the restart (before the scene dies), then reload the
+## level scene — the whole run re-derives from config, with zero reset code to
+## drift. The gda session survives the reload (same process), so the fresh
+## boot records land in the same session log.
+func _retry() -> void:
+	GameLogScript.emit("info", "game_retried", {"from_state": _state})
+	get_tree().reload_current_scene()

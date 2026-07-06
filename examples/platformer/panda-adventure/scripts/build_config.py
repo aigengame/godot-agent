@@ -8,9 +8,11 @@ Godot Resources under ``data/generated/`` that the runtime ``load()``s. Every
 byte-identical to a fresh build), never hand-edited: changing config means
 changing the JSON.
 
-Seven sources feed the outputs (``specs_for``/``SPECS``):
+Eight sources feed the outputs (``specs_for``/``SPECS``):
 
-- ``player_config.json`` -> ``player_config.tres`` (``PlayerConfig``, S1)
+- ``player_config.json`` -> ``player_config.tres`` (``PlayerConfig``, S1;
+  the platform blockout migrated OUT to ``level_config.json`` in S9,
+  gADR-0010 — one level authority)
 - ``combat_config.json`` -> ``stats_player.tres`` + ``stats_enemy.tres``
   (``StatsConfig`` stat blocks, gADR-0001) and ``combat_config.tres``
   (``CombatConfig``) — S2
@@ -40,6 +42,11 @@ Seven sources feed the outputs (``specs_for``/``SPECS``):
   Consumable restore amounts — ``wine_mp_restore`` migrated here from
   ``gravity_config.json`` — the consume-flash juice, and the Spacesuit's
   defense bonus, gADR-0008) — S7.
+- ``level_config.json`` -> ``level_config.tres`` (``LevelConfig``: the level
+  authority, gADR-0010 — the Great-Wall blockout segments, the backdrop, the
+  Arena interval that clamps the Warp Blink's landing, and the End screen's
+  blockout numbers). Its cross-field rules (unique segment names, a real
+  Arena interval) are enforced by ``validate_level_semantics``.
 
 Dogfooding note: since gda's ADR-0032 static class_name scan (issue #360), ``gda
 resource create --type PlayerConfig`` CAN instantiate a project-local class in
@@ -102,9 +109,6 @@ _PLAYER_FIELDS: list[tuple[str, str]] = [
     ("jump_velocity", "float"),
     ("gravity", "float"),
     ("max_fall_speed", "float"),
-    ("platform_color", "color"),
-    ("platform_size", "vec2"),
-    ("platform_position", "vec2"),
     ("camera_smoothing_speed", "float"),
     ("landing_squash", "vec2"),
     ("landing_tween_duration", "float"),
@@ -237,6 +241,25 @@ _ITEMS_FIELDS: list[tuple[str, str]] = [
     ("consume_flash_duration", "float"),
 ]
 
+# The S9 level authority (gADR-0010): the backdrop, the Great-Wall blockout
+# (one shared segment color + the ordered named segments), the Arena interval
+# the Warp-landing clamp reads, and the End screen's blockout numbers. The
+# platform fields migrated here from _PLAYER_FIELDS (the gADR-0008
+# one-authority pattern).
+_LEVEL_FIELDS: list[tuple[str, str]] = [
+    ("background_color", "color"),
+    ("platform_color", "color"),
+    ("platforms", "platform_list"),
+    ("arena_min_x", "float"),
+    ("arena_max_x", "float"),
+    ("end_overlay_color", "color"),
+    ("end_win_color", "color"),
+    ("end_lose_color", "color"),
+    ("end_title_font_size", "float"),
+    ("end_hint_font_size", "float"),
+    ("end_fade_duration", "float"),
+]
+
 # The S6b progression loop (gADR-0006): the leveling curve (cumulative EXP
 # thresholds — the max level is the array's length + 1, config never code)
 # plus the level-up flash and the Drop/Pickup blockout and juice.
@@ -260,6 +283,10 @@ _ENEMIES_SCHEMA_REL = "data/schema/enemies_config.schema.json"
 # The S6b progression source (gADR-0006) — carries its own cross-field rule
 # (the strictly increasing leveling curve, validate_progression_semantics).
 _PROGRESSION_JSON_REL = "data/json/progression_config.json"
+
+# The S9 level source (gADR-0010) — carries its own cross-field rules
+# (unique segment names, a real Arena interval, validate_level_semantics).
+_LEVEL_JSON_REL = "data/json/level_config.json"
 
 
 def _enemy_kind_spec(kind: str, definition: dict[str, Any]) -> TresSpec:
@@ -368,6 +395,15 @@ _STATIC_SPECS: list[TresSpec] = [
         ext_id="1_itemsconfig",
         fields=_ITEMS_FIELDS,
     ),
+    TresSpec(
+        json_rel=_LEVEL_JSON_REL,
+        schema_rel="data/schema/level_config.schema.json",
+        out_rel="data/generated/level_config.tres",
+        script_res_path="res://src/resources/level_config.gd",
+        script_class="LevelConfig",
+        ext_id="1_levelconfig",
+        fields=_LEVEL_FIELDS,
+    ),
 ]
 
 _WAVE_SCHEDULE_SPEC = TresSpec(
@@ -389,6 +425,8 @@ COMBAT_JSON_PATH = GAME_DIR / "data/json/combat_config.json"
 COMBAT_SCHEMA_PATH = GAME_DIR / "data/schema/combat_config.schema.json"
 ENEMIES_JSON_PATH = GAME_DIR / "data/json/enemies_config.json"
 ENEMIES_SCHEMA_PATH = GAME_DIR / "data/schema/enemies_config.schema.json"
+LEVEL_JSON_PATH = GAME_DIR / _LEVEL_JSON_REL
+LEVEL_SCHEMA_PATH = GAME_DIR / "data/schema/level_config.schema.json"
 
 
 def load_json(path: Path) -> Any:
@@ -554,6 +592,38 @@ def validate_progression_semantics(document: Any) -> Any:
     return document
 
 
+def validate_level_semantics(document: Any) -> Any:
+    """Enforce the level-config cross-field rules vanilla JSON Schema cannot.
+
+    Runs after (and assumes) schema validation. Raises
+    :class:`jsonschema.ValidationError` — the same failure type as the schema
+    gate — so a bad config fails the build loudly either way. The rules
+    (gADR-0010):
+
+    - **Segment names are unique**: each Great-Wall segment is instanced as a
+      named sibling under Main (next to the Wave spawns), so a duplicate
+      would be silently renamed by Godot and break addressability — the
+      gADR-0005 argument.
+    - **The Arena is a real interval**: ``arena_min_x < arena_max_x`` — the
+      Warp Blink's landing clamp needs a non-degenerate span.
+    """
+    seen_names: set[str] = set()
+    for platform in document["platforms"]:
+        if platform["name"] in seen_names:
+            raise jsonschema.ValidationError(
+                f"duplicate platform name {platform['name']!r} — Great-Wall "
+                "segment names must be unique for addressability (gADR-0010)"
+            )
+        seen_names.add(platform["name"])
+    if document["arena_min_x"] >= document["arena_max_x"]:
+        raise jsonschema.ValidationError(
+            f"arena_min_x ({document['arena_min_x']}) must stay strictly below "
+            f"arena_max_x ({document['arena_max_x']}) — the Arena is a real "
+            "interval; it clamps the Warp Blink's landing (gADR-0010)"
+        )
+    return document
+
+
 def enemy_kind_specs(root: Path = GAME_DIR) -> list[TresSpec]:
     """One TresSpec per Enemy Kind, DERIVED from ``root``'s enemies JSON.
 
@@ -633,6 +703,22 @@ def _render_field(key: str, kind: str, value: Any) -> str:
             for entry in value
         )
         return f"[{drops}]"
+    if kind == "platform_list":
+        # The Great-Wall blockout (gADR-0010): an Array of {name, position,
+        # size} Dictionaries in source order — the ordered segments the level
+        # runtime-instances.
+        platforms = ", ".join(
+            '{{"name": "{name}", "position": Vector2({px}, {py}), '
+            '"size": Vector2({sx}, {sy})}}'.format(
+                name=entry["name"],
+                px=_num(entry["position"][0]),
+                py=_num(entry["position"][1]),
+                sx=_num(entry["size"][0]),
+                sy=_num(entry["size"][1]),
+            )
+            for entry in value
+        )
+        return f"[{platforms}]"
     if kind == "item_style_map":
         # The pickup blockout per droppable item (gADR-0006): item name ->
         # {"color": Color, "size": Vector2}, in source key order (JSON parsing
@@ -714,6 +800,10 @@ def build_spec(
         # The progression source's own cross-field rule: the leveling curve
         # is strictly increasing (gADR-0006).
         validate_progression_semantics(document)
+    if spec.json_rel == _LEVEL_JSON_REL:
+        # The level source's own cross-field rules: unique Great-Wall segment
+        # names and a real Arena interval (gADR-0010).
+        validate_level_semantics(document)
     target = out_path if out_path is not None else root / spec.out_rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(render_spec(spec, document), encoding="utf-8")

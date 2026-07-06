@@ -39,14 +39,14 @@ const EnemyAIScript := preload("res://src/systems/enemy_ai.gd")
 const WarpSystemScript := preload("res://src/systems/warp_system.gd")
 const GravitySystemScript := preload("res://src/systems/gravity_system.gd")
 const GravityConfigScript := preload("res://src/resources/gravity_config.gd")
-const PlayerConfigScript := preload("res://src/resources/player_config.gd")
+const LevelConfigScript := preload("res://src/resources/level_config.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const EnemyProjectileScene := preload("res://scenes/enemy_projectile.tscn")
 const TimeFieldScene := preload("res://scenes/time_field.tscn")
 
 const COMBAT_CONFIG_PATH := "res://data/generated/combat_config.tres"
 const GRAVITY_CONFIG_PATH := "res://data/generated/gravity_config.tres"
-const PLAYER_CONFIG_PATH := "res://data/generated/player_config.tres"
+const LEVEL_CONFIG_PATH := "res://data/generated/level_config.tres"
 
 var _kind: EnemyConfigScript
 var _combat: CombatConfigScript
@@ -88,9 +88,10 @@ var _warp_phase_until := 0.0
 # them, gADR-0005 — an enemy spawned outside the wave system just skips it).
 var _spawn_squash := Vector2.ONE
 var _spawn_tween_duration := 0.0
-# The derived PlayerConfig (the level-blockout authority: platform extent),
-# lazily loaded for the landing's arena clamp.
-var _player_config: PlayerConfigScript
+# The derived LevelConfig (the level authority: the authored Arena interval,
+# gADR-0010 — was the PlayerConfig platform extent until S9), lazily loaded
+# for the landing's arena clamp.
+var _level_config: LevelConfigScript
 
 
 ## Hand this enemy its Enemy Kind. Called by the spawner BEFORE add_child, so
@@ -259,23 +260,24 @@ func _blink(player: Node2D) -> void:
 	_warp_phase_until = _now() + _kind.warp_recovery_duration
 
 
-## The landing clamp's x range (min, max): the platform extent — the level
-## blockout the derived PlayerConfig owns — inset by half this kind's width so
-## the body lands ON the platform, never half off its edge.
+## The landing clamp's x range (min, max): the authored Arena interval — the
+## level authority's arena_min_x/arena_max_x (gADR-0010, replacing the S8
+## platform-extent derivation: a multi-segment Great Wall has no single
+## extent) — inset by half this kind's width so the body lands ON the
+## rampart, never half off the Arena's edge.
 func _arena_bounds() -> Vector2:
-	if _player_config == null:
-		_player_config = load(PLAYER_CONFIG_PATH)
-		if _player_config == null:
+	if _level_config == null:
+		_level_config = load(LEVEL_CONFIG_PATH)
+		if _level_config == null:
 			push_error(
 				"EnemyController: could not load %s — run scripts/build_config.py."
-				% PLAYER_CONFIG_PATH
+				% LEVEL_CONFIG_PATH
 			)
 			return Vector2(position.x, position.x)  # degenerate: land in place
-	var half_platform := _player_config.platform_size.x / 2.0
 	var half_body := _kind.size.x / 2.0
 	return Vector2(
-		_player_config.platform_position.x - half_platform + half_body,
-		_player_config.platform_position.x + half_platform - half_body
+		_level_config.arena_min_x + half_body,
+		_level_config.arena_max_x - half_body
 	)
 
 

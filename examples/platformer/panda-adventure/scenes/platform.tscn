@@ -1,0 +1,7 @@
+[gd_scene format=3]
+
+[node name="Platform" type="StaticBody2D" unique_id=1420443350]
+
+[node name="Visual" type="ColorRect" parent="." unique_id=1122428423]
+
+[node name="Collision" type="CollisionShape2D" parent="." unique_id=1221293498]

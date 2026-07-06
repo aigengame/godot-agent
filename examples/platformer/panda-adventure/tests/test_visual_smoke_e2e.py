@@ -24,7 +24,14 @@ assertion). Checkpoints over the current player-visible surface:
   capture. The Warp Boss rides the SAME session: the throwaway copy seats
   it in Wave 2 with its behavior knobs determinized (aggro/move/cooldown —
   none of them pixel expectations) and its tell lengthened past the kill
-  capture, so the zone drops right after the blend baseline is taken.
+  capture, so the zone drops right after the blend baseline is taken;
+- the S9 End screen's verdict title is visible after the run ends
+  (gADR-0010). The lose edge rides the SAME session's tail: the copy
+  re-aims the Warp Blink to land OUT of the Boss's attack range and arms a
+  one-hit attack (behavior knobs again), so after the warp capture a walk
+  into the Boss's point-blank band fells the Player on demand — the world
+  freezes and the End screen fades in, its title probed at its LIVE
+  rendered rect (``gda game rect``) in the config lose color.
 
 All assertions are presence-level and config-derived (gADR-0007): colors,
 sizes, and positions come from the authoritative JSON; screen regions come
@@ -96,6 +103,19 @@ _WARP_BOSS_SPAWN = {
     "position": [700.0, 412.0],
 }
 _WARP_TELL_FLOOR = 8.0
+# The S9 lose-beat retunes (gADR-0010; behavior knobs, never pixel
+# expectations): the Warp Blink lands this far from the Player — OUTSIDE the
+# Boss's shipped attack_range (80) — so the Boss cannot strike until the walk
+# below closes the gap; its one-hit attack then fells the Player on demand.
+_WARP_OFFSET_X_FLOOR = 200.0
+_BOSS_ONE_HIT_ATTACK = 999.0
+# Held move_left ticks that close player->Boss to point-blank: ~120 px of
+# travel, covered even if the whole walk runs time-dilated at the shipped
+# factor 0.5 (300 px/s * 0.5 / 60 = 2.5 px/tick -> 225 px in 90 ticks).
+_LOSE_WALK_TICKS = 90
+# Fade settle before the End capture: the config end_fade_duration (0.4s
+# shipped) plus CLI round-trip margin.
+_END_FADE_SETTLE = 1.5
 # Follow-camera settle before a capture anchors world->screen mapping on the
 # Player: the smoothing residual decays as e^(-speed*t); at the shipped speed
 # (5.0) and t=2s even a full-screen pan settles to < 0.1 px.
@@ -152,6 +172,10 @@ _COLOR_TOLERANCE = 0.05
 # Per-channel tolerance for the translucent field blend (adds the fade
 # tween's final frame and 8-bit rounding on both captures).
 _BLEND_TOLERANCE = 0.06
+# Matching pixels the End screen's verdict title must show inside its live
+# rect: "GAME OVER" at the config title font size inks thousands; 100 stays
+# far from noise while failing hard on an invisible/mispositioned title.
+_MIN_TITLE_PIXELS = 100
 
 
 def _make_project_copy(dst: Path) -> Path:
@@ -183,6 +207,15 @@ def _make_project_copy(dst: Path) -> Path:
     boss["time_field_duration"] = max(
         float(boss["time_field_duration"]), _FIELD_DURATION_FLOOR
     )
+    # The S9 lose beat (gADR-0010): the blink lands out of attack range (the
+    # Boss stands harmless at the zone's center) and the attack one-shots, so
+    # the Player dies exactly when the scripted walk closes the gap — never
+    # before the warp capture.
+    boss["warp_offset"] = [
+        max(float(boss["warp_offset"][0]), _WARP_OFFSET_X_FLOOR),
+        boss["warp_offset"][1],
+    ]
+    boss["attack"] = _BOSS_ONE_HIT_ATTACK
     enemies["waves"][1]["spawns"].append(dict(_WARP_BOSS_SPAWN))
     enemies_path.write_text(json.dumps(enemies, indent=2) + "\n")
     build_config.build_all(root=dst)
@@ -216,6 +249,10 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     player_cfg = build_config.load_json(
         GAME_DIR / "data" / "json" / "player_config.json"
     )
+    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    # The Great-Wall fight platform (gADR-0010): the level authority's
+    # "Rampart" segment — the ground line every world-space bound derives from.
+    rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     wave1_spawns = enemies["waves"][0]["spawns"]
     wave2_spawns = enemies["waves"][1]["spawns"]
     default_spawn = wave1_spawns[0]
@@ -231,8 +268,8 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     shots_to_kill = math.ceil(kind["max_hp"] / laser_damage)
     iframe = combat["iframe_duration"]
     rest_y = (
-        player_cfg["platform_position"][1]
-        - player_cfg["platform_size"][1] / 2.0
+        rampart["position"][1]
+        - rampart["size"][1] / 2.0
         - player_cfg["player_size"][1] / 2.0
     )
     start_x = player_cfg["player_start"][0]
@@ -240,9 +277,7 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     target_x = enemy_x - kind["aggro_range"] + 40.0
     hold_ticks = round((target_x - start_x) / (player_cfg["move_speed"] / 60.0))
     # Level geometry bounding the Gravity Field probe (world space).
-    platform_top = (
-        player_cfg["platform_position"][1] - player_cfg["platform_size"][1] / 2.0
-    )
+    platform_top = rampart["position"][1] - rampart["size"][1] / 2.0
     obstacle_bottom = (
         gravity["obstacle_position"][1] + gravity["obstacle_size"][1] / 2.0
     )
@@ -452,6 +487,40 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         warp_field_y = warped[0]["fields"]["y"]
         warp_png, warp_doc = capture("warp")
         assert (warp_doc["width"], warp_doc["height"]) == dims
+
+        # --- Beat 5: the S9 End screen (gADR-0010). The copy re-aimed the
+        # blink to land the Boss OUT of attack range and armed its one-hit
+        # attack, so the lose edge fires only now, on demand: walk the Player
+        # left into the Boss's point-blank band — the first contact fells the
+        # Player, the world freezes, and the End screen fades in over the
+        # tableau. Its title's LIVE rendered rect (gda #419) is the probe
+        # region; reading it here — after the freeze — is itself the
+        # gADR-0010 live-channel proof at this seam.
+        walk_back = run(
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(
+                [
+                    {"type": "action", "action": "move_left", "physics_frame": 0},
+                    {
+                        "type": "action",
+                        "action": "move_left",
+                        "release": True,
+                        "physics_frame": _LOSE_WALK_TICKS,
+                    },
+                ]
+            ),
+        )
+        assert walk_back.returncode == 0, walk_back.stdout + walk_back.stderr
+        assert poll(lambda: records("game_lost")), "the lose edge never fired"
+        assert poll(lambda: records("end_screen_shown")), (
+            "no gda_log 'end_screen_shown' record"
+        )
+        time.sleep(_END_FADE_SETTLE)
+        title_rect = rendered_rect("/root/Main/EndScreen/Overlay/TitleLabel")
+        end_png, end_doc = capture("end")
+        assert (end_doc["width"], end_doc["height"]) == dims
     finally:
         run("daemon", "stop")
 
@@ -628,6 +697,19 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
             _MIN_READOUT_DELTA_PIXELS,
             "the EXP/Gold readout did not visibly change after the kill",
         ),
+        (
+            {
+                "name": "end_title",
+                "mode": "color_match",
+                "image": "end",
+                "rect": pad_rect(title_rect, 4.0),
+                "color": level_cfg["end_lose_color"][:3],
+                "tolerance": _COLOR_TOLERANCE,
+            },
+            _MIN_TITLE_PIXELS,
+            "the End screen's verdict title is not visibly rendering "
+            "after the run ended",
+        ),
     ]
     for spawn in wave1_spawns:
         spawn_kind = enemies["kinds"][spawn["kind"]]
@@ -677,6 +759,7 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
                     "field": str(field_png),
                     "kill": str(kill_png),
                     "warp": str(warp_png),
+                    "end": str(end_png),
                 },
                 "checks": [c for c, _, _ in checks],
             }

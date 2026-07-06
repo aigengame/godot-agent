@@ -83,12 +83,14 @@ def test_daemon_serves_player_traversal(tmp_path, daemon_runtime_dir):
     project = _make_project_copy(tmp_path / "game")
     # Compare against the AUTHORITATIVE JSON, not hardcoded expectations.
     config = build_config.load_json(GAME_DIR / "data" / "json" / "player_config.json")
+    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     # Where the Player comes to rest: platform top minus half the player height
     # (both bodies centered on their origin). Proof the fall was stopped by the
     # platform exactly at its surface.
     rest_y = (
-        config["platform_position"][1]
-        - config["platform_size"][1] / 2.0
+        rampart["position"][1]
+        - rampart["size"][1] / 2.0
         - config["player_size"][1] / 2.0
     )
     start_x = config["player_start"][0]
@@ -157,7 +159,9 @@ def test_daemon_serves_player_traversal(tmp_path, daemon_runtime_dir):
 
         player = _find_node(root, "Player")
         assert player is not None and player["type"] == "CharacterBody2D", root
-        platform = _find_node(root, "Platform")
+        # The fight platform is the level authority's runtime-instanced
+        # "Rampart" segment since S9 (gADR-0010) — named by config data.
+        platform = _find_node(root, rampart["name"])
         assert platform is not None and platform["type"] == "StaticBody2D", root
         camera = _find_node(root, "Camera2D")
         assert camera is not None and camera["type"] == "Camera2D", root

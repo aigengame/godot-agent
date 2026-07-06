@@ -95,6 +95,8 @@ def test_daemon_serves_kill_reward_and_hud(tmp_path, daemon_runtime_dir):
     player_cfg = build_config.load_json(
         GAME_DIR / "data" / "json" / "player_config.json"
     )
+    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     default_spawn = enemies["waves"][0]["spawns"][0]
     kind = enemies["kinds"][default_spawn["kind"]]
     reward = enemies["tiers"][kind["tier"]]
@@ -118,8 +120,8 @@ def test_daemon_serves_kill_reward_and_hud(tmp_path, daemon_runtime_dir):
     shots_to_kill = math.ceil(kind["max_hp"] / laser_damage)
     iframe = combat["iframe_duration"]
     rest_y = (
-        player_cfg["platform_position"][1]
-        - player_cfg["platform_size"][1] / 2.0
+        rampart["position"][1]
+        - rampart["size"][1] / 2.0
         - player_cfg["player_size"][1] / 2.0
     )
     start_x = player_cfg["player_start"][0]

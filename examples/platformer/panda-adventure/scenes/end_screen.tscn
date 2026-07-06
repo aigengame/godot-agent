@@ -1,0 +1,14 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://src/controllers/end_screen_controller.gd" id="1_1t3ea"]
+
+[node name="EndScreen" type="CanvasLayer" unique_id=276623703]
+script = ExtResource("1_1t3ea")
+
+[node name="Overlay" type="ColorRect" parent="." unique_id=1757862011]
+
+[node name="TitleLabel" type="Label" parent="Overlay" unique_id=2135868063]
+layout_mode = 0
+
+[node name="HintLabel" type="Label" parent="Overlay" unique_id=182042507]
+layout_mode = 0

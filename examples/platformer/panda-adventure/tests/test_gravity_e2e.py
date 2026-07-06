@@ -92,6 +92,8 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
     player_cfg = build_config.load_json(
         GAME_DIR / "data" / "json" / "player_config.json"
     )
+    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     mp_max = combat["player_stats"]["max_mp"]
     mp_cost = gravity["mp_cost"]
     obstacle_pos = gravity["obstacle_position"]
@@ -102,8 +104,8 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
     length = math.hypot(*direction)
     field_velocity = [c / length * gravity["field_strength"] for c in direction]
     rest_y = (
-        player_cfg["platform_position"][1]
-        - player_cfg["platform_size"][1] / 2.0
+        rampart["position"][1]
+        - rampart["size"][1] / 2.0
         - player_cfg["player_size"][1] / 2.0
     )
     env = {**os.environ}
@@ -282,12 +284,8 @@ def test_daemon_serves_gravity_loop(tmp_path, daemon_runtime_dir):
         enemy_speed = enemies_cfg["kinds"][enemy_spawn["kind"]]["move_speed"]
         player_speed = player_cfg["move_speed"]
         spawn_offset_x = gravity["field_spawn_offset"][0]
-        platform_left = (
-            player_cfg["platform_position"][0] - player_cfg["platform_size"][0] / 2.0
-        )
-        platform_right = (
-            player_cfg["platform_position"][0] + player_cfg["platform_size"][0] / 2.0
-        )
+        platform_left = rampart["position"][0] - rampart["size"][0] / 2.0
+        platform_right = rampart["position"][0] + rampart["size"][0] / 2.0
         # Godot's default fixed physics tick rate; project.godot does not
         # override physics/common/physics_ticks_per_second.
         physics_fps = 60.0

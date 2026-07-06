@@ -46,6 +46,11 @@ const CONFIG_PATH := "res://data/generated/player_config.tres"
 const STATS_PATH := "res://data/generated/stats_player.tres"
 const COMBAT_CONFIG_PATH := "res://data/generated/combat_config.tres"
 
+## The Player's death edge (S9, gADR-0010): emitted exactly once, on the S4
+## death latch — the EnemyController `died` precedent. The LevelController
+## folds it into the End state (game_lost + World freeze + End screen).
+signal died
+
 var _config: PlayerConfigScript
 var _stats_config: StatsConfigScript
 var _combat: CombatConfigScript
@@ -226,8 +231,9 @@ func set_time_dilation(factor: float) -> void:
 ## S4 damage-receiving path: resolve one incoming hit from an attacker's stat
 ## block — the SAME symmetric pipeline as the Enemy's (CombatSystem.compute_damage
 ## with the roles swapped, gADR-0001), i-frame gated so a single overlap cannot
-## chain hits. On death: log player_died once; respawn/game-over is out of
-## scope for Phase 1 (a later slice owns it).
+## chain hits. On death: log player_died once and emit the `died` edge — the
+## LevelController owns the consequences (S9, gADR-0010: game_lost, the World
+## freeze, the End screen, Retry).
 func take_hit(attacker: StatsConfigScript) -> void:
 	if _stats == null or _dead:
 		return
@@ -245,6 +251,7 @@ func take_hit(attacker: StatsConfigScript) -> void:
 	if CombatSystemScript.is_dead(_stats.hp):
 		_dead = true
 		GameLogScript.emit("info", "player_died", {"x": position.x, "y": position.y})
+		died.emit()
 
 
 ## The runtime clock feeding the pure i-frame decision; the Monte-Carlo sim

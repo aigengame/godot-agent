@@ -103,18 +103,18 @@ def _make_project_copy(dst: Path) -> Path:
     return dst
 
 
-def _expected_landing_x(player_x: float, enemies: dict, player_cfg: dict) -> float:
+def _expected_landing_x(player_x: float, enemies: dict, level_cfg: dict) -> float:
     """The gADR-0009 landing formula, replicated from the copy's config.
 
     The Boss spawns to the Player's RIGHT, so the far side is the LEFT
-    (sign(player.x - boss.x) = -1), clamped to the platform extent inset by
-    half the Boss's width.
+    (sign(player.x - boss.x) = -1), clamped to the AUTHORED Arena interval —
+    the level authority's arena_min_x/arena_max_x, gADR-0010 — inset by half
+    the Boss's width.
     """
     boss = enemies["kinds"][_BOSS_KIND]
-    half_platform = player_cfg["platform_size"][0] / 2.0
     half_body = boss["size"][0] / 2.0
-    arena_min = player_cfg["platform_position"][0] - half_platform + half_body
-    arena_max = player_cfg["platform_position"][0] + half_platform - half_body
+    arena_min = level_cfg["arena_min_x"] + half_body
+    arena_max = level_cfg["arena_max_x"] - half_body
     return min(max(player_x - boss["warp_offset"][0], arena_min), arena_max)
 
 
@@ -226,6 +226,7 @@ def test_boss_warp_rotation_slows_the_player_and_releases(tmp_path, daemon_runti
     player_cfg = build_config.load_json(
         GAME_DIR / "data" / "json" / "player_config.json"
     )
+    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
     move_speed = player_cfg["move_speed"]
     factor = boss["time_field_factor"]
     s = _Session(project)
@@ -247,7 +248,7 @@ def test_boss_warp_rotation_slows_the_player_and_releases(tmp_path, daemon_runti
         # The landing is the pure far-side formula over the copy's config:
         # the resting Player has no input, so its x is the config start.
         expected_x = _expected_landing_x(
-            player_cfg["player_start"][0], enemies, player_cfg
+            player_cfg["player_start"][0], enemies, level_cfg
         )
         assert blink["to_x"] == pytest.approx(expected_x), (
             f"landing must be the gADR-0009 formula: {blink}"

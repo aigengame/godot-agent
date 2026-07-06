@@ -169,12 +169,18 @@ class _Session:
         ), "Player did not land"
 
 
-def _rest_y(player_cfg: dict) -> float:
+def _rest_y(player_cfg: dict, rampart: dict) -> float:
     return (
-        player_cfg["platform_position"][1]
-        - player_cfg["platform_size"][1] / 2.0
+        rampart["position"][1]
+        - rampart["size"][1] / 2.0
         - player_cfg["player_size"][1] / 2.0
     )
+
+
+def _rampart() -> dict:
+    """The main fight platform from the authoritative level config."""
+    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    return next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
 
 
 def _wave_fields(records: list[dict]) -> list[dict]:
@@ -233,7 +239,7 @@ def test_reconfigured_wave_count_plays_through(
         assert first[0]["fields"] == {"wave": 1, "total": wave_count, "spawns": 1}
         assert s.node_in_tree("W1Target") is not None
         assert s.node_in_tree("W2Target") is None
-        s.wait_player_landed(_rest_y(player_cfg))
+        s.wait_player_landed(_rest_y(player_cfg, _rampart()))
 
         # Drain the schedule: spaced shots (the S2 kill loop) clear wave after
         # wave; after each clear the NEXT wave's named target materializes.
@@ -299,7 +305,7 @@ def test_default_schedule_advances_to_the_dormant_elite(tmp_path, daemon_runtime
     )
     shots_to_kill = math.ceil(minion["max_hp"] / laser_damage)
     iframe = combat["iframe_duration"]
-    rest_y = _rest_y(player_cfg)
+    rest_y = _rest_y(player_cfg, _rampart())
     start_x = player_cfg["player_start"][0]
     # The reward-flow walk target: just inside the minion's Aggro Range, on
     # the physics clock (move_speed / 60 px per held tick).

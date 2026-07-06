@@ -84,13 +84,15 @@ def test_daemon_serves_laser_combat(tmp_path, daemon_runtime_dir):
     player_cfg = build_config.load_json(
         GAME_DIR / "data" / "json" / "player_config.json"
     )
+    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     damage = _expected_damage(combat)
     max_hp = combat["enemy_stats"]["max_hp"]
     hits_to_kill = math.ceil(max_hp / damage)
     iframe = combat["iframe_duration"]
     rest_y = (
-        player_cfg["platform_position"][1]
-        - player_cfg["platform_size"][1] / 2.0
+        rampart["position"][1]
+        - rampart["size"][1] / 2.0
         - player_cfg["player_size"][1] / 2.0
     )
     env = {**os.environ}
