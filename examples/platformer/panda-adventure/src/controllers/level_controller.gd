@@ -41,6 +41,7 @@ const WaveSystemScript := preload("res://src/systems/wave_system.gd")
 const GameStateSystemScript := preload("res://src/systems/game_state_system.gd")
 const EconomySystemScript := preload("res://src/systems/economy_system.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
+const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
 const EnemyScene := preload("res://scenes/enemy.tscn")
 const PickupScene := preload("res://scenes/pickup.tscn")
 const PlatformScene := preload("res://scenes/platform.tscn")
@@ -74,19 +75,16 @@ var _level_cfg: LevelConfigScript
 
 
 func _ready() -> void:
-	var config: PlayerConfigScript = load(CONFIG_PATH)
+	var config: PlayerConfigScript = GeneratedConfigScript.load_config(CONFIG_PATH)
 	if config == null:
-		push_error(
-			"LevelController: could not load %s — run scripts/build_config.py."
-			% CONFIG_PATH
-		)
 		return
-	_level_cfg = load(LEVEL_CONFIG_PATH)
-	if _level_cfg == null or _level_cfg.platforms.is_empty():
-		push_error(
-			"LevelController: could not load %s (or it has no platforms) — run scripts/build_config.py."
-			% LEVEL_CONFIG_PATH
-		)
+	_level_cfg = GeneratedConfigScript.load_config(LEVEL_CONFIG_PATH)
+	if _level_cfg == null:
+		return
+	if _level_cfg.platforms.is_empty():
+		# Loaded but empty: the JSON source has no platforms — a data fault the
+		# seam's load guard can't see, so guard it here (not a pipeline fault).
+		push_error("LevelController: %s has no platforms." % LEVEL_CONFIG_PATH)
 		return
 	_apply_level(_level_cfg)
 	var player := get_tree().get_first_node_in_group("player")
@@ -94,12 +92,13 @@ func _ready() -> void:
 		# The lose edge (S9, gADR-0010): the Player's S4 death latch now
 		# reports here, folding into the End state exactly once.
 		player.died.connect(_on_player_died)
-	_schedule = load(SCHEDULE_PATH)
-	if _schedule == null or _schedule.waves.is_empty():
-		push_error(
-			"LevelController: could not load %s (or it has no waves) — run scripts/build_config.py."
-			% SCHEDULE_PATH
-		)
+	_schedule = GeneratedConfigScript.load_config(SCHEDULE_PATH)
+	if _schedule == null:
+		return
+	if _schedule.waves.is_empty():
+		# Loaded but empty: the JSON source has no waves — a data fault the seam's
+		# load guard can't see, so guard it here (not a pipeline fault).
+		push_error("LevelController: %s has no waves." % SCHEDULE_PATH)
 		return
 	_start_wave(0)
 
@@ -266,12 +265,7 @@ func _spawn_drops(kind: EnemyConfigScript, source_name: String, death_position: 
 ## (the S3 GravityConfig pattern) so _ready's load block stays untouched.
 func _progression_config() -> ProgressionConfigScript:
 	if _progression_cfg == null:
-		_progression_cfg = load(PROGRESSION_CONFIG_PATH)
-		if _progression_cfg == null:
-			push_error(
-				"LevelController: could not load %s — run scripts/build_config.py."
-				% PROGRESSION_CONFIG_PATH
-			)
+		_progression_cfg = GeneratedConfigScript.load_config(PROGRESSION_CONFIG_PATH)
 	return _progression_cfg
 
 

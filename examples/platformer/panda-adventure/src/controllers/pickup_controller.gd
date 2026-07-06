@@ -22,6 +22,7 @@ extends Area2D
 
 const ProgressionConfigScript := preload("res://src/resources/progression_config.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
+const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
 
 const PROGRESSION_CONFIG_PATH := "res://data/generated/progression_config.tres"
 
@@ -41,14 +42,13 @@ func setup(item: String, amount: int) -> void:
 
 
 func _ready() -> void:
-	_config = load(PROGRESSION_CONFIG_PATH)
-	if _config == null or _item.is_empty():
-		# The derived .tres is committed and the spawner must setup() first;
-		# guard loudly rather than crash, pointing at the pipeline.
-		push_error(
-			"PickupController: missing drop (setup() before add_child) or %s — run scripts/build_config.py."
-			% PROGRESSION_CONFIG_PATH
-		)
+	_config = GeneratedConfigScript.load_config(PROGRESSION_CONFIG_PATH)
+	if _config == null:
+		return
+	if _item.is_empty():
+		# The spawner must setup() before add_child; guard loudly rather than
+		# crash on a drop that was never injected (not a pipeline fault).
+		push_error("PickupController: missing drop — setup() must run before add_child.")
 		return
 	_apply_blockout()
 	body_entered.connect(_on_body_entered)

@@ -25,6 +25,7 @@ extends Area2D
 const GravityConfigScript := preload("res://src/resources/gravity_config.gd")
 const GravitySystemScript := preload("res://src/systems/gravity_system.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
+const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
 
 const CONFIG_PATH := "res://data/generated/gravity_config.tres"
 
@@ -33,13 +34,8 @@ var _field_velocity := Vector2.ZERO
 
 
 func _ready() -> void:
-	_config = load(CONFIG_PATH)
+	_config = GeneratedConfigScript.load_config(CONFIG_PATH)
 	if _config == null:
-		# The derived .tres is committed; guard loudly rather than crash on a
-		# half-checkout, pointing at the pipeline that regenerates it from JSON.
-		push_error(
-			"GravityFieldController: could not load %s — run scripts/build_config.py." % CONFIG_PATH
-		)
 		queue_free()
 		return
 	_field_velocity = GravitySystemScript.compute_field_velocity(

@@ -24,6 +24,7 @@ extends Area2D
 
 const StatsConfigScript := preload("res://src/resources/stats_config.gd")
 const CombatConfigScript := preload("res://src/resources/combat_config.gd")
+const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
 
 const CONFIG_PATH := "res://data/generated/combat_config.tres"
 
@@ -60,14 +61,8 @@ func configure(color: Color, size: Vector2, speed: float, lifetime: float) -> vo
 
 func _ready() -> void:
 	if not _configured:
-		var config: CombatConfigScript = load(CONFIG_PATH)
+		var config: CombatConfigScript = GeneratedConfigScript.load_config(CONFIG_PATH)
 		if config == null:
-			# The derived .tres is committed; guard loudly rather than crash on a
-			# half-checkout, pointing at the pipeline that regenerates it from JSON.
-			push_error(
-				"ProjectileController: could not load %s — run scripts/build_config.py."
-				% CONFIG_PATH
-			)
 			queue_free()
 			return
 		configure(
