@@ -183,12 +183,28 @@ _ENEMY_KIND_FIELDS: list[tuple[str, str]] = [
 
 # Ranged kinds additionally carry their bolt's blockout+motion (schema-enforced
 # via if/then on archetype == "ranged").
-_ENEMY_KIND_RANGED_FIELDS: list[tuple[str, str]] = _ENEMY_KIND_FIELDS + [
+_ENEMY_KIND_PROJECTILE_FIELDS: list[tuple[str, str]] = [
     ("projectile_color", "color"),
     ("projectile_size", "vec2"),
     ("projectile_speed", "float"),
     ("projectile_lifetime", "float"),
     ("projectile_spawn_offset", "vec2"),
+]
+
+# The S8 Warp kit (gADR-0009): presence-gated per-kind ability params — a kind
+# carries the whole block or none of it (schema dependentRequired), keyed to
+# neither Tier nor Archetype. Presence of the FIRST key selects the block.
+_ENEMY_KIND_WARP_FIELDS: list[tuple[str, str]] = [
+    ("warp_cooldown", "float"),
+    ("warp_trigger_range", "float"),
+    ("warp_offset", "vec2"),
+    ("warp_tell_duration", "float"),
+    ("warp_recovery_duration", "float"),
+    ("time_field_radius", "float"),
+    ("time_field_factor", "float"),
+    ("time_field_duration", "float"),
+    ("time_field_color", "color"),
+    ("time_field_fade_duration", "float"),
 ]
 
 # The Wave schedule's own fields (gADR-0005): the spawn-telegraph tween
@@ -246,14 +262,20 @@ _ENEMIES_SCHEMA_REL = "data/schema/enemies_config.schema.json"
 _PROGRESSION_JSON_REL = "data/json/progression_config.json"
 
 
-def _enemy_kind_spec(kind: str, archetype: str) -> TresSpec:
+def _enemy_kind_spec(kind: str, definition: dict[str, Any]) -> TresSpec:
     """The TresSpec for one Enemy Kind: kinds.<kind> -> enemy_<kind>.tres.
 
-    The field layout follows the kind's archetype: ranged kinds carry their
+    The field layout follows the kind's own data: ranged kinds carry their
     bolt's projectile block on top of the base layout (the schema's if/then
-    requires it), every other archetype renders the base layout.
+    requires it), and a Warp kind carries the warp block (presence-gated —
+    the schema's dependentRequired makes it all-or-none, gADR-0009). The two
+    compose: a ranged Warp kind would render both.
     """
-    fields = _ENEMY_KIND_RANGED_FIELDS if archetype == "ranged" else _ENEMY_KIND_FIELDS
+    fields = list(_ENEMY_KIND_FIELDS)
+    if definition["archetype"] == "ranged":
+        fields += _ENEMY_KIND_PROJECTILE_FIELDS
+    if "warp_cooldown" in definition:
+        fields += _ENEMY_KIND_WARP_FIELDS
     return TresSpec(
         json_rel=_ENEMIES_JSON_REL,
         schema_rel=_ENEMIES_SCHEMA_REL,
@@ -402,9 +424,11 @@ def validate_enemies_semantics(document: Any) -> Any:
 
     - **Steering Band is a real interval**: ``keep_range_min <= keep_range_max``
       for every kind.
-    - **Melee damage is contact damage**: a melee kind's ``attack_range`` must
-      not exceed ``keep_range_max`` — the attack gate cannot reach beyond the
-      point-blank band the steering holds.
+    - **Contact damage stays in the point-blank band**: a contact-delivery
+      kind's ``attack_range`` must not exceed ``keep_range_max`` — the attack
+      gate cannot reach beyond the band the steering holds. Delivery follows
+      the controller's branch: ranged fires a bolt, every other archetype
+      (melee, and tank since S8/gADR-0009) hits by contact.
     - **Spawn -> kind referential integrity**: every spawn entry of every
       Wave references a defined Enemy Kind.
     - **Spawn names are unique across the whole Wave schedule** (gADR-0005):
@@ -415,6 +439,13 @@ def validate_enemies_semantics(document: Any) -> Any:
       have a reward entry in the top-level ``tiers`` table — a kind whose
       kill could award nothing is a config bug, caught before any resource
       derives.
+    - **The Warp Blink is an engage tool** (gADR-0009): a Warp kind's
+      ``warp_trigger_range`` must not undercut its ``attack_range`` — the
+      Boss never warps inside a brawl.
+    - **At most one Time Dilation Field** (gADR-0009): a Warp kind's
+      ``time_field_duration`` must stay strictly below ``warp_cooldown`` —
+      the blink drops a field unconditionally, so an outliving field would
+      overlap the next.
     """
     kinds = document["kinds"]
     tiers = document["tiers"]
@@ -432,13 +463,36 @@ def validate_enemies_semantics(document: Any) -> Any:
                 "Steering Band is an interval"
             )
         if (
-            kind["archetype"] == "melee"
+            kind["archetype"] != "ranged"
             and kind["attack_range"] > kind["keep_range_max"]
         ):
             raise jsonschema.ValidationError(
-                f"kind {name!r}: melee attack_range ({kind['attack_range']}) must "
-                f"not exceed keep_range_max ({kind['keep_range_max']}) — melee "
-                "damage is contact damage, gated to the point-blank band"
+                f"kind {name!r}: contact attack_range ({kind['attack_range']}) "
+                f"must not exceed keep_range_max ({kind['keep_range_max']}) — "
+                "every non-ranged archetype (melee; tank since gADR-0009) "
+                "delivers contact damage, gated to the point-blank band"
+            )
+        if (
+            "warp_cooldown" in kind
+            and kind["warp_trigger_range"] < kind["attack_range"]
+        ):
+            raise jsonschema.ValidationError(
+                f"kind {name!r}: warp_trigger_range "
+                f"({kind['warp_trigger_range']}) must not undercut attack_range "
+                f"({kind['attack_range']}) — the Warp Blink is an engage tool; "
+                "the Boss never warps inside a brawl (gADR-0009)"
+            )
+        if (
+            "warp_cooldown" in kind
+            and kind["time_field_duration"] >= kind["warp_cooldown"]
+        ):
+            raise jsonschema.ValidationError(
+                f"kind {name!r}: time_field_duration "
+                f"({kind['time_field_duration']}) must stay strictly below "
+                f"warp_cooldown ({kind['warp_cooldown']}) — at most one Time "
+                "Dilation Field exists at a time (gADR-0009); the blink drops "
+                "a field unconditionally, so an outliving field would overlap "
+                "the next"
             )
     seen_names: set[str] = set()
     for wave_number, wave in enumerate(document["waves"], start=1):
@@ -511,10 +565,7 @@ def enemy_kind_specs(root: Path = GAME_DIR) -> list[TresSpec]:
     new kind up automatically.
     """
     document = load_json(root / _ENEMIES_JSON_REL)
-    return [
-        _enemy_kind_spec(name, kind["archetype"])
-        for name, kind in document["kinds"].items()
-    ]
+    return [_enemy_kind_spec(name, kind) for name, kind in document["kinds"].items()]
 
 
 def specs_for(root: Path = GAME_DIR) -> list[TresSpec]:

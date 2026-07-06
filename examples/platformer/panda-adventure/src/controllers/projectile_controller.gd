@@ -34,6 +34,10 @@ var _size: Vector2
 var _speed: float
 var _lifetime: float
 var _configured := false
+# The time scale a Time Dilation Field imposes (S8, gADR-0009): 1.0 = full
+# speed. Only the Player's bolt variant joins the "time_dilatable" group (the
+# shooter opts it in), so an enemy bolt never receives this.
+var _time_dilation := 1.0
 
 
 ## Aim the bolt and hand it the attacker's stat block. Called by the shooter
@@ -79,10 +83,17 @@ func _ready() -> void:
 	get_tree().create_timer(_lifetime).timeout.connect(queue_free)
 
 
+## Time-dilation response contract (S8, gADR-0009): a Time Dilation Field
+## slows the bolt's flight while it overlaps; despawn (the lifetime timer)
+## stays on the real clock — a slowed bolt flies shorter, it does not linger.
+func set_time_dilation(factor: float) -> void:
+	_time_dilation = factor
+
+
 func _physics_process(delta: float) -> void:
 	if not _configured:
 		return
-	position += _direction * _speed * delta
+	position += _direction * _speed * _time_dilation * delta
 
 
 ## Apply the data-driven blockout: the bolt block centered on the Area2D origin.

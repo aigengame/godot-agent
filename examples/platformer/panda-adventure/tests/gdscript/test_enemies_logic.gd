@@ -123,13 +123,13 @@ func _init() -> void:
 		_fail("melee with the Player straight above should not steer")
 		return
 
-	# Behavior 9 — Tank AI is DEFERRED (gADR-0003): representable in data, but
-	# it neither moves nor attacks, whatever the geometry.
-	if not is_zero_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(200.0), tank)):
-		_fail("tank should never move (AI deferred)")
+	# Behavior 9 — Tank runs the SAME band rule as Melee (un-deferred by S8,
+	# gADR-0009): no Tank-specific branch, the slow hammer is pure data.
+	if not is_equal_approx(EnemyAIScript.compute_move_dir(SELF_POS, _at(200.0), tank), 1.0):
+		_fail("tank should close distance like any band-rule archetype (gADR-0009)")
 		return
-	if EnemyAIScript.can_attack(SELF_POS, _at(30.0), tank, -INF, 100.0):
-		_fail("tank should never attack (AI deferred)")
+	if not EnemyAIScript.can_attack(SELF_POS, _at(30.0), tank, -INF, 100.0):
+		_fail("tank should contact-attack inside its band (gADR-0009)")
 		return
 
 	# Behavior 10 — cooldown gate: ready exactly AT expiry (>=), not ready

@@ -14,8 +14,11 @@ extends RefCounted
 ## Steering is ONE band rule parametrized by data: close in while the Player is
 ## beyond the Steering Band, back off inside it, hold within it. Melee
 ## (keep_range_min = 0) and Ranged (a standoff band) are the same rule with
-## different config. Tank is representable in the data model but its AI behavior
-## is DEFERRED (gADR-0003): it neither moves nor attacks in Phase 1.
+## different config — and since S8 (gADR-0009) so is Tank: its gADR-0003
+## deferral is lifted with NO Tank-specific branch, the slow heavy hammer
+## emerging purely from its data (move_speed, band, attack stats). The Boss's
+## Warp kit is a separate presence-gated ability (WarpSystem), not an
+## archetype behavior.
 
 const EnemyConfigScript := preload("res://src/resources/enemy_config.gd")
 
@@ -29,8 +32,6 @@ const EnemyConfigScript := preload("res://src/resources/enemy_config.gd")
 static func compute_move_dir(
 	self_pos: Vector2, player_pos: Vector2, config: EnemyConfigScript
 ) -> float:
-	if config.archetype == "tank":
-		return 0.0  # Tank AI deferred (gADR-0003) — representable, no behavior.
 	var distance := self_pos.distance_to(player_pos)
 	if distance > config.aggro_range:
 		return 0.0
@@ -53,7 +54,8 @@ static func is_attack_ready(last_attack_time: float, now: float, cooldown: float
 ## The full attack decision: the Player must be inside BOTH the Aggro Range and
 ## the attack range, and the cooldown must have elapsed. Archetype-agnostic by
 ## design — what differs per archetype is the attack DELIVERY (contact hit vs
-## bolt), which the controller owns; Tank never attacks (deferred, gADR-0003).
+## bolt), which the controller owns; Tank hits by contact, the Melee delivery
+## (un-deferred by S8, gADR-0009).
 static func can_attack(
 	self_pos: Vector2,
 	player_pos: Vector2,
@@ -61,8 +63,6 @@ static func can_attack(
 	last_attack_time: float,
 	now: float,
 ) -> bool:
-	if config.archetype == "tank":
-		return false  # Tank AI deferred (gADR-0003).
 	var distance := self_pos.distance_to(player_pos)
 	if distance > config.aggro_range or distance > config.attack_range:
 		return false

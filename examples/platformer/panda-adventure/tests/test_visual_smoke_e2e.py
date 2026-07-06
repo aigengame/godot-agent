@@ -18,7 +18,13 @@ assertion). Checkpoints over the current player-visible surface:
 - the Gravity Field's translucent blockout is visible while active after a
   gravity fire — its config RGBA alpha-blended over the boot capture (S3);
 - the EXP/Gold readout pixels change after a kill (S6a), and the next
-  Wave's spawn becomes visible (S5) — the reward loop, on screen.
+  Wave's spawn becomes visible (S5) — the reward loop, on screen;
+- the S8 Time Dilation Field's translucent zone is visible after the Warp
+  Boss blinks (gADR-0009) — its config RGBA alpha-blended over the kill
+  capture. The Warp Boss rides the SAME session: the throwaway copy seats
+  it in Wave 2 with its behavior knobs determinized (aggro/move/cooldown —
+  none of them pixel expectations) and its tell lengthened past the kill
+  capture, so the zone drops right after the blend baseline is taken.
 
 All assertions are presence-level and config-derived (gADR-0007): colors,
 sizes, and positions come from the authoritative JSON; screen regions come
@@ -79,6 +85,17 @@ _HUD_LABEL = "/root/Main/Hud/Stats/%sLabel"
 # "fire" and "capture" can guarantee, so the throwaway copy lengthens the
 # DURATION only — the one timing retune gADR-0007 allows.
 _FIELD_DURATION_FLOOR = 8.0
+# The S8 Warp Boss the copy seats in Wave 2 (gADR-0009): the shipped Boss
+# kind at its shipped spawn point, named uniquely (the schedule's Wave-4
+# "Boss" stays). Its tell is floored so the blink (and its zone) lands only
+# AFTER the kill capture — the blend baseline — while the field-duration
+# floor keeps the zone alive through the last capture's round-trips.
+_WARP_BOSS_SPAWN = {
+    "kind": "alien_boss_tank",
+    "name": "WarpBoss",
+    "position": [700.0, 412.0],
+}
+_WARP_TELL_FLOOR = 8.0
 # Follow-camera settle before a capture anchors world->screen mapping on the
 # Player: the smoothing residual decays as e^(-speed*t); at the shipped speed
 # (5.0) and t=2s even a full-screen pan settles to < 0.1 px.
@@ -138,17 +155,36 @@ _BLEND_TOLERANCE = 0.06
 
 
 def _make_project_copy(dst: Path) -> Path:
-    """Copy the game into a throwaway dir, retune the ONE timing knob, build.
+    """Copy the game into a throwaway dir, retune the timing knobs, build.
 
-    ``field_duration`` is floored to ``_FIELD_DURATION_FLOOR`` so the field
-    outlives the fire->capture CLI round-trips; everything the seam ASSERTS
-    (colors, sizes, positions, offsets) ships untouched.
+    ``field_duration`` (S3) and the Warp block's ``time_field_duration`` /
+    ``warp_tell_duration`` (S8) are floored so each zone outlives its
+    capture's CLI round-trips (and the S8 blink waits for its blend
+    baseline); the Warp Boss joins Wave 2 with its behavior knobs
+    determinized (huge aggro so it casts on spawn, zero move speed so the
+    zone's geometry is formula-exact, a minute cooldown so exactly one
+    rotation plays). Everything the seam ASSERTS (colors, sizes, positions,
+    offsets) ships untouched.
     """
     shutil.copytree(GAME_DIR, dst, ignore=_COPY_IGNORE)
     gravity_path = dst / "data" / "json" / "gravity_config.json"
     doc = json.loads(gravity_path.read_text())
     doc["field_duration"] = max(float(doc["field_duration"]), _FIELD_DURATION_FLOOR)
     gravity_path.write_text(json.dumps(doc, indent=2) + "\n")
+    enemies_path = dst / "data" / "json" / "enemies_config.json"
+    enemies = json.loads(enemies_path.read_text())
+    boss = enemies["kinds"][_WARP_BOSS_SPAWN["kind"]]
+    boss["aggro_range"] = 3000.0
+    boss["move_speed"] = 0.0
+    boss["warp_cooldown"] = 60.0
+    boss["warp_tell_duration"] = max(
+        float(boss["warp_tell_duration"]), _WARP_TELL_FLOOR
+    )
+    boss["time_field_duration"] = max(
+        float(boss["time_field_duration"]), _FIELD_DURATION_FLOOR
+    )
+    enemies["waves"][1]["spawns"].append(dict(_WARP_BOSS_SPAWN))
+    enemies_path.write_text(json.dumps(enemies, indent=2) + "\n")
     build_config.build_all(root=dst)
     return dst
 
@@ -401,6 +437,21 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         anchor_kill = prop("/root/Main/Player", "position")
         kill_png, kill_doc = capture("kill")
         assert (kill_doc["width"], kill_doc["height"]) == dims
+
+        # --- Beat 4: the S8 Warp Boss (seated in Wave 2 by the copy, its
+        # tell floored past the capture above) blinks and drops the Time
+        # Dilation Field; capture while the zone is live (its retuned
+        # duration outlives these round-trips). The Player stands still, so
+        # the kill capture doubles as the blend baseline under the SAME
+        # camera anchor.
+        warped = poll(
+            lambda: records("time_field_spawned"), timeout=_WARP_TELL_FLOOR + 15.0
+        )
+        assert warped, "the Warp Boss never dropped its Time Dilation Field"
+        warp_field_x = warped[0]["fields"]["x"]
+        warp_field_y = warped[0]["fields"]["y"]
+        warp_png, warp_doc = capture("warp")
+        assert (warp_doc["width"], warp_doc["height"]) == dims
     finally:
         run("daemon", "stop")
 
@@ -450,6 +501,27 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     )
     sx0, sy0 = to_screen(fx0, fy0, anchor_boot)
     field_region = [sx0, sy0, fx1 - fx0, fy1 - fy0]
+
+    # The Time Dilation Field probe (S8, gADR-0009): a strip of the zone
+    # square left of everything opaque near it — the Obstacle (whose left
+    # edge bounds the strip; the gravity beat only ever lifts it vertically),
+    # the Boss standing at the zone's center, and the Player — and above the
+    # Platform, so the blend reference (the kill capture) is uniform
+    # background there. Bounds are all config/live-derived (gADR-0007).
+    boss_kind = enemies["kinds"][_WARP_BOSS_SPAWN["kind"]]
+    time_radius = boss_kind["time_field_radius"]
+    obstacle_left = gravity["obstacle_position"][0] - gravity["obstacle_size"][0] / 2.0
+    warp_boss_left = warp_field_x - boss_kind["size"][0] / 2.0
+    tx0 = warp_field_x - time_radius + _REGION_PAD
+    tx1 = min(obstacle_left, warp_boss_left) - _PROBE_CLEARANCE
+    ty0 = warp_field_y - time_radius + _REGION_PAD
+    ty1 = platform_top - _PROBE_CLEARANCE
+    assert tx1 - tx0 >= 16 and ty1 - ty0 >= 16, (
+        f"Time Dilation Field probe collapsed ({tx0},{ty0})-({tx1},{ty1}) — "
+        "did the level geometry around the warp landing change?"
+    )
+    wx0, wy0 = to_screen(tx0, ty0, anchor_kill)
+    warp_field_region = [wx0, wy0, tx1 - tx0, ty1 - ty0]
 
     # The HUD probe box: the config-margin anchor (cross-checked against the
     # live Stats offsets) + the structural probe size.
@@ -532,6 +604,20 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         ),
         (
             {
+                "name": "time_field",
+                "mode": "blend_match",
+                "image": "warp",
+                "base_image": "kill",
+                "rect": warp_field_region,
+                "color": boss_kind["time_field_color"],
+                "tolerance": _BLEND_TOLERANCE,
+            },
+            int(_FIELD_FILL * warp_field_region[2] * warp_field_region[3]),
+            "the Time Dilation Field's translucent zone is not visible "
+            "after the Warp Boss's blink",
+        ),
+        (
+            {
                 "name": "exp_gold_readout",
                 "mode": "image_delta",
                 "image": "kill",
@@ -590,6 +676,7 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
                     "boot": str(boot_png),
                     "field": str(field_png),
                     "kill": str(kill_png),
+                    "warp": str(warp_png),
                 },
                 "checks": [c for c, _, _ in checks],
             }

@@ -75,9 +75,21 @@
       "maxItems": 2
     },
     "enemy_kind": {
-      "description": "One Enemy Kind: the three orthogonal taxonomy axes, the stat block (shape-compatible with combat_config's stat_block), the blockout, and the Archetype-AI params. Ranged kinds additionally carry their bolt's projectile_* block (enforced by the if/then below).",
+      "description": "One Enemy Kind: the three orthogonal taxonomy axes, the stat block (shape-compatible with combat_config's stat_block), the blockout, and the Archetype-AI params. Ranged kinds additionally carry their bolt's projectile_* block (enforced by the if/then below). A kind MAY carry the presence-gated Warp block (gADR-0009) — the warp_*/time_field_* params of the Boss's Warp kit, keyed to neither Tier nor Archetype; the dependentRequired map makes the block all-or-none.",
       "type": "object",
       "additionalProperties": false,
+      "dependentRequired": {
+        "warp_cooldown": ["warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_trigger_range": ["warp_cooldown", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_offset": ["warp_cooldown", "warp_trigger_range", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_tell_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "warp_recovery_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "time_field_radius": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_factor", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "time_field_factor": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_duration", "time_field_color", "time_field_fade_duration"],
+        "time_field_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_color", "time_field_fade_duration"],
+        "time_field_color": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_fade_duration"],
+        "time_field_fade_duration": ["warp_cooldown", "warp_trigger_range", "warp_offset", "warp_tell_duration", "warp_recovery_duration", "time_field_radius", "time_field_factor", "time_field_duration", "time_field_color"]
+      },
       "required": [
         "faction",
         "tier",
@@ -119,7 +131,7 @@
           "enum": ["minion", "elite", "boss"]
         },
         "archetype": {
-          "description": "Combat-style axis, driving AI behavior and attack delivery. Tank is representable but its AI behavior is deferred (gADR-0003).",
+          "description": "Combat-style axis, driving AI behavior and attack delivery. All three run the shared Steering-Band rule since S8 (gADR-0009 lifted gADR-0003's Tank deferral); delivery is contact for melee/tank, a bolt for ranged.",
           "enum": ["melee", "ranged", "tank"]
         },
         "max_hp": {
@@ -165,7 +177,7 @@
           "exclusiveMinimum": 0.0
         },
         "attack_range": {
-          "description": "Maximum distance at which an attack may fire; strictly positive. For melee kinds it must not exceed keep_range_max — melee damage is contact damage, gated to the point-blank band (enforced by build_config.validate_enemies_semantics; not expressible here).",
+          "description": "Maximum distance at which an attack may fire; strictly positive. For contact-delivery kinds (every non-ranged archetype: melee, and tank since gADR-0009) it must not exceed keep_range_max — contact damage is gated to the point-blank band (enforced by build_config.validate_enemies_semantics; not expressible here).",
           "type": "number",
           "exclusiveMinimum": 0.0
         },
@@ -211,6 +223,55 @@
         "projectile_spawn_offset": {
           "description": "Enemy bolt spawn offset (x, y) from the enemy origin; x is scaled by the aim direction's sign.",
           "$ref": "#/$defs/vec2"
+        },
+        "warp_cooldown": {
+          "description": "Seconds between Warp casts (gADR-0009); strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "warp_trigger_range": {
+          "description": "The Warp Blink fires only when the Player is FARTHER than this — the anti-kite engage gate. Must not undercut attack_range (the Boss never warps inside a brawl — enforced by build_config.validate_enemies_semantics; not expressible here); strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "warp_offset": {
+          "description": "Blink landing offset (x, y) from the Player's cast-time position; x is applied on the Player's far side from the Boss (cutting off the retreat, gADR-0009).",
+          "$ref": "#/$defs/vec2"
+        },
+        "warp_tell_duration": {
+          "description": "Seconds of the charge-up tell before the blink — a Warp always telegraphs; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "warp_recovery_duration": {
+          "description": "Seconds of the no-attack recovery window after landing (the fair-exchange window); non-negative.",
+          "type": "number",
+          "minimum": 0.0
+        },
+        "time_field_radius": {
+          "description": "Time Dilation Field radius in pixels; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "time_field_factor": {
+          "description": "The time scale applied to the Player's body sim and laser bolts inside the field, strictly inside (0, 1): 0 would freeze (a stun, rejected), 1 would be dead config, and the field never accelerates.",
+          "type": "number",
+          "exclusiveMinimum": 0.0,
+          "exclusiveMaximum": 1.0
+        },
+        "time_field_duration": {
+          "description": "Seconds the field persists after the blink drops it; strictly positive. Must stay strictly below warp_cooldown — at most one field exists at a time (gADR-0009; enforced by build_config.validate_enemies_semantics, not expressible here).",
+          "type": "number",
+          "exclusiveMinimum": 0.0
+        },
+        "time_field_color": {
+          "description": "Time Dilation Field zone color (RGBA; alpha is the translucency of the overlay block).",
+          "$ref": "#/$defs/rgba"
+        },
+        "time_field_fade_duration": {
+          "description": "Seconds of the field's spawn fade-in / expiry fade-out tween; strictly positive.",
+          "type": "number",
+          "exclusiveMinimum": 0.0
         }
       }
     },

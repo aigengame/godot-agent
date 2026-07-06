@@ -42,8 +42,9 @@ _Avoid_: 小怪 as a synonym for the Monster Faction; "level" (collides with the
 
 **Archetype**:
 An enemy's combat style: Melee, Ranged, or Tank. Drives AI behavior and attack pattern.
-Independent of Faction and Tier. Melee and Ranged behave since S4; Tank is representable in
-the data model but its AI behavior is deferred (gADR-0003).
+Independent of Faction and Tier. All three run the SAME Steering-Band rule on their own data —
+Melee and Ranged since S4 (gADR-0003), Tank since S8 (gADR-0009 lifted the deferral with no
+Tank-specific branch); delivery is contact for Melee/Tank, a bolt for Ranged.
 _Avoid_: class, role; using 流派 loosely
 
 **Enemy Kind**:
@@ -71,6 +72,33 @@ hold: close in beyond it, back off inside it, hold within it. Closing distance (
 band ending point-blank, min 0) and keeping distance (Ranged — a standoff band) are the SAME
 rule with different data (gADR-0003).
 _Avoid_: comfort zone, preferred range
+
+### Boss abilities
+
+**Warp**:
+The Boss's signature spacetime-distortion ability family — ONE narrative hook with two
+expressions: the space-warping Warp Blink and the time-warping Time Dilation Field (S8).
+Grounded in the black-hole-edge setting: the Boss bends spacetime, the Player bends gravity.
+_Avoid_: portal (implies a persistent traversable gate); time-warp as the umbrella (that names
+only the field half)
+
+**Warp Blink**:
+The Boss's space-warp translocation — after a charge-up tell it instantly relocates to a
+configured offset from the Player's position at cast time (clamped to the arena), then stands
+in a brief no-attack recovery window. The Tank Boss's engage tool against kiting; deterministic,
+never random.
+_Avoid_: portal, teleport (generic), dash (it does not traverse the space between)
+
+**Time Dilation Field**:
+The Boss's time-warp expression — a static, duration-bound circular zone cast at a point
+(typically the Warp Blink landing) that slows time for the Player's whole body simulation
+(movement, jump, AND gravity — full slow motion) and for the Player's laser Projectiles inside
+it, by a config time factor. Input registration, the Gravity Gun and its Gravity Fields, the
+Boss, and everything else run at full speed — the counterplay is spatial (leave the zone), and
+the Gravity Gun stays the full-speed answer. The mirror of the Gravity Field: the Player bends
+gravity, the Boss bends time.
+_Avoid_: slow zone (generic), stun/root/freeze (input still registers — the body is slowed,
+not locked), aura (it does not follow the Boss)
 
 ### Weapons
 
@@ -278,8 +306,8 @@ _Avoid_: wave list, spawn table, roster (that names one Wave's composition)
 **Boss slot**:
 The final Wave of the demo's default schedule, composing the boss-Tier kind — the Boss's
 data-driven arrival point. A property of the demo composition, not a schedule invariant
-(a reconfigured schedule need not end on a Boss); the Boss's behavior itself is S8
-(Tank AI deferred, gADR-0003).
+(a reconfigured schedule need not end on a Boss); the Boss's behavior — Tank band AI plus
+the Warp kit — is S8's (gADR-0009).
 _Avoid_: final boss wave (as a system rule), boss fight (that is the S8 behavior)
 
 **Obstacle**:
