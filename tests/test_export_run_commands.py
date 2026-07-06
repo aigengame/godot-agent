@@ -150,6 +150,43 @@ def test_export_run_json_reports_configured_path_and_exit_zero(monkeypatch, tmp_
     ]
 
 
+def test_export_run_json_keeps_native_progress_on_stderr(monkeypatch, tmp_path):
+    # issue #431: the native export phase gets a progress line, but JSON stdout
+    # remains exactly one machine-readable result object.
+    (tmp_path / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+    _, export_runner = _inject(monkeypatch)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "export",
+            "run",
+            "--preset",
+            "Linux/X11",
+            "--project",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    expected = {
+        "preset": "Linux/X11",
+        "platform": "Linux/X11",
+        "mode": "release",
+        "output_path": _configured_output(tmp_path),
+        "created_dirs": [str(tmp_path / "build")],
+        "warnings": [],
+    }
+    assert result.stdout == json.dumps(expected, separators=(",", ":")) + "\n"
+    assert _plain(result.stderr) == (
+        'gda: exporting preset "Linux/X11" (release) ...\n'
+    )
+    assert export_runner.calls == [
+        ("Linux/X11", "release", _configured_output(tmp_path))
+    ]
+
+
 def test_export_run_default_mode_is_release(monkeypatch, tmp_path):
     # #170 adds --mode but keeps release the default: omitting --mode runs the
     # native --export-release invocation and reports mode == "release", the #121

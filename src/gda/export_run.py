@@ -23,8 +23,9 @@ shape as every other command and the recipe gets its own engine-free test
 surface (driven with the two injected seams; see
 ``tests/test_export_run_operation.py``). It is not side-effect-free: phase 1's
 ``HeadlessCommand.execute`` still forwards the ``export-get`` engine stderr to
-this process's stderr as advisory diagnostics; only the public result/error
-envelope and the process exit are deferred to the CLI caller.
+this process's stderr as advisory diagnostics, and phase 3 emits a native-export
+progress line to stderr; only the public result/error envelope and the process
+exit are deferred to the CLI caller.
 
 ``EXPORT_GET_COMMAND`` lives here — a plain sentinel command this operation drives
 directly (``export get`` resolves the preset), so co-locating it avoids an
@@ -34,6 +35,7 @@ root) beside that recipe, where it is the command's single fully-bound descripto
 (ADR-0023).
 """
 
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -182,8 +184,9 @@ def run_export_operation(
     ``ExportRunResult`` on success or a ``Failure`` at any phase — the CLI layer
     owns the public emit/exit channel. Not side-effect-free, though: phase 1's
     ``HeadlessCommand.execute`` still forwards the ``export-get`` engine stderr to
-    this process's stderr as advisory diagnostics; only the public result/error
-    envelope and the exit are deferred to the caller. ``output_override`` is the
+    this process's stderr as advisory diagnostics, and this recipe writes the
+    native export progress line to stderr; only the public result/error envelope
+    and the exit are deferred to the caller. ``output_override`` is the
     already-CLI-normalized
     ``--output`` value (ADR-0006 path normalization stays at the CLI); both
     engine-touching seams (``make_runner`` for ``export-get``, ``make_export_runner``
@@ -271,6 +274,10 @@ def run_export_operation(
     if project is not None:
         uninstall_harness(project)
     try:
+        print(
+            f'gda: exporting preset "{got.name}" ({mode.value}) ...',
+            file=sys.stderr,
+        )
         export_output = export_runner.run(got.name, mode.value, output_path)
     finally:
         if snapshot is not None:
