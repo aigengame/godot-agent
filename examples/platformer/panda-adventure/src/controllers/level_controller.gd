@@ -168,6 +168,9 @@ func _start_wave(index: int) -> void:
 	var wave: Dictionary = _schedule.waves[index]
 	var spawns: Array = wave["spawns"]
 	for spawn: Dictionary in spawns:
+		# Deliberately NOT routed through the Derived-Resource loader: a
+		# data-keyed reference-integrity lookup — null means the schedule names
+		# an unknown kind (fix the schedule), not a pipeline fault.
 		var kind: EnemyConfigScript = load(ENEMY_KIND_TRES % spawn["kind"])
 		if kind == null:
 			push_error(
