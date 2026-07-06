@@ -42,7 +42,8 @@ We decide six things:
   spacetime ripple) → a short no-attack recovery (the Player is slowed but
   un-punished: the fair-exchange window) → normal Tank AI resumes. The field
   is unconditional per warp — no "only if the Player is inside" branch — and
-  at most one exists (duration < cooldown). In a point-blank brawl the Boss
+  at most one exists (`time_field_duration` strictly below `warp_cooldown`, a
+  validator-enforced cross-field rule). In a point-blank brawl the Boss
   never warps: the Blink is the anti-kite engage tool, so a Player who stands
   and trades meets the melee hammer instead.
 - **The landing rule is deterministic and cuts off the retreat.** Landing x =
@@ -104,6 +105,11 @@ We decide six things:
 - `EnemyAI` loses its Tank special-cases; new pure decisions (warp gate,
   landing point, in-field membership) live beside it, node/clock-free, so the
   logic seam covers them headless.
+- gADR-0003's contact-damage invariant (`attack_range <= keep_range_max`)
+  now spans EVERY contact-delivery archetype — melee and the un-deferred
+  tank — and two Warp cross-field rules join the semantic validator: the
+  engage-tool bound (`warp_trigger_range >= attack_range`) and the one-field
+  bound (`time_field_duration < warp_cooldown`).
 - A `time_field` scene/controller joins the blockout (the Gravity Field
   pattern: Area2D + timed lifetime + tween); the Player and the laser
   Projectile join `time_dilatable` and implement `set_time_dilation`.

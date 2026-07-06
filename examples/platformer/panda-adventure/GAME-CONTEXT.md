@@ -42,8 +42,9 @@ _Avoid_: 小怪 as a synonym for the Monster Faction; "level" (collides with the
 
 **Archetype**:
 An enemy's combat style: Melee, Ranged, or Tank. Drives AI behavior and attack pattern.
-Independent of Faction and Tier. Melee and Ranged behave since S4; Tank is representable in
-the data model but its AI behavior is deferred (gADR-0003).
+Independent of Faction and Tier. All three run the SAME Steering-Band rule on their own data —
+Melee and Ranged since S4 (gADR-0003), Tank since S8 (gADR-0009 lifted the deferral with no
+Tank-specific branch); delivery is contact for Melee/Tank, a bolt for Ranged.
 _Avoid_: class, role; using 流派 loosely
 
 **Enemy Kind**:
@@ -305,8 +306,8 @@ _Avoid_: wave list, spawn table, roster (that names one Wave's composition)
 **Boss slot**:
 The final Wave of the demo's default schedule, composing the boss-Tier kind — the Boss's
 data-driven arrival point. A property of the demo composition, not a schedule invariant
-(a reconfigured schedule need not end on a Boss); the Boss's behavior itself is S8
-(Tank AI deferred, gADR-0003).
+(a reconfigured schedule need not end on a Boss); the Boss's behavior — Tank band AI plus
+the Warp kit — is S8's (gADR-0009).
 _Avoid_: final boss wave (as a system rule), boss fight (that is the S8 behavior)
 
 **Obstacle**:

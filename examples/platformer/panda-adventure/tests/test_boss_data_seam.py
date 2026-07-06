@@ -138,6 +138,36 @@ def test_trigger_range_must_not_undercut_attack_range() -> None:
         build_config.validate_enemies_semantics(bad)
 
 
+def test_tank_contact_damage_stays_in_the_band() -> None:
+    """The un-deferred Tank inherits the contact-damage invariant (gADR-0009).
+
+    A tank ``attack_range`` reaching beyond ``keep_range_max`` is the exact
+    shape review P1 caught — schema-valid, rejected by the same cross-field
+    rule that has gated melee since gADR-0003 (delivery, not archetype name,
+    is what the rule follows: every non-ranged kind hits by contact).
+    """
+    boss = _valid_config()["kinds"]["alien_boss_tank"]
+    bad = _with(boss["keep_range_max"] + 10.0, *_BOSS, "attack_range")
+    build_config.validate_config(bad, _enemies_schema())
+    with pytest.raises(jsonschema.ValidationError):
+        build_config.validate_enemies_semantics(bad)
+
+
+def test_field_duration_must_stay_below_warp_cooldown() -> None:
+    """The one-field invariant (gADR-0009): the wake never outlives the rest.
+
+    The blink drops a field unconditionally, so ``time_field_duration >=
+    warp_cooldown`` would let two zones overlap — schema-valid, rejected by
+    the cross-field rule (probed exactly AT the boundary: equality is
+    already an overlap window once the tell delays the next blink).
+    """
+    boss = _valid_config()["kinds"]["alien_boss_tank"]
+    bad = _with(boss["warp_cooldown"], *_BOSS, "time_field_duration")
+    build_config.validate_config(bad, _enemies_schema())
+    with pytest.raises(jsonschema.ValidationError):
+        build_config.validate_enemies_semantics(bad)
+
+
 @pytest.mark.engine
 def test_boss_warp_fields_round_trip(gda) -> None:
     """The derived Boss EnemyConfig .tres round-trips its Warp block via gda."""

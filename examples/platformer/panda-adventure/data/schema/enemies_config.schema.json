@@ -131,7 +131,7 @@
           "enum": ["minion", "elite", "boss"]
         },
         "archetype": {
-          "description": "Combat-style axis, driving AI behavior and attack delivery. Tank is representable but its AI behavior is deferred (gADR-0003).",
+          "description": "Combat-style axis, driving AI behavior and attack delivery. All three run the shared Steering-Band rule since S8 (gADR-0009 lifted gADR-0003's Tank deferral); delivery is contact for melee/tank, a bolt for ranged.",
           "enum": ["melee", "ranged", "tank"]
         },
         "max_hp": {
@@ -177,7 +177,7 @@
           "exclusiveMinimum": 0.0
         },
         "attack_range": {
-          "description": "Maximum distance at which an attack may fire; strictly positive. For melee kinds it must not exceed keep_range_max — melee damage is contact damage, gated to the point-blank band (enforced by build_config.validate_enemies_semantics; not expressible here).",
+          "description": "Maximum distance at which an attack may fire; strictly positive. For contact-delivery kinds (every non-ranged archetype: melee, and tank since gADR-0009) it must not exceed keep_range_max — contact damage is gated to the point-blank band (enforced by build_config.validate_enemies_semantics; not expressible here).",
           "type": "number",
           "exclusiveMinimum": 0.0
         },
@@ -260,7 +260,7 @@
           "exclusiveMaximum": 1.0
         },
         "time_field_duration": {
-          "description": "Seconds the field persists after the blink drops it; strictly positive.",
+          "description": "Seconds the field persists after the blink drops it; strictly positive. Must stay strictly below warp_cooldown — at most one field exists at a time (gADR-0009; enforced by build_config.validate_enemies_semantics, not expressible here).",
           "type": "number",
           "exclusiveMinimum": 0.0
         },

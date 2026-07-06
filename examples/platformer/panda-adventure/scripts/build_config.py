@@ -424,9 +424,11 @@ def validate_enemies_semantics(document: Any) -> Any:
 
     - **Steering Band is a real interval**: ``keep_range_min <= keep_range_max``
       for every kind.
-    - **Melee damage is contact damage**: a melee kind's ``attack_range`` must
-      not exceed ``keep_range_max`` — the attack gate cannot reach beyond the
-      point-blank band the steering holds.
+    - **Contact damage stays in the point-blank band**: a contact-delivery
+      kind's ``attack_range`` must not exceed ``keep_range_max`` — the attack
+      gate cannot reach beyond the band the steering holds. Delivery follows
+      the controller's branch: ranged fires a bolt, every other archetype
+      (melee, and tank since S8/gADR-0009) hits by contact.
     - **Spawn -> kind referential integrity**: every spawn entry of every
       Wave references a defined Enemy Kind.
     - **Spawn names are unique across the whole Wave schedule** (gADR-0005):
@@ -437,6 +439,13 @@ def validate_enemies_semantics(document: Any) -> Any:
       have a reward entry in the top-level ``tiers`` table — a kind whose
       kill could award nothing is a config bug, caught before any resource
       derives.
+    - **The Warp Blink is an engage tool** (gADR-0009): a Warp kind's
+      ``warp_trigger_range`` must not undercut its ``attack_range`` — the
+      Boss never warps inside a brawl.
+    - **At most one Time Dilation Field** (gADR-0009): a Warp kind's
+      ``time_field_duration`` must stay strictly below ``warp_cooldown`` —
+      the blink drops a field unconditionally, so an outliving field would
+      overlap the next.
     """
     kinds = document["kinds"]
     tiers = document["tiers"]
@@ -454,13 +463,14 @@ def validate_enemies_semantics(document: Any) -> Any:
                 "Steering Band is an interval"
             )
         if (
-            kind["archetype"] == "melee"
+            kind["archetype"] != "ranged"
             and kind["attack_range"] > kind["keep_range_max"]
         ):
             raise jsonschema.ValidationError(
-                f"kind {name!r}: melee attack_range ({kind['attack_range']}) must "
-                f"not exceed keep_range_max ({kind['keep_range_max']}) — melee "
-                "damage is contact damage, gated to the point-blank band"
+                f"kind {name!r}: contact attack_range ({kind['attack_range']}) "
+                f"must not exceed keep_range_max ({kind['keep_range_max']}) — "
+                "every non-ranged archetype (melee; tank since gADR-0009) "
+                "delivers contact damage, gated to the point-blank band"
             )
         if (
             "warp_cooldown" in kind
@@ -471,6 +481,18 @@ def validate_enemies_semantics(document: Any) -> Any:
                 f"({kind['warp_trigger_range']}) must not undercut attack_range "
                 f"({kind['attack_range']}) — the Warp Blink is an engage tool; "
                 "the Boss never warps inside a brawl (gADR-0009)"
+            )
+        if (
+            "warp_cooldown" in kind
+            and kind["time_field_duration"] >= kind["warp_cooldown"]
+        ):
+            raise jsonschema.ValidationError(
+                f"kind {name!r}: time_field_duration "
+                f"({kind['time_field_duration']}) must stay strictly below "
+                f"warp_cooldown ({kind['warp_cooldown']}) — at most one Time "
+                "Dilation Field exists at a time (gADR-0009); the blink drops "
+                "a field unconditionally, so an outliving field would overlap "
+                "the next"
             )
     seen_names: set[str] = set()
     for wave_number, wave in enumerate(document["waves"], start=1):
