@@ -4,14 +4,18 @@ The full demo arc live through the gda CLI against a running Engine session
 (gADR-0010):
 
 - **The full playthrough wins and retries**: a throwaway copy keeps the
-  SHIPPED four-wave composition (minion, ranged Elite, Xenomorph, the Boss
-  slot's Tank Boss) but tunes every kind dormant and one-shot-killable (pure
-  data tuning, the waves-e2e precedent; the Boss's presence-gated Warp block
-  is dropped for determinism). Spaced Laser shots drain Wave 1 → the Boss;
-  the monotonic records must walk ``wave_started``/``wave_cleared`` 1..4,
-  then ``all_waves_cleared`` → ``game_won`` → ``end_screen_shown``; the
-  World freeze must disable the Player's processing WITHOUT severing the
-  live channel (this test keeps reading state through it — the gADR-0010
+  SHIPPED Wave schedule VERBATIM — every spawn of every wave at its shipped
+  position (the mixed Wave-3 swarm included) and the Boss slot's Tank Boss
+  with its presence-gated Warp block INTACT — and retunes only per-kind
+  stats for determinism (1 max_hp, zero move speed, tiny aggro — the
+  waves-e2e dormancy precedent; the Warp gate itself requires aggro,
+  WarpSystem.should_warp, so the dormant Boss never blinks and the shipped
+  data still rides the arc). Spaced Laser shots drain Wave 1 → the Boss;
+  the monotonic records must walk ``wave_started``/``wave_cleared`` 1..4
+  with each wave's SHIPPED spawn count, every shipped spawn must die, then
+  ``all_waves_cleared`` → ``game_won`` → ``end_screen_shown``; the World
+  freeze must disable the Player's processing WITHOUT severing the live
+  channel (this test keeps reading state through it — the gADR-0010
   no-tree-pause argument, proven by construction); and the ``retry`` action
   must reload into a fresh run (second boot records, Wave 1 restarted,
   End screen hidden again). Retry mid-run must do nothing.
@@ -55,30 +59,10 @@ _COPY_IGNORE = shutil.ignore_patterns(
     "tests", ".godot", "build", "generated", "__pycache__"
 )
 
-# The S2-proven shooting lane: the legacy default spawn position, reachable by
-# a straight Laser bolt from the resting Player at player_start.
-_LANE = [640.0, 452.0]
-
 # Node.PROCESS_MODE_DISABLED — what the World freeze sets on gameplay children
 # (gADR-0010); Node.PROCESS_MODE_INHERIT (0) is the fresh-scene default.
 _PROCESS_MODE_DISABLED = 4
 _PROCESS_MODE_INHERIT = 0
-
-# The S8 Warp block's presence-gating keys (gADR-0009): dropped wholesale from
-# the Boss for e2e determinism (no blink, no time field — presence-gated data,
-# so removal is a pure JSON tuning).
-_WARP_KEYS = (
-    "warp_cooldown",
-    "warp_trigger_range",
-    "warp_offset",
-    "warp_tell_duration",
-    "warp_recovery_duration",
-    "time_field_radius",
-    "time_field_factor",
-    "time_field_duration",
-    "time_field_color",
-    "time_field_fade_duration",
-)
 
 
 def _make_project_copy(dst: Path, mutate_enemies=None) -> Path:
@@ -188,10 +172,15 @@ class _Session:
         assert seq.returncode == 0, seq.stdout + seq.stderr
 
 
-def _drain_schedule(s: _Session, iframe: float, wave_count: int) -> None:
-    """The waves-e2e kill loop: spaced Laser taps clear wave after wave."""
-    for n in range(1, wave_count + 1):
-        for _ in range(8):
+def _drain_schedule(s: _Session, iframe: float, spawn_counts: list[int]) -> None:
+    """The waves-e2e kill loop: spaced Laser taps clear wave after wave.
+
+    ``spawn_counts`` is each wave's SHIPPED spawn count: a bolt despawns on
+    its first kill, so a wave takes at least one tap per spawn — the retry
+    budget scales with the wave's composition.
+    """
+    for n, spawns in enumerate(spawn_counts, start=1):
+        for _ in range(4 + 4 * spawns):
             if len(s.records("wave_cleared")) >= n:
                 break
             s.tap("fire")
@@ -205,46 +194,39 @@ def _drain_schedule(s: _Session, iframe: float, wave_count: int) -> None:
 def test_full_playthrough_wins_freezes_and_retries(tmp_path, daemon_runtime_dir):
     """Wave 1 → Boss-defeated → game_won → End screen → retry → fresh run.
 
-    The copy keeps the SHIPPED four-wave composition — the Boss slot's Tank
-    Boss ends the schedule — with every kind tuned dormant (tiny aggro, zero
-    move speed) and one-shot-killable (1 max_hp), each wave one spawn on the
-    shooting lane; the Boss keeps the shipped spawn height (its taller block
-    stands on the same rampart). Determinism by data: nothing moves or
-    attacks, and the arc's whole life is readable from the monotonic records.
+    The copy keeps the SHIPPED Wave schedule VERBATIM — every spawn of every
+    wave at its shipped position (the mixed melee+ranged Wave-3 swarm
+    included) and the Boss with its presence-gated Warp block intact — and
+    retunes ONLY per-kind stats: 1 max_hp (a one-shot kill; min_damage
+    floors every bolt through any defense), zero move speed, and tiny aggro
+    (the waves-e2e dormancy precedent). Dormancy also parks the Warp:
+    WarpSystem.should_warp gates on the Aggro Range, so the Boss never
+    blinks while its shipped Warp data rides the whole arc. Determinism by
+    data: nothing moves or attacks, every shipped spawn dies to a spaced
+    Laser tap from the resting Player, and the arc's whole life is readable
+    from the monotonic records.
     """
 
     def reconfigure(config: dict) -> dict:
-        shipped_kinds = [wave["spawns"][0]["kind"] for wave in config["waves"]]
-        boss_kind = shipped_kinds[-1]
-        boss_y = config["waves"][-1]["spawns"][0]["position"][1]
-        for name in set(shipped_kinds):
-            kind = config["kinds"][name]
+        for kind in config["kinds"].values():
             kind["max_hp"] = 1.0
             kind["move_speed"] = 0.0
             kind["aggro_range"] = 60.0
-        for key in _WARP_KEYS:
-            config["kinds"][boss_kind].pop(key, None)
-        config["waves"] = [
-            {
-                "spawns": [
-                    {
-                        "kind": name,
-                        "name": f"W{n}Target",
-                        "position": [_LANE[0], boss_y] if name == boss_kind else _LANE,
-                    }
-                ]
-            }
-            for n, name in enumerate(shipped_kinds, start=1)
-        ]
         return config
 
     project = _make_project_copy(tmp_path / "game", reconfigure)
     enemies = build_config.load_json(GAME_DIR / "data" / "json" / "enemies_config.json")
     combat = build_config.load_json(GAME_DIR / "data" / "json" / "combat_config.json")
-    wave_count = len(enemies["waves"])
-    boss_kind = enemies["waves"][-1]["spawns"][0]["kind"]
+    waves = enemies["waves"]
+    wave_count = len(waves)
+    spawn_counts = [len(wave["spawns"]) for wave in waves]
+    boss_kind = waves[-1]["spawns"][0]["kind"]
     assert enemies["kinds"][boss_kind]["tier"] == "boss", (
         "scenario broken: the shipped schedule must end on the Boss slot"
+    )
+    assert "warp_cooldown" in enemies["kinds"][boss_kind], (
+        "scenario broken: the shipped Boss must carry its Warp block — this "
+        "gate proves the arc with the shipped data intact"
     )
     iframe = combat["iframe_duration"]
     s = _Session(project)
@@ -254,10 +236,15 @@ def test_full_playthrough_wins_freezes_and_retries(tmp_path, daemon_runtime_dir)
         assert started.returncode == 0, started.stdout + started.stderr
         s.launch()
 
-        # Boot: the level and Wave 1 are up; the End screen exists but hides.
+        # Boot: the level and Wave 1 are up with its SHIPPED composition; the
+        # End screen exists but hides.
         first = s.poll(lambda: s.records("wave_started"))
         assert first, "no gda_log 'wave_started' record"
-        assert first[0]["fields"] == {"wave": 1, "total": wave_count, "spawns": 1}
+        assert first[0]["fields"] == {
+            "wave": 1,
+            "total": wave_count,
+            "spawns": spawn_counts[0],
+        }
         level_ready = s.records("level_ready")
         assert level_ready, "no gda_log 'level_ready' record"
         assert s.property_of("/root/Main/EndScreen", "visible") is False
@@ -268,8 +255,16 @@ def test_full_playthrough_wins_freezes_and_retries(tmp_path, daemon_runtime_dir)
         assert not s.records("game_retried"), "retry must be dead mid-run"
         assert not s.records("boot")[1:], "retry mid-run must not reload the scene"
 
-        # Drain the arc: Wave 1 → the Boss, each a one-shot kill.
-        _drain_schedule(s, iframe, wave_count)
+        # Drain the arc: Wave 1 → the Boss, every SHIPPED spawn a one-shot
+        # kill (one bolt per spawn — a bolt despawns on its first hit).
+        _drain_schedule(s, iframe, spawn_counts)
+
+        # The whole SHIPPED schedule walked 1..N in order, each wave with its
+        # shipped composition, and every shipped spawn died.
+        started_fields = [r["fields"] for r in s.records("wave_started")]
+        assert [f["wave"] for f in started_fields] == list(range(1, wave_count + 1))
+        assert [f["spawns"] for f in started_fields] == spawn_counts
+        assert len(s.records("enemy_died")) == sum(spawn_counts)
 
         # The finale: the Boss's death ends the schedule AND the run — the
         # verdict + End screen records land, exactly once each.

@@ -87,3 +87,14 @@ Consequences:
 > exact per-Control rects (the S7 BUN/WINE item-lines check is the first);
 > the whole-column box stays structural because Label text renders past its
 > container rect regardless.
+
+> **Amendment (2026-07-06, PR #430).** The retune class is wider than the
+> original "lengthen a DURATION" wording: the throwaway copy may also retune
+> **scenario-choreography behavior knobs** — aggro ranges, move speeds,
+> cooldowns, warp offsets, attack values — that determinize WHEN and WHERE a
+> beat happens so a capture lands reliably. The S8 Warp beat already
+> practiced this (huge aggro, zero move speed, minute-long cooldown); the S9
+> End-screen beat (lose-on-demand: a re-aimed blink plus a one-hit attack)
+> makes it explicit. The invariant is unchanged and remains the boundary:
+> anything a checkpoint ASSERTS — colors, sizes, blockout geometry, config
+> anchors — is never retuned.
