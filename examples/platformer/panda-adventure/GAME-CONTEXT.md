@@ -489,6 +489,17 @@ re-derives from config — a fresh run, never an in-place respawn (gADR-0010).
 _Avoid_: respawn (the rejected in-place variant), restart level (the demo is a
 single level)
 
+**Game-flow director**:
+The level-owned module holding the `End state`'s consequences — the `World
+freeze`, the `End screen` reveal, the verdict logs (`game_won`/`game_lost`), and
+`Retry` — around the pure GameStateSystem's decisions. Extracted from the
+LevelController so geometry and the Wave director stay that node's job (#453),
+it is the one seam the P2-S10 game shell extends: pause is a sibling of the World
+freeze, quit-to-title a sibling of Retry. Carries gADR-0010's never-a-tree-pause
+invariant.
+_Avoid_: game manager (the global-singleton connotation), state machine (that
+names the pure GameStateSystem)
+
 <!-- Format reminder — **Term**: one/two-sentence definition (what it IS, not what it does);
      _Avoid_: rejected synonyms. Group natural clusters under ### subheadings. -->
 

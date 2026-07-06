@@ -7,14 +7,16 @@ extends Node2D
 ## Wave's Spawn Roster, folding deaths through the pure WaveSystem, and
 ## advancing on clear — wires each spawn's death to the Kill reward
 ## (gADR-0004) and to its Drop-table roll (gADR-0006: pickups scattered at
-## the death position), and emits the boot log. Since S9 it also owns the
-## run's End state (gADR-0010): the schedule's all-cleared decision and the
-## Player's death fold through the pure GameStateSystem into won/lost, which
-## freezes the world (never a tree pause — that would sever the gda
-## harness's live channel), shows the End screen, and arms Retry (the
-## `retry` action reloads the scene, so the whole run re-derives from
-## config). The Player self-configures (PlayerController); this owns the
-## rest of the level so config application stays out of the physics body.
+## the death position), and emits the boot log. Since S9 the run's End state
+## (gADR-0010) is delegated to a level-owned Game-flow director (#453): this
+## node forwards the two upstream edges — the schedule's all-cleared decision
+## and the Player's death — and the director folds them through the pure
+## GameStateSystem into won/lost, freezes the world (never a tree pause —
+## that would sever the gda harness's live channel), shows the End screen,
+## and arms Retry (the `retry` action reloads the scene, so the whole run
+## re-derives from config). The Player self-configures (PlayerController);
+## this owns the rest of the level so config application stays out of the
+## physics body.
 ##
 ## Visuals and geometry are data (gADR-0000): the derived LevelConfig /
 ## PlayerConfig / WaveScheduleConfig / EnemyConfig Resources, never
@@ -38,8 +40,8 @@ const EnemyConfigScript := preload("res://src/resources/enemy_config.gd")
 const WaveScheduleConfigScript := preload("res://src/resources/wave_schedule_config.gd")
 const ProgressionConfigScript := preload("res://src/resources/progression_config.gd")
 const WaveSystemScript := preload("res://src/systems/wave_system.gd")
-const GameStateSystemScript := preload("res://src/systems/game_state_system.gd")
 const EconomySystemScript := preload("res://src/systems/economy_system.gd")
+const GameFlowDirectorScript := preload("res://src/controllers/game_flow_director.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
 const EnemyScene := preload("res://scenes/enemy.tscn")
@@ -64,17 +66,22 @@ var _alive := 0
 # The derived ProgressionConfig (S6b: the pickup scatter spacing), lazily
 # loaded (load() is cached) so _ready's load block stays untouched.
 var _progression_cfg: ProgressionConfigScript
-# The run's game-flow state (S9, gADR-0010): playing until the schedule
-# clears (won) or the Player dies (lost) — the pure GameStateSystem owns the
-# transitions, this node owns the consequences (freeze, End screen, Retry).
-# Runtime state; a Retry reload resets it by construction.
-var _state := GameStateSystemScript.STATE_PLAYING
+# The run's game-flow director (S9, gADR-0010): the End state and its
+# consequences — the World freeze, the End screen, the verdict log, Retry —
+# extracted here so the geometry + Wave director stay this node's job (#453).
+# Constructed in _ready; a Retry reload rebuilds it by construction.
+var _flow: GameFlowDirectorScript
 # The derived LevelConfig (S9): the Great-Wall blockout, the Arena, and the
 # End screen numbers.
 var _level_cfg: LevelConfigScript
 
 
 func _ready() -> void:
+	# The Game-flow director owns the End state; this node forwards the edges
+	# (S9, gADR-0010; extracted #453). Constructed BEFORE the config guards —
+	# its _init has zero config dependencies, and _process calls its retry poll
+	# unconditionally, so a guard's early return must still leave it in place.
+	_flow = GameFlowDirectorScript.new(self)
 	var config: PlayerConfigScript = GeneratedConfigScript.load_config(CONFIG_PATH)
 	if config == null:
 		return
@@ -112,13 +119,10 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	# Retry is live ONLY in an End state (gADR-0010): mid-run, Enter does
-	# nothing. This node stays processing through the World freeze (only
-	# CHILDREN are disabled), so the retry read survives it.
-	if not GameStateSystemScript.can_retry(_state):
-		return
-	if Input.is_action_just_pressed("retry"):
-		_retry()
+	# Forward the retry poll to the Game-flow director (gADR-0010; #453). Retry
+	# is live ONLY in an End state; this node stays processing through the World
+	# freeze (only CHILDREN are disabled), so the director's read survives it.
+	_flow.poll_retry()
 
 
 ## Apply the data-driven Great-Wall blockout (S9, gADR-0010): the backdrop
@@ -221,8 +225,9 @@ func _on_enemy_died(enemy: Node2D, kind: EnemyConfigScript) -> void:
 		})
 		# The win edge (S9, gADR-0010): the SCHEDULE clearing wins the run —
 		# never "the Boss died"; the Boss slot stays demo composition
-		# (gADR-0005).
-		_enter_end_state(GameStateSystemScript.EVENT_ALL_WAVES_CLEARED)
+		# (gADR-0005). Forwarded to the Game-flow director with the wave total
+		# (the game_won verdict field).
+		_flow.on_all_waves_cleared(_schedule.waves.size())
 
 
 ## Award one Kill reward (S6a, gADR-0004): the dying kind's Tier-derived
@@ -273,65 +278,15 @@ func _progression_config() -> ProgressionConfigScript:
 
 
 # --- S9 End state + Retry (gADR-0010) ------------------------------------------
-# Kept as ONE self-contained append-only block (the S3/S4 parallel-merge
-# pattern): the two upstream edges fold through the pure GameStateSystem; the
-# consequences — the World freeze, the End screen, the verdict log, Retry —
-# live here.
+# The End-state consequences — the World freeze, the End screen, the verdict
+# log, Retry — moved to the level-owned Game-flow director (game_flow_director.gd,
+# #453); this node forwards the two upstream edges (the lose edge below, the win
+# edge in _on_enemy_died) and the retry poll (in _process), keeping the geometry
+# + Wave director as its job. The never-a-tree-pause invariant travels with the
+# World freeze in the director.
 
 
-## The lose edge: the Player's S4 death latch fired (exactly once).
+## The lose edge: the Player's S4 death latch fired (exactly once). Forwarded to
+## the Game-flow director with the current wave (the game_lost verdict field).
 func _on_player_died() -> void:
-	_enter_end_state(GameStateSystemScript.EVENT_PLAYER_DIED)
-
-
-## Fold one game-flow event through the pure GameStateSystem (gADR-0010). On
-## the FIRST transition into an End state: log the verdict (the durable
-## observable for gda logger tail), then apply the consequences at the frame
-## boundary — both edges arrive from physics callbacks (an enemy's attack, the
-## last death's wave fold), so the freeze is deferred rather than flipping
-## process modes mid-callback. The latch lives in the pure decision: a second
-## event never re-enters.
-func _enter_end_state(event: String) -> void:
-	var decision: Dictionary = GameStateSystemScript.resolve_event(_state, event)
-	if not decision["changed"]:
-		return
-	_state = decision["state"]
-	if _state == GameStateSystemScript.STATE_WON:
-		GameLogScript.emit("info", "game_won", {"waves": _schedule.waves.size()})
-	else:
-		GameLogScript.emit("info", "game_lost", {"wave": _wave_index + 1})
-	_apply_end_state.call_deferred()
-
-
-## The End state's consequences, applied at the frame boundary: freeze the
-## world, then show the End screen (its fade tween runs on the un-frozen
-## CanvasLayer). Split from _enter_end_state so the deferral covers both.
-func _apply_end_state() -> void:
-	_freeze_world()
-	var end_screen := get_node_or_null("EndScreen")
-	if end_screen != null and end_screen.has_method("show_end"):
-		end_screen.show_end(_state == GameStateSystemScript.STATE_WON)
-
-
-## The World freeze (gADR-0010): disable processing on every non-CanvasLayer
-## child — actors, bolts, fields, pickups halt where they are (the finale's
-## time-stopped tableau) while the HUD keeps its final readout and the End
-## screen runs its fade. NEVER get_tree().paused: the gda harness autoload
-## serves the live IPC channel from _process under the default pause mode, so
-## a tree pause would sever gda's live channel exactly when an e2e wants to
-## observe the End state and press retry. This node itself stays processing —
-## only children are disabled — so the Retry read in _process survives.
-func _freeze_world() -> void:
-	for child in get_children():
-		if child is CanvasLayer:
-			continue
-		child.process_mode = Node.PROCESS_MODE_DISABLED
-
-
-## Retry (gADR-0010): log the restart (before the scene dies), then reload the
-## level scene — the whole run re-derives from config, with zero reset code to
-## drift. The gda session survives the reload (same process), so the fresh
-## boot records land in the same session log.
-func _retry() -> void:
-	GameLogScript.emit("info", "game_retried", {"from_state": _state})
-	get_tree().reload_current_scene()
+	_flow.on_player_died(_wave_index + 1)
