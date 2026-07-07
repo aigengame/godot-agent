@@ -37,7 +37,10 @@ name the owner in both dispatch prompts: the owner edits; every other slice must
 the needed change in its report instead of editing** (the orchestrator then serializes
 or folds it into the owner's slice). This converts a probable merge conflict into an
 explicit coordination point — one real wave ran a view-layer refactor in parallel with a
-consumer of those same files at zero conflicts this way.
+consumer of those same files at zero conflicts this way. Ownership **routes** a
+legitimate shared-file edit through one slice; it never suppresses the edit (the
+disjointness guardrail below still holds) — a non-owner's needed change lands via the
+owner, a lead-reassigned ownership, or a serialized follow-up.
 
 **Guardrail: disjointness is a merge-cost heuristic, not an architecture goal.** When
 slicing for disjointness would suppress or distort a sound design decision, the design
@@ -108,8 +111,11 @@ You are implementing <slice> in an ISOLATED git worktree.
 - Also part of DoD — deep-module reuse: if your change belongs in a shared/deep module (a
   central helper, model, or a spawn/launch primitive), REUSE it — do NOT re-implement its
   logic in your worktree. A thin per-slice wrapper over an existing module is fine; a
-  second copy of its logic is not. If the right change belongs in a shared file, make it
-  there and flag it in your report — don't dodge it to stay disjoint.
+  second copy of its logic is not. If the right change belongs in a shared file, don't
+  dodge it to stay disjoint: when YOU own that file this wave (or it has no owner), make
+  the change there and flag it in your report; when a SIBLING slice owns it, flag it for
+  the owner/orchestrator instead of editing (previous line) — the lead reassigns
+  ownership or serializes the slice, but the change still lands.
 - When done: **commit and push your branch — do NOT open the PR.** The orchestrator opens
   every PR so the close-vs-reference keyword and PR conventions are applied in one place.
   Report the branch name, the commit SHA, the exact test command + its result counts, the
