@@ -30,9 +30,13 @@ the cost/benefit table).
 - **Small batches (≤ ~5), merge before the next wave.** Each rebase then lands on a
   stable base; large waves create a merge *treadmill* (every merge re-conflicts the
   rest) and raise the odds a subagent is truncated at a run limit.
-- **The integration-tier test is the Definition of Done.** A fast tier that stubs the
-  integration boundary passes even on a broken merge. DoD must run the tier that really
-  exercises the boundary (integration / e2e / compile or a parse `--check-only`).
+- **The integration-tier test is the Definition of Done — and so is the repo's full
+  PR-CI gate set.** A fast tier that stubs the integration boundary passes even on a
+  broken merge: DoD must run the tier that really exercises the boundary (integration /
+  e2e / compile or a parse `--check-only`). And DoD must mirror every gate the PR CI
+  runs — formatter *check*, linter, typecheck — invoked exactly as CI invokes them: a
+  green test run with a red format check still bounces the PR (every slice of one real
+  wave tripped this). (REFERENCE §3, §6)
 - **The orchestrator independently re-verifies before merging.** Subagent implements and
   **commits** (its own branch, in its worktree); the lead re-runs tests and spot-checks the
   diff. "Done but no artifact" = needs takeover.
@@ -75,8 +79,9 @@ decompose + dependency analysis → plan waves → fan out (implement) → merge
 1. **Decompose + analyze dependencies.** Split the work into vertical slices. Mark which
    are independent (parallel-safe) vs. coupled (must serialize). Up front, identify the
    **append hotspots** — central registries, enums, dispatch tables, render/plugin maps,
-   shared test files that *every* slice edits — that is where merge cost concentrates.
-   (REFERENCE §1)
+   shared test files that *every* slice edits — that is where merge cost concentrates —
+   and give each hotspot exactly **one owner slice** for the wave; the others flag needed
+   changes instead of editing. (REFERENCE §1)
 2. **Plan waves.** Group independent slices into waves of ≤ ~5; sequence coupled slices
    tracer-first. Decide the merge order now. (REFERENCE §2)
 3. **Fan out to implement.** Launch one subagent per slice in its own git worktree, each
@@ -97,9 +102,14 @@ decompose + dependency analysis → plan waves → fan out (implement) → merge
    (REFERENCE §6, §7)
 
 This path is **not one-shot**: independent review sends merged-ready slices back, and
-remediation reshapes the plan. Re-derive the overlap map and merge order as fixes land,
-verify each slice against its *originating spec* (not just its own green tests), and fix a
-finding at the altitude of its true cause, not where it surfaced. (REFERENCE §1, §6)
+remediation reshapes the plan. A review/fix round is a **re-dispatch** — resume the
+original implementer with its context where possible, restate the full dispatch
+discipline (worktree pinning, commit-early, the CI-mirror DoD), and require **one commit
+per finding** so a mid-round kill is cheap to take over. The lead then re-verifies,
+replies on the PR mapping each finding → resolution, and owns the PR-body update.
+Re-derive the overlap map and merge order as fixes land, verify each slice against its
+*originating spec* (not just its own green tests), and fix a finding at the altitude of
+its true cause, not where it surfaced. (REFERENCE §1, §6, §7)
 
 When append hotspots keep dominating merge cost, the durable fix is architectural —
 split them into per-module fragments that auto-aggregate (REFERENCE §8). Run the

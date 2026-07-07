@@ -31,6 +31,14 @@ edits, where all the integration cost concentrates:
 A wave whose slices all hammer the same hotspot is *not* a good parallel candidate —
 expect a conflict-heavy serial merge, or fix it structurally first (§8).
 
+**Assign each hotspot exactly one owner slice per wave.** When two slices *could*
+legitimately touch the same shared file (one refactors a module, another instances it),
+name the owner in both dispatch prompts: the owner edits; every other slice must **flag
+the needed change in its report instead of editing** (the orchestrator then serializes
+or folds it into the owner's slice). This converts a probable merge conflict into an
+explicit coordination point — one real wave ran a view-layer refactor in parallel with a
+consumer of those same files at zero conflicts this way.
+
 **Guardrail: disjointness is a merge-cost heuristic, not an architecture goal.** When
 slicing for disjointness would suppress or distort a sound design decision, the design
 wins:
@@ -90,6 +98,11 @@ You are implementing <slice> in an ISOLATED git worktree.
 - Definition of Done: the INTEGRATION-tier test passes (the tier that actually exercises
   the integration boundary — integration / e2e / compile / a parse `--check-only`), not
   just the fast tier that stubs it. Do not satisfy DoD with `-m "not <integration>"`.
+- Also part of DoD — mirror the repo's FULL PR-CI gate set: run the formatter CHECK, the
+  linter, and the typecheck exactly as CI invokes them (same commands/flags), not just the
+  test suite. A green test run with a red format check still bounces the PR.
+- If a shared file is OWNED by a sibling slice this wave (the prompt names the owners),
+  do NOT edit it — flag the needed change in your report and let the orchestrator route it.
 - Also part of DoD — deep-module reuse: if your change belongs in a shared/deep module (a
   central helper, model, or a spawn/launch primitive), REUSE it — do NOT re-implement its
   logic in your worktree. A thin per-slice wrapper over an existing module is fine; a
@@ -249,6 +262,19 @@ the grep heuristic might miss in another language.
   *cross-cutting cause*. Fix it in a shared follow-up rather than band-aiding the one
   slice — especially when sibling slices each grew their own *partial* handling that the
   shared fix should later absorb (otherwise the duplication is what ships).
+- **Sibling worktrees double as flake controls.** When a test fails in one worktree's
+  full run, check the same test across the siblings before blaming the slice: the
+  worktrees differ only by each slice's diff, so the same failure appearing in a sibling
+  whose diff cannot touch that path points at infra, not the change. Adjudicate with:
+  re-run the single test standalone, then demand one fully green full run — an
+  intermittent display/timing-dependent test that passes both is a flake to note, not a
+  blocker (but say so honestly in the PR).
+- **Scale the heaviest gate to the wave, not the PR (a cost decision the lead sets).**
+  When the full integration tier is expensive (long CI runs, real engines/devices), a
+  workable economy is: per-branch risk covered by the lead's local serial runs (above),
+  PR CI running only the cheap tiers, and ONE full-tier run on the merged trunk after
+  the wave's last merge as the wave gate. The trade is deferred detection on the trunk —
+  make it deliberately, not by default.
 - **Close the review loop.** For actionable PR review comments, implement the fix,
   re-run the relevant gates, push, and reply or resolve the thread according to the
   repo's convention. Review remediation can touch shared docs or other hotspots, so
@@ -258,6 +284,19 @@ the grep heuristic might miss in another language.
 
 - **Commit early.** Truncation/kill only loses *uncommitted* work; an agent cut off
   before committing can leave a broken, unsaved file in its worktree.
+- **A review/fix round is a re-dispatch — restate the whole discipline.** Prefer
+  resuming the ORIGINAL implementer (its context is intact), but do not assume it
+  remembers the rules it followed last round: restate worktree pinning, commit-early,
+  and the CI-mirror DoD in the fix brief, and require **one commit per finding**. Kills
+  strike mid-fix-round too (session/usage limits, not just truncation) — one real agent
+  finished an entire fix round and died with all of it uncommitted.
+- **Takeover recipe for uncommitted work:** review the whole uncommitted diff yourself
+  against the findings it claims to fix, run the full gate set (tests + format/lint/
+  typecheck), then commit and push it under an honest message. Don't re-dispatch what a
+  diff review can verify — and don't commit what you haven't read.
+- **Trivial mechanical CI failures are the lead's to fix in place.** A formatter diff or
+  an import sort on an otherwise-verified branch is cheaper to fix, test, and push
+  yourself than to re-dispatch an agent for.
 - **"Completed but no artifact" = needs-takeover.** Never trust a completion claim —
   independently verify with `git status` (clean?), `git log` (recent commits?), and
   remote-tracking (pushed?). Also seen: an agent reports done while its test run is "still
@@ -292,8 +331,11 @@ design decision (an ADR) of its own.
 
 - [ ] Slices in this wave are independent (no shared module/group); coupled ones serialized.
 - [ ] Wave ≤ ~5; will merge before the next wave.
+- [ ] Every append hotspot has exactly ONE owner slice this wave; sibling prompts say "flag, don't edit" (§1).
 - [ ] Each subagent's DoD includes the integration tier (not just the stubbed fast tier).
+- [ ] Each subagent's DoD mirrors the repo's full PR-CI gate set — formatter check, lint, typecheck, invoked as CI invokes them (§3).
 - [ ] Each subagent's DoD includes deep-module reuse — no re-implementing shared logic, and no dodging a legitimate shared-file edit, to fake disjointness (§1).
+- [ ] Review/fix rounds restate the dispatch discipline (resume the original agent; one commit per finding); the lead re-verifies, replies finding→resolution on the PR, and updates the PR body (§7).
 - [ ] Agents pinned to their own worktree; will commit early; "done but no artifact" = takeover.
 - [ ] Merge order decided (tracer first); after each resolution, audit for the marker-free traps.
 - [ ] Stacked followers have an explicit retarget/rebase plan for after the base PR lands
