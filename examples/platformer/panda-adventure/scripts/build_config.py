@@ -1043,8 +1043,13 @@ def build_spec(
         validate_scale_semantics(document, root=root)
     else:
         # Compose the Scale spec's dimensions into the source document
-        # (gADR-0013): one authored home, N derived projections.
-        document = compose_scale_spec(document, spec.json_rel, load_scale_spec(root))
+        # (gADR-0013): one authored home, N derived projections. The FULL
+        # cross-file semantics run here too — before ANY spec writes — so a
+        # semantically invalid Scale spec fails the very first build_spec of
+        # a build_all pass and no partial derived set is left behind (the
+        # gADR-0000 no-drift rule; PR #457 review finding).
+        scale = validate_scale_semantics(load_scale_spec(root), root=root)
+        document = compose_scale_spec(document, spec.json_rel, scale)
     if spec.json_rel == _ENEMIES_JSON_REL:
         # The enemies source carries cross-field rules the schema cannot
         # express (gADR-0003) — enforce them before deriving any resource,
@@ -1089,7 +1094,8 @@ def build(
     """
     config = load_json(json_path)
     validate_config(config, load_schema(schema_path))
-    config = compose_scale_spec(config, _PLAYER_JSON_REL, load_scale_spec())
+    scale = validate_scale_semantics(load_scale_spec())
+    config = compose_scale_spec(config, _PLAYER_JSON_REL, scale)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(render_tres(config), encoding="utf-8")
     return out_path

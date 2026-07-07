@@ -160,10 +160,15 @@ def _stage_inputs(root) -> None:
         dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
 
 
-def test_off_grid_segment_gates_the_build(tmp_path) -> None:
-    """The tile-grid rule gates the BUILD: a segment dimension off the grid
-    (the pre-reconcile parapet width, 140) fails ``build_all`` before any
-    resource derives — exactly the drift the gADR-0013 reconcile fixed."""
+def test_off_grid_segment_gates_the_build_with_no_partial_writes(tmp_path) -> None:
+    """The tile-grid rule gates the BUILD before ANY resource derives.
+
+    A segment dimension off the grid (the pre-reconcile parapet width, 140)
+    must fail ``build_all`` — and because the cross-file semantics run in
+    every ``build_spec`` before its write, the failure is all-or-nothing: no
+    partial derived set may be left behind (the gADR-0000 no-drift rule;
+    PR #457 review finding).
+    """
     _stage_inputs(tmp_path)
     level_path = tmp_path / "data/json/level_config.json"
     config = json.loads(level_path.read_text(encoding="utf-8"))
@@ -172,6 +177,32 @@ def test_off_grid_segment_gates_the_build(tmp_path) -> None:
 
     with pytest.raises(jsonschema.ValidationError):
         build_config.build_all(root=tmp_path)
+
+    generated = tmp_path / "data" / "generated"
+    written = (
+        sorted(p.name for p in generated.glob("*.tres")) if generated.exists() else []
+    )
+    assert written == [], f"a failed build must write NOTHING, but wrote {written}"
+
+
+def test_broken_tier_ordering_gates_the_build_with_no_partial_writes(tmp_path) -> None:
+    """A Scale spec violating Tier size ordering fails ``build_all`` with
+    zero derived outputs — the semantic gate fires on the FIRST spec, not
+    when the scale spec's own output is finally reached."""
+    _stage_inputs(tmp_path)
+    scale_path = tmp_path / "data/json/scale_spec.json"
+    spec = json.loads(scale_path.read_text(encoding="utf-8"))
+    spec["enemy_boxes"]["monster_minion_melee"]["size"] = [200.0, 200.0]
+    scale_path.write_text(json.dumps(spec), encoding="utf-8")
+
+    with pytest.raises(jsonschema.ValidationError):
+        build_config.build_all(root=tmp_path)
+
+    generated = tmp_path / "data" / "generated"
+    written = (
+        sorted(p.name for p in generated.glob("*.tres")) if generated.exists() else []
+    )
+    assert written == [], f"a failed build must write NOTHING, but wrote {written}"
 
 
 # ---------------------------------------------------------------------------
