@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=3f25b544e58bf46ffad43fcf05c8fef738fdc63935ff11ee7fc9734a9f1bd3bf -->
+<!-- gda-readme-i18n: source=README.md sha256=06067154e90ca388c08772e7be322327d9d2241f6f23aa1056dd57c0d356da3d -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -408,6 +408,11 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | `node connect-signal` | ソースノードのシグナルをターゲットノードのメソッドに接続します。 |
 | `node disconnect-signal` | 既存のシグナル → メソッド接続を解除します。 |
 
+`Control` ノードでは、`node set --property position` はサイズを保ったまま
+基礎となる `offset_left` / `offset_top` / `offset_right` / `offset_bottom` を
+書き込みます。`Container` の直接の子はレイアウト管理下にあるため、これらの
+offset プロパティを明示的に設定してください。
+
 **`script`** — GDScript ファイル(`.gd`)
 
 | コマンド | 機能 |
@@ -488,6 +493,9 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | `game get` | ランタイムノードのライブプロパティをノードパスで読み取ります。明示名ならアタッチ済みスクリプト変数も対象にできます。 |
 | `game rect` | ランタイム Control のレンダリング済みビューポート矩形をノードパスで読み取ります。 |
 | `game set` | 実行中ゲームのランタイムノードプロパティ、または明示名のアタッチ済みスクリプト変数を設定します。 |
+
+Live の `game set --property position` は `node set` と同じ `Control` ポリシーに
+従います。`game rect` は引き続き読み取り専用のレンダリングジオメトリ問い合わせです。
 
 **`diag`** — ランタイム診断
 

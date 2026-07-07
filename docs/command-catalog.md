@@ -204,6 +204,16 @@ projection or the `str()` fallback (see [`project`](#project)) — but `node set
 those remaining types yet and refuses with `uncoercible_value` unless a separate assignment contract
 below applies.
 
+**`Control.position` convenience assignment** (#464): `Control.position` is layout-derived from
+offsets rather than a normal serialized storage field, but it is a common authoring target. For a
+free-positioned `Control`, `gda node set --property position --value x,y` coerces `x,y` as a
+`Vector2`, writes `offset_left` / `offset_top` / `offset_right` / `offset_bottom`, preserves the
+current size, and echoes the resulting `position`. If the `Control` is a direct child of a
+`Container`, the command refuses with `unknown_property` and names the four offset properties as the
+actionable alternative; container-managed layout is not overridden. Live `gda game set` mirrors the
+same policy with `live_unknown_property` for the container-managed case. `gda game rect` remains a
+read-only rendered-geometry query and is not a setter.
+
 **Object-typed property assignment by `res://` reference** (ADR-0033, #363): for an **Object-typed**
 property that expects a Resource (sub)class — e.g. a `CollisionShape2D`'s `shape` (`Shape2D`) — `gda
 node set` and `gda resource set` accept a **`res://….tres` resource path** as `--value`. The path is
