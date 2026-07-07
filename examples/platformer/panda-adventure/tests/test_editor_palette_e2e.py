@@ -189,9 +189,7 @@ def test_palette_ops_drive_the_running_game(tmp_path, daemon_runtime_dir):
         # own director. Assert from the monotonic records AND the runtime tree.
         s.set_palette("jump_to_wave", "3")
         assert s.poll(
-            lambda: any(
-                r["fields"]["wave"] == 3 for r in s.records("debug_wave_jump")
-            )
+            lambda: any(r["fields"]["wave"] == 3 for r in s.records("debug_wave_jump"))
         ), "no debug_wave_jump record for wave 3"
         jump = s.records("debug_wave_jump")[-1]["fields"]
         assert jump == {"wave": 3, "total": total_waves}
