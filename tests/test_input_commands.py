@@ -173,6 +173,20 @@ def test_input_mouse_click_injects_a_click_through_the_live_channel(
     ]
 
 
+def test_input_mouse_help_documents_tracked_position_limitation():
+    click = CliRunner().invoke(app, ["input", "mouse-click", "--help"])
+    move = CliRunner().invoke(app, ["input", "mouse-move", "--help"])
+
+    assert click.exit_code == 0, click.stdout + click.stderr
+    assert move.exit_code == 0, move.stdout + move.stderr
+    for result in (click, move):
+        assert "mouse event" in result.stdout
+        assert "position" in result.stdout
+        assert "get_mouse_position()" in result.stdout
+        assert "get_global_mouse_position()" in result.stdout
+        assert "stale in daemon sessions" in result.stdout
+
+
 def test_input_mouse_move_injects_a_motion_through_the_live_channel(
     monkeypatch, tmp_path
 ):
@@ -718,6 +732,20 @@ def test_input_sequence_help_names_process_and_physics_clocks():
     assert result.exit_code == 0, result.stdout + result.stderr
     assert "harness/process-frame" in result.stdout
     assert "physics_frame" in result.stdout
+
+
+def test_input_sequence_help_documents_mouse_tracked_position_limitation():
+    result = CliRunner().invoke(app, ["input", "sequence", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "mouse_click" in result.stdout
+    assert "mouse_move" in result.stdout
+    assert "mouse event" in result.stdout
+    assert "position" in result.stdout
+    assert "get_mouse_position()" in result.stdout
+    assert "get_global_mouse_position()" in result.stdout
+    assert "stale in" in result.stdout
+    assert "daemon sessions" in result.stdout
 
 
 # --- model validation via --params-json (ADR-0015) ----------------------------

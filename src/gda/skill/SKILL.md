@@ -95,6 +95,13 @@ fixed physics frames. When input timing must map to physics simulation, use
 same sequence. At Godot's default 60 Hz physics clock, N=30 is 0.5 seconds of
 physics simulation. Do not mix `frame` and `physics_frame` in one sequence.
 
+For `gda input mouse-click`, `gda input mouse-move`, and mouse events inside
+`gda input sequence`, the reliable injected coordinate is the mouse event's
+`position` (`InputEventMouseButton.position` / `InputEventMouseMotion.position`).
+Godot may leave `Viewport.get_mouse_position()` and
+`Node2D.get_global_mouse_position()` stale in daemon sessions, so game code that
+needs the injected coordinate should read it from the input event.
+
 ### Structured logging from game code
 
 To emit a record `gda logger tail` reads back as a rich, field-carrying `LogRecord`,

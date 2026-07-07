@@ -689,6 +689,15 @@ func _input_viewport() -> Viewport:
 	return get_tree().root
 
 
+var _last_injected_mouse_position: Variant = null
+
+
+func _prepare_mouse_input() -> Viewport:
+	var viewport := _input_viewport()
+	viewport.notify_mouse_entered()
+	return viewport
+
+
 # Resolve a key name to a Godot keycode via the engine's own name table. Returns
 # KEY_NONE (0) for a name the engine does not recognize — the one runtime failure
 # the model cannot pre-validate (the keycode table is the engine's), surfaced as
@@ -734,20 +743,28 @@ func _mouse_button_index(button: String) -> int:
 # Push a mouse-button event at a viewport position. Shared by the single-frame
 # click op and a sequence mouse-click event.
 func _push_mouse_click(pos: Vector2, button: String, double: bool) -> void:
+	var viewport := _prepare_mouse_input()
 	var event := InputEventMouseButton.new()
 	event.button_index = _mouse_button_index(button)
 	event.position = pos
 	event.pressed = true
 	event.double_click = double
-	_input_viewport().push_input(event)
+	viewport.push_input(event, true)
+	_last_injected_mouse_position = pos
 
 
 # Push a mouse-motion event to a viewport position. Shared by the single-frame move
 # op and a sequence mouse-move event.
 func _push_mouse_move(pos: Vector2) -> void:
+	var viewport := _prepare_mouse_input()
+	var previous := viewport.get_mouse_position()
+	if _last_injected_mouse_position is Vector2:
+		previous = _last_injected_mouse_position
 	var event := InputEventMouseMotion.new()
 	event.position = pos
-	_input_viewport().push_input(event)
+	event.relative = pos - previous
+	viewport.push_input(event, true)
+	_last_injected_mouse_position = pos
 
 
 # input key: inject one InputEventKey (press or release) into the running game's

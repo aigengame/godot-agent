@@ -634,7 +634,12 @@ headless is unaffected (4.4+, cross-platform).
   `mouse` sub-group, so each maps to a single `<group>_<command>` MCP tool name
   (ADR-0005/0011/0012). Key/mouse events ride the game's real input flow via the
   root viewport's `push_input` (scene-aware); actions go through
-  `Input.action_press`/`action_release` against the running `InputMap`. The modifier
+  `Input.action_press`/`action_release` against the running `InputMap`. For mouse
+  ops and sequence mouse events, the reliable injected coordinate is
+  `InputEventMouseButton.position` / `InputEventMouseMotion.position`; Godot may
+  leave `Viewport.get_mouse_position()` and `Node2D.get_global_mouse_position()`
+  stale in daemon sessions, so game code should read the injected coordinate from
+  the input event. The modifier
   set, mouse-button enum, action strength range (0..1), per-event shape, and the
   sequence's selected-clock window (`max(frame)+1` or `max(physics_frame)+1` ≤ the
   per-window ceiling, the same bound `perf monitor` enforces, #223) are bounded

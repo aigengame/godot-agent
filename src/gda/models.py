@@ -3522,7 +3522,10 @@ class PerfMonitorResult(BaseModel):
 #
 # Live input injection into the RUNNING game's engine session via the gda harness
 # (ADR-0017, ADR-0019). Key/mouse events ride the game's real input flow via the
-# root viewport's push_input; actions go through Input.action_press/release. Every
+# root viewport's push_input; actions go through Input.action_press/release. Mouse
+# event.position is the reliable injected coordinate; Godot does not expose a
+# reliable daemon-session seam for updating Viewport.get_mouse_position() /
+# Node2D.get_global_mouse_position(), so those tracked positions may stay stale. Every
 # rule that bounds a request — the modifier set, the mouse button enum, the action
 # strength range, and the well-formedness of a sequence event — is enforced
 # MODEL-SIDE (ADR-0015), so the argv path and the --params-json path reject the
@@ -3625,11 +3628,25 @@ class InputMouseClickParams(BaseModel):
     Pushes an ``InputEventMouseButton`` at viewport position ``(x, y)`` into the
     running game's root viewport. ``button`` selects which button (left/right/
     middle); ``double`` marks the event a double click. A single-frame op (the
-    press is injected at one frame boundary, ADR-0020).
+    press is injected at one frame boundary, ADR-0020). The injected coordinate is
+    reliable as ``InputEventMouseButton.position``. Godot does not reliably update
+    the engine-tracked mouse position in daemon sessions, so
+    ``Viewport.get_mouse_position()`` / ``Node2D.get_global_mouse_position()`` may
+    remain stale; read the mouse event position for the injected coordinate.
     """
 
-    x: float = Field(description="The click's x position in the viewport.")
-    y: float = Field(description="The click's y position in the viewport.")
+    x: float = Field(
+        description=(
+            "The click's x position in the viewport. Read it from the mouse event; "
+            "engine-tracked mouse positions may remain stale."
+        )
+    )
+    y: float = Field(
+        description=(
+            "The click's y position in the viewport. Read it from the mouse event; "
+            "engine-tracked mouse positions may remain stale."
+        )
+    )
     button: MouseButton = Field(
         default=MouseButton.LEFT,
         description="Which mouse button to click: left, right, or middle.",
@@ -3642,11 +3659,25 @@ class InputMouseMoveParams(BaseModel):
 
     Pushes an ``InputEventMouseMotion`` to viewport position ``(x, y)`` into the
     running game's root viewport — the runtime counterpart of moving the cursor
-    over the game. A single-frame op.
+    over the game. A single-frame op. The injected coordinate is reliable as
+    ``InputEventMouseMotion.position``. Godot does not reliably update the
+    engine-tracked mouse position in daemon sessions, so
+    ``Viewport.get_mouse_position()`` / ``Node2D.get_global_mouse_position()`` may
+    remain stale; read the mouse event position for the injected coordinate.
     """
 
-    x: float = Field(description="The motion's target x position in the viewport.")
-    y: float = Field(description="The motion's target y position in the viewport.")
+    x: float = Field(
+        description=(
+            "The motion's target x position in the viewport. Read it from the "
+            "mouse event; engine-tracked mouse positions may remain stale."
+        )
+    )
+    y: float = Field(
+        description=(
+            "The motion's target y position in the viewport. Read it from the "
+            "mouse event; engine-tracked mouse positions may remain stale."
+        )
+    )
 
 
 class InputMouseResult(BaseModel):
@@ -3654,14 +3685,19 @@ class InputMouseResult(BaseModel):
 
     Echoes the event ``kind`` (``mouse_click`` or ``mouse_move``), the viewport
     ``position`` it was pushed at as ``[x, y]``, and — for a click — the ``button``
-    and whether it was a ``double`` click (both null for a move).
+    and whether it was a ``double`` click (both null for a move). This echoed
+    position mirrors the mouse event's position; engine-tracked mouse positions may
+    remain stale.
     """
 
     kind: str = Field(
         description="The injected event kind: 'mouse_click' or 'mouse_move'."
     )
     position: list[float] = Field(
-        description="The viewport position the event was injected at, as [x, y]."
+        description=(
+            "The viewport position the event was injected at, as [x, y]. This "
+            "mirrors event.position; engine-tracked mouse positions may remain stale."
+        )
     )
     button: str | None = Field(
         default=None, description="The clicked button (a click only); null for a move."
@@ -3746,6 +3782,8 @@ class InputSequenceEvent(BaseModel):
     ``action``/``release``/``strength`` for an action. The required fields per type
     and the shared bounds (modifier set, button enum, strength range) are validated
     model-side (ADR-0015) so a malformed event is rejected before the harness runs.
+    Mouse event coordinates are reliable as the event's ``position``; engine-tracked
+    mouse positions may remain stale for sequence mouse events too.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -3779,8 +3817,20 @@ class InputSequenceEvent(BaseModel):
         default=False, description="A key event: inject a release instead of a press."
     )
     # mouse fields
-    x: float | None = Field(default=None, description="A mouse event's x position.")
-    y: float | None = Field(default=None, description="A mouse event's y position.")
+    x: float | None = Field(
+        default=None,
+        description=(
+            "A mouse event's x position. Read it from the event; engine-tracked "
+            "mouse positions may remain stale."
+        ),
+    )
+    y: float | None = Field(
+        default=None,
+        description=(
+            "A mouse event's y position. Read it from the event; engine-tracked "
+            "mouse positions may remain stale."
+        ),
+    )
     button: MouseButton | None = Field(
         default=None, description="A mouse-click event's button."
     )

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=235551b65421a770a544d8ae977ae30067c34c56f5adf8eeb1170684191de707 -->
+<!-- gda-readme-i18n: source=README.md sha256=3f25b544e58bf46ffad43fcf05c8fef738fdc63935ff11ee7fc9734a9f1bd3bf -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -500,6 +500,9 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `input mouse-move` | 注入一次移动到 `(x, y)` 的鼠标移动。 |
 | `input action` | 按下/释放一个已映射的输入动作。 |
 | `input sequence` | 注入一条跨多帧的事件时间线。 |
+
+鼠标事件会通过 `event.position` 报告注入的视口坐标。Godot 在 daemon 会话中可能让
+`get_mouse_position()` / `get_global_mouse_position()` 保持过期状态，因此游戏代码应从输入事件读取注入的鼠标坐标。
 
 **`screen`** — 视口捕获
 

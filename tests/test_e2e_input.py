@@ -63,6 +63,27 @@ MOUSE_MAIN_TSCN = (
     'script = ExtResource("1")\n'
 )
 
+TRACKED_MOUSE_PLAYER_GD = (
+    "extends Node2D\n"
+    '@export var last_event_type: String = ""\n'
+    "@export var last_event_position: Vector2 = Vector2(-1, -1)\n"
+    "@export var last_event_relative: Vector2 = Vector2(-1, -1)\n"
+    "@export var last_global_mouse_position: Vector2 = Vector2(-1, -1)\n"
+    "@export var last_viewport_mouse_position: Vector2 = Vector2(-1, -1)\n"
+    "func _input(event: InputEvent) -> void:\n"
+    "\tif event is InputEventMouseButton and event.pressed:\n"
+    '\t\t_capture_mouse("click", event.position, Vector2.ZERO)\n'
+    "\telif event is InputEventMouseMotion:\n"
+    '\t\t_capture_mouse("move", event.position, event.relative)\n'
+    "func _capture_mouse(kind: String, event_position: Vector2, event_relative: Vector2) -> void:\n"
+    "\tlast_event_type = kind\n"
+    "\tlast_event_position = event_position\n"
+    "\tlast_event_relative = event_relative\n"
+    "\tlast_global_mouse_position = get_global_mouse_position()\n"
+    "\tlast_viewport_mouse_position = get_viewport().get_mouse_position()\n"
+)
+TRACKED_MOUSE_MAIN_TSCN = MOUSE_MAIN_TSCN
+
 # A Player that polls a `move_right` input action each frame: while the action is
 # pressed it advances, so an injected `input action move_right` (a press held until
 # released) moves the node. The action is registered in project.godot's input map.
@@ -238,6 +259,75 @@ def test_daemon_serves_input_mouse_click_observed_via_game_get(
             p for p in json.loads(after.stdout)["properties"] if p["name"] == "position"
         )["value"]
         assert after_pos == [123.0, 45.0]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_mouse_input_reports_event_position_when_tracked_mouse_position_is_stale(
+    tmp_path, daemon_runtime_dir
+):
+    # #462: in the default daemon session, Godot accepts the injected event position
+    # but does not expose a reliable seam for updating the engine-tracked mouse
+    # position. Pin that limitation so the documented workaround remains true.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(TRACKED_MOUSE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(TRACKED_MOUSE_PLAYER_GD, encoding="utf-8")
+
+    env = {**os.environ}
+
+    def run(*args):
+        return subprocess.run(
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=90,
+        )
+
+    def player_property(name: str):
+        got = run("game", "get", "/root/Main/Player", "--property", name)
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
+
+    def assert_event_position_with_stale_tracked_mouse(
+        kind: str, expected: list[float], relative: list[float]
+    ) -> None:
+        assert player_property("last_event_type") == kind
+        assert player_property("last_event_position") == expected
+        assert player_property("last_event_relative") == relative
+        assert player_property("last_global_mouse_position") == [0.0, 0.0]
+        assert player_property("last_viewport_mouse_position") == [0.0, 0.0]
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        click = run("input", "mouse-click", "123", "45")
+        assert click.returncode == 0, click.stdout + click.stderr
+        assert_event_position_with_stale_tracked_mouse(
+            "click", [123.0, 45.0], [0.0, 0.0]
+        )
+
+        move = run("input", "mouse-move", "50", "60")
+        assert move.returncode == 0, move.stdout + move.stderr
+        assert_event_position_with_stale_tracked_mouse(
+            "move", [50.0, 60.0], [-73.0, 15.0]
+        )
+
+        events = json.dumps([{"type": "mouse_move", "x": 77, "y": 88, "frame": 0}])
+        seq = run("input", "sequence", "--events", events)
+        assert seq.returncode == 0, seq.stdout + seq.stderr
+        assert_event_position_with_stale_tracked_mouse(
+            "move", [77.0, 88.0], [27.0, 28.0]
+        )
     finally:
         run("daemon", "stop")
 
