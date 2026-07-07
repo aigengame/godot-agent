@@ -74,11 +74,15 @@ def test_editor_roundtrip_json_and_derived(tmp_path) -> None:
 
     # Belt-and-braces at the Python tier: the SAVED JSON authority carries the
     # edits (numeric ==, so Godot's int/float JSON formatting is irrelevant).
-    level = json.loads((project / "data/json/level_config.json").read_text(encoding="utf-8"))
+    level = json.loads(
+        (project / "data/json/level_config.json").read_text(encoding="utf-8")
+    )
     assert level["platforms"][0]["position"] == _EXPECT_SEG0_POSITION
     assert level["platforms"][0]["size"] == _EXPECT_SEG0_SIZE
     assert level["arena_min_x"] == _EXPECT_ARENA_MIN
-    enemies = json.loads((project / "data/json/enemies_config.json").read_text(encoding="utf-8"))
+    enemies = json.loads(
+        (project / "data/json/enemies_config.json").read_text(encoding="utf-8")
+    )
     assert enemies["waves"][0]["spawns"][0]["position"] == _EXPECT_SPAWN0_POSITION
 
     # And the worktree authority is untouched (the copy took all writes).
