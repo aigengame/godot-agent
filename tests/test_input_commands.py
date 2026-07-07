@@ -734,6 +734,20 @@ def test_input_sequence_help_names_process_and_physics_clocks():
     assert "physics_frame" in result.stdout
 
 
+def test_input_sequence_help_documents_mouse_tracked_position_limitation():
+    result = CliRunner().invoke(app, ["input", "sequence", "--help"])
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    assert "mouse_click" in result.stdout
+    assert "mouse_move" in result.stdout
+    assert "mouse event" in result.stdout
+    assert "position" in result.stdout
+    assert "get_mouse_position()" in result.stdout
+    assert "get_global_mouse_position()" in result.stdout
+    assert "stale in" in result.stdout
+    assert "daemon sessions" in result.stdout
+
+
 # --- model validation via --params-json (ADR-0015) ----------------------------
 # The model is the input source of truth for BOTH paths; an out-of-contract
 # --params-json object surfaces as the structured invalid_params error (exit 0,
