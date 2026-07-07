@@ -6,8 +6,9 @@ extends Node2D
 ## game's default entry (main.tscn) is untouched. It loads Level 1's JSON
 ## authorities for editing (EditorLevelModel), lets a human directly manipulate
 ## the spatial content — platform segments (move + resize), the Arena interval
-## (drag its bounds), the backdrop, and the Wave/Spawn roster positions (drag the
-## markers) — SAVES by writing ONLY the JSON authority, re-derives the Resources
+## (drag its bounds), the backdrop (the overlay's Backdrop color picker,
+## live-applied), and the Wave/Spawn roster positions (drag the markers) — SAVES
+## by writing ONLY the JSON authority, re-derives the Resources
 ## through the ONE Python builder (EditorBuilder -> scripts/build_config.py, never
 ## a GDScript re-derivation), and switches instantly between edit and play by
 ## instancing the game's own level flow (main.tscn) against the freshly derived
@@ -76,6 +77,7 @@ var _play_instance: Node = null
 @onready var _play_host: Node = $PlayHost
 @onready var _overlay_status: Label = $Overlay/Status
 @onready var _overlay_help: Label = $Overlay/Help
+@onready var _backdrop_button: ColorPickerButton = $Overlay/BackdropColor
 
 
 func _ready() -> void:
@@ -94,6 +96,12 @@ func _ready() -> void:
 		push_error("EditorController: could not load Level 1 JSON authorities.")
 		return
 	RenderingServer.set_default_clear_color(_model.get_background_color())
+	# The backdrop's direct-manipulation channel (gADR-0012 scope): its one
+	# authored property is the level authority's background_color, edited through
+	# Godot's built-in picker — live-applied to the clear color, saved through the
+	# same model/save path as every spatial edit. Numeric forms remain #441.
+	_backdrop_button.color = _model.get_background_color()
+	_backdrop_button.color_changed.connect(_on_backdrop_color_changed)
 	_set_status()
 	queue_redraw()
 	GameLogScript.emit("info", "editor_ready", {
@@ -191,6 +199,16 @@ func _update_drag(world: Vector2) -> void:
 func _end_drag() -> void:
 	_dragging = false
 	_active = _none()
+
+
+## The backdrop edit (gADR-0012): Godot's built-in picker writes the level
+## authority's background_color through the model (same save path as a drag)
+## and live-applies it as the clear color — the editor IS the preview.
+func _on_backdrop_color_changed(color: Color) -> void:
+	_model.set_background_color(color)
+	RenderingServer.set_default_clear_color(color)
+	last_action = "edit:backdrop"
+	_set_status()
 
 
 func _arrow_delta(keycode: int) -> Vector2:
@@ -308,6 +326,7 @@ func _enter_play() -> void:
 	_play_host.add_child(_play_instance)
 	is_playing = true
 	_overlay_help.visible = false
+	_backdrop_button.visible = false
 	queue_redraw()
 	_set_status()
 	GameLogScript.emit("info", "editor_play_entered", {})
@@ -319,6 +338,7 @@ func _exit_play() -> void:
 		_play_instance = null
 	is_playing = false
 	_overlay_help.visible = true
+	_backdrop_button.visible = true
 	# The play instance freed its Player Camera2D; restore the editor framing and
 	# the backdrop the game's LevelController overwrote.
 	_editor_camera.make_current()

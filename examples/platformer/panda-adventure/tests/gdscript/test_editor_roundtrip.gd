@@ -44,10 +44,14 @@ func _init() -> void:
 	var seg_size: Vector2 = model.get_platform_size(0) + Vector2(32.0, 0.0)
 	var arena_min: float = model.get_arena_min_x() + 16.0
 	var spawn_pos: Vector2 = model.get_spawn_position(0, 0) + Vector2(48.0, -16.0)
+	# The backdrop edit (the picker channel). Power-of-two components represent
+	# exactly in float32 AND JSON, so it round-trips with plain equality.
+	var backdrop := Color(0.25, 0.5, 0.75, 1.0)
 	model.set_platform_center(0, seg_center)
 	model.set_platform_size(0, seg_size)
 	model.set_arena_min_x(arena_min)
 	model.set_spawn_position(0, 0, spawn_pos)
+	model.set_background_color(backdrop)
 	if not model.dirty:
 		_fail("model must be dirty after edits")
 		return
@@ -81,6 +85,9 @@ func _init() -> void:
 	if reloaded.get_spawn_position(0, 0) != spawn_pos:
 		_fail("JSON spawn position not persisted")
 		return
+	if reloaded.get_background_color() != backdrop:
+		_fail("JSON backdrop color not persisted: %s" % [reloaded.get_background_color()])
+		return
 
 	# --- the DERIVED Resources carry the edit (proof the builder actually ran).
 	var level: Resource = load(LEVEL_TRES)
@@ -95,6 +102,9 @@ func _init() -> void:
 		return
 	if level.arena_min_x != arena_min:
 		_fail("derived .tres arena_min stale")
+		return
+	if level.background_color != backdrop:
+		_fail("derived .tres backdrop stale: %s" % [level.background_color])
 		return
 	var schedule: Resource = load(SCHEDULE_TRES)
 	if schedule == null:
