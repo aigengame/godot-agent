@@ -297,7 +297,7 @@ the grep heuristic might miss in another language.
 - **A review/fix round is a re-dispatch — restate the whole discipline.** Prefer
   resuming the ORIGINAL implementer (its context is intact), but do not assume it
   remembers the rules it followed last round: restate worktree pinning, commit-early,
-  and the §3 DoD gates in the fix brief, and require **one commit per finding**. Kills
+  and the §3 DoD gates in the round's dispatch brief, and require **one commit per finding**. Kills
   strike mid-round too (session/usage limits, not just truncation) — one real agent
   finished an entire review/fix round and died with all of it uncommitted.
 - **Takeover recipe for uncommitted work:** review the whole uncommitted diff yourself
