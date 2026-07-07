@@ -34,13 +34,13 @@ expect a conflict-heavy serial merge, or fix it structurally first (§8).
 **Assign each hotspot exactly one owner slice per wave.** When two slices *could*
 legitimately touch the same shared file (one refactors a module, another instances it),
 name the owner in both dispatch prompts: the owner edits; every other slice must **flag
-the needed change in its report instead of editing** (the orchestrator then serializes
-or folds it into the owner's slice). This converts a probable merge conflict into an
-explicit coordination point — one real wave ran a view-layer refactor in parallel with a
-consumer of those same files at zero conflicts this way. Ownership **routes** a
-legitimate shared-file edit through one slice; it never suppresses the edit (the
-disjointness guardrail below still holds) — a non-owner's needed change lands via the
-owner, a lead-reassigned ownership, or a serialized follow-up.
+the needed change in its report instead of editing** (the orchestrator — the "lead" — then serializes
+or folds it into the owner's slice). Ownership converts a probable merge conflict into
+an explicit coordination point: it **routes** a legitimate shared-file edit through one
+slice — never suppresses it (the disjointness guardrail below still holds) — so a
+non-owner's needed change lands via the owner, a lead-reassigned ownership, or a
+serialized follow-up. One real wave ran a view-layer refactor in parallel with a
+consumer of those same files at zero conflicts this way.
 
 **Guardrail: disjointness is a merge-cost heuristic, not an architecture goal.** When
 slicing for disjointness would suppress or distort a sound design decision, the design
@@ -100,7 +100,8 @@ You are implementing <slice> in an ISOLATED git worktree.
 - Commit early and often, even WIP — a truncated/killed run only loses UNcommitted work.
 - Definition of Done: the INTEGRATION-tier test passes (the tier that actually exercises
   the integration boundary — integration / e2e / compile / a parse `--check-only`), not
-  just the fast tier that stubs it. Do not satisfy DoD with `-m "not <integration>"`.
+  just the fast tier that stubs it. Do not satisfy DoD by deselecting the integration
+  tier (e.g. a pytest-style `-m "not <integration>"` filter — or your runner's equivalent).
 - Also part of DoD — beyond the test tiers, mirror the repo's NON-TEST PR-CI gates: read
   the gate list off the CI workflow itself (do not recite it from memory) and run each
   gate exactly as CI invokes it (same commands/flags) — typically the formatter CHECK,
@@ -200,7 +201,8 @@ After the replay, update the PR metadata before merging:
 - retarget the PR to the real base branch if the host did not already do it
 - remove stale "stacked on PR-A" text
 - change `Refs #N` to `Closes #N` only if B now fully satisfies the issue
-- update the validation section to the commands run on the post-rebase head
+- refresh any verification evidence recorded in the PR description to the commands
+  actually run on the post-rebase head
 - wait for CI on the new head; old green checks belonged to the stacked base
 
 ## 5. The two silent merge hazards (no conflict marker; fast tests still pass)
@@ -295,9 +297,9 @@ the grep heuristic might miss in another language.
 - **A review/fix round is a re-dispatch — restate the whole discipline.** Prefer
   resuming the ORIGINAL implementer (its context is intact), but do not assume it
   remembers the rules it followed last round: restate worktree pinning, commit-early,
-  and the CI-mirror DoD in the fix brief, and require **one commit per finding**. Kills
-  strike mid-fix-round too (session/usage limits, not just truncation) — one real agent
-  finished an entire fix round and died with all of it uncommitted.
+  and the §3 DoD gates in the round's dispatch brief, and require **one commit per finding**. Kills
+  strike mid-round too (session/usage limits, not just truncation) — one real agent
+  finished an entire review/fix round and died with all of it uncommitted.
 - **Takeover recipe for uncommitted work:** review the whole uncommitted diff yourself
   against the findings it claims to fix, run the same gates the dispatch DoD requires
   (§3: the integration tier plus the PR-CI gate list read off the CI workflow), then
