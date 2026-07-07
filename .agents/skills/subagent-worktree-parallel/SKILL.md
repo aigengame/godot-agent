@@ -49,6 +49,15 @@ the cost/benefit table).
   issue must use a non-closing `Refs #N`, or the first partial merge closes the issue
   prematurely. The subagent reports whether its slice fully satisfies the issue; the lead
   decides the keyword.
+- **Stacked PRs are live dependencies until merged.** When a base PR receives review fixes
+  or is squash-merged, every dependent PR must be re-evaluated: rebase/retarget it, update
+  stale PR body text and close-vs-reference keywords, then rerun the real gates on the new
+  head. Old green CI on the stacked base is not merge evidence.
+- **Public docs and agent-facing docs are integration surfaces.** If a slice changes a
+  user/agent-visible behavior or public shape, verify the whole surface chain for that
+  slice and its dependents — CLI/help, schemas, user docs, generated or translated docs,
+  and bundled skills/agent guidance. Code tests alone can miss a documentation contract
+  gap or a stale generated marker.
 - **Disjointness is a merge-cost heuristic, not an architecture goal.** Never let "keep
   slices disjoint / avoid the append hotspot" suppress a sound design decision — a
   legitimate shared-module edit, deep-module *reuse*, or a single source for a public
@@ -76,11 +85,15 @@ decompose + dependency analysis → plan waves → fan out (implement) → merge
    into its DoD. (REFERENCE §3)
 4. **Merge serially in dependency order.** Tracer first → rebase followers onto the new
    base → independent groups can merge in any order. Re-poll mergeability after each
-   merge. Watch for the two marker-free conflict traps. (REFERENCE §4, §5)
+   merge. For stacked PRs, retarget followers after the base lands and update any stale
+   `Refs`/`Closes` or validation text before merging. Watch for the two marker-free
+   conflict traps. (REFERENCE §4, §5)
 5. **Verify, open PRs, take over.** Re-run the integration tier yourself (a *clean* rebase
-   still needs it); run shared-global-resource tests serially; treat any "completed but no
-   commit/push" report as needs-takeover, not success. **You** (not the subagent) open each
-   PR, choosing `Closes #N` only when the slice fully satisfies its issue (else `Refs #N`).
+   still needs it); run shared-global-resource tests serially; audit any public docs/agent
+   docs surface; treat any "completed but no commit/push" report as needs-takeover, not
+   success. **You** (not the subagent) open each PR, choosing `Closes #N` only when the
+   slice fully satisfies its issue (else `Refs #N`). Address actionable review comments
+   with code/tests and reply or resolve them according to the repo's PR convention.
    (REFERENCE §6, §7)
 
 This path is **not one-shot**: independent review sends merged-ready slices back, and

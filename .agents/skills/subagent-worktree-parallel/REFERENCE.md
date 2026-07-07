@@ -25,6 +25,8 @@ edits, where all the integration cost concentrates:
 - renderer / plugin / handler maps
 - shared model or schema registration
 - shared test files / fixtures
+- public docs, command catalogs, generated/translated docs, and bundled agent skills
+  that mirror the public surface
 
 A wave whose slices all hammer the same hotspot is *not* a good parallel candidate —
 expect a conflict-heavy serial merge, or fix it structurally first (§8).
@@ -130,6 +132,12 @@ Merging is an ordered serial workflow, not a fan-out:
 3. **A clean auto-merge still gets the integration gate** (§6) — the marker-free traps
    in §5 hide precisely in conflict-free rebases.
 
+**Base remediation invalidates dependent PR evidence.** If PR-A is the base for PR-B,
+then every review fix, doc fix, or force-push on A requires a fresh B check. Rebase B
+onto A's updated head, re-run the gates that cover the touched surface, and inspect B's
+user/agent-visible docs before treating it as merge-ready. A dependent PR can be green
+and still be stale because the base changed after its CI run.
+
 ### Stacked PR after its base was squash-merged
 
 If the repo **squash-merges** and PR-B is stacked on PR-A, then once A is squash-merged
@@ -137,7 +145,18 @@ into main, do **NOT** `git merge origin/main` into B: B carries A's *individual*
 via the branch point while main now has A as *one* squash commit, so git sees divergence
 and conflicts on **every file A touched** (even files B never edited).
 
-Replay only B's own commits onto main instead:
+Replay only B's own commits onto main instead. If B is a normal branch with only B's
+commits after A, preserve its commit structure:
+
+```bash
+git -C <B-worktree> fetch origin
+git -C <B-worktree> rebase --onto origin/main <old-A-branch-or-sha> B-branch
+# resolve only genuine A↔B overlap, run fast + integration tiers, then:
+git -C <B-worktree> push --force-with-lease
+```
+
+If B has messy local history and you want a single merge commit's worth of B content,
+squash B first, then replay it:
 
 ```bash
 # Scope EVERY mutating git command with `-C <B-worktree>` (per §3/§7 — never let a
@@ -149,12 +168,19 @@ git -C <B-worktree> commit -m "<B title>"                       # ... (scoped: l
 git -C <B-worktree> rebase --onto origin/main "$base" B-branch  # 1 commit → ONE conflict pass
 # resolve only the genuine A↔B overlap, run fast + integration tiers, then:
 git -C <B-worktree> push --force-with-lease
-gh pr edit B --base main && gh pr merge B --squash             # GitHub example; swap in your host's CLI
 ```
 
 > The portable lesson is host-agnostic: **replay only B's own commits with `git rebase
-> --onto`; never merge the base in.** The last line and the `main` / `origin/main` names
-> are just this example's host (GitHub) and base branch — substitute your own.
+> --onto`; never merge the base in.** The `main` / `origin/main` names are just this
+> example's base branch and remote — substitute your own.
+
+After the replay, update the PR metadata before merging:
+
+- retarget the PR to the real base branch if the host did not already do it
+- remove stale "stacked on PR-A" text
+- change `Refs #N` to `Closes #N` only if B now fully satisfies the issue
+- update the validation section to the commands run on the post-rebase head
+- wait for CI on the new head; old green checks belonged to the stacked base
 
 ## 5. The two silent merge hazards (no conflict marker; fast tests still pass)
 
@@ -201,6 +227,13 @@ the grep heuristic might miss in another language.
   spawned it and hunts the contract gap those tests can't see. This *front-runs* the fixed
   external per-PR review — it complements that review, never replaces or duplicates it —
   and how deep to go is the orchestrator's call.
+- **Public-surface consistency is part of integration.** When a slice changes a public
+  shape or user/agent-observable behavior, audit every mirrored surface before merge:
+  CLI/help text, schema/model descriptions, command catalogs, README-style user docs,
+  generated or translated docs and their sync markers, and bundled agent skills or
+  playbooks. Re-run the repo's doc/skill/schema sync tests. Do this again after base
+  review fixes in a stacked PR, because the dependent PR may carry stale help text or
+  regenerated docs even when its code tests pass.
 - **Run shared-global-resource tests SERIALLY across worktrees.** If the integration
   tier contends on a global resource — a shared log directory, a fixed port, a fixed
   on-disk fixture/path — concurrent runs across worktrees race and produce spurious
@@ -216,6 +249,10 @@ the grep heuristic might miss in another language.
   *cross-cutting cause*. Fix it in a shared follow-up rather than band-aiding the one
   slice — especially when sibling slices each grew their own *partial* handling that the
   shared fix should later absorb (otherwise the duplication is what ships).
+- **Close the review loop.** For actionable PR review comments, implement the fix,
+  re-run the relevant gates, push, and reply or resolve the thread according to the
+  repo's convention. Review remediation can touch shared docs or other hotspots, so
+  update the overlap map and dependent PR plan after each review fix.
 
 ## 7. Resilience & takeover
 
@@ -259,8 +296,14 @@ design decision (an ADR) of its own.
 - [ ] Each subagent's DoD includes deep-module reuse — no re-implementing shared logic, and no dodging a legitimate shared-file edit, to fake disjointness (§1).
 - [ ] Agents pinned to their own worktree; will commit early; "done but no artifact" = takeover.
 - [ ] Merge order decided (tracer first); after each resolution, audit for the marker-free traps.
+- [ ] Stacked followers have an explicit retarget/rebase plan for after the base PR lands
+      or receives review fixes; old base branch/SHA is recorded for `rebase --onto`.
 - [ ] Shared-global-resource tests will run serially across worktrees.
 - [ ] Orchestrator will independently re-verify before each merge.
+- [ ] Any public-surface change has a docs/schema/help/agent-skill/i18n sync gate in the
+      orchestrator's verification plan.
+- [ ] Actionable review comments will be closed with code/tests plus a PR reply or thread
+      resolution, not just a local fix.
 - [ ] PR creation is the orchestrator's: subagents commit + push only; the lead opens each PR and chooses `Closes #N` (only if the slice fully satisfies its issue) vs `Refs #N`.
 - [ ] If append hotspots keep causing conflicts, consider splitting them (ADR).
 
