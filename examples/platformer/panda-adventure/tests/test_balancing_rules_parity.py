@@ -59,8 +59,13 @@ def _apply_rule(category: str, case: dict) -> float | bool:
     if category == "compute_move_dir":
         sp, pp = case["self_pos"], case["player_pos"]
         return rules.compute_move_dir(
-            sp[0], sp[1], pp[0], pp[1],
-            case["aggro_range"], case["keep_range_min"], case["keep_range_max"],
+            sp[0],
+            sp[1],
+            pp[0],
+            pp[1],
+            case["aggro_range"],
+            case["keep_range_min"],
+            case["keep_range_max"],
         )
     if category == "is_attack_ready":
         return rules.is_attack_ready(
@@ -69,9 +74,15 @@ def _apply_rule(category: str, case: dict) -> float | bool:
     if category == "can_attack":
         sp, pp = case["self_pos"], case["player_pos"]
         return rules.can_attack(
-            sp[0], sp[1], pp[0], pp[1],
-            case["aggro_range"], case["attack_range"], case["attack_cooldown"],
-            case["last_attack_time"], case["now"],
+            sp[0],
+            sp[1],
+            pp[0],
+            pp[1],
+            case["aggro_range"],
+            case["attack_range"],
+            case["attack_cooldown"],
+            case["last_attack_time"],
+            case["now"],
         )
     raise AssertionError(f"unknown fixture category {category!r}")
 
@@ -88,9 +99,14 @@ def _assert_match(got: float | bool, expected: float | bool, where: str) -> None
 def _script_run(env: dict[str, str]) -> subprocess.CompletedProcess:
     return subprocess.run(
         [
-            *GDA_CMD, "script", "run", _GENERATOR,
-            "--project", str(GAME_DIR),
-            "--godot", str(resolve_godot_binary()),
+            *GDA_CMD,
+            "script",
+            "run",
+            _GENERATOR,
+            "--project",
+            str(GAME_DIR),
+            "--godot",
+            str(resolve_godot_binary()),
             "--json",
         ],
         capture_output=True,

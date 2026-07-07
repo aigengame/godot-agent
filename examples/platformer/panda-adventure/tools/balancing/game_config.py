@@ -110,7 +110,9 @@ def load_game_data(config_dir: Path) -> GameData:
     )
 
 
-def build_player_model(game: GameData, player_model_params: dict[str, Any]) -> PlayerModel:
+def build_player_model(
+    game: GameData, player_model_params: dict[str, Any]
+) -> PlayerModel:
     """Combine the game's player numbers with the design player-model assumptions.
 
     ``player_model_params`` are the design inputs from the targets file

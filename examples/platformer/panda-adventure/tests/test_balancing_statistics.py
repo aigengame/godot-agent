@@ -34,7 +34,13 @@ def test_summarize_single_sample() -> None:
     """A one-element set has zero spread and every quantile equal to it."""
     d = summarize([7.5])
     assert (d.n, d.mean, d.median, d.p10, d.p90, d.minimum, d.maximum) == (
-        1, 7.5, 7.5, 7.5, 7.5, 7.5, 7.5,
+        1,
+        7.5,
+        7.5,
+        7.5,
+        7.5,
+        7.5,
+        7.5,
     )
     assert d.stdev == 0.0
 

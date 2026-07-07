@@ -65,8 +65,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="write the JSON report to this path (never a config file); default stdout",
     )
-    validate.add_argument("--seed", type=int, default=None, help="override the base seed")
-    validate.add_argument("--runs", type=int, default=None, help="override the run count")
+    validate.add_argument(
+        "--seed", type=int, default=None, help="override the base seed"
+    )
+    validate.add_argument(
+        "--runs", type=int, default=None, help="override the run count"
+    )
     validate.add_argument(
         "--json",
         action="store_true",

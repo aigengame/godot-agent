@@ -211,6 +211,10 @@ def format_text(report: ValidationReport) -> str:
         )
     lines.append(
         "RESULT: "
-        + ("all within tolerance" if report.all_within_tolerance else "OUT OF TOLERANCE")
+        + (
+            "all within tolerance"
+            if report.all_within_tolerance
+            else "OUT OF TOLERANCE"
+        )
     )
     return "\n".join(lines)

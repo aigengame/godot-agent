@@ -77,8 +77,13 @@ def test_deterministic_ttk_no_rng() -> None:
     kind = _kind()
     wave = Wave(index=1, spawns=(Spawn(kind="dummy", name="E", x=200.0, y=0.0),))
     outcome = simulate_encounter(
-        _player(), wave, {"dummy": kind}, _COMBAT,
-        dt=0.1, max_time=10.0, rng=Random(0),
+        _player(),
+        wave,
+        {"dummy": kind},
+        _COMBAT,
+        dt=0.1,
+        max_time=10.0,
+        rng=Random(0),
     )
     assert outcome.cleared is True
     assert outcome.player_died is False
@@ -98,10 +103,16 @@ def test_player_death_path() -> None:
     )
     wave = Wave(index=1, spawns=(Spawn(kind="dummy", name="E", x=10.0, y=0.0),))
     outcome = simulate_encounter(
-        _player(stats=StatBlock(max_hp=30.0, max_mp=0.0, attack=10.0, defense=0.0),
-                accuracy=0.0),
-        wave, {"dummy": kind}, _COMBAT,
-        dt=0.1, max_time=10.0, rng=Random(0),
+        _player(
+            stats=StatBlock(max_hp=30.0, max_mp=0.0, attack=10.0, defense=0.0),
+            accuracy=0.0,
+        ),
+        wave,
+        {"dummy": kind},
+        _COMBAT,
+        dt=0.1,
+        max_time=10.0,
+        rng=Random(0),
     )
     assert outcome.player_died is True
     assert outcome.cleared is False
@@ -118,7 +129,9 @@ def test_iframe_gate_limits_stacked_hits() -> None:
     5s cooldown means no further attacks land within the 0.5s window."""
     kind = _kind(
         stats=StatBlock(max_hp=1000.0, max_mp=0.0, attack=40.0, defense=0.0),
-        aggro_range=500.0, attack_range=500.0, attack_cooldown=5.0,
+        aggro_range=500.0,
+        attack_range=500.0,
+        attack_cooldown=5.0,
     )
     wave = Wave(
         index=1,
@@ -128,10 +141,16 @@ def test_iframe_gate_limits_stacked_hits() -> None:
         ),
     )
     outcome = simulate_encounter(
-        _player(accuracy=0.0,
-                stats=StatBlock(max_hp=50.0, max_mp=0.0, attack=10.0, defense=0.0)),
-        wave, {"dummy": kind}, _COMBAT,
-        dt=0.1, max_time=0.5, rng=Random(0),
+        _player(
+            accuracy=0.0,
+            stats=StatBlock(max_hp=50.0, max_mp=0.0, attack=10.0, defense=0.0),
+        ),
+        wave,
+        {"dummy": kind},
+        _COMBAT,
+        dt=0.1,
+        max_time=0.5,
+        rng=Random(0),
     )
     # Without the i-frame gate both 40s land (80 >= 50) and the player dies.
     assert outcome.player_died is False
@@ -141,8 +160,9 @@ def test_determinism_same_seed() -> None:
     """Same seed -> identical samples; a different seed -> a different result."""
     kind = _kind(aggro_range=500.0, attack_range=40.0, move_speed=100.0)
     wave = Wave(index=1, spawns=(Spawn(kind="dummy", name="E", x=300.0, y=0.0),))
-    player = _player(accuracy=0.7, dodge_chance=0.3, engagement_distance=50.0,
-                     move_speed=200.0)
+    player = _player(
+        accuracy=0.7, dodge_chance=0.3, engagement_distance=50.0, move_speed=200.0
+    )
     kinds = {"dummy": kind}
     a = run_wave(player, wave, kinds, _COMBAT, 0.05, 30.0, runs=25, seed=123)
     b = run_wave(player, wave, kinds, _COMBAT, 0.05, 30.0, runs=25, seed=123)
@@ -158,12 +178,22 @@ def test_reads_from_json_authority() -> None:
     assert len(game.waves) == 4  # the demo's default schedule
     player = game_config.build_player_model(
         game,
-        {"fire_interval": 0.3, "accuracy": 0.8, "dodge_chance": 0.2,
-         "engagement_distance": 60.0},
+        {
+            "fire_interval": 0.3,
+            "accuracy": 0.8,
+            "dodge_chance": 0.2,
+            "engagement_distance": 60.0,
+        },
     )
     for wave in game.waves:
         samples = run_wave(
-            player, wave, game.kinds, game.combat, 0.0166667, 60.0, runs=5,
+            player,
+            wave,
+            game.kinds,
+            game.combat,
+            0.0166667,
+            60.0,
+            runs=5,
             seed=1 + wave.index,
         )
         assert len(samples.ttk) == 5 and len(samples.ttd) == 5
@@ -174,16 +204,26 @@ def test_ranged_enemy_holds_its_band() -> None:
     """A ranged kind whose spawn distance is inside its Steering Band never
     closes to contact — the sim exercises compute_move_dir's hold branch."""
     kind = _kind(
-        archetype="ranged", tier="elite",
-        aggro_range=260.0, attack_range=240.0, move_speed=200.0,
-        keep_range_min=140.0, keep_range_max=200.0, attack_cooldown=1.4,
+        archetype="ranged",
+        tier="elite",
+        aggro_range=260.0,
+        attack_range=240.0,
+        move_speed=200.0,
+        keep_range_min=140.0,
+        keep_range_max=200.0,
+        attack_cooldown=1.4,
         stats=StatBlock(max_hp=60.0, max_mp=0.0, attack=8.0, defense=2.0),
     )
     wave = Wave(index=1, spawns=(Spawn(kind="dummy", name="R", x=170.0, y=0.0),))
     # Player stands still (engagement huge, move 0) so the enemy governs distance.
     outcome = simulate_encounter(
         _player(accuracy=0.0, move_speed=0.0, engagement_distance=1000.0),
-        wave, {"dummy": kind}, _COMBAT, dt=0.1, max_time=2.0, rng=Random(0),
+        wave,
+        {"dummy": kind},
+        _COMBAT,
+        dt=0.1,
+        max_time=2.0,
+        rng=Random(0),
     )
     # Nobody dies in 2s (player not firing, enemy holding its standoff band).
     assert outcome.player_died is False and outcome.cleared is False
