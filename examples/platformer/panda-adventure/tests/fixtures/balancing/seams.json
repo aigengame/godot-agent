@@ -1,0 +1,563 @@
+{
+  "can_attack": [
+    {
+      "aggro_range": 240.0,
+      "attack_cooldown": 1.2,
+      "attack_range": 48.0,
+      "expected": true,
+      "last_attack_time": -999999999999999879147136483328.0,
+      "now": 5.0,
+      "player_pos": [
+        40.0,
+        0.0
+      ],
+      "self_pos": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "aggro_range": 240.0,
+      "attack_cooldown": 1.2,
+      "attack_range": 48.0,
+      "expected": false,
+      "last_attack_time": -999999999999999879147136483328.0,
+      "now": 5.0,
+      "player_pos": [
+        100.0,
+        0.0
+      ],
+      "self_pos": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "aggro_range": 240.0,
+      "attack_cooldown": 1.0,
+      "attack_range": 400.0,
+      "expected": false,
+      "last_attack_time": -999999999999999879147136483328.0,
+      "now": 5.0,
+      "player_pos": [
+        300.0,
+        0.0
+      ],
+      "self_pos": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "aggro_range": 240.0,
+      "attack_cooldown": 2.0,
+      "attack_range": 48.0,
+      "expected": false,
+      "last_attack_time": 4.0,
+      "now": 5.0,
+      "player_pos": [
+        40.0,
+        0.0
+      ],
+      "self_pos": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "aggro_range": 260.0,
+      "attack_cooldown": 1.6,
+      "attack_range": 240.0,
+      "expected": true,
+      "last_attack_time": -999999999999999879147136483328.0,
+      "now": 5.0,
+      "player_pos": [
+        230.0,
+        0.0
+      ],
+      "self_pos": [
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "compute_damage": [
+    {
+      "attack_scale": 2.0,
+      "attacker_attack": 10.0,
+      "defender_defense": 0.0,
+      "defense_scale": 1.5,
+      "expected": 20.0,
+      "min_damage": 1.0
+    },
+    {
+      "attack_scale": 2.0,
+      "attacker_attack": 10.0,
+      "defender_defense": 2.0,
+      "defense_scale": 1.5,
+      "expected": 17.0,
+      "min_damage": 1.0
+    },
+    {
+      "attack_scale": 2.0,
+      "attacker_attack": 1.0,
+      "defender_defense": 10.0,
+      "defense_scale": 1.5,
+      "expected": 1.0,
+      "min_damage": 1.0
+    },
+    {
+      "attack_scale": 1.0,
+      "attacker_attack": 10.0,
+      "defender_defense": 0.0,
+      "defense_scale": 1.0,
+      "expected": 10.0,
+      "min_damage": 1.0
+    },
+    {
+      "attack_scale": 1.0,
+      "attacker_attack": 15.0,
+      "defender_defense": 5.0,
+      "defense_scale": 1.0,
+      "expected": 10.0,
+      "min_damage": 1.0
+    }
+  ],
+  "compute_move_dir": [
+    {
+      "aggro_range": 240.0,
+      "expected": 0.0,
+      "keep_range_max": 48.0,
+      "keep_range_min": 0.0,
+      "player_pos": [
+        500.0,
+        0.0
+      ],
+      "self_pos": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "aggro_range": 240.0,
+      "expected": 1.0,
+      "keep_range_max": 48.0,
+      "keep_range_min": 0.0,
+      "player_pos": [
+        100.0,
+        0.0
+      ],
+      "self_pos": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "aggro_range": 240.0,
+      "expected": -1.0,
+      "keep_range_max": 48.0,
+      "keep_range_min": 0.0,
+      "player_pos": [
+        0.0,
+        0.0
+      ],
+      "self_pos": [
+        100.0,
+        0.0
+      ]
+    },
+    {
+      "aggro_range": 260.0,
+      "expected": 0.0,
+      "keep_range_max": 200.0,
+      "keep_range_min": 140.0,
+      "player_pos": [
+        160.0,
+        0.0
+      ],
+      "self_pos": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "aggro_range": 260.0,
+      "expected": -1.0,
+      "keep_range_max": 200.0,
+      "keep_range_min": 140.0,
+      "player_pos": [
+        100.0,
+        0.0
+      ],
+      "self_pos": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "aggro_range": 240.0,
+      "expected": 0.0,
+      "keep_range_max": 48.0,
+      "keep_range_min": 0.0,
+      "player_pos": [
+        0.0,
+        100.0
+      ],
+      "self_pos": [
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "aggro_range": 240.0,
+      "expected": 0.0,
+      "keep_range_max": 48.0,
+      "keep_range_min": 0.0,
+      "player_pos": [
+        40.0,
+        240.0
+      ],
+      "self_pos": [
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "effective_defender": [
+    {
+      "base_defense": 0.0,
+      "defense_bonus": 2.0,
+      "expected": 2.0
+    },
+    {
+      "base_defense": 4.0,
+      "defense_bonus": 2.0,
+      "expected": 6.0
+    },
+    {
+      "base_defense": 3.0,
+      "defense_bonus": 0.0,
+      "expected": 3.0
+    }
+  ],
+  "is_attack_ready": [
+    {
+      "cooldown": 1.0,
+      "expected": true,
+      "last_attack_time": 0.0,
+      "now": 2.0
+    },
+    {
+      "cooldown": 1.0,
+      "expected": false,
+      "last_attack_time": 0.0,
+      "now": 0.5
+    },
+    {
+      "cooldown": 1.0,
+      "expected": true,
+      "last_attack_time": 0.0,
+      "now": 1.0
+    },
+    {
+      "cooldown": 1.0,
+      "expected": true,
+      "last_attack_time": -999999999999999879147136483328.0,
+      "now": 0.0
+    }
+  ],
+  "is_dead": [
+    {
+      "expected": true,
+      "hp": 0.0
+    },
+    {
+      "expected": true,
+      "hp": -5.0
+    },
+    {
+      "expected": false,
+      "hp": 0.1
+    },
+    {
+      "expected": false,
+      "hp": 25.0
+    }
+  ],
+  "is_inside_field": [
+    {
+      "expected": true,
+      "field_center": [
+        60.0,
+        0.0
+      ],
+      "pos": [
+        0.0,
+        0.0
+      ],
+      "radius": 160.0
+    },
+    {
+      "expected": true,
+      "field_center": [
+        0.0,
+        0.0
+      ],
+      "pos": [
+        160.0,
+        0.0
+      ],
+      "radius": 160.0
+    },
+    {
+      "expected": false,
+      "field_center": [
+        0.0,
+        0.0
+      ],
+      "pos": [
+        200.0,
+        0.0
+      ],
+      "radius": 160.0
+    },
+    {
+      "expected": true,
+      "field_center": [
+        0.0,
+        0.0
+      ],
+      "pos": [
+        96.0,
+        128.0
+      ],
+      "radius": 160.0
+    }
+  ],
+  "is_invulnerable": [
+    {
+      "expected": true,
+      "iframe_duration": 0.6,
+      "last_hit_time": 10.0,
+      "now": 10.3
+    },
+    {
+      "expected": false,
+      "iframe_duration": 0.5,
+      "last_hit_time": 10.0,
+      "now": 10.5
+    },
+    {
+      "expected": false,
+      "iframe_duration": 0.6,
+      "last_hit_time": 10.0,
+      "now": 11.0
+    },
+    {
+      "expected": false,
+      "iframe_duration": 0.6,
+      "last_hit_time": -999999999999999879147136483328.0,
+      "now": 0.0
+    }
+  ],
+  "should_warp": [
+    {
+      "aggro_range": 400.0,
+      "expected": true,
+      "last_warp_time": -999999999999999879147136483328.0,
+      "now": 0.0,
+      "player_pos": [
+        400.0,
+        0.0
+      ],
+      "self_pos": [
+        700.0,
+        0.0
+      ],
+      "warp_cooldown": 8.0,
+      "warp_trigger_range": 200.0
+    },
+    {
+      "aggro_range": 400.0,
+      "expected": false,
+      "last_warp_time": -999999999999999879147136483328.0,
+      "now": 0.0,
+      "player_pos": [
+        550.0,
+        0.0
+      ],
+      "self_pos": [
+        700.0,
+        0.0
+      ],
+      "warp_cooldown": 8.0,
+      "warp_trigger_range": 200.0
+    },
+    {
+      "aggro_range": 400.0,
+      "expected": false,
+      "last_warp_time": -999999999999999879147136483328.0,
+      "now": 0.0,
+      "player_pos": [
+        200.0,
+        0.0
+      ],
+      "self_pos": [
+        700.0,
+        0.0
+      ],
+      "warp_cooldown": 8.0,
+      "warp_trigger_range": 200.0
+    },
+    {
+      "aggro_range": 400.0,
+      "expected": false,
+      "last_warp_time": 0.0,
+      "now": 5.0,
+      "player_pos": [
+        400.0,
+        0.0
+      ],
+      "self_pos": [
+        700.0,
+        0.0
+      ],
+      "warp_cooldown": 8.0,
+      "warp_trigger_range": 200.0
+    },
+    {
+      "aggro_range": 400.0,
+      "expected": true,
+      "last_warp_time": 0.0,
+      "now": 8.0,
+      "player_pos": [
+        400.0,
+        0.0
+      ],
+      "self_pos": [
+        700.0,
+        0.0
+      ],
+      "warp_cooldown": 8.0,
+      "warp_trigger_range": 200.0
+    },
+    {
+      "aggro_range": 400.0,
+      "expected": false,
+      "last_warp_time": -999999999999999879147136483328.0,
+      "now": 0.0,
+      "player_pos": [
+        400.0,
+        0.0
+      ],
+      "self_pos": [
+        700.0,
+        0.0
+      ],
+      "warp_cooldown": 0.0,
+      "warp_trigger_range": 200.0
+    }
+  ],
+  "warp_landing": [
+    {
+      "arena_max_x": 1280.0,
+      "arena_min_x": -160.0,
+      "expected": [
+        340.0,
+        -32.0
+      ],
+      "player_pos": [
+        400.0,
+        0.0
+      ],
+      "self_pos": [
+        700.0,
+        0.0
+      ],
+      "warp_offset": [
+        60.0,
+        -32.0
+      ]
+    },
+    {
+      "arena_max_x": 1280.0,
+      "arena_min_x": -160.0,
+      "expected": [
+        460.0,
+        -32.0
+      ],
+      "player_pos": [
+        400.0,
+        0.0
+      ],
+      "self_pos": [
+        100.0,
+        0.0
+      ],
+      "warp_offset": [
+        60.0,
+        -32.0
+      ]
+    },
+    {
+      "arena_max_x": 1280.0,
+      "arena_min_x": -160.0,
+      "expected": [
+        460.0,
+        -32.0
+      ],
+      "player_pos": [
+        400.0,
+        0.0
+      ],
+      "self_pos": [
+        400.0,
+        100.0
+      ],
+      "warp_offset": [
+        60.0,
+        -32.0
+      ]
+    },
+    {
+      "arena_max_x": 1280.0,
+      "arena_min_x": -160.0,
+      "expected": [
+        -160.0,
+        -32.0
+      ],
+      "player_pos": [
+        -180.0,
+        0.0
+      ],
+      "self_pos": [
+        100.0,
+        0.0
+      ],
+      "warp_offset": [
+        60.0,
+        -32.0
+      ]
+    },
+    {
+      "arena_max_x": 1280.0,
+      "arena_min_x": -160.0,
+      "expected": [
+        1280.0,
+        -32.0
+      ],
+      "player_pos": [
+        1270.0,
+        0.0
+      ],
+      "self_pos": [
+        100.0,
+        0.0
+      ],
+      "warp_offset": [
+        60.0,
+        -32.0
+      ]
+    }
+  ]
+}
