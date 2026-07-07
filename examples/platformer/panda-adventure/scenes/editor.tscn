@@ -1,0 +1,31 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://src/editor/editor_controller.gd" id="1_pgkmy"]
+
+[node name="Editor" type="Node2D" unique_id=1236236346]
+script = ExtResource("1_pgkmy")
+
+[node name="EditorCamera" type="Camera2D" parent="." unique_id=1817981051]
+position = Vector2(560, 380)
+zoom = Vector2(0.55, 0.55)
+
+[node name="PlayHost" type="Node" parent="." unique_id=2004750590]
+
+[node name="Overlay" type="CanvasLayer" parent="." unique_id=71628236]
+
+[node name="Help" type="Label" parent="Overlay" unique_id=1972067865]
+offset_left = 16.0
+offset_top = 12.0
+text = "Tab: play/edit    S: save+derive    click: select    drag: move    corner: resize    arrows: nudge    Backdrop: color    Esc: deselect"
+
+[node name="Status" type="Label" parent="Overlay" unique_id=1336018156]
+offset_left = 16.0
+offset_top = 40.0
+text = "[EDIT]"
+
+[node name="BackdropColor" type="ColorPickerButton" parent="Overlay" unique_id=1335363151]
+offset_left = 16.0
+offset_top = 68.0
+offset_right = 140.0
+offset_bottom = 96.0
+text = "Backdrop "
