@@ -1448,12 +1448,12 @@ def input_sequence(
         "--events",
         help=(
             "The events to inject, as a JSON array of event objects, each with a "
-            "'type' (key/mouse_click/mouse_move/action), either a relative "
+            "'type' (key/mouse_click/mouse_button/mouse_move/action), either a relative "
             "'frame' harness/process-frame offset or a 'physics_frame' physics-clock "
             "offset, and the type's fields (e.g. "
-            '\'[{"type":"action","action":"move_right","physics_frame":0},'
-            '{"type":"action","action":"move_right","release":true,'
-            '"physics_frame":30}]\').'
+            '\'[{"type":"mouse_button","x":10,"y":10,"pressed":true},'
+            '{"type":"mouse_move","x":40,"y":20,"frame":1},'
+            '{"type":"mouse_button","x":40,"y":20,"release":true,"frame":2}]\').'
         ),
     ),
     json_output: bool = json_option(),
@@ -1471,10 +1471,12 @@ def input_sequence(
     frames. Use `physics_frame` offsets instead when a press/release window must map
     deterministically to physics simulation ticks, e.g. press an action at
     `physics_frame: 0` and release it at `physics_frame: 30` for a 30-physics-frame
-    hold. For sequence `mouse_click` and `mouse_move` events, read the injected
-    coordinate from the mouse event's position; Godot may leave
-    Viewport.get_mouse_position() / Node2D.get_global_mouse_position() stale in
-    daemon sessions. A malformed `--events` (not a JSON array, an empty list, an
+    hold. A `mouse_button` press followed by `mouse_move` events and a matching
+    `mouse_button` release carries the held-button mask on the motion events for
+    drag handlers. For sequence mouse events, read the injected coordinate from the
+    mouse event's position; Godot may leave Viewport.get_mouse_position() /
+    Node2D.get_global_mouse_position() stale in daemon sessions. A malformed
+    `--events` (not a JSON array, an empty list, an
     ill-formed event, or mixed `frame`/`physics_frame` clocks) is a usage error; with
     no daemon it reports `daemon_not_running`. An event's action absent from the
     InputMap is `live_unknown_action`, an unresolvable key `live_invalid_key`.

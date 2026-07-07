@@ -690,6 +690,7 @@ func _input_viewport() -> Viewport:
 
 
 var _last_injected_mouse_position: Variant = null
+var _injected_mouse_button_mask := 0
 
 
 func _prepare_mouse_input() -> Viewport:
@@ -740,14 +741,42 @@ func _mouse_button_index(button: String) -> int:
 			return MOUSE_BUTTON_LEFT
 
 
+func _mouse_button_mask(button: String) -> int:
+	match button:
+		"right":
+			return MOUSE_BUTTON_MASK_RIGHT
+		"middle":
+			return MOUSE_BUTTON_MASK_MIDDLE
+		_:
+			return MOUSE_BUTTON_MASK_LEFT
+
+
 # Push a mouse-button event at a viewport position. Shared by the single-frame
 # click op and a sequence mouse-click event.
 func _push_mouse_click(pos: Vector2, button: String, double: bool) -> void:
 	var viewport := _prepare_mouse_input()
 	var event := InputEventMouseButton.new()
 	event.button_index = _mouse_button_index(button)
+	event.button_mask = _mouse_button_mask(button)
 	event.position = pos
 	event.pressed = true
+	event.double_click = double
+	viewport.push_input(event, true)
+	_last_injected_mouse_position = pos
+
+
+func _push_mouse_button_phase(pos: Vector2, button: String, pressed: bool, double: bool) -> void:
+	var viewport := _prepare_mouse_input()
+	var mask := _mouse_button_mask(button)
+	if pressed:
+		_injected_mouse_button_mask = _injected_mouse_button_mask | mask
+	else:
+		_injected_mouse_button_mask = _injected_mouse_button_mask & ~mask
+	var event := InputEventMouseButton.new()
+	event.button_index = _mouse_button_index(button)
+	event.button_mask = _injected_mouse_button_mask
+	event.position = pos
+	event.pressed = pressed
 	event.double_click = double
 	viewport.push_input(event, true)
 	_last_injected_mouse_position = pos
@@ -763,6 +792,7 @@ func _push_mouse_move(pos: Vector2) -> void:
 	var event := InputEventMouseMotion.new()
 	event.position = pos
 	event.relative = pos - previous
+	event.button_mask = _injected_mouse_button_mask
 	viewport.push_input(event, true)
 	_last_injected_mouse_position = pos
 
@@ -874,6 +904,7 @@ func _handle_input_sequence(params: Dictionary) -> Variant:
 	var clock := WINDOW_CLOCK_PHYSICS if uses_physics else WINDOW_CLOCK_PROCESS
 	var total_frames := max_offset + 1
 	var frame_box := {"n": 0}
+	_injected_mouse_button_mask = 0
 	# The sampler applies every event due at the current selected-clock index, then
 	# advances that clock. A bad event type aborts the window with a typed error sample.
 	var sample := func() -> Variant:
@@ -885,10 +916,12 @@ func _handle_input_sequence(params: Dictionary) -> Variant:
 				continue
 			var err: Variant = _apply_sequence_event(event)
 			if err != null:
+				_injected_mouse_button_mask = 0
 				return {"error": err}
 		frame_box["n"] = current + 1
 		return current
 	var finalize := func(_samples: Array) -> String:
+		_injected_mouse_button_mask = 0
 		return _ok({
 			"kind": "sequence",
 			"clock": clock,
@@ -933,6 +966,16 @@ func _apply_sequence_event(event: Dictionary) -> Variant:
 			_push_mouse_click(
 					Vector2(_float_param(event, "x", 0.0), _float_param(event, "y", 0.0)),
 					button, bool(event.get("double", false)))
+			return null
+		"mouse_button":
+			var button := _string_param(event, "button")
+			if button.is_empty():
+				button = "left"
+			_push_mouse_button_phase(
+					Vector2(_float_param(event, "x", 0.0), _float_param(event, "y", 0.0)),
+					button,
+					bool(event.get("pressed", false)),
+					bool(event.get("double", false)))
 			return null
 		"mouse_move":
 			_push_mouse_move(

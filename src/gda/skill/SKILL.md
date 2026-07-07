@@ -94,6 +94,13 @@ fixed physics frames. When input timing must map to physics simulation, use
 `{"type":"action","action":"move_right","release":true,"physics_frame":N}` in the
 same sequence. At Godot's default 60 Hz physics clock, N=30 is 0.5 seconds of
 physics simulation. Do not mix `frame` and `physics_frame` in one sequence.
+For a drag, use a sequence-only mouse-button phase event followed by motion and
+release events in the same request, for example
+`{"type":"mouse_button","x":10,"y":10,"pressed":true}`, then
+`{"type":"mouse_move","x":40,"y":20,"frame":1}`, then
+`{"type":"mouse_button","x":40,"y":20,"release":true,"frame":2}`. Motion events
+between the press and release carry the held mouse button mask for `_input(event)`
+drag handlers.
 
 For `gda input mouse-click`, `gda input mouse-move`, and mouse events inside
 `gda input sequence`, the reliable injected coordinate is the mouse event's

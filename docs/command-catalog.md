@@ -629,7 +629,11 @@ headless is unaffected (4.4+, cross-platform).
   `physics_frame` offsets instead: press an action at `physics_frame: 0` and release
   it at `physics_frame: N` to hold it for N Godot physics ticks (for the default
   60 Hz physics clock, N = 30 is 0.5 seconds of physics simulation). A sequence must
-  use one clock throughout; mixing `frame` and `physics_frame` is rejected. The
+  use one clock throughout; mixing `frame` and `physics_frame` is rejected. For a
+  mouse drag, use sequence-only `{"type":"mouse_button", "pressed":true, ...}` /
+  `{"type":"mouse_button", "release":true, ...}` phase events around
+  `mouse_move` events in the same sequence; those motion events carry the held
+  mouse button mask for `_input(event)` drag handlers. The
   mouse ops are flat two-token commands (`mouse-click` / `mouse-move`), not a nested
   `mouse` sub-group, so each maps to a single `<group>_<command>` MCP tool name
   (ADR-0005/0011/0012). Key/mouse events ride the game's real input flow via the

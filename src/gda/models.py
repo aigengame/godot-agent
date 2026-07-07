@@ -3753,7 +3753,8 @@ class InputActionResult(BaseModel):
 
 
 # The event types a `gda input sequence` may carry. A sequence event reuses the
-# single-frame ops' shapes (key / mouse click / mouse move / action) plus either a
+# single-frame ops' shapes (key / mouse click / mouse move / action), plus a
+# sequence-only mouse-button phase for press-drag-release gestures, and either a
 # process-clock `frame` offset (the original #221 behavior) or a physics-clock
 # `physics_frame` offset (#391). Bounding the type model-side keeps an unknown type
 # a usage/invalid_params error rather than a request the harness must defend
@@ -3763,6 +3764,7 @@ class InputEventType(str, Enum):
 
     KEY = "key"
     MOUSE_CLICK = "mouse_click"
+    MOUSE_BUTTON = "mouse_button"
     MOUSE_MOVE = "mouse_move"
     ACTION = "action"
 
@@ -3778,10 +3780,12 @@ class InputSequenceEvent(BaseModel):
     that need deterministic simulation-duration input holds. Events due at the same
     clock index are applied together. The type-specific fields mirror the
     single-frame params — ``key``/``modifiers``/``released`` for a key, ``x``/``y``/
-    ``button``/``double`` for a mouse click, ``x``/``y`` for a mouse move,
-    ``action``/``release``/``strength`` for an action. The required fields per type
-    and the shared bounds (modifier set, button enum, strength range) are validated
-    model-side (ADR-0015) so a malformed event is rejected before the harness runs.
+    ``button``/``double`` for a mouse click, ``x``/``y``/``button`` plus exactly one
+    ``pressed``/``release`` phase for a mouse-button event, ``x``/``y`` for a mouse
+    move, ``action``/``release``/``strength`` for an action. The required fields per
+    type and the shared bounds (modifier set, button enum, strength range) are
+    validated model-side (ADR-0015) so a malformed event is rejected before the
+    harness runs.
     Mouse event coordinates are reliable as the event's ``position``; engine-tracked
     mouse positions may remain stale for sequence mouse events too.
     """
@@ -3832,17 +3836,32 @@ class InputSequenceEvent(BaseModel):
         ),
     )
     button: MouseButton | None = Field(
-        default=None, description="A mouse-click event's button."
+        default=None,
+        description=(
+            "A mouse-click or mouse-button event's button; defaults to left for "
+            "mouse-button events."
+        ),
     )
     double: bool = Field(
         default=False, description="A mouse-click event: mark it a double click."
+    )
+    pressed: bool | None = Field(
+        default=None,
+        description=(
+            "A mouse-button event: press the button. Use exactly one of `pressed` "
+            "or `release`."
+        ),
     )
     # action fields
     action: str | None = Field(
         default=None, description="An action event's action name."
     )
     release: bool = Field(
-        default=False, description="An action event: release instead of press."
+        default=False,
+        description=(
+            "An action event: release instead of press. A mouse-button event: "
+            "release the button; use exactly one of `pressed` or `release`."
+        ),
     )
     strength: float = Field(
         default=1.0,
@@ -3862,6 +3881,10 @@ class InputSequenceEvent(BaseModel):
             )
         if self.frame is None and self.physics_frame is None:
             self.frame = 0
+        if self.type is not InputEventType.MOUSE_BUTTON and self.pressed is not None:
+            raise ValueError(
+                "'pressed' is only valid on a 'mouse_button' sequence event."
+            )
         # Each event type requires its own fields; the shared bounds (modifier set,
         # strength range, button enum) are enforced by the fields above.
         if self.type is InputEventType.KEY:
@@ -3871,6 +3894,29 @@ class InputSequenceEvent(BaseModel):
         elif self.type is InputEventType.MOUSE_CLICK:
             if self.x is None or self.y is None:
                 raise ValueError("a 'mouse_click' sequence event requires 'x' and 'y'.")
+        elif self.type is InputEventType.MOUSE_BUTTON:
+            if self.x is None or self.y is None:
+                raise ValueError(
+                    "a 'mouse_button' sequence event requires 'x' and 'y'."
+                )
+            if self.pressed is None and not self.release:
+                raise ValueError(
+                    "a 'mouse_button' sequence event requires 'pressed' or 'release'."
+                )
+            if self.pressed is False:
+                raise ValueError(
+                    "a 'mouse_button' sequence event uses 'pressed: true' to press; "
+                    "use 'release: true' to release."
+                )
+            if self.pressed is True and self.release:
+                raise ValueError(
+                    "a 'mouse_button' sequence event cannot set both 'pressed' and "
+                    "'release'."
+                )
+            if self.release:
+                self.pressed = False
+            if self.button is None:
+                self.button = MouseButton.LEFT
         elif self.type is InputEventType.MOUSE_MOVE:
             if self.x is None or self.y is None:
                 raise ValueError("a 'mouse_move' sequence event requires 'x' and 'y'.")
