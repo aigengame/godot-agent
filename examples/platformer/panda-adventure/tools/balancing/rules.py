@@ -1,11 +1,14 @@
 """Pure Python reimplementation of the game's combat/AI logic seams (gADR-0011).
 
 These functions mirror the shipped GDScript statics —
-``src/systems/combat_system.gd`` (``CombatSystem``) and
-``src/systems/enemy_ai.gd`` (``EnemyAI``) — one-for-one. gADR-0011 forbids the
-balancing pipeline from importing the game's GDScript, so the rules are
-reimplemented here and pinned against the GDScript ground truth by golden parity
-fixtures (``tests/fixtures/balancing/seams.json``, generated FROM the seams via
+``src/systems/combat_system.gd`` (``CombatSystem``), ``src/systems/enemy_ai.gd``
+(``EnemyAI``), ``src/systems/warp_system.gd`` (``WarpSystem``, the Boss Warp
+kit's pure decisions, gADR-0009), and ``src/systems/item_system.gd``
+(``ItemSystem.effective_defender``'s defense composition, gADR-0008) —
+one-for-one. gADR-0011 forbids the balancing pipeline from importing the game's
+GDScript, so the rules are reimplemented here and pinned against the GDScript
+ground truth by golden parity fixtures
+(``tests/fixtures/balancing/seams.json``, generated FROM the seams via
 ``gda script run``). A rule change on either side breaks parity until both
 co-evolve — the price gADR-0011 pays for isolation.
 
@@ -119,3 +122,85 @@ def can_attack(
     if distance > aggro_range or distance > attack_range:
         return False
     return is_attack_ready(last_attack_time, now, attack_cooldown)
+
+
+# --- WarpSystem (src/systems/warp_system.gd), the Boss Warp kit (gADR-0009) -- #
+
+
+def has_warp(warp_cooldown: float) -> bool:
+    """The has-Warp predicate (``WarpSystem.has_warp``): the presence-gated
+    block floors ``warp_cooldown`` strictly above 0 at the data seam, so a kind
+    without the kit reads the type default 0.0."""
+    return warp_cooldown > 0.0
+
+
+def should_warp(
+    self_x: float,
+    self_y: float,
+    player_x: float,
+    player_y: float,
+    aggro_range: float,
+    warp_trigger_range: float,
+    warp_cooldown: float,
+    last_warp_time: float,
+    now: float,
+) -> bool:
+    """The warp gate (``WarpSystem.should_warp``): cast only when the kind HAS
+    the kit, the Player is inside the Aggro Range but FARTHER than the trigger
+    range (the Blink is an anti-kite engage tool — the Boss never warps inside a
+    brawl), and the cooldown has elapsed. The ``NEVER`` sentinel gates the first
+    warp by distance alone."""
+    if not has_warp(warp_cooldown):
+        return False
+    distance = _distance(self_x, self_y, player_x, player_y)
+    if distance > aggro_range:
+        return False
+    if distance <= warp_trigger_range:
+        return False
+    return (now - last_warp_time) >= warp_cooldown
+
+
+def warp_landing(
+    self_x: float,
+    self_y: float,
+    player_x: float,
+    player_y: float,
+    warp_offset_x: float,
+    warp_offset_y: float,
+    arena_min_x: float,
+    arena_max_x: float,
+) -> tuple[float, float]:
+    """The deterministic blink landing (``WarpSystem.warp_landing``): x lands
+    the configured offset on the Player's FAR side from the caster (cutting off
+    the retreat), clamped to the arena's x range; y is the Player's y plus the
+    offset's y. A Player exactly overhead (dx == 0) resolves to the +x side —
+    never random."""
+    side = _signf(player_x - self_x)
+    if side == 0.0:
+        side = 1.0
+    x = min(max(player_x + side * warp_offset_x, arena_min_x), arena_max_x)
+    return (x, player_y + warp_offset_y)
+
+
+def is_inside_field(
+    pos_x: float,
+    pos_y: float,
+    field_center_x: float,
+    field_center_y: float,
+    radius: float,
+) -> bool:
+    """Time Dilation Field membership (``WarpSystem.is_inside_field``): inside
+    the zone at (or within) its radius."""
+    return _distance(pos_x, pos_y, field_center_x, field_center_y) <= radius
+
+
+# --- ItemSystem (src/systems/item_system.gd), Spacesuit mitigation (gADR-0008) #
+
+
+def effective_defense(base_defense: float, defense_bonus: float) -> float:
+    """The worn-Equipment defense composition (``ItemSystem.effective_defender``,
+    gADR-0008): the defender's defense is the base stat block's defense raised by
+    the Spacesuit's bonus — the formula's mitigation term changes, the formula
+    itself is untouched. (The GDScript composes a fresh full stat block; only the
+    defense differs, which is what this mirrors.)"""
+    return base_defense + defense_bonus

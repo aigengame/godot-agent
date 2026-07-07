@@ -40,7 +40,7 @@ _GENERATOR = "res://tests/gdscript/make_balancing_fixtures.gd"
 PARITY_TOL = float(os.environ.get("BALANCING_PARITY_TOL", "1e-9"))
 
 
-def _apply_rule(category: str, case: dict) -> float | bool:
+def _apply_rule(category: str, case: dict) -> float | bool | tuple[float, float]:
     """Run the Python rule for one fixture ``category`` on its ``case`` inputs."""
     if category == "compute_damage":
         return rules.compute_damage(
@@ -84,13 +84,52 @@ def _apply_rule(category: str, case: dict) -> float | bool:
             case["last_attack_time"],
             case["now"],
         )
+    if category == "should_warp":
+        sp, pp = case["self_pos"], case["player_pos"]
+        return rules.should_warp(
+            sp[0],
+            sp[1],
+            pp[0],
+            pp[1],
+            case["aggro_range"],
+            case["warp_trigger_range"],
+            case["warp_cooldown"],
+            case["last_warp_time"],
+            case["now"],
+        )
+    if category == "warp_landing":
+        sp, pp, off = case["self_pos"], case["player_pos"], case["warp_offset"]
+        return rules.warp_landing(
+            sp[0],
+            sp[1],
+            pp[0],
+            pp[1],
+            off[0],
+            off[1],
+            case["arena_min_x"],
+            case["arena_max_x"],
+        )
+    if category == "is_inside_field":
+        pos, center = case["pos"], case["field_center"]
+        return rules.is_inside_field(
+            pos[0], pos[1], center[0], center[1], case["radius"]
+        )
+    if category == "effective_defender":
+        return rules.effective_defense(case["base_defense"], case["defense_bonus"])
     raise AssertionError(f"unknown fixture category {category!r}")
 
 
-def _assert_match(got: float | bool, expected: float | bool, where: str) -> None:
+def _assert_match(got: object, expected: object, where: str) -> None:
     if isinstance(expected, bool) or isinstance(got, bool):
         assert bool(got) == bool(expected), f"{where}: {got!r} != {expected!r}"
+    elif isinstance(expected, (list, tuple)) or isinstance(got, (list, tuple)):
+        # A vector expectation (warp_landing's [x, y]): match componentwise.
+        got_seq, expected_seq = list(got), list(expected)  # type: ignore[arg-type]
+        assert len(got_seq) == len(expected_seq), f"{where}: {got!r} != {expected!r}"
+        for j, (g, e) in enumerate(zip(got_seq, expected_seq)):
+            _assert_match(g, e, f"{where}[{j}]")
     else:
+        assert isinstance(got, (int, float)) and isinstance(expected, (int, float))
         assert math.isclose(got, expected, rel_tol=0.0, abs_tol=PARITY_TOL), (
             f"{where}: {got!r} != {expected!r} (tol {PARITY_TOL})"
         )

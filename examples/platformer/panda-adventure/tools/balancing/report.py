@@ -125,6 +125,8 @@ def run_validation(
             sim.max_time,
             sim.runs,
             seed=sim.seed + wave.index,
+            arena_min_x=game.arena_min_x,
+            arena_max_x=game.arena_max_x,
         )
         ttk = statistics.summarize(samples.ttk)
         ttd = statistics.summarize(samples.ttd)

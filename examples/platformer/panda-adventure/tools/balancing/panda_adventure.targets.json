@@ -6,6 +6,13 @@
     "dodge_chance": 0.2,
     "engagement_distance": 60.0
   },
+  "model_assumptions": {
+    "spatial": "1D ground line: y components of positions, spawn offsets, warp_offset, and the Time Dilation Field sphere project onto x; jump arcs, vertical aim, and terrain between actors are not modeled.",
+    "accuracy": "Rolled once at fire time; a missed shot spawns no damaging bolt. Hits still arrive with the bolt's travel delay (distance / projectile_speed).",
+    "dodge_chance": "Applies to every otherwise-landing enemy attack — contact or bolt arrival — rolled at the moment damage would land, after the i-frame gate.",
+    "time_dilation": "An active field slows the modeled player's movement and the player's bolts inside it by time_field_factor; fire cadence stays full speed (input registers — slowed, not stunned, gADR-0009).",
+    "gravity_gun": "Not modeled: the Gravity Gun, Gravity Fields, consumables, and pickups are outside the encounter model, so boss-wave TTD measures a laser-only brawl without the intended counterplay."
+  },
   "simulation": {
     "dt": 0.016666667,
     "max_time": 60.0,
@@ -14,9 +21,9 @@
   },
   "tolerance": 0.25,
   "waves": [
-    { "wave": 1, "ttk": 0.6, "ttd": 60.0 },
+    { "wave": 1, "ttk": 0.8, "ttd": 60.0 },
     { "wave": 2, "ttk": 3.0, "ttd": 60.0 },
     { "wave": 3, "ttk": 2.0, "ttd": 60.0 },
-    { "wave": 4, "ttk": 60.0, "ttd": 15.0 }
+    { "wave": 4, "ttk": 60.0, "ttd": 19.0 }
   ]
 }

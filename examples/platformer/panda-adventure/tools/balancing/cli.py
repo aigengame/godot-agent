@@ -2,10 +2,12 @@
 
 Validate mode reads the JSON authority and a targets file, runs the Monte-Carlo
 encounter simulation, and emits a per-wave TTK/TTD-vs-targets report — to stdout
-(text or ``--json``) or to an ``--out`` path. It writes NOTHING to config. The
-exit status is a validation verdict: 0 when every targeted wave is within
-tolerance, 1 when any is out of tolerance (a usable CI gate); a bad input is a
-loud error.
+(text or ``--json``) or to an ``--out`` path. It writes NOTHING to config: an
+``--out`` path inside the game's ``data/`` tree (the whole authority chain —
+authored JSON, schemas, derived Resources) or inside the configured authority
+dir is REFUSED with a structured error before anything runs. Exit status: 0 when
+every targeted wave is within tolerance, 1 when any is out of tolerance (a
+usable CI gate), 2 for a refused/invalid input — distinct from the verdict.
 """
 
 from __future__ import annotations
@@ -22,6 +24,40 @@ _DEFAULT_TARGETS = Path(__file__).resolve().parent / "panda_adventure.targets.js
 # The game root is tools/balancing/ -> tools/ -> <game>. config_dir is resolved
 # against it when the targets file gives a relative path.
 _GAME_ROOT = Path(__file__).resolve().parents[2]
+
+# The usage/refusal exit code — distinct from the tolerance verdict (0/1).
+EXIT_REFUSED = 2
+
+
+def forbidden_out_roots(config_dir: Path) -> list[Path]:
+    """The directory trees a report must never land in (gADR-0011: this slice
+    writes nothing to config).
+
+    The game's whole ``data/`` tree is forbidden — not just ``data/json``: it
+    is the config authority CHAIN (authored JSON + the schemas that validate it
+    + the derived ``data/generated`` Resources), and no report legitimately
+    belongs anywhere in it. The resolved authority dir itself (and its parent
+    ``data/`` tree, for a copied project root) is forbidden too, so a
+    ``--config-dir`` pointing at an e2e copy is equally protected.
+    """
+    roots = [(_GAME_ROOT / "data").resolve(), config_dir.resolve()]
+    if config_dir.resolve().parent.name == "data":
+        roots.append(config_dir.resolve().parent)
+    return roots
+
+
+def _refuse_authority_out(out: Path, config_dir: Path) -> str | None:
+    """The reason ``--out`` is refused (a path inside an authority tree), or
+    None when it is safe. Resolves the path first so ``../`` cannot sneak in."""
+    resolved = out.resolve()
+    for root in forbidden_out_roots(config_dir):
+        if resolved == root or resolved.is_relative_to(root):
+            return (
+                f"--out {out} resolves into the config authority tree {root}; "
+                "the Balancing pipeline's validate mode writes nothing to "
+                "config (gADR-0011) — choose a path outside data/"
+            )
+    return None
 
 
 def _resolve_config_dir(config_dir: str, targets_path: Path) -> Path:
@@ -86,6 +122,16 @@ def _run_validate(args: argparse.Namespace) -> int:
         if args.config_dir is not None
         else _resolve_config_dir(cfg.config_dir, args.targets)
     )
+    # The no-write guard runs BEFORE the sim: a forbidden --out is refused with
+    # a structured error and EXIT_REFUSED — never the tolerance verdict.
+    if args.out is not None:
+        reason = _refuse_authority_out(args.out, config_dir)
+        if reason is not None:
+            print(
+                json.dumps({"error": "out_path_in_authority", "detail": reason}),
+                file=sys.stderr,
+            )
+            return EXIT_REFUSED
     game = game_config.load_game_data(config_dir)
     player = game_config.build_player_model(game, cfg.player_model_params)
     sim = cfg.sim

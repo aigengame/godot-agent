@@ -2,8 +2,10 @@
 
 Validate mode reports per-wave TTK/TTD against design targets and — per
 gADR-0011 (this slice is validate-only) — writes NOTHING back to config. That
-guarantee is asserted directly by hashing the whole JSON authority (and the
-derived Resources) before and after a validate run. Fast tier, no engine.
+guarantee is asserted two ways: hashing the whole JSON authority (and the
+derived Resources) before and after a validate run, and refusing an ``--out``
+path that resolves into the authority tree (exit ``EXIT_REFUSED``, distinct
+from the tolerance verdict) BEFORE anything runs. Fast tier, no engine.
 """
 
 from __future__ import annotations
@@ -12,13 +14,16 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 import build_config
 from balancing import game_config, report
-from balancing.cli import main as cli_main
+from balancing.cli import EXIT_REFUSED, main as cli_main
 
 GAME_DIR = build_config.GAME_DIR
 CONFIG_DIR = GAME_DIR / "data" / "json"
 GENERATED_DIR = GAME_DIR / "data" / "generated"
+DATA_DIR = GAME_DIR / "data"
 TARGETS = GAME_DIR / "tools" / "balancing" / "panda_adventure.targets.json"
 
 
@@ -93,3 +98,50 @@ def test_cli_validate_json_writes_nothing(capsys, tmp_path) -> None:
 def test_cli_validate_default_verdict_is_green() -> None:
     """The default ``validate`` (committed targets, seed, runs) exits 0."""
     assert cli_main(["validate", "--json"]) == 0
+
+
+@pytest.mark.parametrize(
+    "forbidden",
+    [
+        DATA_DIR / "json" / "probe_report.json",  # the reviewer's repro
+        DATA_DIR / "json" / "combat_config.json",  # the clobber scenario
+        DATA_DIR / "generated" / "probe_report.json",  # the derived tree
+        DATA_DIR / "schema" / "probe_report.json",  # the whole data/ chain
+        DATA_DIR / "probe_report.json",
+    ],
+    ids=["authority-new", "authority-clobber", "generated", "schema", "data-root"],
+)
+def test_cli_out_into_authority_is_refused(capsys, forbidden: Path) -> None:
+    """An ``--out`` inside the config authority tree is REFUSED before the sim
+    runs: structured error on stderr, ``EXIT_REFUSED`` (distinct from the 0/1
+    tolerance verdict), no file created, authority tree byte-identical."""
+    before = _tree_hash(DATA_DIR)
+    existed_before = forbidden.exists()
+    code = cli_main(["validate", "--json", "--runs", "1", "--out", str(forbidden)])
+    assert code == EXIT_REFUSED
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "out_path_in_authority"
+    assert forbidden.exists() == existed_before  # nothing new appeared
+    assert _tree_hash(DATA_DIR) == before  # nothing changed either
+
+
+def test_cli_out_relative_traversal_is_refused(capsys, monkeypatch) -> None:
+    """The guard resolves the path first, so a relative ``../``-style spelling
+    of an authority location is refused too."""
+    monkeypatch.chdir(GAME_DIR / "tools")
+    before = _tree_hash(DATA_DIR)
+    code = cli_main(
+        ["validate", "--json", "--runs", "1", "--out", "../data/json/sneaky.json"]
+    )
+    assert code == EXIT_REFUSED
+    assert json.loads(capsys.readouterr().err)["error"] == "out_path_in_authority"
+    assert _tree_hash(DATA_DIR) == before
+
+
+def test_cli_out_outside_authority_still_works(tmp_path) -> None:
+    """A normal ``--out`` (tmp dir) is unaffected by the guard and produces the
+    report file."""
+    out = tmp_path / "report.json"
+    code = cli_main(["validate", "--json", "--runs", "1", "--out", str(out)])
+    assert code in (0, 1)  # the verdict, never the refusal
+    assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 1
