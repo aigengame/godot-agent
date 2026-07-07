@@ -100,7 +100,8 @@ You are implementing <slice> in an ISOLATED git worktree.
 - Commit early and often, even WIP — a truncated/killed run only loses UNcommitted work.
 - Definition of Done: the INTEGRATION-tier test passes (the tier that actually exercises
   the integration boundary — integration / e2e / compile / a parse `--check-only`), not
-  just the fast tier that stubs it. Do not satisfy DoD with `-m "not <integration>"`.
+  just the fast tier that stubs it. Do not satisfy DoD by deselecting the integration
+  tier (e.g. a pytest-style `-m "not <integration>"` filter — or your runner's equivalent).
 - Also part of DoD — beyond the test tiers, mirror the repo's NON-TEST PR-CI gates: read
   the gate list off the CI workflow itself (do not recite it from memory) and run each
   gate exactly as CI invokes it (same commands/flags) — typically the formatter CHECK,
@@ -200,7 +201,8 @@ After the replay, update the PR metadata before merging:
 - retarget the PR to the real base branch if the host did not already do it
 - remove stale "stacked on PR-A" text
 - change `Refs #N` to `Closes #N` only if B now fully satisfies the issue
-- update the validation section to the commands run on the post-rebase head
+- refresh any verification evidence recorded in the PR description to the commands
+  actually run on the post-rebase head
 - wait for CI on the new head; old green checks belonged to the stacked base
 
 ## 5. The two silent merge hazards (no conflict marker; fast tests still pass)

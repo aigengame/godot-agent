@@ -98,8 +98,9 @@ decompose + dependency analysis → plan waves → fan out (implement) → verif
 5. **Merge serially in dependency order.** Tracer first → rebase followers onto the new
    base → independent groups can merge in any order; a *clean* rebase still gets the
    integration gate. Re-poll mergeability after each merge. For stacked PRs, retarget
-   followers after the base lands and update any stale `Refs`/`Closes` or validation
-   text before merging. Watch for the two marker-free conflict traps. (REFERENCE §4, §5)
+   followers after the base lands and update any stale `Refs`/`Closes` or recorded
+   verification text before merging. Watch for the two marker-free conflict traps.
+   (REFERENCE §4, §5)
 
 This path is **not one-shot**: independent review sends merged-ready slices back, and
 remediation reshapes the plan. A review/fix round is a **re-dispatch** — resume the
