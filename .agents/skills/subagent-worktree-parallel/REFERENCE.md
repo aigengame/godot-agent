@@ -299,9 +299,10 @@ the grep heuristic might miss in another language.
   strike mid-fix-round too (session/usage limits, not just truncation) — one real agent
   finished an entire fix round and died with all of it uncommitted.
 - **Takeover recipe for uncommitted work:** review the whole uncommitted diff yourself
-  against the findings it claims to fix, run the full gate set (tests + format/lint/
-  typecheck), then commit and push it under an honest message. Don't re-dispatch what a
-  diff review can verify — and don't commit what you haven't read.
+  against the findings it claims to fix, run the same gates the dispatch DoD requires
+  (§3: the integration tier plus the PR-CI gate list read off the CI workflow), then
+  commit and push it under an honest message. Don't re-dispatch what a diff review can
+  verify — and don't commit what you haven't read.
 - **Trivial mechanical CI failures are the lead's to fix in place.** A formatter diff or
   an import sort on an otherwise-verified branch is cheaper to fix, test, and push
   yourself than to re-dispatch an agent for.
