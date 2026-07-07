@@ -962,6 +962,34 @@ def test_input_sequence_params_json_mouse_button_conflicting_phase_is_invalid_pa
     assert fake.calls == []
 
 
+def test_input_sequence_params_json_mouse_button_pressed_false_is_invalid_params(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--params-json",
+            (
+                '{"events": [{"type": "mouse_button", "x": 1.0, "y": 2.0, '
+                '"pressed": false}]}'
+            ),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert fake.calls == []
+
+
 def test_input_sequence_params_json_pressed_on_mouse_move_is_invalid_params(
     monkeypatch, tmp_path
 ):

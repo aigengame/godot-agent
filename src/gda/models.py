@@ -3901,6 +3901,11 @@ class InputSequenceEvent(BaseModel):
                 raise ValueError(
                     "a 'mouse_button' sequence event requires 'pressed' or 'release'."
                 )
+            if self.pressed is False:
+                raise ValueError(
+                    "a 'mouse_button' sequence event uses 'pressed: true' to press; "
+                    "use 'release: true' to release."
+                )
             if self.pressed is True and self.release:
                 raise ValueError(
                     "a 'mouse_button' sequence event cannot set both 'pressed' and "
