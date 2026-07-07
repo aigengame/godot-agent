@@ -183,3 +183,55 @@ class GameData:
     # landing; an infinite default means "no arena" (unit-test convenience).
     arena_min_x: float = float("-inf")
     arena_max_x: float = float("inf")
+
+
+# --- The growth/economy inputs the system-dynamics model runs on (#440) ------ #
+#
+# The SD model needs the reward and progression numbers the encounter sim does
+# NOT — the per-Tier Kill reward + Drop table, the Leveling curve, and the
+# Consumable restore amounts — so these plain dataclasses carry them, mapped out
+# of the same JSON authority by the same per-game adapter (``game_config``), never
+# a second parser (gADR-0011). Every field stays a bare scalar / mapping.
+
+
+@dataclass(frozen=True)
+class TierReward:
+    """One Tier's Kill reward and expected Drop yield (the enemies config's
+    per-Tier reward table, gADR-0004/0006): the guaranteed EXP/Gold plus the
+    per-item EXPECTED drop count (``Σ amount × chance`` over that item's Drop
+    table entries — the mean-field inflow the SD economy integrates, not a roll)."""
+
+    tier: str
+    exp_reward: float
+    gold_reward: float
+    expected_drops: dict[str, float]
+
+    def expected_drop(self, item: str) -> float:
+        """The expected count of ``item`` a kill of this Tier yields (0 if none)."""
+        return self.expected_drops.get(item, 0.0)
+
+
+@dataclass(frozen=True)
+class GrowthEconomy:
+    """The growth/economy authority the SD model integrates over — the Leveling
+    curve (EXP→Level), the per-Tier Kill reward + expected Drop yield, and the
+    Consumable restore amounts and player pools. Mapped from ``progression_config``
+    / ``enemies_config`` / ``items_config`` / ``combat_config`` (#440)."""
+
+    level_curve: tuple[float, ...]
+    tier_rewards: dict[str, TierReward]
+    bun_hp_restore: float
+    wine_mp_restore: float
+    player_max_hp: float
+    player_max_mp: float
+
+    def level_for(self, exp: float) -> int:
+        """The Player's Level at a cumulative EXP total (GrowthSystem, gADR-0006):
+        Level 1 at start, +1 per Leveling-curve threshold reached; max Level is
+        ``len(level_curve) + 1``. A pure readout of the curve, no code."""
+        return 1 + sum(1 for threshold in self.level_curve if exp >= threshold)
+
+    @property
+    def max_level(self) -> int:
+        """The highest reachable Level (the curve's length + 1)."""
+        return len(self.level_curve) + 1
