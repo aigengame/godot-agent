@@ -170,8 +170,10 @@ def test_palette_ops_drive_the_running_game(tmp_path, daemon_runtime_dir):
         started = s.run("daemon", "start")
         assert started.returncode == 0, started.stdout + started.stderr
 
-        # The first live op launches the session: the editor boots in EDIT mode
-        # (no play instance, so no game tree under PlayHost yet).
+        # The FIRST live op launches the session (a `logger tail` read will not —
+        # the waves e2e idiom): `game tree` boots the editor in EDIT mode, so the
+        # editor_ready record is then readable.
+        assert s.tree_root()["name"] == "Editor", "the editor scene did not boot"
         assert s.poll(lambda: bool(s.records("editor_ready"))), "editor never booted"
 
         # --- edit<->play switch: play_active drives main.tscn under PlayHost.

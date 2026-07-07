@@ -81,13 +81,17 @@ var spawn_kind := ""
 ## in _ready.
 var spawn_position := DEFAULT_SPAWN_POS
 
-## A momentary trigger: setting it true spawns one enemy and self-resets to false,
-## so a `gda game set … spawn true` (or a button) is a single pulse, not a latch.
+## A spawn trigger: setting it TRUE spawns one enemy on demand. It latches the
+## set value rather than self-resetting — the gda harness's live-set write-verify
+## rejects a script variable that reads back unchanged, so a self-reset-to-false
+## would look like a failed set. The setter runs on every assignment (Godot fires
+## setters even when the value is unchanged), so a repeated `gda game set … spawn
+## true` (or button click) spawns again; set it false to disarm.
 var spawn := false:
 	set(value):
+		spawn = value
 		if value:
 			_do_spawn()
-		spawn = false
 
 ## The last op the palette performed — a read-back surface (`gda game get … --property
 ## last_action`) proving an op landed, alongside the structured gda_log records.
