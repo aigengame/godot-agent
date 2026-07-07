@@ -689,6 +689,9 @@ func _input_viewport() -> Viewport:
 	return get_tree().root
 
 
+var _last_injected_mouse_position: Variant = null
+
+
 func _prepare_mouse_input() -> Viewport:
 	var viewport := _input_viewport()
 	viewport.notify_mouse_entered()
@@ -747,6 +750,7 @@ func _push_mouse_click(pos: Vector2, button: String, double: bool) -> void:
 	event.pressed = true
 	event.double_click = double
 	viewport.push_input(event, true)
+	_last_injected_mouse_position = pos
 
 
 # Push a mouse-motion event to a viewport position. Shared by the single-frame move
@@ -754,10 +758,13 @@ func _push_mouse_click(pos: Vector2, button: String, double: bool) -> void:
 func _push_mouse_move(pos: Vector2) -> void:
 	var viewport := _prepare_mouse_input()
 	var previous := viewport.get_mouse_position()
+	if _last_injected_mouse_position is Vector2:
+		previous = _last_injected_mouse_position
 	var event := InputEventMouseMotion.new()
 	event.position = pos
 	event.relative = pos - previous
 	viewport.push_input(event, true)
+	_last_injected_mouse_position = pos
 
 
 # input key: inject one InputEventKey (press or release) into the running game's
