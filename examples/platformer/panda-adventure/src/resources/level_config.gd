@@ -21,12 +21,19 @@ extends Resource
 ## blockout numbers (consumed by EndScreenController).
 
 # Backdrop — the black-hole-edge clear color behind the wall.
+# background_asset is the optional view asset reference for a future backdrop
+# art layer (P2-S2, #436): authored empty; today's backdrop is a clear color
+# with no view node, so nothing consumes a non-empty value yet.
 @export var background_color: Color
+@export var background_asset: String
 
 # Great-Wall blockout (GAME-CONTEXT: Great-Wall blockout): one shared segment
 # color, and the ordered segments themselves. Each element of `platforms` is a
-# Dictionary {"name": String, "position": Vector2, "size": Vector2} — a named
-# rampart/tower/parapet block the level runtime-instances (gADR-0010).
+# Dictionary {"name": String, "position": Vector2, "size": Vector2,
+# "asset": String} — a named rampart/tower/parapet block the level
+# runtime-instances (gADR-0010). `asset` is the segment's optional view asset
+# reference (P2-S2, #436): the ViewBuilder resolves a non-empty reference to
+# the (future) sprite, an empty one to the colored-block fallback.
 @export var platform_color: Color
 @export var platforms: Array
 

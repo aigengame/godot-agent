@@ -13,6 +13,7 @@ attack = 4
 defense = 0
 color = Color(0.2, 0.8, 0.6, 1)
 size = Vector2(40, 40)
+asset = ""
 move_speed = 160
 gravity = 1400
 max_fall_speed = 1200

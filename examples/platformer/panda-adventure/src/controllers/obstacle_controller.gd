@@ -51,6 +51,9 @@ func apply_gravity_field(field_velocity: Vector2, delta: float) -> void:
 
 ## Apply the data-driven blockout through the shared view seam (ViewBuilder,
 ## #436): the Obstacle block centered on the body origin. No pivot — a static
-## prop that never scale-tweens.
+## prop that never scale-tweens. The config's asset reference feeds the seam's
+## resolution — authored empty today, so the block.
 func _apply_blockout(config: GravityConfigScript) -> void:
-	ViewBuilderScript.apply_box(self, config.obstacle_color, config.obstacle_size)
+	ViewBuilderScript.apply_box(
+		self, config.obstacle_color, config.obstacle_size, false, config.obstacle_asset
+	)

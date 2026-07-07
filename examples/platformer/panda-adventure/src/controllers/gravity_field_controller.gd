@@ -81,9 +81,12 @@ func _physics_process(delta: float) -> void:
 
 ## Apply the data-driven blockout through the shared view seam (ViewBuilder,
 ## #436): a translucent square block over a circular collision area of the config
-## radius, both centered on the Area2D origin.
+## radius, both centered on the Area2D origin. The config's asset reference feeds
+## the seam's resolution — authored empty today, so the block.
 func _apply_blockout(config: GravityConfigScript) -> void:
-	ViewBuilderScript.apply_circle(self, config.field_color, config.field_radius)
+	ViewBuilderScript.apply_circle(
+		self, config.field_color, config.field_radius, config.field_asset
+	)
 
 
 ## The blockout "animation", spawn half: fade the field block in from

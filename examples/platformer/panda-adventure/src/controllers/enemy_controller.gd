@@ -258,6 +258,7 @@ func _fire_bolt(player: Node2D) -> void:
 		_kind.projectile_size,
 		_kind.projectile_speed,
 		_kind.projectile_lifetime,
+		_kind.projectile_asset,
 	)
 	var offset := _kind.projectile_spawn_offset
 	bolt.position = position + Vector2(signf(aim.x) * offset.x, offset.y)
@@ -279,9 +280,10 @@ func _now() -> float:
 ## Apply the kind's data-driven blockout through the shared view seam
 ## (ViewBuilder, #436): the Enemy block centered on the body origin (color =
 ## Faction flavor, size = Tier read at a glance, per the GDD), with a center pivot
-## so the spawn/attack/hit scale tweens punch about the middle.
+## so the spawn/attack/hit scale tweens punch about the middle. The kind's asset
+## reference feeds the seam's resolution — authored empty today, so the block.
 func _apply_blockout(kind: EnemyConfigScript) -> void:
-	ViewBuilderScript.apply_box(self, kind.color, kind.size, true)
+	ViewBuilderScript.apply_box(self, kind.color, kind.size, true, kind.asset)
 
 
 ## The hit "juice": flash the block to the shared hit color and tween back to

@@ -95,13 +95,16 @@ class TresSpec:
     is byte-stable (the freshness gate depends on it) and adding a config field
     is a one-line change. Types: "color" (4-array -> Color), "vec2" (2-array ->
     Vector2), "float" (scalar -> bare number), "string" (str -> quoted String),
+    "asset" (OPTIONAL str -> quoted String, defaulting to "" when the authored
+    key is absent — the P2-S2 view asset reference, #436: the ViewBuilder-
+    resolved sprite reference, authored empty until an asset slice fills it),
     "bool" (bool -> true/false, the Scale spec's snap flag),
     "wave_list" (waves -> Array of {"spawns": Array of Dictionary}, S5's Wave
     schedule), "number_list" (number array -> Array, S6b's leveling curve),
     "drop_list" (drop entries -> Array of Dictionary, S6b's per-kind Drop
-    table), "item_style_map" (item name -> {"color": Color, "size": Vector2},
-    S6b's pickup blockout). The schema is the validation authority; keep the
-    two in step.
+    table), "item_style_map" (item name -> {"color": Color, "size": Vector2,
+    "asset": String}, S6b's pickup blockout plus its P2-S2 asset reference).
+    The schema is the validation authority; keep the two in step.
     """
 
     json_rel: str
@@ -117,6 +120,7 @@ class TresSpec:
 _PLAYER_FIELDS: list[tuple[str, str]] = [
     ("player_color", "color"),
     ("player_size", "vec2"),
+    ("player_asset", "asset"),
     ("player_start", "vec2"),
     ("move_speed", "float"),
     ("jump_velocity", "float"),
@@ -141,6 +145,7 @@ _COMBAT_FIELDS: list[tuple[str, str]] = [
     ("iframe_duration", "float"),
     ("projectile_color", "color"),
     ("projectile_size", "vec2"),
+    ("projectile_asset", "asset"),
     ("projectile_speed", "float"),
     ("projectile_lifetime", "float"),
     ("projectile_spawn_offset", "vec2"),
@@ -155,11 +160,13 @@ _GRAVITY_FIELDS: list[tuple[str, str]] = [
     ("field_radius", "float"),
     ("field_duration", "float"),
     ("field_color", "color"),
+    ("field_asset", "asset"),
     ("field_fade_duration", "float"),
     ("field_spawn_offset", "vec2"),
     ("enemy_max_gravity_offset", "float"),
     ("obstacle_color", "color"),
     ("obstacle_size", "vec2"),
+    ("obstacle_asset", "asset"),
     ("obstacle_position", "vec2"),
     ("obstacle_max_gravity_offset", "float"),
 ]
@@ -180,6 +187,7 @@ _ENEMY_KIND_FIELDS: list[tuple[str, str]] = [
     ("defense", "float"),
     ("color", "color"),
     ("size", "vec2"),
+    ("asset", "asset"),
     ("move_speed", "float"),
     ("gravity", "float"),
     ("max_fall_speed", "float"),
@@ -200,6 +208,7 @@ _ENEMY_KIND_FIELDS: list[tuple[str, str]] = [
 _ENEMY_KIND_PROJECTILE_FIELDS: list[tuple[str, str]] = [
     ("projectile_color", "color"),
     ("projectile_size", "vec2"),
+    ("projectile_asset", "asset"),
     ("projectile_speed", "float"),
     ("projectile_lifetime", "float"),
     ("projectile_spawn_offset", "vec2"),
@@ -218,6 +227,7 @@ _ENEMY_KIND_WARP_FIELDS: list[tuple[str, str]] = [
     ("time_field_factor", "float"),
     ("time_field_duration", "float"),
     ("time_field_color", "color"),
+    ("time_field_asset", "asset"),
     ("time_field_fade_duration", "float"),
 ]
 
@@ -260,6 +270,7 @@ _ITEMS_FIELDS: list[tuple[str, str]] = [
 # one-authority pattern).
 _LEVEL_FIELDS: list[tuple[str, str]] = [
     ("background_color", "color"),
+    ("background_asset", "asset"),
     ("platform_color", "color"),
     ("platforms", "platform_list"),
     ("arena_min_x", "float"),
@@ -919,8 +930,10 @@ def _render_field(key: str, kind: str, value: Any) -> str:
         return f"Vector2({_num(x)}, {_num(y)})"
     if kind == "float":
         return _num(value)
-    if kind == "string":
+    if kind == "string" or kind == "asset":
         # Schema-constrained enum/pattern values (no quotes/escapes possible).
+        # "asset" differs from "string" only on the LOOKUP side (optional,
+        # defaulting to "" — see _field_value); the literal renders the same.
         return f'"{value}"'
     if kind == "bool":
         return "true" if value else "false"
@@ -953,29 +966,34 @@ def _render_field(key: str, kind: str, value: Any) -> str:
         return f"[{drops}]"
     if kind == "platform_list":
         # The Great-Wall blockout (gADR-0010): an Array of {name, position,
-        # size} Dictionaries in source order — the ordered segments the level
-        # runtime-instances.
+        # size, asset} Dictionaries in source order — the ordered segments the
+        # level runtime-instances. `asset` is the per-segment view asset
+        # reference (P2-S2, #436), optional in the authored JSON (default "").
         platforms = ", ".join(
             '{{"name": "{name}", "position": Vector2({px}, {py}), '
-            '"size": Vector2({sx}, {sy})}}'.format(
+            '"size": Vector2({sx}, {sy}), "asset": "{asset}"}}'.format(
                 name=entry["name"],
                 px=_num(entry["position"][0]),
                 py=_num(entry["position"][1]),
                 sx=_num(entry["size"][0]),
                 sy=_num(entry["size"][1]),
+                asset=entry.get("asset", ""),
             )
             for entry in value
         )
         return f"[{platforms}]"
     if kind == "item_style_map":
         # The pickup blockout per droppable item (gADR-0006): item name ->
-        # {"color": Color, "size": Vector2}, in source key order (JSON parsing
-        # preserves it — the enemy_kind_specs determinism note).
+        # {"color": Color, "size": Vector2, "asset": String}, in source key
+        # order (JSON parsing preserves it — the enemy_kind_specs determinism
+        # note). `asset` is the per-item view asset reference (P2-S2, #436),
+        # optional in the authored JSON (default "").
         styles = ", ".join(
-            '"{item}": {{"color": {color}, "size": {size}}}'.format(
+            '"{item}": {{"color": {color}, "size": {size}, "asset": "{asset}"}}'.format(
                 item=item,
                 color=_render_field("color", "color", style["color"]),
                 size=_render_field("size", "vec2", style["size"]),
+                asset=style.get("asset", ""),
             )
             for item, style in value.items()
         )
@@ -995,6 +1013,20 @@ def _spawn_literal(entry: dict[str, Any]) -> str:
     )
 
 
+def _field_value(config: dict[str, Any], key: str, kind: str) -> Any:
+    """Look one field's value up in the source document.
+
+    Every kind reads its authored (or composed) key directly — a miss is a
+    config bug the loud KeyError surfaces — except "asset": the view asset
+    reference (P2-S2, #436) is OPTIONAL in the authored JSON and defaults to ""
+    (no asset yet -> the ViewBuilder block fallback), so the derived ``.tres``
+    always carries the field without every source having to author it.
+    """
+    if kind == "asset":
+        return config.get(key, "")
+    return config[key]
+
+
 def render_spec(spec: TresSpec, document: dict[str, Any]) -> str:
     """Render one spec's ``.tres`` text from a validated source document.
 
@@ -1006,7 +1038,7 @@ def render_spec(spec: TresSpec, document: dict[str, Any]) -> str:
     for key in spec.json_root:
         config = config[key]
     body = "".join(
-        f"{key} = {_render_field(key, kind, config[key])}\n"
+        f"{key} = {_render_field(key, kind, _field_value(config, key, kind))}\n"
         for key, kind in spec.fields
     )
     return (

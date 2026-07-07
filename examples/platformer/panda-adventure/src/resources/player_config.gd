@@ -21,8 +21,13 @@ extends Resource
 ## authority (LevelConfig) in S9 — gADR-0010.
 
 # Player block — the spacesuit-panda blockout (GAME-CONTEXT: Player).
+# player_asset is the optional view asset reference (P2-S2, #436): the
+# ViewBuilder resolves a non-empty reference to the (future) sprite, an empty
+# one to the colored-block fallback. Authored empty until an asset slice fills
+# it (asset references are data, gADR-0000).
 @export var player_color: Color
 @export var player_size: Vector2
+@export var player_asset: String
 @export var player_start: Vector2
 
 # Movement params — the pure inputs to PlayerController.compute_velocity. Godot's

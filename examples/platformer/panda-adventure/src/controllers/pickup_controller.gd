@@ -65,10 +65,11 @@ func _ready() -> void:
 ## Apply the item's data-driven blockout through the shared view seam
 ## (ViewBuilder, #436): the pickup block styled per drop_items[item], centered on
 ## the area origin, with a center pivot so the spawn/collect scale tweens punch
-## about the middle.
+## about the middle. The item's asset reference feeds the seam's resolution —
+## authored empty today, so the block.
 func _apply_blockout() -> void:
 	var style: Dictionary = _config.drop_items[_item]
-	ViewBuilderScript.apply_box(self, style["color"], style["size"], true)
+	ViewBuilderScript.apply_box(self, style["color"], style["size"], true, style["asset"])
 
 
 ## The Player walked into this Pickup (the mask admits nothing else): deliver

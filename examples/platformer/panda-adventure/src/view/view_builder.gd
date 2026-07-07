@@ -9,13 +9,14 @@ extends RefCounted
 ## split.
 ##
 ## It RESOLVES what to render from config (asset references are data, gADR-0000):
-## a non-empty `asset` reference is the future sprite path; an empty one is the
-## colored-block fallback shipped today. P2-S2 wires ONLY the fallback — no assets
-## are authored yet — so every current spec resolves to a ColorRect block that
-## renders EXACTLY as before this slice (same size/color/center). A later slice
-## (the visual pipeline, P2-S6/S7) fills the sprite branch and feeds the asset
-## reference from config, wiring sprites BY DATA instead of editing every
-## controller again.
+## a non-empty `asset` reference is the sprite path; an empty one is the colored-
+## block fallback shipped today. The RESOLUTION is config-fed as of P2-S2: every
+## caller passes its config's optional asset reference (JSON authority ->
+## build_config -> derived Resource -> here), authored empty across the board. The
+## sprite RENDERING branch is NOT implemented yet — it lands with the first asset
+## slice (the visual pipeline, P2-S6/S7), which fills `_apply_visual`'s asset
+## branch and authors the references, wiring sprites BY DATA with no controller
+## edits. Until then a non-empty reference guards loudly and renders nothing.
 ##
 ## Static, like the pure Systems (CombatSystem, GravitySystem, …) and the
 ## GeneratedConfig loader — this is stateless one-shot construction, not a
@@ -38,9 +39,9 @@ extends RefCounted
 ## sized `size` and centered on the origin (position = -size/2), and a
 ## RectangleShape2D of the same size on the CollisionShape2D. Set `pivot` for a block
 ## that scale-tweens (the actors that squash: Player, Enemy, Pickup) so the punch is
-## about the block center; leave it false for a block that never scales. `asset`
-## carries the (future) sprite reference — empty today (see the resolution in
-## `_apply_visual`).
+## about the block center; leave it false for a block that never scales. `asset` is
+## the caller's config-fed asset reference — authored empty today (see the
+## resolution in `_apply_visual`).
 static func apply_box(
 	root: Node, color: Color, size: Vector2, pivot: bool = false, asset: String = ""
 ) -> void:
@@ -63,10 +64,12 @@ static func apply_circle(root: Node, color: Color, radius: float, asset: String 
 
 
 ## Resolve the VISUAL for this view and apply it to `root`'s "Visual" ColorRect
-## (asset references are data, gADR-0000): a non-empty `asset` is the future sprite
-## path; empty is the colored-block fallback. P2-S2 (#436) ships only the fallback,
-## so no current caller passes an asset. A spec that carries one before the sprite
-## slice (P2-S6/S7) wires it is a not-yet-wired fault — guard loudly (the codebase's
+## (asset references are data, gADR-0000): a non-empty `asset` is the sprite path;
+## empty is the colored-block fallback. The resolution is config-fed (P2-S2, #436:
+## every caller passes its config's optional asset reference), but every reference
+## is AUTHORED empty until the first asset slice (P2-S6/S7) implements the sprite
+## rendering branch here and authors the values. A reference authored before that
+## slice wires it is a not-yet-wired fault — guard loudly (the codebase's
 ## push_error idiom) rather than silently render nothing. The block branch is byte-
 ## for-byte the old per-controller construction: color, size, center, optional
 ## center pivot.

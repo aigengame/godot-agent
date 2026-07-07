@@ -33,6 +33,9 @@ var _direction := Vector2.RIGHT
 var _attacker: StatsConfigScript
 var _color: Color
 var _size: Vector2
+# The bolt's optional view asset reference (P2-S2, #436): resolved by the view
+# seam — authored empty today, so the block fallback.
+var _asset := ""
 var _speed: float
 var _lifetime: float
 var _configured := false
@@ -51,12 +54,16 @@ func setup(direction: Vector2, attacker: StatsConfigScript) -> void:
 
 ## Override the bolt's blockout + motion (the S4 Ranged enemy's per-kind bolt).
 ## Called BEFORE add_child; a bolt never configured falls back to the
-## CombatConfig Laser Gun params in _ready.
-func configure(color: Color, size: Vector2, speed: float, lifetime: float) -> void:
+## CombatConfig Laser Gun params in _ready. `asset` is the bolt's config-fed
+## view asset reference (P2-S2, #436).
+func configure(
+	color: Color, size: Vector2, speed: float, lifetime: float, asset: String = ""
+) -> void:
 	_color = color
 	_size = size
 	_speed = speed
 	_lifetime = lifetime
+	_asset = asset
 	_configured = true
 
 
@@ -71,6 +78,7 @@ func _ready() -> void:
 			config.projectile_size,
 			config.projectile_speed,
 			config.projectile_lifetime,
+			config.projectile_asset,
 		)
 	_apply_blockout()
 	body_entered.connect(_on_body_entered)
@@ -94,9 +102,10 @@ func _physics_process(delta: float) -> void:
 
 ## Apply the data-driven blockout through the shared view seam (ViewBuilder,
 ## #436): the bolt block centered on the Area2D origin. No pivot — a bolt flies
-## straight and never scale-tweens.
+## straight and never scale-tweens. The configured asset reference feeds the
+## seam's resolution — authored empty today, so the block.
 func _apply_blockout() -> void:
-	ViewBuilderScript.apply_box(self, _color, _size)
+	ViewBuilderScript.apply_box(self, _color, _size, false, _asset)
 
 
 func _on_body_entered(body: Node2D) -> void:

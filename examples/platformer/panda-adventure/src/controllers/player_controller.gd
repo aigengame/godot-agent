@@ -142,11 +142,14 @@ func _ready() -> void:
 
 ## Apply the data-driven blockout, spawn position, and follow-camera smoothing.
 ## The Player block (visual + collision centered on the body origin, center pivot
-## for the landing squash) routes through the shared view seam (ViewBuilder, #436);
-## the spawn position and camera are Player-specific placement, kept here. All from
-## config — nothing hardcoded.
+## for the landing squash) routes through the shared view seam (ViewBuilder, #436),
+## with the config's asset reference feeding the seam's resolution (authored empty
+## today, so the block); the spawn position and camera are Player-specific
+## placement, kept here. All from config — nothing hardcoded.
 func _apply_blockout(config: PlayerConfigScript) -> void:
-	ViewBuilderScript.apply_box(self, config.player_color, config.player_size, true)
+	ViewBuilderScript.apply_box(
+		self, config.player_color, config.player_size, true, config.player_asset
+	)
 
 	position = config.player_start
 

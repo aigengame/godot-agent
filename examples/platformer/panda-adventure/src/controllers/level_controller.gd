@@ -131,15 +131,18 @@ func _process(_delta: float) -> void:
 ## + collision centered on the body origin — the S1 slab's shape, now per
 ## segment). Each segment's blockout routes through the shared view seam
 ## (ViewBuilder, #436) — the same construction every actor uses, applied to the
-## instanced segment. No pivot — a static platform never scale-tweens. All from
-## config.
+## instanced segment, with the segment's asset reference feeding the seam's
+## resolution (authored empty today, so the block). No pivot — a static platform
+## never scale-tweens. All from config.
 func _apply_level(config: LevelConfigScript) -> void:
 	RenderingServer.set_default_clear_color(config.background_color)
 	for entry: Dictionary in config.platforms:
 		var segment := PlatformScene.instantiate()
 		segment.name = entry["name"]
 		segment.position = entry["position"]
-		ViewBuilderScript.apply_box(segment, config.platform_color, entry["size"])
+		ViewBuilderScript.apply_box(
+			segment, config.platform_color, entry["size"], false, entry["asset"]
+		)
 		add_child(segment)
 	GameLogScript.emit("info", "level_ready", {
 		"platforms": config.platforms.size(),
