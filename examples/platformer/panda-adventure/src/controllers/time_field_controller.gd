@@ -25,6 +25,7 @@ extends Area2D
 
 const EnemyConfigScript := preload("res://src/resources/enemy_config.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
+const ViewBuilderScript := preload("res://src/view/view_builder.gd")
 
 var _radius := 0.0
 var _factor := 1.0
@@ -95,22 +96,11 @@ func _physics_process(_delta: float) -> void:
 	_affected = current
 
 
-## Apply the data-driven blockout: a translucent square block over a circular
-## collision area of the config radius, both centered on the Area2D origin
-## (the Gravity Field's blockout shape). The collision shape is CREATED here
-## (CircleShape2D.new sized from config): gda cannot author inline
-## sub-resources (#365), so the scene ships shape=null.
+## Apply the data-driven blockout through the shared view seam (ViewBuilder,
+## #436): a translucent square block over a circular collision area of the config
+## radius, both centered on the Area2D origin (the Gravity Field's blockout shape).
 func _apply_blockout() -> void:
-	var side := _radius * 2.0
-
-	var visual := $Visual as ColorRect
-	visual.color = _color
-	visual.size = Vector2(side, side)
-	visual.position = -Vector2(_radius, _radius)
-
-	var shape := CircleShape2D.new()
-	shape.radius = _radius
-	($Collision as CollisionShape2D).shape = shape
+	ViewBuilderScript.apply_circle(self, _color, _radius)
 
 
 ## The blockout "animation", spawn half: fade the zone in from transparent

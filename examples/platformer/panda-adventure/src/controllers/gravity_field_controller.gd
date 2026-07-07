@@ -26,6 +26,7 @@ const GravityConfigScript := preload("res://src/resources/gravity_config.gd")
 const GravitySystemScript := preload("res://src/systems/gravity_system.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
+const ViewBuilderScript := preload("res://src/view/view_builder.gd")
 
 const CONFIG_PATH := "res://data/generated/gravity_config.tres"
 
@@ -78,21 +79,11 @@ func _physics_process(delta: float) -> void:
 			body.apply_gravity_field(_field_velocity, delta)
 
 
-## Apply the data-driven blockout: a translucent square block over a circular
-## collision area of the config radius, both centered on the Area2D origin.
-## The collision shape is CREATED here (CircleShape2D.new sized from config):
-## gda cannot author inline sub-resources (#365), so the scene ships shape=null.
+## Apply the data-driven blockout through the shared view seam (ViewBuilder,
+## #436): a translucent square block over a circular collision area of the config
+## radius, both centered on the Area2D origin.
 func _apply_blockout(config: GravityConfigScript) -> void:
-	var side := config.field_radius * 2.0
-
-	var visual := $Visual as ColorRect
-	visual.color = config.field_color
-	visual.size = Vector2(side, side)
-	visual.position = -Vector2(config.field_radius, config.field_radius)
-
-	var shape := CircleShape2D.new()
-	shape.radius = config.field_radius
-	($Collision as CollisionShape2D).shape = shape
+	ViewBuilderScript.apply_circle(self, config.field_color, config.field_radius)
 
 
 ## The blockout "animation", spawn half: fade the field block in from

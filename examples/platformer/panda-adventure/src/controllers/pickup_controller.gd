@@ -23,6 +23,7 @@ extends Area2D
 const ProgressionConfigScript := preload("res://src/resources/progression_config.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
+const ViewBuilderScript := preload("res://src/view/view_builder.gd")
 
 const PROGRESSION_CONFIG_PATH := "res://data/generated/progression_config.tres"
 
@@ -61,24 +62,13 @@ func _ready() -> void:
 	})
 
 
-## Apply the item's data-driven blockout: the pickup block (visual +
-## collision centered on the area origin) styled per drop_items[item]. The
-## collision shape is CREATED here (the EnemyController pattern — gda cannot
-## author inline sub-resources, #365), so the scene ships shape=null.
+## Apply the item's data-driven blockout through the shared view seam
+## (ViewBuilder, #436): the pickup block styled per drop_items[item], centered on
+## the area origin, with a center pivot so the spawn/collect scale tweens punch
+## about the middle.
 func _apply_blockout() -> void:
 	var style: Dictionary = _config.drop_items[_item]
-	var size: Vector2 = style["size"]
-	var half := size / 2.0
-
-	var visual := $Visual as ColorRect
-	visual.color = style["color"]
-	visual.size = size
-	visual.position = -half
-	visual.pivot_offset = half  # scale/tween about the block center
-
-	var shape := RectangleShape2D.new()
-	shape.size = size
-	($Collision as CollisionShape2D).shape = shape
+	ViewBuilderScript.apply_box(self, style["color"], style["size"], true)
 
 
 ## The Player walked into this Pickup (the mask admits nothing else): deliver

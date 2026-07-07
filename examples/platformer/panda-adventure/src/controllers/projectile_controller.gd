@@ -25,6 +25,7 @@ extends Area2D
 const StatsConfigScript := preload("res://src/resources/stats_config.gd")
 const CombatConfigScript := preload("res://src/resources/combat_config.gd")
 const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
+const ViewBuilderScript := preload("res://src/view/view_builder.gd")
 
 const CONFIG_PATH := "res://data/generated/combat_config.tres"
 
@@ -91,20 +92,11 @@ func _physics_process(delta: float) -> void:
 	position += _direction * _speed * _time_dilation * delta
 
 
-## Apply the data-driven blockout: the bolt block centered on the Area2D origin.
-## The collision shape is CREATED here (RectangleShape2D.new sized from config):
-## gda cannot author inline sub-resources (#365), so the scene ships shape=null.
+## Apply the data-driven blockout through the shared view seam (ViewBuilder,
+## #436): the bolt block centered on the Area2D origin. No pivot — a bolt flies
+## straight and never scale-tweens.
 func _apply_blockout() -> void:
-	var half := _size / 2.0
-
-	var visual := $Visual as ColorRect
-	visual.color = _color
-	visual.size = _size
-	visual.position = -half
-
-	var shape := RectangleShape2D.new()
-	shape.size = _size
-	($Collision as CollisionShape2D).shape = shape
+	ViewBuilderScript.apply_box(self, _color, _size)
 
 
 func _on_body_entered(body: Node2D) -> void:
