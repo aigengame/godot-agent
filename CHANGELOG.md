@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.0](https://github.com/aigengame/godot-agent/compare/v0.6.2...v0.7.0) (2026-07-07)
+
+
+### Features
+
+* **input:** add sequence mouse drag gesture ([#467](https://github.com/aigengame/godot-agent/issues/467)) ([ebbcc83](https://github.com/aigengame/godot-agent/commit/ebbcc83b09a9c03147b4952cfbb382f29cad8b50))
+
+
+### Bug Fixes
+
+* **input:** document stale tracked mouse position ([#465](https://github.com/aigengame/godot-agent/issues/465)) ([989d3f9](https://github.com/aigengame/godot-agent/commit/989d3f9322635274995405ddc2c1793517839e68))
+* **node:** support Control.position writes ([#466](https://github.com/aigengame/godot-agent/issues/466)) ([dc838ee](https://github.com/aigengame/godot-agent/commit/dc838eecf54555de0ee0085a256c499523342557))
+
 ## [0.6.2](https://github.com/aigengame/godot-agent/compare/v0.6.1...v0.6.2) (2026-07-06)
 
 
