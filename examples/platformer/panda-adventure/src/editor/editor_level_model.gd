@@ -26,8 +26,12 @@ const ENEMIES_JSON_PATH := "res://data/json/enemies_config.json"
 var _level: Dictionary = {}
 var _enemies: Dictionary = {}
 # Set on any mutation, cleared on load/save — drives the "unsaved edits" marker
-# and the save-before-play guard.
+# and the save-before-play guard. Backed by per-authority flags so a save writes
+# ONLY the file that actually changed (a minimal JSON diff; the untouched
+# authority is never reserialized).
 var dirty := false
+var _level_dirty := false
+var _enemies_dirty := false
 
 
 ## Load both JSON authorities from `res://data/json`. Returns false (after a loud
@@ -38,6 +42,8 @@ func load_authorities() -> bool:
 	_level = _read_json(LEVEL_JSON_PATH)
 	_enemies = _read_json(ENEMIES_JSON_PATH)
 	dirty = false
+	_level_dirty = false
+	_enemies_dirty = false
 	if _level.is_empty() or _enemies.is_empty():
 		return false
 	return _level.has("platforms") and _enemies.has("waves")
@@ -57,6 +63,16 @@ func _read_json(path: String) -> Dictionary:
 	return parsed
 
 
+func _mark_level() -> void:
+	_level_dirty = true
+	dirty = true
+
+
+func _mark_enemies() -> void:
+	_enemies_dirty = true
+	dirty = true
+
+
 # --- Backdrop + segment color (level authority) --------------------------------
 
 func get_background_color() -> Color:
@@ -65,7 +81,7 @@ func get_background_color() -> Color:
 
 func set_background_color(color: Color) -> void:
 	_level["background_color"] = [color.r, color.g, color.b, color.a]
-	dirty = true
+	_mark_level()
 
 
 func get_platform_color() -> Color:
@@ -94,12 +110,12 @@ func get_platform_size(index: int) -> Vector2:
 
 func set_platform_center(index: int, center: Vector2) -> void:
 	_level["platforms"][index]["position"] = [center.x, center.y]
-	dirty = true
+	_mark_level()
 
 
 func set_platform_size(index: int, size: Vector2) -> void:
 	_level["platforms"][index]["size"] = [size.x, size.y]
-	dirty = true
+	_mark_level()
 
 
 # --- Arena interval (level authority) ------------------------------------------
@@ -114,12 +130,12 @@ func get_arena_max_x() -> float:
 
 func set_arena_min_x(value: float) -> void:
 	_level["arena_min_x"] = value
-	dirty = true
+	_mark_level()
 
 
 func set_arena_max_x(value: float) -> void:
 	_level["arena_max_x"] = value
-	dirty = true
+	_mark_level()
 
 
 # --- Wave / Spawn roster positions (enemies authority) -------------------------
@@ -139,7 +155,7 @@ func get_spawn_position(wave: int, spawn: int) -> Vector2:
 
 func set_spawn_position(wave: int, spawn: int, position: Vector2) -> void:
 	_enemies["waves"][wave]["spawns"][spawn]["position"] = [position.x, position.y]
-	dirty = true
+	_mark_enemies()
 
 
 func get_spawn_label(wave: int, spawn: int) -> String:
@@ -148,17 +164,20 @@ func get_spawn_label(wave: int, spawn: int) -> String:
 
 # --- Save (JSON authority only) ------------------------------------------------
 
-## Write both authorities back as pretty JSON. Only the mutated spatial values
-## differ from the loaded documents (the whole doc is re-serialized, but every
-## unedited field keeps its value). Returns false after a loud push_error on any
-## write failure; clears `dirty` on success.
+## Write the CHANGED authorities back as pretty JSON — only a file whose spatial
+## content was actually edited is reserialized, so an untouched authority never
+## churns (a minimal JSON diff). Within a written doc only the mutated values
+## differ; every unedited field keeps its value. Returns false after a loud
+## push_error on any write failure; clears the dirty flags on success.
 func save() -> bool:
-	var wrote_level := _write_json(LEVEL_JSON_PATH, _level)
-	var wrote_enemies := _write_json(ENEMIES_JSON_PATH, _enemies)
-	if wrote_level and wrote_enemies:
-		dirty = false
-		return true
-	return false
+	if _level_dirty and not _write_json(LEVEL_JSON_PATH, _level):
+		return false
+	if _enemies_dirty and not _write_json(ENEMIES_JSON_PATH, _enemies):
+		return false
+	dirty = false
+	_level_dirty = false
+	_enemies_dirty = false
+	return true
 
 
 func _write_json(path: String, document: Dictionary) -> bool:

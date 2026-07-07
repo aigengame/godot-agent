@@ -124,15 +124,27 @@ func _unhandled_input(event: InputEvent) -> void:
 					queue_redraw()
 					_set_status()
 				return
+			KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN:
+				# Nudge the selected element one tile — precise keyboard editing
+				# alongside mouse drag (and the one movement channel `gda input`
+				# can drive, since it cannot hold a button across a drag).
+				if not is_playing and _sel["kind"] != HIT_NONE:
+					_nudge(_arrow_delta(event.keycode))
+					get_viewport().set_input_as_handled()
+				return
 	if is_playing or _model == null:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		# Read the event's OWN position (transformed to this node's world space by
+		# make_input_local, so the camera zoom/offset are applied) rather than
+		# get_global_mouse_position(), which only reflects tracked motion — a bare
+		# injected click would otherwise hit-test at a stale position.
 		if event.pressed:
-			_begin_drag(get_global_mouse_position())
+			_begin_drag((make_input_local(event) as InputEventMouseButton).position)
 		else:
 			_end_drag()
 	elif event is InputEventMouseMotion and _dragging:
-		_update_drag(get_global_mouse_position())
+		_update_drag((make_input_local(event) as InputEventMouseMotion).position)
 
 
 func _begin_drag(world: Vector2) -> void:
@@ -179,6 +191,32 @@ func _update_drag(world: Vector2) -> void:
 func _end_drag() -> void:
 	_dragging = false
 	_active = _none()
+
+
+func _arrow_delta(keycode: int) -> Vector2:
+	match keycode:
+		KEY_LEFT: return Vector2(-TILE, 0.0)
+		KEY_RIGHT: return Vector2(TILE, 0.0)
+		KEY_UP: return Vector2(0.0, -TILE)
+		_: return Vector2(0.0, TILE)  # KEY_DOWN
+
+
+## Move the current selection by `delta` (one tile per arrow press), through the
+## same model setters and clamps as a mouse drag — so a keyboard nudge and a drag
+## are the same edit. The Arena bounds move on the x axis only.
+func _nudge(delta: Vector2) -> void:
+	match _sel["kind"]:
+		HIT_SEGMENT, HIT_SEGMENT_RESIZE:
+			_model.set_platform_center(_sel["a"], _model.get_platform_center(_sel["a"]) + delta)
+		HIT_SPAWN:
+			_model.set_spawn_position(_sel["a"], _sel["b"], _model.get_spawn_position(_sel["a"], _sel["b"]) + delta)
+		HIT_ARENA_MIN:
+			_model.set_arena_min_x(minf(_model.get_arena_min_x() + delta.x, _model.get_arena_max_x() - TILE))
+		HIT_ARENA_MAX:
+			_model.set_arena_max_x(maxf(_model.get_arena_max_x() + delta.x, _model.get_arena_min_x() + TILE))
+	last_action = "nudge:" + _kind_name(_sel["kind"])
+	queue_redraw()
+	_set_status()
 
 
 func _hit_test(world: Vector2) -> Dictionary:

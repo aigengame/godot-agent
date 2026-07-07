@@ -16,7 +16,7 @@ zoom = Vector2(0.55, 0.55)
 [node name="Help" type="Label" parent="Overlay" unique_id=1972067865]
 offset_left = 16.0
 offset_top = 12.0
-text = "Tab: play/edit    S: save+derive    Esc: deselect    drag body: move    drag corner: resize"
+text = "Tab: play/edit    S: save+derive    click: select    drag: move    corner: resize    arrows: nudge    Esc: deselect"
 
 [node name="Status" type="Label" parent="Overlay" unique_id=1336018156]
 offset_left = 16.0
