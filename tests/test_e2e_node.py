@@ -1064,8 +1064,14 @@ def test_node_set_control_position_updates_offsets_preserving_size(godot_project
     set_data = json.loads(was_set.stdout)
     assert (set_data["property"], set_data["type"]) == ("position", "Vector2")
     assert set_data["value"] == [20.0, 30.0]
+
+    def property_value(name: str):
+        prop = _get_property(scene_path, "Panel", name)
+        assert prop is not None
+        return prop["value"]
+
     props = {
-        name: _get_property(scene_path, "Panel", name)["value"]
+        name: property_value(name)
         for name in ("offset_left", "offset_top", "offset_right", "offset_bottom")
     }
     assert props == {
