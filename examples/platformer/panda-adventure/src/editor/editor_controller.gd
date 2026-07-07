@@ -79,6 +79,14 @@ var _play_instance: Node = null
 
 
 func _ready() -> void:
+	if OS.has_feature("template"):
+		# Defense in depth (gADR-0012): the editor entry is EXCLUDED from player
+		# builds by export_presets.cfg's exclude_filter, so this script is normally
+		# absent from an export pack entirely. Should it ever be reached in a
+		# template (exported) build, refuse — the editor is a dev-machine tool,
+		# never a shipped mode.
+		push_error("EditorController: the editor is not available in exported builds.")
+		return
 	_model = EditorLevelModelScript.new()
 	if not _model.load_authorities():
 		last_action = "load_failed"
