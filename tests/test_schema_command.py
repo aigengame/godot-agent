@@ -1330,12 +1330,15 @@ def test_input_commands_schema_report_kind_live_and_are_model_derived():
     assert "process-clock `frame`" in events_description
     assert "physics-clock `physics_frame`" in events_description
     sequence_event_props = sequence_input["$defs"]["InputSequenceEvent"]["properties"]
+    sequence_event_types = sequence_input["$defs"]["InputEventType"]["enum"]
+    assert "mouse_button" in sequence_event_types
     assert "harness/process-frame" in sequence_event_props["frame"]["description"]
     assert "physics-frame" in sequence_event_props["physics_frame"]["description"]
     assert (
         "engine-tracked mouse positions may remain stale"
         in (sequence_event_props["x"]["description"])
     )
+    assert "mouse-button event" in sequence_event_props["pressed"]["description"]
 
 
 def test_sample_input_results_validate_against_emitted_output_schemas():

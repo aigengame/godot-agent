@@ -463,6 +463,59 @@ def test_input_sequence_physics_frame_offsets_dispatch_through_the_live_channel(
     assert [e["frame"] for e in sent_events] == [None, None]
 
 
+def test_input_sequence_accepts_mouse_button_press_move_release(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(
+            stdout=sentinel(
+                {
+                    **INPUT_SEQUENCE_RESULT,
+                    "events": 4,
+                    "frames": 4,
+                }
+            ),
+            stderr="",
+            exit_code=0,
+        ),
+    )
+    events = [
+        {"type": "mouse_button", "x": 10.0, "y": 10.0, "pressed": True, "frame": 0},
+        {"type": "mouse_move", "x": 40.0, "y": 20.0, "frame": 1},
+        {"type": "mouse_move", "x": 70.0, "y": 50.0, "frame": 2},
+        {"type": "mouse_button", "x": 70.0, "y": 50.0, "release": True, "frame": 3},
+    ]
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(events),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout + result.stderr
+    sent_events = fake.calls[0][1]["events"]
+    assert [e["type"] for e in sent_events] == [
+        "mouse_button",
+        "mouse_move",
+        "mouse_move",
+        "mouse_button",
+    ]
+    assert sent_events[0]["button"] == "left"
+    assert sent_events[0]["pressed"] is True
+    assert sent_events[0]["release"] is False
+    assert sent_events[3]["button"] == "left"
+    assert sent_events[3]["pressed"] is False
+    assert sent_events[3]["release"] is True
+
+
 def test_input_sequence_with_no_daemon_reports_daemon_not_running(
     monkeypatch, tmp_path
 ):
@@ -722,8 +775,11 @@ def test_input_sequence_schema_reports_kind_live():
     assert "process-clock `frame`" in events_description
     assert "physics-clock `physics_frame`" in events_description
     event_props = schema["input"]["$defs"]["InputSequenceEvent"]["properties"]
+    event_types = schema["input"]["$defs"]["InputEventType"]["enum"]
+    assert "mouse_button" in event_types
     assert "harness/process-frame" in event_props["frame"]["description"]
     assert "physics-frame" in event_props["physics_frame"]["description"]
+    assert "mouse-button event" in event_props["pressed"]["description"]
 
 
 def test_input_sequence_help_names_process_and_physics_clocks():
@@ -732,6 +788,7 @@ def test_input_sequence_help_names_process_and_physics_clocks():
     assert result.exit_code == 0, result.stdout + result.stderr
     assert "harness/process-frame" in result.stdout
     assert "physics_frame" in result.stdout
+    assert "mouse_button" in result.stdout
 
 
 def test_input_sequence_help_documents_mouse_tracked_position_limitation():
@@ -842,6 +899,84 @@ def test_input_sequence_params_json_malformed_event_is_invalid_params(
             "sequence",
             "--params-json",
             '{"events": [{"type": "mouse_click", "x": 1.0}]}',
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert fake.calls == []
+
+
+def test_input_sequence_params_json_mouse_button_without_phase_is_invalid_params(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--params-json",
+            '{"events": [{"type": "mouse_button", "x": 1.0, "y": 2.0}]}',
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert fake.calls == []
+
+
+def test_input_sequence_params_json_mouse_button_conflicting_phase_is_invalid_params(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--params-json",
+            (
+                '{"events": [{"type": "mouse_button", "x": 1.0, "y": 2.0, '
+                '"pressed": true, "release": true}]}'
+            ),
+            "--project",
+            str(_project(tmp_path)),
+            "--json",
+        ],
+    )
+
+    assert json.loads(result.stdout)["error"]["code"] == "invalid_params"
+    assert fake.calls == []
+
+
+def test_input_sequence_params_json_pressed_on_mouse_move_is_invalid_params(
+    monkeypatch, tmp_path
+):
+    fake = inject_live_runner(
+        monkeypatch,
+        RunResult(stdout=sentinel(INPUT_SEQUENCE_RESULT), stderr="", exit_code=0),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "input",
+            "sequence",
+            "--params-json",
+            '{"events": [{"type": "mouse_move", "x": 1.0, "y": 2.0, "pressed": true}]}',
             "--project",
             str(_project(tmp_path)),
             "--json",

@@ -63,6 +63,27 @@ MOUSE_MAIN_TSCN = (
     'script = ExtResource("1")\n'
 )
 
+DRAG_PLAYER_GD = (
+    "extends Node2D\n"
+    "@export var dragging: bool = false\n"
+    "@export var release_seen: bool = false\n"
+    "@export var motion_with_left_mask: bool = false\n"
+    "func _input(event: InputEvent) -> void:\n"
+    "\tif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:\n"
+    "\t\tif event.pressed:\n"
+    "\t\t\tdragging = true\n"
+    "\t\t\trelease_seen = false\n"
+    "\t\t\tposition = event.position\n"
+    "\t\telse:\n"
+    "\t\t\tdragging = false\n"
+    "\t\t\trelease_seen = true\n"
+    "\telif event is InputEventMouseMotion and dragging:\n"
+    "\t\tif event.button_mask & MOUSE_BUTTON_MASK_LEFT != 0:\n"
+    "\t\t\tmotion_with_left_mask = true\n"
+    "\t\t\tposition = event.position\n"
+)
+DRAG_MAIN_TSCN = MOUSE_MAIN_TSCN
+
 TRACKED_MOUSE_PLAYER_GD = (
     "extends Node2D\n"
     '@export var last_event_type: String = ""\n'
@@ -328,6 +349,68 @@ def test_mouse_input_reports_event_position_when_tracked_mouse_position_is_stale
         assert_event_position_with_stale_tracked_mouse(
             "move", [77.0, 88.0], [27.0, 28.0]
         )
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_input_sequence_drags_mouse_with_held_button_mask(
+    tmp_path, daemon_runtime_dir
+):
+    # #461: a press -> move(s) -> release gesture stays inside one `input sequence`
+    # RPC. The game reads event.position and event.button_mask, not tracked mouse
+    # position, because #462 documents the tracked-position limitation.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(DRAG_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(DRAG_PLAYER_GD, encoding="utf-8")
+
+    env = {**os.environ}
+
+    def run(*args):
+        return subprocess.run(
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(tmp_path),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=90,
+        )
+
+    def player_property(name: str):
+        got = run("game", "get", "/root/Main/Player", "--property", name)
+        assert got.returncode == 0, got.stdout + got.stderr
+        return json.loads(got.stdout)["properties"][0]["value"]
+
+    events = json.dumps(
+        [
+            {"type": "mouse_button", "x": 10, "y": 10, "pressed": True, "frame": 0},
+            {"type": "mouse_move", "x": 40, "y": 20, "frame": 1},
+            {"type": "mouse_move", "x": 70, "y": 50, "frame": 2},
+            {"type": "mouse_button", "x": 70, "y": 50, "release": True, "frame": 3},
+        ]
+    )
+
+    try:
+        assert run("daemon", "start").returncode == 0
+
+        seq = run("input", "sequence", "--events", events)
+        assert seq.returncode == 0, seq.stdout + seq.stderr
+        seq_doc = json.loads(seq.stdout)
+        assert seq_doc["kind"] == "sequence"
+        assert seq_doc["events"] == 4
+        assert seq_doc["frames"] == 4
+
+        assert player_property("position") == [70.0, 50.0]
+        assert player_property("motion_with_left_mask") is True
+        assert player_property("dragging") is False
+        assert player_property("release_seen") is True
     finally:
         run("daemon", "stop")
 
