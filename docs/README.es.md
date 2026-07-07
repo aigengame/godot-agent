@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=235551b65421a770a544d8ae977ae30067c34c56f5adf8eeb1170684191de707 -->
+<!-- gda-readme-i18n: source=README.md sha256=3f25b544e58bf46ffad43fcf05c8fef738fdc63935ff11ee7fc9734a9f1bd3bf -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -511,6 +511,12 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `input mouse-move` | Inyecta un movimiento de ratón hacia `(x, y)`. |
 | `input action` | Presiona/suelta una acción de entrada mapeada. |
 | `input sequence` | Inyecta una línea de tiempo de eventos de varios frames. |
+
+Los eventos de ratón informan la coordenada inyectada del viewport mediante
+`event.position`. Godot puede dejar `get_mouse_position()` /
+`get_global_mouse_position()` desactualizados en sesiones del daemon, por lo que
+el código del juego debe leer las coordenadas de ratón inyectadas desde el evento
+de entrada.
 
 **`screen`** — captura del viewport
 

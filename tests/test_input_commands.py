@@ -173,6 +173,20 @@ def test_input_mouse_click_injects_a_click_through_the_live_channel(
     ]
 
 
+def test_input_mouse_help_documents_tracked_position_limitation():
+    click = CliRunner().invoke(app, ["input", "mouse-click", "--help"])
+    move = CliRunner().invoke(app, ["input", "mouse-move", "--help"])
+
+    assert click.exit_code == 0, click.stdout + click.stderr
+    assert move.exit_code == 0, move.stdout + move.stderr
+    for result in (click, move):
+        assert "mouse event" in result.stdout
+        assert "position" in result.stdout
+        assert "get_mouse_position()" in result.stdout
+        assert "get_global_mouse_position()" in result.stdout
+        assert "stale in daemon sessions" in result.stdout
+
+
 def test_input_mouse_move_injects_a_motion_through_the_live_channel(
     monkeypatch, tmp_path
 ):

@@ -503,6 +503,11 @@ flags — `gda --help` is the authoritative list of what is installed.
 | `input action` | Press/release a mapped input action. |
 | `input sequence` | Inject a multi-frame event timeline. |
 
+Mouse events report the injected viewport coordinate through `event.position`.
+Godot may leave `get_mouse_position()` / `get_global_mouse_position()` stale in
+daemon sessions, so game code should read injected mouse coordinates from the
+input event.
+
 **`screen`** — viewport capture
 
 | Command | What it does |

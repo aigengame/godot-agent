@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=235551b65421a770a544d8ae977ae30067c34c56f5adf8eeb1170684191de707 -->
+<!-- gda-readme-i18n: source=README.md sha256=3f25b544e58bf46ffad43fcf05c8fef738fdc63935ff11ee7fc9734a9f1bd3bf -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -517,6 +517,10 @@ codex mcp add gda-mcp --env GDA_PROJECT=/absolute/path/to/your/godot/project -- 
 | `input mouse-move` | `(x, y)` へのマウス移動を注入します。 |
 | `input action` | マッピング済みの入力アクションを押下/解放します。 |
 | `input sequence` | 複数フレームにわたるイベントのタイムラインを注入します。 |
+
+マウスイベントは、注入されたビューポート座標を `event.position` で報告します。
+Godot は daemon セッション内で `get_mouse_position()` /
+`get_global_mouse_position()` を古い値のままにする場合があるため、ゲームコードは注入されたマウス座標を入力イベントから読み取ってください。
 
 **`screen`** — ビューポートのキャプチャ
 

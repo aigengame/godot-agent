@@ -1323,7 +1323,10 @@ def input_mouse_click(
 
     Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
     pushes an InputEventMouseButton at the viewport position into the running
-    game's root viewport. With no daemon it reports `daemon_not_running`.
+    game's root viewport. Read the injected coordinate from the mouse event's
+    position; Godot may leave Viewport.get_mouse_position() /
+    Node2D.get_global_mouse_position() stale in daemon sessions. With no daemon it
+    reports `daemon_not_running`.
     """
     _dispatch(
         INPUT_MOUSE_CLICK_COMMAND,
@@ -1362,7 +1365,10 @@ def input_mouse_move(
 
     Routes through gda-daemon to the engine session (kind = LIVE, ADR-0017) and
     pushes an InputEventMouseMotion to the viewport position into the running
-    game's root viewport. With no daemon it reports `daemon_not_running`.
+    game's root viewport. Read the injected coordinate from the mouse event's
+    position; Godot may leave Viewport.get_mouse_position() /
+    Node2D.get_global_mouse_position() stale in daemon sessions. With no daemon it
+    reports `daemon_not_running`.
     """
     _dispatch(
         INPUT_MOUSE_MOVE_COMMAND,
