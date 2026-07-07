@@ -27,13 +27,18 @@ import pytest
 
 from gda.binary import GODOT_BIN_ENV, resolve_godot_binary
 
-# This subproject's root (== the Godot project's res://) and its tooling dir.
+# This subproject's root (== the Godot project's res://) and its tooling dirs.
 GAME_DIR = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = GAME_DIR / "scripts"
+# The Tool Script framework home (gADR-0011); ``tools/`` on the path makes each
+# pipeline package importable by name (e.g. ``import balancing``), the same way
+# ``scripts/`` is for ``build_config``.
+TOOLS_DIR = GAME_DIR / "tools"
 
 # Make the Python build tooling importable by name (e.g. ``import build_config``).
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
+for _tooling in (SCRIPTS_DIR, TOOLS_DIR):
+    if str(_tooling) not in sys.path:
+        sys.path.insert(0, str(_tooling))
 
 # Resolve gda as the MODULE in *this* interpreter's env (same-environment
 # resolution, per support.py / ADR-0011), never a PATH-resolved global.

@@ -1,0 +1,22 @@
+{
+  "config_dir": "data/json",
+  "player_model": {
+    "fire_interval": 0.3,
+    "accuracy": 0.8,
+    "dodge_chance": 0.2,
+    "engagement_distance": 60.0
+  },
+  "simulation": {
+    "dt": 0.016666667,
+    "max_time": 60.0,
+    "runs": 200,
+    "seed": 20260707
+  },
+  "tolerance": 0.25,
+  "waves": [
+    { "wave": 1, "ttk": 0.6, "ttd": 60.0 },
+    { "wave": 2, "ttk": 3.0, "ttd": 60.0 },
+    { "wave": 3, "ttk": 2.0, "ttd": 60.0 },
+    { "wave": 4, "ttk": 60.0, "ttd": 15.0 }
+  ]
+}
