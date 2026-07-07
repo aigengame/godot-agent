@@ -38,14 +38,16 @@ _PLAY_ABORT_SCRIPT = "res://tests/gdscript/test_editor_play_abort.gd"
 _COPY_IGNORE = shutil.ignore_patterns(".godot", "build", "__pycache__")
 
 # The edits the GDScript applies to Level 1 (segment 0 up one tile + widened,
-# arena_min nudged in one tile, first spawn moved, backdrop recolored) —
-# asserted here on the JSON. The backdrop uses power-of-two components, exact
-# in float32 and JSON, so plain equality holds.
+# arena_min nudged in one tile, first spawn moved, backdrop recolored, and — the
+# #441 numeric-form channel — a Player feel number hand-tuned) — asserted here on
+# the JSON. The backdrop and move_speed use values exact in float32 and JSON, so
+# plain equality holds.
 _EXPECT_SEG0_POSITION = [560.0, 484.0]  # was [560, 500]
 _EXPECT_SEG0_SIZE = [1792.0, 48.0]  # was [1760, 48]
 _EXPECT_ARENA_MIN = -144.0  # was -160
 _EXPECT_SPAWN0_POSITION = [688.0, 436.0]  # was [640, 452]
 _EXPECT_BACKDROP = [0.25, 0.5, 0.75, 1.0]  # was [0.07, 0.06, 0.12, 1.0]
+_EXPECT_MOVE_SPEED = 320.0  # was 300.0 (the schema-driven numeric form edit)
 
 
 @pytest.mark.engine
@@ -89,6 +91,12 @@ def test_editor_roundtrip_json_and_derived(tmp_path) -> None:
         (project / "data/json/enemies_config.json").read_text(encoding="utf-8")
     )
     assert enemies["waves"][0]["spawns"][0]["position"] == _EXPECT_SPAWN0_POSITION
+    # The numeric-form channel (#441): the schema-driven Player feel edit landed on
+    # the player authority (a THIRD JSON file the model now writes).
+    player = json.loads(
+        (project / "data/json/player_config.json").read_text(encoding="utf-8")
+    )
+    assert player["move_speed"] == _EXPECT_MOVE_SPEED
 
     # And the worktree authority is untouched (the copy took all writes).
     worktree_level = json.loads(
