@@ -98,9 +98,11 @@ You are implementing <slice> in an ISOLATED git worktree.
 - Definition of Done: the INTEGRATION-tier test passes (the tier that actually exercises
   the integration boundary — integration / e2e / compile / a parse `--check-only`), not
   just the fast tier that stubs it. Do not satisfy DoD with `-m "not <integration>"`.
-- Also part of DoD — mirror the repo's FULL PR-CI gate set: run the formatter CHECK, the
-  linter, and the typecheck exactly as CI invokes them (same commands/flags), not just the
-  test suite. A green test run with a red format check still bounces the PR.
+- Also part of DoD — beyond the test tiers, mirror the repo's NON-TEST PR-CI gates: read
+  the gate list off the CI workflow itself (do not recite it from memory) and run each
+  gate exactly as CI invokes it (same commands/flags) — typically the formatter CHECK,
+  linter, typecheck, and build/packaging. A green test run with a red format check still
+  bounces the PR.
 - If a shared file is OWNED by a sibling slice this wave (the prompt names the owners),
   do NOT edit it — flag the needed change in your report and let the orchestrator route it.
 - Also part of DoD — deep-module reuse: if your change belongs in a shared/deep module (a
@@ -333,7 +335,7 @@ design decision (an ADR) of its own.
 - [ ] Wave ≤ ~5; will merge before the next wave.
 - [ ] Every append hotspot has exactly ONE owner slice this wave; sibling prompts say "flag, don't edit" (§1).
 - [ ] Each subagent's DoD includes the integration tier (not just the stubbed fast tier).
-- [ ] Each subagent's DoD mirrors the repo's full PR-CI gate set — formatter check, lint, typecheck, invoked as CI invokes them (§3).
+- [ ] Each subagent's DoD covers the PR-CI gate list read off the CI workflow itself — the test tiers plus the non-test gates (formatter check, lint, typecheck, build), invoked as CI invokes them (§3).
 - [ ] Each subagent's DoD includes deep-module reuse — no re-implementing shared logic, and no dodging a legitimate shared-file edit, to fake disjointness (§1).
 - [ ] Review/fix rounds restate the dispatch discipline (resume the original agent; one commit per finding); the lead re-verifies, replies finding→resolution on the PR, and updates the PR body (§7).
 - [ ] Agents pinned to their own worktree; will commit early; "done but no artifact" = takeover.

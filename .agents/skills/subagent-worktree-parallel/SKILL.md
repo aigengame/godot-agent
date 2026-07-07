@@ -30,13 +30,14 @@ the cost/benefit table).
 - **Small batches (≤ ~5), merge before the next wave.** Each rebase then lands on a
   stable base; large waves create a merge *treadmill* (every merge re-conflicts the
   rest) and raise the odds a subagent is truncated at a run limit.
-- **The integration-tier test is the Definition of Done — and so is the repo's full
-  PR-CI gate set.** A fast tier that stubs the integration boundary passes even on a
+- **The integration-tier test is the Definition of Done — and so is the rest of the
+  PR-CI gate list.** A fast tier that stubs the integration boundary passes even on a
   broken merge: DoD must run the tier that really exercises the boundary (integration /
-  e2e / compile or a parse `--check-only`). And DoD must mirror every gate the PR CI
-  runs — formatter *check*, linter, typecheck — invoked exactly as CI invokes them: a
-  green test run with a red format check still bounces the PR (every slice of one real
-  wave tripped this). (REFERENCE §3, §6)
+  e2e / compile or a parse `--check-only`). Beyond the test tiers, DoD must also mirror
+  the repo's non-test PR-CI gates — read the gate list off the CI workflow itself, not
+  from memory: typically the formatter *check*, linter, typecheck, and build/packaging —
+  invoked exactly as CI invokes them. A green test run with a red format check still
+  bounces the PR (every slice of one real wave tripped this). (REFERENCE §3, §6)
 - **The orchestrator independently re-verifies before merging.** Subagent implements and
   **commits** (its own branch, in its worktree); the lead re-runs tests and spot-checks the
   diff. "Done but no artifact" = needs takeover.
