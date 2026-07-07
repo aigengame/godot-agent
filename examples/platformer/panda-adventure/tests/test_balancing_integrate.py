@@ -85,19 +85,26 @@ def test_single_step_matches_taylor() -> None:
 
 
 def test_stop_predicate_ends_early() -> None:
-    """The event ``stop`` predicate ends the drive at the first True."""
+    """The event ``stop`` predicate ends the drive at the first step whose new
+    state satisfies it — far short of ``t_end`` (the generic stepper does not
+    interpolate the crossing; ``dynamics`` layers that refinement on top)."""
     t, y = integrate(
         lambda t, y: (1.0,), (0.0,), 0.0, 100.0, 0.1, stop=lambda t, y: y[0] >= 1.0
     )
-    assert math.isclose(y[0], 1.0, abs_tol=1e-9)
-    assert t < 2.0
+    assert y[0] >= 1.0
+    assert t < 1.5  # ended right after crossing, not at t_end=100
 
 
 def test_observer_samples_trajectory() -> None:
     """The per-step observer sees a monotonically advancing time trace."""
     samples: list[float] = []
     integrate(
-        lambda t, y: (1.0,), (0.0,), 0.0, 1.0, 0.25, observer=lambda t, y: samples.append(t)
+        lambda t, y: (1.0,),
+        (0.0,),
+        0.0,
+        1.0,
+        0.25,
+        observer=lambda t, y: samples.append(t),
     )
     assert samples[0] == 0.0
     assert samples == sorted(samples)

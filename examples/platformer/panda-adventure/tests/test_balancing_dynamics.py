@@ -129,14 +129,15 @@ def test_reward_conservation_across_the_run() -> None:
 
 
 def test_heal_never_overfills_hp() -> None:
-    """The Bun heal saturates at max HP — a long, damage-free Wave with Buns in
-    hand recovers HP to the cap and no further."""
+    """The Bun heal saturates at max HP — with the heal threshold at full HP and
+    Buns in hand, a long, damage-free Wave recovers HP to the cap and NO further
+    (the cap is a ``min`` saturation, enforced even across a discrete RK4 step)."""
     econ = _econ(player_max_hp=100.0, bun_hp_restore=25.0)
     wd = _wd(wave_hp=2000.0, player_dps=10.0, enemy_dps=0.0)
-    params = _params(heal_threshold_frac=0.9, bun_consume_rate=2.0)
+    params = _params(heal_threshold_frac=1.0, bun_consume_rate=2.0)  # heal to full
     y0 = (wd.wave_hp, 50.0, 0.0, 0.0, 20.0, 0.0)  # start at 50 HP, 20 Buns
     outcome, _ = dynamics._run_one_wave(wd, params, econ, y0)
-    assert outcome.hp_end <= econ.player_max_hp + 1e-9
+    assert outcome.hp_end <= econ.player_max_hp + 1e-9  # never above the cap
     assert math.isclose(outcome.hp_end, econ.player_max_hp, abs_tol=1e-6)
 
 

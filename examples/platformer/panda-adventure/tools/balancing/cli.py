@@ -182,7 +182,9 @@ def _run_validate(args: argparse.Namespace) -> int:
     sim = _sim_with_overrides(cfg.sim, args.seed, args.runs)
 
     result = report.run_validation(game, player, sim, cfg.targets)
-    _emit(report.report_to_dict(result), report.format_text(result), args.out, args.json)
+    _emit(
+        report.report_to_dict(result), report.format_text(result), args.out, args.json
+    )
     return 0 if result.all_within_tolerance else 1
 
 

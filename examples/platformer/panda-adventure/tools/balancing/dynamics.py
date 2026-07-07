@@ -77,7 +77,7 @@ from dataclasses import dataclass, replace
 
 from . import rules
 from .integrate import State, rk4_step
-from .model import CombatParams, EnemyKind, GameData, GrowthEconomy, PlayerModel, Wave
+from .model import CombatParams, EnemyKind, GameData, GrowthEconomy, PlayerModel
 
 # The state-vector layout (see the module docstring). Bare indices keep the
 # vector a plain float tuple for the generic RK4 integrator.
@@ -139,7 +139,9 @@ class WaveDynamics:
         return self.enemy_dps * self.base_clear_time / player_max_hp
 
 
-def _player_dps(player: PlayerModel, combat: CombatParams, enemy_defense: float) -> float:
+def _player_dps(
+    player: PlayerModel, combat: CombatParams, enemy_defense: float
+) -> float:
     """The Player's steady effective DPS against one enemy defense: the
     parity-pinned damage per shot (``rules.compute_damage``) times the effective
     hit rate (fire cadence discounted by aim)."""
