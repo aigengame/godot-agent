@@ -32,8 +32,12 @@ extends Resource
 
 # Field blockout + juice: the translucent block color, the spawn/expiry fade
 # tween seconds, and the spawn offset from the Player origin (x scaled by
-# facing, like the Projectile).
+# facing, like the Projectile). field_asset is the optional view asset
+# reference (P2-S2, #436): the ViewBuilder resolves a non-empty reference to
+# the (future) sprite, an empty one to the colored-block fallback. Authored
+# empty until an asset slice fills it (asset references are data, gADR-0000).
 @export var field_color: Color
+@export var field_asset: String
 @export var field_fade_duration: float
 @export var field_spawn_offset: Vector2
 
@@ -42,8 +46,10 @@ extends Resource
 @export var enemy_max_gravity_offset: float
 
 # Obstacle block — the gravity-affectable environment prop (terrain layer):
-# blockout, placement, and its own displacement clamp.
+# blockout, placement, and its own displacement clamp. obstacle_asset is the
+# optional view asset reference (P2-S2, #436; the field_asset pattern).
 @export var obstacle_color: Color
 @export var obstacle_size: Vector2
+@export var obstacle_asset: String
 @export var obstacle_position: Vector2
 @export var obstacle_max_gravity_offset: float

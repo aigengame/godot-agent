@@ -44,6 +44,7 @@ const EconomySystemScript := preload("res://src/systems/economy_system.gd")
 const GameFlowDirectorScript := preload("res://src/controllers/game_flow_director.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
+const ViewBuilderScript := preload("res://src/view/view_builder.gd")
 const EnemyScene := preload("res://scenes/enemy.tscn")
 const PickupScene := preload("res://scenes/pickup.tscn")
 const PlatformScene := preload("res://scenes/platform.tscn")
@@ -128,27 +129,20 @@ func _process(_delta: float) -> void:
 ## Apply the data-driven Great-Wall blockout (S9, gADR-0010): the backdrop
 ## clear color and one platform.tscn instance per `platforms` segment (visual
 ## + collision centered on the body origin — the S1 slab's shape, now per
-## segment). The collision shape is CREATED here (RectangleShape2D.new sized
-## from config): gda cannot author inline sub-resources (#365), so the scene
-## ships shape=null (the ObstacleController pattern). All from config.
+## segment). Each segment's blockout routes through the shared view seam
+## (ViewBuilder, #436) — the same construction every actor uses, applied to the
+## instanced segment, with the segment's asset reference feeding the seam's
+## resolution (authored empty today, so the block). No pivot — a static platform
+## never scale-tweens. All from config.
 func _apply_level(config: LevelConfigScript) -> void:
 	RenderingServer.set_default_clear_color(config.background_color)
 	for entry: Dictionary in config.platforms:
 		var segment := PlatformScene.instantiate()
 		segment.name = entry["name"]
 		segment.position = entry["position"]
-		var size: Vector2 = entry["size"]
-		var half := size / 2.0
-
-		var visual := segment.get_node("Visual") as ColorRect
-		visual.color = config.platform_color
-		visual.size = size
-		visual.position = -half
-
-		var shape := RectangleShape2D.new()
-		shape.size = size
-		(segment.get_node("Collision") as CollisionShape2D).shape = shape
-
+		ViewBuilderScript.apply_box(
+			segment, config.platform_color, entry["size"], false, entry["asset"]
+		)
 		add_child(segment)
 	GameLogScript.emit("info", "level_ready", {
 		"platforms": config.platforms.size(),

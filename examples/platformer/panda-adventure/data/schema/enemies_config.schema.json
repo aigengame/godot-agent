@@ -145,6 +145,11 @@
           "minimum": 0.0
         },
         "color": { "$ref": "#/$defs/rgba" },
+        "asset": {
+          "description": "Optional view asset reference for this kind's body block (P2-S2, #436): a res:// path or asset-pipeline id the view seam resolves; absent (or empty) renders the colored-block fallback. Authored empty until an asset slice fills it (asset references are data, gADR-0000).",
+          "type": "string",
+          "pattern": "^[^\"\\\\]*$"
+        },
         "move_speed": {
           "description": "Horizontal steering speed in px/s; non-negative.",
           "type": "number",
@@ -198,6 +203,11 @@
           "exclusiveMinimum": 0.0
         },
         "projectile_color": { "$ref": "#/$defs/rgba" },
+        "projectile_asset": {
+          "description": "Optional view asset reference for this kind's bolt block (P2-S2, #436): a res:// path or asset-pipeline id the view seam resolves; absent (or empty) renders the colored-block fallback. Authored empty until an asset slice fills it (asset references are data, gADR-0000).",
+          "type": "string",
+          "pattern": "^[^\"\\\\]*$"
+        },
         "projectile_speed": {
           "description": "Enemy bolt travel speed in px/s; strictly positive.",
           "type": "number",
@@ -250,6 +260,11 @@
         "time_field_color": {
           "description": "Time Dilation Field zone color (RGBA; alpha is the translucency of the overlay block).",
           "$ref": "#/$defs/rgba"
+        },
+        "time_field_asset": {
+          "description": "Optional view asset reference for this kind's Time Dilation Field block (P2-S2, #436): a res:// path or asset-pipeline id the view seam resolves; absent (or empty) renders the colored-block fallback. Authored empty until an asset slice fills it (asset references are data, gADR-0000). Optional even for a Warp kind, so it stays OUT of the warp block's all-or-none dependentRequired lists.",
+          "type": "string",
+          "pattern": "^[^\"\\\\]*$"
         },
         "time_field_fade_duration": {
           "description": "Seconds of the field's spawn fade-in / expiry fade-out tween; strictly positive.",

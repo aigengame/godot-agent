@@ -229,6 +229,20 @@ How long it takes an enemy or a wave to kill the player — the player's surviva
 symmetric counterpart of TTK.
 _Avoid_: TDD (reserved repo-wide for Test-Driven Development); time-to-down
 
+### View
+
+**View seam**:
+The single view-construction path every controller's blockout routes through (P2-S2,
+#436): given a node carrying the `Visual` (ColorRect) + `Collision` (CollisionShape2D)
+pair, it builds the CanvasItem layer (gADR-0000) — resolving what to render from config,
+an asset reference to the future sprite (asset references are data, gADR-0000) or, absent
+one, the colored-block fallback shipped today. One home, so later asset slices wire
+sprites by data instead of editing every controller. Static and stateless (the
+shared-seam idiom of the Derived-Resource loader, not the stateful driver idiom of the
+Warp driver / Game-flow director).
+_Avoid_: renderer, sprite factory, blockout (that names the fallback the seam builds, not
+the seam)
+
 ### Pipelines
 
 **Tool Script**:

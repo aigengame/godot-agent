@@ -24,6 +24,11 @@
       "minItems": 4,
       "maxItems": 4
     },
+    "background_asset": {
+      "description": "Optional view asset reference for the level backdrop (P2-S2, #436): a res:// path or asset-pipeline id; absent (or empty) keeps the clear-color backdrop. Authored empty until an asset slice fills it (asset references are data, gADR-0000); today's backdrop is a clear color with no view node, so nothing consumes a non-empty value yet.",
+      "type": "string",
+      "pattern": "^[^\"\\\\]*$"
+    },
     "platform_color": {
       "description": "Shared color of every Great-Wall segment as RGBA, each component in 0..1 — one wall, one material.",
       "type": "array",
@@ -59,6 +64,11 @@
             "items": { "type": "number", "exclusiveMinimum": 0.0 },
             "minItems": 2,
             "maxItems": 2
+          },
+          "asset": {
+            "description": "Optional view asset reference for this segment's block (P2-S2, #436): a res:// path or asset-pipeline id the view seam resolves; absent (or empty) renders the colored-block fallback. Authored empty until an asset slice fills it (asset references are data, gADR-0000).",
+            "type": "string",
+            "pattern": "^[^\"\\\\]*$"
           }
         }
       }

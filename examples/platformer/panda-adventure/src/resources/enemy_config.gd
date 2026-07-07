@@ -23,9 +23,13 @@ extends "res://src/resources/stats_config.gd"
 @export var archetype: String
 
 # Blockout: the enemy block's color (Faction flavor) and size (Tier read at a
-# glance, per the GDD scale-ratio rules).
+# glance, per the GDD scale-ratio rules), plus the optional view asset
+# reference (P2-S2, #436): the ViewBuilder resolves a non-empty reference to
+# the (future) sprite, an empty one to the colored-block fallback. Authored
+# empty until an asset slice fills it (asset references are data, gADR-0000).
 @export var color: Color
 @export var size: Vector2
+@export var asset: String
 
 # Motion: horizontal steering speed plus the vertical fall params (a
 # CharacterBody2D since S4; a floating kind would set gravity 0).
@@ -49,8 +53,11 @@ extends "res://src/resources/stats_config.gd"
 
 # Ranged-only: the enemy bolt's blockout + motion (schema requires these iff
 # archetype == "ranged"; other kinds leave them at type defaults, never read).
+# projectile_asset is the bolt's optional view asset reference (P2-S2, #436;
+# the body `asset` pattern).
 @export var projectile_color: Color
 @export var projectile_size: Vector2
+@export var projectile_asset: String
 @export var projectile_speed: float
 @export var projectile_lifetime: float
 @export var projectile_spawn_offset: Vector2
@@ -78,8 +85,11 @@ extends "res://src/resources/stats_config.gd"
 @export var warp_offset: Vector2
 @export var warp_tell_duration: float
 @export var warp_recovery_duration: float
+# time_field_asset is the field's optional view asset reference (P2-S2, #436;
+# the body `asset` pattern) — optional even for a Warp kind.
 @export var time_field_radius: float
 @export var time_field_factor: float
 @export var time_field_duration: float
 @export var time_field_color: Color
+@export var time_field_asset: String
 @export var time_field_fade_duration: float

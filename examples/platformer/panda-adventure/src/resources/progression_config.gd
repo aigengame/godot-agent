@@ -28,7 +28,10 @@ extends Resource
 @export var level_up_flash_color: Color
 @export var level_up_flash_duration: float
 
-# Pickup blockout per droppable item name.
+# Pickup blockout per droppable item name: item -> {"color": Color,
+# "size": Vector2, "asset": String}. `asset` is the item's optional view asset
+# reference (P2-S2, #436): the ViewBuilder resolves a non-empty reference to
+# the (future) sprite, an empty one to the colored-block fallback.
 @export var drop_items: Dictionary
 
 # The deterministic drop scatter: horizontal spacing between one death's

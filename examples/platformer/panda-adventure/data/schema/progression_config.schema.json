@@ -28,7 +28,12 @@
       "additionalProperties": false,
       "required": ["color"],
       "properties": {
-        "color": { "$ref": "#/$defs/rgba" }
+        "color": { "$ref": "#/$defs/rgba" },
+        "asset": {
+          "description": "Optional view asset reference for this item's pickup block (P2-S2, #436): a res:// path or asset-pipeline id the view seam resolves; absent (or empty) renders the colored-block fallback. Authored empty until an asset slice fills it (asset references are data, gADR-0000).",
+          "type": "string",
+          "pattern": "^[^\"\\\\]*$"
+        }
       }
     }
   },

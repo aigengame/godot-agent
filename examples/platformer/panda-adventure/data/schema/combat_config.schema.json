@@ -79,6 +79,11 @@
       "minItems": 4,
       "maxItems": 4
     },
+    "projectile_asset": {
+      "description": "Optional view asset reference for the Laser Gun bolt block (P2-S2, #436): a res:// path or asset-pipeline id the view seam resolves; absent (or empty) renders the colored-block fallback. Authored empty until an asset slice fills it (asset references are data, gADR-0000).",
+      "type": "string",
+      "pattern": "^[^\"\\\\]*$"
+    },
     "projectile_speed": {
       "description": "Projectile travel speed in px/s; strictly positive.",
       "type": "number",

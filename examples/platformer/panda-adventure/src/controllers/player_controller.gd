@@ -41,6 +41,7 @@ const StatsSystemScript := preload("res://src/systems/stats_system.gd")
 const CombatSystemScript := preload("res://src/systems/combat_system.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
+const ViewBuilderScript := preload("res://src/view/view_builder.gd")
 const ProjectileScene := preload("res://scenes/projectile.tscn")
 
 const CONFIG_PATH := "res://data/generated/player_config.tres"
@@ -139,20 +140,16 @@ func _ready() -> void:
 	_equip_spacesuit()
 
 
-## Apply the data-driven blockout: the Player block (visual + collision centered
-## on the body origin), spawn position, and follow-camera smoothing. All from
-## config — nothing hardcoded.
+## Apply the data-driven blockout, spawn position, and follow-camera smoothing.
+## The Player block (visual + collision centered on the body origin, center pivot
+## for the landing squash) routes through the shared view seam (ViewBuilder, #436),
+## with the config's asset reference feeding the seam's resolution (authored empty
+## today, so the block); the spawn position and camera are Player-specific
+## placement, kept here. All from config — nothing hardcoded.
 func _apply_blockout(config: PlayerConfigScript) -> void:
-	var half := config.player_size / 2.0
-
-	var visual := $Visual as ColorRect
-	visual.color = config.player_color
-	visual.size = config.player_size
-	visual.position = -half
-	visual.pivot_offset = half  # scale/tween about the block center
-
-	var shape := ($Collision as CollisionShape2D).shape as RectangleShape2D
-	shape.size = config.player_size
+	ViewBuilderScript.apply_box(
+		self, config.player_color, config.player_size, true, config.player_asset
+	)
 
 	position = config.player_start
 

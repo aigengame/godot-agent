@@ -40,6 +40,7 @@ const GravitySystemScript := preload("res://src/systems/gravity_system.gd")
 const GravityConfigScript := preload("res://src/resources/gravity_config.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
+const ViewBuilderScript := preload("res://src/view/view_builder.gd")
 const EnemyWarpDriverScript := preload("res://src/controllers/enemy_warp_driver.gd")
 const EnemyProjectileScene := preload("res://scenes/enemy_projectile.tscn")
 
@@ -257,6 +258,7 @@ func _fire_bolt(player: Node2D) -> void:
 		_kind.projectile_size,
 		_kind.projectile_speed,
 		_kind.projectile_lifetime,
+		_kind.projectile_asset,
 	)
 	var offset := _kind.projectile_spawn_offset
 	bolt.position = position + Vector2(signf(aim.x) * offset.x, offset.y)
@@ -275,22 +277,13 @@ func _now() -> float:
 	return Time.get_ticks_msec() / 1000.0
 
 
-## Apply the kind's data-driven blockout: the Enemy block centered on the body
-## origin (color = Faction flavor, size = Tier read at a glance, per the GDD).
-## The collision shape is CREATED here (RectangleShape2D.new sized from config):
-## gda cannot author inline sub-resources (#365), so the scene ships shape=null.
+## Apply the kind's data-driven blockout through the shared view seam
+## (ViewBuilder, #436): the Enemy block centered on the body origin (color =
+## Faction flavor, size = Tier read at a glance, per the GDD), with a center pivot
+## so the spawn/attack/hit scale tweens punch about the middle. The kind's asset
+## reference feeds the seam's resolution — authored empty today, so the block.
 func _apply_blockout(kind: EnemyConfigScript) -> void:
-	var half := kind.size / 2.0
-
-	var visual := $Visual as ColorRect
-	visual.color = kind.color
-	visual.size = kind.size
-	visual.position = -half
-	visual.pivot_offset = half  # scale/tween about the block center
-
-	var shape := RectangleShape2D.new()
-	shape.size = kind.size
-	($Collision as CollisionShape2D).shape = shape
+	ViewBuilderScript.apply_box(self, kind.color, kind.size, true, kind.asset)
 
 
 ## The hit "juice": flash the block to the shared hit color and tween back to

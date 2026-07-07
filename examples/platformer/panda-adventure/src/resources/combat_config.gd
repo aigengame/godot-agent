@@ -28,8 +28,13 @@ extends Resource
 @export var iframe_duration: float
 
 # Projectile block — the Laser Gun bolt (blockout + manual straight-line motion).
+# projectile_asset is the optional view asset reference (P2-S2, #436): the
+# ViewBuilder resolves a non-empty reference to the (future) sprite, an empty
+# one to the colored-block fallback. Authored empty until an asset slice fills
+# it (asset references are data, gADR-0000).
 @export var projectile_color: Color
 @export var projectile_size: Vector2
+@export var projectile_asset: String
 @export var projectile_speed: float
 @export var projectile_lifetime: float
 # Spawn offset from the Player origin; x is scaled by the Player's facing.

@@ -25,11 +25,15 @@ extends Area2D
 
 const EnemyConfigScript := preload("res://src/resources/enemy_config.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
+const ViewBuilderScript := preload("res://src/view/view_builder.gd")
 
 var _radius := 0.0
 var _factor := 1.0
 var _duration := 0.0
 var _color := Color.WHITE
+# The field's optional view asset reference (P2-S2, #436): resolved by the
+# view seam — authored empty today, so the block fallback.
+var _asset := ""
 var _fade_duration := 0.0
 # The nodes this field set a factor on last physics frame (instance id ->
 # node): the diff against the current overlaps is what RESETS a leaver to
@@ -44,6 +48,7 @@ func configure(kind: EnemyConfigScript) -> void:
 	_factor = kind.time_field_factor
 	_duration = kind.time_field_duration
 	_color = kind.time_field_color
+	_asset = kind.time_field_asset
 	_fade_duration = kind.time_field_fade_duration
 
 
@@ -95,22 +100,13 @@ func _physics_process(_delta: float) -> void:
 	_affected = current
 
 
-## Apply the data-driven blockout: a translucent square block over a circular
-## collision area of the config radius, both centered on the Area2D origin
-## (the Gravity Field's blockout shape). The collision shape is CREATED here
-## (CircleShape2D.new sized from config): gda cannot author inline
-## sub-resources (#365), so the scene ships shape=null.
+## Apply the data-driven blockout through the shared view seam (ViewBuilder,
+## #436): a translucent square block over a circular collision area of the config
+## radius, both centered on the Area2D origin (the Gravity Field's blockout shape).
+## The configured asset reference feeds the seam's resolution — authored empty
+## today, so the block.
 func _apply_blockout() -> void:
-	var side := _radius * 2.0
-
-	var visual := $Visual as ColorRect
-	visual.color = _color
-	visual.size = Vector2(side, side)
-	visual.position = -Vector2(_radius, _radius)
-
-	var shape := CircleShape2D.new()
-	shape.radius = _radius
-	($Collision as CollisionShape2D).shape = shape
+	ViewBuilderScript.apply_circle(self, _color, _radius, _asset)
 
 
 ## The blockout "animation", spawn half: fade the zone in from transparent

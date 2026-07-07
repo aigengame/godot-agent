@@ -25,6 +25,7 @@ extends Area2D
 const StatsConfigScript := preload("res://src/resources/stats_config.gd")
 const CombatConfigScript := preload("res://src/resources/combat_config.gd")
 const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
+const ViewBuilderScript := preload("res://src/view/view_builder.gd")
 
 const CONFIG_PATH := "res://data/generated/combat_config.tres"
 
@@ -32,6 +33,9 @@ var _direction := Vector2.RIGHT
 var _attacker: StatsConfigScript
 var _color: Color
 var _size: Vector2
+# The bolt's optional view asset reference (P2-S2, #436): resolved by the view
+# seam — authored empty today, so the block fallback.
+var _asset := ""
 var _speed: float
 var _lifetime: float
 var _configured := false
@@ -50,12 +54,16 @@ func setup(direction: Vector2, attacker: StatsConfigScript) -> void:
 
 ## Override the bolt's blockout + motion (the S4 Ranged enemy's per-kind bolt).
 ## Called BEFORE add_child; a bolt never configured falls back to the
-## CombatConfig Laser Gun params in _ready.
-func configure(color: Color, size: Vector2, speed: float, lifetime: float) -> void:
+## CombatConfig Laser Gun params in _ready. `asset` is the bolt's config-fed
+## view asset reference (P2-S2, #436).
+func configure(
+	color: Color, size: Vector2, speed: float, lifetime: float, asset: String = ""
+) -> void:
 	_color = color
 	_size = size
 	_speed = speed
 	_lifetime = lifetime
+	_asset = asset
 	_configured = true
 
 
@@ -70,6 +78,7 @@ func _ready() -> void:
 			config.projectile_size,
 			config.projectile_speed,
 			config.projectile_lifetime,
+			config.projectile_asset,
 		)
 	_apply_blockout()
 	body_entered.connect(_on_body_entered)
@@ -91,20 +100,12 @@ func _physics_process(delta: float) -> void:
 	position += _direction * _speed * _time_dilation * delta
 
 
-## Apply the data-driven blockout: the bolt block centered on the Area2D origin.
-## The collision shape is CREATED here (RectangleShape2D.new sized from config):
-## gda cannot author inline sub-resources (#365), so the scene ships shape=null.
+## Apply the data-driven blockout through the shared view seam (ViewBuilder,
+## #436): the bolt block centered on the Area2D origin. No pivot — a bolt flies
+## straight and never scale-tweens. The configured asset reference feeds the
+## seam's resolution — authored empty today, so the block.
 func _apply_blockout() -> void:
-	var half := _size / 2.0
-
-	var visual := $Visual as ColorRect
-	visual.color = _color
-	visual.size = _size
-	visual.position = -half
-
-	var shape := RectangleShape2D.new()
-	shape.size = _size
-	($Collision as CollisionShape2D).shape = shape
+	ViewBuilderScript.apply_box(self, _color, _size, false, _asset)
 
 
 func _on_body_entered(body: Node2D) -> void:

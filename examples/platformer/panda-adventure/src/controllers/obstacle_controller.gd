@@ -16,6 +16,7 @@ const GravityConfigScript := preload("res://src/resources/gravity_config.gd")
 const GravitySystemScript := preload("res://src/systems/gravity_system.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
+const ViewBuilderScript := preload("res://src/view/view_builder.gd")
 
 const CONFIG_PATH := "res://data/generated/gravity_config.tres"
 
@@ -48,18 +49,11 @@ func apply_gravity_field(field_velocity: Vector2, delta: float) -> void:
 	_gravity_offset = next
 
 
-## Apply the data-driven blockout: the Obstacle block centered on the body
-## origin. The collision shape is CREATED here (RectangleShape2D.new sized from
-## config): gda cannot author inline sub-resources (#365), so the scene ships
-## shape=null.
+## Apply the data-driven blockout through the shared view seam (ViewBuilder,
+## #436): the Obstacle block centered on the body origin. No pivot — a static
+## prop that never scale-tweens. The config's asset reference feeds the seam's
+## resolution — authored empty today, so the block.
 func _apply_blockout(config: GravityConfigScript) -> void:
-	var half := config.obstacle_size / 2.0
-
-	var visual := $Visual as ColorRect
-	visual.color = config.obstacle_color
-	visual.size = config.obstacle_size
-	visual.position = -half
-
-	var shape := RectangleShape2D.new()
-	shape.size = config.obstacle_size
-	($Collision as CollisionShape2D).shape = shape
+	ViewBuilderScript.apply_box(
+		self, config.obstacle_color, config.obstacle_size, false, config.obstacle_asset
+	)
