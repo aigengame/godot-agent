@@ -393,6 +393,11 @@ flags — `gda --help` is the authoritative list of what is installed.
 | `node connect-signal` | Wire a source node's signal to a target node's method. |
 | `node disconnect-signal` | Unwire an existing signal→method connection. |
 
+For `Control` nodes, `node set --property position` writes the underlying
+`offset_left` / `offset_top` / `offset_right` / `offset_bottom` values while
+preserving size. Direct children of a `Container` are layout-managed, so set the
+offset properties explicitly instead.
+
 **`script`** — GDScript files (`.gd`)
 
 | Command | What it does |
@@ -473,6 +478,9 @@ flags — `gda --help` is the authoritative list of what is installed.
 | `game get` | Read a runtime node's live properties by node path; explicit names can address attached-script variables. |
 | `game rect` | Read a runtime Control's rendered viewport rect by node path. |
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game. |
+
+Live `game set --property position` follows the same `Control` policy as
+`node set`; `game rect` remains a read-only rendered-geometry query.
 
 **`diag`** — runtime diagnostics
 

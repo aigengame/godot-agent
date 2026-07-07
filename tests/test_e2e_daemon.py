@@ -54,6 +54,15 @@ RECT_MAIN_TSCN = (
     "custom_minimum_size = Vector2(160, 48)\n"
     'text = "HP"\n'
 )
+CONTROL_POSITION_MAIN_TSCN = (
+    "[gd_scene format=3]\n\n"
+    '[node name="Main" type="Control"]\n\n'
+    '[node name="Panel" type="Control" parent="."]\n'
+    "offset_left = 5.0\n"
+    "offset_top = 7.0\n"
+    "offset_right = 105.0\n"
+    "offset_bottom = 57.0\n"
+)
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="daemon uses AF_UNIX")
 
@@ -188,6 +197,83 @@ def test_daemon_game_rect_reads_free_positioned_control_rect(
         assert doc["type"] == "VBoxContainer"
         assert doc["position"] == [24.0, 24.0]
         assert doc["size"] == [160.0, 48.0]
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_control_position_updates_offsets_preserving_size(
+    tmp_path, daemon_runtime_dir
+):
+    # #464: live `game set` mirrors headless `node set` for Control.position by
+    # applying an actionable offset write while preserving the current size.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(CONTROL_POSITION_MAIN_TSCN, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Panel",
+            "--property",
+            "position",
+            "--value",
+            "20,30",
+        )
+        assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+        set_doc = json.loads(was_set.stdout)
+        assert set_doc["path"] == "/root/Main/Panel"
+        assert (set_doc["property"], set_doc["type"]) == ("position", "Vector2")
+        assert set_doc["value"] == [20.0, 30.0]
+
+        props = {}
+        for name in ("offset_left", "offset_top", "offset_right", "offset_bottom"):
+            got = run("game", "get", "/root/Main/Panel", "--property", name)
+            assert got.returncode == 0, got.stdout + got.stderr
+            props[name] = json.loads(got.stdout)["properties"][0]["value"]
+        assert props == {
+            "offset_left": 20.0,
+            "offset_top": 30.0,
+            "offset_right": 120.0,
+            "offset_bottom": 80.0,
+        }
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_container_managed_control_position_names_offset_alternatives(
+    tmp_path, daemon_runtime_dir
+):
+    # A Container owns direct-child layout; `game set position` reports an
+    # actionable live error instead of claiming a write the next layout pass owns.
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(RECT_MAIN_TSCN, encoding="utf-8")
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/HUD/Stats",
+            "--property",
+            "position",
+            "--value",
+            "20,30",
+        )
+        assert was_set.returncode == 6, was_set.stdout + was_set.stderr
+        error = json.loads(was_set.stdout)["error"]
+        assert error["category"] == "live"
+        assert error["code"] == "live_unknown_property"
+        for name in ("offset_left", "offset_top", "offset_right", "offset_bottom"):
+            assert name in error["message"]
     finally:
         run("daemon", "stop")
 

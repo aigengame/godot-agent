@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=3f25b544e58bf46ffad43fcf05c8fef738fdc63935ff11ee7fc9734a9f1bd3bf -->
+<!-- gda-readme-i18n: source=README.md sha256=06067154e90ca388c08772e7be322327d9d2241f6f23aa1056dd57c0d356da3d -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -391,6 +391,10 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `node connect-signal` | 把源节点的信号接到目标节点的方法上。 |
 | `node disconnect-signal` | 断开一个已有的「信号→方法」连接。 |
 
+对于 `Control` 节点，`node set --property position` 会写入底层的
+`offset_left` / `offset_top` / `offset_right` / `offset_bottom`，同时保留尺寸。
+`Container` 的直接子节点由布局管理，因此应显式设置这些 offset 属性。
+
 **`script`** — GDScript 文件（`.gd`）
 
 | 命令 | 作用 |
@@ -471,6 +475,9 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `game get` | 按节点路径读取一个运行时节点的实时属性；显式命名时可读取附加脚本变量。 |
 | `game rect` | 按节点路径读取一个运行时 Control 的渲染后视口矩形。 |
 | `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量。 |
+
+Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策略；
+`game rect` 仍然是只读的渲染几何查询。
 
 **`diag`** — 运行时诊断
 

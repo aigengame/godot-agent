@@ -659,6 +659,37 @@ func _op_node_set(params: Dictionary) -> void:
 		return
 
 	var prop_name := _string_param(params, "property")
+	if _is_control_position_write(node, prop_name):
+		var control: Control = node as Control
+		if _has_container_parent(control):
+			root.free()
+			_fail(OP_ERROR_UNKNOWN_PROPERTY,
+					_control_position_unavailable_message("node " + node_path))
+			return
+		var raw_position := _string_param(params, "value")
+		var coerced_position: Variant = _coerce_value(raw_position,
+				TYPE_VECTOR2, control.position)
+		if coerced_position == null:
+			root.free()
+			_fail(OP_ERROR_UNCOERCIBLE_VALUE, "cannot coerce value "
+					+ raw_position.c_escape()
+					+ " to Vector2 for property position on node " + node_path)
+			return
+		var target_position: Vector2 = coerced_position
+		control.set_position(target_position)
+		var stored_position: Variant = _jsonify(control.position)
+		if not _repack_and_save(root, path):
+			return  # _repack_and_save already recorded the failure (and freed root)
+
+		_succeed({
+			"scene_path": path,
+			"path": node_path,
+			"property": prop_name,
+			"type": _type_name(TYPE_VECTOR2),
+			"value": stored_position,
+		})
+		return
+
 	var declared_type := _property_type(node, prop_name)
 	if declared_type == TYPE_NIL:
 		root.free()
@@ -710,6 +741,18 @@ func _op_node_set(params: Dictionary) -> void:
 		"type": _type_name(declared_type),
 		"value": stored_value,
 	})
+
+
+func _is_control_position_write(node: Node, prop_name: String) -> bool:
+	return prop_name == "position" and node is Control
+
+
+func _has_container_parent(control: Control) -> bool:
+	return control.get_parent() is Container
+
+
+func _control_position_unavailable_message(subject: String) -> String:
+	return subject + " is a direct child of a Container, so Control.position is not an actionable settable property; address offset_left, offset_top, offset_right, and offset_bottom instead"
 
 
 # node-remove: load a .tscn, resolve a node by node path, delete it and its

@@ -1034,6 +1034,90 @@ def test_node_set_coerces_and_round_trips_via_get(
 
 
 @pytest.mark.e2e
+def test_node_set_control_position_updates_offsets_preserving_size(godot_project):
+    scene_path = godot_project / "main.tscn"
+    scene_path.write_text(
+        "[gd_scene format=3]\n\n"
+        '[node name="Main" type="Control"]\n\n'
+        '[node name="Panel" type="Control" parent="."]\n'
+        "offset_left = 5.0\n"
+        "offset_top = 7.0\n"
+        "offset_right = 105.0\n"
+        "offset_bottom = 57.0\n",
+        encoding="utf-8",
+    )
+
+    was_set = _gda(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        "Panel",
+        "--property",
+        "position",
+        "--value",
+        "20,30",
+        "--json",
+    )
+
+    assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+    set_data = json.loads(was_set.stdout)
+    assert (set_data["property"], set_data["type"]) == ("position", "Vector2")
+    assert set_data["value"] == [20.0, 30.0]
+
+    def property_value(name: str):
+        prop = _get_property(scene_path, "Panel", name)
+        assert prop is not None
+        return prop["value"]
+
+    props = {
+        name: property_value(name)
+        for name in ("offset_left", "offset_top", "offset_right", "offset_bottom")
+    }
+    assert props == {
+        "offset_left": 20.0,
+        "offset_top": 30.0,
+        "offset_right": 120.0,
+        "offset_bottom": 80.0,
+    }
+
+
+@pytest.mark.e2e
+def test_node_set_container_managed_control_position_names_offset_alternatives(
+    godot_project,
+):
+    scene_path = godot_project / "main.tscn"
+    scene_path.write_text(
+        "[gd_scene format=3]\n\n"
+        '[node name="Main" type="Control"]\n\n'
+        '[node name="HUD" type="VBoxContainer" parent="."]\n\n'
+        '[node name="Stats" type="Label" parent="HUD"]\n'
+        "custom_minimum_size = Vector2(160, 48)\n"
+        'text = "HP"\n',
+        encoding="utf-8",
+    )
+    before = scene_path.read_text(encoding="utf-8")
+
+    was_set = _gda(
+        "node",
+        "set",
+        str(scene_path),
+        "--node",
+        "HUD/Stats",
+        "--property",
+        "position",
+        "--value",
+        "20,30",
+        "--json",
+    )
+
+    err = _assert_operation_error(was_set, "unknown_property")
+    for name in ("offset_left", "offset_top", "offset_right", "offset_bottom"):
+        assert name in err["message"]
+    assert scene_path.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.e2e
 def test_node_set_coerces_json_dictionary_and_array_via_get(godot_project):
     # #422 extends the shared coercion block, so the headless operations.gd side
     # must accept the same JSON container forms the live harness accepts.

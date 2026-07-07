@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=3f25b544e58bf46ffad43fcf05c8fef738fdc63935ff11ee7fc9734a9f1bd3bf -->
+<!-- gda-readme-i18n: source=README.md sha256=06067154e90ca388c08772e7be322327d9d2241f6f23aa1056dd57c0d356da3d -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -402,6 +402,11 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `node connect-signal` | Conecta la señal de un nodo origen al método de un nodo destino. |
 | `node disconnect-signal` | Desconecta una conexión señal→método existente. |
 
+Para nodos `Control`, `node set --property position` escribe los valores
+subyacentes `offset_left` / `offset_top` / `offset_right` / `offset_bottom`
+preservando el tamaño. Los hijos directos de un `Container` están gestionados por
+layout, así que define esas propiedades offset explícitamente.
+
 **`script`** — archivos GDScript (`.gd`)
 
 | Comando | Qué hace |
@@ -482,6 +487,10 @@ flags — `gda --help` es la lista autoritativa de lo que está instalado.
 | `game get` | Lee las propiedades en vivo de un nodo de runtime por ruta de nodo; los nombres explícitos pueden acceder a variables del script adjunto. |
 | `game rect` | Lee el rectángulo renderizado en viewport de un Control de runtime por ruta de nodo. |
 | `game set` | Define una propiedad de un nodo de runtime, o una variable explícita del script adjunto, en el juego en ejecución. |
+
+`game set --property position` en vivo sigue la misma política de `Control` que
+`node set`; `game rect` sigue siendo una consulta de geometría renderizada de solo
+lectura.
 
 **`diag`** — diagnósticos de runtime
 

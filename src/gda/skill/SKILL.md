@@ -156,6 +156,13 @@ Wiring a functional scene means binding scripts, authoring Resources, and settin
 typed properties. Reach for the right command — the generic `node set` does **not**
 cover scripts, and Resource-typed fields take a `res://` path, not a coerced literal.
 
+For `Control` layout, `node set --property position --value "x,y"` is supported on
+free-positioned Controls: gda writes the underlying `offset_left`, `offset_top`,
+`offset_right`, and `offset_bottom` while preserving the current size. Direct
+children of a `Container` are layout-managed; use those offset properties
+explicitly instead. Live `game set --property position` mirrors this policy, while
+`game rect` remains a read-only rendered-geometry query.
+
 **Attach a script — `script attach`, never `node set --property script`.**
 `script attach` is the one authoritative way to bind a `.gd` script to a node: it
 verifies the script compiles, checks its base type against the node, and reports any
