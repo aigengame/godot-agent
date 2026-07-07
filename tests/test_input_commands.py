@@ -463,9 +463,7 @@ def test_input_sequence_physics_frame_offsets_dispatch_through_the_live_channel(
     assert [e["frame"] for e in sent_events] == [None, None]
 
 
-def test_input_sequence_accepts_mouse_button_press_move_release(
-    monkeypatch, tmp_path
-):
+def test_input_sequence_accepts_mouse_button_press_move_release(monkeypatch, tmp_path):
     fake = inject_live_runner(
         monkeypatch,
         RunResult(

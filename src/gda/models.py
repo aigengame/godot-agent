@@ -3896,7 +3896,9 @@ class InputSequenceEvent(BaseModel):
                 raise ValueError("a 'mouse_click' sequence event requires 'x' and 'y'.")
         elif self.type is InputEventType.MOUSE_BUTTON:
             if self.x is None or self.y is None:
-                raise ValueError("a 'mouse_button' sequence event requires 'x' and 'y'.")
+                raise ValueError(
+                    "a 'mouse_button' sequence event requires 'x' and 'y'."
+                )
             if self.pressed is None and not self.release:
                 raise ValueError(
                     "a 'mouse_button' sequence event requires 'pressed' or 'release'."
