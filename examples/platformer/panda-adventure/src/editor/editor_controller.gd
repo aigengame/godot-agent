@@ -27,10 +27,12 @@ extends Node2D
 const EditorLevelModelScript := preload("res://src/editor/editor_level_model.gd")
 const EditorBuilderScript := preload("res://src/editor/editor_builder.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
+const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
+const ScaleSpecConfigScript := preload("res://src/resources/scale_spec_config.gd")
 const MainScene := preload("res://scenes/main.tscn")
 
 const GENERATED_DIR := "res://data/generated"
-const TILE := 16.0
+const SCALE_SPEC_PATH := "res://data/generated/scale_spec.tres"
 
 # Hit-test / handle sizes, in WORLD units (the view is drawn in world space, so a
 # handle reads a bit smaller on screen under the zoomed-out editor camera).
@@ -65,6 +67,11 @@ var status_line := ""
 var last_action := "ready"
 
 var _model: EditorLevelModelScript
+# The tile unit for snap/nudge/clamps, read from the Scale spec chain (the
+# derived ScaleSpecConfig via GeneratedConfig — gADR-0013: tile size is spec
+# data; gADR-0000: never hardcoded). The editor AUTHORS saved geometry with it,
+# so a literal here would be a drift-capable second authority.
+var _tile := 0.0
 # Selection (persists across drags) and the in-progress grab. Each is a
 # {kind:int, a:int, b:int} record — a = segment or wave index, b = spawn index.
 var _sel := {"kind": HIT_NONE, "a": -1, "b": -1}
@@ -89,6 +96,12 @@ func _ready() -> void:
 		# never a shipped mode.
 		push_error("EditorController: the editor is not available in exported builds.")
 		return
+	var scale_spec: ScaleSpecConfigScript = GeneratedConfigScript.load_config(SCALE_SPEC_PATH)
+	if scale_spec == null:
+		last_action = "load_failed"
+		_set_status()
+		return
+	_tile = scale_spec.tile_size
 	_model = EditorLevelModelScript.new()
 	if not _model.load_authorities():
 		last_action = "load_failed"
@@ -185,12 +198,12 @@ func _update_drag(world: Vector2) -> void:
 		HIT_SEGMENT_RESIZE:
 			var center := _model.get_platform_center(_active["a"])
 			var size := _snap_tile((world - center).abs() * 2.0)
-			size = Vector2(maxf(size.x, TILE), maxf(size.y, TILE))
+			size = Vector2(maxf(size.x, _tile), maxf(size.y, _tile))
 			_model.set_platform_size(_active["a"], size)
 		HIT_ARENA_MIN:
-			_model.set_arena_min_x(minf(roundf(world.x), _model.get_arena_max_x() - TILE))
+			_model.set_arena_min_x(minf(roundf(world.x), _model.get_arena_max_x() - _tile))
 		HIT_ARENA_MAX:
-			_model.set_arena_max_x(maxf(roundf(world.x), _model.get_arena_min_x() + TILE))
+			_model.set_arena_max_x(maxf(roundf(world.x), _model.get_arena_min_x() + _tile))
 	last_action = "edit:" + _kind_name(_active["kind"])
 	queue_redraw()
 	_set_status()
@@ -213,10 +226,10 @@ func _on_backdrop_color_changed(color: Color) -> void:
 
 func _arrow_delta(keycode: int) -> Vector2:
 	match keycode:
-		KEY_LEFT: return Vector2(-TILE, 0.0)
-		KEY_RIGHT: return Vector2(TILE, 0.0)
-		KEY_UP: return Vector2(0.0, -TILE)
-		_: return Vector2(0.0, TILE)  # KEY_DOWN
+		KEY_LEFT: return Vector2(-_tile, 0.0)
+		KEY_RIGHT: return Vector2(_tile, 0.0)
+		KEY_UP: return Vector2(0.0, -_tile)
+		_: return Vector2(0.0, _tile)  # KEY_DOWN
 
 
 ## Move the current selection by `delta` (one tile per arrow press), through the
@@ -229,9 +242,9 @@ func _nudge(delta: Vector2) -> void:
 		HIT_SPAWN:
 			_model.set_spawn_position(_sel["a"], _sel["b"], _model.get_spawn_position(_sel["a"], _sel["b"]) + delta)
 		HIT_ARENA_MIN:
-			_model.set_arena_min_x(minf(_model.get_arena_min_x() + delta.x, _model.get_arena_max_x() - TILE))
+			_model.set_arena_min_x(minf(_model.get_arena_min_x() + delta.x, _model.get_arena_max_x() - _tile))
 		HIT_ARENA_MAX:
-			_model.set_arena_max_x(maxf(_model.get_arena_max_x() + delta.x, _model.get_arena_min_x() + TILE))
+			_model.set_arena_max_x(maxf(_model.get_arena_max_x() + delta.x, _model.get_arena_min_x() + _tile))
 	last_action = "nudge:" + _kind_name(_sel["kind"])
 	queue_redraw()
 	_set_status()
@@ -453,7 +466,7 @@ func _snap_int(v: Vector2) -> Vector2:
 
 
 func _snap_tile(v: Vector2) -> Vector2:
-	return Vector2(roundf(v.x / TILE) * TILE, roundf(v.y / TILE) * TILE)
+	return Vector2(roundf(v.x / _tile) * _tile, roundf(v.y / _tile) * _tile)
 
 
 func _none() -> Dictionary:
