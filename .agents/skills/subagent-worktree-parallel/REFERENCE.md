@@ -35,12 +35,12 @@ expect a conflict-heavy serial merge, or fix it structurally first (§8).
 legitimately touch the same shared file (one refactors a module, another instances it),
 name the owner in both dispatch prompts: the owner edits; every other slice must **flag
 the needed change in its report instead of editing** (the orchestrator — the "lead" — then serializes
-or folds it into the owner's slice). This converts a probable merge conflict into an
-explicit coordination point — one real wave ran a view-layer refactor in parallel with a
-consumer of those same files at zero conflicts this way. Ownership **routes** a
-legitimate shared-file edit through one slice; it never suppresses the edit (the
-disjointness guardrail below still holds) — a non-owner's needed change lands via the
-owner, a lead-reassigned ownership, or a serialized follow-up.
+or folds it into the owner's slice). Ownership converts a probable merge conflict into
+an explicit coordination point: it **routes** a legitimate shared-file edit through one
+slice — never suppresses it (the disjointness guardrail below still holds) — so a
+non-owner's needed change lands via the owner, a lead-reassigned ownership, or a
+serialized follow-up. One real wave ran a view-layer refactor in parallel with a
+consumer of those same files at zero conflicts this way.
 
 **Guardrail: disjointness is a merge-cost heuristic, not an architecture goal.** When
 slicing for disjointness would suppress or distort a sound design decision, the design

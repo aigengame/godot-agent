@@ -94,8 +94,7 @@ decompose + dependency analysis → plan waves → fan out (implement) → verif
    serially; audit any public docs/agent docs surface; treat any "completed but no
    commit/push" report as needs-takeover, not success. **You** (not the subagent) open
    each PR, choosing `Closes #N` only when the slice fully satisfies its issue (else
-   `Refs #N`). Address actionable review comments with code/tests and reply or resolve
-   them according to the repo's PR convention. (REFERENCE §6, §7)
+   `Refs #N`). (REFERENCE §6, §7)
 5. **Merge serially in dependency order.** Tracer first → rebase followers onto the new
    base → independent groups can merge in any order; a *clean* rebase still gets the
    integration gate. Re-poll mergeability after each merge. For stacked PRs, retarget
