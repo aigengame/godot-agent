@@ -34,7 +34,7 @@ expect a conflict-heavy serial merge, or fix it structurally first (§8).
 **Assign each hotspot exactly one owner slice per wave.** When two slices *could*
 legitimately touch the same shared file (one refactors a module, another instances it),
 name the owner in both dispatch prompts: the owner edits; every other slice must **flag
-the needed change in its report instead of editing** (the orchestrator then serializes
+the needed change in its report instead of editing** (the orchestrator — the "lead" — then serializes
 or folds it into the owner's slice). This converts a probable merge conflict into an
 explicit coordination point — one real wave ran a view-layer refactor in parallel with a
 consumer of those same files at zero conflicts this way. Ownership **routes** a
@@ -295,9 +295,9 @@ the grep heuristic might miss in another language.
 - **A review/fix round is a re-dispatch — restate the whole discipline.** Prefer
   resuming the ORIGINAL implementer (its context is intact), but do not assume it
   remembers the rules it followed last round: restate worktree pinning, commit-early,
-  and the CI-mirror DoD in the fix brief, and require **one commit per finding**. Kills
-  strike mid-fix-round too (session/usage limits, not just truncation) — one real agent
-  finished an entire fix round and died with all of it uncommitted.
+  and the §3 DoD gates in the fix brief, and require **one commit per finding**. Kills
+  strike mid-round too (session/usage limits, not just truncation) — one real agent
+  finished an entire review/fix round and died with all of it uncommitted.
 - **Takeover recipe for uncommitted work:** review the whole uncommitted diff yourself
   against the findings it claims to fix, run the same gates the dispatch DoD requires
   (§3: the integration tier plus the PR-CI gate list read off the CI workflow), then

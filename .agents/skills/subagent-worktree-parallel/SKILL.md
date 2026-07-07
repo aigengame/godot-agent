@@ -38,7 +38,7 @@ the cost/benefit table).
   from memory: typically the formatter *check*, linter, typecheck, and build/packaging —
   invoked exactly as CI invokes them. A green test run with a red format check still
   bounces the PR (every slice of one real wave tripped this). (REFERENCE §3, §6)
-- **The orchestrator independently re-verifies before merging.** Subagent implements and
+- **The orchestrator (the "lead") independently re-verifies before merging.** Subagent implements and
   **commits** (its own branch, in its worktree); the lead re-runs tests and spot-checks the
   diff. "Done but no artifact" = needs takeover.
 - **PR creation and its body are the orchestrator's, not the subagent's.** A PR is a
@@ -105,7 +105,8 @@ decompose + dependency analysis → plan waves → fan out (implement) → verif
 This path is **not one-shot**: independent review sends merged-ready slices back, and
 remediation reshapes the plan. A review/fix round is a **re-dispatch** — resume the
 original implementer with its context where possible, restate the full dispatch
-discipline (worktree pinning, commit-early, the CI-mirror DoD), and require **one commit
+discipline (worktree pinning, commit-early, the full DoD gates — integration tier plus
+the PR-CI gate list), and require **one commit
 per finding** so a mid-round kill is cheap to take over. The lead then re-verifies and
 closes the loop on the review channel — e.g. a reply mapping each finding → resolution —
 keeping the PR/change description current where the host supports it.
