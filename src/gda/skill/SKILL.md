@@ -48,6 +48,12 @@ Branch on the stable `category`/`code` and the **exit code**, never on prose:
 | `5`   | could not parse the engine's output |
 | `6`   | live operation failed (e.g. `daemon_not_running`) |
 
+Some commands carry a verdict inside a successful result. For
+`gda script validate --json`, read the result's `valid` field: a script that does
+not compile exits `0` with no top-level `error`, and reports `valid=false` plus
+`error_string` / `diagnostics`. Do not treat exit `0` or the absence of an Error
+envelope as a pass for this command.
+
 ## Discovery
 
 - `gda --help` — every group.

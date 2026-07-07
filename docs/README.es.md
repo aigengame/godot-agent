@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=06067154e90ca388c08772e7be322327d9d2241f6f23aa1056dd57c0d356da3d -->
+<!-- gda-readme-i18n: source=README.md sha256=982e7a5aa9ff2150490487576a0d22ee2a3348988af1e56d1adc0a3d00f54264 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -418,6 +418,12 @@ layout, así que define esas propiedades offset explícitamente.
 | `script delete` | Elimina un archivo de script e informa qué se eliminó. |
 | `script attach` | Adjunta un script `.gd` a un nodo (por ruta de nodo) en una escena. |
 | `script validate` | Comprueba la sintaxis/compilación de un script `.gd`. |
+
+Para `script validate --json`, lee el campo `valid` del objeto de resultado. Un
+script que no compila sigue siendo una operación exitosa: salida `0`, sin `error`
+de nivel superior, y `valid: false` con `error_string` / `diagnostics`. Los
+problemas de operación, como un archivo inexistente, siguen usando el Error envelope
+normal.
 
 **`project`** — el proyecto en su conjunto (ajustes, autoloads, análisis estático)
 

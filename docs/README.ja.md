@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=06067154e90ca388c08772e7be322327d9d2241f6f23aa1056dd57c0d356da3d -->
+<!-- gda-readme-i18n: source=README.md sha256=982e7a5aa9ff2150490487576a0d22ee2a3348988af1e56d1adc0a3d00f54264 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -424,6 +424,11 @@ offset プロパティを明示的に設定してください。
 | `script delete` | スクリプトファイルを削除し、削除された内容を報告します。 |
 | `script attach` | シーン内のノードに(ノードパスで指定して)`.gd` スクリプトをアタッチします。 |
 | `script validate` | `.gd` スクリプトの構文/コンパイルチェックを行います。 |
+
+`script validate --json` では、結果オブジェクトの `valid` フィールドを読んでください。
+コンパイルできないスクリプトも成功した操作として扱われます。終了コードは `0`、トップレベルの
+`error` はなく、`valid: false` と `error_string` / `diagnostics` が返ります。存在しない
+ファイルなどの操作上の問題は、通常どおり Error envelope を使います。
 
 **`project`** — プロジェクト全体(設定、オートロード、静的解析)
 
