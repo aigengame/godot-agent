@@ -106,8 +106,9 @@ This path is **not one-shot**: independent review sends merged-ready slices back
 remediation reshapes the plan. A review/fix round is a **re-dispatch** — resume the
 original implementer with its context where possible, restate the full dispatch
 discipline (worktree pinning, commit-early, the CI-mirror DoD), and require **one commit
-per finding** so a mid-round kill is cheap to take over. The lead then re-verifies,
-replies on the PR mapping each finding → resolution, and owns the PR-body update.
+per finding** so a mid-round kill is cheap to take over. The lead then re-verifies and
+closes the loop on the review channel — e.g. a reply mapping each finding → resolution —
+keeping the PR/change description current where the host supports it.
 Re-derive the overlap map and merge order as fixes land, verify each slice against its
 *originating spec* (not just its own green tests), and fix a finding at the altitude of
 its true cause, not where it surfaced. (REFERENCE §1, §6, §7)

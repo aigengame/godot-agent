@@ -343,7 +343,7 @@ design decision (an ADR) of its own.
 - [ ] Each subagent's DoD includes the integration tier (not just the stubbed fast tier).
 - [ ] Each subagent's DoD covers the PR-CI gate list read off the CI workflow itself — the test tiers plus the non-test gates (formatter check, lint, typecheck, build), invoked as CI invokes them (§3).
 - [ ] Each subagent's DoD includes deep-module reuse — no re-implementing shared logic, and no dodging a legitimate shared-file edit, to fake disjointness (§1).
-- [ ] Review/fix rounds restate the dispatch discipline (resume the original agent; one commit per finding); the lead re-verifies, replies finding→resolution on the PR, and updates the PR body (§7).
+- [ ] Review/fix rounds restate the dispatch discipline (resume the original agent; one commit per finding); actionable review comments are closed with code/tests plus a finding→resolution reply or thread resolution on the review channel — by the lead, who re-verifies and keeps the PR/change description current where the host supports it (§6, §7).
 - [ ] Agents pinned to their own worktree; will commit early; "done but no artifact" = takeover.
 - [ ] Merge order decided (tracer first); after each resolution, audit for the marker-free traps.
 - [ ] Stacked followers have an explicit retarget/rebase plan for after the base PR lands
@@ -352,8 +352,6 @@ design decision (an ADR) of its own.
 - [ ] Orchestrator will independently re-verify before each merge.
 - [ ] Any public-surface change has a docs/schema/help/agent-skill/i18n sync gate in the
       orchestrator's verification plan.
-- [ ] Actionable review comments will be closed with code/tests plus a PR reply or thread
-      resolution, not just a local fix.
 - [ ] PR creation is the orchestrator's: subagents commit + push only; the lead opens each PR and chooses `Closes #N` (only if the slice fully satisfies its issue) vs `Refs #N`.
 - [ ] If append hotspots keep causing conflicts, consider splitting them (ADR).
 
