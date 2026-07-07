@@ -83,6 +83,10 @@ func _ready() -> void:
 	if _config == null:
 		return
 	($Stats as VBoxContainer).position = _config.margin
+	# The Scale spec's HUD font size (gADR-0013) — explicit where the blockout
+	# leaned on the engine default, so the font-scale anchor is data.
+	for key: String in LINES:
+		_label(key).add_theme_font_size_override("font_size", roundi(_config.font_size))
 
 
 func _process(_delta: float) -> void:

@@ -262,10 +262,23 @@ The unified size/scale standard every visual element conforms to — the anchor
 dimensions and inter-element proportion rules that asset generation, post-processing,
 and wiring all target. Two layers: the qualitative proportion rules and anchor
 rationale live in the GDD (extending its blockout scale-ratio rules); the
-authoritative numeric table is data (JSON), consumed by the pipelines and the game
-alike (gADR-0000: numbers are not in the GDD). An early Phase 2 deliverable — not
-yet authored.
+authoritative numeric table is `scale_spec.json` — the SINGLE authority for element
+dimensions (Player box, per-Kind enemy boxes and bolts, projectile/field/pickup
+sizes, HUD/font sizes) plus the pixel-art anchors (PPU, tile size, the Design base
+and presentation policy), migrated out of the per-domain configs and composed by the
+builder back into each consumer's derived Resource (gADR-0013). Level segment
+geometry stays Level-authority content, constrained only to the tile grid; enemy
+boxes stay per-Kind with Tier size ordering enforced as a build gate.
 _Avoid_: art bible (broader), size chart, blockout ratios (the Phase 1 subset)
+
+**Design base**:
+The fixed design-space viewport the game is authored and framed against — a size
+standard, owned by the Scale spec, distinct from output resolution: desktop and
+Android outputs are served by the presentation policy (scaling + aspect expansion,
+wider screens see MORE world), never by re-authoring content. Mirrored into
+`project.godot`'s display block, which the config gate cross-checks against the
+spec (gADR-0013).
+_Avoid_: window size, native resolution, base resolution (ambiguous with output)
 
 **VFX**:
 The view-layer presentation effects — hit flashes, explosions, pickup glints, Warp

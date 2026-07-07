@@ -37,13 +37,9 @@ def _valid_config() -> dict:
         "min_damage": 1.0,
         "iframe_duration": 0.6,
         "projectile_color": [1.0, 0.35, 0.25, 1.0],
-        "projectile_size": [18.0, 6.0],
         "projectile_speed": 900.0,
         "projectile_lifetime": 1.5,
         "projectile_spawn_offset": [36.0, 0.0],
-        "enemy_color": [0.75, 0.2, 0.55, 1.0],
-        "enemy_size": [48.0, 48.0],
-        "enemy_position": [640.0, 452.0],
         "hit_flash_color": [1.0, 1.0, 1.0, 1.0],
         "hit_flash_duration": 0.12,
     }
@@ -95,10 +91,7 @@ def _with(value: object, *path: str) -> dict:
         _with(0, "projectile_speed"),  # speed strictly positive
         _with(0, "hit_flash_duration"),  # flash duration strictly positive
         _with([1.0, 0.35, 0.25], "projectile_color"),  # color: too few components
-        _with([1.0, 0.35, 1.5, 1.0], "enemy_color"),  # color: component out of 0..1
-        _with([18.0], "projectile_size"),  # size: too few components
-        _with([0.0, 6.0], "projectile_size"),  # size: component must be > 0
-        _with([640.0], "enemy_position"),  # position: too few components
+        _with([18.0, 6.0], "projectile_size"),  # size lives in scale_spec (gADR-0013)
         _with([1.0, 2.0, 3.0], "projectile_spawn_offset"),  # offset: too many
         _with("fast", "projectile_speed"),  # wrong type
         {**_valid_config(), "extra": 1},  # unexpected extra top-level key
@@ -184,19 +177,21 @@ def test_stat_block_round_trips(gda, block: str) -> None:
 
 @pytest.mark.engine
 def test_combat_config_round_trips(gda) -> None:
-    """The CombatConfig .tres round-trips every field through gda."""
-    config = build_config.load_json(build_config.COMBAT_JSON_PATH)
+    """The CombatConfig .tres round-trips every field through gda.
+
+    Compared to the COMPOSED authority: projectile_size is authored in
+    scale_spec.json (gADR-0013) and composed into the derived CombatConfig.
+    """
+    config = build_config.load_composed("data/json/combat_config.json")
     props = _get_props(gda, "res://data/generated/combat_config.tres")
 
     # Colors are float32 in Godot — compare with a tolerance.
-    for color_field in ("projectile_color", "enemy_color", "hit_flash_color"):
+    for color_field in ("projectile_color", "hit_flash_color"):
         assert props[color_field] == pytest.approx(config[color_field], abs=1e-5)
     # Vector2 fields.
     for vec_field in (
         "projectile_size",
         "projectile_spawn_offset",
-        "enemy_size",
-        "enemy_position",
     ):
         assert props[vec_field] == pytest.approx(config[vec_field])
     # Scalar float fields.

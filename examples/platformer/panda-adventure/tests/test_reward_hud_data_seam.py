@@ -256,10 +256,8 @@ def _hud_with(value: object, key: str) -> dict:
 @pytest.mark.parametrize(
     "bad",
     [
-        _hud_without("margin"),  # missing placement
         _hud_without("value_tween_duration"),  # missing tween duration
-        _hud_with([-1.0, 24.0], "margin"),  # margin components non-negative
-        _hud_with([24.0], "margin"),  # margin: too few components
+        _hud_with([24.0, 24.0], "margin"),  # margin lives in scale_spec (gADR-0013)
         _hud_with([0.0, 1.25], "value_punch_scale"),  # punch strictly positive
         _hud_with(0, "value_tween_duration"),  # duration strictly positive
         _hud_with("fast", "value_tween_duration"),  # wrong type
@@ -274,11 +272,16 @@ def test_invalid_hud_json_rejected(bad: dict) -> None:
 
 @pytest.mark.engine
 def test_hud_config_round_trips(gda) -> None:
-    """The HudConfig .tres round-trips every field through gda."""
-    config = build_config.load_json(HUD_JSON_PATH)
+    """The HudConfig .tres round-trips every field through gda.
+
+    Compared to the COMPOSED authority: margin and font_size are authored in
+    scale_spec.json (gADR-0013) and composed into the derived HudConfig.
+    """
+    config = build_config.load_composed("data/json/hud_config.json")
     props = _get_props(gda, "res://data/generated/hud_config.tres")
     for vec_field in ("margin", "value_punch_scale"):
         assert props[vec_field] == pytest.approx(config[vec_field])
+    assert props["font_size"] == pytest.approx(config["font_size"])
     assert props["value_tween_duration"] == pytest.approx(
         config["value_tween_duration"]
     )

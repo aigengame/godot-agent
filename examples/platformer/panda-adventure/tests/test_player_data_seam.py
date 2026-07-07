@@ -22,7 +22,6 @@ def _valid_config() -> dict:
     """A fresh copy of a schema-valid config to mutate into invalid variants."""
     return {
         "player_color": [0.92, 0.92, 0.96, 1.0],
-        "player_size": [48.0, 64.0],
         "player_start": [200.0, 200.0],
         "move_speed": 300.0,
         "jump_velocity": -650.0,
@@ -68,11 +67,12 @@ def test_build_produces_round_trippable_resource(gda) -> None:
     """build() emits a .tres whose fields round-trip back through gda.
 
     Reading each field back via ``gda resource get`` and comparing to the
-    *authoritative JSON* (not hardcoded values) proves the JSON->Resource
+    *composed authority* (the player source with the Scale spec's player_size
+    composed in, gADR-0013 — never hardcoded values) proves the JSON->Resource
     conversion preserves both value and Godot type (Color/Vector2/float) across
     every declared field.
     """
-    config = build_config.load_json(build_config.JSON_PATH)
+    config = build_config.load_composed("data/json/player_config.json")
 
     build_config.GENERATED_TRES.unlink(missing_ok=True)
     out = build_config.build(out_path=build_config.GENERATED_TRES)
@@ -125,12 +125,10 @@ def test_generated_resource_is_fresh(tmp_path) -> None:
     "bad",
     [
         _without("move_speed"),  # missing required scalar
-        _without("player_size"),  # missing required vector
         _with("player_color", [0.2, 0.6, 1.0]),  # color: too few components
         _with("player_color", [0.2, 0.6, 1.0, 1.0, 0.5]),  # color: too many
         _with("player_color", [0.2, 0.6, 1.5, 1.0]),  # color: component out of 0..1
-        _with("player_size", [64.0]),  # size: too few components
-        _with("player_size", [0.0, 64.0]),  # size: component must be > 0
+        _with("player_size", [48.0, 64.0]),  # size lives in scale_spec (gADR-0013)
         _with("player_start", [100.0]),  # position: too few components
         _with("player_start", [1.0, 2.0, 3.0]),  # position: too many
         _with("move_speed", 0),  # speed must be strictly positive

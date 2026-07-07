@@ -22,6 +22,13 @@ GdaHarness="*res://addons/gda_harness/gda_harness.gd"
 
 file_logging/enable_file_logging.pc=false
 
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
 [input]
 
 move_left={
@@ -82,4 +89,6 @@ retry={
 
 [rendering]
 
+textures/canvas_textures/default_texture_filter=0
 textures/vram_compression/import_etc2_astc=true
+2d/snap/snap_2d_transforms_to_pixel=true

@@ -73,9 +73,10 @@ def _reconfigure(config: dict) -> dict:
       first is -INF-sentinel-gated by distance alone).
     - ``move_speed`` 0: the Boss holds its landing, so every distance is
       formula-exact for the whole session.
-    - short tell/recovery, a session-length field, and a radius wide enough
-      that both the landing-adjacent Player AND the whole slowed walk stay
-      inside the zone.
+    - short tell/recovery and a session-length field. The zone RADIUS is a
+      Scale-spec dimension (gADR-0013), widened in the copy's scale_spec.json
+      by ``_make_project_copy`` so that both the landing-adjacent Player AND
+      the whole slowed walk stay inside the zone.
     """
     boss = config["kinds"][_BOSS_KIND]
     boss["aggro_range"] = 3000.0
@@ -84,7 +85,6 @@ def _reconfigure(config: dict) -> dict:
     boss["warp_trigger_range"] = 120.0
     boss["warp_tell_duration"] = 0.3
     boss["warp_recovery_duration"] = 0.2
-    boss["time_field_radius"] = 400.0
     boss["time_field_duration"] = 6.0
     config["waves"] = [
         {"spawns": [{"kind": _BOSS_KIND, "name": "Boss", "position": _BOSS_SPAWN}]}
@@ -99,6 +99,10 @@ def _make_project_copy(dst: Path) -> Path:
     enemies_path.write_text(
         json.dumps(_reconfigure(config), indent=2) + "\n", encoding="utf-8"
     )
+    scale_path = dst / "data" / "json" / "scale_spec.json"
+    scale = json.loads(scale_path.read_text(encoding="utf-8"))
+    scale["enemy_boxes"][_BOSS_KIND]["time_field_radius"] = 400.0
+    scale_path.write_text(json.dumps(scale, indent=2) + "\n", encoding="utf-8")
     build_config.build_all(root=dst)
     return dst
 
@@ -219,14 +223,10 @@ class _Session:
 def test_boss_warp_rotation_slows_the_player_and_releases(tmp_path, daemon_runtime_dir):
     """One full Warp rotation, live: tell -> formula blink -> zone -> release."""
     project = _make_project_copy(tmp_path / "game")
-    enemies = json.loads(
-        (project / "data" / "json" / "enemies_config.json").read_text()
-    )
+    enemies = build_config.load_composed("data/json/enemies_config.json", root=project)
     boss = enemies["kinds"][_BOSS_KIND]
-    player_cfg = build_config.load_json(
-        GAME_DIR / "data" / "json" / "player_config.json"
-    )
-    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    player_cfg = build_config.load_composed("data/json/player_config.json")
+    level_cfg = build_config.load_composed("data/json/level_config.json")
     move_speed = player_cfg["move_speed"]
     factor = boss["time_field_factor"]
     s = _Session(project)

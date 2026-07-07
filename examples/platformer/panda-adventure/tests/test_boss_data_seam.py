@@ -25,16 +25,17 @@ import build_config
 
 _BOSS = ("kinds", "alien_boss_tank")
 
-# The presence-gated Warp block (gADR-0009): every key, in the field order the
-# builder renders. Derived tests parametrize over this list so a new warp
-# param automatically joins every all-or-none and round-trip case.
+# The presence-gated Warp block (gADR-0009): every AUTHORED key, in the field
+# order the builder renders. Derived tests parametrize over this list so a new
+# warp param automatically joins every all-or-none and round-trip case.
+# ``time_field_radius`` is NOT authored here since gADR-0013 — it is a Scale
+# spec dimension (scale_spec.json's enemy_boxes) composed in by the builder.
 _WARP_KEYS: list[str] = [
     "warp_cooldown",
     "warp_trigger_range",
     "warp_offset",
     "warp_tell_duration",
     "warp_recovery_duration",
-    "time_field_radius",
     "time_field_factor",
     "time_field_duration",
     "time_field_color",
@@ -111,7 +112,7 @@ def test_partial_warp_block_rejected(missing: str) -> None:
         _with(0, *_BOSS, "warp_tell_duration"),  # a warp always telegraphs
         _with(-0.1, *_BOSS, "warp_recovery_duration"),  # recovery non-negative
         _with([60.0], *_BOSS, "warp_offset"),  # offset: too few components
-        _with(0, *_BOSS, "time_field_radius"),  # radius strictly positive
+        _with(160.0, *_BOSS, "time_field_radius"),  # radius lives in scale_spec
         _with(0, *_BOSS, "time_field_factor"),  # factor 0 would freeze, not slow
         _with(1.0, *_BOSS, "time_field_factor"),  # factor 1 is dead config
         _with(1.5, *_BOSS, "time_field_factor"),  # the field never accelerates
@@ -170,8 +171,12 @@ def test_field_duration_must_stay_below_warp_cooldown() -> None:
 
 @pytest.mark.engine
 def test_boss_warp_fields_round_trip(gda) -> None:
-    """The derived Boss EnemyConfig .tres round-trips its Warp block via gda."""
-    config = build_config.load_json(build_config.ENEMIES_JSON_PATH)["kinds"][
+    """The derived Boss EnemyConfig .tres round-trips its Warp block via gda.
+
+    Compared to the COMPOSED authority (gADR-0013): the Scale spec's
+    ``time_field_radius`` rides in the same derived block.
+    """
+    config = build_config.load_composed("data/json/enemies_config.json")["kinds"][
         "alien_boss_tank"
     ]
     result = gda(
@@ -181,6 +186,7 @@ def test_boss_warp_fields_round_trip(gda) -> None:
     props = {p["name"]: p["value"] for p in json.loads(result.stdout)["properties"]}
     for key in _WARP_SCALAR_KEYS:
         assert props[key] == pytest.approx(config[key]), key
+    assert props["time_field_radius"] == pytest.approx(config["time_field_radius"])
     assert props["warp_offset"] == pytest.approx(config["warp_offset"])
     # Colors are float32 in Godot — compare with a tolerance.
     assert props["time_field_color"] == pytest.approx(

@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="ScaleSpecConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/resources/scale_spec_config.gd" id="1_scalespecconfig"]
+
+[resource]
+script = ExtResource("1_scalespecconfig")
+ppu = 1
+tile_size = 16
+design_base = Vector2(1280, 720)
+stretch_mode = "canvas_items"
+stretch_aspect = "expand"
+texture_filter = "nearest"
+snap_2d_transforms_to_pixel = true
+platform_thickness = 48

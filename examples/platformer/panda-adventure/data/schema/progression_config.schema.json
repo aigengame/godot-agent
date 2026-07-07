@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aigengame.dev/panda-adventure/data/schema/progression_config.schema.json",
   "title": "Panda Adventure progression configuration",
-  "description": "Authoritative config for the S6b progression loop (gADR-0000, gADR-0006): the data-driven leveling curve the Player levels up along, and the Drop/Pickup blockout. `level_curve` is the ordered list of cumulative EXP thresholds — entry k is the total EXP at which the Player reaches level k+2 (level 1 is the start), so the MAX level is the array's length + 1: config, never code (the gADR-0005 waves.size() idiom). That the curve is strictly increasing is a cross-field rule this schema cannot express — enforced by build_config.validate_progression_semantics before the resource derives. `drop_items` fixes the pickup blockout (color/size) for EVERY item name the enemies-config drop tables may reference — all three Phase-1 items are required, so a drop can never reference an unstyled item (coverage by construction, no cross-source validator). The remaining fields are the pickup scatter spacing and the spawn/collect tween juice plus the level-up flash. Converted by scripts/build_config.py into data/generated/progression_config.tres (ProgressionConfig).",
+  "description": "Authoritative config for the S6b progression loop (gADR-0000, gADR-0006): the data-driven leveling curve the Player levels up along, and the Drop/Pickup blockout. `level_curve` is the ordered list of cumulative EXP thresholds — entry k is the total EXP at which the Player reaches level k+2 (level 1 is the start), so the MAX level is the array's length + 1: config, never code (the gADR-0005 waves.size() idiom). That the curve is strictly increasing is a cross-field rule this schema cannot express — enforced by build_config.validate_progression_semantics before the resource derives. `drop_items` fixes the pickup COLOR for EVERY item name (the pickup SIZES and the scatter spacing migrated to scale_spec.json's pickup_sizes/pickup_spacing — gADR-0013 — composed back in by the builder) the enemies-config drop tables may reference — all three Phase-1 items are required, so a drop can never reference an unstyled item (coverage by construction, no cross-source validator). The remaining fields are the spawn/collect tween juice plus the level-up flash. Converted by scripts/build_config.py into data/generated/progression_config.tres (ProgressionConfig).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,7 +10,6 @@
     "level_up_flash_color",
     "level_up_flash_duration",
     "drop_items",
-    "pickup_spacing",
     "pickup_spawn_squash",
     "pickup_spawn_tween_duration",
     "pickup_collect_tween_duration"
@@ -23,21 +22,13 @@
       "minItems": 4,
       "maxItems": 4
     },
-    "size2": {
-      "description": "A block size (width, height) in pixels; each strictly positive.",
-      "type": "array",
-      "items": { "type": "number", "exclusiveMinimum": 0.0 },
-      "minItems": 2,
-      "maxItems": 2
-    },
     "item_style": {
-      "description": "One droppable item's pickup blockout: the colored block a Pickup renders as (gADR-0006).",
+      "description": "One droppable item's pickup color (gADR-0006); its box lives in scale_spec.json (gADR-0013).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["color", "size"],
+      "required": ["color"],
       "properties": {
-        "color": { "$ref": "#/$defs/rgba" },
-        "size": { "$ref": "#/$defs/size2" }
+        "color": { "$ref": "#/$defs/rgba" }
       }
     }
   },
@@ -67,11 +58,6 @@
         "bun": { "$ref": "#/$defs/item_style" },
         "wine": { "$ref": "#/$defs/item_style" }
       }
-    },
-    "pickup_spacing": {
-      "description": "Horizontal spacing in pixels between the Pickups of one death's resolved drops (the deterministic scatter row, centered on the death position); strictly positive.",
-      "type": "number",
-      "exclusiveMinimum": 0.0
     },
     "pickup_spawn_squash": {
       "description": "Visual scale a spawned Pickup's block punches FROM at the moment it spawns (the gADR-0005 spawn-telegraph idiom); each component strictly positive.",

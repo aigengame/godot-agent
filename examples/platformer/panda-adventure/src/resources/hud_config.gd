@@ -13,8 +13,12 @@ extends Resource
 ##
 ## The @export fields carry NO default literals on purpose (see PlayerConfig).
 
-# Offset of the HUD stat column from the viewport's top-left corner.
+# Offset of the HUD stat column from the viewport's top-left corner. AUTHORED
+# in scale_spec.json (gADR-0013), composed in by the builder.
 @export var margin: Vector2
+# HUD label font size in design-space pixels — the Scale spec's hud_font_size
+# (gADR-0013), made explicit where the blockout leaned on the engine default.
+@export var font_size: float
 # The value-change "juice": a scale punch tweened back to 1.0 (the landing-
 # squash idiom applied to a Label the moment its value changes).
 @export var value_punch_scale: Vector2

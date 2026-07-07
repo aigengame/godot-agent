@@ -10,9 +10,12 @@ extends Resource
 ## hardcode these values — change the JSON (gADR-0000).
 ##
 ## The @export fields carry NO default literals on purpose (gADR-0000; see
-## PlayerConfig). Fields group into four concerns: the damage-formula params
-## (consumed by CombatSystem.compute_damage), the i-frame window, the Projectile
-## blockout + motion, and the S2 static Enemy blockout + hit-flash juice.
+## PlayerConfig). Fields group into three concerns: the damage-formula params
+## (consumed by CombatSystem.compute_damage), the i-frame window, and the
+## Projectile blockout + motion + hit-flash juice. The projectile_size box is
+## AUTHORED in scale_spec.json (gADR-0013) and composed in by the builder; the
+## legacy S2 static-enemy block (superseded by wave spawning since S4) was
+## deleted with that migration.
 
 # Damage-formula params — pure inputs to CombatSystem.compute_damage:
 # maxf(min_damage, attack * attack_scale - defense * defense_scale).
@@ -31,11 +34,6 @@ extends Resource
 @export var projectile_lifetime: float
 # Spawn offset from the Player origin; x is scaled by the Player's facing.
 @export var projectile_spawn_offset: Vector2
-
-# Enemy block — the S2 static target (S4 replaces placement with wave spawning).
-@export var enemy_color: Color
-@export var enemy_size: Vector2
-@export var enemy_position: Vector2
 
 # Hit "juice": the modulate flash applied on a landed hit and the seconds the
 # tween takes to recover it (the S2 sibling of S1's landing squash).

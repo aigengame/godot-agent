@@ -107,13 +107,16 @@ def _prog_with(value: object, *path: str) -> dict:
         _prog_with([10.0, "lots"], "level_curve"),  # wrong entry type
         _prog_without("drop_items"),  # the pickup styles are required
         _prog_without("drop_items", "wine"),  # the whole item vocabulary is styled
-        _prog_without("drop_items", "gold", "size"),  # a style needs its size
         _prog_with([1.0, 0.9], "level_up_flash_color"),  # color: 4 components
-        _prog_with(0, "pickup_spacing"),  # spacing strictly positive
         _prog_with(0, "pickup_spawn_tween_duration"),  # duration strictly positive
         _prog_with([0.0, 0.3], "pickup_spawn_squash"),  # squash strictly positive
         _prog_with(
-            {"color": [1, 1, 1, 1], "size": [10.0, 10.0], "extra": 1},
+            {"color": [1, 1, 1, 1], "size": [10.0, 10.0]},
+            "drop_items",
+            "bun",
+        ),  # a style's SIZE lives in scale_spec.json, not here (gADR-0013)
+        _prog_with(
+            {"color": [1, 1, 1, 1], "extra": 1},
             "drop_items",
             "bun",
         ),  # extra key in a style
@@ -281,9 +284,10 @@ def test_progression_config_round_trips(gda) -> None:
 
     gda projects the nested values as structured JSON (ADR-0035): the curve
     as a number array, each pickup style with its color/size projections —
-    all matching the authoritative JSON.
+    all matching the COMPOSED authority (the progression source with the
+    Scale spec's pickup sizes and spacing composed in, gADR-0013).
     """
-    config = build_config.load_json(PROGRESSION_JSON_PATH)
+    config = build_config.load_composed("data/json/progression_config.json")
     props = _get_props(gda, "res://data/generated/progression_config.tres")
     assert props["level_curve"] == pytest.approx(config["level_curve"])
     assert props["level_up_flash_color"] == pytest.approx(

@@ -2,21 +2,19 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aigengame.dev/panda-adventure/data/schema/gravity_config.schema.json",
   "title": "Panda Adventure gravity configuration",
-  "description": "Authoritative config for S3 Gravity Gun + Gravity Field + MP economy (gADR-0000: JSON is the single source of truth). The field's EFFECT is data (gADR-0002): a velocity vector (direction x strength) applied within a radius for a duration — lift is the shipped default, slam/redirect are other values of the same params, not code paths. Converted by scripts/build_config.py into the derived data/generated/gravity_config.tres (GravityConfig).",
+  "description": "Authoritative config for S3 Gravity Gun + Gravity Field + MP economy (gADR-0000: JSON is the single source of truth). The field's EFFECT is data (gADR-0002): a velocity vector (direction x strength) applied within a radius for a duration — lift is the shipped default, slam/redirect are other values of the same params, not code paths. Converted by scripts/build_config.py into the derived data/generated/gravity_config.tres (GravityConfig); the field_radius and obstacle_size dimensions migrated OUT to scale_spec.json (gADR-0013) and are composed back in by the builder.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "mp_cost",
     "field_direction",
     "field_strength",
-    "field_radius",
     "field_duration",
     "field_color",
     "field_fade_duration",
     "field_spawn_offset",
     "enemy_max_gravity_offset",
     "obstacle_color",
-    "obstacle_size",
     "obstacle_position",
     "obstacle_max_gravity_offset"
   ],
@@ -35,11 +33,6 @@
     },
     "field_strength": {
       "description": "Magnitude of the field velocity in px/s; strictly positive.",
-      "type": "number",
-      "exclusiveMinimum": 0.0
-    },
-    "field_radius": {
-      "description": "Radius of the circular field area in pixels; strictly positive.",
       "type": "number",
       "exclusiveMinimum": 0.0
     },
@@ -78,13 +71,6 @@
       "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
       "minItems": 4,
       "maxItems": 4
-    },
-    "obstacle_size": {
-      "description": "Obstacle block size (width, height) in pixels; each strictly positive.",
-      "type": "array",
-      "items": { "type": "number", "exclusiveMinimum": 0.0 },
-      "minItems": 2,
-      "maxItems": 2
     },
     "obstacle_position": {
       "description": "Obstacle center position (x, y) in pixels — the StaticBody2D origin. Placed clear of the Laser Gun's bolt line so the floating block never shields the Enemy.",

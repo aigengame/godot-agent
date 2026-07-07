@@ -86,14 +86,10 @@ def test_daemon_serves_leveling_and_drop_collection(tmp_path, daemon_runtime_dir
     enemies = _make_project_copy(project)
     # Every expectation derives from the AUTHORITATIVE JSON (the copy's, for
     # the retuned drop chance), never hardcoded.
-    combat = build_config.load_json(GAME_DIR / "data" / "json" / "combat_config.json")
-    player_cfg = build_config.load_json(
-        GAME_DIR / "data" / "json" / "player_config.json"
-    )
-    progression = build_config.load_json(
-        GAME_DIR / "data" / "json" / "progression_config.json"
-    )
-    level_cfg = build_config.load_json(GAME_DIR / "data" / "json" / "level_config.json")
+    combat = build_config.load_composed("data/json/combat_config.json")
+    player_cfg = build_config.load_composed("data/json/player_config.json")
+    progression = build_config.load_composed("data/json/progression_config.json")
+    level_cfg = build_config.load_composed("data/json/level_config.json")
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
     default_spawn = enemies["waves"][0]["spawns"][0]
     kind = enemies["kinds"][default_spawn["kind"]]

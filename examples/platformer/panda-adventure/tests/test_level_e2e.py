@@ -215,8 +215,8 @@ def test_full_playthrough_wins_freezes_and_retries(tmp_path, daemon_runtime_dir)
         return config
 
     project = _make_project_copy(tmp_path / "game", reconfigure)
-    enemies = build_config.load_json(GAME_DIR / "data" / "json" / "enemies_config.json")
-    combat = build_config.load_json(GAME_DIR / "data" / "json" / "combat_config.json")
+    enemies = build_config.load_composed("data/json/enemies_config.json")
+    combat = build_config.load_composed("data/json/combat_config.json")
     waves = enemies["waves"]
     wave_count = len(waves)
     spawn_counts = [len(wave["spawns"]) for wave in waves]

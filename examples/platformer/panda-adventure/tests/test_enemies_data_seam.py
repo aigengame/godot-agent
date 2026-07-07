@@ -118,26 +118,26 @@ def test_default_spawn_matches_legacy_combat_expectations() -> None:
     """The shipped Wave-1 spawn still serves the S2 combat e2e unchanged.
 
     ``test_combat_e2e.py`` derives its expectations from combat_config.json's
-    ``enemy_stats`` block and ``enemy_position`` (which STAY, per the S2 data
-    contract), while the runtime enemy is now Wave 1's default kind (the S4
-    boot roster became Wave 1 of the schedule, gADR-0005). Until the planned
-    consolidation of the two sources (gADR-0003 follow-up), this guard makes
-    any drift between them fail here — fast tier — rather than deep inside
-    the live e2e.
+    ``enemy_stats`` block (which STAYS, per the S2 data contract) and the
+    Wave-1 spawn position, while the runtime enemy is Wave 1's default kind
+    (the S4 boot roster became Wave 1 of the schedule, gADR-0005; the legacy
+    duplicated ``enemy_position`` was deleted by the gADR-0013 consolidation
+    — the wave schedule is the one position authority). This guard makes any
+    drift between the stat sources fail here — fast tier — rather than deep
+    inside the live e2e.
     """
     enemies = build_config.load_json(build_config.ENEMIES_JSON_PATH)
     combat = build_config.load_json(build_config.COMBAT_JSON_PATH)
     default = enemies["waves"][0]["spawns"][0]
     kind = enemies["kinds"][default["kind"]]
     assert default["name"] == "Enemy"
-    assert default["position"] == combat["enemy_position"]
     for stat in ("max_hp", "max_mp", "attack", "defense"):
         assert kind[stat] == combat["enemy_stats"][stat], stat
     # Dormant by default: the S2 flows park the Player at player_start's x and
     # never approach, so the default kind must not aggro across that distance
     # (nor its bolt/attack reach it) — AI stays inert during the legacy e2e.
     player = build_config.load_json(build_config.JSON_PATH)
-    distance = abs(combat["enemy_position"][0] - player["player_start"][0])
+    distance = abs(default["position"][0] - player["player_start"][0])
     assert kind["aggro_range"] < distance
     assert kind["attack_range"] < distance
 
@@ -280,8 +280,12 @@ def _get_props(gda, res_path: str) -> dict:
 @pytest.mark.engine
 @pytest.mark.parametrize("kind", _KIND_NAMES)
 def test_enemy_kind_round_trips(gda, kind: str) -> None:
-    """Each EnemyConfig .tres round-trips its axes, stat block, and AI params."""
-    config = build_config.load_json(build_config.ENEMIES_JSON_PATH)["kinds"][kind]
+    """Each EnemyConfig .tres round-trips its axes, stat block, and AI params.
+
+    Compared to the COMPOSED authority: the body/bolt boxes are authored in
+    scale_spec.json's enemy_boxes (gADR-0013) and composed into the kind.
+    """
+    config = build_config.load_composed("data/json/enemies_config.json")["kinds"][kind]
     props = _get_props(gda, f"res://data/generated/enemy_{kind}.tres")
 
     # Taxonomy axes come back as the exact strings.
