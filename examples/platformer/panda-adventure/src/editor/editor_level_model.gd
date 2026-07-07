@@ -20,11 +20,25 @@ extends RefCounted
 
 const LEVEL_JSON_PATH := "res://data/json/level_config.json"
 const ENEMIES_JSON_PATH := "res://data/json/enemies_config.json"
+# The Player traversal authority (#441): the hand-tune NUMERIC forms edit its
+# scalar feel numbers (move_speed, jump_velocity, gravity, …) alongside the level
+# authority's own scalars — the "playtest-driven numeric feel [as] ordinary JSON
+# diffs" gADR-0012 routes through this same JSON->builder->reload path. Its
+# spatial fields (player_start, colors) stay out of the numeric forms (arrays are
+# the direct-manipulation / picker channel).
+const PLAYER_JSON_PATH := "res://data/json/player_config.json"
+
+# The authority identifiers the generic numeric accessors key on — the Editor's
+# own vocabulary for "which JSON document a form field writes", not a config
+# number. Structural (the WEAPON_* / kind-id pattern used across the game).
+const AUTHORITY_LEVEL := "level"
+const AUTHORITY_PLAYER := "player"
 
 # The whole parsed authority documents. Kept intact so unedited fields survive a
 # save byte-for-value; the editable spatial slices are mutated in place.
 var _level: Dictionary = {}
 var _enemies: Dictionary = {}
+var _player: Dictionary = {}
 # Set on any mutation, cleared on load/save — drives the "unsaved edits" marker
 # and the save-before-play guard. Backed by per-authority flags so a save writes
 # ONLY the file that actually changed (a minimal JSON diff; the untouched
@@ -32,6 +46,7 @@ var _enemies: Dictionary = {}
 var dirty := false
 var _level_dirty := false
 var _enemies_dirty := false
+var _player_dirty := false
 
 
 ## Load both JSON authorities from `res://data/json`. Returns false (after a loud
@@ -41,12 +56,14 @@ var _enemies_dirty := false
 func load_authorities() -> bool:
 	_level = _read_json(LEVEL_JSON_PATH)
 	_enemies = _read_json(ENEMIES_JSON_PATH)
+	_player = _read_json(PLAYER_JSON_PATH)
 	dirty = false
 	_level_dirty = false
 	_enemies_dirty = false
-	if _level.is_empty() or _enemies.is_empty():
+	_player_dirty = false
+	if _level.is_empty() or _enemies.is_empty() or _player.is_empty():
 		return false
-	return _level.has("platforms") and _enemies.has("waves")
+	return _level.has("platforms") and _enemies.has("waves") and _player.has("move_speed")
 
 
 func _read_json(path: String) -> Dictionary:
@@ -71,6 +88,56 @@ func _mark_level() -> void:
 func _mark_enemies() -> void:
 	_enemies_dirty = true
 	dirty = true
+
+
+func _mark_player() -> void:
+	_player_dirty = true
+	dirty = true
+
+
+# --- Numeric hand-tune scalars (schema-driven forms, #441) ---------------------
+# One generic scalar get/set pair keyed on an authority id + a JSON key, driving
+# the schema-derived SpinBox rows (EditorFormSpec + EditorForms). The forms edit
+# scalar NUMBERS only; spatial arrays stay the direct-manipulation channel. The
+# level authority's arena_min_x/arena_max_x also carry dedicated setters above
+# (the drag/nudge path) — both write the SAME `_level[key]`, so a numeric form
+# and a drag are one edit.
+
+## The parsed document backing an authority id, or an empty Dictionary for an
+## unknown id (the caller only ever passes the two AUTHORITY_* constants).
+func _authority_doc(authority: String) -> Dictionary:
+	match authority:
+		AUTHORITY_LEVEL:
+			return _level
+		AUTHORITY_PLAYER:
+			return _player
+		_:
+			return {}
+
+
+func get_number(authority: String, key: String) -> float:
+	return float(_authority_doc(authority).get(key, 0.0))
+
+
+## Write one scalar number into its authority document and mark that authority
+## dirty (so save() reserializes only it). Coerced to float — JSON numbers are
+## floats, and the derived Resources' fields are floats (gADR-0000).
+func set_number(authority: String, key: String, value: float) -> void:
+	match authority:
+		AUTHORITY_LEVEL:
+			_level[key] = value
+			_mark_level()
+		AUTHORITY_PLAYER:
+			_player[key] = value
+			_mark_player()
+
+
+## Read a JSON-Schema document (res://data/schema/…) for the forms to derive
+## their fields from. Read-only — the Editor never writes a schema (gADR-0000:
+## schemas are the config contract, owned by the pipeline). Returns {} on any
+## read/parse failure, so a missing schema yields an empty form, not a crash.
+func read_schema(path: String) -> Dictionary:
+	return _read_json(path)
 
 
 # --- Backdrop + segment color (level authority) --------------------------------
@@ -174,9 +241,12 @@ func save() -> bool:
 		return false
 	if _enemies_dirty and not _write_json(ENEMIES_JSON_PATH, _enemies):
 		return false
+	if _player_dirty and not _write_json(PLAYER_JSON_PATH, _player):
+		return false
 	dirty = false
 	_level_dirty = false
 	_enemies_dirty = false
+	_player_dirty = false
 	return true
 
 
