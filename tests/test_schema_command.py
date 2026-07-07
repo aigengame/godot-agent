@@ -1313,13 +1313,17 @@ def test_input_commands_schema_report_kind_live_and_are_model_derived():
 
     click_input = docs[1]["input"]
     move_input = docs[2]["input"]
-    assert "engine-tracked mouse positions may remain stale" in (
-        click_input["properties"]["x"]["description"]
+    assert (
+        "engine-tracked mouse positions may remain stale"
+        in (click_input["properties"]["x"]["description"])
     )
-    assert "engine-tracked mouse positions may remain stale" in (
-        move_input["properties"]["x"]["description"]
+    assert (
+        "engine-tracked mouse positions may remain stale"
+        in (move_input["properties"]["x"]["description"])
     )
-    assert "event.position" in docs[1]["output"]["properties"]["position"]["description"]
+    assert (
+        "event.position" in docs[1]["output"]["properties"]["position"]["description"]
+    )
 
     sequence_input = docs[-1]["input"]
     events_description = sequence_input["properties"]["events"]["description"]
@@ -1328,8 +1332,9 @@ def test_input_commands_schema_report_kind_live_and_are_model_derived():
     sequence_event_props = sequence_input["$defs"]["InputSequenceEvent"]["properties"]
     assert "harness/process-frame" in sequence_event_props["frame"]["description"]
     assert "physics-frame" in sequence_event_props["physics_frame"]["description"]
-    assert "engine-tracked mouse positions may remain stale" in (
-        sequence_event_props["x"]["description"]
+    assert (
+        "engine-tracked mouse positions may remain stale"
+        in (sequence_event_props["x"]["description"])
     )
 
 

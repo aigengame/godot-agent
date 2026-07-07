@@ -65,16 +65,16 @@ MOUSE_MAIN_TSCN = (
 
 TRACKED_MOUSE_PLAYER_GD = (
     "extends Node2D\n"
-    "@export var last_event_type: String = \"\"\n"
+    '@export var last_event_type: String = ""\n'
     "@export var last_event_position: Vector2 = Vector2(-1, -1)\n"
     "@export var last_event_relative: Vector2 = Vector2(-1, -1)\n"
     "@export var last_global_mouse_position: Vector2 = Vector2(-1, -1)\n"
     "@export var last_viewport_mouse_position: Vector2 = Vector2(-1, -1)\n"
     "func _input(event: InputEvent) -> void:\n"
     "\tif event is InputEventMouseButton and event.pressed:\n"
-    "\t\t_capture_mouse(\"click\", event.position, Vector2.ZERO)\n"
+    '\t\t_capture_mouse("click", event.position, Vector2.ZERO)\n'
     "\telif event is InputEventMouseMotion:\n"
-    "\t\t_capture_mouse(\"move\", event.position, event.relative)\n"
+    '\t\t_capture_mouse("move", event.position, event.relative)\n'
     "func _capture_mouse(kind: String, event_position: Vector2, event_relative: Vector2) -> void:\n"
     "\tlast_event_type = kind\n"
     "\tlast_event_position = event_position\n"
@@ -272,9 +272,7 @@ def test_mouse_input_reports_event_position_when_tracked_mouse_position_is_stale
     # position. Pin that limitation so the documented workaround remains true.
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
     (tmp_path / "main.tscn").write_text(TRACKED_MOUSE_MAIN_TSCN, encoding="utf-8")
-    (tmp_path / "player.gd").write_text(
-        TRACKED_MOUSE_PLAYER_GD, encoding="utf-8"
-    )
+    (tmp_path / "player.gd").write_text(TRACKED_MOUSE_PLAYER_GD, encoding="utf-8")
 
     env = {**os.environ}
 
