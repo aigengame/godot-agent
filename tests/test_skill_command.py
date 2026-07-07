@@ -81,6 +81,14 @@ def test_skill_documents_json_container_number_preservation():
     assert "json float" in lower
 
 
+def test_skill_documents_script_validate_valid_verdict():
+    # #463: `script validate` reports a compile failure as a success-shaped
+    # result, so the agent-facing Skill must teach agents to inspect `valid`.
+    assert "gda script validate --json" in BUNDLED
+    assert "valid=false" in BUNDLED
+    assert "top-level `error`" in BUNDLED
+
+
 def test_skill_description_is_within_the_skill_frontmatter_limit():
     # An Agent Skill `description` is the one thing an agent sees when deciding to
     # load the Skill; the SKILL.md spec caps it at 1024 chars.

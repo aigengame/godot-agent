@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=06067154e90ca388c08772e7be322327d9d2241f6f23aa1056dd57c0d356da3d -->
+<!-- gda-readme-i18n: source=README.md sha256=982e7a5aa9ff2150490487576a0d22ee2a3348988af1e56d1adc0a3d00f54264 -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -406,6 +406,10 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `script delete` | 删除一个脚本文件并报告删除了什么。 |
 | `script attach` | 按节点路径把一个 `.gd` 脚本附加到场景里的某个节点上。 |
 | `script validate` | 对一个 `.gd` 脚本做语法 / 编译检查。 |
+
+对 `script validate --json`，要读取结果对象里的 `valid` 字段。脚本无法编译仍然是一个成功操作：
+退出码为 `0`，没有顶层 `error`，并以 `valid: false` 携带 `error_string` / `diagnostics`。
+缺失文件等操作层问题仍然使用正常的 Error envelope。
 
 **`project`** — 作为整体的项目（设置、autoload、静态分析）
 

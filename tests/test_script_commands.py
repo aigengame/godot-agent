@@ -507,6 +507,13 @@ def test_script_validate_valid_script_reports_valid_true_no_diagnostics(monkeypa
     assert fake.calls == [("script-validate", {"path": "/tmp/proj/ok.gd"})]
 
 
+def test_script_validate_help_mentions_valid_false_success_result():
+    result = CliRunner().invoke(app, ["script", "validate", "--help"])
+
+    assert result.exit_code == 0
+    assert "invalid exits 0 with valid=false" in result.stdout
+
+
 def test_script_validate_invalid_script_is_success_with_parsed_diagnostics(monkeypatch):
     # Validating an INVALID script is a SUCCESSFUL op (exit 0): the sentinel says
     # valid=false, and the per-command classifier parses the line/message

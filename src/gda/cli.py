@@ -2788,7 +2788,7 @@ def validate_script(
     godot: Optional[str] = godot_option(),
     project: Optional[str] = project_option(),
 ) -> None:
-    """Syntax/compile-check a .gd script; an invalid script is a successful op."""
+    """Syntax/compile-check a .gd script; invalid exits 0 with valid=false."""
     _dispatch(
         SCRIPT_VALIDATE_COMMAND,
         ScriptValidateParams(path=path),

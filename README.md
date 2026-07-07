@@ -410,6 +410,11 @@ offset properties explicitly instead.
 | `script attach` | Attach a `.gd` script to a node (by node path) in a scene. |
 | `script validate` | Syntax/compile-check a `.gd` script. |
 
+For `script validate --json`, read the result object's `valid` field. A script that
+does not compile is still a successful operation: exit `0`, no top-level `error`,
+and `valid: false` with `error_string` / `diagnostics`. Operation problems such as
+a missing file still use the normal Error envelope.
+
 **`project`** — the project as a whole (settings, autoloads, static analysis)
 
 | Command | What it does |
