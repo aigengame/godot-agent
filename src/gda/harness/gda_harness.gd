@@ -454,6 +454,28 @@ func _handle_game_set(params: Dictionary) -> String:
 				"no node at runtime path: " + path)
 
 	var prop_name := _string_param(params, "property")
+	if _is_control_position_write(node, prop_name):
+		var control: Control = node as Control
+		if _has_container_parent(control):
+			return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
+					_control_position_unavailable_message("node " + path))
+		var raw_position := _string_param(params, "value")
+		var coerced_position: Variant = _coerce_value(raw_position,
+				TYPE_VECTOR2, control.position)
+		if coerced_position == null:
+			return _error(LIVE_ERROR_UNCOERCIBLE_VALUE,
+					"cannot coerce value " + raw_position.c_escape()
+					+ " to Vector2 for property position on node " + path)
+		var target_position: Vector2 = coerced_position
+		control.set_position(target_position)
+		var current_position: Variant = _jsonify(control.position)
+		return _ok({
+			"path": path,
+			"property": prop_name,
+			"type": _type_name(TYPE_VECTOR2),
+			"value": current_position,
+		})
+
 	var prop_info := _runtime_set_property_info(node, prop_name)
 	if prop_info.is_empty():
 		return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
@@ -503,6 +525,18 @@ func _runtime_set_property_info(node: Node, prop_name: String) -> Dictionary:
 			declared_type = typeof(node.get(prop_name))
 		return {"type": declared_type, "source": "script variable"}
 	return {}
+
+
+func _is_control_position_write(node: Node, prop_name: String) -> bool:
+	return prop_name == "position" and node is Control
+
+
+func _has_container_parent(control: Control) -> bool:
+	return control.get_parent() is Container
+
+
+func _control_position_unavailable_message(subject: String) -> String:
+	return subject + " is a direct child of a Container, so Control.position is not an actionable settable property; address offset_left, offset_top, offset_right, and offset_bottom instead"
 
 
 func _unknown_runtime_property_message(path: String, prop_name: String) -> String:
