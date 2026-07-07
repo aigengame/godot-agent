@@ -247,11 +247,16 @@ func _hit_test(world: Vector2) -> Dictionary:
 
 # --- Save + derive + edit<->play ----------------------------------------------
 
-func _save_and_derive() -> void:
+## Persist the edits (JSON authority only) and re-derive the Resources through
+## the ONE Python builder. Returns true only when BOTH steps succeeded — the
+## edit->play switch keys on this, because playing after a failed save/derive
+## would run STALE derived .tres (the review-round correctness finding).
+func _save_and_derive() -> bool:
 	if not _model.save():
 		last_action = "save_failed"
+		GameLogScript.emit("error", "editor_save_failed", {})
 		_set_status()
-		return
+		return false
 	GameLogScript.emit("info", "editor_saved", {
 		"platforms": _model.platform_count(),
 		"waves": _model.wave_count(),
@@ -263,18 +268,20 @@ func _save_and_derive() -> void:
 			"exit_code": result["exit_code"],
 			"python": result["python"],
 		})
-	else:
-		last_action = "derive_failed"
-		GameLogScript.emit("error", "editor_derive_failed", {
-			"exit_code": result["exit_code"],
-			"python": result["python"],
-		})
-		push_error(
-			("EditorController: build_config.py failed (exit %d via %s). A Python " +
-			"toolchain must be on PATH (gADR-0012). Output: %s")
-			% [result["exit_code"], result["python"], result["output"]]
-		)
+		_set_status()
+		return true
+	last_action = "derive_failed"
+	GameLogScript.emit("error", "editor_derive_failed", {
+		"exit_code": result["exit_code"],
+		"python": result["python"],
+	})
+	push_error(
+		("EditorController: build_config.py failed (exit %d via %s). A Python " +
+		"toolchain must be on PATH (gADR-0012). Output: %s")
+		% [result["exit_code"], result["python"], result["output"]]
+	)
 	_set_status()
+	return false
 
 
 func _toggle_play() -> void:
@@ -289,8 +296,13 @@ func _enter_play() -> void:
 	# LevelController loads the fresh Resources, then refresh the process resource
 	# cache (load() is cached, so a second edit->play would otherwise re-instance
 	# against a STALE .tres).
-	if _model.dirty:
-		_save_and_derive()
+	if _model.dirty and not _save_and_derive():
+		# ABORT: a failed save or derive means the derived .tres do NOT match the
+		# edits — playing now would silently run a stale level. Stay in edit mode;
+		# the status line shows save_failed/derive_failed and the structured
+		# editor_save_failed/editor_derive_failed record is already emitted.
+		GameLogScript.emit("error", "editor_play_aborted", {"reason": last_action})
+		return
 	_refresh_generated_cache()
 	_play_instance = MainScene.instantiate()
 	_play_host.add_child(_play_instance)

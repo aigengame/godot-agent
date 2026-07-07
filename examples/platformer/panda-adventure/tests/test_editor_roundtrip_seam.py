@@ -30,6 +30,7 @@ import build_config
 GDA_CMD = [sys.executable, "-m", "gda"]
 GAME_DIR = build_config.GAME_DIR
 _ROUNDTRIP_SCRIPT = "res://tests/gdscript/test_editor_roundtrip.gd"
+_PLAY_ABORT_SCRIPT = "res://tests/gdscript/test_editor_play_abort.gd"
 
 # Unlike the daemon e2e copies, KEEP ``tests/`` (the round-trip script runs from
 # ``res://tests``) and ``data/generated`` (the pre-edit baseline the derive
@@ -90,3 +91,55 @@ def test_editor_roundtrip_json_and_derived(tmp_path) -> None:
         (GAME_DIR / "data/json/level_config.json").read_text(encoding="utf-8")
     )
     assert worktree_level["platforms"][0]["position"] == [560.0, 500.0]
+
+
+@pytest.mark.engine
+def test_play_entry_aborts_when_derive_fails(tmp_path) -> None:
+    """A failed derive ABORTS the edit->play switch (review-round finding 1).
+
+    The builder is forced to fail — ``PANDA_EDITOR_PYTHON`` points at
+    ``/usr/bin/false``, so ``EditorBuilder.run`` gets a non-zero exit — and the
+    GDScript seam asserts the editor stays in edit mode with NO play instance
+    (playing would silently run STALE derived ``.tres``). The derived resources
+    in the copy must stay byte-identical to the pre-edit baseline: nothing
+    re-derived, nothing refreshed.
+    """
+    project = tmp_path / "panda_copy"
+    shutil.copytree(GAME_DIR, project, ignore=_COPY_IGNORE)
+    baseline_tres = (project / "data/generated/level_config.tres").read_text(
+        encoding="utf-8"
+    )
+
+    env = {**os.environ, "PANDA_EDITOR_PYTHON": "/usr/bin/false"}
+    result = subprocess.run(
+        [
+            *GDA_CMD,
+            "script",
+            "run",
+            _PLAY_ABORT_SCRIPT,
+            "--project",
+            str(project),
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    doc = json.loads(result.stdout)
+    assert doc["exit_status"] == 0, doc["stdout"] + doc["stderr"]
+    assert "PLAY_ABORT: PASS" in doc["stdout"], doc["stdout"] + doc["stderr"]
+    # The structured abort trail is on the script's output (GameLog print fallback).
+    assert "editor_derive_failed" in doc["stdout"], doc["stdout"]
+    assert "editor_play_aborted" in doc["stdout"], doc["stdout"]
+    assert "editor_play_entered" not in doc["stdout"], doc["stdout"]
+
+    # The failed builder wrote nothing: the derived .tres is the pre-edit baseline
+    # (the save half DID write the JSON authority — that is the expected split).
+    assert (project / "data/generated/level_config.tres").read_text(
+        encoding="utf-8"
+    ) == baseline_tres
+    saved = json.loads(
+        (project / "data/json/level_config.json").read_text(encoding="utf-8")
+    )
+    assert saved["arena_min_x"] == -144.0  # the seam's one edit landed on JSON
