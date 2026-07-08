@@ -93,3 +93,16 @@ means the first over-`T` asset is born in LFS with no history rewrite.
 >
 > The attribution generator, the export-import gate, and the orphan-prune step remain
 > follow-up slices under this record.
+>
+> **Correction (2026-07-08).** Reproduction refuted the premise §5(c)'s export-import
+> gate rested on. `gda export run` does NOT ship texture-less: a clean checkout (no
+> `.godot/`) exported via `gda export run` **natively triggers a Godot import** — the
+> engine's export command imports resources itself — regenerating the imported
+> `.ctex` and packing the texture (verified for pack + release on Godot 4.6.3). The
+> "export doesn't import" premise was a static-reading inference; the gda issue filed
+> on it was withdrawn (cannot-reproduce). So the export-import follow-up (#479)
+> narrows from a fix to a **defensive verification** that the shipped build carries
+> its textures (an import-regression smoke), not a re-implementation of import.
+> Orthogonal and still required: the size-based Git-LFS **byte** materialization on
+> the export path (§5's commit rule) is a git-layer concern, unrelated to Godot
+> import, and stands.
