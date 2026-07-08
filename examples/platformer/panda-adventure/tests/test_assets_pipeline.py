@@ -343,6 +343,17 @@ def test_no_dangling_fails_on_missing_file(tmp_path: Path) -> None:
         build_config.validate_asset_refs(root)
 
 
+def test_build_all_enforces_the_manifest_gate(tmp_path: Path) -> None:
+    """build_all FAILS on a missing referenced id — the gate is in the BUILD path,
+    not just tests (gADR-0014) — and leaves no partial derived set behind."""
+    root = _copy_authority(tmp_path)
+    (root / "assets" / "manifest" / "textures.json").write_text("{}\n", "utf-8")
+    with pytest.raises(jsonschema.ValidationError):
+        build_config.build_all(root=root)
+    # The gate ran before the spec loop: no partial writes (gADR-0000 no-drift).
+    assert not (root / "data" / "generated").exists()
+
+
 def _copy_authority(root: Path) -> Path:
     """Stage the committed authority + assets tree into an isolated root."""
     import shutil

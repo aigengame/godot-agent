@@ -1064,6 +1064,26 @@ def asset_ref_orphans(root: Path = GAME_DIR) -> list[str]:
     return sorted(set(load_asset_manifest(root)) - referenced)
 
 
+def asset_input_rels(root: Path = GAME_DIR) -> list[str]:
+    """The Asset manifest fragments + the asset files ``build_all``'s gate needs.
+
+    Since ``build_all`` enforces ``validate_asset_refs`` (FK + no-dangling + shape,
+    gADR-0014), an isolated build root must carry the manifest and every asset it
+    records. This returns those paths relative to ``root`` so tests/tools that
+    stage a build root copy exactly what the gate needs — auto-extending as
+    sibling asset slices record more assets (no per-test hardcoding).
+    """
+    directory = root / _ASSETS_ROOT / _MANIFEST_DIRNAME
+    if not directory.exists():
+        return []
+    rels = [str(frag.relative_to(root)) for frag in sorted(directory.glob("*.json"))]
+    rels += [
+        record["path"].removeprefix("res://")
+        for record in load_asset_manifest(root).values()
+    ]
+    return rels
+
+
 # The committed game's spec list (tests parametrize over it; ``build_all``
 # re-derives per root so e2e project copies see their own kinds).
 SPECS: list[TresSpec] = specs_for()
@@ -1281,7 +1301,16 @@ def build_all(root: Path = GAME_DIR) -> list[Path]:
     The spec list is re-derived from ``root``'s own enemies JSON, so a copy
     that adds (or renames) an Enemy Kind builds that kind's ``.tres`` with no
     code change.
+
+    The Asset manifest gate runs FIRST (gADR-0014): FK integrity, no-dangling, and
+    record shape are enforced before ANY spec writes — so a bad manifest fails the
+    build with no partial derived set left behind (the gADR-0000 no-drift rule),
+    joining the schema/semantic/freshness config gate rather than living only in
+    tests. The per-spec ``compose_asset_refs`` stays lenient (an isolated
+    ``build_spec`` on a manifest-less root still resolves by passthrough); the
+    whole-authority ``build_all`` path is the one that enforces.
     """
+    validate_asset_refs(root)
     return [build_spec(spec, root=root) for spec in specs_for(root)]
 
 
@@ -1306,6 +1335,9 @@ def build(
 
 
 def main() -> None:
+    # The Asset manifest gate first (gADR-0014), so a standalone build fails loudly
+    # on a broken reference / dangling / malformed record before writing anything.
+    validate_asset_refs()
     for spec in SPECS:
         written = build_spec(spec)
         print(
