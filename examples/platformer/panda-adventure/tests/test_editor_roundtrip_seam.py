@@ -31,6 +31,7 @@ GDA_CMD = [sys.executable, "-m", "gda"]
 GAME_DIR = build_config.GAME_DIR
 _ROUNDTRIP_SCRIPT = "res://tests/gdscript/test_editor_roundtrip.gd"
 _PLAY_ABORT_SCRIPT = "res://tests/gdscript/test_editor_play_abort.gd"
+_FORM_REFRESH_SCRIPT = "res://tests/gdscript/test_editor_form_refresh.gd"
 
 # Unlike the daemon e2e copies, KEEP ``tests/`` (the round-trip script runs from
 # ``res://tests``) and ``data/generated`` (the pre-edit baseline the derive
@@ -38,14 +39,18 @@ _PLAY_ABORT_SCRIPT = "res://tests/gdscript/test_editor_play_abort.gd"
 _COPY_IGNORE = shutil.ignore_patterns(".godot", "build", "__pycache__")
 
 # The edits the GDScript applies to Level 1 (segment 0 up one tile + widened,
-# arena_min nudged in one tile, first spawn moved, backdrop recolored) —
-# asserted here on the JSON. The backdrop uses power-of-two components, exact
-# in float32 and JSON, so plain equality holds.
+# arena_min nudged in one tile, first spawn moved, backdrop recolored, and — the
+# #441 numeric-form channel — a Player feel number hand-tuned) — asserted here on
+# the JSON. The backdrop and move_speed use values exact in float32 and JSON, so
+# plain equality holds.
 _EXPECT_SEG0_POSITION = [560.0, 484.0]  # was [560, 500]
 _EXPECT_SEG0_SIZE = [1792.0, 48.0]  # was [1760, 48]
 _EXPECT_ARENA_MIN = -144.0  # was -160
 _EXPECT_SPAWN0_POSITION = [688.0, 436.0]  # was [640, 452]
 _EXPECT_BACKDROP = [0.25, 0.5, 0.75, 1.0]  # was [0.07, 0.06, 0.12, 1.0]
+_EXPECT_MOVE_SPEED = 320.0  # was 300.0 (the schema-driven numeric form edit)
+_EXPECT_IFRAME = 0.5  # combat.iframe_duration, was 0.6 (#476 multi-config forms)
+_EXPECT_MP_COST = 8.0  # gravity.mp_cost, was 10.0
 
 
 @pytest.mark.engine
@@ -89,12 +94,57 @@ def test_editor_roundtrip_json_and_derived(tmp_path) -> None:
         (project / "data/json/enemies_config.json").read_text(encoding="utf-8")
     )
     assert enemies["waves"][0]["spawns"][0]["position"] == _EXPECT_SPAWN0_POSITION
+    # The numeric-form channel (#441): the schema-driven Player feel edit landed on
+    # the player authority (a THIRD JSON file the model now writes).
+    player = json.loads(
+        (project / "data/json/player_config.json").read_text(encoding="utf-8")
+    )
+    assert player["move_speed"] == _EXPECT_MOVE_SPEED
+    # Multi-config forms (#476 review): a Combat + a Gravity number hand-tuned
+    # through the same generic set_number path landed on their own authorities.
+    combat = json.loads(
+        (project / "data/json/combat_config.json").read_text(encoding="utf-8")
+    )
+    assert combat["iframe_duration"] == _EXPECT_IFRAME
+    gravity = json.loads(
+        (project / "data/json/gravity_config.json").read_text(encoding="utf-8")
+    )
+    assert gravity["mp_cost"] == _EXPECT_MP_COST
 
     # And the worktree authority is untouched (the copy took all writes).
     worktree_level = json.loads(
         (GAME_DIR / "data/json/level_config.json").read_text(encoding="utf-8")
     )
     assert worktree_level["platforms"][0]["position"] == [560.0, 500.0]
+
+
+@pytest.mark.engine
+def test_forms_refresh_after_direct_manipulation(tmp_path) -> None:
+    """A drag that mutates a shared JSON key re-seeds its form row (#476 review).
+
+    arena_min_x is both a SpinBox field and a drag target; the seam mutates it
+    through the drag-path setter and proves the SpinBox is stale until
+    ``forms.refresh()`` re-seeds it (no drift, no clobber). Read-only.
+    """
+    project = tmp_path / "panda_copy"
+    shutil.copytree(GAME_DIR, project, ignore=_COPY_IGNORE)
+    result = subprocess.run(
+        [
+            *GDA_CMD,
+            "script",
+            "run",
+            _FORM_REFRESH_SCRIPT,
+            "--project",
+            str(project),
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    doc = json.loads(result.stdout)
+    assert doc["exit_status"] == 0, doc["stdout"] + doc["stderr"]
+    assert "FORM_REFRESH: PASS" in doc["stdout"], doc["stdout"] + doc["stderr"]
 
 
 @pytest.mark.engine
@@ -107,6 +157,11 @@ def test_play_entry_aborts_when_derive_fails(tmp_path) -> None:
     (playing would silently run STALE derived ``.tres``). The derived resources
     in the copy must stay byte-identical to the pre-edit baseline: nothing
     re-derived, nothing refreshed.
+
+    Integrity on the failed derive (#476 review): the JSON authority is ROLLED
+    BACK to its pre-edit content — a failed build never leaves the authority in a
+    written-but-un-derivable state — and the edit lives only in memory (the model
+    stays dirty, asserted GDScript-side).
     """
     project = tmp_path / "panda_copy"
     shutil.copytree(GAME_DIR, project, ignore=_COPY_IGNORE)
@@ -138,12 +193,14 @@ def test_play_entry_aborts_when_derive_fails(tmp_path) -> None:
     assert "editor_play_aborted" in doc["stdout"], doc["stdout"]
     assert "editor_play_entered" not in doc["stdout"], doc["stdout"]
 
-    # The failed builder wrote nothing: the derived .tres is the pre-edit baseline
-    # (the save half DID write the JSON authority — that is the expected split).
+    # The failed builder wrote nothing: the derived .tres is the pre-edit baseline.
     assert (project / "data/generated/level_config.tres").read_text(
         encoding="utf-8"
     ) == baseline_tres
+    # And the JSON authority was ROLLED BACK to its pre-edit value (#476 review):
+    # a failed derive leaves NO invalid authority on disk — it matches the
+    # untouched .tres, and the edit remains only in memory (dirty, GDScript-side).
     saved = json.loads(
         (project / "data/json/level_config.json").read_text(encoding="utf-8")
     )
-    assert saved["arena_min_x"] == -144.0  # the seam's one edit landed on JSON
+    assert saved["arena_min_x"] == -160.0  # rolled back from the seam's -144.0 edit

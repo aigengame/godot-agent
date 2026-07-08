@@ -20,9 +20,12 @@ extends SceneTree
 
 const ModelScript := preload("res://src/editor/editor_level_model.gd")
 const BuilderScript := preload("res://src/editor/editor_builder.gd")
+const FormSpecScript := preload("res://src/editor/editor_form_spec.gd")
 
 const LEVEL_TRES := "res://data/generated/level_config.tres"
 const SCHEDULE_TRES := "res://data/generated/wave_schedule.tres"
+const PLAYER_TRES := "res://data/generated/player_config.tres"
+const PLAYER_SCHEMA := "res://data/schema/player_config.schema.json"
 
 
 func _fail(msg: String) -> void:
@@ -52,6 +55,25 @@ func _init() -> void:
 	model.set_arena_min_x(arena_min)
 	model.set_spawn_position(0, 0, spawn_pos)
 	model.set_background_color(backdrop)
+
+	# --- form edit (#441): a schema-driven NUMERIC hand-tune of a Player feel
+	# number. The field set comes from the SCHEMA (EditorFormSpec), proving the
+	# form maps from data/schema, and the write goes through the model's generic
+	# set_number exactly as a SpinBox row does. 320.0 is exact in float32 + JSON.
+	var fields := FormSpecScript.numeric_fields(model.read_schema(PLAYER_SCHEMA))
+	if not _has_field(fields, "move_speed"):
+		_fail("schema-derived numeric fields missing move_speed")
+		return
+	var new_move_speed := 320.0  # was 300.0
+	model.set_number(ModelScript.AUTHORITY_PLAYER, "move_speed", new_move_speed)
+	# Multi-config coverage (#476 review): hand-tune a Combat and a Gravity number
+	# too, proving the numeric round-trip spans EVERY tuning config, not just
+	# player/level. 0.5 / 8.0 are exact in float32 + JSON.
+	var new_iframe := 0.5  # combat.iframe_duration, was 0.6
+	var new_mp_cost := 8.0  # gravity.mp_cost, was 10.0
+	model.set_number(ModelScript.AUTHORITY_COMBAT, "iframe_duration", new_iframe)
+	model.set_number(ModelScript.AUTHORITY_GRAVITY, "mp_cost", new_mp_cost)
+
 	if not model.dirty:
 		_fail("model must be dirty after edits")
 		return
@@ -88,6 +110,15 @@ func _init() -> void:
 	if reloaded.get_background_color() != backdrop:
 		_fail("JSON backdrop color not persisted: %s" % [reloaded.get_background_color()])
 		return
+	if reloaded.get_number(ModelScript.AUTHORITY_PLAYER, "move_speed") != new_move_speed:
+		_fail("JSON move_speed not persisted: %s" % [reloaded.get_number(ModelScript.AUTHORITY_PLAYER, "move_speed")])
+		return
+	if reloaded.get_number(ModelScript.AUTHORITY_COMBAT, "iframe_duration") != new_iframe:
+		_fail("JSON combat iframe_duration not persisted")
+		return
+	if reloaded.get_number(ModelScript.AUTHORITY_GRAVITY, "mp_cost") != new_mp_cost:
+		_fail("JSON gravity mp_cost not persisted")
+		return
 
 	# --- the DERIVED Resources carry the edit (proof the builder actually ran).
 	var level: Resource = load(LEVEL_TRES)
@@ -113,6 +144,31 @@ func _init() -> void:
 	if schedule.waves[0]["spawns"][0]["position"] != spawn_pos:
 		_fail("derived .tres spawn position stale: %s" % [schedule.waves[0]["spawns"][0]["position"]])
 		return
+	# The form edit propagated through the builder into the derived PlayerConfig
+	# (#441): forms -> JSON -> builder -> reload closed the numeric loop.
+	var player: Resource = load(PLAYER_TRES)
+	if player == null:
+		_fail("derived player_config.tres missing")
+		return
+	if player.move_speed != new_move_speed:
+		_fail("derived .tres move_speed stale: %s" % [player.move_speed])
+		return
+	var combat: Resource = load("res://data/generated/combat_config.tres")
+	if combat == null or combat.iframe_duration != new_iframe:
+		_fail("derived combat_config.tres iframe_duration stale")
+		return
+	var gravity: Resource = load("res://data/generated/gravity_config.tres")
+	if gravity == null or gravity.mp_cost != new_mp_cost:
+		_fail("derived gravity_config.tres mp_cost stale")
+		return
 
 	print("EDITOR_ROUNDTRIP: PASS")
 	quit(0)
+
+
+## Whether a schema-derived field list carries `key` — the forms map from schema.
+func _has_field(fields: Array, key: String) -> bool:
+	for field: Dictionary in fields:
+		if String(field["key"]) == key:
+			return true
+	return false

@@ -65,6 +65,11 @@ func _init() -> void:
 	if not String(editor.status_line).contains("derive_failed"):
 		_fail("status line must surface the failure, got %s" % editor.status_line)
 		return
+	# Integrity (#476 review): a failed derive keeps the edits PENDING (dirty) — the
+	# JSON authority was rolled back, so the edit lives only in memory, unsaved.
+	if not editor._model.dirty:
+		_fail("edits must stay pending (dirty) after a failed derive")
+		return
 
 	print("PLAY_ABORT: PASS")
 	quit(0)

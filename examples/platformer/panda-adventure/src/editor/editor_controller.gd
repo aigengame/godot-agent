@@ -18,7 +18,14 @@ extends Node2D
 ## Direct manipulation: left-drag a segment body to move it, its yellow corner
 ## handle to resize (snapped to the tile grid so the Scale-spec semantic gate
 ## stays satisfied), an Arena line to move that bound, a spawn marker to reposition
-## that spawn. Numeric forms and the debug palette are a later slice (#441).
+## that spawn.
+##
+## Numeric hand-tune forms + debug palette (#441): the overlay's schema-driven
+## SpinBox forms (EditorForms) edit scalar feel/level numbers into the JSON
+## authority — saved through the SAME S = save+derive path as a drag, never
+## free-text JSON — and the DebugPalette node exposes the play-mode debug ops
+## (wave jump, god-mode, spawn-on-demand) as runtime-drivable state the overlay's
+## HITL buttons AND `gda game set` both write (dogfooding gda live ops, gADR-0012).
 ##
 ## preload() over the global class_name registry: this project ships no
 ## editor-generated global_script_class_cache, so a bare type name would not
@@ -26,6 +33,7 @@ extends Node2D
 
 const EditorLevelModelScript := preload("res://src/editor/editor_level_model.gd")
 const EditorBuilderScript := preload("res://src/editor/editor_builder.gd")
+const EditorFormsScript := preload("res://src/editor/editor_forms.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
 const ScaleSpecConfigScript := preload("res://src/resources/scale_spec_config.gd")
@@ -79,12 +87,20 @@ var _active := {"kind": HIT_NONE, "a": -1, "b": -1}
 var _dragging := false
 var _drag_offset := Vector2.ZERO
 var _play_instance: Node = null
+# The numeric hand-tune forms (#441): schema-driven SpinBox rows over the JSON
+# authority, built into the overlay in _ready (EditorForms).
+var _forms: EditorFormsScript
 
 @onready var _editor_camera: Camera2D = $EditorCamera
 @onready var _play_host: Node = $PlayHost
 @onready var _overlay_status: Label = $Overlay/Status
 @onready var _overlay_help: Label = $Overlay/Help
 @onready var _backdrop_button: ColorPickerButton = $Overlay/BackdropColor
+# The numeric forms panel (edit-mode) and the debug palette panel (play-mode);
+# the DebugPalette node carries the play-mode debug ops the overlay + gda drive.
+@onready var _forms_container: VBoxContainer = $Overlay/Forms
+@onready var _palette_container: VBoxContainer = $Overlay/Palette
+@onready var _palette: Node = $DebugPalette
 
 
 func _ready() -> void:
@@ -115,6 +131,11 @@ func _ready() -> void:
 	# same model/save path as every spatial edit. Numeric forms remain #441.
 	_backdrop_button.color = _model.get_background_color()
 	_backdrop_button.color_changed.connect(_on_backdrop_color_changed)
+	_build_forms()
+	_wire_palette()
+	# Edit mode boots showing the forms; the play-mode debug palette stays hidden
+	# until Tab (the forms/palette are the two modes' overlays).
+	_palette_container.visible = false
 	_set_status()
 	queue_redraw()
 	GameLogScript.emit("info", "editor_ready", {
@@ -122,6 +143,7 @@ func _ready() -> void:
 		"waves": _model.wave_count(),
 		"arena_min_x": _model.get_arena_min_x(),
 		"arena_max_x": _model.get_arena_max_x(),
+		"form_fields": _forms.field_count(),
 	})
 
 
@@ -205,6 +227,9 @@ func _update_drag(world: Vector2) -> void:
 		HIT_ARENA_MAX:
 			_model.set_arena_max_x(maxf(roundf(world.x), _model.get_arena_min_x() + _tile))
 	last_action = "edit:" + _kind_name(_active["kind"])
+	# Keep the numeric forms in sync: a dragged Arena bound is also a form field, so
+	# re-seed the SpinBoxes from the model (#476 review) — no stale row, no clobber.
+	_forms.refresh()
 	queue_redraw()
 	_set_status()
 
@@ -222,6 +247,100 @@ func _on_backdrop_color_changed(color: Color) -> void:
 	RenderingServer.set_default_clear_color(color)
 	last_action = "edit:backdrop"
 	_set_status()
+
+
+# --- Numeric hand-tune forms + debug palette (#441) ----------------------------
+
+## Build the schema-driven numeric forms (EditorForms) into the overlay: the
+## Player feel numbers and the Level authority's scalars, each field + its range
+## read from `data/schema/*.json` (never a hand-forked registry). A form edit
+## marks the model dirty and re-uses the SAME S = save+derive path as a drag.
+func _build_forms() -> void:
+	_forms = EditorFormsScript.new(_model)
+	_forms.field_edited.connect(_on_form_edited)
+	# Every tuning config gets a section (#476 review): the schema-driven extractor
+	# maps each config's scalar numbers to SpinBox rows, so the hand-tune surface
+	# spans the whole tuning space, not just player + level. A section whose schema
+	# declares no scalar numbers builds nothing (EditorForms skips it).
+	_forms.build(_forms_container, [
+		_section(EditorLevelModelScript.AUTHORITY_PLAYER, "player_config", "Player (feel)"),
+		_section(EditorLevelModelScript.AUTHORITY_LEVEL, "level_config", "Level"),
+		_section(EditorLevelModelScript.AUTHORITY_COMBAT, "combat_config", "Combat"),
+		_section(EditorLevelModelScript.AUTHORITY_GRAVITY, "gravity_config", "Gravity"),
+		_section(EditorLevelModelScript.AUTHORITY_ITEMS, "items_config", "Items"),
+		_section(EditorLevelModelScript.AUTHORITY_PROGRESSION, "progression_config", "Progression"),
+		_section(EditorLevelModelScript.AUTHORITY_SCALE, "scale_spec", "Scale spec"),
+		_section(EditorLevelModelScript.AUTHORITY_ENEMIES, "enemies_config", "Enemies"),
+		_section(EditorLevelModelScript.AUTHORITY_HUD, "hud_config", "HUD"),
+	])
+
+
+## One form-section descriptor: an authority id + the schema that declares its
+## numeric fields + a heading. The schema path follows the config naming
+## convention (data/schema/<name>.schema.json).
+func _section(authority: String, schema_name: String, title: String) -> Dictionary:
+	return {
+		"authority": authority,
+		"schema_path": "res://data/schema/%s.schema.json" % schema_name,
+		"title": title,
+	}
+
+
+## One numeric form field changed: mark the edit (the model already dirtied) and
+## refresh — a queue_redraw so a changed Arena bound re-draws its line (the form
+## and the drag write the same `arena_min_x`/`arena_max_x`).
+func _on_form_edited() -> void:
+	last_action = "edit:form"
+	queue_redraw()
+	_set_status()
+
+
+## Wire the DebugPalette node to this controller and build its HITL buttons. The
+## palette's ops are runtime-drivable state (dogfooding gda live ops); these
+## buttons write the SAME properties `gda game set` does.
+func _wire_palette() -> void:
+	_palette._editor = self
+	_build_palette_controls()
+
+
+func _build_palette_controls() -> void:
+	var god := CheckButton.new()
+	god.text = "God Mode"
+	god.toggled.connect(func(on: bool) -> void: _palette.god_mode = on)
+	_palette_container.add_child(god)
+
+	var wave_row := HBoxContainer.new()
+	var wave_spin := SpinBox.new()
+	wave_spin.min_value = 1
+	wave_spin.max_value = maxi(_model.wave_count(), 1)
+	wave_spin.value = 1
+	wave_row.add_child(wave_spin)
+	var jump := Button.new()
+	jump.text = "Jump to Wave"
+	jump.pressed.connect(func() -> void: _palette.jump_to_wave = int(wave_spin.value))
+	wave_row.add_child(jump)
+	_palette_container.add_child(wave_row)
+
+	var spawn := Button.new()
+	spawn.text = "Spawn Enemy"
+	spawn.pressed.connect(func() -> void: _palette.spawn = true)
+	_palette_container.add_child(spawn)
+
+
+## The running play instance (main.tscn's LevelController) the palette acts on, or
+## null in edit mode. Read by DebugPalette through its `_editor` reference.
+func get_play_instance() -> Node:
+	return _play_instance
+
+
+## Enter (true) / exit (false) play mode to a target state — the drivable
+## edit<->play switch behind the palette's `play_active` (and a `gda game set`).
+## Idempotent: a request matching the current mode is a no-op.
+func request_play(active: bool) -> void:
+	if active and not is_playing:
+		_enter_play()
+	elif not active and is_playing:
+		_exit_play()
 
 
 func _arrow_delta(keycode: int) -> Vector2:
@@ -246,6 +365,8 @@ func _nudge(delta: Vector2) -> void:
 		HIT_ARENA_MAX:
 			_model.set_arena_max_x(maxf(_model.get_arena_max_x() + delta.x, _model.get_arena_min_x() + _tile))
 	last_action = "nudge:" + _kind_name(_sel["kind"])
+	# A nudged Arena bound is a form field too — re-seed the SpinBoxes (#476 review).
+	_forms.refresh()
 	queue_redraw()
 	_set_status()
 
@@ -282,7 +403,16 @@ func _hit_test(world: Vector2) -> Dictionary:
 ## the ONE Python builder. Returns true only when BOTH steps succeeded — the
 ## edit->play switch keys on this, because playing after a failed save/derive
 ## would run STALE derived .tres (the review-round correctness finding).
+##
+## Integrity on a FAILED derive (#476 review): the JSON authority is ROLLED BACK
+## to its last-derived-good content and the edits stay dirty (pending). So a build
+## failure never leaves invalid JSON on disk (out of sync with the derived .tres)
+## nor silently clears the unsaved-edits marker — the save->JSON->builder->reload
+## contract holds even when the builder rejects the edit.
 func _save_and_derive() -> bool:
+	# Capture the on-disk last-good content of the authorities about to be written,
+	# so a derive failure can restore them.
+	var snapshot := _model.snapshot_dirty()
 	if not _model.save():
 		last_action = "save_failed"
 		GameLogScript.emit("error", "editor_save_failed", {})
@@ -301,14 +431,18 @@ func _save_and_derive() -> bool:
 		})
 		_set_status()
 		return true
+	# Derive failed: undo the just-written JSON (back to last-good) and keep the
+	# edits pending, so the authority never persists in an un-derivable state.
+	_model.rollback(snapshot)
 	last_action = "derive_failed"
 	GameLogScript.emit("error", "editor_derive_failed", {
 		"exit_code": result["exit_code"],
 		"python": result["python"],
 	})
 	push_error(
-		("EditorController: build_config.py failed (exit %d via %s). A Python " +
-		"toolchain must be on PATH (gADR-0012). Output: %s")
+		("EditorController: build_config.py failed (exit %d via %s); JSON authority " +
+		"rolled back, edits kept pending. A Python toolchain must be on PATH " +
+		"(gADR-0012). Output: %s")
 		% [result["exit_code"], result["python"], result["output"]]
 	)
 	_set_status()
@@ -340,6 +474,9 @@ func _enter_play() -> void:
 	is_playing = true
 	_overlay_help.visible = false
 	_backdrop_button.visible = false
+	# Swap the edit-mode forms for the play-mode debug palette.
+	_forms_container.visible = false
+	_palette_container.visible = true
 	queue_redraw()
 	_set_status()
 	GameLogScript.emit("info", "editor_play_entered", {})
@@ -352,6 +489,9 @@ func _exit_play() -> void:
 	is_playing = false
 	_overlay_help.visible = true
 	_backdrop_button.visible = true
+	# Restore the edit-mode forms, hide the play-mode debug palette.
+	_forms_container.visible = true
+	_palette_container.visible = false
 	# The play instance freed its Player Camera2D; restore the editor framing and
 	# the backdrop the game's LevelController overwrote.
 	_editor_camera.make_current()

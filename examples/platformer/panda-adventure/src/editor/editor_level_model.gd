@@ -2,12 +2,16 @@ extends RefCounted
 
 ## The Panda Adventure Editor's in-memory authority model (gADR-0012).
 ##
-## Loads Level 1's JSON authorities FOR EDITING — the level authority
+## Loads Level 1's JSON authorities FOR EDITING and holds them in a single
+## authority registry (id -> parsed document). The level authority
 ## (`level_config.json`: platform segments, the Arena interval, the backdrop) and
 ## the enemies authority (`enemies_config.json`: the Wave schedule's Spawn Roster
-## positions) — and exposes their editable SPATIAL content as typed accessors over
-## the raw documents. A `save()` writes ONLY the JSON authority back (gADR-0000:
-## JSON is the single source of truth; the derived `.tres` are never hand-written).
+## positions) expose their editable SPATIAL content as typed accessors; EVERY
+## tuning config (player, combat, gravity, items, hud, progression, scale, and the
+## two above) additionally exposes its scalar NUMBERS through the generic
+## get_number/set_number pair the schema-driven forms drive (#476 review). A
+## `save()` writes ONLY the changed JSON authorities back (gADR-0000: JSON is the
+## single source of truth; the derived `.tres` are never hand-written).
 ## Re-derivation is NOT done here — it belongs to the one Python builder, invoked
 ## through `editor_builder.gd` (gADR-0012 rejects a second, GDScript derivation
 ## path).
@@ -18,35 +22,73 @@ extends RefCounted
 ## untouched. The PLAY side keeps consuming the derived Resources through the
 ## existing chain (GeneratedConfig); this model never loads a `.tres`.
 
-const LEVEL_JSON_PATH := "res://data/json/level_config.json"
-const ENEMIES_JSON_PATH := "res://data/json/enemies_config.json"
+# The authority identifiers the generic numeric accessors key on — the Editor's
+# own vocabulary for "which JSON document a form field writes", not a config
+# number. Structural (the WEAPON_* / kind-id pattern used across the game). Every
+# tuning config is registered so the schema-driven forms span the whole tuning
+# surface, not just player + level (#476 review, gADR-0012's "tune numbers").
+const AUTHORITY_LEVEL := "level"
+const AUTHORITY_ENEMIES := "enemies"
+const AUTHORITY_PLAYER := "player"
+const AUTHORITY_COMBAT := "combat"
+const AUTHORITY_GRAVITY := "gravity"
+const AUTHORITY_ITEMS := "items"
+const AUTHORITY_HUD := "hud"
+const AUTHORITY_PROGRESSION := "progression"
+const AUTHORITY_SCALE := "scale"
 
-# The whole parsed authority documents. Kept intact so unedited fields survive a
-# save byte-for-value; the editable spatial slices are mutated in place.
+# authority id -> its JSON authority path. The single registry every operation
+# iterates (load / save / dirty / snapshot / rollback), so adding a tuning config
+# is one entry, never a new field + branch in five methods.
+const AUTHORITY_PATHS := {
+	AUTHORITY_LEVEL: "res://data/json/level_config.json",
+	AUTHORITY_ENEMIES: "res://data/json/enemies_config.json",
+	AUTHORITY_PLAYER: "res://data/json/player_config.json",
+	AUTHORITY_COMBAT: "res://data/json/combat_config.json",
+	AUTHORITY_GRAVITY: "res://data/json/gravity_config.json",
+	AUTHORITY_ITEMS: "res://data/json/items_config.json",
+	AUTHORITY_HUD: "res://data/json/hud_config.json",
+	AUTHORITY_PROGRESSION: "res://data/json/progression_config.json",
+	AUTHORITY_SCALE: "res://data/json/scale_spec.json",
+}
+
+# id -> the whole parsed authority Dictionary. Kept intact so unedited fields
+# survive a save byte-for-value; the editable slices are mutated in place.
+var _docs: Dictionary = {}
+# id -> bool: which authorities carry unsaved edits, so a save reserializes ONLY
+# the files that changed (a minimal JSON diff; untouched authorities never churn).
+var _dirty_ids: Dictionary = {}
+# The OR of _dirty_ids — the "unsaved edits" marker and the save-before-play guard.
+var dirty := false
+# Convenience aliases into _docs for the SPATIAL accessors below (platforms /
+# arena / backdrop read `_level`; wave spawns read `_enemies`). Godot Dictionaries
+# are reference types, so these alias the SAME objects the registry holds — a
+# spatial edit and a numeric-form edit mutate one document.
 var _level: Dictionary = {}
 var _enemies: Dictionary = {}
-# Set on any mutation, cleared on load/save — drives the "unsaved edits" marker
-# and the save-before-play guard. Backed by per-authority flags so a save writes
-# ONLY the file that actually changed (a minimal JSON diff; the untouched
-# authority is never reserialized).
-var dirty := false
-var _level_dirty := false
-var _enemies_dirty := false
 
 
-## Load both JSON authorities from `res://data/json`. Returns false (after a loud
-## push_error) if either file is missing or malformed, so the controller can show
-## a fault rather than crash. res:// is writable here because the Editor is a
-## dev-machine tool run from source (gADR-0012), never a shipped/exported build.
+## Load every registered JSON authority from `res://data/json`. Returns false
+## (after a loud push_error inside _read_json) when the documents the editor's own
+## editing needs are missing/malformed, so the controller shows a fault rather than
+## crash. res:// is writable here because the Editor is a dev-machine tool run from
+## source (gADR-0012), never a shipped/exported build.
 func load_authorities() -> bool:
-	_level = _read_json(LEVEL_JSON_PATH)
-	_enemies = _read_json(ENEMIES_JSON_PATH)
+	_docs.clear()
+	_dirty_ids.clear()
 	dirty = false
-	_level_dirty = false
-	_enemies_dirty = false
-	if _level.is_empty() or _enemies.is_empty():
+	for id: String in AUTHORITY_PATHS:
+		_docs[id] = _read_json(AUTHORITY_PATHS[id])
+		_dirty_ids[id] = false
+	_level = _docs[AUTHORITY_LEVEL]
+	_enemies = _docs[AUTHORITY_ENEMIES]
+	var player: Dictionary = _docs[AUTHORITY_PLAYER]
+	# Guard the shape the editor DIRECTLY manipulates (platforms, waves) + the
+	# player feel forms; the other tuning configs are form-only, guarded by their
+	# own empty-form fallback rather than a hard load failure.
+	if _level.is_empty() or _enemies.is_empty() or player.is_empty():
 		return false
-	return _level.has("platforms") and _enemies.has("waves")
+	return _level.has("platforms") and _enemies.has("waves") and player.has("move_speed")
 
 
 func _read_json(path: String) -> Dictionary:
@@ -63,14 +105,51 @@ func _read_json(path: String) -> Dictionary:
 	return parsed
 
 
+# The three spatial-edit paths (backdrop/platforms/arena live in the level
+# authority; wave spawns in the enemies authority) mark through the registry.
 func _mark_level() -> void:
-	_level_dirty = true
-	dirty = true
+	_mark(AUTHORITY_LEVEL)
 
 
 func _mark_enemies() -> void:
-	_enemies_dirty = true
+	_mark(AUTHORITY_ENEMIES)
+
+
+## Mark one authority dirty (edits pending) and refresh the OR marker.
+func _mark(id: String) -> void:
+	_dirty_ids[id] = true
 	dirty = true
+
+
+# --- Numeric hand-tune scalars (schema-driven forms, #441) ---------------------
+# One generic scalar get/set pair keyed on an authority id + a JSON key, driving
+# the schema-derived SpinBox rows (EditorFormSpec + EditorForms) across EVERY
+# tuning config. The forms edit scalar NUMBERS only; spatial arrays stay the
+# direct-manipulation channel. The level authority's arena_min_x/arena_max_x also
+# carry dedicated setters above (the drag/nudge path) — both write the SAME
+# `_level[key]`, so a numeric form and a drag are one edit.
+
+func get_number(authority: String, key: String) -> float:
+	return float((_docs.get(authority, {}) as Dictionary).get(key, 0.0))
+
+
+## Write one scalar number into its authority document and mark that authority
+## dirty (so save() reserializes only it). Coerced to float — JSON numbers are
+## floats, and the derived Resources' fields are floats (gADR-0000). An unknown
+## authority is a no-op (the forms only ever pass a registered id).
+func set_number(authority: String, key: String, value: float) -> void:
+	if not _docs.has(authority):
+		return
+	(_docs[authority] as Dictionary)[key] = value
+	_mark(authority)
+
+
+## Read a JSON-Schema document (res://data/schema/…) for the forms to derive
+## their fields from. Read-only — the Editor never writes a schema (gADR-0000:
+## schemas are the config contract, owned by the pipeline). Returns {} on any
+## read/parse failure, so a missing schema yields an empty form, not a crash.
+func read_schema(path: String) -> Dictionary:
+	return _read_json(path)
 
 
 # --- Backdrop + segment color (level authority) --------------------------------
@@ -170,14 +249,53 @@ func get_spawn_label(wave: int, spawn: int) -> String:
 ## differ; every unedited field keeps its value. Returns false after a loud
 ## push_error on any write failure; clears the dirty flags on success.
 func save() -> bool:
-	if _level_dirty and not _write_json(LEVEL_JSON_PATH, _level):
-		return false
-	if _enemies_dirty and not _write_json(ENEMIES_JSON_PATH, _enemies):
-		return false
+	for id: String in _docs:
+		if _dirty_ids.get(id, false) and not _write_json(AUTHORITY_PATHS[id], _docs[id]):
+			return false
 	dirty = false
-	_level_dirty = false
-	_enemies_dirty = false
+	for id: String in _dirty_ids:
+		_dirty_ids[id] = false
 	return true
+
+
+## Snapshot the CURRENT on-disk text of every dirty authority — its last-derived-
+## GOOD content — so a subsequent derive failure can restore it (#476 review:
+## integrity — the JSON authority on disk is never left in a written-but-failed-to-
+## derive state). Read BEFORE save() overwrites. Returns [{id, path, text}].
+func snapshot_dirty() -> Array:
+	var snaps: Array = []
+	for id: String in _docs:
+		if _dirty_ids.get(id, false):
+			snaps.append({
+				"id": id,
+				"path": AUTHORITY_PATHS[id],
+				"text": _read_text(AUTHORITY_PATHS[id]),
+			})
+	return snaps
+
+
+## Restore each snapshot's on-disk text and RE-MARK those authorities dirty — used
+## when a derive fails after save, so the JSON authority returns to its last-good
+## content while the in-memory edits stay PENDING (unsaved) for a retry. The
+## in-memory _docs keep the edits; only the files revert.
+func rollback(snapshots: Array) -> void:
+	for snap: Dictionary in snapshots:
+		var text: Variant = snap.get("text")
+		if typeof(text) == TYPE_STRING:
+			var file := FileAccess.open(String(snap["path"]), FileAccess.WRITE)
+			if file != null:
+				file.store_string(text)
+				file.close()
+		_mark(String(snap["id"]))
+
+
+func _read_text(path: String) -> Variant:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return null
+	var text := file.get_as_text()
+	file.close()
+	return text
 
 
 func _write_json(path: String, document: Dictionary) -> bool:
