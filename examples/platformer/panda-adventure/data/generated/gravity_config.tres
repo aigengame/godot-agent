@@ -16,6 +16,6 @@ field_spawn_offset = Vector2(120, 0)
 enemy_max_gravity_offset = 120
 obstacle_color = Color(0.62, 0.45, 0.25, 1)
 obstacle_size = Vector2(40, 40)
-obstacle_asset = ""
+obstacle_asset = "res://assets/textures/obstacle_crate.png"
 obstacle_position = Vector2(320, 360)
 obstacle_max_gravity_offset = 160

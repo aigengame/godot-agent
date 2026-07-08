@@ -1,0 +1,16 @@
+{
+  "obstacle_crate": {
+    "path": "res://assets/textures/obstacle_crate.png",
+    "category": "textures",
+    "acquire_mode": "search_download",
+    "source": "opengameart",
+    "license": "CC0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "target_dims": [
+      40,
+      40
+    ],
+    "source_url": "https://opengameart.org/sites/default/files/crates_study_x2.png",
+    "attribution": "PolygonixGames — Pixel Wooden Crate (OpenGameArt, CC0)"
+  }
+}

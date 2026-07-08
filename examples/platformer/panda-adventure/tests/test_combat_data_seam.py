@@ -127,7 +127,9 @@ def test_generated_resource_is_fresh(spec, tmp_path) -> None:
 def test_build_all_writes_every_spec(tmp_path) -> None:
     """build_all(root) emits every declared output under the given root."""
     # Stage the authoritative inputs in an isolated root (the e2e project-copy
-    # shape: json+schema present, generated/ absent).
+    # shape: json+schema present, generated/ absent). The Asset manifest + its
+    # recorded assets are staged too — build_all enforces the manifest gate
+    # (validate_asset_refs, gADR-0014).
     for rel in {s.json_rel for s in build_config.SPECS} | {
         s.schema_rel for s in build_config.SPECS
     }:
@@ -135,6 +137,11 @@ def test_build_all_writes_every_spec(tmp_path) -> None:
         dst = tmp_path / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    for rel in build_config.asset_input_rels():
+        src = build_config.GAME_DIR / rel
+        dst = tmp_path / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(src.read_bytes())
 
     written = build_config.build_all(root=tmp_path)
 

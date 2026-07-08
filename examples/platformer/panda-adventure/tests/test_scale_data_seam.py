@@ -150,7 +150,7 @@ def test_semantically_invalid_scale_spec_rejected(bad: dict, why: str) -> None:
 
 
 def _stage_inputs(root) -> None:
-    """Copy every spec's authoritative JSON + schema into an isolated root."""
+    """Copy every spec's JSON + schema AND the Asset manifest into an isolated root."""
     for rel in {s.json_rel for s in build_config.SPECS} | {
         s.schema_rel for s in build_config.SPECS
     }:
@@ -158,6 +158,13 @@ def _stage_inputs(root) -> None:
         dst = root / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    # The Asset manifest + its recorded assets: build_all enforces the manifest
+    # gate (validate_asset_refs, gADR-0014), so a staged root must carry them.
+    for rel in build_config.asset_input_rels():
+        src = build_config.GAME_DIR / rel
+        dst = root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(src.read_bytes())
 
 
 def test_off_grid_segment_gates_the_build_with_no_partial_writes(tmp_path) -> None:

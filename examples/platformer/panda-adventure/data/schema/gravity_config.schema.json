@@ -78,7 +78,7 @@
       "maxItems": 4
     },
     "obstacle_asset": {
-      "description": "Optional view asset reference for the Obstacle block (P2-S2, #436): a res:// path or asset-pipeline id the view seam resolves; absent (or empty) renders the colored-block fallback. Authored empty until an asset slice fills it (asset references are data, gADR-0000).",
+      "description": "Optional view asset reference for the Obstacle block: an Asset manifest id the builder resolves to the single-homed res:// path (P2-S1, #439, gADR-0014); absent (or empty) renders the colored-block fallback. Filled by the asset pipeline's tracer with the downloaded Obstacle texture id (asset references are data, gADR-0000).",
       "type": "string",
       "pattern": "^[^\"\\\\]*$"
     },
