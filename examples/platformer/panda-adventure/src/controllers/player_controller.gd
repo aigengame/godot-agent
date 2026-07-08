@@ -65,6 +65,13 @@ var _facing := 1.0
 # of scope for Phase 1).
 var _last_hit_time := -INF
 var _dead := false
+# Debug god-mode (#476 review): when set — only by the Editor's debug palette, a
+# dev-machine tool — take_hit skips the whole hit so the Player cannot die while a
+# playtest finding is reproduced. A DEBUG SEAM, not a gameplay-logic change: the
+# editor scene that drives it is export-stripped (gADR-0012), and take_hit gates
+# the effect on NOT a template (exported) build, so a shipped build ignores it
+# even if the flag were somehow set.
+var _debug_invulnerable := false
 # The time scale a Time Dilation Field imposes (S8, gADR-0009): 1.0 = full
 # speed. Set by the field via the time_dilatable contract each overlap frame,
 # reset to 1.0 the frame the Player leaves (or the field expires).
@@ -226,8 +233,20 @@ func set_time_dilation(factor: float) -> void:
 ## chain hits. On death: log player_died once and emit the `died` edge — the
 ## LevelController owns the consequences (S9, gADR-0010: game_lost, the World
 ## freeze, the End screen, Retry).
+## Debug god-mode toggle (#476 review): the Editor's debug palette drives this to
+## make the Player invulnerable while reproducing a finding. Dev-machine only — the
+## effect is gated in take_hit on NOT a template build, so it is a debug seam.
+func set_debug_invulnerable(on: bool) -> void:
+	_debug_invulnerable = on
+
+
 func take_hit(attacker: StatsConfigScript) -> void:
 	if _stats == null or _dead:
+		return
+	# Debug god-mode: skip the whole hit (no damage, no i-frame, no death latch) so
+	# the Player never dies. Gated on NOT a template build — a shipped build always
+	# takes hits; only a dev-machine editor run can enable it (#476 review).
+	if _debug_invulnerable and not OS.has_feature("template"):
 		return
 	var now := _now()
 	if CombatSystemScript.is_invulnerable(_last_hit_time, now, _combat.iframe_duration):

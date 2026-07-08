@@ -56,9 +56,10 @@ var play_active := false:
 			_editor.request_play(value)
 		last_action = "play" if value else "edit"
 
-## While on, the Player is kept at full HP each frame (a debug tool's invulnerable
-## — hits still register and flash, but never kill), so a finding can be probed
-## without dying. Logged on the toggle edge only.
+## While on, the Player is invulnerable (its take_hit skips the whole hit, so no
+## death latch ever fires), so a finding can be probed without dying. Driven onto
+## the Player through its set_debug_invulnerable API each frame (below). Logged on
+## the toggle edge only.
 var god_mode := false:
 	set(value):
 		god_mode = value
@@ -106,19 +107,17 @@ func _ready() -> void:
 	spawn_position = DEFAULT_SPAWN_POS
 
 
-## God-mode's only per-frame work: while playing and on, restore the Player to full
-## HP so no incoming hit can drop it to 0. Reaches the Player through the runtime
-## group lookup (the game's own "find the player" idiom), not a cached reference.
+## Sync god-mode onto the live Player each frame while playing: drive its
+## set_debug_invulnerable API so a lethal hit is refused at the SOURCE (take_hit),
+## not patched up after the death latch already fired. Per-frame (not just on the
+## toggle) so a Player replaced by a Retry reload re-inherits the current god-mode.
+## Reaches the Player through the runtime group lookup (the game's own idiom).
 func _process(_delta: float) -> void:
-	if not god_mode or not _is_playing():
+	if not _is_playing():
 		return
 	var player := _find_player()
-	if player == null:
-		return
-	var stats: Variant = player.get("_stats")
-	var stats_config: Variant = player.get("_stats_config")
-	if stats != null and stats_config != null:
-		stats.hp = stats_config.max_hp
+	if player != null and player.has_method("set_debug_invulnerable"):
+		player.set_debug_invulnerable(god_mode)
 
 
 # --- Ops -----------------------------------------------------------------------
