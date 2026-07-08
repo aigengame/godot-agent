@@ -69,6 +69,21 @@ See `./docs/agents/domain.md` for the authoritative detail.
   stale build once misled one (#401). **Re-export at wave close** (part of the closing slice's DoD)
   and smoke it: the app boots and logs `hud_ready` (release templates don't flush stdout per print —
   read it through a pty, or just launch it and look). See gADR-0007's consequences.
+- **Opening scenes in the Godot GUI can uid-ify the tracked `.tscn`/`.tres`** — gda authors scenes and
+  resources uid-free, referencing everything by `res://` path (deterministic, self-contained; parent
+  `../../../docs/adr/0036-authored-scenes-reference-by-path-not-uid.md`). Opening the project in the
+  desktop Godot editor to **view / run / inspect** is fine and expected — it writes only gitignored
+  caches (`.godot/`, `*.uid`), so **no tracked drift**. But **saving** a scene in the GUI (Ctrl+S)
+  re-serializes it into Godot's canonical form — adding `uid="uid://…"` to headers + `ext_resource`,
+  reshuffling the `1_…` ids — which diverges from gda's byte-deterministic output. This is **not a
+  breakage** (uid-ized files still load/run/export) and using the GUI is your call — it is **not
+  forbidden and there is no guard hook** (a concurrent human editor is undefended, not prohibited:
+  parent ADR-0018). Handling is **awareness + recovery**, not prevention: for view/run, just don't
+  save; if you saved and don't want the churn, `git checkout` the affected `.tscn`/`.tres` (and any
+  reimported `assets/**/*.import`) — the gda-authored form is the source of truth; a stray `uid=` in a
+  tracked scene is the tell that someone saved in the GUI. To actually **change** content, prefer the
+  in-game editor (`scenes/editor.tscn`, `S = save+derive`) or gda, both of which keep the source
+  deterministic.
 
 ## gda feedback (dogfooding)
 
