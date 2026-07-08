@@ -231,12 +231,17 @@ def _deriv(wd: WaveDynamics, params: SdParams, econ: GrowthEconomy):
         level = econ.level_for(exp)
         growth = 1.0 + params.growth_gain * (level - 1)
         p = wd.player_dps * growth * combat  # effective kill rate
-        # Balancing consumable loop: state-switched, supply-gated, saturating.
-        healing = (
-            params.bun_consume_rate
-            if (hp > 0.0 and hp < threshold and bun > 0.0)
-            else 0.0
-        )
+        # Balancing consumable loop: state-switched, saturating, and supply-LIMITED
+        # within the step. Capping the consume rate at bun/dt bounds one step's
+        # Bun spend to the Bun on hand, so a sliver of inventory buys only a sliver
+        # of healing (never a full step of it) — the boundary conservation the
+        # unit tests pin. dt is params.dt (the step is never larger), so the cap
+        # is conservative on the shorter final step.
+        if hp > 0.0 and hp < threshold and bun > 0.0:
+            max_consume = bun / params.dt if params.dt > 0.0 else params.bun_consume_rate
+            healing = min(params.bun_consume_rate, max_consume)
+        else:
+            healing = 0.0
         heal_flow = healing * heal_per_bun
         d_hp = -wd.enemy_dps * combat + heal_flow
         if hp >= econ.player_max_hp and d_hp > 0.0:

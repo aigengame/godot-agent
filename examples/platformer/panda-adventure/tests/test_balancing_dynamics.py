@@ -141,6 +141,22 @@ def test_heal_never_overfills_hp() -> None:
     assert math.isclose(outcome.hp_end, econ.player_max_hp, abs_tol=1e-6)
 
 
+def test_healing_is_supply_limited_within_a_step() -> None:
+    """A sliver of Bun buys only a sliver of healing — consumption is capped by
+    the Bun on hand within an RK4 step, so it can never fund more HP than the
+    inventory pays for (``bun × bun_hp_restore``). A tiny 0.001 Bun heals at most
+    ~0.025 HP, not a full unclamped step's ~0.2."""
+    econ = _econ(player_max_hp=100.0, bun_hp_restore=25.0)
+    wd = _wd(wave_hp=1000.0, player_dps=1.0, enemy_dps=0.0)
+    params = _params(heal_threshold_frac=1.0, bun_consume_rate=1.0)
+    bun0 = 0.001
+    y0 = (wd.wave_hp, 50.0, 0.0, 0.0, bun0, 0.0)  # 50 HP, a sliver of Bun
+    outcome, end = dynamics._run_one_wave(wd, params, econ, y0)
+    max_fundable = bun0 * econ.bun_hp_restore
+    assert outcome.hp_end - 50.0 <= max_fundable + 1e-9
+    assert end[dynamics.BUN] >= 0.0
+
+
 def test_hp_and_bun_stay_in_bounds() -> None:
     """HP never leaves ``[0, max]`` and the Bun count never goes negative, even as
     consumption drains the last Bun under fire."""
