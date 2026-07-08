@@ -34,12 +34,19 @@ fi
 
 mkdir -p "$GAME_DIR/build"
 
-# Git-LFS gate (gADR-0015): materialize any LFS-tracked assets so the shipped .app
-# carries real bytes, not pointer files. A no-op until wave-3 commits its first
-# >= T asset; guarded so a checkout without git-lfs installed still exports today.
+# Git-LFS gate (gADR-0015): the shipped .app must carry the REAL bytes of any
+# LFS-tracked asset, not pointer files. No-op while the repo has no LFS assets;
+# once it does, a missing git-lfs OR a failed pull FAILS the export rather than
+# silently shipping pointer files (set -e is on; no `|| true` swallowing).
 if command -v git-lfs >/dev/null 2>&1; then
-	git -C "$GAME_DIR" lfs install --local >/dev/null 2>&1 || true
-	git -C "$GAME_DIR" lfs pull || true
+	git -C "$GAME_DIR" lfs install --local >/dev/null
+	if [[ -n "$(git -C "$GAME_DIR" lfs ls-files)" ]]; then
+		git -C "$GAME_DIR" lfs pull
+	fi
+elif [[ -n "$(git -C "$GAME_DIR" ls-files -- ':(attr:filter=lfs)assets' 2>/dev/null)" ]]; then
+	echo "error: LFS-tracked assets are present but git-lfs is not installed." >&2
+	echo "       Install git-lfs so the shipped .app carries real bytes, not pointers." >&2
+	exit 1
 fi
 
 gda export run \

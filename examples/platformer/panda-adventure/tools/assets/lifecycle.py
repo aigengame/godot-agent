@@ -54,21 +54,41 @@ def find_unlfs_oversize(
     ]
 
 
+def _is_binary(path: Path, chunk: int = 8192) -> bool:
+    """Heuristic: a file whose head carries a NUL byte is binary (text has none).
+
+    The size rule targets binary assets (textures, audio) — a large *text* asset
+    (a generated JSON) stays diff-friendly plain git, so the gate skips it.
+    """
+    with open(path, "rb") as handle:
+        return b"\0" in handle.read(chunk)
+
+
 def committed_asset_files(
     root: Path, assets_root: str = _ASSETS_ROOT
 ) -> list[tuple[str, int]]:
-    """Every file under ``<root>/<assets_root>`` as ``(relpath-from-root, size)``.
+    """The COMMITTED binary assets under ``<assets_root>`` as ``(relpath, size)``.
 
-    Sorted for a deterministic report; ``[]`` when the assets tree is absent.
+    Enumerates ``git ls-files`` (tracked files only — an untracked local scratch
+    file is not a commit and is not the gate's concern) and keeps only binary
+    files (:func:`_is_binary`), so the gate matches the spec's "``assets/**``
+    binary ``>= T`` committed outside LFS". ``[]`` outside a git repo / when the
+    tree has no tracked binaries.
     """
-    base = root / assets_root
-    if not base.exists():
-        return []
-    return [
-        (str(p.relative_to(root)), p.stat().st_size)
-        for p in sorted(base.rglob("*"))
-        if p.is_file()
-    ]
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", assets_root],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    out: list[tuple[str, int]] = []
+    for rel in result.stdout.split("\0"):
+        if not rel:
+            continue
+        path = root / rel
+        if path.is_file() and _is_binary(path):
+            out.append((rel, path.stat().st_size))
+    return out
 
 
 def git_lfs_tracked(root: Path) -> Callable[[str], bool]:

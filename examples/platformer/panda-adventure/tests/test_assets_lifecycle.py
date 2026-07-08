@@ -24,7 +24,7 @@ import pytest
 from PIL import Image
 
 import build_config
-from assets import game_config, lifecycle, manifest
+from assets import game_config, lifecycle, manifest, pipeline
 from assets.emitter import JsonManifestEmitter
 from assets.lifecycle import OversizeAsset, find_unlfs_oversize
 from assets.model import FrameLayout, ManifestEntry
@@ -233,29 +233,52 @@ def _git(root: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True)
 
 
-def test_validate_committed_asset_sizes_raises_on_untracked_large(
-    tmp_path: Path,
-) -> None:
-    """A >= T asset with no LFS attribute fails the gate (born-in-LFS rule)."""
+def _commit_binary(root: Path, rel: str, size: int) -> Path:
+    """Write and `git add` a binary file (NUL bytes -> binary) of `size` at rel."""
+    p = root / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"\x89PNG\r\n" + b"\0" * size)
+    _git(root, "add", rel)
+    return p
+
+
+def test_size_gate_flags_tracked_binary_without_lfs(tmp_path: Path) -> None:
+    """A COMMITTED (tracked) binary >= T with no LFS attribute fails the gate."""
     _git(tmp_path, "init")
-    big = tmp_path / "assets" / "textures" / "big.bin"
-    big.parent.mkdir(parents=True)
-    big.write_bytes(b"\0" * (_T + 16))
-    with pytest.raises(lifecycle.AssetSizeError, match="big.bin"):
+    _commit_binary(tmp_path, "assets/textures/big.png", _T)
+    with pytest.raises(lifecycle.AssetSizeError, match="big.png"):
         lifecycle.validate_committed_asset_sizes(tmp_path, _T)
 
 
-def test_validate_committed_asset_sizes_accepts_lfs_tracked_large(
-    tmp_path: Path,
-) -> None:
-    """The same >= T asset PASSES once a matching LFS attribute covers it."""
+def test_size_gate_accepts_lfs_tracked_binary(tmp_path: Path) -> None:
+    """The same >= T binary PASSES once a matching LFS attribute covers it."""
     _git(tmp_path, "init")
     (tmp_path / ".gitattributes").write_text(
-        "assets/**/*.bin filter=lfs diff=lfs merge=lfs -text\n", encoding="utf-8"
+        "assets/**/*.png filter=lfs diff=lfs merge=lfs -text\n", encoding="utf-8"
     )
-    big = tmp_path / "assets" / "textures" / "big.bin"
+    _git(tmp_path, "add", ".gitattributes")
+    _commit_binary(tmp_path, "assets/textures/big.png", _T)
+    lifecycle.validate_committed_asset_sizes(tmp_path, _T)  # no raise
+
+
+def test_size_gate_ignores_untracked_large_file(tmp_path: Path) -> None:
+    """An UNTRACKED (uncommitted) large binary is not the gate's concern — the
+    rule is about COMMITTED assets, so a local scratch file must not fail it."""
+    _git(tmp_path, "init")
+    scratch = tmp_path / "assets" / "textures" / "scratch.png"
+    scratch.parent.mkdir(parents=True)
+    scratch.write_bytes(b"\x89PNG\r\n" + b"\0" * _T)  # NOT git-added
+    lifecycle.validate_committed_asset_sizes(tmp_path, _T)  # no raise
+
+
+def test_size_gate_ignores_large_text_asset(tmp_path: Path) -> None:
+    """A large TRACKED text asset is not forced into LFS — the rule is
+    binary-only (a big generated JSON stays diff-friendly plain git)."""
+    _git(tmp_path, "init")
+    big = tmp_path / "assets" / "data" / "huge.json"
     big.parent.mkdir(parents=True)
-    big.write_bytes(b"\0" * (_T + 16))
+    big.write_text("[" + ",".join(["0"] * _T) + "]", encoding="utf-8")  # > T, no NUL
+    _git(tmp_path, "add", "assets/data/huge.json")
     lifecycle.validate_committed_asset_sizes(tmp_path, _T)  # no raise
 
 
@@ -283,3 +306,85 @@ def test_gitattributes_tracks_music_dir_in_lfs() -> None:
     tracked = lifecycle.git_lfs_tracked(GAME_DIR)
     assert tracked("assets/music/bgm_main.ogg")
     assert not tracked("assets/textures/obstacle_crate.png")
+
+
+# --------------------------------------------------------------------------- #
+# Config-gate wiring: the size gate runs from build_config, not only tests.
+# --------------------------------------------------------------------------- #
+
+
+def test_build_config_size_gate_passes_on_committed_repo() -> None:
+    """build_config exposes the size gate at the config gate, reading T from the
+    committed Style descriptor; the committed repo passes (review S1)."""
+    build_config.validate_asset_sizes()  # no raise
+
+
+def test_build_config_main_enforces_the_size_gate(monkeypatch) -> None:
+    """`python scripts/build_config.py` (main) mechanically enforces the size gate
+    — a violation fails the authoritative build, not merely an optional test path
+    (review S1). Proven by making the gate raise and asserting main propagates it
+    before any .tres is written."""
+
+    def _boom(root: Path = build_config.GAME_DIR):
+        raise lifecycle.AssetSizeError("size gate ran from main")
+
+    monkeypatch.setattr(build_config, "validate_asset_sizes", _boom)
+    with pytest.raises(lifecycle.AssetSizeError, match="size gate ran from main"):
+        build_config.main()
+
+
+# --------------------------------------------------------------------------- #
+# Pipeline wiring: one orchestration entry packs + records a sprite set, so
+# wave-3 slices consume the tooling without re-inventing the choreography.
+# --------------------------------------------------------------------------- #
+
+
+def test_pack_sprite_set_packs_sheet_and_emits_entry(tmp_path: Path) -> None:
+    """`pack_sprite_set` orchestrates loose frames -> committed sheet ->
+    manifest sprite-set entry (with frame_layout) in one call (review Spec-1)."""
+    frames = _frames(tmp_path / "in", 4, (16, 16))
+    sheet = tmp_path / "assets" / "sprites" / "hero_run.png"
+    emitter = JsonManifestEmitter(tmp_path, "assets")
+
+    entry = pipeline.pack_sprite_set(
+        frames,
+        sheet,
+        "res://assets/sprites/hero_run.png",
+        "hero_run",
+        "sprites",
+        source="kenney",
+        license_name="CC0",
+        license_url="https://creativecommons.org/publicdomain/zero/1.0/",
+        emitter=emitter,
+    )
+
+    # The committed sheet exists at the given path.
+    with Image.open(sheet) as img:
+        assert img.size == (64, 16)  # 4 frames wide
+    # The returned entry carries the layout + provenance.
+    assert entry.frame_layout == FrameLayout((16, 16), 4, 1, 4)
+    assert (entry.id, entry.category, entry.license) == ("hero_run", "sprites", "CC0")
+    assert entry.target_dims == (16, 16)  # defaults to the frame box
+    # It was emitted into the manifest, round-tripping the layout.
+    loaded = manifest.load_manifest(tmp_path, "assets")
+    assert loaded["hero_run"].frame_layout == FrameLayout((16, 16), 4, 1, 4)
+
+
+def test_pack_sprite_set_can_skip_emit(tmp_path: Path) -> None:
+    """With no emitter the sheet is still packed but nothing is written (a caller
+    that only wants the sheet + entry, e.g. a dry run)."""
+    frames = _frames(tmp_path / "in", 2, (24, 24))
+    sheet = tmp_path / "out" / "walk.png"
+    entry = pipeline.pack_sprite_set(
+        frames,
+        sheet,
+        "res://assets/sprites/walk.png",
+        "walk",
+        "sprites",
+        source="kenney",
+        license_name="CC0",
+        license_url="https://creativecommons.org/publicdomain/zero/1.0/",
+    )
+    assert sheet.exists()
+    assert entry.frame_layout == FrameLayout((24, 24), 2, 1, 2)
+    assert manifest.load_manifest(tmp_path, "assets") == {}  # nothing emitted

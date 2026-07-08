@@ -20,6 +20,7 @@ from .backends import GenerationBackend
 from .emitter import Emitter, JsonManifestEmitter
 from .game_config import StyleConfig
 from .model import AcquireMode, AcquireResult, AssetSpec, ManifestEntry
+from .packer import pack_frames
 from .postprocess import postprocess_image
 
 # The default license recorded for a generated asset (the pipeline authored it).
@@ -159,4 +160,52 @@ def acquire_asset(
     )
     if emit:
         (emitter or JsonManifestEmitter(game_root, config.assets_root)).emit(entry)
+    return entry
+
+
+def pack_sprite_set(
+    frame_paths: list[Path],
+    out_path: Path,
+    resource_path: str,
+    asset_id: str,
+    category: str,
+    *,
+    source: str,
+    license_name: str,
+    license_url: str,
+    target_dims: tuple[int, int] | None = None,
+    acquire_mode: str = "search_download",
+    source_url: str | None = None,
+    attribution: str | None = None,
+    emitter: Emitter | None = None,
+) -> ManifestEntry:
+    """Orchestrate a sprite set: loose frames -> committed sheet + manifest entry.
+
+    The pipeline's sprite-set entry point (gADR-0015), so a wave-3 acquire slice
+    reuses the pack+record choreography instead of re-inventing it: packs
+    ``frame_paths`` into one spritesheet at ``out_path``
+    (:func:`assets.packer.pack_frames`), then builds and — when an ``emitter`` is
+    given — writes the :class:`~assets.model.ManifestEntry` carrying the frame
+    layout plus the provenance/license invariant (``target_dims`` defaults to the
+    packed frame box). The Godot ``SpriteFrames`` derivation stays a separate,
+    independently-callable step (:func:`assets.spriteframes.derive_spriteframes`);
+    the network/generation acquire of the frames and the runtime sprite render are
+    out of scope here (wave-3 / gADR-0014).
+    """
+    layout = pack_frames(frame_paths, out_path)
+    entry = ManifestEntry(
+        id=asset_id,
+        path=resource_path,
+        category=category,
+        acquire_mode=acquire_mode,
+        source=source,
+        license=license_name,
+        license_url=license_url,
+        target_dims=target_dims or layout.frame_dims,
+        source_url=source_url,
+        attribution=attribution,
+        frame_layout=layout,
+    )
+    if emitter is not None:
+        emitter.emit(entry)
     return entry
