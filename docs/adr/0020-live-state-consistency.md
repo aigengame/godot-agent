@@ -28,6 +28,14 @@ and writes guarantee".
 > a window exactly as it holds for a single-frame op; the window only sequences N such
 > coherent snapshots.
 
+> **Outcome (2026-07-08, #473) — `game set` exposes read-after-write verification
+> as structured data.** A completed live `game set` returns the observed read-back
+> `value` plus `verified`, true only when that value equals the coerced requested
+> value. A mismatch is no longer guessed as failure by the harness: getter-only/no-op
+> script variables and edge-triggered/self-consuming controls both return success with
+> `verified:false`, leaving interpretation to the caller and preserving same-session
+> follow-up reads for domain-specific side effects.
+
 ## Decision
 
 `state consistency` is the property [gda-daemon](../../CONTEXT.md) provides over one

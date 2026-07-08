@@ -81,6 +81,15 @@ def test_skill_documents_json_container_number_preservation():
     assert "json float" in lower
 
 
+def test_skill_documents_game_set_verified_signal():
+    # #473: live script-variable controls can be edge-triggered; the Skill must
+    # teach agents to inspect `verified` instead of treating success as sticky state.
+    lower = BUNDLED.lower()
+    assert "verified" in lower
+    assert "edge-triggered" in lower
+    assert "follow-up `game get`" in lower
+
+
 def test_skill_documents_script_validate_valid_verdict():
     # #463: `script validate` reports a compile failure as a success-shaped
     # result, so the agent-facing Skill must teach agents to inspect `valid`.

@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=982e7a5aa9ff2150490487576a0d22ee2a3348988af1e56d1adc0a3d00f54264 -->
+<!-- gda-readme-i18n: source=README.md sha256=d0624578d2e00805a61ea7e983ce98c850dcafa07848468c961c82d4acec270e -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 

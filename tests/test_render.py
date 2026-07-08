@@ -223,10 +223,11 @@ def test_render_game_set_renders_the_set_runtime_property():
         property="position",
         type="Vector2",
         value=[10.0, 20.0],
+        verified=True,
     )
     assert (
         render_game_set(result)
-        == "set /root/Main/Player.position (Vector2) = [10.0, 20.0]"
+        == "set /root/Main/Player.position (Vector2) = [10.0, 20.0] verified=true"
     )
 
 

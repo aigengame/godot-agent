@@ -475,17 +475,12 @@ func _handle_game_set(params: Dictionary) -> String:
 
 	node.set(prop_name, coerced)
 	var current: Variant = node.get(prop_name)
-	if source == "script variable" and before != coerced and current == before:
-		return _error(LIVE_ERROR_UNCOERCIBLE_VALUE,
-				"cannot set value " + raw_value.c_escape()
-				+ " as " + _type_name(declared_type)
-				+ " for script variable " + prop_name
-				+ " on node " + path)
 	return _ok({
 		"path": path,
 		"property": prop_name,
 		"type": _type_name(declared_type),
 		"value": _jsonify(current),
+		"verified": current == coerced,
 	})
 
 

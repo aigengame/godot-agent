@@ -3132,8 +3132,9 @@ class GameSetResult(BaseModel):
 
     The live counterpart of :class:`NodeSetResult` (no ``scene_path``): echoes the
     addressed node's runtime ``path``, the ``property`` set, the declared ``type``
-    the CLI value was coerced to, and the coerced ``value`` as JSON — the
-    projection ``game get`` reports, so a ``set`` round-trips through a ``get``.
+    the CLI value was coerced to, and the observed read-back ``value`` as JSON —
+    the projection ``game get`` reports. ``verified`` reports whether that
+    observed value equals the coerced value requested by this command.
     """
 
     path: str = Field(description="The addressed node's runtime (absolute) path.")
@@ -3143,10 +3144,17 @@ class GameSetResult(BaseModel):
     )
     value: Any = Field(
         description=(
-            "The coerced value as JSON, as the running node now holds it. "
+            "The observed read-back value as JSON, as the running node now holds it. "
             + _SET_ECHO_VALUE_DESC
         ),
         json_schema_extra=_projected_value_schema_extra,
+    )
+    verified: bool = Field(
+        description=(
+            "True when the observed read-back value equals the coerced value requested "
+            "by this command; false when the live set completed but the observed "
+            "read-back value differs."
+        )
     )
 
 

@@ -161,6 +161,7 @@ def test_daemon_serves_game_get_set_round_trip(tmp_path, daemon_runtime_dir):
         assert set_doc["property"] == "position"
         assert set_doc["type"] == "Vector2"
         assert set_doc["value"] == [10.0, 20.0]
+        assert set_doc["verified"] is True
 
         # get: the SAME session observes the preceding write (single writer,
         # frame-coherent — ADR-0020). The session is held across the two ops.
@@ -360,6 +361,16 @@ SCRIPT_VARIABLE_PLAYER_GD = (
 READONLY_SCRIPT_VARIABLE_PLAYER_GD = (
     "extends Node2D\nvar readonly: int:\n\tget:\n\t\treturn 1\n"
 )
+EDGE_TRIGGER_SCRIPT_VARIABLE_PLAYER_GD = (
+    "extends Node2D\n"
+    "var spawn_count: int = 0\n"
+    "var spawn: bool:\n"
+    "\tget:\n"
+    "\t\treturn false\n"
+    "\tset(value):\n"
+    "\t\tif value:\n"
+    "\t\t\tspawn_count += 1\n"
+)
 SCRIPT_VARIABLE_MAIN_TSCN = (
     "[gd_scene load_steps=2 format=3]\n\n"
     '[ext_resource type="Script" path="res://player.gd" id="1"]\n\n'
@@ -465,6 +476,7 @@ def test_daemon_game_set_mutates_explicit_plain_script_dictionary_variable(
             "property": "_items",
             "type": "Dictionary",
             "value": {"wine": 2},
+            "verified": True,
         }
 
         got = run("game", "get", "/root/Main/Player", "--property", "_items")
@@ -488,6 +500,7 @@ def test_daemon_game_set_mutates_explicit_plain_script_dictionary_variable(
             "property": "_tags",
             "type": "Array",
             "value": ["rare", "consumable"],
+            "verified": True,
         }
     finally:
         run("daemon", "stop")
@@ -593,7 +606,7 @@ def test_daemon_game_set_uncoercible_script_variable_reports_target_type(
 
 
 @pytest.mark.e2e
-def test_daemon_game_set_readonly_script_variable_reports_uncoercible_value(
+def test_daemon_game_set_readonly_script_variable_reports_unverified_observed_value(
     tmp_path, daemon_runtime_dir
 ):
     (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
@@ -622,13 +635,56 @@ def test_daemon_game_set_readonly_script_variable_reports_uncoercible_value(
             "--value",
             "2",
         )
-        assert was_set.returncode == 6, was_set.stdout + was_set.stderr
-        error = json.loads(was_set.stdout)["error"]
-        assert error["code"] == "live_uncoercible_value"
-        assert error["message"] == (
-            "cannot set value 2 as int for script variable readonly "
-            "on node /root/Main/Player"
+        assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+        assert json.loads(was_set.stdout) == {
+            "path": "/root/Main/Player",
+            "property": "readonly",
+            "type": "int",
+            "value": 1,
+            "verified": False,
+        }
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_daemon_game_set_edge_trigger_reports_unverified_then_side_effect_is_readable(
+    tmp_path, daemon_runtime_dir
+):
+    (tmp_path / "project.godot").write_text(PROJECT_GODOT, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SCRIPT_VARIABLE_MAIN_TSCN, encoding="utf-8")
+    (tmp_path / "player.gd").write_text(
+        EDGE_TRIGGER_SCRIPT_VARIABLE_PLAYER_GD, encoding="utf-8"
+    )
+    run = _gda(tmp_path, {**os.environ})
+
+    try:
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
+
+        was_set = run(
+            "game",
+            "set",
+            "/root/Main/Player",
+            "--property",
+            "spawn",
+            "--value",
+            "true",
         )
+        assert was_set.returncode == 0, was_set.stdout + was_set.stderr
+        assert json.loads(was_set.stdout) == {
+            "path": "/root/Main/Player",
+            "property": "spawn",
+            "type": "bool",
+            "value": False,
+            "verified": False,
+        }
+
+        got = run("game", "get", "/root/Main/Player", "--property", "spawn_count")
+        assert got.returncode == 0, got.stdout + got.stderr
+        assert json.loads(got.stdout)["properties"] == [
+            {"name": "spawn_count", "type": "int", "value": 1}
+        ]
     finally:
         run("daemon", "stop")
 

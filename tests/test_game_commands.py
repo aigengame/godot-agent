@@ -367,6 +367,7 @@ def test_game_set_mutates_and_echoes_coerced_value_through_the_live_channel(
     assert data["property"] == "position"
     # The harness echoes the coerced value in the node get projection.
     assert data["value"] == [10.0, 20.0]
+    assert data["verified"] is True
     # The node arg, property and raw value are threaded to the operation params;
     # the harness coerces the string to the declared type.
     assert fake.calls == [

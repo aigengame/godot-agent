@@ -445,7 +445,10 @@ func _handle_game_rect(params: Dictionary) -> String:
 # runtime counterpart of headless node set, using the SAME coercion table. The
 # write runs synchronously on the main thread at the _process frame boundary
 # (frame-coherent, ADR-0020); no extra threading. The coerced value is read back
-# and echoed in the same JSON projection game get reports.
+# and echoed in the same JSON projection game get reports. A completed live set
+# returns whether that observed read-back value matches the coerced requested
+# value; the harness does not guess whether a mismatch is a no-op or an
+# edge-triggered/self-consuming variable.
 func _handle_game_set(params: Dictionary) -> String:
 	var path := _string_param(params, "node")
 	var node := _resolve_runtime_node(path)
@@ -474,6 +477,7 @@ func _handle_game_set(params: Dictionary) -> String:
 			"property": prop_name,
 			"type": _type_name(TYPE_VECTOR2),
 			"value": current_position,
+			"verified": control.position == target_position,
 		})
 
 	var prop_info := _runtime_set_property_info(node, prop_name)
@@ -496,17 +500,12 @@ func _handle_game_set(params: Dictionary) -> String:
 
 	node.set(prop_name, coerced)
 	var current: Variant = node.get(prop_name)
-	if source == "script variable" and before != coerced and current == before:
-		return _error(LIVE_ERROR_UNCOERCIBLE_VALUE,
-				"cannot set value " + raw_value.c_escape()
-				+ " as " + _type_name(declared_type)
-				+ " for script variable " + prop_name
-				+ " on node " + path)
 	return _ok({
 		"path": path,
 		"property": prop_name,
 		"type": _type_name(declared_type),
 		"value": _jsonify(current),
+		"verified": current == coerced,
 	})
 
 

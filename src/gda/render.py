@@ -202,7 +202,7 @@ def render_game_set(was_set: "GameSetResult") -> str:
     """Render a set runtime property as ``set <path>.<prop> (<type>) = <value>``."""
     return (
         f"set {was_set.path}.{was_set.property} ({was_set.type}) = "
-        f"{format_value(was_set.value)}"
+        f"{format_value(was_set.value)} verified={format_value(was_set.verified)}"
     )
 
 
