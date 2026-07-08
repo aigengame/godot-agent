@@ -31,6 +31,7 @@ GDA_CMD = [sys.executable, "-m", "gda"]
 GAME_DIR = build_config.GAME_DIR
 _ROUNDTRIP_SCRIPT = "res://tests/gdscript/test_editor_roundtrip.gd"
 _PLAY_ABORT_SCRIPT = "res://tests/gdscript/test_editor_play_abort.gd"
+_FORM_REFRESH_SCRIPT = "res://tests/gdscript/test_editor_form_refresh.gd"
 
 # Unlike the daemon e2e copies, KEEP ``tests/`` (the round-trip script runs from
 # ``res://tests``) and ``data/generated`` (the pre-edit baseline the derive
@@ -115,6 +116,27 @@ def test_editor_roundtrip_json_and_derived(tmp_path) -> None:
         (GAME_DIR / "data/json/level_config.json").read_text(encoding="utf-8")
     )
     assert worktree_level["platforms"][0]["position"] == [560.0, 500.0]
+
+
+@pytest.mark.engine
+def test_forms_refresh_after_direct_manipulation(tmp_path) -> None:
+    """A drag that mutates a shared JSON key re-seeds its form row (#476 review).
+
+    arena_min_x is both a SpinBox field and a drag target; the seam mutates it
+    through the drag-path setter and proves the SpinBox is stale until
+    ``forms.refresh()`` re-seeds it (no drift, no clobber). Read-only.
+    """
+    project = tmp_path / "panda_copy"
+    shutil.copytree(GAME_DIR, project, ignore=_COPY_IGNORE)
+    result = subprocess.run(
+        [*GDA_CMD, "script", "run", _FORM_REFRESH_SCRIPT, "--project", str(project), "--json"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    doc = json.loads(result.stdout)
+    assert doc["exit_status"] == 0, doc["stdout"] + doc["stderr"]
+    assert "FORM_REFRESH: PASS" in doc["stdout"], doc["stdout"] + doc["stderr"]
 
 
 @pytest.mark.engine

@@ -27,6 +27,9 @@ var _model
 # Total SpinBox rows built across all sections — the editor_ready log's proof the
 # schema-driven forms materialized (and a headless seam's assertable count).
 var _field_count := 0
+# Each built row: {authority, key, spin}. Kept so refresh() can re-seed every
+# SpinBox from the model after direct manipulation touches a form-backed key.
+var _rows: Array = []
 
 
 func _init(model) -> void:
@@ -97,6 +100,7 @@ func _build_row(authority: String, field: Dictionary) -> HBoxContainer:
 	# — no per-field method, one handler).
 	spin.value_changed.connect(_on_value_changed.bind(authority, String(field["key"])))
 	row.add_child(spin)
+	_rows.append({"authority": authority, "key": String(field["key"]), "spin": spin})
 	_field_count += 1
 	return row
 
@@ -104,6 +108,17 @@ func _build_row(authority: String, field: Dictionary) -> HBoxContainer:
 func _on_value_changed(value: float, authority: String, key: String) -> void:
 	_model.set_number(authority, key, value)
 	field_edited.emit()
+
+
+## Re-seed every SpinBox from the model — called after DIRECT MANIPULATION mutates
+## a JSON key a form also exposes (arena_min_x/arena_max_x are drag targets AND
+## form fields), so a drag and its form row never drift and a later form edit
+## never overwrites the drag with stale data (#476 review). Uses set_value_no_signal
+## so the refresh does not re-fire value_changed — no dirty loop, no clobber.
+func refresh() -> void:
+	for row: Dictionary in _rows:
+		var spin: SpinBox = row["spin"]
+		spin.set_value_no_signal(_model.get_number(String(row["authority"]), String(row["key"])))
 
 
 ## A humane SpinBox step: never coarser than the schema hint, but fine enough that

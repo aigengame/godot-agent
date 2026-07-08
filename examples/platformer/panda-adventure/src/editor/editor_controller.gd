@@ -227,6 +227,9 @@ func _update_drag(world: Vector2) -> void:
 		HIT_ARENA_MAX:
 			_model.set_arena_max_x(maxf(roundf(world.x), _model.get_arena_min_x() + _tile))
 	last_action = "edit:" + _kind_name(_active["kind"])
+	# Keep the numeric forms in sync: a dragged Arena bound is also a form field, so
+	# re-seed the SpinBoxes from the model (#476 review) — no stale row, no clobber.
+	_forms.refresh()
 	queue_redraw()
 	_set_status()
 
@@ -362,6 +365,8 @@ func _nudge(delta: Vector2) -> void:
 		HIT_ARENA_MAX:
 			_model.set_arena_max_x(maxf(_model.get_arena_max_x() + delta.x, _model.get_arena_min_x() + _tile))
 	last_action = "nudge:" + _kind_name(_sel["kind"])
+	# A nudged Arena bound is a form field too — re-seed the SpinBoxes (#476 review).
+	_forms.refresh()
 	queue_redraw()
 	_set_status()
 
