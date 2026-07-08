@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.0](https://github.com/aigengame/godot-agent/compare/v0.7.0...v0.8.0) (2026-07-08)
+
+
+### Features
+
+* **panda-assets:** Tool Script asset-pipeline skeleton + Obstacle tracer ([#439](https://github.com/aigengame/godot-agent/issues/439)) ([#477](https://github.com/aigengame/godot-agent/issues/477)) ([f0dc693](https://github.com/aigengame/godot-agent/commit/f0dc6934392d3bf8d3418b1dda7eadada1496e92))
+* **panda-balancing:** SD-ODE model + predict report ([#440](https://github.com/aigengame/godot-agent/issues/440)) ([#475](https://github.com/aigengame/godot-agent/issues/475)) ([3a50b09](https://github.com/aigengame/godot-agent/commit/3a50b090ee27a3112cf06e46374b1f48cbbc2187))
+* **panda-editor:** numeric hand-tune forms + debug palette ([#441](https://github.com/aigengame/godot-agent/issues/441)) ([#476](https://github.com/aigengame/godot-agent/issues/476)) ([3192e82](https://github.com/aigengame/godot-agent/commit/3192e823e9f0b0d274405e8d9a5b3e4d2b32a195))
+
+
+### Bug Fixes
+
+* **game:** report live set verification ([#474](https://github.com/aigengame/godot-agent/issues/474)) ([27df14c](https://github.com/aigengame/godot-agent/commit/27df14cd98611c40eee38ca2999d4f4e3c9c0e47))
+
 ## [0.7.0](https://github.com/aigengame/godot-agent/compare/v0.6.2...v0.7.0) (2026-07-07)
 
 
