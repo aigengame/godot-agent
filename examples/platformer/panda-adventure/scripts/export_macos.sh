@@ -34,6 +34,14 @@ fi
 
 mkdir -p "$GAME_DIR/build"
 
+# Git-LFS gate (gADR-0015): materialize any LFS-tracked assets so the shipped .app
+# carries real bytes, not pointer files. A no-op until wave-3 commits its first
+# >= T asset; guarded so a checkout without git-lfs installed still exports today.
+if command -v git-lfs >/dev/null 2>&1; then
+	git -C "$GAME_DIR" lfs install --local >/dev/null 2>&1 || true
+	git -C "$GAME_DIR" lfs pull || true
+fi
+
 gda export run \
 	--preset macOS \
 	--mode release \

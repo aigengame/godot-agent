@@ -120,6 +120,25 @@ class AcquireResult:
 
 
 @dataclass(frozen=True)
+class FrameLayout:
+    """How a packed spritesheet is tiled (gADR-0015): the per-frame box + grid.
+
+    A sprite-frame set is committed as ONE spritesheet per animation state; this
+    records how that sheet is laid out so the manifest carries it and the
+    SpriteFrames deriver turns it into ``AtlasTexture`` regions. ``frame_dims`` is
+    one frame's ``(width, height)``; ``columns``/``rows`` the grid the frames fill
+    left-to-right then top-to-bottom; ``count`` the frame total
+    (``<= columns * rows``). A value shape (no Pillow) so the manifest can carry
+    it without pulling the packer's imaging dependency.
+    """
+
+    frame_dims: tuple[int, int]
+    columns: int
+    rows: int
+    count: int
+
+
+@dataclass(frozen=True)
 class ManifestEntry:
     """One Asset manifest record (gADR-0014).
 
@@ -127,7 +146,8 @@ class ManifestEntry:
     ``license``/``license_url``/``target_dims``) plus optional provenance detail.
     ``path`` is the resource path the game loads (``res://...``); it is the single
     home of the asset's path (the authority references ``id``, the builder composes
-    ``id -> path``).
+    ``id -> path``). A sprite-set entry additionally carries its ``frame_layout``
+    (gADR-0015) — the packed sheet's tiling, which a plain texture entry omits.
     """
 
     id: str
@@ -142,3 +162,4 @@ class ManifestEntry:
     attribution: str | None = None
     prompt: str | None = None
     backend: str | None = None
+    frame_layout: FrameLayout | None = None

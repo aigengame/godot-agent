@@ -289,6 +289,31 @@ dangling path) rather than freshness.
 _Avoid_: asset registry (generic), license file / provenance log (each names one
 field), asset index
 
+**Frames→sheet packer**:
+The reusable sprite postprocess stage that turns a loose-frame set (B-form — as many
+open-asset sources deliver a sprite-frame set) into ONE committed **spritesheet** per
+animation state (A-form) plus a recorded **frame layout** (`frame_dims`, columns/rows,
+count): a horizontal strip by default, a near-square grid past a frame-count threshold
+(gADR-0015). Its read-side counterpart is the **SpriteFrames deriver**, which turns the
+sheet path + layout into a byte-stable, uid-free Godot `SpriteFrames` resource — one
+`AtlasTexture` per frame, its `region` the frame's box in the sheet. Fewer committed
+files (one `.import` per set), atlas- and pixel-grid-friendly (gADR-0013); the committed
+sprite artifact is always the sheet, never the loose frames.
+_Avoid_: sprite atlas / texture atlas (the general packing, not this per-state sheet),
+sprite splitter (names the inverse), animation importer
+
+**Size-based Git-LFS gate**:
+The commit-method rule for binary assets (gADR-0015): a single **size threshold `T`**
+(default 1 MB, spec-data in the Style descriptor's config) applied UNIFORMLY across
+categories — an `assets/**` file at or over `T` is tracked by Git LFS, below `T` stays in
+plain git — so a large file (BGM, a 2K/4K backdrop) is *born* in LFS rather than committed
+to plain git and migrated later (a history rewrite). A config-gate size check enforces it
+mechanically (fails on any `assets/**` binary `>= T` outside LFS); `.gitattributes` is the
+gate's mechanical consequence, not its authority — `git lfs track` a path when the gate
+flags it. Never per-category special-casing (a large texture and a BGM track are the same
+rule); KB-scale pixel art and SFX stay in plain git.
+_Avoid_: LFS policy (vague), audio-in-LFS rule (it is not audio-special), binary gate
+
 **Style descriptor**:
 The shared art-direction input that makes mixed-source assets cohere across BOTH
 acquire modes — the machine-consumable style parameters (shared style

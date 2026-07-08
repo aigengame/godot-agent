@@ -72,7 +72,12 @@ jobs:
 
     steps:
       - name: Checkout repository
+        # lfs: true materializes any Git-LFS-tracked assets (gADR-0015) so the Panda
+        # Adventure size gate and asset loads see real bytes. A no-op until wave-3
+        # commits its first >= T asset; provisioned now so a large file is born in LFS.
         uses: actions/checkout@v6
+        with:
+          lfs: true
 
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
@@ -105,7 +110,11 @@ jobs:
 
     steps:
       - name: Checkout repository
+        # lfs: true so the engine/e2e asset loads and the export path see real
+        # LFS-tracked bytes, not pointer files (gADR-0015). A no-op until wave-3.
         uses: actions/checkout@v6
+        with:
+          lfs: true
 
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
