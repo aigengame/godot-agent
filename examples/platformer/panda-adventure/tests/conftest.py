@@ -51,6 +51,16 @@ def pytest_configure(config: pytest.Config) -> None:
         "engine: needs a real Godot engine (fails loudly if missing); fast tier, "
         "not the daemon e2e tier",
     )
+    # The asset pipeline's live acquire tier (gADR-0014): a real network fetch
+    # (search-download) or a real image-gen API call (generation). Deselected in
+    # CI (network, API keys, cost) and run on demand; the fast suite mocks the
+    # acquire boundary instead. Registered here (the game's marker home) like the
+    # engine tier, since this subproject has no pyproject of its own.
+    config.addinivalue_line(
+        "markers",
+        "acquire_live: needs a live network / image-gen API (asset pipeline "
+        "acquire); deselected in CI, run on demand",
+    )
 
 
 @pytest.fixture(autouse=True)

@@ -644,17 +644,24 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         ),
         (
             {
+                # The Obstacle now renders the tracer TEXTURE, not a flat block
+                # (#439, gADR-0014), so its region is no longer one config color;
+                # assert instead that it is VISIBLE — its textured pixels differ
+                # from the plain backdrop (background_delta, the presence-level
+                # structural property gADR-0007 calls for).
                 "name": "obstacle",
-                "mode": "color_match",
+                "mode": "background_delta",
                 "image": "boot",
                 "rect": blockout_region(
                     gravity["obstacle_position"], gravity["obstacle_size"], anchor_boot
                 ),
-                "color": gravity["obstacle_color"][:3],
-                "tolerance": _COLOR_TOLERANCE,
+                # A plain-background sample well clear of the Obstacle (the same
+                # top-right inset the HUD checks use).
+                "reference": [dims[0] - 8, 8],
+                "min_delta": _CHANNEL_DELTA,
             },
             blockout_min(gravity["obstacle_size"]),
-            "the Obstacle blockout is not visible at its config position",
+            "the Obstacle texture is not visible at its config position",
         ),
         (
             {

@@ -57,6 +57,11 @@ dev = [
     # The MCP SDK is also a dev dependency (not just the `[mcp]` extra) so
     # `uv run pytest` has it for the gda-mcp fast/e2e tiers (ADR-0013).
     "mcp>=1.12,<2",
+    # The example game's asset pipeline postprocess stage (gADR-0014, panda-
+    # adventure): Pillow conforms acquired images to the pixel-art regime and the
+    # Scale spec size. A dev dependency (not a live-only one) because those
+    # transforms are deterministic and CI-tested with the acquire boundary mocked.
+    "pillow>=11.0",
     # Lint + format gate (CI `lint` job). Pinned so `ruff format` output stays
     # stable across the team and CI; the exact version is locked in uv.lock.
     "ruff>=0.15.19,<0.16",
@@ -64,6 +69,16 @@ dev = [
     # — which can add new checks — is a deliberate uv.lock bump, not a surprise PR
     # failure; the exact version is locked in uv.lock.
     "pyright>=1.1.411,<1.2",
+]
+
+# The example game's asset pipeline GENERATION backends (gADR-0014, panda-
+# adventure): the external image-gen MCP channel (Gemini). Live-only — network,
+# API keys, and cost — so CI never installs this group (`uv sync --dev` omits it)
+# and the acquire tests that need it carry the `acquire_live` marker. The backend
+# modules lazy-import these, so CI collection stays green without the group.
+assets-live = [
+    "mcp>=1.12,<2",
+    "google-genai>=1.0",
 ]
 
 [tool.pytest.ini_options]

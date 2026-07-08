@@ -759,12 +759,90 @@ def load_composed(json_rel: str, root: Path = GAME_DIR) -> Any:
     The read-side twin of ``build_spec``'s composition (gADR-0013): the exact
     document a derived Resource renders from, for tests and tools that need
     expectation values without rebuilding. The Scale spec itself loads
-    validated and unchanged.
+    validated and unchanged. The Asset manifest's id -> path is composed in too
+    (gADR-0014), so a resolved asset reference is visible to the reader.
     """
     document = load_json(root / json_rel)
     if json_rel == _SCALE_JSON_REL:
         return validate_config(document, load_schema(root / _SCALE_SCHEMA_REL))
-    return compose_scale_spec(document, json_rel, load_scale_spec(root))
+    document = compose_scale_spec(document, json_rel, load_scale_spec(root))
+    return compose_asset_refs(document, json_rel, load_asset_manifest(root))
+
+
+# The Asset pipeline (gADR-0014): the Asset manifest single-homes each produced
+# asset's path; the JSON authority references it by a manifest ``id`` (a foreign
+# key), never a raw path, and the builder composes id -> path into the derived
+# ``.tres`` so the game/view read a resolved path and never the manifest. The
+# manifest is a RECORD source (its provenance/license are not derivable), split
+# per category so parallel asset slices don't contend — read as-is, never rebuilt
+# (it is integrity-checked by ``validate_asset_refs``, not freshness-gated).
+_ASSETS_ROOT = "assets"
+_MANIFEST_DIRNAME = "manifest"
+
+# The authored asset-reference fields the builder resolves, per source. The tracer
+# (#439) wires the Obstacle; sibling asset slices (#442/#443/#444/#445) extend this
+# with their own sources' reference fields (and the nested view structures —
+# ``platforms``/``drop_items`` — which ``_authored_asset_refs`` already scans).
+_ASSET_REF_FIELDS: dict[str, tuple[str, ...]] = {
+    _GRAVITY_JSON_REL: ("obstacle_asset",),
+}
+
+
+def load_asset_manifest(root: Path = GAME_DIR) -> dict[str, dict[str, Any]]:
+    """Merge the Asset manifest fragments into ``id -> record`` (gADR-0014).
+
+    Reads every ``assets/manifest/<category>.json`` fragment; returns ``{}`` when
+    the manifest directory is absent (a root with no acquired assets yet — an
+    isolated build stages none). Raises on a duplicate id across fragments (the id
+    is the manifest's primary key).
+    """
+    directory = root / _ASSETS_ROOT / _MANIFEST_DIRNAME
+    if not directory.exists():
+        return {}
+    merged: dict[str, dict[str, Any]] = {}
+    for fragment in sorted(directory.glob("*.json")):
+        for asset_id, record in load_json(fragment).items():
+            if asset_id in merged:
+                raise jsonschema.ValidationError(
+                    f"duplicate manifest id {asset_id!r} across fragments — the id "
+                    "is the Asset manifest's primary key (gADR-0014)"
+                )
+            merged[asset_id] = record
+    return merged
+
+
+def _resolve_asset_ref(ref: str, manifest: dict[str, dict[str, Any]]) -> str:
+    """Resolve one asset reference: a manifest id -> its single-homed path.
+
+    An empty reference (no asset yet) and an id ABSENT from the manifest pass
+    through unchanged. Absence is not raised here — the config gate
+    (``validate_asset_refs``) enforces FK integrity against the committed
+    manifest, so an isolated build with no manifest still renders (the id
+    round-trips) while the committed build resolves the path and the gate keeps
+    the two honest.
+    """
+    if not ref:
+        return ""
+    entry = manifest.get(ref)
+    return entry["path"] if entry is not None else ref
+
+
+def compose_asset_refs(
+    document: Any, json_rel: str, manifest: dict[str, dict[str, Any]]
+) -> Any:
+    """Compose the Asset manifest's id -> path into a source's asset references.
+
+    The write side of gADR-0014's id-referenced manifest: the authority names an
+    asset by its manifest id, and the builder resolves it to the single-homed path
+    so the derived Resource carries a resolved path (the gADR-0013 "one authored
+    home, N derived projections" pattern applied to assets). Mutates and returns
+    ``document``; a source with no asset-reference fields passes through unchanged.
+    """
+    for field_name in _ASSET_REF_FIELDS.get(json_rel, ()):
+        document[field_name] = _resolve_asset_ref(
+            document.get(field_name, ""), manifest
+        )
+    return document
 
 
 # The Tier axis in ascending power order — the GDD's at-a-glance size
@@ -899,6 +977,91 @@ def specs_for(root: Path = GAME_DIR) -> list[TresSpec]:
     """Every declared output under ``root``: the static table plus the
     JSON-derived per-kind enemy specs and the Wave schedule."""
     return [*_STATIC_SPECS, *enemy_kind_specs(root), _WAVE_SCHEDULE_SPEC]
+
+
+def _resource_to_fs(root: Path, resource_path: str) -> Path:
+    """Map a ``res://...`` asset path to its on-disk location under ``root``."""
+    return root / resource_path.removeprefix("res://")
+
+
+def _authored_asset_refs(root: Path = GAME_DIR) -> list[tuple[str, str]]:
+    """Every non-empty asset reference authored across the authority (gADR-0014).
+
+    Reads each spec's ``asset``-kind fields plus the nested view structures (the
+    level ``platforms`` and the progression ``drop_items`` styles), so the FK gate
+    sees EVERY referenced id — the tracer's Obstacle today, and every sibling
+    slice's references as they are authored. Returns ``(asset_id, where)`` pairs
+    (``where`` naming the derived output + field for a legible failure).
+    """
+    docs: dict[str, Any] = {}
+
+    def _doc(json_rel: str) -> Any:
+        if json_rel not in docs:
+            docs[json_rel] = load_json(root / json_rel)
+        return docs[json_rel]
+
+    refs: list[tuple[str, str]] = []
+    for spec in specs_for(root):
+        config = _doc(spec.json_rel)
+        for key in spec.json_root:
+            config = config[key]
+        for name, kind in spec.fields:
+            if kind == "asset":
+                if config.get(name):
+                    refs.append((config[name], f"{spec.out_rel}:{name}"))
+            elif kind == "platform_list":
+                for entry in config[name]:
+                    if entry.get("asset"):
+                        refs.append(
+                            (entry["asset"], f"{spec.out_rel}:{name}[{entry['name']}]")
+                        )
+            elif kind == "item_style_map":
+                for item, style in config[name].items():
+                    if style.get("asset"):
+                        refs.append((style["asset"], f"{spec.out_rel}:{name}[{item}]"))
+    return refs
+
+
+def validate_asset_refs(root: Path = GAME_DIR) -> dict[str, dict[str, Any]]:
+    """Enforce the Asset manifest <-> authority integrity gate (gADR-0014).
+
+    Mirrors ``validate_scale_semantics``'s two-way integrity, joining the config
+    gate. Raises :class:`jsonschema.ValidationError` — the same failure type as
+    the schema gate — so a broken reference fails the build loudly. The rules:
+
+    - **FK integrity**: every asset id referenced in any authority exists in the
+      manifest — no referenced-but-unprovenanced/unlicensed asset ships.
+    - **No dangling**: every manifest entry's ``path`` exists on disk — a recorded
+      asset whose file was removed is a config bug.
+
+    Returns the merged manifest (the soft orphan report is ``asset_ref_orphans``).
+    """
+    manifest = load_asset_manifest(root)
+    for asset_id, where in _authored_asset_refs(root):
+        if asset_id not in manifest:
+            raise jsonschema.ValidationError(
+                f"asset reference {asset_id!r} ({where}) has no Asset manifest "
+                "entry — every referenced asset must be recorded with its "
+                "provenance and license (gADR-0014)"
+            )
+    for asset_id, record in manifest.items():
+        fs_path = _resource_to_fs(root, record["path"])
+        if not fs_path.exists():
+            raise jsonschema.ValidationError(
+                f"manifest entry {asset_id!r} path {record['path']} does not exist "
+                "on disk — a dangling Asset manifest record (gADR-0014)"
+            )
+    return manifest
+
+
+def asset_ref_orphans(root: Path = GAME_DIR) -> list[str]:
+    """Manifest ids no authority references — a SOFT report (gADR-0014).
+
+    An orphan is a recorded-but-unwired asset: a warning, not a build failure
+    (wave-close DoD requires zero). Returns the sorted orphan ids.
+    """
+    referenced = {asset_id for asset_id, _ in _authored_asset_refs(root)}
+    return sorted(set(load_asset_manifest(root)) - referenced)
 
 
 # The committed game's spec list (tests parametrize over it; ``build_all``
@@ -1082,6 +1245,15 @@ def build_spec(
         # gADR-0000 no-drift rule; PR #457 review finding).
         scale = validate_scale_semantics(load_scale_spec(root), root=root)
         document = compose_scale_spec(document, spec.json_rel, scale)
+        # Compose the Asset manifest's id -> path into any asset references
+        # (gADR-0014): the authored id resolves to the single-homed path so the
+        # derived Resource carries a resolved path. Reads the committed manifest,
+        # so a manifest path change re-derives (the freshness gate takes the
+        # manifest as an input); an isolated root with no manifest passes the id
+        # through unchanged (the FK gate — validate_asset_refs — is separate).
+        document = compose_asset_refs(
+            document, spec.json_rel, load_asset_manifest(root)
+        )
     if spec.json_rel == _ENEMIES_JSON_REL:
         # The enemies source carries cross-field rules the schema cannot
         # express (gADR-0003) — enforce them before deriving any resource,

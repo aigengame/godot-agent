@@ -8,6 +8,7 @@
   "field_spawn_offset": [120.0, 0.0],
   "enemy_max_gravity_offset": 120.0,
   "obstacle_color": [0.62, 0.45, 0.25, 1.0],
+  "obstacle_asset": "obstacle_crate",
   "obstacle_position": [320.0, 360.0],
   "obstacle_max_gravity_offset": 160.0
 }

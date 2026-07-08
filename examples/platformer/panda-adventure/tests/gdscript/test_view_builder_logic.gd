@@ -10,11 +10,11 @@ extends SceneTree
 ##
 ## Covers the shipped block fallback exhaustively (box with/without the center
 ## pivot, and the circle field shape), so "renders exactly as before P2-S2" is
-## pinned; and the asset-reference resolution decision point (a non-empty asset is
-## the future sprite path, so the block fallback is NOT applied — asset references
-## are data, gADR-0000). preload() the seam (a headless runtime has no
-## editor-generated global_script_class_cache). Prints "LOGIC_SEAM: PASS" + quit(0)
-## on success, else push_error + quit(1).
+## pinned; and the asset-reference resolution branch (a non-empty asset is the
+## resolved sprite path, so the seam loads the texture and renders a Sprite child —
+## asset references are data, gADR-0000; #439). preload() the seam (a headless
+## runtime has no editor-generated global_script_class_cache). Prints "LOGIC_SEAM:
+## PASS" + quit(0) on success, else push_error + quit(1).
 
 const ViewBuilderScript := preload("res://src/view/view_builder.gd")
 
@@ -144,32 +144,41 @@ func _check_circle() -> bool:
 	return true
 
 
-## The asset-reference resolution (gADR-0000: asset references are data): a
-## non-empty asset reference is the future sprite path, so the colored-block
-## fallback is NOT applied — the seam leaves the Visual untouched (and guards
-## loudly, out of band). Pin it by pre-seeding a sentinel Visual and asserting the
-## block did not overwrite it.
+## The asset-reference resolution (gADR-0000: asset references are data; #439): a
+## non-empty asset reference is the RESOLVED sprite path (the builder composed the
+## Asset manifest id -> res:// path, gADR-0014), so the seam loads the texture and
+## renders it as a "Sprite" TextureRect child of a transparent Visual frame — NOT
+## the colored block. Pinned against the committed tracer texture (the Obstacle
+## crate), which doubles as a headless load-and-import smoke of that asset.
 func _check_asset_resolution() -> bool:
 	var root := _make_root()
+	var asset := "res://assets/textures/obstacle_crate.png"
+	var size := Vector2(40, 40)
+	ViewBuilderScript.apply_box(root, Color.WHITE, size, false, asset)
+
 	var visual := root.get_node("Visual") as ColorRect
-	var sentinel_color := Color(0.9, 0.1, 0.1, 1.0)
-	var sentinel_size := Vector2(7, 7)
-	var sentinel_pos := Vector2(3, 3)
-	visual.color = sentinel_color
-	visual.size = sentinel_size
-	visual.position = sentinel_pos
-
-	# A non-empty asset resolves to the (unwired) sprite branch, not the block.
-	ViewBuilderScript.apply_box(root, Color.WHITE, Vector2(40, 40), true, "res://assets/x.png")
-
-	if visual.color != sentinel_color:
-		_fail("asset: block fallback overwrote color despite an asset reference")
+	# The Visual is sized/positioned like any block, but colored transparent — the
+	# sprite is the visual now.
+	if not _vec_eq(visual.size, size):
+		_fail("asset: visual.size %s != %s" % [visual.size, size])
 		return false
-	if not _vec_eq(visual.size, sentinel_size):
-		_fail("asset: block fallback overwrote size despite an asset reference")
+	if not _vec_eq(visual.position, -size / 2.0):
+		_fail("asset: visual.position %s != %s" % [visual.position, -size / 2.0])
 		return false
-	if not _vec_eq(visual.position, sentinel_pos):
-		_fail("asset: block fallback overwrote position despite an asset reference")
+	if visual.color.a != 0.0:
+		_fail("asset: visual must be a transparent frame, got color %s" % visual.color)
+		return false
+	# The resolved texture renders as a "Sprite" TextureRect child of the Visual,
+	# scaled to the block size (the postprocess stage conformed it to that size).
+	var sprite := visual.get_node_or_null("Sprite") as TextureRect
+	if sprite == null:
+		_fail("asset: no 'Sprite' TextureRect child was added for the asset branch")
+		return false
+	if sprite.texture == null:
+		_fail("asset: the Sprite's texture is null (the tracer asset failed to load)")
+		return false
+	if not _vec_eq(sprite.size, size):
+		_fail("asset: sprite.size %s != %s" % [sprite.size, size])
 		return false
 	root.free()
 	return true

@@ -9,14 +9,15 @@ extends RefCounted
 ## split.
 ##
 ## It RESOLVES what to render from config (asset references are data, gADR-0000):
-## a non-empty `asset` reference is the sprite path; an empty one is the colored-
-## block fallback shipped today. The RESOLUTION is config-fed as of P2-S2: every
-## caller passes its config's optional asset reference (JSON authority ->
-## build_config -> derived Resource -> here), authored empty across the board. The
-## sprite RENDERING branch is NOT implemented yet — it lands with the first asset
-## slice (the visual pipeline, P2-S6/S7), which fills `_apply_visual`'s asset
-## branch and authors the references, wiring sprites BY DATA with no controller
-## edits. Until then a non-empty reference guards loudly and renders nothing.
+## a non-empty `asset` reference is the resolved sprite path; an empty one is the
+## colored-block fallback. The RESOLUTION is config-fed as of P2-S2: every caller
+## passes its config's optional asset reference (JSON authority -> build_config ->
+## derived Resource -> here), and the builder resolves the Asset manifest id -> the
+## single-homed res:// path (P2-S1, #439, gADR-0014). The sprite RENDERING branch
+## is implemented (`_apply_visual` / `_apply_sprite`): the tracer wires the
+## Obstacle texture, and sibling asset slices wire the rest BY DATA with no
+## controller edits (each just authors its config's reference). A reference whose
+## texture cannot load guards loudly and falls back to the colored block.
 ##
 ## Static, like the pure Systems (CombatSystem, GravitySystem, …) and the
 ## GeneratedConfig loader — this is stateless one-shot construction, not a
@@ -64,27 +65,54 @@ static func apply_circle(root: Node, color: Color, radius: float, asset: String 
 
 
 ## Resolve the VISUAL for this view and apply it to `root`'s "Visual" ColorRect
-## (asset references are data, gADR-0000): a non-empty `asset` is the sprite path;
-## empty is the colored-block fallback. The resolution is config-fed (P2-S2, #436:
-## every caller passes its config's optional asset reference), but every reference
-## is AUTHORED empty until the first asset slice (P2-S6/S7) implements the sprite
-## rendering branch here and authors the values. A reference authored before that
-## slice wires it is a not-yet-wired fault — guard loudly (the codebase's
-## push_error idiom) rather than silently render nothing. The block branch is byte-
-## for-byte the old per-controller construction: color, size, center, optional
-## center pivot.
+## (asset references are data, gADR-0000): a non-empty `asset` is the resolved
+## sprite path, an empty one is the colored-block fallback. The resolution is
+## config-fed (P2-S2, #436: every caller passes its config's optional asset
+## reference), and the builder resolves the Asset manifest id -> the single-homed
+## res:// path before it reaches here (P2-S1, #439, gADR-0014), so `asset` is a
+## loadable resource path. The "Visual" ColorRect is always sized/positioned/
+## pivoted (so a scale tween squashes about the block center either way); the block
+## branch colors it, the asset branch makes it a transparent frame and fills it
+## with the sprite. A reference whose texture cannot load is a genuine fault (the
+## pipeline promises the file present) — guard loudly (the codebase's push_error
+## idiom) and fall back to the colored block so the game still renders.
 static func _apply_visual(
 	root: Node, color: Color, size: Vector2, pivot: bool, asset: String
 ) -> void:
-	if not asset.is_empty():
-		push_error(
-			"ViewBuilder: asset reference '%s' is not wired yet — P2-S2 (#436) ships the block fallback only."
-			% asset
-		)
-		return
 	var visual := root.get_node("Visual") as ColorRect
-	visual.color = color
 	visual.size = size
 	visual.position = -size / 2.0
 	if pivot:
 		visual.pivot_offset = size / 2.0  # scale/tween about the block center
+	if asset.is_empty():
+		visual.color = color
+		return
+	_apply_sprite(visual, size, asset, color)
+
+
+## Render the resolved `asset` texture inside the "Visual" rect (P2-S1, #439): the
+## ColorRect becomes a transparent frame and a "Sprite" TextureRect child fills it
+## with the loaded texture, scaled to `size` (the postprocess stage already
+## conforms the texture to the Scale spec dimensions, so this is 1:1). The sprite
+## is a CHILD of the Visual node, so it inherits the Visual's transform — a
+## squashing actor's scale tween on the Visual squashes the sprite too. Nearest
+## filtering keeps the pixel-art crisp (the project default too, gADR-0013). A null
+## load is a not-shipped-asset fault: guard loudly and colored-block-fallback.
+static func _apply_sprite(visual: ColorRect, size: Vector2, asset: String, color: Color) -> void:
+	var texture := load(asset) as Texture2D
+	if texture == null:
+		push_error(
+			"ViewBuilder: asset '%s' failed to load — rendering the colored-block fallback."
+			% asset
+		)
+		visual.color = color
+		return
+	visual.color = Color(0, 0, 0, 0)  # transparent frame; the sprite is the visual
+	var sprite := TextureRect.new()
+	sprite.name = "Sprite"
+	sprite.texture = texture
+	sprite.size = size
+	sprite.stretch_mode = TextureRect.STRETCH_SCALE
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sprite.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	visual.add_child(sprite)

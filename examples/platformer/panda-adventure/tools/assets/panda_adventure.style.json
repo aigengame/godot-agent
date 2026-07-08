@@ -1,0 +1,104 @@
+{
+  "assets_root": "assets",
+  "scale_spec": "data/json/scale_spec.json",
+  "style": {
+    "keywords": [
+      "16-bit pixel art",
+      "space opera",
+      "Great Wall frontier",
+      "fantasy blended with realism",
+      "clean readable silhouette",
+      "flat shading",
+      "bounded palette"
+    ],
+    "prompt_fragment": "16-bit pixel art sprite in a space-opera Great-Wall-frontier style, fantasy blended with realism, grounded readable forms, flat shading, bounded palette",
+    "palette": [
+      "#000000",
+      "#1a1a2e",
+      "#16213e",
+      "#2d132c",
+      "#3a2e2a",
+      "#5c3a21",
+      "#7a4f2a",
+      "#8a5a2b",
+      "#a06a34",
+      "#b5793a",
+      "#c98f4d",
+      "#d8a760",
+      "#e6c288",
+      "#f2e2b6",
+      "#ffffff",
+      "#3f3f4e",
+      "#6b6b7b",
+      "#9a9aa8",
+      "#c8c8d0",
+      "#2e5a3f",
+      "#4a8f5c",
+      "#3a6ea5",
+      "#5aa0d8",
+      "#8a4b6e",
+      "#c0455a",
+      "#e0803a"
+    ],
+    "category_hints": {
+      "textures": "environment prop, orthographic front view, tileable read",
+      "sprites": "single character, side view, idle pose, transparent background",
+      "vfx": "single effect frame, radial symmetry, transparent background",
+      "fonts": "bitmap glyph sheet"
+    }
+  },
+  "constraints": {
+    "formats": ["png"],
+    "allowed_licenses": ["CC0", "CC-BY"],
+    "chroma_key": "#FF00FF"
+  },
+  "sources": [
+    {
+      "name": "opengameart",
+      "kind": "search-download",
+      "base_url": "https://opengameart.org",
+      "default_license": "CC0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/"
+    },
+    {
+      "name": "kenney",
+      "kind": "search-download",
+      "base_url": "https://kenney.nl",
+      "default_license": "CC0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/"
+    }
+  ],
+  "generation": {
+    "mcp": {
+      "channels": {
+        "gemini": {
+          "command": ["{python}", "{game_root}/scripts/mcp/gemini_img_gen.py"],
+          "tool": "generate_image",
+          "arguments": {
+            "aspect_ratio": "1:1",
+            "image_size": "1K"
+          }
+        }
+      }
+    },
+    "builtin": {
+      "command": null,
+      "fallback": null
+    }
+  },
+  "assets": {
+    "obstacle_crate": {
+      "category": "textures",
+      "scale_key": "obstacle_size",
+      "acquire": {
+        "mode": "search_download",
+        "source": "opengameart",
+        "url": "https://opengameart.org/sites/default/files/crates_study_x2.png",
+        "license": "CC0",
+        "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attribution": "PolygonixGames — Pixel Wooden Crate (OpenGameArt, CC0)",
+        "page_url": "https://opengameart.org/content/pixel-wooden-crate"
+      }
+    }
+  }
+}

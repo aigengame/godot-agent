@@ -2,11 +2,12 @@
 
 Exercises the ONE shared blockout builder headless, through ``gda script run``
 (ADR-0031): the box blockout with and without the center pivot, the circle
-field shape, and the asset-reference resolution decision point (a non-empty
-asset reference is the future sprite path, so the block fallback is NOT applied
-— asset references are data, gADR-0000). The construction path every controller
-now routes through, pinned so "renders exactly as before P2-S2" holds. Fast tier
-(``engine`` marker), never ``e2e``.
+field shape, and the asset-reference resolution branch (a non-empty asset
+reference is the resolved sprite path, so the seam loads the texture and renders
+a ``Sprite`` child of a transparent Visual frame — asset references are data,
+gADR-0000; #439). The construction path every controller now routes through,
+pinned so "renders exactly as before P2-S2" holds for the block fallback. Fast
+tier (``engine`` marker), never ``e2e``.
 
 Also pins the WRITE side of the seam's config feed (pure Python, no engine):
 the optional ``asset`` field kind defaults to ``""`` when the authored JSON
@@ -38,10 +39,11 @@ def test_logic_seam_view_builder(gda) -> None:
     The GDScript seam builds synthetic Visual/Collision node pairs and asserts
     the EXACT view ViewBuilder produces — box (centered ColorRect + same-size
     RectangleShape2D, with/without the center pivot), circle (2·radius square
-    ColorRect + CircleShape2D), and the asset-reference resolution (block
-    fallback skipped when an asset reference is present). We read gda's
-    passed-through ``exit_status`` (0 == all assertions held) and require the
-    PASS marker in stdout.
+    ColorRect + CircleShape2D), and the asset-reference resolution (a resolved
+    reference loads the committed tracer texture and renders it as a ``Sprite``
+    TextureRect child of a transparent Visual). We read gda's passed-through
+    ``exit_status`` (0 == all assertions held) and require the PASS marker in
+    stdout.
     """
     result = _run(gda)
     # gda itself succeeded (the script launched and ran to completion).

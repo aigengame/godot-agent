@@ -82,9 +82,11 @@ jobs:
 
       # The root testpaths excludes the example game; run its PURE-Python tier here
       # (no Godot). The "engine" and "e2e" tiers need a real engine and run in the
-      # godot-e2e job. Explicit path keeps the game and gda suites separate.
+      # godot-e2e job; the "acquire_live" tier needs a live network / image-gen API
+      # (asset pipeline, gADR-0014) and is run on demand, never in CI. Explicit
+      # path keeps the game and gda suites separate.
       - name: Run Panda Adventure pure-Python tests
-        run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "not e2e and not engine"
+        run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "not e2e and not engine and not acquire_live"
 
       - name: Build distributions
         run: uv build
