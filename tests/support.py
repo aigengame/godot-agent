@@ -481,6 +481,7 @@ GAME_SET_RESULT = {
     "property": "position",
     "type": "Vector2",
     "value": [10.0, 20.0],
+    "verified": True,
 }
 
 # Sample ``gda game rect`` result — a running Control's rendered viewport-space

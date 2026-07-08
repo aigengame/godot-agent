@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=982e7a5aa9ff2150490487576a0d22ee2a3348988af1e56d1adc0a3d00f54264 -->
+<!-- gda-readme-i18n: source=README.md sha256=d0624578d2e00805a61ea7e983ce98c850dcafa07848468c961c82d4acec270e -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -481,7 +481,10 @@ Cursor 没有 `mcp add` 命令——请通过上面的 JSON 或 Settings → MCP
 | `game set` | 在正在运行的游戏上设置运行时节点属性，或显式命名的附加脚本变量。 |
 
 Live `game set --property position` 遵循与 `node set` 相同的 `Control` 策略；
-`game rect` 仍然是只读的渲染几何查询。
+`game rect` 仍然是只读的渲染几何查询。`game set` 的成功结果包含
+`verified`：当观测到的读回值匹配本次请求的已转换值时为 `true`；当 set
+已完成但观测值不同（例如 getter-only/no-op 脚本变量或边沿触发控制）时为
+`false`。
 
 **`diag`** — 运行时诊断
 

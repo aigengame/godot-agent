@@ -1,4 +1,4 @@
-<!-- gda-readme-i18n: source=README.md sha256=982e7a5aa9ff2150490487576a0d22ee2a3348988af1e56d1adc0a3d00f54264 -->
+<!-- gda-readme-i18n: source=README.md sha256=d0624578d2e00805a61ea7e983ce98c850dcafa07848468c961c82d4acec270e -->
 
 # godot-agent (`gda`): Godot AI Agent CLI, Skill, and MCP Server
 
@@ -496,7 +496,10 @@ normal.
 
 `game set --property position` en vivo sigue la misma política de `Control` que
 `node set`; `game rect` sigue siendo una consulta de geometría renderizada de solo
-lectura.
+lectura. Los resultados exitosos de `game set` incluyen `verified`: `true` cuando
+el valor observado al leer de vuelta coincide con el valor coercionado solicitado,
+y `false` cuando el set se completó pero el valor observado difiere, como en
+variables de script getter-only/no-op o controles edge-triggered.
 
 **`diag`** — diagnósticos de runtime
 

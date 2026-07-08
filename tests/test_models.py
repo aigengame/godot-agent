@@ -1290,6 +1290,27 @@ def test_node_property_round_trips_a_reference_projection_value():
     assert json.loads(prop.model_dump_json()) == payload
 
 
+def test_game_set_result_round_trips_observed_value_and_verification_signal():
+    payload = {
+        "path": "/root/Main/Player",
+        "property": "spawn",
+        "type": "bool",
+        "value": False,
+        "verified": False,
+    }
+
+    result = GameSetResult.model_validate(payload)
+
+    assert result.value is False
+    assert result.verified is False
+    assert json.loads(result.model_dump_json()) == payload
+    schema = GameSetResult.model_json_schema()
+    value_description = schema["properties"]["value"]["description"]
+    assert "observed read-back value" in value_description
+    assert "coerced value" not in value_description
+    assert schema["properties"]["verified"]["type"] == "boolean"
+
+
 def test_every_projected_value_field_exposes_the_named_projection_defs():
     # ADR-0035 carries the projection ABI into the --schema / model chain
     # (ADR-0004): `value` stays Any (the recorded, bounded exception), so the

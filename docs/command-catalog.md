@@ -245,9 +245,13 @@ as `node set` round-trips through `node get`; here `unknown_property` names a pr
 **running** node's runtime property (the gda harness carries a verbatim copy of the coercion helpers,
 kept in sync by a drift test). When a `game get` / `game set` property name is explicit, the harness
 checks storage properties first, then attached-script variables; unfiltered `game get` keeps the
-storage-property listing and does not dump plain script variables. Live set round-trips through
-`game get`; its failures are the LIVE-category `live_unknown_property` / `live_uncoercible_value`
-(the harness reports them in-band, mapped by the live classifier — see
+storage-property listing and does not dump plain script variables. Live set success results keep
+`value` as the observed read-back value and add `verified`: `true` when that read-back equals the
+coerced requested value, `false` when the set completed but the read-back differs. The harness does
+not guess whether `verified:false` is a getter-only/no-op variable or a valid edge-triggered control;
+callers can use a follow-up `game get` for domain-specific side effects. Its failures are the
+LIVE-category `live_unknown_property` / `live_uncoercible_value` (the harness reports them in-band,
+mapped by the live classifier — see
 [Phase 2 — live domain commands](#phase-2--live-domain-commands-served-by-gda-daemon)).
 
 **Structural edits** (established by #56): three commands restructure the node tree within a
@@ -608,11 +612,13 @@ headless is unaffected (4.4+, cross-platform).
 
 - **`game` (the running game's scene graph):** `game tree` reads the runtime scene
   tree (shipped — the Phase-2 bootstrap tracer, #7); runtime node property `game get` /
-  `game set` (shipped, #220, extended by #422) read and mutate a running node's live
+  `game set` (shipped, #220, extended by #422/#473) read and mutate a running node's live
   properties — the live counterparts of headless `node get` / `node set`, applying the
-  **same** value-coercion table and round-tripping `set`→`get`. When a property is
-  explicitly named, storage properties are preferred and plain attached-script variables
-  are addressable as a fallback; unfiltered `game get` keeps the storage-property listing.
+  **same** value-coercion table and returning the observed read-back value plus
+  `verified` to distinguish a matched read-back from a completed set whose value did not
+  stick. When a property is explicitly named, storage properties are preferred and plain
+  attached-script variables are addressable as a fallback; unfiltered `game get` keeps the
+  storage-property listing.
   `game rect` (shipped, #419) reads a running
   `Control`'s rendered viewport-space rectangle via `Control.get_global_rect()`, returning
   `position` and `size` as the existing Vector2 projection. These commands address the

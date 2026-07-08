@@ -991,9 +991,12 @@ def game_set(
     Godot type — the SAME coercion table `node set` uses — and applies it at a frame
     boundary (ADR-0020); the mutation is bound to the session, not persisted to disk.
     A named plain script variable on the node's attached script is settable explicitly
-    after storage properties are checked. With no daemon it reports
-    `daemon_not_running`; an absent node is `live_node_not_found`, an absent
-    property `live_unknown_property`, an uncoercible value `live_uncoercible_value`.
+    after storage properties are checked. The success result includes `verified`:
+    true when the observed read-back value equals the coerced requested value,
+    false when the set completed but the observed value differs (for example a
+    getter-only/no-op variable or an edge-triggered variable). With no daemon it
+    reports `daemon_not_running`; an absent node is `live_node_not_found`, an absent
+    property `live_unknown_property`, an uncoercible input value `live_uncoercible_value`.
     """
     _dispatch(
         GAME_SET_COMMAND,

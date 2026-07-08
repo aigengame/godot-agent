@@ -485,7 +485,11 @@ a missing file still use the normal Error envelope.
 | `game set` | Set a runtime node property, or an explicitly named attached-script variable, on the running game. |
 
 Live `game set --property position` follows the same `Control` policy as
-`node set`; `game rect` remains a read-only rendered-geometry query.
+`node set`; `game rect` remains a read-only rendered-geometry query. `game set`
+success results include `verified`: `true` when the observed read-back value
+matches the coerced requested value, and `false` when the set completed but the
+observed value differs, such as getter-only/no-op script variables or
+edge-triggered controls.
 
 **`diag`** — runtime diagnostics
 

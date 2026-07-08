@@ -233,6 +233,11 @@ leading space fails as `expected_resource_path`). The value-typed forms are shar
 assignment is headless-only (`node set` / `resource set`). For live `game get` /
 `game set`, an explicitly named attached-script variable is addressable after storage
 properties are checked; unfiltered `game get` still lists only storage properties.
+Inspect live `game set --json` results' `verified` field: `true` means the observed
+read-back value equals the coerced requested value, while `false` means the set
+completed but the value read back differently. Treat `verified:false` as a diagnostic
+signal for getter-only/no-op variables or edge-triggered/self-consuming controls; use a
+domain-specific follow-up `game get` when the side effect matters.
 
 ## Tips
 
