@@ -154,6 +154,19 @@ def test_hp_and_bun_stay_in_bounds() -> None:
     assert end[dynamics.BUN] >= 0.0
 
 
+def test_gold_inflow_includes_pickup_drops() -> None:
+    """Gold accrues the guaranteed Kill reward AND the expected gold Pickup drops
+    (gADR-0006). On the committed schedule that is 212 (kill 5+20+15+100 = 140
+    plus gold drops 3+10+9+50 = 72), not the kill-only 140."""
+    _game, econ, _player, wds = _authority()
+    run = run_scenario(wds, _params(bun_consume_rate=2.0), econ)
+    assert run.cleared_schedule
+    assert math.isclose(run.final_gold, 212.0, abs_tol=1e-9)
+    # Each Wave's gold coflow exceeds its kill reward by exactly the gold drops.
+    per_wave_gold = [wd.gold_reward for wd in wds]
+    assert per_wave_gold == [8.0, 30.0, 24.0, 150.0]
+
+
 def test_reward_stocks_are_monotonic() -> None:
     """EXP and Gold are inflow-only — they never decrease across the run."""
     _game, econ, _player, wds = _authority()

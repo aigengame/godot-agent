@@ -14,8 +14,9 @@ Stocks (the state vector, in order):
   stock; carried across Waves in the chained run, like the game).
 - ``EXP``  — cumulative EXP (the growth stock; Level is its readout via the
   Leveling curve, gADR-0006).
-- ``GOLD`` — cumulative Gold (economy inflow; no sink in this demo — no shop —
-  so it is an accumulator, documented).
+- ``GOLD`` — cumulative Gold (economy inflow = the guaranteed Kill reward PLUS
+  the expected gold Pickup drops; no sink in this demo — no shop — so it is an
+  accumulator, documented).
 - ``BUN``  — Bun Consumable count (economy in AND out: drops in, HP-restore use
   out — the balancing loop).
 - ``WINE`` — Wine Consumable count (economy in only here: its MP-restore sink is
@@ -188,8 +189,11 @@ def build_wave_dynamics(
     A thin, per-Wave reduction over the generic ``model`` data: the Player's
     sequential clear effort (Σ per-enemy HP / per-enemy DPS) gives the effective
     ``player_dps``; the Tier reward table gives the EXP/Gold/Drop inflows; the
-    aggregate incoming DPS gives ``enemy_dps``. Reads only already-parsed
-    ``GameData`` / ``GrowthEconomy`` — no JSON, no game code (gADR-0011).
+    aggregate incoming DPS gives ``enemy_dps``. Gold inflow is the guaranteed Kill
+    reward PLUS the expected gold Pickup drops (gADR-0006 — both accrue to the
+    Player's Gold), the same both-sources sum a kill yields in-game. Reads only
+    already-parsed ``GameData`` / ``GrowthEconomy`` — no JSON, no game code
+    (gADR-0011).
     """
     out: list[WaveDynamics] = []
     for wave in game.waves:
@@ -207,7 +211,7 @@ def build_wave_dynamics(
                 player_dps=wave_hp / effort if effort > 0 else 0.0,
                 enemy_dps=_wave_enemy_dps(player, game.combat, kinds),
                 exp_reward=sum(r.exp_reward for r in rewards),
-                gold_reward=sum(r.gold_reward for r in rewards),
+                gold_reward=sum(r.gold_reward + r.expected_drop("gold") for r in rewards),
                 bun_drops=sum(r.expected_drop("bun") for r in rewards),
                 wine_drops=sum(r.expected_drop("wine") for r in rewards),
             )
