@@ -69,6 +69,14 @@ def _find_node(node: dict, name: str) -> dict | None:
 def _make_project_copy(dst):
     shutil.copytree(GAME_DIR, dst, ignore=_COPY_IGNORE)
     build_config.build_all(root=dst)
+    # Import the copy so the daemon session can load() the obstacle texture — the
+    # `.godot` cache is not copied, and a game run does not auto-import (#439).
+    subprocess.run(
+        [str(GODOT), "--headless", "--path", str(dst), "--import"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     return dst
 
 

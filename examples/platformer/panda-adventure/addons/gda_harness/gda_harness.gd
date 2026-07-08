@@ -455,6 +455,28 @@ func _handle_game_set(params: Dictionary) -> String:
 				"no node at runtime path: " + path)
 
 	var prop_name := _string_param(params, "property")
+	if _is_control_position_write(node, prop_name):
+		var control: Control = node as Control
+		if _has_container_parent(control):
+			return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
+					_control_position_unavailable_message("node " + path))
+		var raw_position := _string_param(params, "value")
+		var coerced_position: Variant = _coerce_value(raw_position,
+				TYPE_VECTOR2, control.position)
+		if coerced_position == null:
+			return _error(LIVE_ERROR_UNCOERCIBLE_VALUE,
+					"cannot coerce value " + raw_position.c_escape()
+					+ " to Vector2 for property position on node " + path)
+		var target_position: Vector2 = coerced_position
+		control.set_position(target_position)
+		var current_position: Variant = _jsonify(control.position)
+		return _ok({
+			"path": path,
+			"property": prop_name,
+			"type": _type_name(TYPE_VECTOR2),
+			"value": current_position,
+		})
+
 	var prop_info := _runtime_set_property_info(node, prop_name)
 	if prop_info.is_empty():
 		return _error(LIVE_ERROR_UNKNOWN_PROPERTY,
@@ -504,6 +526,18 @@ func _runtime_set_property_info(node: Node, prop_name: String) -> Dictionary:
 			declared_type = typeof(node.get(prop_name))
 		return {"type": declared_type, "source": "script variable"}
 	return {}
+
+
+func _is_control_position_write(node: Node, prop_name: String) -> bool:
+	return prop_name == "position" and node is Control
+
+
+func _has_container_parent(control: Control) -> bool:
+	return control.get_parent() is Container
+
+
+func _control_position_unavailable_message(subject: String) -> String:
+	return subject + " is a direct child of a Container, so Control.position is not an actionable settable property; address offset_left, offset_top, offset_right, and offset_bottom instead"
 
 
 func _unknown_runtime_property_message(path: String, prop_name: String) -> String:
@@ -690,6 +724,16 @@ func _input_viewport() -> Viewport:
 	return get_tree().root
 
 
+var _last_injected_mouse_position: Variant = null
+var _injected_mouse_button_mask := 0
+
+
+func _prepare_mouse_input() -> Viewport:
+	var viewport := _input_viewport()
+	viewport.notify_mouse_entered()
+	return viewport
+
+
 # Resolve a key name to a Godot keycode via the engine's own name table. Returns
 # KEY_NONE (0) for a name the engine does not recognize — the one runtime failure
 # the model cannot pre-validate (the keycode table is the engine's), surfaced as
@@ -732,23 +776,60 @@ func _mouse_button_index(button: String) -> int:
 			return MOUSE_BUTTON_LEFT
 
 
+func _mouse_button_mask(button: String) -> int:
+	match button:
+		"right":
+			return MOUSE_BUTTON_MASK_RIGHT
+		"middle":
+			return MOUSE_BUTTON_MASK_MIDDLE
+		_:
+			return MOUSE_BUTTON_MASK_LEFT
+
+
 # Push a mouse-button event at a viewport position. Shared by the single-frame
 # click op and a sequence mouse-click event.
 func _push_mouse_click(pos: Vector2, button: String, double: bool) -> void:
+	var viewport := _prepare_mouse_input()
 	var event := InputEventMouseButton.new()
 	event.button_index = _mouse_button_index(button)
+	event.button_mask = _mouse_button_mask(button)
 	event.position = pos
 	event.pressed = true
 	event.double_click = double
-	_input_viewport().push_input(event)
+	viewport.push_input(event, true)
+	_last_injected_mouse_position = pos
+
+
+func _push_mouse_button_phase(pos: Vector2, button: String, pressed: bool, double: bool) -> void:
+	var viewport := _prepare_mouse_input()
+	var mask := _mouse_button_mask(button)
+	if pressed:
+		_injected_mouse_button_mask = _injected_mouse_button_mask | mask
+	else:
+		_injected_mouse_button_mask = _injected_mouse_button_mask & ~mask
+	var event := InputEventMouseButton.new()
+	event.button_index = _mouse_button_index(button)
+	event.button_mask = _injected_mouse_button_mask
+	event.position = pos
+	event.pressed = pressed
+	event.double_click = double
+	viewport.push_input(event, true)
+	_last_injected_mouse_position = pos
 
 
 # Push a mouse-motion event to a viewport position. Shared by the single-frame move
 # op and a sequence mouse-move event.
 func _push_mouse_move(pos: Vector2) -> void:
+	var viewport := _prepare_mouse_input()
+	var previous := viewport.get_mouse_position()
+	if _last_injected_mouse_position is Vector2:
+		previous = _last_injected_mouse_position
 	var event := InputEventMouseMotion.new()
 	event.position = pos
-	_input_viewport().push_input(event)
+	event.relative = pos - previous
+	event.button_mask = _injected_mouse_button_mask
+	viewport.push_input(event, true)
+	_last_injected_mouse_position = pos
 
 
 # input key: inject one InputEventKey (press or release) into the running game's
@@ -858,6 +939,7 @@ func _handle_input_sequence(params: Dictionary) -> Variant:
 	var clock := WINDOW_CLOCK_PHYSICS if uses_physics else WINDOW_CLOCK_PROCESS
 	var total_frames := max_offset + 1
 	var frame_box := {"n": 0}
+	_injected_mouse_button_mask = 0
 	# The sampler applies every event due at the current selected-clock index, then
 	# advances that clock. A bad event type aborts the window with a typed error sample.
 	var sample := func() -> Variant:
@@ -869,10 +951,12 @@ func _handle_input_sequence(params: Dictionary) -> Variant:
 				continue
 			var err: Variant = _apply_sequence_event(event)
 			if err != null:
+				_injected_mouse_button_mask = 0
 				return {"error": err}
 		frame_box["n"] = current + 1
 		return current
 	var finalize := func(_samples: Array) -> String:
+		_injected_mouse_button_mask = 0
 		return _ok({
 			"kind": "sequence",
 			"clock": clock,
@@ -917,6 +1001,16 @@ func _apply_sequence_event(event: Dictionary) -> Variant:
 			_push_mouse_click(
 					Vector2(_float_param(event, "x", 0.0), _float_param(event, "y", 0.0)),
 					button, bool(event.get("double", false)))
+			return null
+		"mouse_button":
+			var button := _string_param(event, "button")
+			if button.is_empty():
+				button = "left"
+			_push_mouse_button_phase(
+					Vector2(_float_param(event, "x", 0.0), _float_param(event, "y", 0.0)),
+					button,
+					bool(event.get("pressed", false)),
+					bool(event.get("double", false)))
 			return null
 		"mouse_move":
 			_push_mouse_move(

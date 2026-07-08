@@ -86,6 +86,55 @@ def _require_godot_engine(request: pytest.FixtureRequest) -> None:
         )
 
 
+_IMPORTED_ROOTS: set[str] = set()
+
+
+def import_godot_project(project_dir: Path) -> None:
+    """Import a project's resources so a game / script run can ``load()`` them.
+
+    Godot imports resources only in the editor or via ``--import`` — a plain game
+    run and ``gda script run`` do NOT, and the ``.godot/imported`` cache is
+    gitignored (regenerated per checkout). So any project carrying a texture (the
+    asset pipeline, P2-S1 #439) must be imported before a run that ``load()``s it,
+    or the load returns null. Runs the headless import once per resolved path
+    (idempotent — Godot skips already-imported resources). A project COPY needs
+    its own import (the ``.godot`` cache is not copied).
+    """
+    key = str(project_dir.resolve())
+    if key in _IMPORTED_ROOTS:
+        return
+    subprocess.run(
+        [
+            str(resolve_godot_binary()),
+            "--headless",
+            "--path",
+            str(project_dir),
+            "--import",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    _IMPORTED_ROOTS.add(key)
+
+
+@pytest.fixture(autouse=True)
+def _import_game_project(request: pytest.FixtureRequest) -> None:
+    """Import the committed game once for any engine/e2e test that runs it.
+
+    So a fresh checkout (CI has no ``.godot``) can ``load()`` the committed
+    texture (#439): the ViewBuilder asset branch and the live daemon sessions need
+    the project imported. Keyed on the ``engine``/``e2e`` markers (a no-op
+    otherwise); runs after ``_require_godot_engine`` has guaranteed a binary.
+    """
+    if (
+        request.node.get_closest_marker("e2e") is None
+        and request.node.get_closest_marker("engine") is None
+    ):
+        return
+    import_godot_project(GAME_DIR)
+
+
 @pytest.fixture
 def gda():
     """A project-scoped ``gda`` runner bound to this game's ``res://``.

@@ -219,6 +219,14 @@ def _make_project_copy(dst: Path) -> Path:
     enemies["waves"][1]["spawns"].append(dict(_WARP_BOSS_SPAWN))
     enemies_path.write_text(json.dumps(enemies, indent=2) + "\n")
     build_config.build_all(root=dst)
+    # Import the copy so the Obstacle texture (#439) loads in the session — the
+    # `.godot` cache is not copied, and a game run does not auto-import.
+    subprocess.run(
+        [str(GODOT), "--headless", "--path", str(dst), "--import"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     return dst
 
 
