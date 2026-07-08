@@ -214,7 +214,9 @@ def build_wave_dynamics(
                 player_dps=wave_hp / effort if effort > 0 else 0.0,
                 enemy_dps=_wave_enemy_dps(player, game.combat, kinds),
                 exp_reward=sum(r.exp_reward for r in rewards),
-                gold_reward=sum(r.gold_reward + r.expected_drop("gold") for r in rewards),
+                gold_reward=sum(
+                    r.gold_reward + r.expected_drop("gold") for r in rewards
+                ),
                 bun_drops=sum(r.expected_drop("bun") for r in rewards),
                 wine_drops=sum(r.expected_drop("wine") for r in rewards),
             )
@@ -241,7 +243,9 @@ def _deriv(wd: WaveDynamics, params: SdParams, econ: GrowthEconomy):
         # unit tests pin. dt is params.dt (the step is never larger), so the cap
         # is conservative on the shorter final step.
         if hp > 0.0 and hp < threshold and bun > 0.0:
-            max_consume = bun / params.dt if params.dt > 0.0 else params.bun_consume_rate
+            max_consume = (
+                bun / params.dt if params.dt > 0.0 else params.bun_consume_rate
+            )
             healing = min(params.bun_consume_rate, max_consume)
         else:
             healing = 0.0
