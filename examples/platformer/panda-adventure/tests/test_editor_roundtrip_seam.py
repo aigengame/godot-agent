@@ -129,7 +129,15 @@ def test_forms_refresh_after_direct_manipulation(tmp_path) -> None:
     project = tmp_path / "panda_copy"
     shutil.copytree(GAME_DIR, project, ignore=_COPY_IGNORE)
     result = subprocess.run(
-        [*GDA_CMD, "script", "run", _FORM_REFRESH_SCRIPT, "--project", str(project), "--json"],
+        [
+            *GDA_CMD,
+            "script",
+            "run",
+            _FORM_REFRESH_SCRIPT,
+            "--project",
+            str(project),
+            "--json",
+        ],
         capture_output=True,
         text=True,
     )

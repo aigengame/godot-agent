@@ -39,7 +39,15 @@ def test_god_mode_prevents_death(tmp_path) -> None:
     shutil.copytree(GAME_DIR, project, ignore=_COPY_IGNORE)
 
     result = subprocess.run(
-        [*GDA_CMD, "script", "run", _GOD_MODE_SCRIPT, "--project", str(project), "--json"],
+        [
+            *GDA_CMD,
+            "script",
+            "run",
+            _GOD_MODE_SCRIPT,
+            "--project",
+            str(project),
+            "--json",
+        ],
         capture_output=True,
         text=True,
     )
