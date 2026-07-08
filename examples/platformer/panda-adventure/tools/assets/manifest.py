@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .model import ManifestEntry
+from .model import FrameLayout, ManifestEntry
 
 # The per-category fragment lives under this directory of the assets root.
 MANIFEST_DIRNAME = "manifest"
@@ -58,6 +58,14 @@ def entry_to_dict(entry: ManifestEntry) -> dict[str, Any]:
         value = getattr(entry, name)
         if value is not None:
             data[name] = value
+    if entry.frame_layout is not None:
+        layout = entry.frame_layout
+        data["frame_layout"] = {
+            "frame_dims": list(layout.frame_dims),
+            "columns": layout.columns,
+            "rows": layout.rows,
+            "count": layout.count,
+        }
     return data
 
 
@@ -77,6 +85,20 @@ def dict_to_entry(asset_id: str, data: dict[str, Any]) -> ManifestEntry:
         attribution=data.get("attribution"),
         prompt=data.get("prompt"),
         backend=data.get("backend"),
+        frame_layout=_frame_layout_from_dict(data.get("frame_layout")),
+    )
+
+
+def _frame_layout_from_dict(data: dict[str, Any] | None) -> FrameLayout | None:
+    """Parse a sprite-set record's ``frame_layout`` sub-object (``None`` if absent)."""
+    if data is None:
+        return None
+    dims = data["frame_dims"]
+    return FrameLayout(
+        frame_dims=(int(dims[0]), int(dims[1])),
+        columns=int(data["columns"]),
+        rows=int(data["rows"]),
+        count=int(data["count"]),
     )
 
 

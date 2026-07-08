@@ -75,6 +75,7 @@ from __future__ import annotations
 
 import copy
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -83,6 +84,12 @@ import jsonschema
 
 # Resolve paths relative to this file so the script works from any CWD.
 GAME_DIR = Path(__file__).resolve().parent.parent
+
+# The asset-pipeline package (``assets.*``) lives under ``tools/``; put it on
+# sys.path so the size-gate delegation (``validate_asset_sizes``) imports when this
+# runs standalone (``python scripts/build_config.py``). Tests already get it from
+# conftest; a duplicate path entry is harmless.
+sys.path.insert(0, str(GAME_DIR / "tools"))
 
 
 @dataclass(frozen=True)
@@ -1081,6 +1088,26 @@ def validate_asset_refs(root: Path = GAME_DIR) -> dict[str, dict[str, Any]]:
     return manifest
 
 
+def validate_asset_sizes(root: Path = GAME_DIR) -> list[Any]:
+    """Enforce gADR-0015's size-based Git-LFS gate at the config gate (review S1).
+
+    Delegates to the asset pipeline's lifecycle gate with the threshold ``T`` from
+    the committed Style descriptor config, so ``python scripts/build_config.py``
+    mechanically FAILS a committed ``assets/**`` binary ``>= T`` that is not
+    LFS-tracked — not merely an optional test path. Joins ``main`` (the
+    authoritative standalone build), NOT ``build_all``: build_all runs against
+    isolated, non-git e2e roots where ``git check-attr`` has nothing to consult —
+    the size gate is repo-scoped. Raises ``assets.lifecycle.AssetSizeError`` on a
+    violation.
+    """
+    from assets import game_config, lifecycle
+
+    config = game_config.load_style_config()
+    return lifecycle.validate_committed_asset_sizes(
+        root, config.lfs_size_threshold_bytes
+    )
+
+
 def asset_ref_orphans(root: Path = GAME_DIR) -> list[str]:
     """Manifest ids no authority references — a SOFT report (gADR-0014).
 
@@ -1365,6 +1392,9 @@ def main() -> None:
     # The Asset manifest gate first (gADR-0014), so a standalone build fails loudly
     # on a broken reference / dangling / malformed record before writing anything.
     validate_asset_refs()
+    # Then the size-based Git-LFS gate (gADR-0015): a committed assets/** binary
+    # >= T outside LFS fails the authoritative build before any .tres is written.
+    validate_asset_sizes()
     for spec in SPECS:
         written = build_spec(spec)
         print(

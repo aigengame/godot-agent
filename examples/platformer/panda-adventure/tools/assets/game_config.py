@@ -35,6 +35,7 @@ class StyleConfig:
     assets_root: str
     scale_spec_rel: str
     generation: dict[str, Any]
+    lfs_size_threshold_bytes: int
 
 
 def load_style_config(path: Path = DEFAULT_STYLE_PATH) -> StyleConfig:
@@ -68,6 +69,9 @@ def load_style_config(path: Path = DEFAULT_STYLE_PATH) -> StyleConfig:
         assets_root=doc.get("assets_root", "assets"),
         scale_spec_rel=doc.get("scale_spec", "data/json/scale_spec.json"),
         generation=dict(doc.get("generation", {})),
+        lfs_size_threshold_bytes=int(
+            doc.get("lifecycle", {}).get("lfs_size_threshold_bytes", 1_048_576)
+        ),
     )
 
 

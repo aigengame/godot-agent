@@ -53,6 +53,10 @@
     "allowed_licenses": ["CC0", "CC-BY"],
     "chroma_key": "#FF00FF"
   },
+  "lifecycle": {
+    "_readme": "gADR-0015. lfs_size_threshold_bytes is T: an assets/** file at/over it must be Git-LFS-tracked, uniform across categories (never per-category). Revisable spec-data; the gate is tools/assets/lifecycle.py and .gitattributes is its mechanical consequence.",
+    "lfs_size_threshold_bytes": 1048576
+  },
   "sources": [
     {
       "name": "opengameart",
