@@ -452,6 +452,11 @@ _SET_ECHO_VALUE_DESC = (
     "corresponding get reports (ADR-0035)."
 )
 
+_LIVE_SET_READ_BACK_VALUE_DESC = (
+    "The observed read-back value as JSON, in the same recursive value projection "
+    "that game get reports (ADR-0035)."
+)
+
 # node/resource set additionally have the ADR-0033 Object-typed set path;
 # its echo flows through the same projection, so the assigned resource echoes
 # as the reference projection a subsequent get reads back.
@@ -3145,7 +3150,7 @@ class GameSetResult(BaseModel):
     value: Any = Field(
         description=(
             "The observed read-back value as JSON, as the running node now holds it. "
-            + _SET_ECHO_VALUE_DESC
+            + _LIVE_SET_READ_BACK_VALUE_DESC
         ),
         json_schema_extra=_projected_value_schema_extra,
     )

@@ -506,3 +506,6 @@ def test_game_set_schema_is_self_describing():
     schema = json.loads(result.stdout)
     assert "input" in schema and "output" in schema
     assert schema["kind"] == "live"
+    value_description = schema["output"]["properties"]["value"]["description"]
+    assert "observed read-back value" in value_description
+    assert "coerced value" not in value_description

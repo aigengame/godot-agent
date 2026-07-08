@@ -1305,6 +1305,9 @@ def test_game_set_result_round_trips_observed_value_and_verification_signal():
     assert result.verified is False
     assert json.loads(result.model_dump_json()) == payload
     schema = GameSetResult.model_json_schema()
+    value_description = schema["properties"]["value"]["description"]
+    assert "observed read-back value" in value_description
+    assert "coerced value" not in value_description
     assert schema["properties"]["verified"]["type"] == "boolean"
 
 
