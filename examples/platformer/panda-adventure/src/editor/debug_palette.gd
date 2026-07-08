@@ -35,10 +35,6 @@ const EnemyScene := preload("res://scenes/enemy.tscn")
 # The per-kind derived EnemyConfig path (matches LevelController's convention) —
 # structural wiring, not a config number.
 const ENEMY_KIND_TRES := "res://data/generated/enemy_%s.tres"
-# Spawn-on-demand's default drop point: the S2/S5 shooting-lane position, a spot
-# on the Rampart in view of the resting Player. A structural default, overridable
-# via `gda game set … --property spawn_position` (or the overlay).
-const DEFAULT_SPAWN_POS := Vector2(640.0, 452.0)
 
 # The owning EditorController (untyped: no global class cache — the EnemyWarpDriver
 # precedent). Set by the controller in its _ready. The palette reads its play
@@ -78,9 +74,15 @@ var jump_to_wave := 0:
 ## first wave's first kind. Plain data (no side effect until `spawn` pulses).
 var spawn_kind := ""
 
-## Where spawn-on-demand drops the enemy. Plain data; defaults to the shooting lane
-## in _ready.
-var spawn_position := DEFAULT_SPAWN_POS
+## Where spawn-on-demand drops the enemy. When the caller has NOT set it, the drop
+## point is DERIVED from the Wave schedule's first spawn coord at spawn time
+## (gADR-0000: no hardcoded level coordinate). Setting it — via `gda game set …
+## --property spawn_position` or the overlay — marks it overridden so the explicit
+## value wins.
+var spawn_position := Vector2.ZERO:
+	set(value):
+		spawn_position = value
+		_spawn_position_overridden = true
 
 ## A spawn trigger: setting it TRUE spawns one enemy on demand. It latches the
 ## set value rather than self-resetting — the gda harness's live-set write-verify
@@ -101,10 +103,9 @@ var last_action := "idle"
 # Monotonic suffix so successive on-demand spawns get unique, addressable names
 # (the schedule's uniqueness contract, gADR-0005).
 var _spawn_seq := 0
-
-
-func _ready() -> void:
-	spawn_position = DEFAULT_SPAWN_POS
+# Whether the caller pinned spawn_position; false lets the drop point derive from
+# the Wave schedule (gADR-0000: derive the default, don't hardcode it).
+var _spawn_position_overridden := false
 
 
 ## Sync god-mode onto the live Player each frame while playing: drive its
@@ -144,10 +145,11 @@ func _do_wave_jump(wave_one_based: int) -> void:
 	GameLogScript.emit("info", "debug_wave_jump", {"wave": index + 1, "total": count})
 
 
-## Spawn one enemy of `spawn_kind` (or the schedule's first kind) at `spawn_position`
-## on the running level. Reuses enemy.tscn + setup() — the spawner contract every
-## wave enemy is built with (gADR-0003) — so a debug spawn behaves like a real one;
-## it is a free-standing target (no wave-fold / reward wiring), addressable by a
+## Spawn one enemy of `spawn_kind` (or the schedule's first kind) at the drop point
+## (an explicit `spawn_position`, else derived from the Wave schedule) on the
+## running level. Reuses enemy.tscn + setup() — the spawner contract every wave
+## enemy is built with (gADR-0003) — so a debug spawn behaves like a real one; it
+## is a free-standing target (no wave-fold / reward wiring), addressable by a
 ## unique DebugSpawn<n> name for a live-op assert.
 func _do_spawn() -> void:
 	var level := _play_root()
@@ -166,18 +168,19 @@ func _do_spawn() -> void:
 		GameLogScript.emit("error", "debug_spawn_failed", {"kind": kind_id})
 		push_error("DebugPalette: unknown enemy kind '%s' for spawn-on-demand." % kind_id)
 		return
+	var pos := spawn_position if _spawn_position_overridden else _default_spawn_position(level)
 	var enemy := EnemyScene.instantiate()
 	enemy.setup(kind)
 	enemy.name = "DebugSpawn%d" % _spawn_seq
 	_spawn_seq += 1
-	enemy.position = spawn_position
+	enemy.position = pos
 	level.add_child(enemy)
 	last_action = "spawn:%s" % kind_id
 	GameLogScript.emit("info", "debug_spawn", {
 		"kind": kind_id,
 		"name": enemy.name,
-		"x": spawn_position.x,
-		"y": spawn_position.y,
+		"x": pos.x,
+		"y": pos.y,
 	})
 
 
@@ -221,3 +224,21 @@ func _default_kind(level: Node) -> String:
 	if spawns.is_empty():
 		return ""
 	return String(spawns[0]["kind"])
+
+
+## Spawn-on-demand's default drop point (#476 review): the Wave schedule's first
+## spawn coord — DERIVED from data, not a hardcoded literal (gADR-0000). The
+## derived WaveScheduleConfig stores each spawn `position` as a Vector2. Falls back
+## to the live Player's position, then the origin, if the schedule has no spawn.
+func _default_spawn_position(level: Node) -> Vector2:
+	var schedule: Variant = level.get("_schedule")
+	if schedule != null:
+		var waves: Array = schedule.waves
+		if not waves.is_empty():
+			var spawns: Array = waves[0]["spawns"]
+			if not spawns.is_empty():
+				return spawns[0]["position"]
+	var player := _find_player()
+	if player != null:
+		return player.position
+	return Vector2.ZERO
