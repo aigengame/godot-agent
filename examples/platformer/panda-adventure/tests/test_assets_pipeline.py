@@ -21,7 +21,12 @@ from PIL import Image
 import build_config
 from assets import game_config, manifest, pipeline, postprocess, preprocess
 from assets.acquire import AcquireError, search_download
-from assets.backends import BuiltinBackend, BuiltinImageGenUnavailable
+from assets.backends import (
+    BuiltinBackend,
+    BuiltinImageGenUnavailable,
+    GenerationError,
+    McpBackend,
+)
 from assets.emitter import JsonManifestEmitter
 from assets.model import AcquireMode, ManifestEntry, Source
 
@@ -233,6 +238,21 @@ def test_shipped_builtin_backend_is_unavailable_on_claude_code() -> None:
     agent without image generation it fails loudly (the demo's chosen posture)."""
     backend = game_config.make_builtin_backend(STYLE)
     assert backend.available is False
+
+
+def test_mcp_backend_enforces_timeout(tmp_path: Path) -> None:
+    """A hung MCP image-gen call does NOT hang forever: the configured timeout
+    cancels it and surfaces a clear GenerationError (reliability, gADR-0014).
+
+    Drives a real MCP stdio server whose tool sleeps past the timeout (mcp is a
+    dev dependency; no network / API, so this is a fast-tier test)."""
+    import sys
+
+    pytest.importorskip("mcp")
+    server = Path(__file__).parent / "_mcp_hang_server.py"
+    backend = McpBackend("hang", [sys.executable, str(server)], timeout=1.0)
+    with pytest.raises(GenerationError):
+        backend.generate("a prompt", tmp_path / "out.png")
 
 
 def test_acquire_asset_generation_mocked(tmp_path: Path) -> None:

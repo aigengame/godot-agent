@@ -20,6 +20,7 @@ uniformly.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Protocol
@@ -87,8 +88,6 @@ class McpBackend:
         return f"mcp:{self._channel}"
 
     def generate(self, prompt: str, out_path: Path) -> None:
-        import asyncio
-
         out_path.parent.mkdir(parents=True, exist_ok=True)
         text = asyncio.run(self._call(prompt, out_path))
         if not out_path.exists() or out_path.stat().st_size == 0:
@@ -100,8 +99,11 @@ class McpBackend:
     async def _call(self, prompt: str, out_path: Path) -> str:
         # Lazy import: the live-only group carries `mcp`; CI never installs it, so
         # importing this module must not need it (gADR-0014).
+        from datetime import timedelta
+
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
+        from mcp.shared.exceptions import McpError
 
         params = StdioServerParameters(
             command=self._command[0],
@@ -113,10 +115,29 @@ class McpBackend:
             "output_path": str(out_path),
             **self._arguments,
         }
+        # Bound the call with mcp's native per-request read timeout, so a hung
+        # image-gen call cannot hang an on-demand acquire forever. Capture the
+        # McpError and raise AFTER the contexts exit cleanly — raising THROUGH the
+        # anyio-backed `async with` teardown would surface a task-group
+        # ExceptionGroup instead of our clear error.
+        result = None
+        error: McpError | None = None
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                result = await session.call_tool(self._tool, arguments)
+                try:
+                    result = await session.call_tool(
+                        self._tool,
+                        arguments,
+                        read_timeout_seconds=timedelta(seconds=self._timeout),
+                    )
+                except McpError as exc:
+                    error = exc
+        if error is not None:
+            raise GenerationError(
+                f"MCP channel {self._channel!r} call to {self._tool!r} failed or "
+                f"timed out (limit {self._timeout}s): {error}"
+            ) from error
         return _content_text(result)
 
 
