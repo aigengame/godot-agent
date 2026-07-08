@@ -19,9 +19,12 @@ Stocks (the state vector, in order):
   accumulator, documented).
 - ``BUN``  — Bun Consumable count (economy in AND out: drops in, HP-restore use
   out — the balancing loop).
-- ``WINE`` — Wine Consumable count (economy in only here: its MP-restore sink is
-  the Gravity Gun, which is out of the combat model's scope — same honest
-  scoping the targets file makes for the Gravity Gun; documented).
+- ``WINE`` — Wine Consumable count. This slice models Wine as INFLOW-ONLY (drops)
+  and deliberately does NOT model Wine/MP outflow: the only MP sink is the Gravity
+  Gun, whose MP-use cadence is not a modeled design input — contrast Bun, whose
+  consumption is driven by the modeled HP loss, so its outflow has a rate the
+  model can read. MP outflow is therefore out of scope here (same honest scoping
+  the targets file makes for the Gravity Gun), NOT an oversight.
 
 Flows (the ODE right-hand side), per Wave ``w`` with coefficients projected from
 the JSON authority (``build_wave_dynamics``):
