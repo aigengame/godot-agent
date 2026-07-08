@@ -255,18 +255,32 @@ func _on_backdrop_color_changed(color: Color) -> void:
 func _build_forms() -> void:
 	_forms = EditorFormsScript.new(_model)
 	_forms.field_edited.connect(_on_form_edited)
+	# Every tuning config gets a section (#476 review): the schema-driven extractor
+	# maps each config's scalar numbers to SpinBox rows, so the hand-tune surface
+	# spans the whole tuning space, not just player + level. A section whose schema
+	# declares no scalar numbers builds nothing (EditorForms skips it).
 	_forms.build(_forms_container, [
-		{
-			"authority": EditorLevelModelScript.AUTHORITY_PLAYER,
-			"schema_path": "res://data/schema/player_config.schema.json",
-			"title": "Player (feel)",
-		},
-		{
-			"authority": EditorLevelModelScript.AUTHORITY_LEVEL,
-			"schema_path": "res://data/schema/level_config.schema.json",
-			"title": "Level",
-		},
+		_section(EditorLevelModelScript.AUTHORITY_PLAYER, "player_config", "Player (feel)"),
+		_section(EditorLevelModelScript.AUTHORITY_LEVEL, "level_config", "Level"),
+		_section(EditorLevelModelScript.AUTHORITY_COMBAT, "combat_config", "Combat"),
+		_section(EditorLevelModelScript.AUTHORITY_GRAVITY, "gravity_config", "Gravity"),
+		_section(EditorLevelModelScript.AUTHORITY_ITEMS, "items_config", "Items"),
+		_section(EditorLevelModelScript.AUTHORITY_PROGRESSION, "progression_config", "Progression"),
+		_section(EditorLevelModelScript.AUTHORITY_SCALE, "scale_spec", "Scale spec"),
+		_section(EditorLevelModelScript.AUTHORITY_ENEMIES, "enemies_config", "Enemies"),
+		_section(EditorLevelModelScript.AUTHORITY_HUD, "hud_config", "HUD"),
 	])
+
+
+## One form-section descriptor: an authority id + the schema that declares its
+## numeric fields + a heading. The schema path follows the config naming
+## convention (data/schema/<name>.schema.json).
+func _section(authority: String, schema_name: String, title: String) -> Dictionary:
+	return {
+		"authority": authority,
+		"schema_path": "res://data/schema/%s.schema.json" % schema_name,
+		"title": title,
+	}
 
 
 ## One numeric form field changed: mark the edit (the model already dirtied) and

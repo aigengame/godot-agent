@@ -66,6 +66,13 @@ func _init() -> void:
 		return
 	var new_move_speed := 320.0  # was 300.0
 	model.set_number(ModelScript.AUTHORITY_PLAYER, "move_speed", new_move_speed)
+	# Multi-config coverage (#476 review): hand-tune a Combat and a Gravity number
+	# too, proving the numeric round-trip spans EVERY tuning config, not just
+	# player/level. 0.5 / 8.0 are exact in float32 + JSON.
+	var new_iframe := 0.5  # combat.iframe_duration, was 0.6
+	var new_mp_cost := 8.0  # gravity.mp_cost, was 10.0
+	model.set_number(ModelScript.AUTHORITY_COMBAT, "iframe_duration", new_iframe)
+	model.set_number(ModelScript.AUTHORITY_GRAVITY, "mp_cost", new_mp_cost)
 
 	if not model.dirty:
 		_fail("model must be dirty after edits")
@@ -106,6 +113,12 @@ func _init() -> void:
 	if reloaded.get_number(ModelScript.AUTHORITY_PLAYER, "move_speed") != new_move_speed:
 		_fail("JSON move_speed not persisted: %s" % [reloaded.get_number(ModelScript.AUTHORITY_PLAYER, "move_speed")])
 		return
+	if reloaded.get_number(ModelScript.AUTHORITY_COMBAT, "iframe_duration") != new_iframe:
+		_fail("JSON combat iframe_duration not persisted")
+		return
+	if reloaded.get_number(ModelScript.AUTHORITY_GRAVITY, "mp_cost") != new_mp_cost:
+		_fail("JSON gravity mp_cost not persisted")
+		return
 
 	# --- the DERIVED Resources carry the edit (proof the builder actually ran).
 	var level: Resource = load(LEVEL_TRES)
@@ -139,6 +152,14 @@ func _init() -> void:
 		return
 	if player.move_speed != new_move_speed:
 		_fail("derived .tres move_speed stale: %s" % [player.move_speed])
+		return
+	var combat: Resource = load("res://data/generated/combat_config.tres")
+	if combat == null or combat.iframe_duration != new_iframe:
+		_fail("derived combat_config.tres iframe_duration stale")
+		return
+	var gravity: Resource = load("res://data/generated/gravity_config.tres")
+	if gravity == null or gravity.mp_cost != new_mp_cost:
+		_fail("derived gravity_config.tres mp_cost stale")
 		return
 
 	print("EDITOR_ROUNDTRIP: PASS")

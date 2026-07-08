@@ -48,6 +48,8 @@ _EXPECT_ARENA_MIN = -144.0  # was -160
 _EXPECT_SPAWN0_POSITION = [688.0, 436.0]  # was [640, 452]
 _EXPECT_BACKDROP = [0.25, 0.5, 0.75, 1.0]  # was [0.07, 0.06, 0.12, 1.0]
 _EXPECT_MOVE_SPEED = 320.0  # was 300.0 (the schema-driven numeric form edit)
+_EXPECT_IFRAME = 0.5  # combat.iframe_duration, was 0.6 (#476 multi-config forms)
+_EXPECT_MP_COST = 8.0  # gravity.mp_cost, was 10.0
 
 
 @pytest.mark.engine
@@ -97,6 +99,16 @@ def test_editor_roundtrip_json_and_derived(tmp_path) -> None:
         (project / "data/json/player_config.json").read_text(encoding="utf-8")
     )
     assert player["move_speed"] == _EXPECT_MOVE_SPEED
+    # Multi-config forms (#476 review): a Combat + a Gravity number hand-tuned
+    # through the same generic set_number path landed on their own authorities.
+    combat = json.loads(
+        (project / "data/json/combat_config.json").read_text(encoding="utf-8")
+    )
+    assert combat["iframe_duration"] == _EXPECT_IFRAME
+    gravity = json.loads(
+        (project / "data/json/gravity_config.json").read_text(encoding="utf-8")
+    )
+    assert gravity["mp_cost"] == _EXPECT_MP_COST
 
     # And the worktree authority is untouched (the copy took all writes).
     worktree_level = json.loads(
