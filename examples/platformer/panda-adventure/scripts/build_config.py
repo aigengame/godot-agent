@@ -1022,6 +1022,19 @@ def _authored_asset_refs(root: Path = GAME_DIR) -> list[tuple[str, str]]:
     return refs
 
 
+# The record shape a referenced Asset manifest entry must carry (gADR-0014): the
+# seven core fields, so no referenced-but-unprovenanced/unlicensed asset ships.
+_REQUIRED_MANIFEST_FIELDS = (
+    "path",
+    "category",
+    "acquire_mode",
+    "source",
+    "license",
+    "license_url",
+    "target_dims",
+)
+
+
 def validate_asset_refs(root: Path = GAME_DIR) -> dict[str, dict[str, Any]]:
     """Enforce the Asset manifest <-> authority integrity gate (gADR-0014).
 
@@ -1031,6 +1044,10 @@ def validate_asset_refs(root: Path = GAME_DIR) -> dict[str, dict[str, Any]]:
 
     - **FK integrity**: every asset id referenced in any authority exists in the
       manifest — no referenced-but-unprovenanced/unlicensed asset ships.
+    - **Record shape**: every REFERENCED entry carries the full record
+      (``path``/``category``/``acquire_mode``/``source``/``license``/
+      ``license_url``/``target_dims``) — a referenced asset missing its provenance
+      or license is a config bug, caught before it ships.
     - **No dangling**: every manifest entry's ``path`` exists on disk — a recorded
       asset whose file was removed is a config bug.
 
@@ -1038,18 +1055,28 @@ def validate_asset_refs(root: Path = GAME_DIR) -> dict[str, dict[str, Any]]:
     """
     manifest = load_asset_manifest(root)
     for asset_id, where in _authored_asset_refs(root):
-        if asset_id not in manifest:
+        record = manifest.get(asset_id)
+        if record is None:
             raise jsonschema.ValidationError(
                 f"asset reference {asset_id!r} ({where}) has no Asset manifest "
                 "entry — every referenced asset must be recorded with its "
                 "provenance and license (gADR-0014)"
             )
-    for asset_id, record in manifest.items():
-        fs_path = _resource_to_fs(root, record["path"])
-        if not fs_path.exists():
+        missing = [f for f in _REQUIRED_MANIFEST_FIELDS if f not in record]
+        if missing:
             raise jsonschema.ValidationError(
-                f"manifest entry {asset_id!r} path {record['path']} does not exist "
-                "on disk — a dangling Asset manifest record (gADR-0014)"
+                f"manifest entry {asset_id!r} ({where}) is missing required "
+                f"field(s) {missing} — a referenced asset must record its full "
+                "provenance and license (gADR-0014)"
+            )
+    for asset_id, record in manifest.items():
+        path = record.get("path")
+        if path is None:  # shape is enforced on referenced entries; skip orphans
+            continue
+        if not _resource_to_fs(root, path).exists():
+            raise jsonschema.ValidationError(
+                f"manifest entry {asset_id!r} path {path} does not exist on disk "
+                "— a dangling Asset manifest record (gADR-0014)"
             )
     return manifest
 

@@ -343,6 +343,19 @@ def test_no_dangling_fails_on_missing_file(tmp_path: Path) -> None:
         build_config.validate_asset_refs(root)
 
 
+def test_record_shape_fails_on_missing_license_or_source(tmp_path: Path) -> None:
+    """A referenced entry missing required provenance/license fields FAILS the gate
+    — an unprovenanced/unlicensed asset must not ship (gADR-0014)."""
+    root = _copy_authority(tmp_path)
+    frag = root / "assets" / "manifest" / "textures.json"
+    doc = json.loads(frag.read_text())
+    del doc["obstacle_crate"]["license"]
+    del doc["obstacle_crate"]["source"]
+    frag.write_text(json.dumps(doc, indent=2) + "\n", "utf-8")
+    with pytest.raises(jsonschema.ValidationError):
+        build_config.validate_asset_refs(root)
+
+
 def test_build_all_enforces_the_manifest_gate(tmp_path: Path) -> None:
     """build_all FAILS on a missing referenced id — the gate is in the BUILD path,
     not just tests (gADR-0014) — and leaves no partial derived set behind."""
