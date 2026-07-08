@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -107,6 +108,24 @@ def test_report_shape_and_design_targets() -> None:
     assert [w["wave"] for w in doc["waves"]] == [w.index for w in game.waves]
     assert "level_end" in doc["waves"][0] and "difficulty" in doc["waves"][0]
     assert doc["ok"] is True
+
+
+def test_monotonic_ramp_target_gates_the_verdict() -> None:
+    """A configured difficulty target the actual ramp FAILS drives the verdict
+    red — with ``expect_monotonic_ramp=True`` but the committed ramp dipping at
+    the swarm Wave, ``design_targets_ok`` and ``ok`` are False (finding 4: the
+    ramp target must gate the verdict, not merely be reported)."""
+    cfg = report.load_pipeline_config(TARGETS)
+    sd = prediction.load_sd_config(TARGETS)
+    sd = replace(sd, targets=replace(sd.targets, expect_monotonic_ramp=True))
+    game = game_config.load_game_data(CONFIG_DIR)
+    econ = game_config.load_growth_economy(CONFIG_DIR)
+    player = game_config.build_player_model(game, cfg.player_model_params)
+    result = prediction.run_prediction(game, econ, player, cfg.sim, sd)
+    assert result.monotonic_ramp_actual is False  # the swarm Wave dips
+    assert result.monotonic_ramp_ok is False  # expected True, actual False
+    assert not result.design_targets_ok
+    assert not result.ok
 
 
 def test_format_text_renders() -> None:

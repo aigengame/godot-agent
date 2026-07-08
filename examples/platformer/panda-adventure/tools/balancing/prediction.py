@@ -191,14 +191,22 @@ class PredictionReport:
     boss_peak_ok: bool
     monotonic_ramp_expected: bool
     monotonic_ramp_actual: bool
+    monotonic_ramp_ok: bool
     # Cross-validation.
     cross_validation_tolerance: float
     cross_checks: tuple[CrossCheck, ...]
 
     @property
     def design_targets_ok(self) -> bool:
-        """Every growth/difficulty design target is met."""
-        return self.final_level_ok and self.checkpoint_ok and self.boss_peak_ok
+        """Every growth/difficulty design target is met — including the
+        monotonic-ramp target (a configured difficulty intent must gate the
+        verdict, not just be reported)."""
+        return (
+            self.final_level_ok
+            and self.checkpoint_ok
+            and self.boss_peak_ok
+            and self.monotonic_ramp_ok
+        )
 
     @property
     def cross_validation_ok(self) -> bool:
@@ -239,6 +247,7 @@ def run_prediction(
     boss_peak_actual = bool(difficulties) and difficulties[-1] == max(difficulties)
     boss_peak_ok = boss_peak_actual == sd.targets.boss_is_peak
     monotonic_actual = all(a <= b for a, b in zip(difficulties, difficulties[1:]))
+    monotonic_ramp_ok = monotonic_actual == sd.targets.expect_monotonic_ramp
 
     # Cross-validation against MC on the overlapping (bare-brawl) scenario.
     mc = report.run_validation(game, player, sim, _no_targets())
@@ -276,6 +285,7 @@ def run_prediction(
         boss_peak_ok=boss_peak_ok,
         monotonic_ramp_expected=sd.targets.expect_monotonic_ramp,
         monotonic_ramp_actual=monotonic_actual,
+        monotonic_ramp_ok=monotonic_ramp_ok,
         cross_validation_tolerance=sd.cross_validation_tolerance,
         cross_checks=tuple(checks),
     )
@@ -344,6 +354,7 @@ def report_to_dict(report: PredictionReport) -> dict[str, Any]:
             "boss_peak_ok": report.boss_peak_ok,
             "monotonic_ramp_expected": report.monotonic_ramp_expected,
             "monotonic_ramp_actual": report.monotonic_ramp_actual,
+            "monotonic_ramp_ok": report.monotonic_ramp_ok,
             "all_ok": report.design_targets_ok,
         },
         "cross_validation": {
@@ -388,7 +399,7 @@ def format_text(report: PredictionReport) -> str:
         f"boss-is-peak {report.boss_is_peak_actual} "
         f"(want {report.boss_is_peak_expected}) [{mark(report.boss_peak_ok)}]  "
         f"monotonic-ramp {report.monotonic_ramp_actual} "
-        f"(want {report.monotonic_ramp_expected})"
+        f"(want {report.monotonic_ramp_expected}) [{mark(report.monotonic_ramp_ok)}]"
     )
     lines.append(
         f"CROSS-VALIDATION vs MC (tolerance {report.cross_validation_tolerance:.0%}):"
