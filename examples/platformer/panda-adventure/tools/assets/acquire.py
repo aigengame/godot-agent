@@ -59,11 +59,20 @@ def search_download(
 ) -> AcquireResult:
     """Fetch the recipe's candidate URL and record its provenance + license.
 
-    The recipe (from the per-game config) names the direct ``url`` for this
-    asset within the configurable ``source``; the license defaults to the
-    source's ``default_license`` unless the recipe overrides it. Rejects a
-    non-CC0/CC-BY license before writing anything.
+    The recipe (from the per-game config) names the direct ``url`` for this asset
+    within the configurable ``source``; the license defaults to the source's
+    ``default_license`` unless the recipe overrides it. Rejects a non-CC0/CC-BY
+    license before writing anything.
+
+    Scope note (the tracer, #439): this resolves a **preconfigured source URL**
+    from the recipe rather than driving a live search over
+    ``render_search_query(spec)``. The rendered query is authored (preprocess
+    composes it, and it is what a live search WOULD submit), but wiring a live
+    open-asset search API is a deliberate follow-up — the tracer pins the
+    end-to-end path with a fixed, license-verified candidate so the demo is
+    reproducible (gADR-0014).
     """
+    # Configured direct URL, not a live search hit — see the scope note above.
     url = recipe.get("url")
     if not isinstance(url, str) or not url:
         raise AcquireError(

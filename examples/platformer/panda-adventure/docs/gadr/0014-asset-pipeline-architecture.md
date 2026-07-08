@@ -107,3 +107,12 @@ agent. The generation path carries an optional-dependency and on-demand-test cos
 the fast CI never pays. Adding an image-gen provider later is a new McpBackend
 channel, not a new acquire mode. Rule drift between an asset reference and its
 provenance now goes red at the config gate rather than shipping an unlicensed asset.
+
+The tracer's SearchDownload resolves a **preconfigured, license-verified source URL**
+from the per-game acquire recipe rather than driving a live search over the rendered
+search query — the query is authored (preprocess composes it, and it is what a live
+search would submit), but wiring a live open-asset search API is a deliberate
+follow-up, so the tracer stays reproducible. The config gate (`validate_asset_refs`)
+is wired INTO the build path (`build_all`/`main`), not just tests: a referenced id
+with no manifest entry, a referenced entry missing a required provenance/license
+field, or a dangling manifest path fails the build before any `.tres` is written.

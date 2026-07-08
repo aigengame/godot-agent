@@ -1,4 +1,5 @@
 {
+  "_readme": "gADR-0014. The tracer's search_download acquire fetches a preconfigured, license-verified 'url' per asset (below) rather than driving a live open-asset search over the rendered query — a live search API is a follow-up; the fixed candidate keeps the demo reproducible.",
   "assets_root": "assets",
   "scale_spec": "data/json/scale_spec.json",
   "style": {
