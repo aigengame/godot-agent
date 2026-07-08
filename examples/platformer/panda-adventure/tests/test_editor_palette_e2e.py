@@ -17,7 +17,9 @@ not from a dev-machine daemon run), then every step is one gda live command:
   polls) AND the ``gda game tree`` (Wave 3's named spawn present, Wave 1's gone).
 - ``gda game set … --property spawn --value true`` spawns one enemy on demand —
   the addressable ``DebugSpawn0`` appears in ``gda game tree`` + a ``debug_spawn``
-  record.
+  record. The momentary trigger self-resets, so the live set reports SUCCESS with
+  ``verified:false`` (gda v0.8.0 / #473), not a failure — while a latched state var
+  like god-mode reports ``verified:true``.
 - ``gda game set … --property god_mode --value true`` toggles god-mode, read back
   with ``gda game get … --property last_action`` (dogfooding the live READ too).
 
@@ -140,10 +142,16 @@ class _Session:
     def node_in_tree(self, name: str) -> dict | None:
         return _find_node(self.tree_root(), name)
 
-    def set_palette(self, prop: str, value: str) -> None:
-        """One ``gda game set`` on a palette property — the drivable op surface."""
+    def set_palette(self, prop: str, value: str) -> dict:
+        """One ``gda game set`` on a palette property — the drivable op surface.
+
+        Returns the parsed ``GameSetResult`` so a caller can assert the live-set
+        ``verified`` signal (gda v0.8.0 / #473): the observed read-back ``value``
+        and whether it equals the coerced request.
+        """
         proc = self.run("game", "set", _PALETTE, "--property", prop, "--value", value)
         assert proc.returncode == 0, proc.stdout + proc.stderr
+        return json.loads(proc.stdout)
 
     def get_palette(self, prop: str):
         """One ``gda game get`` on a palette property (the live READ dogfood)."""
@@ -203,16 +211,32 @@ def test_palette_ops_drive_the_running_game(tmp_path, daemon_runtime_dir):
             "the jump did not clear Wave 1's live enemy"
         )
 
-        # --- SPAWN ON DEMAND: one addressable enemy at the default lane.
-        s.set_palette("spawn", "true")
+        # --- SPAWN ON DEMAND: one addressable enemy at the default lane. The
+        # momentary trigger self-resets, so the live set reports SUCCESS with
+        # verified:false (gda v0.8.0 / #473) — the side effect landed even though
+        # the read-back does not stick. This is the exact case gda's old
+        # write-verify false-rejected as `live_uncoercible_value`.
+        spawn_set = s.set_palette("spawn", "true")
+        assert spawn_set["verified"] is False, (
+            "the momentary spawn self-resets; gda v0.8.0 (#473) must report it as "
+            f"success with verified:false, not a failed set: {spawn_set}"
+        )
+        assert spawn_set["value"] is False, (
+            f"spawn reads back at its self-reset default, not the request: {spawn_set}"
+        )
         assert s.poll(lambda: bool(s.records("debug_spawn"))), "no debug_spawn record"
         assert s.node_in_tree("DebugSpawn0") is not None, (
             "the on-demand spawn never entered the runtime tree"
         )
         assert s.records("debug_spawn")[0]["fields"]["name"] == "DebugSpawn0"
 
-        # --- GOD MODE: toggle, then read the op back through gda's live READ.
-        s.set_palette("god_mode", "true")
+        # --- GOD MODE: toggle, then read the op back through gda's live READ. A
+        # latched state var reads back the request, so the live set verifies TRUE —
+        # the other arm of the #473 contract from the momentary spawn above.
+        god_set = s.set_palette("god_mode", "true")
+        assert god_set["verified"] is True, (
+            f"a latched state var's read-back equals the request: {god_set}"
+        )
         god = s.poll(lambda: bool(s.records("debug_god_mode")))
         assert god and s.records("debug_god_mode")[-1]["fields"]["on"] is True, (
             "god-mode toggle produced no debug_god_mode record"
