@@ -501,6 +501,9 @@ offset プロパティを明示的に設定してください。
 
 Live の `game set --property position` は `node set` と同じ `Control` ポリシーに
 従います。`game rect` は引き続き読み取り専用のレンダリングジオメトリ問い合わせです。
+`game set` の成功結果には `verified` が含まれます。観測された読み戻し値が
+要求された変換済み値と一致する場合は `true`、set は完了したが観測値が異なる場合
+（getter-only/no-op のスクリプト変数やエッジトリガー制御など）は `false` です。
 
 **`diag`** — ランタイム診断
 

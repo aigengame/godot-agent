@@ -496,7 +496,10 @@ normal.
 
 `game set --property position` en vivo sigue la misma política de `Control` que
 `node set`; `game rect` sigue siendo una consulta de geometría renderizada de solo
-lectura.
+lectura. Los resultados exitosos de `game set` incluyen `verified`: `true` cuando
+el valor observado al leer de vuelta coincide con el valor coercionado solicitado,
+y `false` cuando el set se completó pero el valor observado difiere, como en
+variables de script getter-only/no-op o controles edge-triggered.
 
 **`diag`** — diagnósticos de runtime
 
