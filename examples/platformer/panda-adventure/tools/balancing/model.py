@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from . import rules
+
 
 @dataclass(frozen=True)
 class StatBlock:
@@ -226,10 +228,11 @@ class GrowthEconomy:
     player_max_mp: float
 
     def level_for(self, exp: float) -> int:
-        """The Player's Level at a cumulative EXP total (GrowthSystem, gADR-0006):
-        Level 1 at start, +1 per Leveling-curve threshold reached; max Level is
-        ``len(level_curve) + 1``. A pure readout of the curve, no code."""
-        return 1 + sum(1 for threshold in self.level_curve if exp >= threshold)
+        """The Player's Level at a cumulative EXP total — the parity-pinned
+        ``rules.resolve_level`` (``GrowthSystem.resolve_level``, gADR-0006), so
+        the SD growth loop reads Level through the same mirror the golden fixtures
+        pin against the shipped GDScript, not a private copy."""
+        return rules.resolve_level(exp, list(self.level_curve))
 
     @property
     def max_level(self) -> int:

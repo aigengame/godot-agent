@@ -360,6 +360,90 @@
       "now": 0.0
     }
   ],
+  "resolve_level": [
+    {
+      "exp_points": 0.0,
+      "expected": 1,
+      "level_curve": [
+        10.0,
+        50.0,
+        150.0,
+        280.0
+      ]
+    },
+    {
+      "exp_points": 10.0,
+      "expected": 2,
+      "level_curve": [
+        10.0,
+        50.0,
+        150.0,
+        280.0
+      ]
+    },
+    {
+      "exp_points": 49.99,
+      "expected": 2,
+      "level_curve": [
+        10.0,
+        50.0,
+        150.0,
+        280.0
+      ]
+    },
+    {
+      "exp_points": 50.0,
+      "expected": 3,
+      "level_curve": [
+        10.0,
+        50.0,
+        150.0,
+        280.0
+      ]
+    },
+    {
+      "exp_points": 200.0,
+      "expected": 4,
+      "level_curve": [
+        10.0,
+        50.0,
+        150.0,
+        280.0
+      ]
+    },
+    {
+      "exp_points": 280.0,
+      "expected": 5,
+      "level_curve": [
+        10.0,
+        50.0,
+        150.0,
+        280.0
+      ]
+    },
+    {
+      "exp_points": 1000.0,
+      "expected": 5,
+      "level_curve": [
+        10.0,
+        50.0,
+        150.0,
+        280.0
+      ]
+    },
+    {
+      "exp_points": 100.0,
+      "expected": 2,
+      "level_curve": [
+        50.0
+      ]
+    },
+    {
+      "exp_points": 5.0,
+      "expected": 1,
+      "level_curve": []
+    }
+  ],
   "should_warp": [
     {
       "aggro_range": 400.0,

@@ -29,6 +29,7 @@ const CombatSystemScript := preload("res://src/systems/combat_system.gd")
 const EnemyAIScript := preload("res://src/systems/enemy_ai.gd")
 const WarpSystemScript := preload("res://src/systems/warp_system.gd")
 const ItemSystemScript := preload("res://src/systems/item_system.gd")
+const GrowthSystemScript := preload("res://src/systems/growth_system.gd")
 const EnemyConfigScript := preload("res://src/resources/enemy_config.gd")
 const StatsConfigScript := preload("res://src/resources/stats_config.gd")
 const CombatConfigScript := preload("res://src/resources/combat_config.gd")
@@ -217,6 +218,14 @@ func _effective_defender_case(base_defense: float, defense_bonus: float) -> Dict
 	}
 
 
+func _resolve_level_case(exp_points: float, level_curve: Array) -> Dictionary:
+	return {
+		"exp_points": exp_points,
+		"level_curve": level_curve,
+		"expected": GrowthSystemScript.resolve_level(exp_points, level_curve),
+	}
+
+
 func _build() -> Dictionary:
 	return {
 		"compute_damage": [
@@ -285,6 +294,17 @@ func _build() -> Dictionary:
 			_effective_defender_case(0.0, 2.0),  # the game's shape: base 0 + Spacesuit
 			_effective_defender_case(4.0, 2.0),  # a real base composes additively
 			_effective_defender_case(3.0, 0.0),  # zero bonus is the identity
+		],
+		"resolve_level": [
+			_resolve_level_case(0.0, [10.0, 50.0, 150.0, 280.0]),  # start -> level 1
+			_resolve_level_case(10.0, [10.0, 50.0, 150.0, 280.0]),  # exactly first (>=) -> 2
+			_resolve_level_case(49.99, [10.0, 50.0, 150.0, 280.0]),  # just below second -> 2
+			_resolve_level_case(50.0, [10.0, 50.0, 150.0, 280.0]),  # exactly second -> 3
+			_resolve_level_case(200.0, [10.0, 50.0, 150.0, 280.0]),  # multi-threshold -> 4
+			_resolve_level_case(280.0, [10.0, 50.0, 150.0, 280.0]),  # at the max -> 5
+			_resolve_level_case(1000.0, [10.0, 50.0, 150.0, 280.0]),  # above the max -> 5
+			_resolve_level_case(100.0, [50.0]),  # short curve (no hardcoded count) -> 2
+			_resolve_level_case(5.0, []),  # empty curve -> 1
 		],
 	}
 
