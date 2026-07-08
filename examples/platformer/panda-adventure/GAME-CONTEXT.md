@@ -262,14 +262,46 @@ _Avoid_: build script (that names the JSON→Resource builder), helper script, t
 The Tool Script family that produces the game's binary assets — textures, sprite
 frames, audio, fonts. Preprocess builds a style-and-size **asset spec** (the shared
 style descriptor plus the Scale spec's target dimensions and format/licensing
-constraints); the acquire stage fulfills it in one of two modes — online
-search-and-download from open-asset sites, or generation (built-in model or
-external MCP backend); postprocess conforms the result (crop/transform/normalize
-to the spec) and records provenance and license in the asset manifest. Artifacts
-are asset files PLUS their JSON references — asset references are data
-(gADR-0000); the view resolves assets from config, never hardcoded paths.
+constraints); the acquire stage — a two-mode interface — fulfills it either by
+search-and-download from a configurable open-asset source, or by generation, whose
+two backends are the running agent's own built-in image generation and an external
+MCP image-generation channel (gADR-0014); postprocess conforms the result
+(crop/transform/normalize to the spec) and records provenance and license in the
+asset manifest. Artifacts are asset files recorded in the Asset manifest PLUS an
+`id` the JSON authority references — asset references are data (gADR-0000), the
+builder composing that id → path into the derived Resource, never a hardcoded path.
 _Avoid_: art pipeline (audio and fonts too), downloader / generator (each names
 only one acquire mode)
+
+**Asset manifest**:
+The single record-of-source registry for produced assets — one entry per acquired
+asset, keyed by an asset **id**, recording that asset's path plus its acquire
+provenance (mode, source URL or generation prompt/backend) and license (a pipeline
+invariant, gADR-0014). It is the single HOME of an asset's path: the JSON authority
+references an asset by its manifest id, never a raw path, and the builder composes
+the id → path into the derived Resource (the gADR-0013 "one authored home, N derived
+projections" pattern applied to assets, so the game/view still reads a resolved
+path). Split per asset category (textures/sprites/audio/fonts) so parallel pipeline
+slices don't contend on it. A RECORD source, not a derived artifact — its
+provenance/license are not derivable, so the pipeline authors it and the config gate
+checks two-way integrity against the authority (every referenced id present; no
+dangling path) rather than freshness.
+_Avoid_: asset registry (generic), license file / provenance log (each names one
+field), asset index
+
+**Style descriptor**:
+The shared art-direction input that makes mixed-source assets cohere across BOTH
+acquire modes — the machine-consumable style parameters (shared style
+keywords/prompt fragment, the bounded pixel-art palette, per-category style hints)
+plus the format/licensing constraints (gADR-0014). A pipeline-only per-game
+configuration living inside the asset pipeline package (mirroring the Balancing
+pipeline's `panda_adventure.targets.json`), NOT in the JSON authority and never
+derived to a Resource — the game reads assets, not their style. The preprocess stage
+composes it with the Scale spec's target dimensions into the per-asset `asset spec`,
+which renders either as a search query (search-download) or a generation prompt
+(generation), so one style flows to both modes. Its qualitative rationale lives in
+the GDD's art-style chapter (the gADR-0013 GDD/JSON split applied to look, not size).
+_Avoid_: art bible (broader), style guide (human-facing), theme, palette (one field)
 
 **Scale spec**:
 The unified size/scale standard every visual element conforms to — the anchor
