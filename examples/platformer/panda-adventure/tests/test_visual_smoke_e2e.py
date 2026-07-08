@@ -176,6 +176,18 @@ _BLEND_TOLERANCE = 0.06
 # rect: "GAME OVER" at the config title font size inks thousands; 100 stays
 # far from noise while failing hard on an invisible/mispositioned title.
 _MIN_TITLE_PIXELS = 100
+# Non-background pixels the animated Player must show inside its config box at
+# boot (P2-S5, #443): the placeholder sprite's opaque body inks well over a
+# thousand; 400 stays clear of antialiasing noise while failing hard on an
+# invisible/mispositioned Player.
+_MIN_PLAYER_PIXELS = 400
+# The Player animation states the PlayerAnimator can be in (locomotion base +
+# verb one-shots + death). The boot checkpoint asserts the live AnimatedSprite2D
+# is in one of these (structural, not a specific state — the Player just landed).
+_PLAYER_ANIM_STATES = frozenset(
+    {"idle", "run", "jump", "fall", "fire", "hurt", "consume", "level_up", "death"}
+)
+_PLAYER_ANIM_PATH = "/root/Main/Player/Visual/AnimatedSprite"
 
 
 def _make_project_copy(dst: Path) -> Path:
@@ -415,6 +427,16 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         wine_rect = rendered_rect(_HUD_LABEL % "Wine")
         boot_png, boot_doc = capture("boot")
         dims = (boot_doc["width"], boot_doc["height"])
+
+        # --- P2-S5 checkpoint (#443): the animated Player. Structural — the Visual
+        # carries an AnimatedSprite2D (the SpriteFrames branch of the view seam) that
+        # the PlayerAnimator has driven to a known animation state; the pixel
+        # companion (a `player_sprite` check appended below) confirms it renders.
+        player_anim = prop(_PLAYER_ANIM_PATH, "animation")
+        assert player_anim in _PLAYER_ANIM_STATES, (
+            "the Player's AnimatedSprite2D is not in a known animation state: "
+            f"{player_anim!r} — the animated Player did not initialize"
+        )
 
         # --- Beat 2: one Gravity Gun fire; capture while the field is live
         # (its retuned duration outlives these round-trips).
@@ -762,6 +784,28 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
                 "is not visible after the kill advanced the wave",
             )
         )
+
+    # --- P2-S5 checkpoint (#443): the animated Player renders at its config box.
+    # The Player is the follow camera's drag-center, so its box maps to screen
+    # centre; presence-level (background_delta) — the sprite's opaque pixels differ
+    # from the plain backdrop (the pixel companion to the boot structural assert).
+    checks.append(
+        (
+            {
+                "name": "player_sprite",
+                "mode": "background_delta",
+                "image": "boot",
+                "rect": blockout_region(
+                    anchor_boot, player_cfg["player_size"], anchor_boot
+                ),
+                # The same top-right plain-background sample the HUD checks use.
+                "reference": [dims[0] - 8, 8],
+                "min_delta": _CHANNEL_DELTA,
+            },
+            _MIN_PLAYER_PIXELS,
+            "the animated Player is not visibly rendering at its config box at boot",
+        )
+    )
 
     spec_path = tmp_path / "pixel_checks.json"
     spec_path.write_text(

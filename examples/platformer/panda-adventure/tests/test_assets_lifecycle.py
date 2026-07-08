@@ -27,9 +27,9 @@ import build_config
 from assets import game_config, lifecycle, manifest, pipeline
 from assets.emitter import JsonManifestEmitter
 from assets.lifecycle import OversizeAsset, find_unlfs_oversize
-from assets.model import FrameLayout, ManifestEntry
+from assets.model import FrameLayout, ManifestEntry, SpriteAnimation
 from assets.packer import pack_frames
-from assets.spriteframes import derive_spriteframes
+from assets.spriteframes import derive_spriteframes, derive_spriteframes_set
 
 
 # --------------------------------------------------------------------------- #
@@ -179,6 +179,70 @@ def test_derive_spriteframes_is_deterministic(tmp_path: Path) -> None:
     b = derive_spriteframes(_SHEET_RES, layout, "idle")
     assert a == b
     assert "uid://" not in a  # gda authors uid-free (gADR-0036 / gADR-0015)
+
+
+# --------------------------------------------------------------------------- #
+# Multi-animation deriver (P2-S5, #443): several per-state sheets -> ONE
+# SpriteFrames an AnimatedSprite2D plays by name (idle/run/jump/...).
+# --------------------------------------------------------------------------- #
+
+
+def _anim(
+    name: str, count: int, dims: tuple[int, int], *, loop: bool = True, speed=8.0
+):
+    return SpriteAnimation(
+        name=name,
+        sheet_res_path=f"res://assets/sprites/player_{name}.png",
+        layout=FrameLayout(frame_dims=dims, columns=count, rows=1, count=count),
+        speed=speed,
+        loop=loop,
+    )
+
+
+def test_derive_spriteframes_set_composes_named_animations() -> None:
+    """A set derives one ext_resource per sheet and one named, per-state animation
+    with its own frames, regions, and loop flag (gADR-0015/#443)."""
+    tres = derive_spriteframes_set(
+        [
+            _anim("idle", 2, (48, 64), loop=True),
+            _anim("fire", 3, (48, 64), loop=False, speed=12.0),
+        ]
+    )
+    assert tres.startswith('[gd_resource type="SpriteFrames" format=3]')
+    # One ext_resource per state's sheet, deterministically id'd "{i+1}_{name}".
+    assert (
+        '[ext_resource type="Texture2D" path="res://assets/sprites/player_idle.png" id="1_idle"]'
+        in tres
+    )
+    assert (
+        '[ext_resource type="Texture2D" path="res://assets/sprites/player_fire.png" id="2_fire"]'
+        in tres
+    )
+    # Each state's AtlasTexture regions reference its own sheet.
+    assert 'atlas = ExtResource("1_idle")' in tres
+    assert 'atlas = ExtResource("2_fire")' in tres
+    assert "region = Rect2(96, 0, 48, 64)" in tres  # fire frame 2
+    # Both animations land in the SpriteFrames, named + with their loop flag.
+    assert '"name": &"idle"' in tres and '"loop": true' in tres
+    assert '"name": &"fire"' in tres and '"loop": false' in tres
+    assert '"speed": 12.0' in tres
+    assert 'SubResource("AtlasTexture_idle_1")' in tres
+    assert 'SubResource("AtlasTexture_fire_2")' in tres
+
+
+def test_derive_spriteframes_set_is_deterministic_and_uid_free() -> None:
+    """Same states -> byte-identical, uid-free output (a committed derived artifact)."""
+    states = [_anim("idle", 2, (16, 16)), _anim("run", 4, (16, 16))]
+    a = derive_spriteframes_set(states)
+    b = derive_spriteframes_set(states)
+    assert a == b
+    assert "uid://" not in a
+
+
+def test_derive_spriteframes_set_rejects_empty() -> None:
+    """A set with no animation states is a clear error, not empty malformed text."""
+    with pytest.raises(ValueError, match="no animation states"):
+        derive_spriteframes_set([])
 
 
 # --------------------------------------------------------------------------- #

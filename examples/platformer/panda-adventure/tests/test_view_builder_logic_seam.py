@@ -55,18 +55,29 @@ def test_logic_seam_view_builder(gda) -> None:
 
 
 def test_asset_reference_renders_default_and_authored_value() -> None:
-    """The optional asset reference flows JSON -> .tres with an empty default.
+    """The optional asset reference flows JSON -> .tres, resolving the manifest id.
 
-    An authored source WITHOUT the key renders ``player_asset = ""`` (the
-    builder materializes the default, so the derived Resource always carries
-    the field the view seam resolves); a source WITH the key renders it
+    The Player sprite reference is wired since P2-S5 (#443): ``player_asset``
+    names the manifest id ``player``, which the builder resolves to the committed
+    ``SpriteFrames`` path the view seam loads (gADR-0014/gADR-0015). A source
+    WITHOUT the key still materializes the empty default (every derived Resource
+    carries the field the seam resolves), and an authored value passes through
     verbatim. Pure render check (no IO beyond loading the committed authority).
     """
     composed = build_config.load_composed("data/json/player_config.json")
-    assert "player_asset" not in composed  # authored absent in wave 1 (#436)
     spec = build_config._PLAYER_SPEC
-    assert 'player_asset = ""' in build_config.render_spec(spec, composed)
+    # The manifest id resolved to the derived SpriteFrames path.
+    assert composed["player_asset"] == "res://assets/sprites/player.tres"
+    assert (
+        'player_asset = "res://assets/sprites/player.tres"'
+        in build_config.render_spec(spec, composed)
+    )
 
+    # A source with the key ABSENT materializes the empty-string default.
+    absent = {k: v for k, v in composed.items() if k != "player_asset"}
+    assert 'player_asset = ""' in build_config.render_spec(spec, absent)
+
+    # An authored value passes through verbatim.
     authored = dict(composed, player_asset="res://assets/player.png")
     rendered = build_config.render_spec(spec, authored)
     assert 'player_asset = "res://assets/player.png"' in rendered

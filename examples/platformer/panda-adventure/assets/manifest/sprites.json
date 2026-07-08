@@ -1,0 +1,16 @@
+{
+  "player": {
+    "path": "res://assets/sprites/player.tres",
+    "category": "sprites",
+    "acquire_mode": "generation",
+    "source": "placeholder",
+    "license": "CC0",
+    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "target_dims": [
+      48,
+      64
+    ],
+    "attribution": "PLACEHOLDER — procedurally generated in-pipeline (no fit/licensed CC0 sheet or imagegen key available in-worktree); flagged for wave-close acquisition (#443).",
+    "prompt": "spacesuit panda platformer character, 16-bit pixel art, space-opera Great-Wall-frontier style, idle/run/jump/fire/hurt/consume/level_up/death states, clean readable silhouette"
+  }
+}

@@ -792,6 +792,10 @@ _MANIFEST_DIRNAME = "manifest"
 # ``platforms``/``drop_items`` — which ``_authored_asset_refs`` already scans).
 _ASSET_REF_FIELDS: dict[str, tuple[str, ...]] = {
     _GRAVITY_JSON_REL: ("obstacle_asset",),
+    # P2-S5 (#443): the Player's animated look — ``player_asset`` resolves to the
+    # committed ``SpriteFrames`` the ViewBuilder loads onto an AnimatedSprite2D
+    # (gADR-0015/gADR-0016). The manifest ``player`` id single-homes its path.
+    _PLAYER_JSON_REL: ("player_asset",),
 }
 
 
@@ -1383,6 +1387,10 @@ def build(
     validate_config(config, load_schema(schema_path))
     scale = validate_scale_semantics(load_scale_spec())
     config = compose_scale_spec(config, _PLAYER_JSON_REL, scale)
+    # Resolve the Player's asset reference (manifest id -> path, gADR-0014), so this
+    # convenience API produces the same bytes as build_spec/build_all (the freshness
+    # gate compares against it) — the Player sprite reference is wired since #443.
+    config = compose_asset_refs(config, _PLAYER_JSON_REL, load_asset_manifest())
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(render_tres(config), encoding="utf-8")
     return out_path

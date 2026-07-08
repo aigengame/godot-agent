@@ -54,6 +54,8 @@ func _init() -> void:
 		return
 	if not _check_asset_resolution():
 		return
+	if not _check_sprite_frames_resolution():
+		return
 	print("LOGIC_SEAM: PASS")
 	quit(0)
 
@@ -179,6 +181,39 @@ func _check_asset_resolution() -> bool:
 		return false
 	if not _vec_eq(sprite.size, size):
 		_fail("asset: sprite.size %s != %s" % [sprite.size, size])
+		return false
+	root.free()
+	return true
+
+
+## The ANIMATED-sprite resolution branch (P2-S5, #443): a reference that resolves
+## to a SpriteFrames (the committed Player set) renders as an "AnimatedSprite2D"
+## child of a transparent Visual frame — NOT the static "Sprite" TextureRect and NOT
+## the colored block. Pins the second dispatch branch headless and doubles as a
+## load-and-import smoke of the committed player.tres + its sheets.
+func _check_sprite_frames_resolution() -> bool:
+	var root := _make_root()
+	var asset := "res://assets/sprites/player.tres"
+	var size := Vector2(48, 64)
+	ViewBuilderScript.apply_box(root, Color.WHITE, size, true, asset)
+
+	var visual := root.get_node("Visual") as ColorRect
+	if visual.color.a != 0.0:
+		_fail("frames: visual must be a transparent frame, got color %s" % visual.color)
+		return false
+	# The static TextureRect branch must NOT have been taken.
+	if visual.get_node_or_null("Sprite") != null:
+		_fail("frames: a 'Sprite' TextureRect was added for a SpriteFrames asset")
+		return false
+	var sprite := visual.get_node_or_null("AnimatedSprite") as AnimatedSprite2D
+	if sprite == null:
+		_fail("frames: no 'AnimatedSprite' AnimatedSprite2D child for the SpriteFrames branch")
+		return false
+	if sprite.sprite_frames == null:
+		_fail("frames: the AnimatedSprite2D has no SpriteFrames (player.tres failed to load)")
+		return false
+	if not sprite.sprite_frames.has_animation(&"idle"):
+		_fail("frames: the resolved SpriteFrames is missing the 'idle' animation")
 		return false
 	root.free()
 	return true
