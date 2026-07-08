@@ -84,17 +84,20 @@ var spawn_position := Vector2.ZERO:
 		spawn_position = value
 		_spawn_position_overridden = true
 
-## A spawn trigger: setting it TRUE spawns one enemy on demand. It latches the
-## set value rather than self-resetting — the gda harness's live-set write-verify
-## rejects a script variable that reads back unchanged, so a self-reset-to-false
-## would look like a failed set. The setter runs on every assignment (Godot fires
-## setters even when the value is unchanged), so a repeated `gda game set … spawn
-## true` (or button click) spawns again; set it false to disarm.
+## A momentary spawn trigger: setting it TRUE spawns one enemy on demand and
+## self-resets to false, so a `gda game set … spawn true` (or the overlay's Spawn
+## Enemy button) is a single pulse, not a latch — `gda game get … spawn` always
+## reads false, honestly reporting that nothing stays armed. The read-back-unchanged
+## is by design: gda's live `game set` reports it as SUCCESS with `verified:false`
+## (v0.8.0 / #473) — the setter's side effect is the point, not a value that sticks
+## (an earlier latch workaround for gda's old write-verify is no longer needed).
+## Setting false is inert. The self-reset never recurses: an inline setter's
+## assignment to its own backing var does not re-invoke the setter.
 var spawn := false:
 	set(value):
-		spawn = value
 		if value:
 			_do_spawn()
+		spawn = false
 
 ## The last op the palette performed — a read-back surface (`gda game get … --property
 ## last_action`) proving an op landed, alongside the structured gda_log records.
