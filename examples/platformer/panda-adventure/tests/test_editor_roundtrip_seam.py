@@ -127,6 +127,11 @@ def test_play_entry_aborts_when_derive_fails(tmp_path) -> None:
     (playing would silently run STALE derived ``.tres``). The derived resources
     in the copy must stay byte-identical to the pre-edit baseline: nothing
     re-derived, nothing refreshed.
+
+    Integrity on the failed derive (#476 review): the JSON authority is ROLLED
+    BACK to its pre-edit content — a failed build never leaves the authority in a
+    written-but-un-derivable state — and the edit lives only in memory (the model
+    stays dirty, asserted GDScript-side).
     """
     project = tmp_path / "panda_copy"
     shutil.copytree(GAME_DIR, project, ignore=_COPY_IGNORE)
@@ -158,12 +163,14 @@ def test_play_entry_aborts_when_derive_fails(tmp_path) -> None:
     assert "editor_play_aborted" in doc["stdout"], doc["stdout"]
     assert "editor_play_entered" not in doc["stdout"], doc["stdout"]
 
-    # The failed builder wrote nothing: the derived .tres is the pre-edit baseline
-    # (the save half DID write the JSON authority — that is the expected split).
+    # The failed builder wrote nothing: the derived .tres is the pre-edit baseline.
     assert (project / "data/generated/level_config.tres").read_text(
         encoding="utf-8"
     ) == baseline_tres
+    # And the JSON authority was ROLLED BACK to its pre-edit value (#476 review):
+    # a failed derive leaves NO invalid authority on disk — it matches the
+    # untouched .tres, and the edit remains only in memory (dirty, GDScript-side).
     saved = json.loads(
         (project / "data/json/level_config.json").read_text(encoding="utf-8")
     )
-    assert saved["arena_min_x"] == -144.0  # the seam's one edit landed on JSON
+    assert saved["arena_min_x"] == -160.0  # rolled back from the seam's -144.0 edit

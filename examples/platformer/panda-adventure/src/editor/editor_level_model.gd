@@ -258,6 +258,46 @@ func save() -> bool:
 	return true
 
 
+## Snapshot the CURRENT on-disk text of every dirty authority — its last-derived-
+## GOOD content — so a subsequent derive failure can restore it (#476 review:
+## integrity — the JSON authority on disk is never left in a written-but-failed-to-
+## derive state). Read BEFORE save() overwrites. Returns [{id, path, text}].
+func snapshot_dirty() -> Array:
+	var snaps: Array = []
+	for id: String in _docs:
+		if _dirty_ids.get(id, false):
+			snaps.append({
+				"id": id,
+				"path": AUTHORITY_PATHS[id],
+				"text": _read_text(AUTHORITY_PATHS[id]),
+			})
+	return snaps
+
+
+## Restore each snapshot's on-disk text and RE-MARK those authorities dirty — used
+## when a derive fails after save, so the JSON authority returns to its last-good
+## content while the in-memory edits stay PENDING (unsaved) for a retry. The
+## in-memory _docs keep the edits; only the files revert.
+func rollback(snapshots: Array) -> void:
+	for snap: Dictionary in snapshots:
+		var text: Variant = snap.get("text")
+		if typeof(text) == TYPE_STRING:
+			var file := FileAccess.open(String(snap["path"]), FileAccess.WRITE)
+			if file != null:
+				file.store_string(text)
+				file.close()
+		_mark(String(snap["id"]))
+
+
+func _read_text(path: String) -> Variant:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return null
+	var text := file.get_as_text()
+	file.close()
+	return text
+
+
 func _write_json(path: String, document: Dictionary) -> bool:
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:

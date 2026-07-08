@@ -398,7 +398,16 @@ func _hit_test(world: Vector2) -> Dictionary:
 ## the ONE Python builder. Returns true only when BOTH steps succeeded — the
 ## edit->play switch keys on this, because playing after a failed save/derive
 ## would run STALE derived .tres (the review-round correctness finding).
+##
+## Integrity on a FAILED derive (#476 review): the JSON authority is ROLLED BACK
+## to its last-derived-good content and the edits stay dirty (pending). So a build
+## failure never leaves invalid JSON on disk (out of sync with the derived .tres)
+## nor silently clears the unsaved-edits marker — the save->JSON->builder->reload
+## contract holds even when the builder rejects the edit.
 func _save_and_derive() -> bool:
+	# Capture the on-disk last-good content of the authorities about to be written,
+	# so a derive failure can restore them.
+	var snapshot := _model.snapshot_dirty()
 	if not _model.save():
 		last_action = "save_failed"
 		GameLogScript.emit("error", "editor_save_failed", {})
@@ -417,14 +426,18 @@ func _save_and_derive() -> bool:
 		})
 		_set_status()
 		return true
+	# Derive failed: undo the just-written JSON (back to last-good) and keep the
+	# edits pending, so the authority never persists in an un-derivable state.
+	_model.rollback(snapshot)
 	last_action = "derive_failed"
 	GameLogScript.emit("error", "editor_derive_failed", {
 		"exit_code": result["exit_code"],
 		"python": result["python"],
 	})
 	push_error(
-		("EditorController: build_config.py failed (exit %d via %s). A Python " +
-		"toolchain must be on PATH (gADR-0012). Output: %s")
+		("EditorController: build_config.py failed (exit %d via %s); JSON authority " +
+		"rolled back, edits kept pending. A Python toolchain must be on PATH " +
+		"(gADR-0012). Output: %s")
 		% [result["exit_code"], result["python"], result["output"]]
 	)
 	_set_status()

@@ -25,13 +25,15 @@ extends RefCounted
 ## The numeric scalar fields of a parsed JSON-Schema document, in schema order
 ## (Godot Dictionaries preserve JSON key order). Each field spec is:
 ##   {
-##     "key": String,        # the JSON property name (the authority key)
-##     "label": String,      # a humanized label for the SpinBox row
-##     "min": float,         # lower bound (or -INF when the schema sets none)
-##     "max": float,         # upper bound (or INF when the schema sets none)
-##     "has_min": bool,      # whether the schema bounded it below
-##     "has_max": bool,      # whether the schema bounded it above
-##     "step": float,        # a sensible SpinBox increment for the field's range
+##     "key": String,          # the JSON property name (the authority key)
+##     "label": String,        # a humanized label for the SpinBox row
+##     "min": float,           # lower bound (or -INF when the schema sets none)
+##     "max": float,           # upper bound (or INF when the schema sets none)
+##     "has_min": bool,        # whether the schema bounded it below
+##     "has_max": bool,        # whether the schema bounded it above
+##     "exclusive_min": bool,  # the lower bound is EXCLUSIVE (unselectable)
+##     "exclusive_max": bool,  # the upper bound is EXCLUSIVE (unselectable)
+##     "step": float,          # a sensible SpinBox increment for the field's range
 ##   }
 ## A non-object schema, or one without `properties`, yields an empty Array.
 static func numeric_fields(schema: Dictionary) -> Array[Dictionary]:
@@ -53,13 +55,16 @@ static func numeric_fields(schema: Dictionary) -> Array[Dictionary]:
 
 ## Build one field spec from a property schema — folding the four JSON-Schema
 ## bound keywords (minimum / maximum and their exclusive siblings) into a single
-## numeric floor/ceiling the SpinBox can enforce. An exclusive bound is treated
-## as the SpinBox limit (the offline builder's jsonschema pass stays the hard
-## gate that rejects the exact-boundary value on derive — the form only needs a
-## humane range, not a re-implementation of schema validation).
+## numeric floor/ceiling the SpinBox enforces, PLUS whether each bound is
+## exclusive so EditorForms can make the invalid boundary value unselectable
+## (#476 review). The offline builder's jsonschema pass stays the hard gate for
+## cross-field rules the SpinBox cannot express; the form enforces the single-field
+## range strictly so a lone bad number is never even entered.
 static func _field_spec(key: String, prop: Dictionary) -> Dictionary:
-	var has_min := prop.has("minimum") or prop.has("exclusiveMinimum")
-	var has_max := prop.has("maximum") or prop.has("exclusiveMaximum")
+	var exclusive_min := prop.has("exclusiveMinimum")
+	var exclusive_max := prop.has("exclusiveMaximum")
+	var has_min := prop.has("minimum") or exclusive_min
+	var has_max := prop.has("maximum") or exclusive_max
 	var lo := float(prop.get("minimum", prop.get("exclusiveMinimum", -INF)))
 	var hi := float(prop.get("maximum", prop.get("exclusiveMaximum", INF)))
 	return {
@@ -69,6 +74,8 @@ static func _field_spec(key: String, prop: Dictionary) -> Dictionary:
 		"max": hi,
 		"has_min": has_min,
 		"has_max": has_max,
+		"exclusive_min": exclusive_min,
+		"exclusive_max": exclusive_max,
 		"step": _step_for(has_max, hi),
 	}
 

@@ -72,17 +72,24 @@ func _build_row(authority: String, field: Dictionary) -> HBoxContainer:
 
 	var value: float = _model.get_number(authority, String(field["key"]))
 	var spin := SpinBox.new()
+	var step := _display_step(float(field["step"]), value)
+	spin.step = step
 	spin.allow_lesser = not bool(field["has_min"])
 	spin.allow_greater = not bool(field["has_max"])
+	# Exclusive schema bounds are made UNSELECTABLE (#476 review): offset the
+	# SpinBox limit one step inside the boundary so the invalid exact-boundary value
+	# cannot be entered. Clamp the limit so the current (valid) seed value stays
+	# selectable — seeding must never move the authored number.
 	if bool(field["has_min"]):
-		spin.min_value = float(field["min"])
+		var lo := float(field["min"])
+		spin.min_value = minf(lo + step if bool(field["exclusive_min"]) else lo, value)
 	else:
 		spin.min_value = -1_000_000.0
 	if bool(field["has_max"]):
-		spin.max_value = float(field["max"])
+		var hi := float(field["max"])
+		spin.max_value = maxf(hi - step if bool(field["exclusive_max"]) else hi, value)
 	else:
 		spin.max_value = 1_000_000.0
-	spin.step = _display_step(float(field["step"]), value)
 	spin.value = value
 	spin.custom_minimum_size = Vector2(160.0, 0.0)
 	# bind(authority, key): the SpinBox reports only the new value; the binding
