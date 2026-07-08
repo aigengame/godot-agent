@@ -16,9 +16,9 @@ editor-generated, machine-local `.godot/uid_cache.bin`. The Godot editor writes 
 gda-authored files carry **none of this**: bare `[gd_scene format=3]` headers,
 `ext_resource` referenced by `path` + a local `id`, no `uid://` anywhere. This was an
 **unstated, emergent property** — never a recorded decision — and the question surfaced
-dogfooding Panda Adventure (the human-GUI-coexistence question raised during the v0.8.0
-`game set --verified` verification session): should gda "align" its output to the
-editor's uid-ized form?
+dogfooding Panda Adventure (the human-GUI-coexistence question raised while verifying gda
+0.8.0's `game set` read-back `verified` result field, #473): should gda "align" its output
+to the editor's uid-ized form?
 
 Two facts settle it:
 
