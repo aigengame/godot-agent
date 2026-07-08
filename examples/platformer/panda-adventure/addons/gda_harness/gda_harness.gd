@@ -1,4 +1,4 @@
-# gda-harness-version: 5
+# gda-harness-version: 6
 extends Node
 
 # The gda harness (ADR-0017, ADR-0018). Installed as a project [autoload] by
