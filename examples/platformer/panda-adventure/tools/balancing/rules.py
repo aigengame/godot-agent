@@ -3,11 +3,12 @@
 These functions mirror the shipped GDScript statics —
 ``src/systems/combat_system.gd`` (``CombatSystem``), ``src/systems/enemy_ai.gd``
 (``EnemyAI``), ``src/systems/warp_system.gd`` (``WarpSystem``, the Boss Warp
-kit's pure decisions, gADR-0009), and ``src/systems/item_system.gd``
-(``ItemSystem.effective_defender``'s defense composition, gADR-0008) —
-one-for-one. gADR-0011 forbids the balancing pipeline from importing the game's
-GDScript, so the rules are reimplemented here and pinned against the GDScript
-ground truth by golden parity fixtures
+kit's pure decisions, gADR-0009), ``src/systems/item_system.gd``
+(``ItemSystem.effective_defender``'s defense composition, gADR-0008), and
+``src/systems/growth_system.gd`` (``GrowthSystem.resolve_level``, the Leveling
+readout, gADR-0006) — one-for-one. gADR-0011 forbids the balancing pipeline from
+importing the game's GDScript, so the rules are reimplemented here and pinned
+against the GDScript ground truth by golden parity fixtures
 (``tests/fixtures/balancing/seams.json``, generated FROM the seams via
 ``gda script run``). A rule change on either side breaks parity until both
 co-evolve — the price gADR-0011 pays for isolation.
@@ -204,3 +205,21 @@ def effective_defense(base_defense: float, defense_bonus: float) -> float:
     itself is untouched. (The GDScript composes a fresh full stat block; only the
     defense differs, which is what this mirrors.)"""
     return base_defense + defense_bonus
+
+
+# --- GrowthSystem (src/systems/growth_system.gd), the Leveling readout ------- #
+
+
+def resolve_level(exp_points: float, level_curve: list[float]) -> int:
+    """The Level implied by a cumulative EXP total against the Leveling curve
+    (``GrowthSystem.resolve_level``, gADR-0006): Level 1 at the start, +1 per
+    threshold reached, so the Level is ``1 + the thresholds crossed`` and the max
+    Level is ``len(level_curve) + 1`` (the curve is always a parameter — no
+    hardcoded count). Deriving from the TOTAL makes a multi-threshold reward a
+    multi-level-up and re-resolution idempotent. The SD growth loop's feedback
+    term reads Level through this parity-pinned mirror, not a private copy."""
+    level = 1
+    for threshold in level_curve:
+        if exp_points >= threshold:
+            level += 1
+    return level

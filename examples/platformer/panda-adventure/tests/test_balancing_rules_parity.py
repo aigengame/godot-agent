@@ -116,6 +116,8 @@ def _apply_rule(category: str, case: dict) -> float | bool | tuple[float, float]
         )
     if category == "effective_defender":
         return rules.effective_defense(case["base_defense"], case["defense_bonus"])
+    if category == "resolve_level":
+        return rules.resolve_level(case["exp_points"], case["level_curve"])
     raise AssertionError(f"unknown fixture category {category!r}")
 
 

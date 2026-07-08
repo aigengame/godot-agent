@@ -28,9 +28,11 @@ from .model import (
     CombatParams,
     EnemyKind,
     GameData,
+    GrowthEconomy,
     PlayerModel,
     Spawn,
     StatBlock,
+    TierReward,
     Wave,
 )
 
@@ -127,6 +129,44 @@ def load_enemy_kinds(config_dir: Path) -> dict[str, EnemyKind]:
             **extra,
         )
     return kinds
+
+
+def load_growth_economy(config_dir: Path) -> GrowthEconomy:
+    """Map this game's growth/economy authority into the generic
+    :class:`GrowthEconomy` the SD model integrates over (#440).
+
+    Reads the same JSON authority the game derives from — the Leveling curve
+    (``progression_config``), the per-Tier Kill reward + Drop table
+    (``enemies_config``, gADR-0004/0006), the Consumable restore amounts
+    (``items_config``, gADR-0008), and the player pools (``combat_config``) —
+    through the ONE per-game adapter, so the SD model never opens a second
+    parser (gADR-0011). Expected drop counts are ``Σ amount × chance`` per item
+    (the mean-field inflow, not a stochastic roll).
+    """
+    prog = _load(config_dir, "progression_config.json")
+    enemies = _load(config_dir, "enemies_config.json")
+    items = _load(config_dir, "items_config.json")
+    player_stats = _load(config_dir, "combat_config.json")["player_stats"]
+    tier_rewards: dict[str, TierReward] = {}
+    for tier, t in enemies["tiers"].items():
+        expected: dict[str, float] = {}
+        for drop in t.get("drops", []):
+            item = drop["item"]
+            expected[item] = expected.get(item, 0.0) + drop["amount"] * drop["chance"]
+        tier_rewards[tier] = TierReward(
+            tier=tier,
+            exp_reward=t["exp_reward"],
+            gold_reward=t["gold_reward"],
+            expected_drops=expected,
+        )
+    return GrowthEconomy(
+        level_curve=tuple(prog["level_curve"]),
+        tier_rewards=tier_rewards,
+        bun_hp_restore=items["bun_hp_restore"],
+        wine_mp_restore=items["wine_mp_restore"],
+        player_max_hp=player_stats["max_hp"],
+        player_max_mp=player_stats["max_mp"],
+    )
 
 
 def load_waves(config_dir: Path) -> tuple[Wave, ...]:
