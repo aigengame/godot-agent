@@ -139,6 +139,25 @@ class FrameLayout:
 
 
 @dataclass(frozen=True)
+class SpriteAnimation:
+    """One animation state fed to the multi-animation SpriteFrames deriver (gADR-0015).
+
+    A character's animated look is ONE Godot ``SpriteFrames`` holding several named
+    animations (idle/run/jump/fire/…), each its own committed sheet (gADR-0015: one
+    sheet per animation state). This is the deriver's per-state input: the state's
+    ``name``, the committed sheet's ``res://`` path, its :class:`FrameLayout`, and
+    the playback ``speed``/``loop`` the emitted animation carries (looping for a
+    locomotion base state, one-shot for a verb). A value shape (no Pillow, no Godot).
+    """
+
+    name: str
+    sheet_res_path: str
+    layout: FrameLayout
+    speed: float = 8.0
+    loop: bool = True
+
+
+@dataclass(frozen=True)
 class ManifestEntry:
     """One Asset manifest record (gADR-0014).
 

@@ -792,6 +792,10 @@ _MANIFEST_DIRNAME = "manifest"
 # ``platforms``/``drop_items`` — which ``_authored_asset_refs`` already scans).
 _ASSET_REF_FIELDS: dict[str, tuple[str, ...]] = {
     _GRAVITY_JSON_REL: ("obstacle_asset",),
+    # P2-S5 (#443): the Player's animated look — ``player_asset`` resolves to the
+    # committed ``SpriteFrames`` the ViewBuilder loads onto an AnimatedSprite2D
+    # (gADR-0015/gADR-0016). The manifest ``player`` id single-homes its path.
+    _PLAYER_JSON_REL: ("player_asset",),
 }
 
 
@@ -1108,6 +1112,27 @@ def validate_asset_sizes(root: Path = GAME_DIR) -> list[Any]:
     )
 
 
+def validate_asset_licenses(root: Path = GAME_DIR) -> list[Any]:
+    """Enforce the license/acquire-mode consistency gate (gADR-0015 §5d).
+
+    Delegates to the asset pipeline's pure licensing core with the DOWNLOAD-license
+    allowlist from the committed Style descriptor (``allowed_licenses`` — CC0/CC-BY):
+    a ``search_download`` entry must record a download license, a ``generation``
+    entry its BACKEND's usage terms (a non-empty token that is NOT a download
+    license — so a generated asset mislabeled ``CC0`` fails the build). Validates
+    EVERY manifest entry (referenced or not), so it is general across asset slices.
+    Raises ``assets.lifecycle.LicenseModeError`` on a violation.
+    """
+    from assets import game_config, lifecycle
+
+    config = game_config.load_style_config()
+    entries = [
+        (asset_id, str(rec.get("acquire_mode", "")), str(rec.get("license", "")))
+        for asset_id, rec in load_asset_manifest(root).items()
+    ]
+    return lifecycle.validate_license_modes(entries, config.style.allowed_licenses)
+
+
 def asset_ref_orphans(root: Path = GAME_DIR) -> list[str]:
     """Manifest ids no authority references — a SOFT report (gADR-0014).
 
@@ -1365,6 +1390,7 @@ def build_all(root: Path = GAME_DIR) -> list[Path]:
     whole-authority ``build_all`` path is the one that enforces.
     """
     validate_asset_refs(root)
+    validate_asset_licenses(root)
     return [build_spec(spec, root=root) for spec in specs_for(root)]
 
 
@@ -1383,6 +1409,10 @@ def build(
     validate_config(config, load_schema(schema_path))
     scale = validate_scale_semantics(load_scale_spec())
     config = compose_scale_spec(config, _PLAYER_JSON_REL, scale)
+    # Resolve the Player's asset reference (manifest id -> path, gADR-0014), so this
+    # convenience API produces the same bytes as build_spec/build_all (the freshness
+    # gate compares against it) — the Player sprite reference is wired since #443.
+    config = compose_asset_refs(config, _PLAYER_JSON_REL, load_asset_manifest())
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(render_tres(config), encoding="utf-8")
     return out_path
@@ -1392,6 +1422,9 @@ def main() -> None:
     # The Asset manifest gate first (gADR-0014), so a standalone build fails loudly
     # on a broken reference / dangling / malformed record before writing anything.
     validate_asset_refs()
+    # The license/acquire-mode consistency gate (gADR-0015 §5d): a generated asset
+    # mislabeled with a download license (or a downloaded one mislabeled) fails here.
+    validate_asset_licenses()
     # Then the size-based Git-LFS gate (gADR-0015): a committed assets/** binary
     # >= T outside LFS fails the authoritative build before any .tres is written.
     validate_asset_sizes()

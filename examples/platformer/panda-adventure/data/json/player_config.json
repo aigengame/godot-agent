@@ -1,5 +1,6 @@
 {
   "player_color": [0.92, 0.92, 0.96, 1.0],
+  "player_asset": "player",
   "player_start": [200.0, 200.0],
   "move_speed": 300.0,
   "jump_velocity": -650.0,

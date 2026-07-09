@@ -104,6 +104,15 @@
         "attribution": "PolygonixGames — Pixel Wooden Crate (OpenGameArt, CC0)",
         "page_url": "https://opengameart.org/content/pixel-wooden-crate"
       }
+    },
+    "player": {
+      "category": "sprites",
+      "scale_key": "player_size",
+      "_note": "P2-S5 (#443): the Player animated sprite SET. Its committed form is the derived SpriteFrames recorded under manifest id 'player' (gADR-0016, Model S); the per-state sheets player_<state>.png are its backing. Landed as REAL Gemini-generated art (Nano Banana Pro, one animation strip per state: idle/run/jump/fire/hurt/consume/level_up/death), recorded under generation terms; this recipe is retained to re-generate the set.",
+      "acquire": {
+        "mode": "generation",
+        "backend": "mcp:gemini"
+      }
     }
   }
 }

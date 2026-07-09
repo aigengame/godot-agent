@@ -45,11 +45,11 @@
       "items": { "type": "number", "exclusiveMinimum": 0.0 }
     },
     "level_up_flash_color": {
-      "description": "Color the Player block flashes to on a level-up (the positive sibling of the hit flash).",
+      "description": "Color the Player flashes to on a level-up. SUPERSEDED by the Player sprite animations (#443, gADR-0016) — a level rise now plays the sprite's 'level_up' one-shot; no longer read at runtime; retained for the editor schema forms (#441/#481).",
       "$ref": "#/$defs/rgba"
     },
     "level_up_flash_duration": {
-      "description": "Seconds for the level-up flash to tween back to the Player's own color; strictly positive.",
+      "description": "Seconds for the level-up flash tween. SUPERSEDED by the Player sprite animations (#443, gADR-0016) — no longer read at runtime; retained for the editor schema forms (#441/#481). Strictly positive.",
       "type": "number",
       "exclusiveMinimum": 0.0
     },

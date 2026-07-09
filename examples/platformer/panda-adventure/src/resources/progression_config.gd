@@ -23,8 +23,11 @@ extends Resource
 # (build_config.validate_progression_semantics enforces the monotonicity).
 @export var level_curve: Array
 
-# The level-up "juice": flash the Player block to this color and tween back
-# (the positive sibling of the hit flash).
+# The level-up "juice": flash color + tween-back duration.
+# SUPERSEDED by the Player sprite animations (P2-S5, #443, gADR-0016): a level rise
+# now plays the AnimatedSprite2D "level_up" one-shot, so no runtime reads these.
+# Retained (not deleted) — the editor schema forms (#441/#481) map them, and
+# physical removal is a separate gated cleanup.
 @export var level_up_flash_color: Color
 @export var level_up_flash_duration: float
 

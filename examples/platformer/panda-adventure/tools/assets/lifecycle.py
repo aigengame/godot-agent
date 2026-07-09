@@ -16,7 +16,7 @@ predicate via ``git check-attr`` and the real sizes from the working tree.
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +26,92 @@ _ASSETS_ROOT = "assets"
 
 class AssetSizeError(Exception):
     """A committed ``assets/**`` binary at/over ``T`` is not Git-LFS-tracked."""
+
+
+class LicenseModeError(Exception):
+    """A manifest entry's license is inconsistent with its acquire mode (gADR-0015)."""
+
+
+@dataclass(frozen=True)
+class LicenseModeViolation:
+    """A manifest entry whose ``license`` does not match its ``acquire_mode``."""
+
+    asset_id: str
+    acquire_mode: str
+    license: str
+    reason: str
+
+
+def find_license_mode_violations(
+    entries: Iterable[tuple[str, str, str]],
+    download_licenses: Collection[str],
+) -> list[LicenseModeViolation]:
+    """The licensing gate's pure core: which ``(id, acquire_mode, license)`` entries
+    record a license inconsistent with how the asset was acquired (gADR-0015 §5d).
+
+    A ``search_download`` asset carries a DOWNLOAD license (its source's terms — the
+    ``download_licenses`` allowlist, CC0/CC-BY). A ``generation`` asset carries its
+    BACKEND's usage terms instead — a distinct, non-empty token that must NOT be a
+    download license (so a generated asset mislabeled ``CC0`` is caught). Other/blank
+    modes carry no rule here (the record-shape gate covers missing fields). Backend-
+    and game-agnostic (no manifest/dict/game coupling), so every asset slice reuses
+    it; returns the violations in input order (empty when all are consistent)."""
+    allowed = set(download_licenses)
+    out: list[LicenseModeViolation] = []
+    for asset_id, mode, license_name in entries:
+        if mode == "search_download":
+            if license_name not in allowed:
+                out.append(
+                    LicenseModeViolation(
+                        asset_id,
+                        mode,
+                        license_name,
+                        "a downloaded asset must record a download license "
+                        f"({sorted(allowed)})",
+                    )
+                )
+        elif mode == "generation":
+            if not license_name:
+                out.append(
+                    LicenseModeViolation(
+                        asset_id,
+                        mode,
+                        license_name,
+                        "a generated asset must record its backend's usage terms",
+                    )
+                )
+            elif license_name in allowed:
+                out.append(
+                    LicenseModeViolation(
+                        asset_id,
+                        mode,
+                        license_name,
+                        "a generated asset must record its backend's usage terms, "
+                        f"not a download license ({sorted(allowed)}) — gADR-0015 §5d",
+                    )
+                )
+    return out
+
+
+def validate_license_modes(
+    entries: Iterable[tuple[str, str, str]],
+    download_licenses: Collection[str],
+) -> list[LicenseModeViolation]:
+    """Raise :class:`LicenseModeError` if any entry's license/mode is inconsistent.
+
+    The wired counterpart of :func:`find_license_mode_violations` (mirrors the size
+    gate's raise-on-violation shape); returns the empty violation list on success."""
+    violations = find_license_mode_violations(entries, download_licenses)
+    if violations:
+        listing = "; ".join(
+            f"{v.asset_id!r} ({v.acquire_mode}, license {v.license!r}): {v.reason}"
+            for v in violations
+        )
+        raise LicenseModeError(
+            f"{len(violations)} manifest entr(ies) with a license inconsistent with "
+            f"the acquire mode (gADR-0015 §5d): {listing}"
+        )
+    return violations
 
 
 @dataclass(frozen=True)

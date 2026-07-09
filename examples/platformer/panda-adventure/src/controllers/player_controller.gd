@@ -42,6 +42,7 @@ const CombatSystemScript := preload("res://src/systems/combat_system.gd")
 const GameLogScript := preload("res://src/util/game_log.gd")
 const GeneratedConfigScript := preload("res://src/util/generated_config.gd")
 const ViewBuilderScript := preload("res://src/view/view_builder.gd")
+const PlayerAnimatorScript := preload("res://src/view/player_animator.gd")
 const ProjectileScene := preload("res://scenes/projectile.tscn")
 
 const CONFIG_PATH := "res://data/generated/player_config.tres"
@@ -52,6 +53,48 @@ const COMBAT_CONFIG_PATH := "res://data/generated/combat_config.tres"
 ## death latch — the EnemyController `died` precedent. The LevelController
 ## folds it into the End state (game_lost + World freeze + End screen).
 signal died
+
+# --- View-integration hooks (P2-S5, #443) -------------------------------------
+# The phase-wide "one hook home": the Player's presentation-relevant moments,
+# emitted by the controller and consumed by view PRESENTERS via signal connect —
+# the PlayerAnimator (this slice), the SFX players (#444), and the VFX (#448).
+# The controller holds NO reference to any presenter and decides nothing about
+# look/sound; it only emits. So animation/audio/VFX stay OUT of the controller and
+# the pure Systems (gADR-0000 layering; the Phase-2 closed logic-change list is
+# view-integration hooks + numeric config only — never a Systems behavioral diff).
+# These REPLACE the S1–S7 inline property-tween placeholders (landing squash, the
+# hit / level-up / consume flashes), which are now the PlayerAnimator's animations.
+
+## Locomotion base state changed — one of &"idle" / &"run" / &"jump" / &"fall".
+## The continuous animation the sprite loops; emitted only on the CHANGE edge
+## (never per physics frame — the gda-logger no-spam convention).
+signal locomotion_changed(state: StringName)
+
+## Touchdown edge (was airborne, now on the floor) — the discrete landing moment
+## (SFX #444 a landing thud, VFX #448 a dust puff). The locomotion animation is
+## already handled by `locomotion_changed`; this is the discrete-event hook.
+signal landed
+
+## A weapon fired — `weapon` is &"laser_gun" or &"gravity_gun" (the WEAPON_*
+## identifiers). Emitted after the bolt / field actually spawns.
+signal fired(weapon: StringName)
+
+## The Player took a hit — the presentation edge of `take_hit` (i-frames already
+## gated it upstream), so a hurt animation / hit SFX / spark VFX fires once.
+signal hurt
+
+## A Consumable was used — `item` is &"bun" or &"wine" (the ITEM_* identifiers).
+## Emitted after the supply gate consumed one.
+signal consumed(item: StringName)
+
+## The Player leveled up — the positive presentation edge, on a level rise.
+signal leveled_up
+
+## The Player's death PRESENTATION edge — distinct from `died` (the gameplay latch
+## the LevelController folds into the End state): emitted once, in the same latch,
+## so the death animation / sting / explosion plays without coupling a presenter to
+## the gameplay signal.
+signal death_started
 
 var _config: PlayerConfigScript
 var _stats_config: StatsConfigScript
@@ -76,6 +119,12 @@ var _debug_invulnerable := false
 # speed. Set by the field via the time_dilatable contract each overlap frame,
 # reset to 1.0 the frame the Player leaves (or the field expires).
 var _time_dilation := 1.0
+# The Player's animation state machine (P2-S5, #443): the view driver that turns
+# the view-integration hook signals into AnimatedSprite2D state. Null when the
+# Player has no SpriteFrames asset (the colored-block fallback — nothing to drive).
+var _animator: PlayerAnimatorScript
+# The last locomotion state emitted, so `locomotion_changed` fires on the edge only.
+var _locomotion: StringName = &"idle"
 
 
 ## Pure movement decision (no node/physics access): given the current velocity,
@@ -157,6 +206,12 @@ func _apply_blockout(config: PlayerConfigScript) -> void:
 	ViewBuilderScript.apply_box(
 		self, config.player_color, config.player_size, true, config.player_asset
 	)
+	# Drive the animation state machine off the view-integration hooks when the
+	# resolved asset gave the Visual an AnimatedSprite2D (a SpriteFrames reference,
+	# P2-S5 #443); the colored-block fallback has no sprite, so no driver.
+	var sprite := $Visual.get_node_or_null("AnimatedSprite") as AnimatedSprite2D
+	if sprite != null:
+		_animator = PlayerAnimatorScript.new(self, sprite)
 
 	position = config.player_start
 
@@ -178,9 +233,12 @@ func _physics_process(delta: float) -> void:
 	)
 	move_and_slide()
 
-	# Landing this frame (airborne last frame, on the floor now) → play the squash.
+	# Landing this frame (airborne last frame, on the floor now) → the landing hook.
 	if is_on_floor() and not was_on_floor:
-		_play_landing_tween()
+		_emit_landed()
+	# The locomotion base state the animator loops (idle/run/jump/fall), emitted on
+	# the change edge only — a view-integration hook, no gameplay effect.
+	_update_locomotion()
 
 	if Input.is_action_just_pressed("switch_weapon"):
 		_switch_weapon()
@@ -213,6 +271,7 @@ func _fire() -> void:
 		"spawn_x": bolt.position.x,
 		"spawn_y": bolt.position.y,
 	})
+	fired.emit(WEAPON_LASER)
 
 
 ## Time-dilation response contract (S8, gADR-0009): a Time Dilation Field
@@ -258,11 +317,14 @@ func take_hit(attacker: StatsConfigScript) -> void:
 	var damage := CombatSystemScript.compute_damage(attacker, _defender_stats(), _combat)
 	_stats.apply_damage(damage)
 	GameLogScript.emit("info", "player_hit", {"damage": damage, "hp_left": _stats.hp})
-	_play_hit_flash()
+	_emit_hurt()
 	if CombatSystemScript.is_dead(_stats.hp):
 		_dead = true
 		GameLogScript.emit("info", "player_died", {"x": position.x, "y": position.y})
 		died.emit()
+		# The death PRESENTATION edge (view-integration hook): the death animation /
+		# sting / explosion, separate from the gameplay `died` latch above.
+		death_started.emit()
 
 
 ## The runtime clock feeding the pure i-frame decision; the Monte-Carlo sim
@@ -271,27 +333,39 @@ func _now() -> float:
 	return Time.get_ticks_msec() / 1000.0
 
 
-## The hit "juice": flash the Player block to the shared hit color and tween
-## back to its own color (the same property-tween as the Enemy's, per the GDD).
-func _play_hit_flash() -> void:
-	var visual := $Visual as ColorRect
-	visual.color = _combat.hit_flash_color
-	var tween := create_tween()
-	var recover := tween.tween_property(
-		visual, "color", _config.player_color, _combat.hit_flash_duration
-	)
-	recover.set_trans(Tween.TRANS_SINE)
+## The hit presentation edge (P2-S5, #443): emit the `hurt` view-integration hook
+## (the PlayerAnimator plays the hurt animation; SFX/VFX attach here too). Replaces
+## the S4 hit-flash property-tween placeholder. Config `hit_flash_*` stays authored
+## (data-seam) — the presentation is now an animation, not a ColorRect tween.
+func _emit_hurt() -> void:
+	hurt.emit()
 
 
-## The blockout "animation": a brief squash-stretch of the Player block on landing
-## (a property-tween, per the GDD — no authored sprite frames).
-func _play_landing_tween() -> void:
-	var visual := $Visual as ColorRect
-	visual.scale = _config.landing_squash
-	var tween := create_tween()
-	var recover := tween.tween_property(visual, "scale", Vector2.ONE, _config.landing_tween_duration)
-	recover.set_trans(Tween.TRANS_SINE)
+## The landing edge (P2-S5, #443): emit the `landed` view-integration hook and log
+## the touchdown (the durable `player_land` observable for gda logger tail). Replaces
+## the S1 landing squash-stretch property-tween placeholder; the landing ANIMATION
+## follows from the locomotion change. Config `landing_*` stays authored (data-seam).
+func _emit_landed() -> void:
+	landed.emit()
 	GameLogScript.emit("info", "player_land", {"floor_y": position.y})
+
+
+## The locomotion base state the animator loops, as a pure decision (view-only, not a
+## Systems rule): airborne rising is jump, airborne falling is fall, on the floor with
+## horizontal input is run, else idle. Godot is +Y-down (rising is v.y < 0).
+static func _compute_locomotion(vel: Vector2, on_floor: bool) -> StringName:
+	if not on_floor:
+		return &"jump" if vel.y < 0.0 else &"fall"
+	return &"run" if absf(vel.x) > 1.0 else &"idle"
+
+
+## Emit `locomotion_changed` when the locomotion base state changes (the edge only —
+## never per physics frame; the gda-logger no-spam convention applied to a hook).
+func _update_locomotion() -> void:
+	var state := _compute_locomotion(velocity, is_on_floor())
+	if state != _locomotion:
+		_locomotion = state
+		locomotion_changed.emit(state)
 
 
 # --- S3 Gravity Gun + weapon switch + MP economy (gADR-0002) ------------------
@@ -362,6 +436,7 @@ func _fire_gravity_gun() -> void:
 		"field_x": field.position.x,
 		"field_y": field.position.y,
 	})
+	fired.emit(WEAPON_GRAVITY)
 
 
 ## Drink Wine — restore MP capped at the stat block's max_mp. Since S7 the S3
@@ -377,7 +452,7 @@ func _drink_wine() -> void:
 		return
 	var mp_before := _stats.mp
 	_stats.restore_mp(cfg.wine_mp_restore, _stats_config.max_mp)
-	_play_consume_flash(cfg.wine_flash_color)
+	consumed.emit(ITEM_WINE)
 	GameLogScript.emit("info", "wine_drunk", {
 		"mp_before": mp_before,
 		"mp_after": _stats.mp,
@@ -485,7 +560,7 @@ func _check_level_up() -> void:
 		"to": _level,
 		"exp_total": _stats.exp_points,
 	})
-	_play_level_up_flash()
+	leveled_up.emit()
 
 
 ## Receive one collected Pickup's drop (called by PickupController on
@@ -511,22 +586,6 @@ func collect_drop(item: String, amount: int) -> void:
 		"amount": amount,
 		"count": _items[item],
 	})
-
-
-## The level-up "juice": flash the Player block to the config level-up color
-## and tween back to its own color (the positive sibling of the hit flash —
-## a property-tween, per the GDD).
-func _play_level_up_flash() -> void:
-	var cfg := _progression_config()
-	if cfg == null:
-		return
-	var visual := $Visual as ColorRect
-	visual.color = cfg.level_up_flash_color
-	var tween := create_tween()
-	var recover := tween.tween_property(
-		visual, "color", _config.player_color, cfg.level_up_flash_duration
-	)
-	recover.set_trans(Tween.TRANS_SINE)
 
 
 ## The derived ProgressionConfig with the standard loud guard, lazily loaded
@@ -597,7 +656,7 @@ func _eat_bun() -> void:
 		return
 	var hp_before := _stats.hp
 	_stats.restore_hp(cfg.bun_hp_restore, _stats_config.max_hp)
-	_play_consume_flash(cfg.bun_flash_color)
+	consumed.emit(ITEM_BUN)
 	GameLogScript.emit("info", "bun_eaten", {
 		"hp_before": hp_before,
 		"hp_after": _stats.hp,
@@ -616,22 +675,6 @@ func _try_consume(item: String) -> bool:
 		return false
 	_items[item] = ItemSystemScript.consumed(count)
 	return true
-
-
-## The consume "juice": flash the Player block to the used item's config
-## color and tween back to its own color (the hit-flash idiom; one shared
-## duration — two flavors of one verb, gADR-0008).
-func _play_consume_flash(flash_color: Color) -> void:
-	var cfg := _items_config()
-	if cfg == null:
-		return
-	var visual := $Visual as ColorRect
-	visual.color = flash_color
-	var tween := create_tween()
-	var recover := tween.tween_property(
-		visual, "color", _config.player_color, cfg.consume_flash_duration
-	)
-	recover.set_trans(Tween.TRANS_SINE)
 
 
 ## The derived ItemsConfig with the standard loud guard, lazily loaded so the

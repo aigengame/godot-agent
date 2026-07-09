@@ -14,10 +14,13 @@ extends RefCounted
 ## passes its config's optional asset reference (JSON authority -> build_config ->
 ## derived Resource -> here), and the builder resolves the Asset manifest id -> the
 ## single-homed res:// path (P2-S1, #439, gADR-0014). The sprite RENDERING branch
-## is implemented (`_apply_visual` / `_apply_sprite`): the tracer wires the
-## Obstacle texture, and sibling asset slices wire the rest BY DATA with no
-## controller edits (each just authors its config's reference). A reference whose
-## texture cannot load guards loudly and falls back to the colored block.
+## (`_apply_visual` / `_apply_sprite`) DISPATCHES on the resolved resource kind: a
+## `Texture2D` renders as the static "Sprite" TextureRect (the tracer's Obstacle,
+## #439), a `SpriteFrames` as an "AnimatedSprite2D" a controller drives through its
+## view-integration hooks (the Player, P2-S5 #443, gADR-0015). Sibling asset slices
+## wire the rest BY DATA with no controller edits (each just authors its config's
+## reference). A reference that cannot load — or resolves to neither kind — guards
+## loudly and falls back to the colored block.
 ##
 ## Static, like the pure Systems (CombatSystem, GravitySystem, …) and the
 ## GeneratedConfig loader — this is stateless one-shot construction, not a
@@ -90,17 +93,25 @@ static func _apply_visual(
 	_apply_sprite(visual, size, asset, color)
 
 
-## Render the resolved `asset` texture inside the "Visual" rect (P2-S1, #439): the
-## ColorRect becomes a transparent frame and a "Sprite" TextureRect child fills it
-## with the loaded texture, scaled to `size` (the postprocess stage already
-## conforms the texture to the Scale spec dimensions, so this is 1:1). The sprite
-## is a CHILD of the Visual node, so it inherits the Visual's transform — a
-## squashing actor's scale tween on the Visual squashes the sprite too. Nearest
-## filtering keeps the pixel-art crisp (the project default too, gADR-0013). A null
-## load is a not-shipped-asset fault: guard loudly and colored-block-fallback.
+## Render the resolved `asset` inside the "Visual" rect, DISPATCHING on the loaded
+## resource kind (P2-S1 #439 static texture; P2-S5 #443 animated sprite): the
+## ColorRect becomes a transparent frame and the sprite is added as its child, so
+## it inherits the Visual's transform. Two branches on what the reference resolved
+## to:
+##   - a `Texture2D` -> the STATIC path (#439): a "Sprite" TextureRect child scaled
+##     to `size`. This node contract is a fixed seam (the Obstacle texture e2e and
+##     the view-builder logic seam pin the "Sprite" TextureRect) and is preserved
+##     byte-for-byte here.
+##   - a `SpriteFrames` -> the ANIMATED path (#443): an "AnimatedSprite2D" child the
+##     view driver (PlayerAnimator) plays, sized to `size`. gADR-0015's SpriteFrames
+##     is the committed animated look; a controller drives its states via the
+##     view-integration hooks.
+## Nearest filtering keeps the pixel-art crisp (the project default too, gADR-0013).
+## A null load, or a resource that is neither kind, is a not-shipped/mis-typed asset
+## fault: guard loudly and fall back to the colored block so the game still renders.
 static func _apply_sprite(visual: ColorRect, size: Vector2, asset: String, color: Color) -> void:
-	var texture := load(asset) as Texture2D
-	if texture == null:
+	var resource := load(asset)
+	if resource == null:
 		push_error(
 			"ViewBuilder: asset '%s' failed to load — rendering the colored-block fallback."
 			% asset
@@ -108,6 +119,26 @@ static func _apply_sprite(visual: ColorRect, size: Vector2, asset: String, color
 		visual.color = color
 		return
 	visual.color = Color(0, 0, 0, 0)  # transparent frame; the sprite is the visual
+	if resource is SpriteFrames:
+		_apply_animated_sprite(visual, size, resource)
+	elif resource is Texture2D:
+		_apply_static_sprite(visual, size, resource)
+	else:
+		push_error(
+			(
+				"ViewBuilder: asset '%s' is neither a Texture2D nor a SpriteFrames (%s) — "
+				+ "rendering the colored-block fallback."
+			)
+			% [asset, resource.get_class()]
+		)
+		visual.color = color
+
+
+## The STATIC texture branch (#439), preserved verbatim: a "Sprite" TextureRect
+## child of the Visual, scaled to `size` (postprocess already conformed the texture
+## to the Scale spec dimensions, so this is 1:1). The node NAME and TYPE are a fixed
+## contract other slices depend on (the Obstacle texture e2e).
+static func _apply_static_sprite(visual: ColorRect, size: Vector2, texture: Texture2D) -> void:
 	var sprite := TextureRect.new()
 	sprite.name = "Sprite"
 	sprite.texture = texture
@@ -115,4 +146,28 @@ static func _apply_sprite(visual: ColorRect, size: Vector2, asset: String, color
 	sprite.stretch_mode = TextureRect.STRETCH_SCALE
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	sprite.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	visual.add_child(sprite)
+
+
+## The ANIMATED sprite branch (#443): an "AnimatedSprite2D" child of the Visual,
+## centered in the block and scaled so a frame maps onto `size` (postprocess
+## conforms frames to the Scale-spec box, so this is 1:1). It plays the set's first
+## animation by default so any SpriteFrames renders animated even without a driver;
+## a controller's view driver (PlayerAnimator) then drives the animation STATE from
+## the controller's view-integration hooks. Nearest filtering keeps pixel art crisp.
+static func _apply_animated_sprite(visual: ColorRect, size: Vector2, frames: SpriteFrames) -> void:
+	var sprite := AnimatedSprite2D.new()
+	sprite.name = "AnimatedSprite"
+	sprite.sprite_frames = frames
+	sprite.centered = true
+	sprite.position = size / 2.0  # the Visual's centre, in its local (top-left) space
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var names := frames.get_animation_names()
+	if not names.is_empty():
+		var frame := frames.get_frame_texture(names[0], 0)
+		if frame != null:
+			var frame_size := frame.get_size()
+			if frame_size.x > 0.0 and frame_size.y > 0.0:
+				sprite.scale = size / frame_size
+		sprite.play(names[0])
 	visual.add_child(sprite)

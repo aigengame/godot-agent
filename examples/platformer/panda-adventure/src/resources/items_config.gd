@@ -25,8 +25,11 @@ extends Resource
 # formula's mitigation term — the formula itself is untouched (gADR-0008).
 @export var spacesuit_defense: float
 
-# Consume juice: per-item flash color, one shared tween-back duration (two
-# flavors of one verb — the hit-flash idiom on the Player block).
+# Consume juice: per-item flash color + a shared tween-back duration.
+# SUPERSEDED by the Player sprite animations (P2-S5, #443, gADR-0016): consuming a
+# Bun/Wine now plays the AnimatedSprite2D "consume" one-shot, so no runtime reads
+# these. Retained (not deleted) — the editor schema forms (#441/#481) map them, and
+# physical removal is a separate gated cleanup.
 @export var bun_flash_color: Color
 @export var wine_flash_color: Color
 @export var consume_flash_duration: float

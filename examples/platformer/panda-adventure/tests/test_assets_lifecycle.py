@@ -26,10 +26,16 @@ from PIL import Image
 import build_config
 from assets import game_config, lifecycle, manifest, pipeline
 from assets.emitter import JsonManifestEmitter
-from assets.lifecycle import OversizeAsset, find_unlfs_oversize
-from assets.model import FrameLayout, ManifestEntry
+from assets.lifecycle import (
+    LicenseModeError,
+    LicenseModeViolation,
+    OversizeAsset,
+    find_license_mode_violations,
+    find_unlfs_oversize,
+)
+from assets.model import FrameLayout, ManifestEntry, SpriteAnimation
 from assets.packer import pack_frames
-from assets.spriteframes import derive_spriteframes
+from assets.spriteframes import derive_spriteframes, derive_spriteframes_set
 
 
 # --------------------------------------------------------------------------- #
@@ -182,6 +188,70 @@ def test_derive_spriteframes_is_deterministic(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Multi-animation deriver (P2-S5, #443): several per-state sheets -> ONE
+# SpriteFrames an AnimatedSprite2D plays by name (idle/run/jump/...).
+# --------------------------------------------------------------------------- #
+
+
+def _anim(
+    name: str, count: int, dims: tuple[int, int], *, loop: bool = True, speed=8.0
+):
+    return SpriteAnimation(
+        name=name,
+        sheet_res_path=f"res://assets/sprites/player_{name}.png",
+        layout=FrameLayout(frame_dims=dims, columns=count, rows=1, count=count),
+        speed=speed,
+        loop=loop,
+    )
+
+
+def test_derive_spriteframes_set_composes_named_animations() -> None:
+    """A set derives one ext_resource per sheet and one named, per-state animation
+    with its own frames, regions, and loop flag (gADR-0015/#443)."""
+    tres = derive_spriteframes_set(
+        [
+            _anim("idle", 2, (48, 64), loop=True),
+            _anim("fire", 3, (48, 64), loop=False, speed=12.0),
+        ]
+    )
+    assert tres.startswith('[gd_resource type="SpriteFrames" format=3]')
+    # One ext_resource per state's sheet, deterministically id'd "{i+1}_{name}".
+    assert (
+        '[ext_resource type="Texture2D" path="res://assets/sprites/player_idle.png" id="1_idle"]'
+        in tres
+    )
+    assert (
+        '[ext_resource type="Texture2D" path="res://assets/sprites/player_fire.png" id="2_fire"]'
+        in tres
+    )
+    # Each state's AtlasTexture regions reference its own sheet.
+    assert 'atlas = ExtResource("1_idle")' in tres
+    assert 'atlas = ExtResource("2_fire")' in tres
+    assert "region = Rect2(96, 0, 48, 64)" in tres  # fire frame 2
+    # Both animations land in the SpriteFrames, named + with their loop flag.
+    assert '"name": &"idle"' in tres and '"loop": true' in tres
+    assert '"name": &"fire"' in tres and '"loop": false' in tres
+    assert '"speed": 12.0' in tres
+    assert 'SubResource("AtlasTexture_idle_1")' in tres
+    assert 'SubResource("AtlasTexture_fire_2")' in tres
+
+
+def test_derive_spriteframes_set_is_deterministic_and_uid_free() -> None:
+    """Same states -> byte-identical, uid-free output (a committed derived artifact)."""
+    states = [_anim("idle", 2, (16, 16)), _anim("run", 4, (16, 16))]
+    a = derive_spriteframes_set(states)
+    b = derive_spriteframes_set(states)
+    assert a == b
+    assert "uid://" not in a
+
+
+def test_derive_spriteframes_set_rejects_empty() -> None:
+    """A set with no animation states is a clear error, not empty malformed text."""
+    with pytest.raises(ValueError, match="no animation states"):
+        derive_spriteframes_set([])
+
+
+# --------------------------------------------------------------------------- #
 # Size-based Git-LFS gate (gADR-0015): >= T must be LFS-tracked, uniform.
 # --------------------------------------------------------------------------- #
 
@@ -311,6 +381,79 @@ def test_gitattributes_tracks_music_dir_in_lfs() -> None:
 # --------------------------------------------------------------------------- #
 # Config-gate wiring: the size gate runs from build_config, not only tests.
 # --------------------------------------------------------------------------- #
+
+
+# --------------------------------------------------------------------------- #
+# License/acquire-mode consistency gate (gADR-0015 §5d): a generated asset records
+# its BACKEND's usage terms, a downloaded asset a download license (CC0/CC-BY).
+# --------------------------------------------------------------------------- #
+
+_DOWNLOAD = ("CC0", "CC-BY")
+
+
+def test_license_gate_generation_backend_terms_pass() -> None:
+    """A generation-mode entry with its backend's usage terms is consistent."""
+    entries = [("player", "generation", "Gemini-Generated")]
+    assert find_license_mode_violations(entries, _DOWNLOAD) == []
+
+
+def test_license_gate_generation_mislabeled_download_is_caught() -> None:
+    """A generated asset mislabeled with a DOWNLOAD license (CC0) is a violation —
+    the exact review finding (gADR-0015 §5d): generated != downloaded."""
+    entries = [("player", "generation", "CC0")]
+    violations = find_license_mode_violations(entries, _DOWNLOAD)
+    assert len(violations) == 1
+    assert violations[0] == LicenseModeViolation(
+        "player", "generation", "CC0", violations[0].reason
+    )
+    assert "backend" in violations[0].reason
+
+
+def test_license_gate_generation_empty_license_is_caught() -> None:
+    """A generated asset with no recorded license is a violation (must record terms)."""
+    assert len(find_license_mode_violations([("x", "generation", "")], _DOWNLOAD)) == 1
+
+
+def test_license_gate_search_download_requires_download_license() -> None:
+    """A downloaded asset must carry a download license: CC0 passes, a generation
+    token on a downloaded asset is caught (the rule is symmetric)."""
+    assert (
+        find_license_mode_violations([("o", "search_download", "CC0")], _DOWNLOAD) == []
+    )
+    caught = find_license_mode_violations(
+        [("o", "search_download", "Gemini-Generated")], _DOWNLOAD
+    )
+    assert len(caught) == 1
+
+
+def test_validate_license_modes_raises_and_names_the_asset() -> None:
+    """The wired gate raises LicenseModeError naming the offending asset."""
+    from assets import lifecycle
+
+    with pytest.raises(LicenseModeError, match="player"):
+        lifecycle.validate_license_modes([("player", "generation", "CC0")], _DOWNLOAD)
+
+
+def test_build_config_license_gate_passes_on_committed_repo() -> None:
+    """The committed manifest is consistent: the Obstacle is a CC0 download, the
+    Player set records its Gemini generation terms (the wiring the build runs)."""
+    build_config.validate_asset_licenses()  # no raise
+
+
+def test_build_config_license_gate_catches_mislabeled_generation(
+    tmp_path: Path,
+) -> None:
+    """`build_config.validate_asset_licenses` fails a manifest that records a
+    generation-mode asset under a download license (general — reused by every
+    asset slice, e.g. #442's generated items)."""
+    frag = tmp_path / "assets" / "manifest" / "sprites.json"
+    frag.parent.mkdir(parents=True)
+    frag.write_text(
+        '{"bad": {"acquire_mode": "generation", "license": "CC0"}}\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(LicenseModeError, match="bad"):
+        build_config.validate_asset_licenses(tmp_path)
 
 
 def test_build_config_size_gate_passes_on_committed_repo() -> None:

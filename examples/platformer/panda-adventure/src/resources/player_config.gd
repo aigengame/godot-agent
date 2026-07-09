@@ -40,7 +40,10 @@ extends Resource
 # Follow-camera smoothing (Camera2D.position_smoothing_speed): higher = snappier.
 @export var camera_smoothing_speed: float
 
-# Landing "juice": the squash-stretch pose (block scale) applied on touchdown and
-# the seconds the tween takes to recover it to normal scale.
+# Landing "juice": the squash-stretch pose (block scale) and recover-tween seconds.
+# SUPERSEDED by the Player sprite animations (P2-S5, #443, gADR-0016): the Player
+# landing is now the AnimatedSprite2D's locomotion transition, so no runtime reads
+# these. Retained (not deleted) — the editor schema forms (#441/#481) map them, and
+# physical removal is a separate gated cleanup.
 @export var landing_squash: Vector2
 @export var landing_tween_duration: float

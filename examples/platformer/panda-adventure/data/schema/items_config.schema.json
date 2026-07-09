@@ -41,7 +41,7 @@
     "bun_flash_color": { "$ref": "#/$defs/rgba" },
     "wine_flash_color": { "$ref": "#/$defs/rgba" },
     "consume_flash_duration": {
-      "description": "Seconds the consume flash takes to tween back to the Player's own color (shared by both Consumables — two flavors of one verb); strictly positive.",
+      "description": "Seconds the consume flash tween takes (shared by both Consumables). SUPERSEDED by the Player sprite animations (#443, gADR-0016) — consuming now plays the sprite's 'consume' one-shot; no longer read at runtime; retained for the editor schema forms (#441/#481). Strictly positive.",
       "type": "number",
       "exclusiveMinimum": 0.0
     }
