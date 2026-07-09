@@ -3,14 +3,15 @@
     "path": "res://assets/sprites/player.tres",
     "category": "sprites",
     "acquire_mode": "generation",
-    "source": "placeholder",
+    "source": "mcp:gemini",
     "license": "CC0",
     "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
     "target_dims": [
       48,
       64
     ],
-    "attribution": "PLACEHOLDER — procedurally generated in-pipeline (no fit/licensed CC0 sheet or imagegen key available in-worktree); flagged for wave-close acquisition (#443).",
-    "prompt": "spacesuit panda platformer character, 16-bit pixel art, space-opera Great-Wall-frontier style, idle/run/jump/fire/hurt/consume/level_up/death states, clean readable silhouette"
+    "attribution": "Generated with Google Gemini (Nano Banana Pro, gemini-3-pro-image-preview) via the asset pipeline's MCP channel; one animation strip per state, pipeline-conformed to the pixel-art regime; CC0.",
+    "prompt": "[model=gemini-3-pro-image-preview] a chibi giant-panda astronaut hero, chunky white space-suit with a rounded glowing cyan helmet dome, black panda ear-patches and eye-patches, small backpack, stubby limbs, bold dark outline, 16-bit pixel-art game sprite, flat shading, limited palette, side view facing right, full body with feet visible — per-state animation strips (idle/run/jump/fire/hurt/consume/level_up/death) on a magenta chroma background, sliced + normalized to 48x64 pixel frames.",
+    "backend": "mcp:gemini"
   }
 }
