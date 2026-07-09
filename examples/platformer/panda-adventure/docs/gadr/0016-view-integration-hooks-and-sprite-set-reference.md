@@ -26,9 +26,18 @@ We decide two things:
   verb events** (`landed`, `fired(weapon)`, `hurt`, `consumed(item)`, `leveled_up`,
   and a death-PRESENTATION `death_started` distinct from the gameplay `died` latch),
   each carrying a minimal typed payload. The S1–S7 inline property-tween placeholders
-  (landing squash, hit/level-up/consume flashes) are REPLACED by these hooks; their
-  numeric config (`landing_*`, `hit_flash_*`, `level_up_flash_*`, `consume_flash_*`)
-  stays authored, now consumed by presentation rather than a ColorRect tween. The
+  (the Player landing squash, hit/level-up/consume flashes) are REPLACED by these
+  hooks: the Player VERBS are now sprite-animated, so the Player-side numeric config
+  those tweens read — `landing_squash`/`landing_tween_duration` (player_config),
+  `level_up_flash_*` (progression_config), and `consume_flash_duration` +
+  `bun_flash_color`/`wine_flash_color` (items_config) — is **superseded**: no runtime
+  reads it (the animator plays named animations, not colors/durations). The fields
+  are RETAINED for now, not deleted (the editor schema forms #441/#481 map them;
+  physical removal is a separate gated cleanup). `hit_flash_*` (combat_config) is NOT
+  superseded — it is still consumed by `EnemyController._play_hit_flash` (the enemy
+  hit tween, until the enemy is sprite-animated in #447). And `landed` is a RESERVED
+  hook: emitted but deliberately not animated, awaiting its #444 SFX consumer (a
+  landing thud). The
   animation state machine is a stateful view driver (the EnemyWarpDriver /
   GameFlowDirector idiom): a `RefCounted` owned by the controller with an untyped
   owner (no cyclic class reference), overlaying one-shot verb animations over the
