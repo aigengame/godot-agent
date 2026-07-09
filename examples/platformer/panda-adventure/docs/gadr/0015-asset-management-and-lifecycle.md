@@ -106,3 +106,14 @@ means the first over-`T` asset is born in LFS with no history rewrite.
 > Orthogonal and still required: the size-based Git-LFS **byte** materialization on
 > the export path (§5's commit rule) is a git-layer concern, unrelated to Godot
 > import, and stands.
+>
+> **Refinement (2026-07-09, gADR-0016).** §2's "the frame layout (`frame_dims`,
+> rows/cols, count) is recorded in the manifest" is refined for a MULTI-STATE
+> character set by gADR-0016's Model S. There, the derived `SpriteFrames.tres` (not
+> the loose sheets) is the asset the JSON authority references, so the set is ONE
+> manifest entry whose `path` is that `.tres`; the per-state sheets are its committed
+> backing and the per-frame **layout lives in the `.tres` regions, not the manifest**
+> (the entry carries no `frame_layout`). §2's per-sheet `frame_layout` recording still
+> holds for a single-state sheet entry (`pack_sprite_set`); a multi-state set folds
+> the layout into the committed `.tres` instead. The one committed-sheet-per-animation
+> -state storage rule (§2) is unchanged.
