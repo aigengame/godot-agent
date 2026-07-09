@@ -19,6 +19,9 @@ assertion). Checkpoints over the current player-visible surface:
   gravity fire — its config RGBA alpha-blended over the boot capture (S3);
 - the EXP/Gold readout pixels change after a kill (S6a), and the next
   Wave's spawn becomes visible (S5) — the reward loop, on screen;
+- the dropped Gold Pickup renders its acquired coin TEXTURE at its logged
+  spawn position after the kill (P2-S3, #442, gADR-0014) — pickups read
+  clearly at their Scale-spec sizes, the readability AC on screen;
 - the S8 Time Dilation Field's translucent zone is visible after the Warp
   Boss blinks (gADR-0009) — its config RGBA alpha-blended over the kill
   capture. The Warp Boss rides the SAME session: the throwaway copy seats
@@ -152,6 +155,14 @@ _MIN_HUD_PIXELS = 200
 # inside their live-read rects: two short text lines at the whole-column
 # threshold's per-line rate (~33), held conservative.
 _MIN_ITEM_PIXELS = 60
+# Non-background pixels the dropped Gold Pickup's TEXTURE must show at its
+# spawn position (P2-S3, #442): the coin fills most of its Scale-spec 14x14
+# box (~100 inked pixels), so 40 proves it reads clearly while staying far
+# from camera-residual / antialiasing noise. Gold drops at chance 1.0 (a
+# guaranteed drop), and the walked Player stops ~200px short of it (then
+# walks the other way for the lose beat), so it is never collected before
+# the kill capture.
+_MIN_PICKUP_PIXELS = 40
 # Per-channel delta that counts a pixel as "not background" / "changed"
 # (S6a precedent).
 _CHANNEL_DELTA = 0.15
@@ -268,6 +279,9 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     combat = build_config.load_composed("data/json/combat_config.json")
     player_cfg = build_config.load_composed("data/json/player_config.json")
     level_cfg = build_config.load_composed("data/json/level_config.json")
+    progression = build_config.load_composed("data/json/progression_config.json")
+    # The Pickup's Scale-spec box (gADR-0013, composed into the drop style).
+    gold_size = progression["drop_items"]["gold"]["size"]
     # The Great-Wall fight platform (gADR-0010): the level authority's
     # "Rampart" segment — the ground line every world-space bound derives from.
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
@@ -484,6 +498,18 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
             tap("fire")
             poll(lambda: bool(records("enemy_died")), timeout=3.0)
         assert poll(lambda: records("enemy_died")), "the Enemy never died"
+
+        # The kill's guaranteed Gold drop (chance 1.0) spawns at the death
+        # position and logs its landing (pickup_spawned) — the anchor for the
+        # P2-S3 Pickup-readability checkpoint below (#442). The Player stopped
+        # ~200px short of the enemy, so the coin is never auto-collected.
+        gold_drops = poll(
+            lambda: [
+                r for r in records("pickup_spawned") if r["fields"]["item"] == "gold"
+            ]
+        )
+        assert gold_drops, "the guaranteed Gold drop never spawned"
+        gold_pos = [gold_drops[0]["fields"]["x"], gold_drops[0]["fields"]["y"]]
 
         exp_text = f"EXP {math.floor(reward['exp_reward'])}"
         gold_text = f"GOLD {math.floor(reward['gold_reward'])}"
@@ -744,6 +770,26 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
             _MIN_TITLE_PIXELS,
             "the End screen's verdict title is not visibly rendering "
             "after the run ended",
+        ),
+        (
+            {
+                # The dropped Gold Pickup renders its acquired coin TEXTURE
+                # (#442, gADR-0014), not a flat block — like the Obstacle, assert
+                # it is VISIBLE (its textured pixels differ from the plain
+                # backdrop) at its logged spawn position in the post-kill capture.
+                # Pickups read clearly at Scale-spec sizes (the #442 AC).
+                "name": "gold_pickup",
+                "mode": "background_delta",
+                "image": "kill",
+                "rect": blockout_region(gold_pos, gold_size, anchor_kill),
+                # A plain-background sample well clear of the pickup (the same
+                # top-right inset the HUD/Obstacle checks use).
+                "reference": [dims[0] - 8, 8],
+                "min_delta": _CHANNEL_DELTA,
+            },
+            _MIN_PICKUP_PIXELS,
+            "the dropped Gold pickup texture is not visible at its spawn "
+            "position after the kill (the #442 readability checkpoint)",
         ),
     ]
     for spawn in wave1_spawns:

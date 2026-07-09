@@ -84,12 +84,15 @@ def test_asset_reference_renders_default_and_authored_value() -> None:
 
 
 def test_asset_reference_materializes_in_nested_view_structures() -> None:
-    """Platform segments and pickup item styles carry the asset key too.
+    """Platform segments and pickup item styles carry the resolved asset per entry.
 
     The two nested view-bearing structures (level ``platforms`` entries and
-    progression ``drop_items`` styles) materialize ``"asset": ""`` per entry in
-    the derived ``.tres``, so their runtime consumers (LevelController /
-    PickupController) can read the reference unconditionally.
+    progression ``drop_items`` styles) each render an ``asset`` key so their
+    runtime consumers (LevelController / PickupController) read the reference
+    unconditionally. The level ``platforms`` stay authored-empty (the terrain skin
+    is a later slice), so they render ``"asset": ""``; the P2-S3 Pickups (#442) are
+    wired, so every ``drop_items`` style renders its resolved single-homed
+    ``res://`` path (the builder composed the manifest id -> path).
     """
     level = build_config.load_composed("data/json/level_config.json")
     rendered = build_config._render_field(
@@ -101,4 +104,6 @@ def test_asset_reference_materializes_in_nested_view_structures() -> None:
     rendered = build_config._render_field(
         "drop_items", "item_style_map", progression["drop_items"]
     )
-    assert rendered.count('"asset": ""') == len(progression["drop_items"])
+    assert '"asset": ""' not in rendered  # every Pickup is wired now (#442)
+    for item in progression["drop_items"]:
+        assert f'"asset": "res://assets/textures/pickup_{item}.png"' in rendered

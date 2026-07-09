@@ -78,15 +78,24 @@ def load_style_config(path: Path = DEFAULT_STYLE_PATH) -> StyleConfig:
 def target_dims(
     config: StyleConfig, scale_key: str, game_root: Path = GAME_ROOT
 ) -> tuple[int, int]:
-    """The asset's exact pixel dimensions from the Scale spec (gADR-0013)."""
+    """The asset's exact pixel dimensions from the Scale spec (gADR-0013).
+
+    ``scale_key`` is a dotted path so an asset can point at a nested Scale-spec
+    dimension, not just a top-level one — the per-item pickup boxes live under
+    ``pickup_sizes`` (``pickup_sizes.bun``), the player projectile at the
+    top-level ``player_projectile_size`` (a single segment, so a plain key still
+    resolves). One authored size home, addressed by path (gADR-0013).
+    """
     scale = json.loads((game_root / config.scale_spec_rel).read_text(encoding="utf-8"))
-    if scale_key not in scale:
-        raise KeyError(
-            f"scale key {scale_key!r} is not in {config.scale_spec_rel} "
-            "(gADR-0013 is the single size authority)"
-        )
-    dims = scale[scale_key]
-    return (int(dims[0]), int(dims[1]))
+    node: Any = scale
+    for part in scale_key.split("."):
+        if not isinstance(node, dict) or part not in node:
+            raise KeyError(
+                f"scale key {scale_key!r} is not in {config.scale_spec_rel} "
+                "(gADR-0013 is the single size authority)"
+            )
+        node = node[part]
+    return (int(node[0]), int(node[1]))
 
 
 def asset_resource_path(config: StyleConfig, category: str, asset_id: str) -> str:

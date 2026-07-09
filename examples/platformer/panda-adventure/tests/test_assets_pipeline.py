@@ -16,7 +16,7 @@ from pathlib import Path
 
 import jsonschema
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 import build_config
 from assets import game_config, manifest, pipeline, postprocess, preprocess
@@ -45,6 +45,26 @@ def test_build_spec_reads_target_dims_from_scale_spec() -> None:
     assert spec.target_dims == (40, 40)  # scale_spec.json obstacle_size
 
 
+def test_target_dims_resolves_a_nested_scale_key() -> None:
+    """A dotted scale_key addresses a nested Scale-spec box (P2-S3, #442).
+
+    The per-item Pickup boxes live under ``pickup_sizes`` — a Pickup spec points
+    at ``pickup_sizes.<item>`` and resolves to that box; a plain (single-segment)
+    key still resolves the top-level ``player_projectile_size`` (gADR-0013).
+    """
+    assert game_config.target_dims(STYLE, "pickup_sizes.bun") == (18, 14)
+    assert game_config.target_dims(STYLE, "pickup_sizes.wine") == (12, 20)
+    assert game_config.target_dims(STYLE, "player_projectile_size") == (18, 6)
+    with pytest.raises(KeyError):
+        game_config.target_dims(STYLE, "pickup_sizes.nope")
+
+
+def test_pickup_and_bolt_specs_read_their_nested_dims() -> None:
+    """The wired P2-S3 specs carry their Scale-spec box (#442, gADR-0013)."""
+    assert pipeline.build_spec_for(STYLE, "pickup_gold").target_dims == (14, 14)
+    assert pipeline.build_spec_for(STYLE, "laser_bolt").target_dims == (18, 6)
+
+
 def test_render_search_query_and_prompt_carry_style() -> None:
     """One spec renders BOTH a search query and a generation prompt (gADR-0014)."""
     spec = pipeline.build_spec_for(STYLE, "obstacle_crate")
@@ -56,6 +76,22 @@ def test_render_search_query_and_prompt_carry_style() -> None:
     assert "obstacle crate" in prompt
     assert STYLE.style.chroma_key in prompt  # solid-background instruction
     assert "40x40" in prompt  # the target size
+
+
+def test_recipe_subject_and_hint_override_the_prompt() -> None:
+    """A recipe's subject/category_hint override the id-derived subject and the
+    shared category hint, so a namespaced item id (pickup_bun) generates a food
+    icon rather than an environment prop (#442). Assets without overrides keep the
+    id-derived subject and the category's shared hint."""
+    bun = pipeline.build_spec_for(STYLE, "pickup_bun")
+    assert bun.subject_terms == "steamed bun, a round pale bread roll food"
+    bun_prompt = preprocess.render_generation_prompt(bun)
+    assert "steamed bun" in bun_prompt
+    assert "environment prop" not in bun_prompt  # the textures hint was overridden
+
+    obstacle = pipeline.build_spec_for(STYLE, "obstacle_crate")
+    assert obstacle.subject_terms == "obstacle crate"  # no override -> humanized id
+    assert "environment prop" in preprocess.render_generation_prompt(obstacle)
 
 
 # --------------------------------------------------------------------------- #
@@ -118,6 +154,47 @@ def test_chroma_key_crop_keys_out_background() -> None:
     keyed = postprocess.chroma_key_crop(img, "#FF00FF")
     assert keyed.size == (8, 8)  # cropped to the content bbox
     assert keyed.getchannel("A").getextrema()[1] == 255  # content stayed opaque
+
+
+def test_detect_background_key_samples_the_corners() -> None:
+    """A near-magenta solid field (a backend approximating the chroma color) is
+    keyed on the ACTUAL corner color, not the fixed configured key (#442)."""
+    img = Image.new("RGBA", (32, 32), (215, 67, 136, 255))  # Gemini-ish pink
+    for y in range(10, 22):
+        for x in range(10, 22):
+            img.putpixel((x, y), (240, 220, 180, 255))  # a pale centered subject
+    key = postprocess.detect_background_key(img, "#FF00FF")
+    assert key.lower() == "#d74388"  # the sampled background, not the fallback
+    keyed = postprocess.chroma_key_crop(img, key, tolerance=60)
+    assert keyed.size == (12, 12)  # cropped to the pale subject
+    assert keyed.getchannel("A").getextrema()[1] == 255  # subject stayed opaque
+
+
+def test_detect_background_key_falls_back_when_corners_disagree() -> None:
+    """No solid field (corners differ) -> the configured key is used unchanged."""
+    img = Image.new("RGBA", (4, 4))
+    img.putpixel((0, 0), (255, 0, 255, 255))
+    img.putpixel((3, 0), (0, 255, 0, 255))
+    img.putpixel((0, 3), (0, 0, 255, 255))
+    img.putpixel((3, 3), (255, 255, 0, 255))
+    assert postprocess.detect_background_key(img, "#123456") == "#123456"
+
+
+def test_postprocess_keys_a_near_magenta_generated_background(tmp_path: Path) -> None:
+    """End to end: a generated subject on an APPROXIMATE magenta field conforms to a
+    transparent-background pixel-art icon (the Gemini pickups' path, #442)."""
+    src = tmp_path / "gen.png"
+    img = Image.new("RGBA", (128, 128), (238, 40, 150, 255))  # not exactly #FF00FF
+    # A ROUND subject (like the real bun): its bounding box has transparent corners.
+    ImageDraw.Draw(img).ellipse((34, 34, 94, 94), fill=(235, 220, 175, 255))
+    img.save(src)
+    out = postprocess.postprocess_image(
+        src, tmp_path / "out.png", (18, 14), STYLE.style.palette, chroma_key="#FF00FF"
+    )
+    with Image.open(out) as conformed:
+        rgba = conformed.convert("RGBA")
+        assert rgba.getpixel((0, 0))[3] == 0  # the pink field keyed to transparent
+        assert rgba.getchannel("A").getextrema() == (0, 255)  # subject opaque, bg clear
 
 
 # --------------------------------------------------------------------------- #
@@ -277,6 +354,34 @@ def test_acquire_asset_generation_mocked(tmp_path: Path) -> None:
     assert "obstacle_crate" in loaded
 
 
+class _ModelBackend:
+    """A generation backend that reports a concrete model (the McpBackend shape)."""
+
+    name = "mcp:gemini"
+    model = "gemini-2.5-flash-image"
+
+    def generate(self, prompt: str, out_path: Path) -> None:
+        Image.new("RGBA", (128, 128), (255, 0, 255, 255)).save(out_path)
+
+
+def test_generation_records_the_backend_model(tmp_path: Path) -> None:
+    """A generated entry records the backend's model as reproducible provenance
+    (gADR-0014, #442) — recorded on the entry and round-tripped through the manifest."""
+    _stage_scale_spec(tmp_path)
+    entry = pipeline.acquire_asset(
+        STYLE,
+        "obstacle_crate",
+        game_root=tmp_path,
+        mode=AcquireMode.GENERATION,
+        backend=_ModelBackend(),
+        raw_dir=tmp_path / "raw",
+    )
+    assert entry.model == "gemini-2.5-flash-image"
+    assert manifest.load_manifest(tmp_path, "assets")["obstacle_crate"].model == (
+        "gemini-2.5-flash-image"
+    )
+
+
 def test_acquire_asset_search_download_mocked(tmp_path: Path) -> None:
     """The full pipeline via SEARCH_DOWNLOAD with a mocked fetch."""
     _stage_scale_spec(tmp_path)
@@ -335,6 +440,51 @@ def test_gravity_tres_carries_the_resolved_path() -> None:
     assert 'obstacle_asset = "res://assets/textures/obstacle_crate.png"' in tres
 
 
+def test_compose_asset_refs_resolves_a_top_level_projectile_ref() -> None:
+    """The Laser bolt ref resolves id -> path on the combat source (#442)."""
+    doc = {"projectile_asset": "laser_bolt"}
+    manifest_map = build_config.load_asset_manifest()
+    build_config.compose_asset_refs(doc, build_config._COMBAT_JSON_REL, manifest_map)
+    assert doc["projectile_asset"] == "res://assets/textures/laser_bolt.png"
+
+
+def test_compose_asset_refs_resolves_nested_pickup_refs() -> None:
+    """Each drop_items style's id resolves to its single-homed path (#442).
+
+    An empty/absent nested ref passes through (the FK gate catches a bad id),
+    mirroring the top-level passthrough — the nested compose is the twin of
+    ``_authored_asset_refs``' nested scan.
+    """
+    doc = {
+        "drop_items": {
+            "gold": {"asset": "pickup_gold"},
+            "bun": {"asset": ""},
+            "nostyle": {},
+        }
+    }
+    build_config.compose_asset_refs(
+        doc, build_config._PROGRESSION_JSON_REL, build_config.load_asset_manifest()
+    )
+    assert doc["drop_items"]["gold"]["asset"] == "res://assets/textures/pickup_gold.png"
+    assert doc["drop_items"]["bun"]["asset"] == ""
+    assert "asset" not in doc["drop_items"]["nostyle"]
+
+
+def test_combat_tres_carries_the_resolved_projectile_path() -> None:
+    """The committed combat_config.tres renders the resolved Laser bolt path."""
+    tres = (build_config.GAME_DIR / "data/generated/combat_config.tres").read_text()
+    assert 'projectile_asset = "res://assets/textures/laser_bolt.png"' in tres
+
+
+def test_progression_tres_carries_the_resolved_pickup_paths() -> None:
+    """The committed progression_config.tres renders each resolved Pickup path."""
+    tres = (
+        build_config.GAME_DIR / "data/generated/progression_config.tres"
+    ).read_text()
+    for item in ("gold", "bun", "wine"):
+        assert f'"asset": "res://assets/textures/pickup_{item}.png"' in tres
+
+
 def test_validate_asset_refs_passes_on_committed_authority() -> None:
     """The committed manifest satisfies FK integrity + no-dangling (gADR-0014)."""
     m = build_config.validate_asset_refs()
@@ -344,6 +494,32 @@ def test_validate_asset_refs_passes_on_committed_authority() -> None:
 def test_committed_manifest_has_no_orphans() -> None:
     """Wave-close DoD: every recorded asset is referenced (gADR-0014)."""
     assert build_config.asset_ref_orphans() == []
+
+
+def test_committed_generated_pickups_record_generation_provenance() -> None:
+    """The bun/wine pickups are real Gemini generations, not placeholders (#442):
+    the committed manifest records the generation mode, channel, model, and prompt.
+    A GENERATED asset records its BACKEND's usage terms, NOT a CC0 download license
+    (gADR-0015) — the generation license mode the #443 license gate enforces."""
+    m = build_config.load_asset_manifest()
+    for pid in ("pickup_bun", "pickup_wine"):
+        rec = m[pid]
+        assert rec["acquire_mode"] == "generation", pid
+        assert rec["source"] == "mcp:gemini", pid
+        assert rec["backend"] == "mcp:gemini", pid
+        assert rec["model"] == "gemini-2.5-flash-image", pid
+        assert rec["license"] == "Gemini-Generated", pid
+        assert rec["license_url"] == "https://ai.google.dev/gemini-api/terms", pid
+        assert rec["license"] != "CC0", pid  # not a download license (gADR-0015)
+        assert rec["prompt"], pid
+
+
+def test_committed_cc0_assets_stay_search_download() -> None:
+    """The already-real CC0 assets were NOT touched by the generation round (#442)."""
+    m = build_config.load_asset_manifest()
+    for aid in ("pickup_gold", "laser_bolt", "obstacle_crate"):
+        assert m[aid]["acquire_mode"] == "search_download", aid
+        assert m[aid]["source"] == "opengameart", aid
 
 
 def test_fk_integrity_fails_on_unrecorded_reference(tmp_path: Path) -> None:

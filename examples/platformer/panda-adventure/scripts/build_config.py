@@ -786,16 +786,27 @@ def load_composed(json_rel: str, root: Path = GAME_DIR) -> Any:
 _ASSETS_ROOT = "assets"
 _MANIFEST_DIRNAME = "manifest"
 
-# The authored asset-reference fields the builder resolves, per source. The tracer
-# (#439) wires the Obstacle; sibling asset slices (#442/#443/#444/#445) extend this
-# with their own sources' reference fields (and the nested view structures —
-# ``platforms``/``drop_items`` — which ``_authored_asset_refs`` already scans).
+# The authored TOP-LEVEL asset-reference fields the builder resolves, per source.
+# The tracer (#439) wires the Obstacle; sibling asset slices (#442/#443/#444/#445)
+# extend this with their own sources' reference fields. P2-S3 (#442) adds the
+# player Laser bolt (``combat_config`` ``projectile_asset``).
 _ASSET_REF_FIELDS: dict[str, tuple[str, ...]] = {
     _GRAVITY_JSON_REL: ("obstacle_asset",),
     # P2-S5 (#443): the Player's animated look — ``player_asset`` resolves to the
     # committed ``SpriteFrames`` the ViewBuilder loads onto an AnimatedSprite2D
     # (gADR-0015/gADR-0016). The manifest ``player`` id single-homes its path.
     _PLAYER_JSON_REL: ("player_asset",),
+    _COMBAT_JSON_REL: ("projectile_asset",),
+}
+
+# The nested view structures whose per-entry ``asset`` also resolves id -> path,
+# per source: the item-style maps keyed by item name (the gADR-0006 ``item_style_map``
+# render kind). ``_authored_asset_refs`` already SCANS these for the FK gate; this is
+# the COMPOSE-side twin so the derived ``.tres`` carries the resolved path, not the id.
+# P2-S3 (#442) wires the progression drop_items (the Pickups); a sibling slice adds the
+# level ``platforms`` (#446) as it wires the terrain skin.
+_ASSET_REF_ITEM_MAPS: dict[str, str] = {
+    _PROGRESSION_JSON_REL: "drop_items",
 }
 
 
@@ -846,13 +857,21 @@ def compose_asset_refs(
     The write side of gADR-0014's id-referenced manifest: the authority names an
     asset by its manifest id, and the builder resolves it to the single-homed path
     so the derived Resource carries a resolved path (the gADR-0013 "one authored
-    home, N derived projections" pattern applied to assets). Mutates and returns
-    ``document``; a source with no asset-reference fields passes through unchanged.
+    home, N derived projections" pattern applied to assets). Resolves both the
+    top-level reference fields (``_ASSET_REF_FIELDS``) and the per-entry ``asset``
+    of a nested item-style map (``_ASSET_REF_ITEM_MAPS`` — the Pickups' drop_items,
+    #442). Mutates and returns ``document``; a source with no asset reference passes
+    through unchanged.
     """
     for field_name in _ASSET_REF_FIELDS.get(json_rel, ()):
         document[field_name] = _resolve_asset_ref(
             document.get(field_name, ""), manifest
         )
+    map_field = _ASSET_REF_ITEM_MAPS.get(json_rel)
+    if map_field is not None:
+        for style in document[map_field].values():
+            if "asset" in style:
+                style["asset"] = _resolve_asset_ref(style.get("asset", ""), manifest)
     return document
 
 

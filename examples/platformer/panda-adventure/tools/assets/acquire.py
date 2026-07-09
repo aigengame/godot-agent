@@ -125,6 +125,9 @@ def generate(
         license_url=license_url,
         prompt=prompt,
         backend=backend.name,
+        # The concrete image model, when the backend exposes one (McpBackend
+        # reads it from its channel arguments) — generation provenance, gADR-0014.
+        model=getattr(backend, "model", None),
     )
 
 

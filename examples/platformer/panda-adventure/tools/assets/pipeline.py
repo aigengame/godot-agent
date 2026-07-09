@@ -48,7 +48,12 @@ def build_spec_for(
     request = _request(config, asset_id)
     dims = game_config.target_dims(config, request["scale_key"], game_root)
     return preprocess.build_asset_spec(
-        asset_id, request["category"], dims, config.style
+        asset_id,
+        request["category"],
+        dims,
+        config.style,
+        subject=request.get("subject"),
+        hint=request.get("category_hint"),
     )
 
 
@@ -162,6 +167,7 @@ def acquire_asset(
         attribution=result.attribution,
         prompt=result.prompt,
         backend=result.backend,
+        model=result.model,
     )
     if emit:
         (emitter or JsonManifestEmitter(game_root, config.assets_root)).emit(entry)

@@ -60,6 +60,37 @@ def palette_image(palette: tuple[str, ...] | list[str]) -> Image.Image:
     return pal
 
 
+def detect_background_key(
+    img: Image.Image, fallback: str, *, consistency: int = 24
+) -> str:
+    """The solid background color to key out, sampled from the four corners.
+
+    A generation backend often APPROXIMATES the requested chroma color rather than
+    hitting it exactly (Gemini renders the asked-for ``#FF00FF`` as a near-magenta
+    pink), so keying the fixed configured color leaves the real background behind.
+    When the four corners agree within ``consistency`` (a centered subject on a
+    solid field), key their mean — the color actually produced; otherwise fall back
+    to the configured key. Pure sampling, no mutation.
+    """
+    rgba = img.convert("RGBA")
+    w, h = rgba.size
+    corners = [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]
+    rgbs = [rgba.getpixel(p)[:3] for p in corners]
+    r0, g0, b0 = rgbs[0]
+    if all(
+        abs(r - r0) <= consistency
+        and abs(g - g0) <= consistency
+        and abs(b - b0) <= consistency
+        for r, g, b in rgbs[1:]
+    ):
+        n = len(rgbs)
+        mr = sum(c[0] for c in rgbs) // n
+        mg = sum(c[1] for c in rgbs) // n
+        mb = sum(c[2] for c in rgbs) // n
+        return f"#{mr:02x}{mg:02x}{mb:02x}"
+    return fallback
+
+
 def chroma_key_crop(img: Image.Image, key: str, tolerance: int = 40) -> Image.Image:
     """Key ``key`` out to transparency and crop to the remaining content.
 
@@ -122,11 +153,15 @@ def postprocess_image(
 
     ``chroma_key`` is passed only for generated inputs (a solid-background subject
     to key out); a downloaded sprite already carries its own transparency and
-    passes ``None``. Returns ``dst``.
+    passes ``None``. The actual background is sampled from the corners (a backend
+    may approximate the requested chroma color), so a near-magenta field keys out
+    cleanly; the keying tolerance is widened because the sampled color is the real
+    background and the centered subject is far from it. Returns ``dst``.
     """
     img = Image.open(src)
     if chroma_key is not None:
-        img = chroma_key_crop(img, chroma_key)
+        key = detect_background_key(img, chroma_key)
+        img = chroma_key_crop(img, key, tolerance=60)
     img = downscale_to_grid(img, dims)
     img = quantize_to_palette(img, palette)
     img = conform_dimensions(img, dims)

@@ -74,6 +74,42 @@ def test_search_download_real_fetch(tmp_path: Path) -> None:
         assert img.mode == "RGBA"
 
 
+@pytest.mark.parametrize(
+    ("asset_id", "dims"),
+    [("pickup_gold", (14, 14)), ("laser_bolt", (18, 6))],
+)
+def test_search_download_real_fetch_p2_s3_assets(
+    tmp_path: Path, asset_id: str, dims: tuple[int, int]
+) -> None:
+    """The P2-S3 CC0 recipes (#442) really fetch and conform to the Scale size.
+
+    The wired Pickup coin and the player Laser bolt, over the real network, each
+    postprocessed to its Scale-spec box and recorded with its CC0 license and
+    source URL (gADR-0014). The placeholder Pickups (bun/wine) have no live-fetch
+    recipe — they are authored, pending the wave-close acquisition pass.
+    """
+    root = _game_root(tmp_path)
+    try:
+        entry = pipeline.acquire_asset(
+            STYLE,
+            asset_id,
+            game_root=root,
+            mode=AcquireMode.SEARCH_DOWNLOAD,
+            raw_dir=tmp_path / "raw",
+        )
+    except urllib.error.URLError as exc:  # offline / host down — a skip, not a fail
+        pytest.skip(f"network unavailable for the live fetch: {exc}")
+
+    assert entry.acquire_mode == "search_download"
+    assert entry.license == "CC0"
+    assert entry.source == "opengameart"
+    assert entry.source_url and entry.source_url.startswith("https://")
+    out = root / "assets" / "textures" / f"{asset_id}.png"
+    with Image.open(out) as img:
+        assert img.size == dims
+        assert img.mode == "RGBA"
+
+
 def test_mcp_gemini_real_generation(tmp_path: Path) -> None:
     """Generation → McpBackend really generates one image through the Gemini channel.
 

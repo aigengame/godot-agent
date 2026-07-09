@@ -27,6 +27,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -61,6 +62,23 @@ def _find_node(node: dict, name: str) -> dict | None:
         return node
     for child in node.get("children", []):
         found = _find_node(child, name)
+        if found is not None:
+            return found
+    return None
+
+
+def _find_projectile_with_sprite(node: dict) -> dict | None:
+    """Any live ``Projectile`` bolt whose Visual carries a ``Sprite`` child.
+
+    Godot auto-names bolt instances ``Projectile``/``@Projectile@N``, so match on
+    the name prefix; the ``Sprite`` (TextureRect) child is added ONLY when the
+    resolved ``laser_bolt`` texture loads — its presence is proof of the texture
+    path (a null load takes the block fallback and adds no child, #442/#439).
+    """
+    if "Projectile" in node.get("name", "") and _find_node(node, "Sprite") is not None:
+        return node
+    for child in node.get("children", []):
+        found = _find_projectile_with_sprite(child)
         if found is not None:
             return found
     return None
@@ -143,5 +161,88 @@ def test_obstacle_renders_the_texture(tmp_path, daemon_runtime_dir):
         assert data.startswith(PNG_MAGIC), data[:16]
         width, height = struct.unpack(">II", data[16:24])
         assert (width, height) == (doc["width"], doc["height"])
+    finally:
+        run("daemon", "stop")
+
+
+@pytest.mark.e2e
+def test_laser_projectile_renders_the_texture(tmp_path, daemon_runtime_dir):
+    """The Laser Gun bolt renders its acquired texture live (P2-S3, #442).
+
+    The obstacle-tracer pattern extended to a spawned actor: firing the Laser Gun
+    (the boot-default weapon) spawns a Projectile bolt, and — because
+    ``combat_config`` ``projectile_asset`` now resolves to ``laser_bolt`` — the
+    bolt's Visual carries a ``Sprite`` (TextureRect) child, added ONLY on a
+    successful texture load. We fire repeatedly (each press spawns one bolt that
+    lives its full lifetime), so a ``game tree`` read reliably catches a live bolt
+    carrying the Sprite — end to end from the manifest id through the builder's
+    id -> path composition to a live textured bolt.
+    """
+    reason = windowed_unavailable_reason()
+    if reason is not None:
+        pytest.skip(reason)
+    project = _make_project_copy(tmp_path / "game")
+    env = {**os.environ}
+
+    def run(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                *GDA_CMD,
+                *args,
+                "--project",
+                str(project),
+                "--godot",
+                str(GODOT),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=120,
+        )
+
+    def fire() -> None:
+        seq = run(
+            "input",
+            "sequence",
+            "--events",
+            json.dumps(
+                [
+                    {"type": "action", "action": "fire", "frame": 0},
+                    {"type": "action", "action": "fire", "release": True, "frame": 4},
+                ]
+            ),
+        )
+        assert seq.returncode == 0, seq.stdout + seq.stderr
+
+    try:
+        started = run("daemon", "start", "--windowed")
+        if started.returncode != 0:
+            code = _error_code(started.stdout)
+            if code in _NO_DISPLAY_CODES:
+                pytest.skip(f"windowed session unavailable ({code})")
+            raise AssertionError(started.stdout + started.stderr)
+        assert json.loads(started.stdout)["windowed"] is True
+
+        found = None
+        deadline = time.monotonic() + 20.0
+        while found is None and time.monotonic() < deadline:
+            fire()
+            tree = run("game", "tree")
+            if tree.returncode != 0:
+                code = _error_code(tree.stdout)
+                if code in _NO_DISPLAY_CODES:
+                    pytest.skip(f"windowed session unavailable ({code})")
+                raise AssertionError(tree.stdout + tree.stderr)
+            found = _find_projectile_with_sprite(json.loads(tree.stdout)["root"])
+            if found is None:
+                time.sleep(0.3)
+
+        assert found is not None, (
+            "no live Projectile carried a Sprite child — the laser_bolt texture "
+            "did not load (the block fallback was taken)"
+        )
+        sprite = _find_node(found, "Sprite")
+        assert sprite is not None and sprite["type"] == "TextureRect", found
     finally:
         run("daemon", "stop")

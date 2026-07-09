@@ -80,6 +80,7 @@
           "command": ["{python}", "{game_root}/scripts/mcp/gemini_img_gen.py"],
           "tool": "generate_image",
           "arguments": {
+            "model": "gemini-2.5-flash-image",
             "aspect_ratio": "1:1",
             "image_size": "1K"
           }
@@ -109,6 +110,52 @@
       "category": "sprites",
       "scale_key": "player_size",
       "_note": "P2-S5 (#443): the Player animated sprite SET. Its committed form is the derived SpriteFrames recorded under manifest id 'player' (gADR-0016, Model S); the per-state sheets player_<state>.png are its backing. Landed as REAL Gemini-generated art (Nano Banana Pro, one animation strip per state: idle/run/jump/fire/hurt/consume/level_up/death), recorded under generation terms; this recipe is retained to re-generate the set.",
+      "acquire": {
+        "mode": "generation",
+        "backend": "mcp:gemini"
+      }
+    },
+    "pickup_gold": {
+      "category": "textures",
+      "scale_key": "pickup_sizes.gold",
+      "acquire": {
+        "mode": "search_download",
+        "source": "opengameart",
+        "url": "https://opengameart.org/sites/default/files/golden_.png",
+        "license": "CC0",
+        "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attribution": "chillandcodegames — Gold Dollar Coin Glowing 2D Single Sprite (OpenGameArt, CC0)",
+        "page_url": "https://opengameart.org/content/gold-dollar-coin-glowing-2d-single-sprite"
+      }
+    },
+    "laser_bolt": {
+      "category": "textures",
+      "scale_key": "player_projectile_size",
+      "acquire": {
+        "mode": "search_download",
+        "source": "opengameart",
+        "url": "https://opengameart.org/sites/default/files/blasterbolt.png",
+        "license": "CC0",
+        "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "attribution": "AlejandroHaibi — Blaster bolt (OpenGameArt, CC0)",
+        "page_url": "https://opengameart.org/content/blaster-bolt"
+      }
+    },
+    "pickup_bun": {
+      "category": "textures",
+      "scale_key": "pickup_sizes.bun",
+      "subject": "steamed bun, a round pale bread roll food",
+      "category_hint": "a game food-pickup item icon, one whole centered object, front three-quarter view, no scenery",
+      "acquire": {
+        "mode": "generation",
+        "backend": "mcp:gemini"
+      }
+    },
+    "pickup_wine": {
+      "category": "textures",
+      "scale_key": "pickup_sizes.wine",
+      "subject": "bottle of wine, an ornate ceramic vessel with a stopper",
+      "category_hint": "a game drink-pickup item icon, one whole centered object, front view, no scenery",
       "acquire": {
         "mode": "generation",
         "backend": "mcp:gemini"

@@ -85,18 +85,36 @@ class AssetSpec:
 
     Rendered as a search query (search-download) or a generation prompt
     (generation) by :mod:`preprocess`, so one spec drives both modes and the
-    style coheres (gADR-0014).
+    style coheres (gADR-0014). ``subject``/``hint`` are optional per-asset recipe
+    overrides: an asset whose id is a namespaced slug (``pickup_bun``) needs a
+    human subject (``a steamed bun``), and an asset that does not fit its
+    category's shared style hint (a food ITEM in the ``textures`` category, whose
+    default hint reads "environment prop, tileable") supplies its own — so the
+    recipe still fully determines a reproducible prompt.
     """
 
     id: str
     category: str
     target_dims: tuple[int, int]
     style: StyleDescriptor
+    subject: str | None = None
+    hint: str | None = None
+
+    @property
+    def subject_terms(self) -> str:
+        """The concrete thing the query/prompt is about: the recipe ``subject``
+        override, else the id humanized (``obstacle_crate`` -> ``obstacle crate``)."""
+        return self.subject or self.id.replace("_", " ")
 
     @property
     def category_hint(self) -> str:
-        """The per-category style hint (empty when the category has none)."""
-        return self.style.category_hints.get(self.category, "")
+        """The per-category style hint: the recipe ``hint`` override wins, else the
+        style descriptor's per-category hint (empty when the category has none)."""
+        return (
+            self.hint
+            if self.hint is not None
+            else self.style.category_hints.get(self.category, "")
+        )
 
 
 @dataclass(frozen=True)
@@ -117,6 +135,7 @@ class AcquireResult:
     attribution: str | None = None
     prompt: str | None = None
     backend: str | None = None
+    model: str | None = None
 
 
 @dataclass(frozen=True)
@@ -166,7 +185,9 @@ class ManifestEntry:
     ``path`` is the resource path the game loads (``res://...``); it is the single
     home of the asset's path (the authority references ``id``, the builder composes
     ``id -> path``). A sprite-set entry additionally carries its ``frame_layout``
-    (gADR-0015) — the packed sheet's tiling, which a plain texture entry omits.
+    (gADR-0015) — the packed sheet's tiling, which a plain texture entry omits. A
+    generated entry records its ``prompt``/``backend``/``model`` provenance so the
+    exact generation is reproducible (gADR-0014).
     """
 
     id: str
@@ -181,4 +202,5 @@ class ManifestEntry:
     attribution: str | None = None
     prompt: str | None = None
     backend: str | None = None
+    model: str | None = None
     frame_layout: FrameLayout | None = None
