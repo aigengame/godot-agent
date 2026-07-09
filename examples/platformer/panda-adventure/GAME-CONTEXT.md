@@ -243,6 +243,36 @@ Warp driver / Game-flow director).
 _Avoid_: renderer, sprite factory, blockout (that names the fallback the seam builds, not
 the seam)
 
+**Mount point**:
+A named `Marker2D` socket placed on the Player where a swappable part attaches — a weapon
+or an equipment overlay hangs beneath its mount point, so the part's sprite can be swapped
+without touching the base look. The Player's on-screen figure is just its base sprite (the
+Model-S `SpriteFrames`, gADR-0016) plus the mount points on it; nothing wraps them under
+an umbrella node or name. The mount points are reserved ahead of the art that fills them so
+the swappable parts have somewhere to attach.
+_Avoid_: pivot (Godot's Node2D/Control transform origin — a different concept), bone/attach
+socket (that is skeletal; the design chose `Marker2D`, not `Skeleton2D`)
+
+**Weapon mount**:
+The Mount point where the Current weapon's sprite attaches — the Laser Gun or the Gravity
+Gun, swapped by the `switch_weapon` action. The one mount with a live gameplay driver
+today (Current weapon is already tracked state).
+_Avoid_: gun slot, holster
+
+**Equipment mount**:
+The Mount point where a swappable Equipment overlay (the Spacesuit) attaches. Forward-looking:
+the Spacesuit is worn from spawn and persistent today (gADR-0008), so this mount is reserved
+for future swappable Equipment, not a current in-game swap.
+_Avoid_: armor slot, gear socket
+
+**Paperdoll**:
+The conventional 2D layered-character technique the modular-art round uses to fill the mount
+points: a base body sprite plus equipment-overlay sprite(s) sharing the same animation-state
+names and playing in sync (driven by the same view-integration hooks, gADR-0016), so the
+equipment reads as worn over the body. Distinct from a Weapon mount, which hangs a whole
+sprite at a `Marker2D` rather than layering over the body.
+_Avoid_: dress-up, layered-sprite hack
+
 ### Pipelines
 
 **Tool Script**:
