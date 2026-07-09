@@ -23,9 +23,14 @@ from .model import AcquireMode, AcquireResult, AssetSpec, ManifestEntry
 from .packer import pack_frames
 from .postprocess import postprocess_image
 
-# The default license recorded for a generated asset (the pipeline authored it).
-_GENERATED_LICENSE = "CC0"
-_GENERATED_LICENSE_URL = "https://creativecommons.org/publicdomain/zero/1.0/"
+# The default license recorded for a generated asset: its BACKEND's usage terms,
+# NOT a download license (gADR-0015 §5d — a generated asset is authored under the
+# generator's terms, distinct from a CC0/CC-BY download). Gemini is the sole
+# generation backend today (gADR-0014); a recipe overrides these per asset, and a
+# future backend records its own terms. The license gate (validate_asset_licenses)
+# rejects a generated asset that carries a download license instead.
+_GENERATED_LICENSE = "Gemini-Generated"
+_GENERATED_LICENSE_URL = "https://ai.google.dev/gemini-api/terms"
 
 
 def _request(config: StyleConfig, asset_id: str) -> dict[str, Any]:

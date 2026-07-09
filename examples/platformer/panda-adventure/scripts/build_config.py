@@ -1112,6 +1112,27 @@ def validate_asset_sizes(root: Path = GAME_DIR) -> list[Any]:
     )
 
 
+def validate_asset_licenses(root: Path = GAME_DIR) -> list[Any]:
+    """Enforce the license/acquire-mode consistency gate (gADR-0015 §5d).
+
+    Delegates to the asset pipeline's pure licensing core with the DOWNLOAD-license
+    allowlist from the committed Style descriptor (``allowed_licenses`` — CC0/CC-BY):
+    a ``search_download`` entry must record a download license, a ``generation``
+    entry its BACKEND's usage terms (a non-empty token that is NOT a download
+    license — so a generated asset mislabeled ``CC0`` fails the build). Validates
+    EVERY manifest entry (referenced or not), so it is general across asset slices.
+    Raises ``assets.lifecycle.LicenseModeError`` on a violation.
+    """
+    from assets import game_config, lifecycle
+
+    config = game_config.load_style_config()
+    entries = [
+        (asset_id, str(rec.get("acquire_mode", "")), str(rec.get("license", "")))
+        for asset_id, rec in load_asset_manifest(root).items()
+    ]
+    return lifecycle.validate_license_modes(entries, config.style.allowed_licenses)
+
+
 def asset_ref_orphans(root: Path = GAME_DIR) -> list[str]:
     """Manifest ids no authority references — a SOFT report (gADR-0014).
 
@@ -1369,6 +1390,7 @@ def build_all(root: Path = GAME_DIR) -> list[Path]:
     whole-authority ``build_all`` path is the one that enforces.
     """
     validate_asset_refs(root)
+    validate_asset_licenses(root)
     return [build_spec(spec, root=root) for spec in specs_for(root)]
 
 
@@ -1400,6 +1422,9 @@ def main() -> None:
     # The Asset manifest gate first (gADR-0014), so a standalone build fails loudly
     # on a broken reference / dangling / malformed record before writing anything.
     validate_asset_refs()
+    # The license/acquire-mode consistency gate (gADR-0015 §5d): a generated asset
+    # mislabeled with a download license (or a downloaded one mislabeled) fails here.
+    validate_asset_licenses()
     # Then the size-based Git-LFS gate (gADR-0015): a committed assets/** binary
     # >= T outside LFS fails the authoritative build before any .tres is written.
     validate_asset_sizes()

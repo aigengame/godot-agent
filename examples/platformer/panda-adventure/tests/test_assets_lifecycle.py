@@ -26,7 +26,13 @@ from PIL import Image
 import build_config
 from assets import game_config, lifecycle, manifest, pipeline
 from assets.emitter import JsonManifestEmitter
-from assets.lifecycle import OversizeAsset, find_unlfs_oversize
+from assets.lifecycle import (
+    LicenseModeError,
+    LicenseModeViolation,
+    OversizeAsset,
+    find_license_mode_violations,
+    find_unlfs_oversize,
+)
 from assets.model import FrameLayout, ManifestEntry, SpriteAnimation
 from assets.packer import pack_frames
 from assets.spriteframes import derive_spriteframes, derive_spriteframes_set
@@ -375,6 +381,79 @@ def test_gitattributes_tracks_music_dir_in_lfs() -> None:
 # --------------------------------------------------------------------------- #
 # Config-gate wiring: the size gate runs from build_config, not only tests.
 # --------------------------------------------------------------------------- #
+
+
+# --------------------------------------------------------------------------- #
+# License/acquire-mode consistency gate (gADR-0015 §5d): a generated asset records
+# its BACKEND's usage terms, a downloaded asset a download license (CC0/CC-BY).
+# --------------------------------------------------------------------------- #
+
+_DOWNLOAD = ("CC0", "CC-BY")
+
+
+def test_license_gate_generation_backend_terms_pass() -> None:
+    """A generation-mode entry with its backend's usage terms is consistent."""
+    entries = [("player", "generation", "Gemini-Generated")]
+    assert find_license_mode_violations(entries, _DOWNLOAD) == []
+
+
+def test_license_gate_generation_mislabeled_download_is_caught() -> None:
+    """A generated asset mislabeled with a DOWNLOAD license (CC0) is a violation —
+    the exact review finding (gADR-0015 §5d): generated != downloaded."""
+    entries = [("player", "generation", "CC0")]
+    violations = find_license_mode_violations(entries, _DOWNLOAD)
+    assert len(violations) == 1
+    assert violations[0] == LicenseModeViolation(
+        "player", "generation", "CC0", violations[0].reason
+    )
+    assert "backend" in violations[0].reason
+
+
+def test_license_gate_generation_empty_license_is_caught() -> None:
+    """A generated asset with no recorded license is a violation (must record terms)."""
+    assert len(find_license_mode_violations([("x", "generation", "")], _DOWNLOAD)) == 1
+
+
+def test_license_gate_search_download_requires_download_license() -> None:
+    """A downloaded asset must carry a download license: CC0 passes, a generation
+    token on a downloaded asset is caught (the rule is symmetric)."""
+    assert (
+        find_license_mode_violations([("o", "search_download", "CC0")], _DOWNLOAD) == []
+    )
+    caught = find_license_mode_violations(
+        [("o", "search_download", "Gemini-Generated")], _DOWNLOAD
+    )
+    assert len(caught) == 1
+
+
+def test_validate_license_modes_raises_and_names_the_asset() -> None:
+    """The wired gate raises LicenseModeError naming the offending asset."""
+    from assets import lifecycle
+
+    with pytest.raises(LicenseModeError, match="player"):
+        lifecycle.validate_license_modes([("player", "generation", "CC0")], _DOWNLOAD)
+
+
+def test_build_config_license_gate_passes_on_committed_repo() -> None:
+    """The committed manifest is consistent: the Obstacle is a CC0 download, the
+    Player set records its Gemini generation terms (the wiring the build runs)."""
+    build_config.validate_asset_licenses()  # no raise
+
+
+def test_build_config_license_gate_catches_mislabeled_generation(
+    tmp_path: Path,
+) -> None:
+    """`build_config.validate_asset_licenses` fails a manifest that records a
+    generation-mode asset under a download license (general — reused by every
+    asset slice, e.g. #442's generated items)."""
+    frag = tmp_path / "assets" / "manifest" / "sprites.json"
+    frag.parent.mkdir(parents=True)
+    frag.write_text(
+        '{"bad": {"acquire_mode": "generation", "license": "CC0"}}\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(LicenseModeError, match="bad"):
+        build_config.validate_asset_licenses(tmp_path)
 
 
 def test_build_config_size_gate_passes_on_committed_repo() -> None:

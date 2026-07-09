@@ -68,6 +68,7 @@ now live; a config asset reference resolving to a `SpriteFrames` renders animate
 further controller edit. The sprite-set reference model is the tracer's pragmatic call and
 may be revisited toward per-state manifest entries if a character ever needs mixed-source
 per-state provenance or the gate grows set-membership awareness. The Player set landed for
-#443 is a procedurally-generated PLACEHOLDER (no fit/licensed CC0 sheet or imagegen key was
-available in the implementing worktree); the whole pipeline + seam + tests are real, and the
-art is flagged for the wave-close acquisition pass.
+#443 is REAL Gemini-generated art (Nano Banana Pro, one animation strip per state through the
+pipeline's generation backend), recorded under its BACKEND's usage terms — not a download
+license (gADR-0015 §5d), enforced by the license/acquire-mode gate; the style-config recipe
+is retained to re-generate it.
