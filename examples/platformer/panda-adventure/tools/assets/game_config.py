@@ -36,6 +36,22 @@ class StyleConfig:
     scale_spec_rel: str
     generation: dict[str, Any]
     lfs_size_threshold_bytes: int
+    # Per-category download-license extensions on top of the global CC0/CC-BY rule
+    # (``style.allowed_licenses``): e.g. ``{"fonts": ("OFL",)}`` allows a downloaded
+    # OFL font for the fonts category only. Empty for a category with no extension.
+    category_licenses: dict[str, tuple[str, ...]]
+
+    def download_licenses_for(self, category: str) -> tuple[str, ...]:
+        """The DOWNLOAD-license allowlist for one asset category (gADR-0015 §5d).
+
+        The global ``allowed_licenses`` (CC0/CC-BY — the GDD/gADR-0014 sourcing rule)
+        plus any category-scoped extension. Fonts additionally allow OFL (a font is a
+        permissively-licensed download), and OFL stays OUT of the global rule that
+        governs every other category — a texture/sprite/audio OFL entry still fails.
+        """
+        return tuple(self.style.allowed_licenses) + self.category_licenses.get(
+            category, ()
+        )
 
 
 def load_style_config(path: Path = DEFAULT_STYLE_PATH) -> StyleConfig:
@@ -72,6 +88,13 @@ def load_style_config(path: Path = DEFAULT_STYLE_PATH) -> StyleConfig:
         lfs_size_threshold_bytes=int(
             doc.get("lifecycle", {}).get("lfs_size_threshold_bytes", 1_048_576)
         ),
+        # Skip the ``_``-prefixed documentation keys (the project's _readme/_note
+        # convention), so only real category names carry license extensions.
+        category_licenses={
+            category: tuple(licenses)
+            for category, licenses in constraints.get("category_licenses", {}).items()
+            if not category.startswith("_")
+        },
     )
 
 
@@ -96,6 +119,24 @@ def target_dims(
             )
         node = node[part]
     return (int(node[0]), int(node[1]))
+
+
+def scale_value(config: StyleConfig, key: str, game_root: Path = GAME_ROOT) -> float:
+    """A SCALAR dimension from the Scale spec (gADR-0013 — the single size authority).
+
+    The scalar analogue of :func:`target_dims` (which returns a 2-tuple box): reads
+    one numeric key straight from ``scale_spec.json`` so a consumer never hardcodes a
+    dimension the Scale spec owns. The HUD font's native size is the ``hud_font_size``
+    the HUD renders at, so retuning that one authored value regenerates the bitmap at
+    the new native size instead of scaling a stale one.
+    """
+    scale = json.loads((game_root / config.scale_spec_rel).read_text(encoding="utf-8"))
+    if key not in scale:
+        raise KeyError(
+            f"scale key {key!r} is not in {config.scale_spec_rel} "
+            "(gADR-0013 is the single size authority)"
+        )
+    return float(scale[key])
 
 
 def asset_resource_path(config: StyleConfig, category: str, asset_id: str) -> str:

@@ -23,3 +23,8 @@ extends Resource
 # squash idiom applied to a Label the moment its value changes).
 @export var value_punch_scale: Vector2
 @export var value_tween_duration: float
+# Resolved res:// path of the HUD's bitmap font (P2-S9, #445): an Asset manifest
+# reference (gADR-0014) the builder resolves from its id; empty when no font is
+# wired (the HUD then keeps the engine default). The HudController load()s it and
+# applies it via add_theme_font_override at the Scale spec's font_size.
+@export var hud_font: String

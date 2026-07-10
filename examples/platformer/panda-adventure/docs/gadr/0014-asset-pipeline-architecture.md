@@ -116,3 +116,15 @@ follow-up, so the tracer stays reproducible. The config gate (`validate_asset_re
 is wired INTO the build path (`build_all`/`main`), not just tests: a referenced id
 with no manifest entry, a referenced entry missing a required provenance/license
 field, or a dangling manifest path fails the build before any `.tres` is written.
+
+> **Amendment (2026-07-10, P2-S9/#445 — user-approved):** the "CC0/CC-BY only"
+> sourcing restriction above is the **global** rule and stands unchanged for every
+> image category (textures, sprites, vfx, audio). It gains ONE category-scoped
+> exception: **fonts may additionally be OFL** (the SIL Open Font License — a
+> permissive *font* license, the natural terms for a downloaded pixel/bitmap font
+> such as Press Start 2P). This is data, not a code special-case: the Style
+> descriptor carries a `constraints.category_licenses` map (`{"fonts": ["OFL"]}`),
+> the license/acquire-mode gate (gADR-0015 §5d, `validate_asset_licenses`) resolves
+> the download-license allowlist **per category** (global ∪ the category's
+> extension), and a non-font OFL entry still fails. OFL is deliberately kept OUT of
+> the global `allowed_licenses`.

@@ -1,4 +1,5 @@
 {
   "value_punch_scale": [1.25, 1.25],
-  "value_tween_duration": 0.18
+  "value_tween_duration": 0.18,
+  "hud_font": "hud_font"
 }
