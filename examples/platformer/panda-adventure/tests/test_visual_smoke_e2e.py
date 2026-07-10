@@ -19,9 +19,14 @@ assertion). Checkpoints over the current player-visible surface:
   gravity fire — its config RGBA alpha-blended over the boot capture (S3);
 - the EXP/Gold readout pixels change after a kill (S6a), and the next
   Wave's spawn becomes visible (S5) — the reward loop, on screen;
-- the dropped Gold Pickup renders its acquired coin TEXTURE at its logged
-  spawn position after the kill (P2-S3, #442, gADR-0014) — pickups read
-  clearly at their Scale-spec sizes, the readability AC on screen;
+- the Laser bolt renders its acquired texture in flight (P2-S3, #442) — one
+  bolt fired into the clear corridor, its live position captured (the on-screen
+  companion to the headless structural bolt check in test_obstacle_texture_e2e);
+- the dropped GOLD, BUN and WINE Pickups each render their acquired TEXTURE at
+  their logged spawn positions after the kill (P2-S3, #442, gADR-0014) — the copy
+  guarantees all three drops, and each is probed in a tight region so a spaced
+  neighbour cannot satisfy it: pickups read clearly at their Scale-spec sizes,
+  the readability AC on screen;
 - the S8 Time Dilation Field's translucent zone is visible after the Warp
   Boss blinks (gADR-0009) — its config RGBA alpha-blended over the kill
   capture. The Warp Boss rides the SAME session: the throwaway copy seats
@@ -45,10 +50,13 @@ script run`` — the no-image-decode-dependency convention). Explicitly NOT a
 golden-image test: blockout art churns and GPU/font rendering varies, so only
 structural pixel properties are asserted.
 
-One timing knob is retuned in the throwaway copy: ``field_duration`` is
-lengthened so a capture reliably lands inside the Gravity Field's lifetime
-(the waves-e2e retune precedent; gADR-0007 allows durations, never
-colors/geometry).
+A few rate/timing knobs are retuned in the throwaway copy (gADR-0007 allows
+durations/rates, never colors/geometry): ``field_duration`` is lengthened so a
+capture lands inside the Gravity Field's lifetime; the Laser bolt's speed is
+capped and its lifetime floored so a bolt is capturable in flight (#442); and the
+Wave-1 minion's drop chances are set to 1.0 so gold+bun+wine all land at the kill
+(the exp/gold reward — a separate field — is untouched, so the reward checkpoint
+holds). Everything the seam ASSERTS (colors, sizes, positions) ships untouched.
 
 Display-gated like ``test_e2e_screenshot.py``: skips visibly (``-rs``) where
 no window server is usable — a desktop/pre-merge tier, not a CI gate; CI
@@ -200,6 +208,43 @@ _PLAYER_ANIM_STATES = frozenset(
 )
 _PLAYER_ANIM_PATH = "/root/Main/Player/Visual/AnimatedSprite"
 
+# The P2-S3 Laser-bolt checkpoint knobs (#442; gADR-0007 timing/rate retunes). The
+# shipped bolt is too fast (900 px/s) and short-lived (1.5s) to reliably capture in
+# flight, so the copy CAPS its speed (it lingers in the clear corridor left of the
+# Player) and FLOORS its lifetime (it persists across the read+capture round-trip).
+# Rates/durations only — the bolt's texture and Scale-spec size (what the checkpoint
+# asserts) ship untouched.
+_BOLT_SPEED_CAP = 120.0
+_BOLT_LIFETIME_FLOOR = 8.0
+# Guaranteed Pickup drops for the readability checkpoints (#442): the copy makes the
+# Wave-1 minion drop gold+bun+wine at chance 1.0 so all three land at the kill — a
+# behavior knob like the Boss determinization. The Pickup COLORS/SIZES/positions the
+# checks assert are config-derived, and the kill's exp/gold REWARD (a separate tiers
+# field) is unchanged, so the reward-loop checkpoint still holds.
+_GUARANTEED_DROPS = [
+    {"item": "gold", "amount": 3, "chance": 1.0},
+    {"item": "bun", "amount": 1, "chance": 1.0},
+    {"item": "wine", "amount": 1, "chance": 1.0},
+]
+# Tight pad isolating each Pickup's presence region from its ~30px-spaced
+# neighbours (a generous pad would let a neighbour satisfy the check).
+_PICKUP_REGION_PAD = 4.0
+# Non-background pixels the in-flight Laser bolt must show at its live position:
+# the 18x6 textured bolt inks ~60; 30 proves it renders while clearing AA noise.
+_MIN_BOLT_PIXELS = 30
+
+
+def _find_named(node: dict, substr: str) -> dict | None:
+    """Depth-first search a ``game tree`` subtree for a node whose name contains
+    ``substr`` (Godot auto-names bolt instances ``Projectile``/``@Projectile@N``)."""
+    if substr in node.get("name", ""):
+        return node
+    for child in node.get("children", []):
+        found = _find_named(child, substr)
+        if found is not None:
+            return found
+    return None
+
 
 def _make_project_copy(dst: Path) -> Path:
     """Copy the game into a throwaway dir, retune the timing knobs, build.
@@ -218,8 +263,30 @@ def _make_project_copy(dst: Path) -> Path:
     doc = json.loads(gravity_path.read_text())
     doc["field_duration"] = max(float(doc["field_duration"]), _FIELD_DURATION_FLOOR)
     gravity_path.write_text(json.dumps(doc, indent=2) + "\n")
+    # The P2-S3 Laser bolt (#442): cap the speed / floor the lifetime so a bolt is
+    # capturable in flight for the on-screen readability checkpoint. Damage/HP (and
+    # thus the kill's shots-to-kill) are untouched, so the kill beat is unaffected.
+    combat_path = dst / "data" / "json" / "combat_config.json"
+    combat_doc = json.loads(combat_path.read_text())
+    combat_doc["projectile_speed"] = min(
+        float(combat_doc["projectile_speed"]), _BOLT_SPEED_CAP
+    )
+    combat_doc["projectile_lifetime"] = max(
+        float(combat_doc["projectile_lifetime"]), _BOLT_LIFETIME_FLOOR
+    )
+    combat_path.write_text(json.dumps(combat_doc, indent=2) + "\n")
     enemies_path = dst / "data" / "json" / "enemies_config.json"
     enemies = json.loads(enemies_path.read_text())
+    # Guarantee the Wave-1 minion's Pickup drops (#442) so gold+bun+wine all land at
+    # the kill for the readability checkpoints (the minion's tier is "minion").
+    enemies["tiers"]["minion"]["drops"] = [dict(d) for d in _GUARANTEED_DROPS]
+    # Kill the Wave-1 minion in ONE bolt (#442) so — with the capped bolt speed — it
+    # dies AT RANGE rather than after walking into the Player: its scattered Pickups
+    # then land clear of the Player (never auto-collected, so the S6a Gold-reward
+    # readout stays exact) and clear of the Wave-2 Boss. A behavior knob; the kill's
+    # exp/gold REWARD is untouched.
+    wave1_kind = enemies["waves"][0]["spawns"][0]["kind"]
+    enemies["kinds"][wave1_kind]["max_hp"] = 5.0
     boss = enemies["kinds"][_WARP_BOSS_SPAWN["kind"]]
     boss["aggro_range"] = 3000.0
     boss["move_speed"] = 0.0
@@ -280,8 +347,13 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     player_cfg = build_config.load_composed("data/json/player_config.json")
     level_cfg = build_config.load_composed("data/json/level_config.json")
     progression = build_config.load_composed("data/json/progression_config.json")
-    # The Pickup's Scale-spec box (gADR-0013, composed into the drop style).
-    gold_size = progression["drop_items"]["gold"]["size"]
+    # The Pickups' Scale-spec boxes (gADR-0013, composed into the drop styles).
+    pickup_sizes = {
+        item: progression["drop_items"][item]["size"]
+        for item in ("gold", "bun", "wine")
+    }
+    # The player projectile (Laser bolt) box — the bolt checkpoint's size.
+    bolt_size = combat["projectile_size"]
     # The Great-Wall fight platform (gADR-0010): the level authority's
     # "Rampart" segment — the ground line every world-space bound derives from.
     rampart = next(p for p in level_cfg["platforms"] if p["name"] == "Rampart")
@@ -396,6 +468,14 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         assert doc["width"] > 0 and doc["height"] > 0
         return out, doc
 
+    def live_projectile_path() -> str | None:
+        """The scene path of a live Laser bolt (a child of Main), or None."""
+        tree = run("game", "tree")
+        if tree.returncode != 0:
+            return None
+        node = _find_named(json.loads(tree.stdout)["root"], "Projectile")
+        return f"/root/Main/{node['name']}" if node is not None else None
+
     try:
         started = run("daemon", "start", "--windowed")
         if started.returncode != 0:
@@ -452,6 +532,24 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
             f"{player_anim!r} — the animated Player did not initialize"
         )
 
+        # --- P2-S3 bolt checkpoint (#442): the Laser bolt renders its texture on
+        # screen. The boot-default weapon is the Laser Gun; fire ONE bolt to the
+        # LEFT — away from the Wave-1 Enemy at its shipped spawn, into the clear
+        # corridor (nothing occludes the bolt's y there) — so it pre-damages nothing
+        # and the kill beat below is unaffected. The copy capped the bolt speed (it
+        # lingers) and floored its lifetime (it persists), so a read+capture catches
+        # it in flight; the presence region is anchored on the bolt's LIVE position
+        # (read, not computed). The brief facing taps net ~zero player movement.
+        tap("move_left")  # face left for this one bolt
+        tap("fire")
+        assert poll(lambda: records("laser_fired")), "no gda_log 'laser_fired' record"
+        bolt_path = poll(live_projectile_path)
+        assert bolt_path, "no live Projectile after firing the Laser Gun"
+        bolt_world = prop(bolt_path, "position")
+        bolt_png, bolt_doc = capture("bolt")
+        assert (bolt_doc["width"], bolt_doc["height"]) == dims
+        tap("move_right")  # restore rightward facing for the Gravity beat
+
         # --- Beat 2: one Gravity Gun fire; capture while the field is live
         # (its retuned duration outlives these round-trips).
         tap("switch_weapon")
@@ -491,6 +589,12 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
             ),
         )
         assert walk.returncode == 0, walk.stdout + walk.stderr
+        # Fire ONE bolt immediately (before the i-frame-spaced loop's first sleep) so
+        # the 1-shot minion (HP lowered in the copy) dies AT RANGE on the first hit,
+        # before it closes on the Player — its Pickups then land clear of the Player,
+        # so the S6a Gold-reward readout below stays exact (#442). The loop still runs
+        # (a no-op once the Enemy has died).
+        tap("fire")
         for _ in range(shots_to_kill * 2):
             if records("enemy_died"):
                 break
@@ -499,17 +603,22 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
             poll(lambda: bool(records("enemy_died")), timeout=3.0)
         assert poll(lambda: records("enemy_died")), "the Enemy never died"
 
-        # The kill's guaranteed Gold drop (chance 1.0) spawns at the death
-        # position and logs its landing (pickup_spawned) — the anchor for the
-        # P2-S3 Pickup-readability checkpoint below (#442). The Player stopped
-        # ~200px short of the enemy, so the coin is never auto-collected.
-        gold_drops = poll(
-            lambda: [
-                r for r in records("pickup_spawned") if r["fields"]["item"] == "gold"
-            ]
-        )
-        assert gold_drops, "the guaranteed Gold drop never spawned"
-        gold_pos = [gold_drops[0]["fields"]["x"], gold_drops[0]["fields"]["y"]]
+        # The kill's guaranteed gold+bun+wine drops (the copy set chance 1.0) each
+        # spawn at the scattered death position and log their landing
+        # (pickup_spawned) — the anchors for the P2-S3 Pickup-readability
+        # checkpoints below (#442). The melee minion dies where it closed on the
+        # Player (well left of the Wave-2 Boss), and the Player then walks the OTHER
+        # way for the lose beat, so no Pickup is collected before the kill capture.
+        def pickup_pos(item: str) -> list[float] | None:
+            got = [r for r in records("pickup_spawned") if r["fields"]["item"] == item]
+            return [got[0]["fields"]["x"], got[0]["fields"]["y"]] if got else None
+
+        pickup_positions = {
+            item: poll(lambda item=item: pickup_pos(item))
+            for item in ("gold", "bun", "wine")
+        }
+        for item, pos in pickup_positions.items():
+            assert pos is not None, f"the guaranteed {item} drop never spawned"
 
         exp_text = f"EXP {math.floor(reward['exp_reward'])}"
         gold_text = f"GOLD {math.floor(reward['gold_reward'])}"
@@ -600,6 +709,18 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     def blockout_min(size) -> int:
         return int(_BLOCKOUT_FILL * size[0] * size[1])
 
+    def pickup_region(world_pos, size, anchor) -> list[float]:
+        """A TIGHT screen rect around a Pickup — small pad so a ~30px-spaced
+        neighbour never bleeds into this Pickup's presence check (#442)."""
+        cx, cy = to_screen(world_pos[0], world_pos[1], anchor)
+        p = _PICKUP_REGION_PAD
+        return [
+            cx - size[0] / 2.0 - p,
+            cy - size[1] / 2.0 - p,
+            size[0] + 2 * p,
+            size[1] + 2 * p,
+        ]
+
     def pad_rect(rect, pad: float) -> list[float]:
         return [
             rect[0] - pad,
@@ -667,6 +788,20 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         stats_top + _EXP_LINE * row_pitch - _READOUT_PAD,
         _HUD_PROBE_SIZE[0] + 2 * _READOUT_PAD,
         (_GOLD_LINE - _EXP_LINE + 1) * row_pitch + 2 * _READOUT_PAD,
+    ]
+
+    # The Laser-bolt probe (#442): anchored on the bolt's LIVE position (read just
+    # before the "bolt" capture), padded generously LEFT for the leftward in-flight
+    # drift over the read->capture round-trip (and any small follow-camera residual
+    # from the brief facing taps). The corridor left of the Player at the bolt's y is
+    # clear background, so only the bolt inks; the right edge stays clear of the
+    # Player. All bounds config/live-derived (gADR-0007).
+    bcx, bcy = to_screen(bolt_world[0], bolt_world[1], anchor_boot)
+    bolt_region = [
+        bcx - bolt_size[0] / 2.0 - 96.0,
+        bcy - bolt_size[1] / 2.0 - 16.0,
+        bolt_size[0] / 2.0 + 96.0,
+        bolt_size[1] + 32.0,
     ]
 
     # (check spec, minimum matching pixels, what a failure means)
@@ -773,25 +908,46 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         ),
         (
             {
-                # The dropped Gold Pickup renders its acquired coin TEXTURE
-                # (#442, gADR-0014), not a flat block — like the Obstacle, assert
-                # it is VISIBLE (its textured pixels differ from the plain
-                # backdrop) at its logged spawn position in the post-kill capture.
-                # Pickups read clearly at Scale-spec sizes (the #442 AC).
-                "name": "gold_pickup",
+                # The Laser bolt renders its acquired texture in flight (#442,
+                # gADR-0014): its textured pixels differ from the plain backdrop in
+                # the clear corridor. On-screen proof the projectile_asset resolved
+                # and loaded — the pixel companion to the headless structural check
+                # in test_obstacle_texture_e2e.py.
+                "name": "laser_bolt",
                 "mode": "background_delta",
-                "image": "kill",
-                "rect": blockout_region(gold_pos, gold_size, anchor_kill),
-                # A plain-background sample well clear of the pickup (the same
-                # top-right inset the HUD/Obstacle checks use).
+                "image": "bolt",
+                "rect": bolt_region,
                 "reference": [dims[0] - 8, 8],
                 "min_delta": _CHANNEL_DELTA,
             },
-            _MIN_PICKUP_PIXELS,
-            "the dropped Gold pickup texture is not visible at its spawn "
-            "position after the kill (the #442 readability checkpoint)",
+            _MIN_BOLT_PIXELS,
+            "the Laser bolt texture is not visible in flight (the #442 checkpoint)",
         ),
     ]
+    # The dropped Pickups render their acquired TEXTURES (#442, gADR-0014), not flat
+    # blocks — like the Obstacle, assert each is VISIBLE (its textured pixels differ
+    # from the plain backdrop) at its logged spawn position in the post-kill capture,
+    # in a TIGHT region so a ~30px-spaced neighbour cannot satisfy it. Pickups read
+    # clearly at their Scale-spec sizes (the #442 AC).
+    for item in ("gold", "bun", "wine"):
+        checks.append(
+            (
+                {
+                    "name": f"{item}_pickup",
+                    "mode": "background_delta",
+                    "image": "kill",
+                    "rect": pickup_region(
+                        pickup_positions[item], pickup_sizes[item], anchor_kill
+                    ),
+                    # A plain-background sample well clear of the pickups.
+                    "reference": [dims[0] - 8, 8],
+                    "min_delta": _CHANNEL_DELTA,
+                },
+                _MIN_PICKUP_PIXELS,
+                f"the dropped {item} pickup texture is not visible at its spawn "
+                "position after the kill (the #442 readability checkpoint)",
+            )
+        )
     for spawn in wave1_spawns:
         spawn_kind = enemies["kinds"][spawn["kind"]]
         checks.append(
@@ -859,6 +1015,7 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
             {
                 "images": {
                     "boot": str(boot_png),
+                    "bolt": str(bolt_png),
                     "field": str(field_png),
                     "kill": str(kill_png),
                     "warp": str(warp_png),

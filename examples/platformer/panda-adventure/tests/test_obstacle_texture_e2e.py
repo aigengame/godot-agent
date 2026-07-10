@@ -17,6 +17,12 @@ mutates ``project.godot``), display-gated (skips visibly, ``-rs``, where no wind
 server is usable), posix-only (the live stack is ``AF_UNIX``). The copy carries the
 committed ``assets/`` tree (the texture + its ``.import`` + the manifest), so its
 rebuilt ``gravity_config.tres`` resolves the obstacle path just like the shipped one.
+
+A second test extends the tracer to the P2-S3 Laser bolt (#442) as a HEADLESS
+structural check: firing spawns a Projectile whose Visual carries a ``Sprite`` child
+iff ``laser_bolt`` loaded — a ``game tree`` read, no window. Its on-screen PIXEL
+visibility rides the single windowed scenario in ``test_visual_smoke_e2e.py``
+(gADR-0007: one windowed session), never a second window here.
 """
 
 from __future__ import annotations
@@ -166,21 +172,20 @@ def test_obstacle_renders_the_texture(tmp_path, daemon_runtime_dir):
 
 
 @pytest.mark.e2e
-def test_laser_projectile_renders_the_texture(tmp_path, daemon_runtime_dir):
-    """The Laser Gun bolt renders its acquired texture live (P2-S3, #442).
+def test_laser_projectile_loads_the_texture_headless(tmp_path, daemon_runtime_dir):
+    """The Laser Gun bolt loads its acquired texture live — HEADLESS structural
+    check (P2-S3, #442).
 
-    The obstacle-tracer pattern extended to a spawned actor: firing the Laser Gun
-    (the boot-default weapon) spawns a Projectile bolt, and — because
-    ``combat_config`` ``projectile_asset`` now resolves to ``laser_bolt`` — the
-    bolt's Visual carries a ``Sprite`` (TextureRect) child, added ONLY on a
-    successful texture load. We fire repeatedly (each press spawns one bolt that
-    lives its full lifetime), so a ``game tree`` read reliably catches a live bolt
-    carrying the Sprite — end to end from the manifest id through the builder's
-    id -> path composition to a live textured bolt.
+    Firing the Laser Gun (the boot-default weapon) spawns a Projectile bolt, and —
+    because ``combat_config`` ``projectile_asset`` now resolves to ``laser_bolt`` —
+    the bolt's Visual carries a ``Sprite`` (TextureRect) child, added ONLY on a
+    successful texture load. This is a TREE read, not a viewport capture, so it needs
+    no window and runs against a HEADLESS daemon session — one gADR-0007 windowed
+    session is enough, so the bolt's on-screen PIXEL visibility rides the single
+    scripted scenario in ``test_visual_smoke_e2e.py`` instead of a second window here.
+    We fire repeatedly (each press spawns one bolt that lives its full lifetime), so
+    a ``game tree`` read reliably catches a live bolt carrying the Sprite.
     """
-    reason = windowed_unavailable_reason()
-    if reason is not None:
-        pytest.skip(reason)
     project = _make_project_copy(tmp_path / "game")
     env = {**os.environ}
 
@@ -216,24 +221,17 @@ def test_laser_projectile_renders_the_texture(tmp_path, daemon_runtime_dir):
         assert seq.returncode == 0, seq.stdout + seq.stderr
 
     try:
-        started = run("daemon", "start", "--windowed")
-        if started.returncode != 0:
-            code = _error_code(started.stdout)
-            if code in _NO_DISPLAY_CODES:
-                pytest.skip(f"windowed session unavailable ({code})")
-            raise AssertionError(started.stdout + started.stderr)
-        assert json.loads(started.stdout)["windowed"] is True
+        # Headless (no --windowed): a game-tree read needs no window server, so this
+        # runs anywhere the engine gate passes — no display gate, no second window.
+        started = run("daemon", "start")
+        assert started.returncode == 0, started.stdout + started.stderr
 
         found = None
         deadline = time.monotonic() + 20.0
         while found is None and time.monotonic() < deadline:
             fire()
             tree = run("game", "tree")
-            if tree.returncode != 0:
-                code = _error_code(tree.stdout)
-                if code in _NO_DISPLAY_CODES:
-                    pytest.skip(f"windowed session unavailable ({code})")
-                raise AssertionError(tree.stdout + tree.stderr)
+            assert tree.returncode == 0, tree.stdout + tree.stderr
             found = _find_projectile_with_sprite(json.loads(tree.stdout)["root"])
             if found is None:
                 time.sleep(0.3)
