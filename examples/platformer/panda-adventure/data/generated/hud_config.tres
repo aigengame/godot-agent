@@ -8,3 +8,4 @@ margin = Vector2(24, 24)
 font_size = 16
 value_punch_scale = Vector2(1.25, 1.25)
 value_tween_duration = 0.18
+hud_font = "res://assets/fonts/hud_font.fnt"

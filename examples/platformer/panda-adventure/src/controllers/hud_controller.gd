@@ -83,10 +83,17 @@ func _ready() -> void:
 	if _config == null:
 		return
 	($Stats as VBoxContainer).position = _config.margin
-	# The Scale spec's HUD font size (gADR-0013) — explicit where the blockout
-	# leaned on the engine default, so the font-scale anchor is data.
+	# The styled HUD font (P2-S9, gADR-0014): the derived bitmap Font applied to
+	# every line, at the Scale spec's font size (gADR-0013 — the font-scale anchor
+	# is data). The font is a resolved asset reference (data, gADR-0000); an
+	# empty/failed reference keeps the engine default so a font-less checkout still
+	# renders every line. Presentation only — the LINES contract is untouched.
+	var font := _hud_font()
 	for key: String in LINES:
-		_label(key).add_theme_font_size_override("font_size", roundi(_config.font_size))
+		var label := _label(key)
+		if font != null:
+			label.add_theme_font_override("font", font)
+		label.add_theme_font_size_override("font_size", roundi(_config.font_size))
 
 
 func _process(_delta: float) -> void:
@@ -134,6 +141,22 @@ func _play_value_pulse(label: Label) -> void:
 		label, "scale", Vector2.ONE, _config.value_tween_duration
 	)
 	recover.set_trans(Tween.TRANS_SINE)
+
+
+## Load the HUD's configured bitmap font, or null when none is wired or the load
+## fails — the HUD then keeps the engine-default font. A non-empty-but-unloadable
+## reference is a not-shipped-font fault: guard loudly (the ViewBuilder sprite
+## idiom) but never blank the readout.
+func _hud_font() -> Font:
+	if _config.hud_font.is_empty():
+		return null
+	var font := load(_config.hud_font) as Font
+	if font == null:
+		push_error(
+			"HudController: font '%s' failed to load — rendering the default font."
+			% _config.hud_font
+		)
+	return font
 
 
 ## The Label for one LINES key ("hp" -> Stats/HpLabel).

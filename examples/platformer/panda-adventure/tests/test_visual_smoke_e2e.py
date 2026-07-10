@@ -8,7 +8,10 @@ mispositioned, or occluded visual satisfies every headless node/label/log
 assertion). Checkpoints over the current player-visible surface:
 
 - the HUD column is visible at boot (absorbs S6a's per-feature windowed
-  check from ``test_reward_hud_e2e.py`` — the seam's first checkpoint);
+  check from ``test_reward_hud_e2e.py`` — the seam's first checkpoint), and
+  since P2-S9 (#445) is rendered in the styled bitmap font — the live column
+  width matches that font's monospace advance (a structural check the
+  engine-default proportional font would fail, confirming the override);
 - the S7 BUN/WINE supply lines are visible at boot, probed at their LIVE
   rendered rects (``gda game rect``, the gda #419 capability — the
   container-managed Labels' rects are readable now, so the item-lines region
@@ -146,11 +149,9 @@ _PROBE_CLEARANCE = 8.0
 # which the S7 item-lines check below uses for its exact region.)
 _HUD_PROBE_SIZE = (280.0, 250.0)
 # The HUD column's line order (hud_controller.LINES): hp, mp, level, exp,
-# gold, weapon, bun, wine — the EXP/GOLD readout band is lines 3..4 of 8.
+# gold, weapon, bun, wine.
 _HUD_LINES = 8
-_EXP_LINE = 3
-_GOLD_LINE = 4
-# Padding on the readout band, absorbing the VBox's row separation.
+# Padding around the readout band's live rects, absorbing sub-pixel rect edges.
 _READOUT_PAD = 6.0
 
 # --- Presence thresholds ---
@@ -503,17 +504,33 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         ), "Player did not land"
         time.sleep(_CAMERA_SETTLE)
         anchor_boot = prop("/root/Main/Player", "position")
-        # The HUD column's screen anchor and row pitch. The Stats VBox is
-        # free-positioned (its offsets ARE readable, unlike its
-        # container-managed Labels'), sits at the config margin, and stacks
-        # _HUD_LINES uniform Label rows down to offset_bottom.
+        # The HUD column's screen anchor. The Stats VBox is free-positioned
+        # (its offsets ARE readable, unlike its container-managed Labels') and
+        # sits at the config margin.
         stats_left = prop("/root/Main/Hud/Stats", "offset_left")
         stats_top = prop("/root/Main/Hud/Stats", "offset_top")
-        stats_bottom = prop("/root/Main/Hud/Stats", "offset_bottom")
-        row_pitch = (stats_bottom - stats_top) / _HUD_LINES
         hud_cfg = build_config.load_composed("data/json/hud_config.json")
         assert (stats_left, stats_top) == pytest.approx(tuple(hud_cfg["margin"])), (
             "the rendered HUD column is not anchored at the config margin"
+        )
+        # The styled HUD font (P2-S9, #445): the derived bitmap font is a
+        # monospace advance, so a line's rendered width is exactly its glyph
+        # count times the font's advance (read from the font manifest's grid,
+        # gADR-0014) — a structural property the engine-default proportional
+        # font would NOT satisfy. The free-positioned Stats VBox shrink-wraps to
+        # its widest live line, so its rendered width proves the
+        # add_theme_font_override took effect (config-derived, not a glyph golden
+        # image — the gADR-0007 discipline).
+        hud_advance = build_config.load_asset_manifest(GAME_DIR)["hud_font"][
+            "frame_layout"
+        ]["frame_dims"][0]
+        _line_keys = ["Hp", "Mp", "Level", "Exp", "Gold", "Weapon", "Bun", "Wine"]
+        widest_glyphs = max(len(label(key)) for key in _line_keys)
+        stats_width = rendered_rect("/root/Main/Hud/Stats")[2]
+        assert stats_width == pytest.approx(widest_glyphs * hud_advance, abs=1.0), (
+            f"the HUD column width ({stats_width}) does not match the styled "
+            f"monospace font ({widest_glyphs} glyphs x {hud_advance}px advance) — "
+            "the HUD font override was not applied"
         )
         # The S7 item lines' LIVE rendered rects (gda #419): the exact region
         # the BUN/WINE presence check probes in the boot capture.
@@ -628,6 +645,13 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
         assert poll(lambda: label("Gold") == gold_text), (
             f"Gold readout never showed the reward: {label('Gold')}"
         )
+        # The EXP/Gold readout's LIVE rendered rects at their post-kill values
+        # (gda #419 — exact for the container-managed Labels, font-agnostic): the
+        # region the readout-delta check probes, bounding the widened text so the
+        # change registers whatever the HUD font's metrics (the styled bitmap
+        # font, P2-S9, replaces the blockout default this band was tuned for).
+        exp_rect = rendered_rect(_HUD_LABEL % "Exp")
+        gold_rect = rendered_rect(_HUD_LABEL % "Gold")
         assert poll(
             lambda: any(r["fields"]["wave"] == 2 for r in records("wave_started"))
         ), "Wave 2 never started after the kill"
@@ -780,14 +804,19 @@ def test_player_visible_surface_renders_in_the_windowed_viewport(
     item_y1 = max(bun_rect[1] + bun_rect[3], wine_rect[1] + wine_rect[3])
     item_region = [item_x0, item_y0, item_x1 - item_x0, item_y1 - item_y0]
 
-    # The EXP/Gold readout band: lines _EXP_LINE.._GOLD_LINE of the HUD
-    # column's uniform row stack, full probe width (Label text renders past
-    # the 1px-wide shrink-wrapped VBox rect), padded for the row separation.
+    # The EXP/Gold readout band: the UNION of the two Labels' post-kill live
+    # rendered rects (gda #419 — exact and font-agnostic, the item-lines idiom),
+    # padded. Replaces the earlier row-pitch approximation, which assumed the
+    # blockout font's line metrics and drifted off the styled font's rows.
+    readout_x0 = min(exp_rect[0], gold_rect[0])
+    readout_y0 = min(exp_rect[1], gold_rect[1])
+    readout_x1 = max(exp_rect[0] + exp_rect[2], gold_rect[0] + gold_rect[2])
+    readout_y1 = max(exp_rect[1] + exp_rect[3], gold_rect[1] + gold_rect[3])
     readout_region = [
-        stats_left - _READOUT_PAD,
-        stats_top + _EXP_LINE * row_pitch - _READOUT_PAD,
-        _HUD_PROBE_SIZE[0] + 2 * _READOUT_PAD,
-        (_GOLD_LINE - _EXP_LINE + 1) * row_pitch + 2 * _READOUT_PAD,
+        readout_x0 - _READOUT_PAD,
+        readout_y0 - _READOUT_PAD,
+        (readout_x1 - readout_x0) + 2 * _READOUT_PAD,
+        (readout_y1 - readout_y0) + 2 * _READOUT_PAD,
     ]
 
     # The Laser-bolt probe (#442): anchored on the bolt's LIVE position (read just

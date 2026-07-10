@@ -1,0 +1,25 @@
+{
+  "hud_font": {
+    "path": "res://assets/fonts/hud_font.fnt",
+    "category": "fonts",
+    "acquire_mode": "search_download",
+    "source": "google-fonts",
+    "license": "OFL",
+    "license_url": "https://openfontlicense.org/",
+    "target_dims": [
+      256,
+      96
+    ],
+    "source_url": "https://github.com/google/fonts/raw/main/ofl/pressstart2p/PressStart2P-Regular.ttf",
+    "attribution": "Press Start 2P by CodeMan38 / The Press Start 2P Project Authors — SIL Open Font License 1.1 (Reserved Font Name 'Press Start 2P'); see assets/fonts/OFL.txt.",
+    "frame_layout": {
+      "frame_dims": [
+        16,
+        16
+      ],
+      "columns": 16,
+      "rows": 6,
+      "count": 95
+    }
+  }
+}

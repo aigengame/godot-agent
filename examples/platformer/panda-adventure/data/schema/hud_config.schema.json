@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aigengame.dev/panda-adventure/data/schema/hud_config.schema.json",
   "title": "Panda Adventure HUD configuration",
-  "description": "Authoritative config for the S6a HUD blockout (gADR-0000, gADR-0004): the value-change pulse tween. The placement margin and the HUD font size live in scale_spec.json (gADR-0013) and are composed into the derived HudConfig by the builder. The HUD's CONTENT (live HP/MP/EXP/Gold + Current weapon) is fixed by the GDD's 'HUD & UI' section; concrete layout/styling beyond these numbers is a later asset concern. Converted by scripts/build_config.py into the derived data/generated/hud_config.tres (HudConfig).",
+  "description": "Authoritative config for the S6a HUD blockout (gADR-0000, gADR-0004): the value-change pulse tween and (since P2-S9, #445) the HUD font reference. The placement margin and the HUD font size live in scale_spec.json (gADR-0013) and are composed into the derived HudConfig by the builder. The HUD's CONTENT (live HP/MP/EXP/Gold + Current weapon) is fixed by the GDD's 'HUD & UI' section. Converted by scripts/build_config.py into the derived data/generated/hud_config.tres (HudConfig).",
   "type": "object",
   "additionalProperties": false,
   "required": ["value_punch_scale", "value_tween_duration"],
@@ -18,6 +18,11 @@
       "description": "Seconds for the value-change punch to recover to normal scale; strictly positive.",
       "type": "number",
       "exclusiveMinimum": 0.0
+    },
+    "hud_font": {
+      "description": "Optional font asset reference for the HUD labels (P2-S9, #445): an Asset manifest id the builder resolves to the single-homed res:// path of a Godot Font (a bitmap .fnt derived by tools/assets/fonts.py, gADR-0014); absent (or empty) leaves the engine-default font. The HUD applies it via add_theme_font_override at the Scale spec's hud_font_size (gADR-0013). Asset references are data (gADR-0000).",
+      "type": "string",
+      "pattern": "^[^\"\\\\]*$"
     }
   }
 }

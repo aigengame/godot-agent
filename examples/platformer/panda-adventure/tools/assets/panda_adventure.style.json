@@ -51,6 +51,10 @@
   "constraints": {
     "formats": ["png"],
     "allowed_licenses": ["CC0", "CC-BY"],
+    "category_licenses": {
+      "_readme": "Per-category download-license extensions on top of the global CC0/CC-BY rule (gADR-0014/GDD). Fonts additionally allow OFL — a permissive FONT license — so a downloaded OFL pixel font is accepted for fonts only; every other category stays CC0/CC-BY (P2-S9, #445).",
+      "fonts": ["OFL"]
+    },
     "chroma_key": "#FF00FF"
   },
   "lifecycle": {
@@ -71,6 +75,13 @@
       "base_url": "https://kenney.nl",
       "default_license": "CC0",
       "license_url": "https://creativecommons.org/publicdomain/zero/1.0/"
+    },
+    {
+      "name": "google-fonts",
+      "kind": "search-download",
+      "base_url": "https://fonts.google.com",
+      "default_license": "OFL",
+      "license_url": "https://openfontlicense.org/"
     }
   ],
   "generation": {
@@ -160,6 +171,19 @@
         "mode": "generation",
         "backend": "mcp:gemini",
         "model": "gemini-2.5-flash-image"
+      }
+    },
+    "hud_font": {
+      "category": "fonts",
+      "_note": "P2-S9 (#445): the HUD bitmap font. Its committed form is the derived AngelCode .fnt recorded under manifest id 'hud_font'; the search_download acquire fetches the OFL pixel-font TTF below, which tools/assets/hud_font_build.py rasterizes into the glyph sheet and derives. No scale_key — the font's native size is the Scale spec's hud_font_size (gADR-0013), read by the font build, not a 2-D box.",
+      "acquire": {
+        "mode": "search_download",
+        "source": "google-fonts",
+        "url": "https://github.com/google/fonts/raw/main/ofl/pressstart2p/PressStart2P-Regular.ttf",
+        "license": "OFL",
+        "license_url": "https://openfontlicense.org/",
+        "attribution": "Press Start 2P by CodeMan38 / The Press Start 2P Project Authors — SIL Open Font License 1.1 (Reserved Font Name 'Press Start 2P'); see assets/fonts/OFL.txt.",
+        "page_url": "https://fonts.google.com/specimen/Press+Start+2P"
       }
     }
   }

@@ -248,14 +248,17 @@ _WAVE_SCHEDULE_FIELDS: list[tuple[str, str]] = [
 ]
 
 # The S6a HUD blockout numbers (gADR-0004): overlay placement and the
-# value-change pulse tween. Layout/styling beyond these stays a later asset
-# concern (GDD "HUD & UI"). ``margin`` and ``font_size`` are COMPOSED from the
+# value-change pulse tween. ``margin`` and ``font_size`` are COMPOSED from the
 # Scale spec (gADR-0013) — authored in scale_spec.json, not hud_config.json.
+# ``hud_font`` is the P2-S9 (#445) view asset reference — the HUD's bitmap font,
+# resolved by the builder from its Asset manifest id to the single-homed res://
+# path (gADR-0014); authored empty until the font slice fills it.
 _HUD_FIELDS: list[tuple[str, str]] = [
     ("margin", "vec2"),
     ("font_size", "float"),
     ("value_punch_scale", "vec2"),
     ("value_tween_duration", "float"),
+    ("hud_font", "asset"),
 ]
 
 # The S7 Items & Equipment numbers (gADR-0008): the Consumable restore
@@ -797,6 +800,7 @@ _ASSET_REF_FIELDS: dict[str, tuple[str, ...]] = {
     # (gADR-0015/gADR-0016). The manifest ``player`` id single-homes its path.
     _PLAYER_JSON_REL: ("player_asset",),
     _COMBAT_JSON_REL: ("projectile_asset",),
+    _HUD_JSON_REL: ("hud_font",),
 }
 
 # The nested view structures whose per-entry ``asset`` also resolves id -> path,
@@ -1135,21 +1139,33 @@ def validate_asset_licenses(root: Path = GAME_DIR) -> list[Any]:
     """Enforce the license/acquire-mode consistency gate (gADR-0015 §5d).
 
     Delegates to the asset pipeline's pure licensing core with the DOWNLOAD-license
-    allowlist from the committed Style descriptor (``allowed_licenses`` — CC0/CC-BY):
-    a ``search_download`` entry must record a download license, a ``generation``
-    entry its BACKEND's usage terms (a non-empty token that is NOT a download
-    license — so a generated asset mislabeled ``CC0`` fails the build). Validates
-    EVERY manifest entry (referenced or not), so it is general across asset slices.
-    Raises ``assets.lifecycle.LicenseModeError`` on a violation.
+    allowlist resolved PER CATEGORY (gADR-0014): the global rule is CC0/CC-BY, with
+    fonts additionally allowing OFL (a permissive font license, P2-S9/#445) — so a
+    downloaded OFL font is accepted for the fonts category only, every other category
+    staying CC0/CC-BY. A ``search_download`` entry must record a download license
+    allowed for its category; a ``generation`` entry its BACKEND's usage terms (a
+    non-empty token that is NOT a download license — so a generated asset mislabeled
+    ``CC0`` fails the build). Validates EVERY manifest entry (referenced or not), so
+    it is general across asset slices. Raises ``assets.lifecycle.LicenseModeError``
+    on a violation.
     """
     from assets import game_config, lifecycle
 
     config = game_config.load_style_config()
-    entries = [
-        (asset_id, str(rec.get("acquire_mode", "")), str(rec.get("license", "")))
-        for asset_id, rec in load_asset_manifest(root).items()
-    ]
-    return lifecycle.validate_license_modes(entries, config.style.allowed_licenses)
+    by_category: dict[str, list[tuple[str, str, str]]] = {}
+    for asset_id, rec in load_asset_manifest(root).items():
+        entry = (
+            asset_id,
+            str(rec.get("acquire_mode", "")),
+            str(rec.get("license", "")),
+        )
+        by_category.setdefault(str(rec.get("category", "")), []).append(entry)
+    violations: list[Any] = []
+    for category, entries in sorted(by_category.items()):
+        violations += lifecycle.validate_license_modes(
+            entries, config.download_licenses_for(category)
+        )
+    return violations
 
 
 def asset_ref_orphans(root: Path = GAME_DIR) -> list[str]:
