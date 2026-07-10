@@ -6,6 +6,7 @@
   "min_damage": 1.0,
   "iframe_duration": 0.6,
   "projectile_color": [1.0, 0.35, 0.25, 1.0],
+  "projectile_asset": "laser_bolt",
   "projectile_speed": 900.0,
   "projectile_lifetime": 1.5,
   "projectile_spawn_offset": [36.0, 0.0],

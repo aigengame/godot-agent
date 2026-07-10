@@ -17,17 +17,28 @@ def build_asset_spec(
     category: str,
     target_dims: tuple[int, int],
     style: StyleDescriptor,
+    *,
+    subject: str | None = None,
+    hint: str | None = None,
 ) -> AssetSpec:
-    """Compose the style descriptor with an asset's target dimensions."""
+    """Compose the style descriptor with an asset's target dimensions.
+
+    ``subject``/``hint`` are the optional per-asset recipe overrides (a namespaced
+    id needs a human subject; an off-category asset supplies its own style hint)."""
     return AssetSpec(
-        id=asset_id, category=category, target_dims=target_dims, style=style
+        id=asset_id,
+        category=category,
+        target_dims=target_dims,
+        style=style,
+        subject=subject,
+        hint=hint,
     )
 
 
 def _subject_terms(spec: AssetSpec) -> str:
-    """Human-readable subject words from the asset id (``obstacle_crate`` ->
-    ``obstacle crate``) — the concrete thing the query/prompt is about."""
-    return spec.id.replace("_", " ")
+    """The concrete thing the query/prompt is about (the recipe subject override,
+    else the humanized id) — delegated to the spec so both renderers agree."""
+    return spec.subject_terms
 
 
 def render_search_query(spec: AssetSpec) -> str:

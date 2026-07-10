@@ -3,9 +3,9 @@
   "level_up_flash_color": [1.0, 0.9, 0.3, 1.0],
   "level_up_flash_duration": 0.4,
   "drop_items": {
-    "gold": { "color": [1.0, 0.85, 0.2, 1.0] },
-    "bun": { "color": [0.95, 0.8, 0.55, 1.0] },
-    "wine": { "color": [0.7, 0.15, 0.35, 1.0] }
+    "gold": { "color": [1.0, 0.85, 0.2, 1.0], "asset": "pickup_gold" },
+    "bun": { "color": [0.95, 0.8, 0.55, 1.0], "asset": "pickup_bun" },
+    "wine": { "color": [0.7, 0.15, 0.35, 1.0], "asset": "pickup_wine" }
   },
   "pickup_spawn_squash": [0.3, 0.3],
   "pickup_spawn_tween_duration": 0.25,

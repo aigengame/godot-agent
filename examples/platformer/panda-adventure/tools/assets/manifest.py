@@ -30,7 +30,7 @@ _CORE_FIELDS = (
     "license_url",
     "target_dims",
 )
-_OPTIONAL_FIELDS = ("source_url", "attribution", "prompt", "backend")
+_OPTIONAL_FIELDS = ("source_url", "attribution", "prompt", "backend", "model")
 
 
 def manifest_dir(root: Path, assets_root: str) -> Path:
@@ -85,6 +85,7 @@ def dict_to_entry(asset_id: str, data: dict[str, Any]) -> ManifestEntry:
         attribution=data.get("attribution"),
         prompt=data.get("prompt"),
         backend=data.get("backend"),
+        model=data.get("model"),
         frame_layout=_frame_layout_from_dict(data.get("frame_layout")),
     )
 

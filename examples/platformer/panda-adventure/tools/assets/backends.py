@@ -87,6 +87,17 @@ class McpBackend:
     def name(self) -> str:
         return f"mcp:{self._channel}"
 
+    @property
+    def model(self) -> str | None:
+        """The concrete image model this channel is configured to use, if any.
+
+        Read from the channel's ``arguments`` (e.g. the Gemini ``model``), so the
+        acquire stage can record it as generation provenance (gADR-0014). ``None``
+        when the channel leaves the tool's own default model in force.
+        """
+        value = self._arguments.get("model")
+        return str(value) if value is not None else None
+
     def generate(self, prompt: str, out_path: Path) -> None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         text = asyncio.run(self._call(prompt, out_path))
