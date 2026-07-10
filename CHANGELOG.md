@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/aigengame/godot-agent/compare/v0.8.0...v0.8.1) (2026-07-10)
+
+
+### Bug Fixes
+
+* **panda-editor:** revert [#473](https://github.com/aigengame/godot-agent/issues/473) spawn-latch workaround now gda 0.8.0 ships game-set verified ([#482](https://github.com/aigengame/godot-agent/issues/482)) ([032a90f](https://github.com/aigengame/godot-agent/commit/032a90fdc1481c3b07a165bab84cc5007ffb9251))
+
 ## [0.8.0](https://github.com/aigengame/godot-agent/compare/v0.7.0...v0.8.0) (2026-07-08)
 
 
