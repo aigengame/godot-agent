@@ -186,8 +186,9 @@ class ManifestEntry:
     home of the asset's path (the authority references ``id``, the builder composes
     ``id -> path``). A sprite-set entry additionally carries its ``frame_layout``
     (gADR-0015) — the packed sheet's tiling, which a plain texture entry omits. A
-    generated entry records its ``prompt``/``backend``/``model`` provenance so the
-    exact generation is reproducible (gADR-0014).
+    generated entry records its ``prompt``/``backend``/``model`` provenance for
+    audit and APPROXIMATE regeneration — an image model has no seed, so the exact
+    pixels are not byte-reproducible (gADR-0015).
     """
 
     id: str

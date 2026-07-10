@@ -85,8 +85,10 @@ def test_search_download_real_fetch_p2_s3_assets(
 
     The wired Pickup coin and the player Laser bolt, over the real network, each
     postprocessed to its Scale-spec box and recorded with its CC0 license and
-    source URL (gADR-0014). The placeholder Pickups (bun/wine) have no live-fetch
-    recipe — they are authored, pending the wave-close acquisition pass.
+    source URL (gADR-0014). The bun/wine Pickups are intentionally absent from this
+    search-download parametrization — they are real Gemini GENERATIONS (the
+    generation tier below / ``test_assets_pipeline`` covers that path), not
+    search-download fetches.
     """
     root = _game_root(tmp_path)
     try:
