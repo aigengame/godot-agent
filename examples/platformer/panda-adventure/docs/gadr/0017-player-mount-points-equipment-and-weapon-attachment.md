@@ -5,9 +5,10 @@ status: accepted
 # Player mount points — equipment & weapon attachment
 
 gADR-0016's Model S renders the Player as ONE `SpriteFrames` — the spacesuit-panda, its
-suit and implicit weapon baked into the frames. P2-S3 (#442) then found the **Spacesuit**
-and **Gravity Gun** textures have no data-only slot: a monolithic sprite cannot reflect a
-swappable Equipment overlay or the switchable Current weapon. The root cause is not a
+suit and implicit weapon baked into the frames. P2-S3 (#442) then found that several of its listed items have no data-only texture slot: the
+**Spacesuit** and the **Laser Gun / Gravity Gun** *held weapons* — as opposed to the Laser
+Gun's Projectile bolt, which #442 *did* wire. A monolithic sprite cannot reflect a modular
+Equipment overlay or a held weapon that swaps with the Current weapon. The root cause is not a
 missing texture reference — it is that the Player's on-screen figure reserves nowhere for a
 swapped or held part to attach. Today the Player's **weapons switch in play** (the Current
 weapon toggles between the Laser Gun and the Gravity Gun); the **Spacesuit is persistent** —
