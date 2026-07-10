@@ -96,12 +96,23 @@ def _acquire(
 def _default_backend(
     config: StyleConfig, recipe: dict[str, Any], game_root: Path
 ) -> GenerationBackend:
-    """The generation backend named by the recipe (``mcp:<channel>`` | ``builtin``)."""
+    """The generation backend named by the recipe (``mcp:<channel>`` | ``builtin``).
+
+    The recipe's per-asset ``model`` is threaded into the MCP backend (recipe wins;
+    the pipeline default applies when omitted) so a shared channel never dictates a
+    sibling asset's model.
+    """
     backend = str(recipe.get("backend", "builtin"))
     if backend == "builtin":
         return game_config.make_builtin_backend(config, game_root)
     if backend.startswith("mcp:"):
-        return game_config.make_mcp_backend(config, backend[len("mcp:") :], game_root)
+        model = recipe.get("model")
+        return game_config.make_mcp_backend(
+            config,
+            backend[len("mcp:") :],
+            game_root,
+            model=str(model) if model is not None else None,
+        )
     raise AcquireError(f"unknown generation backend {backend!r} in the recipe")
 
 

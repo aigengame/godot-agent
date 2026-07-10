@@ -80,7 +80,6 @@
           "command": ["{python}", "{game_root}/scripts/mcp/gemini_img_gen.py"],
           "tool": "generate_image",
           "arguments": {
-            "model": "gemini-2.5-flash-image",
             "aspect_ratio": "1:1",
             "image_size": "1K"
           }
@@ -148,7 +147,8 @@
       "category_hint": "a game food-pickup item icon, one whole centered object, front three-quarter view, no scenery",
       "acquire": {
         "mode": "generation",
-        "backend": "mcp:gemini"
+        "backend": "mcp:gemini",
+        "model": "gemini-2.5-flash-image"
       }
     },
     "pickup_wine": {
@@ -158,7 +158,8 @@
       "category_hint": "a game drink-pickup item icon, one whole centered object, front view, no scenery",
       "acquire": {
         "mode": "generation",
-        "backend": "mcp:gemini"
+        "backend": "mcp:gemini",
+        "model": "gemini-2.5-flash-image"
       }
     }
   }

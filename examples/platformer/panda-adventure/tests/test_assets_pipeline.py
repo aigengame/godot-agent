@@ -382,6 +382,27 @@ def test_generation_records_the_backend_model(tmp_path: Path) -> None:
     )
 
 
+def test_per_asset_model_wins_and_defaults_to_pro() -> None:
+    """The image model is a PER-ASSET recipe field, never a shared-channel arg
+    (#442 review): the Pickups pin 2.5-Flash, and an asset whose recipe omits a
+    model (the Player, from #443) resolves to the pipeline default (Nano Banana
+    Pro) — so one asset's model can never silently regenerate a sibling."""
+
+    def resolved_model(asset_id: str) -> str | None:
+        backend = pipeline._default_backend(
+            STYLE, dict(STYLE.assets[asset_id]["acquire"]), build_config.GAME_DIR
+        )
+        assert isinstance(backend, McpBackend)
+        return backend.model
+
+    assert resolved_model("player") == "gemini-3-pro-image-preview"  # recipe omits
+    assert resolved_model("pickup_bun") == "gemini-2.5-flash-image"
+    assert resolved_model("pickup_wine") == "gemini-2.5-flash-image"
+    # The shared channel must NOT pin a model (it would regress every sibling).
+    channel_args = STYLE.generation["mcp"]["channels"]["gemini"].get("arguments", {})
+    assert "model" not in channel_args
+
+
 def test_acquire_asset_search_download_mocked(tmp_path: Path) -> None:
     """The full pipeline via SEARCH_DOWNLOAD with a mocked fetch."""
     _stage_scale_spec(tmp_path)

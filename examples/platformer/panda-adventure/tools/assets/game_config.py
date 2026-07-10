@@ -110,10 +110,29 @@ def asset_output_path(
     return game_root / config.assets_root / category / f"{asset_id}.png"
 
 
+# The image model applied when a generation recipe names none. Per-ASSET, never a
+# shared-channel argument: the channel is reused across assets (the Player sprite,
+# the Pickups, …), so a model on the channel would silently regenerate every asset
+# with one asset's model and break the retained per-recipe provenance contract. The
+# default matches the Player's recorded provenance (Nano Banana Pro), so an asset
+# whose recipe omits `model` regenerates on Pro rather than on a sibling's model.
+_DEFAULT_IMAGE_MODEL = "gemini-3-pro-image-preview"
+
+
 def make_mcp_backend(
-    config: StyleConfig, channel: str, game_root: Path = GAME_ROOT
+    config: StyleConfig,
+    channel: str,
+    game_root: Path = GAME_ROOT,
+    *,
+    model: str | None = None,
 ) -> McpBackend:
-    """Build the MCP generation backend for a configured channel (e.g. Gemini)."""
+    """Build the MCP generation backend for a configured channel (e.g. Gemini).
+
+    ``model`` is the per-asset image model from the acquire recipe; it wins, and
+    absent one the pipeline default (:data:`_DEFAULT_IMAGE_MODEL`) applies — the
+    channel's shared arguments never decide the model (that would regress a sibling
+    asset). The resolved model is merged into the tool arguments.
+    """
     import sys
 
     channels = config.generation.get("mcp", {}).get("channels", {})
@@ -124,11 +143,13 @@ def make_mcp_backend(
         part.replace("{python}", sys.executable).replace("{game_root}", str(game_root))
         for part in spec["command"]
     ]
+    arguments = dict(spec.get("arguments", {}))
+    arguments["model"] = model or _DEFAULT_IMAGE_MODEL
     return McpBackend(
         channel=channel,
         command=command,
         tool=spec.get("tool", "generate_image"),
-        arguments=dict(spec.get("arguments", {})),
+        arguments=arguments,
     )
 
 
