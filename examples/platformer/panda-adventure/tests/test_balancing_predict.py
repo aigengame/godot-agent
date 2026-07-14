@@ -209,6 +209,23 @@ def test_cli_predict_out_relative_traversal_is_refused(capsys, monkeypatch) -> N
     assert _tree_hash(DATA_DIR) == before
 
 
+def test_cli_predict_null_sd_model_is_structured_refusal(capsys, tmp_path) -> None:
+    """A ``sd_model: null`` targets document refuses as ``targets_invalid``
+    when predict reads its block — never a TypeError traceback (PR #493
+    re-review; config_dir/adapter point at the real ones so the parse is the
+    first failure)."""
+    doc = json.loads(TARGETS.read_text(encoding="utf-8"))
+    doc["sd_model"] = None
+    doc["config_dir"] = str(CONFIG_DIR)
+    doc["adapter"] = str(GAME_DIR / "tools" / "panda_balancing" / "adapter.py")
+    doc["no_write_roots"] = []
+    bad = tmp_path / "targets.json"
+    bad.write_text(json.dumps(doc), encoding="utf-8")
+    code = cli_main(["predict", "--targets", str(bad), "--json"])
+    assert code == EXIT_REFUSED
+    assert json.loads(capsys.readouterr().err)["error"] == "targets_invalid"
+
+
 def test_cli_predict_out_outside_authority_works(tmp_path) -> None:
     """A normal ``--out`` (tmp dir) is unaffected by the guard."""
     out = tmp_path / "prediction.json"

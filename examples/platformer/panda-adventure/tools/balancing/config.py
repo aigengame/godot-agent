@@ -60,6 +60,49 @@ class ConfigError(Exception):
 # home) so a missing key is a structured refusal, not a KeyError traceback.
 PLAYER_MODEL_KEYS = ("fire_interval", "accuracy", "dodge_chance", "engagement_distance")
 
+# The message names of the typed accessor's JSON kinds. ``float`` means "any
+# number" (bool excluded), matching JSON's single number type.
+_KIND_NAMES = {
+    str: "a string",
+    int: "an integer",
+    float: "a number",
+    bool: "a boolean",
+    list: "an array",
+    dict: "an object",
+}
+
+
+def _invalid(path: Path, detail: str) -> ConfigError:
+    return ConfigError("targets_invalid", f"targets file {path}: {detail}")
+
+
+def _is_kind(value: Any, kind: type) -> bool:
+    if kind is float:  # any JSON number; bool is not a number
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if kind is int:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if kind is bool:
+        return isinstance(value, bool)
+    return isinstance(value, kind)
+
+
+def _typed(
+    path: Path, mapping: dict[str, Any], key: str, kind: type, where: str = ""
+) -> Any:
+    """The schema boundary's typed accessor: a missing key or a wrong-typed
+    value (null included) refuses with ``targets_invalid`` at LOAD time —
+    never a TypeError later during path resolution or the simulation."""
+    label = f"{where}{key}"
+    if key not in mapping:
+        raise _invalid(path, f"missing the '{label}' key")
+    value = mapping[key]
+    if not _is_kind(value, kind):
+        raise _invalid(
+            path,
+            f"'{label}' must be {_KIND_NAMES[kind]}, got {type(value).__name__}",
+        )
+    return value
+
 
 @dataclass(frozen=True)
 class PipelineConfig:
@@ -96,52 +139,50 @@ def _read_targets_doc(path: Path) -> dict[str, Any]:
 
 
 def load_pipeline_config(path: Path) -> PipelineConfig:
-    """Parse a targets file (the per-game configuration) into a PipelineConfig."""
+    """Parse a targets file (the per-game configuration) into a PipelineConfig.
+
+    Every field is read through the typed accessor, so ANY malformed field —
+    missing, null, or the wrong JSON type, at the root or nested — is a
+    ``targets_invalid`` refusal here at the schema boundary.
+    """
     doc = _read_targets_doc(path)
-    player_model = doc.get("player_model")
-    if not isinstance(player_model, dict):
-        raise ConfigError(
-            "targets_invalid",
-            f"targets file {path} player_model must be a JSON object, "
-            f"got {type(player_model).__name__}",
+    player_model = _typed(path, doc, "player_model", dict)
+    for key in PLAYER_MODEL_KEYS:
+        _typed(path, player_model, key, float, "player_model.")
+    sim = _typed(path, doc, "simulation", dict)
+    waves: list[WaveTarget] = []
+    for i, wave in enumerate(_typed(path, doc, "waves", list)):
+        if not isinstance(wave, dict):
+            raise _invalid(
+                path, f"'waves[{i}]' must be an object, got {type(wave).__name__}"
+            )
+        where = f"waves[{i}]."
+        waves.append(
+            WaveTarget(
+                wave=_typed(path, wave, "wave", int, where),
+                ttk=_typed(path, wave, "ttk", float, where),
+                ttd=_typed(path, wave, "ttd", float, where),
+            )
         )
-    missing = [k for k in PLAYER_MODEL_KEYS if k not in player_model]
-    if missing:
-        raise ConfigError(
-            "targets_invalid",
-            f"targets file {path} player_model is missing {missing}",
-        )
-    try:
-        sim = doc["simulation"]
-        return PipelineConfig(
-            config_dir=doc["config_dir"],
-            adapter=doc["adapter"],
-            no_write_roots=tuple(doc.get("no_write_roots", ())),
-            player_model_params=player_model,
-            sim=SimConfig(
-                dt=sim["dt"],
-                max_time=sim["max_time"],
-                runs=sim["runs"],
-                seed=sim["seed"],
-            ),
-            targets=Targets(
-                waves=tuple(
-                    WaveTarget(wave=w["wave"], ttk=w["ttk"], ttd=w["ttd"])
-                    for w in doc["waves"]
-                ),
-                tolerance=doc["tolerance"],
-            ),
-        )
-    except KeyError as exc:
-        raise ConfigError(
-            "targets_invalid", f"targets file {path} is missing the {exc} key"
-        )
-    except (TypeError, ValueError, AttributeError) as exc:
-        # A present key holding the wrong shape (null, list, scalar where an
-        # object belongs) is the same bad input as a missing key.
-        raise ConfigError(
-            "targets_invalid", f"targets file {path} has an invalid shape: {exc!r}"
-        )
+    roots = doc.get("no_write_roots", [])
+    if not isinstance(roots, list) or any(not isinstance(r, str) for r in roots):
+        raise _invalid(path, "'no_write_roots' must be an array of strings")
+    return PipelineConfig(
+        config_dir=_typed(path, doc, "config_dir", str),
+        adapter=_typed(path, doc, "adapter", str),
+        no_write_roots=tuple(roots),
+        player_model_params=dict(player_model),
+        sim=SimConfig(
+            dt=_typed(path, sim, "dt", float, "simulation."),
+            max_time=_typed(path, sim, "max_time", float, "simulation."),
+            runs=_typed(path, sim, "runs", int, "simulation."),
+            seed=_typed(path, sim, "seed", int, "simulation."),
+        ),
+        targets=Targets(
+            waves=tuple(waves),
+            tolerance=_typed(path, doc, "tolerance", float),
+        ),
+    )
 
 
 # --- The sd_model block (predict mode) ---------------------------------------- #
@@ -180,42 +221,62 @@ class SdConfig:
 
 
 def load_sd_config(path: Path) -> SdConfig:
-    """Parse the ``sd_model`` block of a targets file into an :class:`SdConfig`."""
+    """Parse the ``sd_model`` block of a targets file into an :class:`SdConfig`
+    (typed like :func:`load_pipeline_config` — any malformed field refuses at
+    the schema boundary)."""
     doc = _read_targets_doc(path)
-    try:
-        sd = doc["sd_model"]
-        p = sd["params"]
-        t = sd["targets"]
-        growth = t["growth"]
-        return SdConfig(
-            params=SdParams(
-                dt=p["dt"],
-                max_wave_time=p["max_wave_time"],
-                growth_gain=p["growth_gain"],
-                heal_threshold_frac=p["heal_threshold_frac"],
-                heal_consume_rate=p["heal_consume_rate"],
+    sd = _typed(path, doc, "sd_model", dict)
+    p = _typed(path, sd, "params", dict, "sd_model.")
+    cross = _typed(path, sd, "cross_validation", dict, "sd_model.")
+    t = _typed(path, sd, "targets", dict, "sd_model.")
+    growth = _typed(path, t, "growth", dict, "sd_model.targets.")
+    difficulty = _typed(path, t, "difficulty", dict, "sd_model.targets.")
+    checkpoints: list[LevelCheckpoint] = []
+    for i, c in enumerate(
+        _typed(path, growth, "checkpoints", list, "sd_model.targets.growth.")
+    ):
+        where = f"sd_model.targets.growth.checkpoints[{i}]"
+        if not isinstance(c, dict):
+            raise _invalid(path, f"'{where}' must be an object, got {type(c).__name__}")
+        checkpoints.append(
+            LevelCheckpoint(
+                after_wave=_typed(path, c, "after_wave", int, f"{where}."),
+                min_level=_typed(path, c, "min_level", int, f"{where}."),
+            )
+        )
+    pw = "sd_model.params."
+    return SdConfig(
+        params=SdParams(
+            dt=_typed(path, p, "dt", float, pw),
+            max_wave_time=_typed(path, p, "max_wave_time", float, pw),
+            growth_gain=_typed(path, p, "growth_gain", float, pw),
+            heal_threshold_frac=_typed(path, p, "heal_threshold_frac", float, pw),
+            heal_consume_rate=_typed(path, p, "heal_consume_rate", float, pw),
+        ),
+        cross_validation_tolerance=_typed(
+            path, cross, "tolerance", float, "sd_model.cross_validation."
+        ),
+        targets=SdDesignTargets(
+            min_final_level=_typed(
+                path, growth, "min_final_level", int, "sd_model.targets.growth."
             ),
-            cross_validation_tolerance=sd["cross_validation"]["tolerance"],
-            targets=SdDesignTargets(
-                min_final_level=growth["min_final_level"],
-                level_checkpoints=tuple(
-                    LevelCheckpoint(
-                        after_wave=c["after_wave"], min_level=c["min_level"]
-                    )
-                    for c in growth["checkpoints"]
-                ),
-                final_wave_is_peak=t["difficulty"]["final_wave_is_peak"],
-                expect_monotonic_ramp=t["difficulty"]["expect_monotonic_ramp"],
+            level_checkpoints=tuple(checkpoints),
+            final_wave_is_peak=_typed(
+                path,
+                difficulty,
+                "final_wave_is_peak",
+                bool,
+                "sd_model.targets.difficulty.",
             ),
-        )
-    except KeyError as exc:
-        raise ConfigError(
-            "targets_invalid", f"targets file {path} is missing the {exc} key"
-        )
-    except (TypeError, ValueError, AttributeError) as exc:
-        raise ConfigError(
-            "targets_invalid", f"targets file {path} has an invalid shape: {exc!r}"
-        )
+            expect_monotonic_ramp=_typed(
+                path,
+                difficulty,
+                "expect_monotonic_ramp",
+                bool,
+                "sd_model.targets.difficulty.",
+            ),
+        ),
+    )
 
 
 # --- Path resolution + the adapter plug-in ------------------------------------ #

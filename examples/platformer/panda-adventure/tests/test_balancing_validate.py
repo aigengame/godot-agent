@@ -223,14 +223,25 @@ def test_documented_run_command_works() -> None:
 
 
 @pytest.mark.parametrize(
-    "field", ["player_model", "simulation", "waves"], ids=lambda f: f"{f}-null"
+    "field",
+    [
+        "player_model",
+        "simulation",
+        "waves",
+        "config_dir",
+        "adapter",
+        "tolerance",
+        "no_write_roots",
+    ],
+    ids=lambda f: f"{f}-null",
 )
-def test_cli_null_targets_block_is_structured_refusal(
+def test_cli_null_targets_field_is_structured_refusal(
     capsys, tmp_path, field: str
 ) -> None:
-    """A targets document whose nested block holds the wrong SHAPE (null where
-    an object/array belongs) is a structured exit-2 refusal, never a
-    TypeError traceback (PR #493 recheck)."""
+    """A targets document where ANY consumed field holds the wrong SHAPE (null
+    where an object/array/string/number belongs) is a structured exit-2
+    refusal at the schema boundary, never a TypeError traceback — including
+    the path-valued fields resolved later (PR #493 re-review)."""
     doc = json.loads(TARGETS.read_text(encoding="utf-8"))
     doc[field] = None
     bad = tmp_path / "targets.json"
@@ -238,6 +249,14 @@ def test_cli_null_targets_block_is_structured_refusal(
     code = cli_main(["validate", "--targets", str(bad), "--json"])
     assert code == EXIT_REFUSED
     assert json.loads(capsys.readouterr().err)["error"] == "targets_invalid"
+
+
+def test_cli_nonpositive_runs_is_structured_refusal(capsys) -> None:
+    """A non-positive simulation control (here ``--runs 0``, the CLI-override
+    path) refuses as ``sim_invalid`` instead of crashing inside the sim."""
+    code = cli_main(_cli("validate", "--json", "--runs", "0"))
+    assert code == EXIT_REFUSED
+    assert json.loads(capsys.readouterr().err)["error"] == "sim_invalid"
 
 
 def test_cli_adapter_returning_none_is_structured_refusal(capsys, tmp_path) -> None:

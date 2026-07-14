@@ -168,6 +168,14 @@ def _load_inputs(
             f"carrying a model.GameData, got {type(inputs).__name__}",
         )
     sim = _sim_with_overrides(cfg.sim, args.seed, args.runs)
+    if sim.dt <= 0 or sim.max_time <= 0 or sim.runs <= 0:
+        # Guards the file values AND the CLI overrides in one place: a
+        # non-positive control would only crash later inside the sim.
+        raise config.ConfigError(
+            "sim_invalid",
+            "simulation controls must be positive "
+            f"(dt={sim.dt}, max_time={sim.max_time}, runs={sim.runs})",
+        )
     return cfg, inputs, sim
 
 
