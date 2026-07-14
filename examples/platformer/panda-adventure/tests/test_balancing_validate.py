@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -152,6 +154,72 @@ def test_cli_out_outside_authority_still_works(tmp_path) -> None:
     code = cli_main(_cli("validate", "--json", "--runs", "1", "--out", str(out)))
     assert code in (0, 1)  # the verdict, never the refusal
     assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 1
+
+
+@pytest.mark.parametrize(
+    "artifact", ["targets.json", "adapter.py"], ids=["targets", "adapter"]
+)
+def test_cli_out_onto_own_input_artifact_is_refused(capsys, artifact: str) -> None:
+    """An ``--out`` aimed at the run's own input artifacts (the targets file or
+    the adapter) is REFUSED automatically — no declared root needed — and the
+    artifact stays byte-identical (the self-clobber guard, PR #493 review)."""
+    target = GAME_DIR / "tools" / "panda_balancing" / artifact
+    before = target.read_bytes()
+    code = cli_main(_cli("validate", "--json", "--runs", "1", "--out", str(target)))
+    assert code == EXIT_REFUSED
+    assert json.loads(capsys.readouterr().err)["error"] == "out_path_in_authority"
+    assert target.read_bytes() == before
+
+
+def test_cli_non_object_targets_is_structured_refusal(capsys, tmp_path) -> None:
+    """A syntactically valid targets document whose root is not a JSON object
+    is a structured exit-2 refusal, never an AttributeError traceback."""
+    bad = tmp_path / "targets.json"
+    bad.write_text("[]", encoding="utf-8")
+    code = cli_main(["validate", "--targets", str(bad), "--json"])
+    assert code == EXIT_REFUSED
+    assert json.loads(capsys.readouterr().err)["error"] == "targets_invalid"
+
+
+def test_cli_adapter_import_failure_is_structured_refusal(capsys, tmp_path) -> None:
+    """An adapter that raises while importing is a structured exit-2 refusal
+    (``adapter_invalid``), never a traceback."""
+    doc = json.loads(TARGETS.read_text(encoding="utf-8"))
+    doc["config_dir"] = str(CONFIG_DIR)
+    doc["adapter"] = "boom.py"
+    doc["no_write_roots"] = []
+    (tmp_path / "boom.py").write_text("raise RuntimeError('broken adapter')\n")
+    bad = tmp_path / "targets.json"
+    bad.write_text(json.dumps(doc), encoding="utf-8")
+    code = cli_main(["validate", "--targets", str(bad), "--json"])
+    assert code == EXIT_REFUSED
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "adapter_invalid"
+    assert "broken adapter" in err["detail"]
+
+
+def test_documented_run_command_works() -> None:
+    """The plug-in's documented invocation — ``python -m balancing validate
+    --targets panda_balancing/targets.json`` from the ``tools/`` directory —
+    actually runs (a verdict, not a usage error)."""
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "balancing",
+            "validate",
+            "--targets",
+            "panda_balancing/targets.json",
+            "--json",
+            "--runs",
+            "1",
+        ],
+        cwd=GAME_DIR / "tools",
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode in (0, 1), proc.stderr
+    assert json.loads(proc.stdout)["runs"] == 1
 
 
 def test_cli_incomplete_player_model_is_structured_refusal(capsys, tmp_path) -> None:

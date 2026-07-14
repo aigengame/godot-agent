@@ -12,8 +12,13 @@ framework package (gADR-0018):
   (``data/json/*.json``) into the framework's generic ``balancing.model``
   types, wired through the targets file's ``adapter`` key.
 
-Run it: ``python -m balancing {validate,predict} --targets
-tools/panda_balancing/targets.json`` (with ``tools/`` importable, e.g. from the
-``tools/`` directory). Rule parity with the shipped GDScript seams is pinned by
-the golden fixtures in ``tests/`` (gADR-0011), not by anything in the framework.
+Run it from the ``tools/`` directory (which makes ``balancing`` importable)::
+
+    python -m balancing validate --targets panda_balancing/targets.json
+    python -m balancing predict  --targets panda_balancing/targets.json
+
+or from the game root with ``PYTHONPATH=tools`` and
+``--targets tools/panda_balancing/targets.json``. Rule parity with the shipped
+GDScript seams is pinned by the golden fixtures in ``tests/`` (gADR-0011), not
+by anything in the framework.
 """

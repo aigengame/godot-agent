@@ -27,6 +27,20 @@ class StatBlock:
     defense: float
 
 
+def compose_defender(base: StatBlock, defense_bonus: float) -> StatBlock:
+    """The worn-equipment defender composition every adapter needs: a fresh
+    block copying ``base`` with ``defense`` raised by the equipment's bonus —
+    the formula's mitigation term changes, the other stats copy unchanged.
+    Public so adapters build ``GameData.player_defender`` without reaching
+    into the ruleset internals."""
+    return StatBlock(
+        max_hp=base.max_hp,
+        max_mp=base.max_mp,
+        attack=base.attack,
+        defense=rules.effective_defense(base.defense, defense_bonus),
+    )
+
+
 @dataclass(frozen=True)
 class CombatParams:
     """The damage-formula and i-frame params, plus the player's ranged-weapon

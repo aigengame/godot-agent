@@ -15,9 +15,11 @@ The per-game wiring is entirely config-driven: the required ``--targets`` file
 names the game's config dir, the adapter that maps it into the generic model,
 and the protected write roots. Emission goes to stdout (text or ``--json``) or
 an ``--out`` path. Every refused or invalid input — an ``--out`` inside a
-protected root, an unreadable targets file, a broken adapter, or game config
-the adapter cannot map — is a structured error on stderr with exit 2, distinct
-from the 0/1 verdict, and is raised BEFORE anything runs.
+protected root (including the targets/adapter files themselves), an unreadable
+targets file, a broken adapter, or game config the adapter cannot map — is a
+structured error on stderr with exit 2, distinct from the 0/1 verdict, and is
+raised BEFORE anything runs (an ``--out`` that turns out unwritable is the one
+write-time case, refused with the same envelope).
 """
 
 from __future__ import annotations
@@ -58,9 +60,15 @@ def _check_out(out: Path | None, roots: list[Path]) -> None:
 
 
 def _emit(doc: dict, text: str, out: Path | None, as_json: bool) -> None:
-    """Emit a report: to ``--out`` as JSON, else JSON or text to stdout."""
+    """Emit a report: to ``--out`` as JSON, else JSON or text to stdout. An
+    unwritable ``--out`` is a structured refusal like every other bad input."""
     if out is not None:
-        out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+        try:
+            out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+        except OSError as exc:
+            raise config.ConfigError(
+                "out_unwritable", f"cannot write the report to --out {out}: {exc}"
+            )
     elif as_json:
         print(json.dumps(doc, indent=2))
     else:
@@ -138,9 +146,12 @@ def _load_inputs(
     adapter = config.load_adapter(cfg, args.targets)
     try:
         inputs: model.GameInputs = adapter.load_inputs(config_dir)
-    except (OSError, KeyError, ValueError) as exc:
-        # The bad-input family (missing dir/file, missing key, bad JSON) becomes
-        # a structured refusal; genuine adapter bugs still trace.
+    except config.ConfigError:
+        raise  # an adapter may speak the structured contract itself
+    except Exception as exc:
+        # Any adapter failure is a bad per-game input to THIS tool: a
+        # structured refusal, never a traceback (process interrupts stay
+        # BaseException and pass through).
         raise config.ConfigError(
             "game_config_invalid",
             f"the adapter failed to load the game config from {config_dir}: {exc!r}",

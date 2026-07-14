@@ -21,7 +21,13 @@ We decide four things:
   schema, CLI). It never imports game code, names no game vocabulary (items,
   actors, docs, engine), and carries no per-game config file. That isolation is
   pinned by a fast test gate (`tests/test_balancing_isolation.py`) — imports,
-  vocabulary, and stray config are all regressions, not style.
+  vocabulary, and stray config are all regressions, not style. *Mechanic*
+  vocabulary is a different category: waves, archetypes, the warp/blink kit,
+  and slow fields are the reference combat model's own feature names —
+  data-driven and presence-gated, usable or ignorable by any game — i.e. the
+  framework's genre scope, not a game identity leak. This game's GAME-CONTEXT
+  binding Warp to its Boss does not make the mechanic panda-specific, so the
+  vocabulary gate deliberately checks identity terms, not mechanic terms.
 - **Everything Panda Adventure contributes lives in the sibling plug-in
   `tools/panda_balancing/`**: `adapter.py` (the JSON-authority → generic-model
   mapping, ex-`game_config.py`) and `targets.json` (ex-

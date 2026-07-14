@@ -15,7 +15,8 @@ file's own directory, so a targets file is relocatable with its game):
   is always protected — even under a ``--config-dir`` override — but the
   override's SURROUNDING tree is not: tree-level protection comes only from
   these declared roots, so to run against a copied project with full
-  protection, use a targets file living with the copy.
+  protection, use a targets file living with the copy. The run's own input
+  artifacts — the targets file and the adapter file — are always protected.
 - ``player_model`` — the design player-model assumptions (``fire_interval``,
   ``accuracy``, ``dodge_chance``, ``engagement_distance``).
 - ``simulation``   — the Monte-Carlo controls (``dt``, ``max_time``, ``runs``,
@@ -76,7 +77,7 @@ class PipelineConfig:
 
 def _read_targets_doc(path: Path) -> dict[str, Any]:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        doc = json.loads(path.read_text(encoding="utf-8"))
     except OSError as exc:
         raise ConfigError(
             "targets_unreadable", f"cannot read targets file {path}: {exc}"
@@ -85,6 +86,13 @@ def _read_targets_doc(path: Path) -> dict[str, Any]:
         raise ConfigError(
             "targets_invalid", f"targets file {path} is not valid JSON: {exc}"
         )
+    if not isinstance(doc, dict):
+        raise ConfigError(
+            "targets_invalid",
+            f"targets file {path} must be a JSON object at the root, "
+            f"got {type(doc).__name__}",
+        )
+    return doc
 
 
 def load_pipeline_config(path: Path) -> PipelineConfig:
@@ -217,13 +225,17 @@ def resolve_config_dir(
 def forbidden_out_roots(
     cfg: PipelineConfig, targets_path: Path, config_dir: Path
 ) -> list[Path]:
-    """The directory trees a report must never land in: every configured
-    ``no_write_roots`` entry (resolved against the targets file) plus the
-    effective config dir itself — so a ``--config-dir`` override dir is
-    protected too, though its surrounding tree is not (tree protection is
-    declared config, never a code heuristic)."""
+    """The paths a report must never land on: every configured
+    ``no_write_roots`` tree (resolved against the targets file), the effective
+    config dir itself — so a ``--config-dir`` override dir is protected too,
+    though its surrounding tree is not (tree protection is declared config,
+    never a code heuristic) — and the run's OWN input artifacts, the targets
+    file and the adapter file, which are always protected against an ``--out``
+    self-clobber regardless of declared roots."""
     roots = [resolve_against(targets_path.parent, r) for r in cfg.no_write_roots]
     roots.append(config_dir.resolve())
+    roots.append(targets_path.resolve())
+    roots.append(resolve_against(targets_path.parent, cfg.adapter))
     return roots
 
 
@@ -241,7 +253,14 @@ def load_adapter(cfg: PipelineConfig, targets_path: Path) -> ModuleType:
     if spec is None or spec.loader is None:
         raise ConfigError("adapter_invalid", f"cannot import adapter {path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        # A broken adapter is a bad per-game input: a structured refusal, not
+        # a traceback (process interrupts stay BaseException and pass through).
+        raise ConfigError(
+            "adapter_invalid", f"adapter {path} failed to import: {exc!r}"
+        )
     if not callable(getattr(module, "load_inputs", None)):
         raise ConfigError(
             "adapter_invalid",

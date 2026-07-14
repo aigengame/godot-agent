@@ -13,10 +13,12 @@ game code (no GDScript, no ``build_config``, no Godot), so the pipeline stays
 isolated from the engine (gADR-0011).
 
 The framework calls only :func:`load_inputs` (the adapter contract wired from
-``targets.json``); everything else here is this game's mapping detail. The one
-derived value composed here is the Player's ``defender`` block —
+``targets.json``); everything else here is this game's mapping detail, and it
+consumes ONLY the framework's public ``model`` surface (gADR-0018 — the parity
+suite in ``tests/`` is the one deliberate white-box exception, per gADR-0011).
+The one derived value composed here is the Player's ``defender`` block —
 ``ItemSystem.effective_defender``'s Spacesuit composition (gADR-0008), worn
-from spawn — mirrored via the parity-pinned ``rules.effective_defense``.
+from spawn — via the public ``model.compose_defender``.
 """
 
 from __future__ import annotations
@@ -25,7 +27,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from balancing import rules
 from balancing.model import (
     CombatParams,
     EnemyKind,
@@ -36,6 +37,7 @@ from balancing.model import (
     StatBlock,
     TierReward,
     Wave,
+    compose_defender,
 )
 
 
@@ -208,25 +210,14 @@ def load_game_data(config_dir: Path) -> GameData:
         combat=combat,
         kinds=load_enemy_kinds(config_dir),
         waves=load_waves(config_dir),
+        # The Spacesuit-composed defender (``ItemSystem.effective_defender``,
+        # gADR-0008), worn from spawn — exactly what ``take_hit`` mitigates
+        # against.
         player_defender=compose_defender(
             player_stats, load_spacesuit_defense(config_dir)
         ),
         arena_min_x=arena_min_x,
         arena_max_x=arena_max_x,
-    )
-
-
-def compose_defender(base: StatBlock, defense_bonus: float) -> StatBlock:
-    """The Spacesuit-composed defender (``ItemSystem.effective_defender``,
-    gADR-0008): a fresh block copying ``base`` with ``defense`` raised by the
-    worn Equipment's bonus — the parity-pinned ``rules.effective_defense`` on
-    the defense term, the other stats copied unchanged. Worn from spawn,
-    exactly what the game's ``take_hit`` mitigates against."""
-    return StatBlock(
-        max_hp=base.max_hp,
-        max_mp=base.max_mp,
-        attack=base.attack,
-        defense=rules.effective_defense(base.defense, defense_bonus),
     )
 
 
