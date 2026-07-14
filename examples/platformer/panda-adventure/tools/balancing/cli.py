@@ -48,7 +48,12 @@ def _check_out(out: Path | None, roots: list[Path]) -> None:
     ``../`` cannot sneak in."""
     if out is None:
         return
-    resolved = out.resolve()
+    try:
+        resolved = out.resolve()
+    except (ValueError, OSError) as exc:
+        raise config.ConfigError(
+            "path_invalid", f"--out {str(out)!r} is not a valid path: {exc}"
+        )
     for root in roots:
         if resolved == root or resolved.is_relative_to(root):
             raise config.ConfigError(

@@ -251,6 +251,32 @@ def test_cli_null_targets_field_is_structured_refusal(
     assert json.loads(capsys.readouterr().err)["error"] == "targets_invalid"
 
 
+@pytest.mark.parametrize(
+    "field", ["config_dir", "adapter", "no_write_roots"], ids=lambda f: f"{f}-nul"
+)
+def test_cli_nul_path_string_is_structured_refusal(capsys, tmp_path, field) -> None:
+    """A syntactically valid JSON string the OS cannot treat as a path (an
+    embedded NUL) refuses as ``targets_invalid`` — never a ValueError
+    traceback from ``Path.resolve()`` (PR #493 re-review). Covers every
+    path-valued targets field, which all funnel through ``resolve_against``."""
+    doc = json.loads(TARGETS.read_text(encoding="utf-8"))
+    doc[field] = ["bad\x00path"] if field == "no_write_roots" else "bad\x00path"
+    bad = tmp_path / "targets.json"
+    bad.write_text(json.dumps(doc), encoding="utf-8")
+    code = cli_main(["validate", "--targets", str(bad), "--json"])
+    assert code == EXIT_REFUSED
+    assert json.loads(capsys.readouterr().err)["error"] == "targets_invalid"
+
+
+@pytest.mark.parametrize("flag", ["--config-dir", "--out"])
+def test_cli_nul_path_argument_is_structured_refusal(capsys, flag: str) -> None:
+    """The CLI's own path arguments share the invalid-OS-path class: an
+    embedded-NUL value refuses as ``path_invalid``, never a traceback."""
+    code = cli_main(_cli("validate", "--json", "--runs", "1", flag, "bad\x00path"))
+    assert code == EXIT_REFUSED
+    assert json.loads(capsys.readouterr().err)["error"] == "path_invalid"
+
+
 def test_cli_nonpositive_runs_is_structured_refusal(capsys) -> None:
     """A non-positive simulation control (here ``--runs 0``, the CLI-override
     path) refuses as ``sim_invalid`` instead of crashing inside the sim."""

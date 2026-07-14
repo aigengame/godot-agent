@@ -284,9 +284,15 @@ def load_sd_config(path: Path) -> SdConfig:
 
 def resolve_against(base_dir: Path, value: str) -> Path:
     """Resolve a targets-file path value: absolute passes through, relative
-    resolves against the targets file's own directory."""
-    p = Path(value)
-    return p.resolve() if p.is_absolute() else (base_dir / p).resolve()
+    resolves against the targets file's own directory. A string the OS cannot
+    treat as a path (an embedded NUL, an overlong component) is the same bad
+    input as a wrong-typed field — every targets path value funnels through
+    here, so the whole class refuses structured."""
+    try:
+        p = Path(value)
+        return p.resolve() if p.is_absolute() else (base_dir / p).resolve()
+    except (ValueError, OSError) as exc:
+        raise ConfigError("targets_invalid", f"invalid path value {value!r}: {exc}")
 
 
 def resolve_config_dir(
@@ -295,7 +301,13 @@ def resolve_config_dir(
     """The effective config-authority dir: the ``--config-dir`` override wins,
     else the targets file's ``config_dir`` resolved against the file."""
     if override is not None:
-        return override.resolve()
+        try:
+            return override.resolve()
+        except (ValueError, OSError) as exc:
+            raise ConfigError(
+                "path_invalid",
+                f"--config-dir {str(override)!r} is not a valid path: {exc}",
+            )
     return resolve_against(targets_path.parent, cfg.config_dir)
 
 
