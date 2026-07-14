@@ -19,15 +19,21 @@ from pathlib import Path
 import pytest
 
 import build_config
-from balancing import game_config, prediction, report
+from balancing import config, prediction
 from balancing.cli import EXIT_REFUSED, main as cli_main
+from balancing.model import build_player_model
+from panda_balancing import adapter
 
 GAME_DIR = build_config.GAME_DIR
 CONFIG_DIR = GAME_DIR / "data" / "json"
 GENERATED_DIR = GAME_DIR / "data" / "generated"
 DATA_DIR = GAME_DIR / "data"
-TARGETS = GAME_DIR / "tools" / "balancing" / "panda_adventure.targets.json"
-SD_SOURCE_DIR = GAME_DIR / "tools" / "balancing"
+TARGETS = GAME_DIR / "tools" / "panda_balancing" / "targets.json"
+
+
+def _cli(*args: str) -> list[str]:
+    """A CLI argv against the committed per-game targets file."""
+    return [args[0], "--targets", str(TARGETS), *args[1:]]
 
 
 def _tree_hash(*dirs: Path) -> str:
@@ -41,12 +47,14 @@ def _tree_hash(*dirs: Path) -> str:
 
 
 def _prediction():
-    cfg = report.load_pipeline_config(TARGETS)
-    sd = prediction.load_sd_config(TARGETS)
-    game = game_config.load_game_data(CONFIG_DIR)
-    econ = game_config.load_growth_economy(CONFIG_DIR)
-    player = game_config.build_player_model(game, cfg.player_model_params)
-    return prediction.run_prediction(game, econ, player, cfg.sim, sd), sd
+    cfg = config.load_pipeline_config(TARGETS)
+    sd = config.load_sd_config(TARGETS)
+    inputs = adapter.load_inputs(CONFIG_DIR)
+    player = build_player_model(inputs.game, cfg.player_model_params)
+    return (
+        prediction.run_prediction(inputs.game, inputs.economy, player, cfg.sim, sd),
+        sd,
+    )
 
 
 # --- Cross-validation vs MC (AC3) -------------------------------------------- #
@@ -100,7 +108,7 @@ def test_report_shape_and_design_targets() -> None:
     stocks, and the committed config MEETS its design targets (a green baseline
     for the predict gate)."""
     result, _ = _prediction()
-    game = game_config.load_game_data(CONFIG_DIR)
+    game = adapter.load_game_data(CONFIG_DIR)
     assert len(result.waves) == len(game.waves)
     assert result.design_targets_ok
     assert result.cleared_schedule  # the designed kit clears the schedule
@@ -115,13 +123,12 @@ def test_monotonic_ramp_target_gates_the_verdict() -> None:
     red — with ``expect_monotonic_ramp=True`` but the committed ramp dipping at
     the swarm Wave, ``design_targets_ok`` and ``ok`` are False (finding 4: the
     ramp target must gate the verdict, not merely be reported)."""
-    cfg = report.load_pipeline_config(TARGETS)
-    sd = prediction.load_sd_config(TARGETS)
+    cfg = config.load_pipeline_config(TARGETS)
+    sd = config.load_sd_config(TARGETS)
     sd = replace(sd, targets=replace(sd.targets, expect_monotonic_ramp=True))
-    game = game_config.load_game_data(CONFIG_DIR)
-    econ = game_config.load_growth_economy(CONFIG_DIR)
-    player = game_config.build_player_model(game, cfg.player_model_params)
-    result = prediction.run_prediction(game, econ, player, cfg.sim, sd)
+    inputs = adapter.load_inputs(CONFIG_DIR)
+    player = build_player_model(inputs.game, cfg.player_model_params)
+    result = prediction.run_prediction(inputs.game, inputs.economy, player, cfg.sim, sd)
     assert result.monotonic_ramp_actual is False  # the swarm Wave dips
     assert result.monotonic_ramp_ok is False  # expected True, actual False
     assert not result.design_targets_ok
@@ -150,7 +157,7 @@ def test_predict_writes_nothing() -> None:
 
 def test_cli_predict_default_verdict_is_green() -> None:
     """The default ``predict`` (committed targets) exits 0."""
-    assert cli_main(["predict", "--json"]) == 0
+    assert cli_main(_cli("predict", "--json")) == 0
 
 
 def test_cli_predict_json_writes_nothing(tmp_path) -> None:
@@ -158,7 +165,7 @@ def test_cli_predict_json_writes_nothing(tmp_path) -> None:
     path and writes nothing to the authority."""
     before = _tree_hash(CONFIG_DIR, GENERATED_DIR)
     out = tmp_path / "prediction.json"
-    code = cli_main(["predict", "--json", "--runs", "16", "--out", str(out)])
+    code = cli_main(_cli("predict", "--json", "--runs", "16", "--out", str(out)))
     assert code in (0, 1)  # a verdict, not a crash
     assert _tree_hash(CONFIG_DIR, GENERATED_DIR) == before
     doc = json.loads(out.read_text(encoding="utf-8"))
@@ -181,7 +188,7 @@ def test_cli_predict_out_into_authority_is_refused(capsys, forbidden: Path) -> N
     runs: structured error, ``EXIT_REFUSED``, authority byte-identical."""
     before = _tree_hash(DATA_DIR)
     existed_before = forbidden.exists()
-    code = cli_main(["predict", "--json", "--runs", "1", "--out", str(forbidden)])
+    code = cli_main(_cli("predict", "--json", "--runs", "1", "--out", str(forbidden)))
     assert code == EXIT_REFUSED
     err = json.loads(capsys.readouterr().err)
     assert err["error"] == "out_path_in_authority"
@@ -195,7 +202,7 @@ def test_cli_predict_out_relative_traversal_is_refused(capsys, monkeypatch) -> N
     monkeypatch.chdir(GAME_DIR / "tools")
     before = _tree_hash(DATA_DIR)
     code = cli_main(
-        ["predict", "--json", "--runs", "1", "--out", "../data/json/sneaky.json"]
+        _cli("predict", "--json", "--runs", "1", "--out", "../data/json/sneaky.json")
     )
     assert code == EXIT_REFUSED
     assert json.loads(capsys.readouterr().err)["error"] == "out_path_in_authority"
@@ -205,20 +212,10 @@ def test_cli_predict_out_relative_traversal_is_refused(capsys, monkeypatch) -> N
 def test_cli_predict_out_outside_authority_works(tmp_path) -> None:
     """A normal ``--out`` (tmp dir) is unaffected by the guard."""
     out = tmp_path / "prediction.json"
-    code = cli_main(["predict", "--json", "--runs", "1", "--out", str(out)])
+    code = cli_main(_cli("predict", "--json", "--runs", "1", "--out", str(out)))
     assert code in (0, 1)
     assert "cross_validation" in json.loads(out.read_text(encoding="utf-8"))
 
 
-# --- Game-agnostic: no game-code imports (AC6) ------------------------------- #
-
-
-def test_sd_modules_import_no_game_code() -> None:
-    """The SD modules are pure-Python and game-agnostic (gADR-0011): they import
-    no Godot binding, no gda, and no game builder — only stdlib and sibling
-    balancing modules."""
-    forbidden = ("import gda", "import godot", "import build_config", "from gda")
-    for name in ("integrate.py", "dynamics.py", "prediction.py"):
-        source = (SD_SOURCE_DIR / name).read_text(encoding="utf-8")
-        for needle in forbidden:
-            assert needle not in source, f"{name} imports game code: {needle!r}"
+# The game-agnostic guarantee (AC6) is pinned package-wide — imports AND
+# vocabulary — in ``test_balancing_isolation.py`` (gADR-0018).

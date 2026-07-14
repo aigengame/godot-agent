@@ -1,10 +1,10 @@
-"""A hand-rolled fixed-step RK4 integrator (game-agnostic, stdlib-only, #440).
+"""A hand-rolled fixed-step RK4 integrator (game-agnostic, stdlib-only).
 
-The system-dynamics half of the Balancing pipeline integrates a first-order
+The system-dynamics half of the balancing pipeline integrates a first-order
 nonlinear ODE system (``dynamics``) with the classical 4th-order Runge-Kutta
-method. gADR-0011 keeps the whole pipeline pure-Python with NO new dependency
-(no numpy/scipy), so the integrator is hand-rolled here: a few lines of the
-textbook RK4 tableau over a bare ``tuple[float, ...]`` state vector.
+method. The pipeline stays pure-Python with NO dependency (no numpy/scipy), so
+the integrator is hand-rolled here: a few lines of the textbook RK4 tableau
+over a bare ``tuple[float, ...]`` state vector.
 
 The integrator is deliberately generic — it knows nothing about stocks, flows,
 or the game. A derivative function ``f(t, y) -> dy`` and a step size are all it

@@ -1,5 +1,7 @@
 {
-  "config_dir": "data/json",
+  "config_dir": "../../data/json",
+  "adapter": "adapter.py",
+  "no_write_roots": ["../../data"],
   "player_model": {
     "fire_interval": 0.3,
     "accuracy": 0.8,
@@ -28,9 +30,9 @@
   ],
   "sd_model": {
     "notes": {
-      "stocks": "The system-dynamics state stocks (see tools/balancing/dynamics.py): Q (current Wave's remaining aggregate enemy HP, depletes to clear), HP (Player health, bounded [0, max]; carried across Waves), EXP (cumulative, Level is its readout via the Leveling curve), GOLD (cumulative economy inflow; no sink in this demo), BUN (Consumable count, in via drops AND out via HP-restore use), WINE (Consumable count, in via drops; its MP-restore sink is the Gravity Gun, out of the combat model's scope).",
-      "flows": "dQ/dt = -player_dps*growth(EXP); dHP/dt = -enemy_dps + bun_heal; dEXP/dt = (exp_reward/wave_hp)*player_dps; dGOLD/dt = (gold_reward/wave_hp)*player_dps; dBUN/dt = (bun_drops/wave_hp)*player_dps - consumption; dWINE/dt = (wine_drops/wave_hp)*player_dps. Reward stocks are coflows of the kill flow (snapped to their exact first integral at each Wave boundary). Nonlinearities: the reinforcing growth loop growth(EXP)=1+growth_gain*(Level(EXP)-1) via the piecewise Leveling curve, and the balancing consumable loop (threshold switch + supply gate + HP cap).",
-      "cross_validation_scenarios": "Overlapping domain with the Monte-Carlo engine = the bare laser-brawl: growth_gain=0 and Bun healing off (bun_consume_rate=0), each Wave from full HP independently (matching MC's independent full-HP encounters). Compared quantities: SD per-Wave clear time vs MC median TTK where both clear (Waves 1-3); SD Player-death time vs MC median TTD where both die (Wave 4, the Boss). The consumable economy and growth feedback are the SD model's extensions BEYOND MC's domain and are pinned by the deterministic conservation/boundary unit tests, not by MC.",
+      "stocks": "The generic stock layout and its semantics are owned by tools/balancing/dynamics.py (Q, HP, EXP, CURRENCY, plus one stock per tracked drop item). This game's bindings: CURRENCY = Gold (kill reward plus expected gold drops via the adapter's currency_item binding; no sink in this demo), heal item = Bun (in via drops AND out via HP-restore use), and Wine as a tracked inflow-only stock (its MP-restore sink is the Gravity Gun, out of the combat model's scope).",
+      "flows": "The ODE right-hand side, the coflow snap at Wave boundaries, and the two nonlinear feedback loops (reinforcing growth via the Leveling curve; the balancing consumable loop's threshold switch + supply gate + HP cap) are documented in tools/balancing/dynamics.py — the single authority; this file only binds which items participate (see the stocks note).",
+      "cross_validation_scenarios": "Overlapping domain with the Monte-Carlo engine = the bare laser-brawl: growth_gain=0 and Bun healing off (heal_consume_rate=0), each Wave from full HP independently (matching MC's independent full-HP encounters). Compared quantities: SD per-Wave clear time vs MC median TTK where both clear (Waves 1-3); SD Player-death time vs MC median TTD where both die (Wave 4, the Boss). The consumable economy and growth feedback are the SD model's extensions BEYOND MC's domain and are pinned by the deterministic conservation/boundary unit tests, not by MC.",
       "cross_validation_tolerance": "0.30 (30% relative). Deliberately looser than the 25% MC-level validate tolerance: the SD model is a deterministic mean-field aggregate that averages out approach/travel latency, discrete kill ordering and target-switching, per-shot accuracy/dodge variance (SD uses expected rates vs an MC median), the swarm attrition shape, and the Boss Warp micro-timing. The largest observed deviation on the committed config is ~20% (Wave 1's short brawl); 30% gives honest headroom without being vacuous.",
       "wine_mp_outflow_scope": "This slice models Wine as INFLOW-ONLY (Consumable drops) and deliberately does NOT model Wine/MP outflow. The only MP sink is the Gravity Gun, whose MP-use cadence is not a modeled design input — unlike Bun, whose consumption is driven by the modeled HP loss and so has a rate the model can read. MP outflow is out of scope for the SD model here (consistent with the gravity_gun scoping note above), a scoping decision, not an oversight."
     },
@@ -39,7 +41,7 @@
       "max_wave_time": 120.0,
       "growth_gain": 0.0,
       "heal_threshold_frac": 0.5,
-      "bun_consume_rate": 2.0
+      "heal_consume_rate": 2.0
     },
     "cross_validation": {
       "tolerance": 0.30
@@ -54,7 +56,7 @@
         ]
       },
       "difficulty": {
-        "boss_is_peak": true,
+        "final_wave_is_peak": true,
         "expect_monotonic_ramp": false
       }
     }

@@ -2,8 +2,8 @@
 
 Pure aggregation over the per-run TTK/TTD samples the Monte-Carlo encounter
 simulation produces: no randomness of its own, so a fixed sample list always
-summarizes to the same distribution. These are the "deterministic statistics
-stages" the pipeline-seam unit tests pin on fixed inputs (#437).
+summarizes to the same distribution — the pipeline's deterministic statistics
+stages, pinnable on fixed inputs.
 
 Percentiles use linear interpolation between the two nearest ranks (the
 "inclusive"/numpy-default method), so p0 is the min and p100 is the max and a

@@ -11,6 +11,10 @@ Covers, deterministically (no RNG, no engine, no game code):
   win) — the nonlinearities that make this a first-order NONLINEAR ODE system.
 - **From the JSON authority alone** — the per-Wave projection produces sane
   aggregates and a Boss-peaked difficulty ramp (AC1), importing no game code.
+
+The framework tracks this game's Bun/Wine as generic item stocks (gADR-0018:
+the heal-item and drop bindings come from the adapter), so these tests address
+them through ``dynamics.item_index`` / the ``items_*`` outcome maps.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ from __future__ import annotations
 import math
 
 import build_config
-from balancing import dynamics, game_config
+from balancing import dynamics
 from balancing.dynamics import (
     SdParams,
     WaveDynamics,
@@ -26,7 +30,8 @@ from balancing.dynamics import (
     run_scenario,
     run_wave_overlap,
 )
-from balancing.model import GrowthEconomy
+from balancing.model import GrowthEconomy, TierReward, build_player_model
+from panda_balancing import adapter
 
 CONFIG_DIR = build_config.GAME_DIR / "data" / "json"
 
@@ -37,15 +42,23 @@ _PLAYER_MODEL_PARAMS = {
     "engagement_distance": 60.0,
 }
 
+# A phantom tier whose drop table tracks Wine, so hand-built economies carry
+# this game's inflow-only stock without reading the authority.
+_WINE_TIER = {
+    "t": TierReward(
+        tier="t", exp_reward=0.0, currency_reward=0.0, expected_drops={"wine": 1.0}
+    )
+}
+
 
 def _econ(**over) -> GrowthEconomy:
     base = dict(
         level_curve=(10.0, 50.0, 150.0, 280.0),
         tier_rewards={},
-        bun_hp_restore=25.0,
-        wine_mp_restore=15.0,
         player_max_hp=100.0,
-        player_max_mp=50.0,
+        currency_item="gold",
+        heal_item="bun",
+        heal_item_restore=25.0,
     )
     base.update(over)
     return GrowthEconomy(**base)  # type: ignore[arg-type]
@@ -58,9 +71,8 @@ def _wd(**over) -> WaveDynamics:
         player_dps=50.0,
         enemy_dps=0.0,
         exp_reward=25.0,
-        gold_reward=10.0,
-        bun_drops=0.0,
-        wine_drops=0.0,
+        currency_reward=10.0,
+        item_drops={},
     )
     base.update(over)
     return WaveDynamics(**base)  # type: ignore[arg-type]
@@ -72,16 +84,26 @@ def _params(**over) -> SdParams:
         max_wave_time=200.0,
         growth_gain=0.0,
         heal_threshold_frac=0.5,
-        bun_consume_rate=0.0,
+        heal_consume_rate=0.0,
     )
     base.update(over)
     return SdParams(**base)  # type: ignore[arg-type]
 
 
+def _y0(econ: GrowthEconomy, q: float, hp: float, **items: float):
+    """A hand-built state vector: Q/HP plus named item stocks (rest zero)."""
+    y = [0.0] * dynamics.state_size(econ)
+    y[dynamics.Q] = q
+    y[dynamics.HP] = hp
+    for item, count in items.items():
+        y[dynamics.item_index(econ, item)] = count
+    return tuple(y)
+
+
 def _authority():
-    game = game_config.load_game_data(CONFIG_DIR)
-    econ = game_config.load_growth_economy(CONFIG_DIR)
-    player = game_config.build_player_model(game, _PLAYER_MODEL_PARAMS)
+    game = adapter.load_game_data(CONFIG_DIR)
+    econ = adapter.load_growth_economy(CONFIG_DIR)
+    player = build_player_model(game, _PLAYER_MODEL_PARAMS)
     return game, econ, player, build_wave_dynamics(game, econ, player)
 
 
@@ -92,13 +114,13 @@ def test_reward_conservation_on_clear() -> None:
     """Clearing a Wave accrues EXACTLY its EXP/Gold/Wine reward — the kill flow's
     coflow integrates to the design total, and the clear time is the analytic
     wave_hp / player_dps."""
-    econ = _econ()
-    wd = _wd(exp_reward=25.0, gold_reward=10.0, wine_drops=3.0)
+    econ = _econ(tier_rewards=_WINE_TIER)
+    wd = _wd(exp_reward=25.0, currency_reward=10.0, item_drops={"wine": 3.0})
     outcome = run_wave_overlap(wd, _params(), econ)
     assert outcome.cleared and not outcome.died
     assert math.isclose(outcome.exp_gained, 25.0, abs_tol=1e-9)
-    assert math.isclose(outcome.gold_end, 10.0, abs_tol=1e-9)
-    assert math.isclose(outcome.wine_end, 3.0, abs_tol=1e-9)
+    assert math.isclose(outcome.currency_end, 10.0, abs_tol=1e-9)
+    assert math.isclose(outcome.items_end["wine"], 3.0, abs_tol=1e-9)
     assert outcome.clear_time is not None
     assert math.isclose(outcome.clear_time, wd.wave_hp / wd.player_dps, abs_tol=2e-3)
 
@@ -116,7 +138,7 @@ def test_reward_conservation_across_the_run() -> None:
     """Chaining the real Wave schedule, the cumulative EXP after each cleared Wave
     is the running sum of the per-Wave rewards (no drift, no double count)."""
     _game, econ, _player, wds = _authority()
-    run = run_scenario(wds, _params(bun_consume_rate=2.0), econ)
+    run = run_scenario(wds, _params(heal_consume_rate=2.0), econ)
     running = 0.0
     for outcome, wd in zip(run.waves, wds):
         if not outcome.cleared:
@@ -132,10 +154,10 @@ def test_heal_never_overfills_hp() -> None:
     """The Bun heal saturates at max HP — with the heal threshold at full HP and
     Buns in hand, a long, damage-free Wave recovers HP to the cap and NO further
     (the cap is a ``min`` saturation, enforced even across a discrete RK4 step)."""
-    econ = _econ(player_max_hp=100.0, bun_hp_restore=25.0)
+    econ = _econ(player_max_hp=100.0, heal_item_restore=25.0)
     wd = _wd(wave_hp=2000.0, player_dps=10.0, enemy_dps=0.0)
-    params = _params(heal_threshold_frac=1.0, bun_consume_rate=2.0)  # heal to full
-    y0 = (wd.wave_hp, 50.0, 0.0, 0.0, 20.0, 0.0)  # start at 50 HP, 20 Buns
+    params = _params(heal_threshold_frac=1.0, heal_consume_rate=2.0)  # heal to full
+    y0 = _y0(econ, q=wd.wave_hp, hp=50.0, bun=20.0)  # start at 50 HP, 20 Buns
     outcome, _ = dynamics._run_one_wave(wd, params, econ, y0)
     assert outcome.hp_end <= econ.player_max_hp + 1e-9  # never above the cap
     assert math.isclose(outcome.hp_end, econ.player_max_hp, abs_tol=1e-6)
@@ -144,17 +166,17 @@ def test_heal_never_overfills_hp() -> None:
 def test_healing_is_supply_limited_within_a_step() -> None:
     """A sliver of Bun buys only a sliver of healing — consumption is capped by
     the Bun on hand within an RK4 step, so it can never fund more HP than the
-    inventory pays for (``bun × bun_hp_restore``). A tiny 0.001 Bun heals at most
-    ~0.025 HP, not a full unclamped step's ~0.2."""
-    econ = _econ(player_max_hp=100.0, bun_hp_restore=25.0)
+    inventory pays for (``bun × heal_item_restore``). A tiny 0.001 Bun heals at
+    most ~0.025 HP, not a full unclamped step's ~0.2."""
+    econ = _econ(player_max_hp=100.0, heal_item_restore=25.0)
     wd = _wd(wave_hp=1000.0, player_dps=1.0, enemy_dps=0.0)
-    params = _params(heal_threshold_frac=1.0, bun_consume_rate=1.0)
+    params = _params(heal_threshold_frac=1.0, heal_consume_rate=1.0)
     bun0 = 0.001
-    y0 = (wd.wave_hp, 50.0, 0.0, 0.0, bun0, 0.0)  # 50 HP, a sliver of Bun
+    y0 = _y0(econ, q=wd.wave_hp, hp=50.0, bun=bun0)  # 50 HP, a sliver of Bun
     outcome, end = dynamics._run_one_wave(wd, params, econ, y0)
-    max_fundable = bun0 * econ.bun_hp_restore
+    max_fundable = bun0 * econ.heal_item_restore
     assert outcome.hp_end - 50.0 <= max_fundable + 1e-9
-    assert end[dynamics.BUN] >= 0.0
+    assert end[dynamics.item_index(econ, "bun")] >= 0.0
 
 
 def test_hp_and_bun_stay_in_bounds() -> None:
@@ -162,33 +184,34 @@ def test_hp_and_bun_stay_in_bounds() -> None:
     consumption drains the last Bun under fire."""
     econ = _econ()
     wd = _wd(wave_hp=2000.0, player_dps=8.0, enemy_dps=6.0)
-    params = _params(heal_threshold_frac=0.9, bun_consume_rate=3.0)
-    y0 = (wd.wave_hp, 60.0, 0.0, 0.0, 1.0, 0.0)  # one Bun, then empty
+    params = _params(heal_threshold_frac=0.9, heal_consume_rate=3.0)
+    y0 = _y0(econ, q=wd.wave_hp, hp=60.0, bun=1.0)  # one Bun, then empty
     outcome, end = dynamics._run_one_wave(wd, params, econ, y0)
     assert 0.0 <= outcome.hp_min
     assert outcome.hp_end <= econ.player_max_hp + 1e-9
-    assert end[dynamics.BUN] >= 0.0
+    assert end[dynamics.item_index(econ, "bun")] >= 0.0
 
 
 def test_gold_inflow_includes_pickup_drops() -> None:
     """Gold accrues the guaranteed Kill reward AND the expected gold Pickup drops
-    (gADR-0006). On the committed schedule that is 212 (kill 5+20+15+100 = 140
-    plus gold drops 3+10+9+50 = 72), not the kill-only 140."""
+    (gADR-0006, the adapter's ``currency_item`` binding). On the committed
+    schedule that is 212 (kill 5+20+15+100 = 140 plus gold drops 3+10+9+50 = 72),
+    not the kill-only 140."""
     _game, econ, _player, wds = _authority()
-    run = run_scenario(wds, _params(bun_consume_rate=2.0), econ)
+    run = run_scenario(wds, _params(heal_consume_rate=2.0), econ)
     assert run.cleared_schedule
-    assert math.isclose(run.final_gold, 212.0, abs_tol=1e-9)
+    assert math.isclose(run.final_currency, 212.0, abs_tol=1e-9)
     # Each Wave's gold coflow exceeds its kill reward by exactly the gold drops.
-    per_wave_gold = [wd.gold_reward for wd in wds]
+    per_wave_gold = [wd.currency_reward for wd in wds]
     assert per_wave_gold == [8.0, 30.0, 24.0, 150.0]
 
 
 def test_reward_stocks_are_monotonic() -> None:
     """EXP and Gold are inflow-only — they never decrease across the run."""
     _game, econ, _player, wds = _authority()
-    run = run_scenario(wds, _params(bun_consume_rate=2.0), econ)
+    run = run_scenario(wds, _params(heal_consume_rate=2.0), econ)
     exps = [o.exp_end for o in run.waves]
-    golds = [o.gold_end for o in run.waves]
+    golds = [o.currency_end for o in run.waves]
     assert exps == sorted(exps)
     assert golds == sorted(golds)
 
@@ -200,7 +223,7 @@ def test_deterministic_no_rng() -> None:
     """The SD model has no randomness — two runs of the same inputs are identical
     (the determinism the pipeline needs)."""
     _game, econ, _player, wds = _authority()
-    params = _params(bun_consume_rate=2.0)
+    params = _params(heal_consume_rate=2.0)
     a = run_scenario(wds, params, econ)
     b = run_scenario(wds, params, econ)
     assert a == b
@@ -213,8 +236,8 @@ def test_growth_feedback_speeds_clears() -> None:
     """The reinforcing growth loop: with ``growth_gain`` > 0 a higher Level feeds
     back into the kill rate, so the Boss clears strictly faster than at gain 0."""
     _game, econ, _player, wds = _authority()
-    base = run_scenario(wds, _params(bun_consume_rate=2.0, growth_gain=0.0), econ)
-    fast = run_scenario(wds, _params(bun_consume_rate=2.0, growth_gain=0.5), econ)
+    base = run_scenario(wds, _params(heal_consume_rate=2.0, growth_gain=0.0), econ)
+    fast = run_scenario(wds, _params(heal_consume_rate=2.0, growth_gain=0.5), econ)
     assert base.waves[-1].clear_time is not None
     assert fast.waves[-1].clear_time is not None
     assert fast.waves[-1].clear_time < base.waves[-1].clear_time
@@ -225,8 +248,8 @@ def test_consumable_loop_turns_a_boss_loss_into_a_win() -> None:
     laser-brawl kills the Player at the Boss; turning it ON lets the designed Bun
     economy clear the schedule — the macro prediction MC cannot make."""
     _game, econ, _player, wds = _authority()
-    no_heal = run_scenario(wds, _params(bun_consume_rate=0.0), econ)
-    with_heal = run_scenario(wds, _params(bun_consume_rate=2.0), econ)
+    no_heal = run_scenario(wds, _params(heal_consume_rate=0.0), econ)
+    with_heal = run_scenario(wds, _params(heal_consume_rate=2.0), econ)
     assert no_heal.died_at_wave == wds[-1].index  # bare brawl loses the Boss
     assert with_heal.cleared_schedule  # the consumable economy saves the run
 
@@ -249,13 +272,14 @@ def test_build_wave_dynamics_from_authority() -> None:
     """The per-Wave projection reads only already-parsed authority data and
     produces one sane coefficient set per Wave (positive HP/DPS/reward)."""
     game, econ, _player, wds = _authority()
+    assert econ.item_keys == ("bun", "wine")  # this game's tracked stocks
     assert len(wds) == len(game.waves)
     for wd in wds:
         assert wd.wave_hp > 0.0
         assert wd.player_dps > 0.0
         assert wd.enemy_dps > 0.0
         assert wd.exp_reward > 0.0
-        assert wd.gold_reward > 0.0
+        assert wd.currency_reward > 0.0
 
 
 def test_difficulty_ramp_peaks_at_the_boss() -> None:

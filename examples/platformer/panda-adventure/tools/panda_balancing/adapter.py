@@ -1,18 +1,20 @@
 """Panda Adventure adapter: the JSON authority mapped into the generic model.
 
-The ONE per-game module (gADR-0011's per-game configuration): it knows this
-game's on-disk config shape — ``combat_config.json`` / ``enemies_config.json`` /
-``player_config.json`` / ``items_config.json`` (the Spacesuit's defense bonus,
-gADR-0008) / ``level_config.json`` (the Arena interval that clamps the Warp
-Blink's landing, gADR-0010) / ``scale_spec.json`` (the single size authority:
-the player/enemy/bolt boxes and the Time Dilation Field radius, gADR-0013) —
-and maps it into the game-agnostic ``model`` the sim runs on. It reads JSON
-only — it imports NO game code (no GDScript, no ``build_config``, no Godot),
-so the pipeline stays isolated from the engine (gADR-0011). Sizes are read
-from the Scale spec directly (the same authored home the builder composes
-into each derived Resource), so the sim sees exactly what the game derives.
+The ONE per-game module (gADR-0011's per-game configuration, split out of the
+framework package by gADR-0018): it knows this game's on-disk config shape —
+``combat_config.json`` / ``enemies_config.json`` / ``player_config.json`` /
+``items_config.json`` (the Spacesuit's defense bonus, gADR-0008) /
+``level_config.json`` (the Arena interval that clamps the Warp Blink's landing,
+gADR-0010) / ``progression_config.json`` (the Leveling curve, gADR-0006) /
+``scale_spec.json`` (the single size authority: the player/enemy/bolt boxes and
+the Time Dilation Field radius, gADR-0013) — and maps it into the game-agnostic
+``balancing.model`` the pipeline runs on. It reads JSON only — it imports NO
+game code (no GDScript, no ``build_config``, no Godot), so the pipeline stays
+isolated from the engine (gADR-0011).
 
-The one derived value composed here is the Player's ``defender`` block —
+The framework calls only :func:`load_inputs` (the adapter contract wired from
+``targets.json``); everything else here is this game's mapping detail. The one
+derived value composed here is the Player's ``defender`` block —
 ``ItemSystem.effective_defender``'s Spacesuit composition (gADR-0008), worn
 from spawn — mirrored via the parity-pinned ``rules.effective_defense``.
 """
@@ -23,13 +25,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from . import rules
-from .model import (
+from balancing import rules
+from balancing.model import (
     CombatParams,
     EnemyKind,
     GameData,
+    GameInputs,
     GrowthEconomy,
-    PlayerModel,
     Spawn,
     StatBlock,
     TierReward,
@@ -133,15 +135,20 @@ def load_enemy_kinds(config_dir: Path) -> dict[str, EnemyKind]:
 
 def load_growth_economy(config_dir: Path) -> GrowthEconomy:
     """Map this game's growth/economy authority into the generic
-    :class:`GrowthEconomy` the SD model integrates over (#440).
+    :class:`GrowthEconomy` the SD model integrates over.
 
     Reads the same JSON authority the game derives from — the Leveling curve
     (``progression_config``), the per-Tier Kill reward + Drop table
-    (``enemies_config``, gADR-0004/0006), the Consumable restore amounts
-    (``items_config``, gADR-0008), and the player pools (``combat_config``) —
+    (``enemies_config``, gADR-0004/0006), the Bun's restore amount
+    (``items_config``, gADR-0008), and the player pool (``combat_config``) —
     through the ONE per-game adapter, so the SD model never opens a second
     parser (gADR-0011). Expected drop counts are ``Σ amount × chance`` per item
-    (the mean-field inflow, not a stochastic roll).
+    (the mean-field inflow, not a stochastic roll). The item bindings name this
+    game's economy: gold drops fold into the currency stock (gADR-0006 — both
+    reward sources accrue to the Player's Gold), the Bun is the heal item the
+    balancing loop consumes. The Wine stays a tracked inflow-only stock — its
+    MP-restore sink is the Gravity Gun, outside the combat model's scope (the
+    scoping note in ``targets.json``).
     """
     prog = _load(config_dir, "progression_config.json")
     enemies = _load(config_dir, "enemies_config.json")
@@ -156,16 +163,16 @@ def load_growth_economy(config_dir: Path) -> GrowthEconomy:
         tier_rewards[tier] = TierReward(
             tier=tier,
             exp_reward=t["exp_reward"],
-            gold_reward=t["gold_reward"],
+            currency_reward=t["gold_reward"],
             expected_drops=expected,
         )
     return GrowthEconomy(
         level_curve=tuple(prog["level_curve"]),
         tier_rewards=tier_rewards,
-        bun_hp_restore=items["bun_hp_restore"],
-        wine_mp_restore=items["wine_mp_restore"],
         player_max_hp=player_stats["max_hp"],
-        player_max_mp=player_stats["max_mp"],
+        currency_item="gold",
+        heal_item="bun",
+        heal_item_restore=items["bun_hp_restore"],
     )
 
 
@@ -198,10 +205,12 @@ def load_game_data(config_dir: Path) -> GameData:
         player_move_speed=player["move_speed"],
         player_start_x=player["player_start"][0],
         player_half_width=scale["player_size"][0] / 2.0,
-        spacesuit_defense=load_spacesuit_defense(config_dir),
         combat=combat,
         kinds=load_enemy_kinds(config_dir),
         waves=load_waves(config_dir),
+        player_defender=compose_defender(
+            player_stats, load_spacesuit_defense(config_dir)
+        ),
         arena_min_x=arena_min_x,
         arena_max_x=arena_max_x,
     )
@@ -211,7 +220,8 @@ def compose_defender(base: StatBlock, defense_bonus: float) -> StatBlock:
     """The Spacesuit-composed defender (``ItemSystem.effective_defender``,
     gADR-0008): a fresh block copying ``base`` with ``defense`` raised by the
     worn Equipment's bonus — the parity-pinned ``rules.effective_defense`` on
-    the defense term, the other stats copied unchanged."""
+    the defense term, the other stats copied unchanged. Worn from spawn,
+    exactly what the game's ``take_hit`` mitigates against."""
     return StatBlock(
         max_hp=base.max_hp,
         max_mp=base.max_mp,
@@ -220,25 +230,11 @@ def compose_defender(base: StatBlock, defense_bonus: float) -> StatBlock:
     )
 
 
-def build_player_model(
-    game: GameData, player_model_params: dict[str, Any]
-) -> PlayerModel:
-    """Combine the game's player numbers with the design player-model assumptions.
-
-    ``player_model_params`` are the design inputs from the targets file
-    (fire cadence, aim, evasion, engagement distance) — the game carries no
-    Laser-Gun fire-rate config, so these model the human at the controls. The
-    ``defender`` block is the Spacesuit composition (worn from spawn,
-    gADR-0008), exactly what the game's ``take_hit`` mitigates against.
-    """
-    return PlayerModel(
-        stats=game.player_stats,
-        move_speed=game.player_move_speed,
-        start_x=game.player_start_x,
-        fire_interval=player_model_params["fire_interval"],
-        accuracy=player_model_params["accuracy"],
-        dodge_chance=player_model_params["dodge_chance"],
-        engagement_distance=player_model_params["engagement_distance"],
-        defender=compose_defender(game.player_stats, game.spacesuit_defense),
-        half_width=game.player_half_width,
+def load_inputs(config_dir: Path) -> GameInputs:
+    """The adapter contract (``balancing.config``): this game's whole authority
+    mapped into the generic model — encounter inputs plus the growth/economy
+    inputs (this game uses predict mode)."""
+    return GameInputs(
+        game=load_game_data(config_dir),
+        economy=load_growth_economy(config_dir),
     )
