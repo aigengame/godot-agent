@@ -156,6 +156,17 @@ def _load_inputs(
             "game_config_invalid",
             f"the adapter failed to load the game config from {config_dir}: {exc!r}",
         )
+    if not isinstance(inputs, model.GameInputs) or not isinstance(
+        inputs.game, model.GameData
+    ):
+        # The return-shape half of the adapter contract (the callable half is
+        # checked at load time): anything but a GameInputs with a GameData
+        # inside is a broken adapter, refused with the same envelope.
+        raise config.ConfigError(
+            "adapter_invalid",
+            "adapter load_inputs(config_dir) must return model.GameInputs "
+            f"carrying a model.GameData, got {type(inputs).__name__}",
+        )
     sim = _sim_with_overrides(cfg.sim, args.seed, args.runs)
     return cfg, inputs, sim
 

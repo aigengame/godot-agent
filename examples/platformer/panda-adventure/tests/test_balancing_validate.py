@@ -222,6 +222,44 @@ def test_documented_run_command_works() -> None:
     assert json.loads(proc.stdout)["runs"] == 1
 
 
+@pytest.mark.parametrize(
+    "field", ["player_model", "simulation", "waves"], ids=lambda f: f"{f}-null"
+)
+def test_cli_null_targets_block_is_structured_refusal(
+    capsys, tmp_path, field: str
+) -> None:
+    """A targets document whose nested block holds the wrong SHAPE (null where
+    an object/array belongs) is a structured exit-2 refusal, never a
+    TypeError traceback (PR #493 recheck)."""
+    doc = json.loads(TARGETS.read_text(encoding="utf-8"))
+    doc[field] = None
+    bad = tmp_path / "targets.json"
+    bad.write_text(json.dumps(doc), encoding="utf-8")
+    code = cli_main(["validate", "--targets", str(bad), "--json"])
+    assert code == EXIT_REFUSED
+    assert json.loads(capsys.readouterr().err)["error"] == "targets_invalid"
+
+
+def test_cli_adapter_returning_none_is_structured_refusal(capsys, tmp_path) -> None:
+    """An adapter whose ``load_inputs`` returns something other than
+    ``model.GameInputs`` (e.g. None) is a structured exit-2 refusal
+    (``adapter_invalid``), never an AttributeError traceback (PR #493 recheck)."""
+    doc = json.loads(TARGETS.read_text(encoding="utf-8"))
+    doc["config_dir"] = str(CONFIG_DIR)
+    doc["adapter"] = "none_adapter.py"
+    doc["no_write_roots"] = []
+    (tmp_path / "none_adapter.py").write_text(
+        "def load_inputs(config_dir):\n    return None\n"
+    )
+    bad = tmp_path / "targets.json"
+    bad.write_text(json.dumps(doc), encoding="utf-8")
+    code = cli_main(["validate", "--targets", str(bad), "--json"])
+    assert code == EXIT_REFUSED
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "adapter_invalid"
+    assert "GameInputs" in err["detail"]
+
+
 def test_cli_incomplete_player_model_is_structured_refusal(capsys, tmp_path) -> None:
     """A targets file missing a player-model assumption is a structured exit-2
     refusal (``targets_invalid``), never a KeyError traceback (gADR-0018)."""

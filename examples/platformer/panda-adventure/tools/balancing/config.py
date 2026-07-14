@@ -98,7 +98,13 @@ def _read_targets_doc(path: Path) -> dict[str, Any]:
 def load_pipeline_config(path: Path) -> PipelineConfig:
     """Parse a targets file (the per-game configuration) into a PipelineConfig."""
     doc = _read_targets_doc(path)
-    player_model = dict(doc.get("player_model", {}))
+    player_model = doc.get("player_model")
+    if not isinstance(player_model, dict):
+        raise ConfigError(
+            "targets_invalid",
+            f"targets file {path} player_model must be a JSON object, "
+            f"got {type(player_model).__name__}",
+        )
     missing = [k for k in PLAYER_MODEL_KEYS if k not in player_model]
     if missing:
         raise ConfigError(
@@ -129,6 +135,12 @@ def load_pipeline_config(path: Path) -> PipelineConfig:
     except KeyError as exc:
         raise ConfigError(
             "targets_invalid", f"targets file {path} is missing the {exc} key"
+        )
+    except (TypeError, ValueError, AttributeError) as exc:
+        # A present key holding the wrong shape (null, list, scalar where an
+        # object belongs) is the same bad input as a missing key.
+        raise ConfigError(
+            "targets_invalid", f"targets file {path} has an invalid shape: {exc!r}"
         )
 
 
@@ -199,6 +211,10 @@ def load_sd_config(path: Path) -> SdConfig:
     except KeyError as exc:
         raise ConfigError(
             "targets_invalid", f"targets file {path} is missing the {exc} key"
+        )
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ConfigError(
+            "targets_invalid", f"targets file {path} has an invalid shape: {exc!r}"
         )
 
 
