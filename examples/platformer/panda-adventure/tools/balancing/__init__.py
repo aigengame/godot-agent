@@ -1,49 +1,57 @@
-"""Balancing pipeline — the twin Monte-Carlo + system-dynamics engines (gADR-0011).
+"""Balancing pipeline — twin Monte-Carlo + system-dynamics engines, game-agnostic.
 
-A `Tool Script` (GAME-CONTEXT.md) that tunes the game's numbers against design
-intent, WITHOUT importing any game code. Per gADR-0011 the pipeline is
-deliberately isolated from the game's GDScript: it reads the same authoritative
-JSON configs the game derives its Resources from, reimplements the combat/AI
-rules in Python, and pins that reimplementation against the shipped GDScript
-logic seams with golden parity fixtures (so a rule change on either side goes
-red). It writes nothing back to config (both modes are pure reads).
+A reusable numeric-design tool that tunes a game's numbers against design
+intent WITHOUT importing any game code. It reads the game's authoritative
+config through a per-game adapter, reimplements nothing game-specific, and
+writes nothing back (both modes are pure reads).
 
 Two engines share the framework:
 
-- **Monte-Carlo encounter simulation** (`validate`, #437) — micro fidelity: one
-  encounter at a time, stochastic, aggregated to per-Wave TTK/TTD distributions.
-- **System-dynamics model** (`predict`, #440) — macro fidelity: a first-order
-  nonlinear ODE over the whole run's growth/economy stocks and flows, integrated
-  by a hand-rolled RK4, cross-validated against MC on their overlapping domain.
+- **Monte-Carlo encounter simulation** (``validate``) — micro fidelity: one
+  encounter at a time, stochastic, aggregated to per-wave TTK/TTD
+  distributions and checked against design targets.
+- **System-dynamics model** (``predict``) — macro fidelity: a first-order
+  nonlinear ODE over the whole run's growth/economy stocks and flows,
+  integrated by a hand-rolled RK4, cross-validated against MC on their
+  overlapping domain.
 
-Two layers:
+The public surface is deliberately small — everything else is internals:
 
-- **Game-agnostic core** — the reusable pipeline structure, decoupled from any
-  one game's engine or code:
-  - `model` — plain dataclasses both engines run on (stat blocks, enemy kinds,
-    waves, the player model, sim config, design targets, the growth/economy
-    reward + Leveling data).
-  - `encounter` — the time-stepped Monte-Carlo encounter simulation; a fixed
-    seed makes it deterministic.
-  - `statistics` — the deterministic aggregation stages (distributions:
-    mean/median/percentiles) over the per-run TTK/TTD samples.
-  - `report` — validate mode: per-wave measured TTK/TTD vs targets, within a
-    configurable tolerance. Pure read; emits a report object, never config.
-  - `integrate` — the hand-rolled fixed-step RK4 integrator (stdlib-only).
-  - `dynamics` — the system-dynamics state model: the run's growth/economy
-    stocks + flows as a first-order nonlinear ODE system.
-  - `prediction` — predict mode: the long-term SD trajectory vs difficulty/growth
-    design targets, plus the MC cross-validation. Pure read; emits a report object.
-  - `cli` — the `python -m balancing {validate,predict} ...` entry point.
+- the **CLI**: ``python -m balancing {validate,predict} --targets <file>``
+  (see ``cli`` for flags and the 0/1/2 exit contract);
+- the **targets file**: one JSON document holding the whole per-game
+  configuration — config location, adapter, protected write roots, player-model
+  assumptions, sim controls, and design targets (schema in ``config``);
+- the **adapter contract**: a game-side Python file, named by the targets
+  file, exporting ``load_inputs(config_dir) -> model.GameInputs`` — it maps the
+  game's on-disk config into the generic ``model`` dataclasses and is the only
+  code a game contributes. The framework never imports a game; the adapter
+  consumes only the public ``model`` types.
 
-- **Per-game plug-ins** (Panda Adventure's instantiation) — no game *code*, only
-  Python reimplementation and JSON reading:
-  - `rules` — the pure Python reimplementation of the `CombatSystem`/`EnemyAI`
-    logic seams (GAME-CONTEXT.md), the functions the parity fixtures pin.
-  - `game_config` — the adapter that maps this game's JSON authority
-    (`data/json/*.json`) into the generic `model`. Reads JSON only; imports no
-    game code.
-  - `panda_adventure.targets.json` — the design targets, tolerances, player-model
-    assumptions, simulation controls, and the SD model params/levers (per-game
-    configuration).
+Internal layout (consumed through the surface above):
+
+- ``model``      — the plain dataclasses both engines run on.
+- ``rules``      — the reference ruleset: pure, deterministic decision
+  functions (damage, gates, steering, warp kit, leveling). A host game is
+  expected to pin its own engine-side implementation against these with golden
+  parity fixtures, generated from the game side (that gate lives with the
+  game, not here).
+- ``encounter``  — the time-stepped Monte-Carlo encounter simulation; a fixed
+  seed makes it deterministic.
+- ``statistics`` — deterministic aggregation (mean/median/percentiles) over
+  per-run TTK/TTD samples.
+- ``report``     — validate mode: per-wave measured TTK/TTD vs targets.
+- ``integrate``  — the hand-rolled fixed-step RK4 integrator (stdlib-only).
+- ``dynamics``   — the system-dynamics stocks/flows model (generic currency +
+  item stocks, a configurable heal-item loop).
+- ``prediction`` — predict mode: the long-term SD trajectory vs design
+  targets, plus the MC cross-validation.
+- ``config``     — the targets-file schema, the adapter loader, and the
+  protected-root resolution.
+- ``cli``        — the entry point.
+
+Guarantees: pure stdlib (no dependencies), deterministic under a fixed seed,
+never writes into a protected config tree (refused before anything runs), and
+no game imports or game vocabulary inside the package — the host project's
+test suite is expected to pin that isolation.
 """

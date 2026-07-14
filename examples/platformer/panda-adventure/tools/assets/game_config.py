@@ -1,7 +1,7 @@
 """Panda Adventure plug-in: load the Style descriptor + per-asset acquire recipes.
 
 The ONE per-game module of the asset pipeline (gADR-0014's per-game configuration,
-the analogue of ``balancing/game_config.py``). It knows this game's on-disk shape —
+the analogue of ``panda_balancing/adapter.py``). It knows this game's on-disk shape —
 ``panda_adventure.style.json`` (the Style descriptor, the CC0/CC-BY sources, the
 generation channels, and the per-asset acquire recipes) and ``scale_spec.json`` (the
 single size authority, gADR-0013) — and maps them into the game-agnostic core's
@@ -19,7 +19,8 @@ from typing import Any
 from .backends import BuiltinBackend, GenerationBackend, McpBackend
 from .model import Source, StyleDescriptor
 
-# The committed per-game config, next to this module (the balancing targets idiom).
+# The committed per-game config, next to this module (the pre-gADR-0018 layout;
+# the balancing pipeline's per-game config now lives in its own plug-in package).
 DEFAULT_STYLE_PATH = Path(__file__).resolve().parent / "panda_adventure.style.json"
 # tools/assets/ -> tools/ -> <game root>.
 GAME_ROOT = Path(__file__).resolve().parents[2]

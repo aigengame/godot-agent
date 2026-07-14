@@ -349,8 +349,10 @@ The shared art-direction input that makes mixed-source assets cohere across BOTH
 acquire modes — the machine-consumable style parameters (shared style
 keywords/prompt fragment, the bounded pixel-art palette, per-category style hints)
 plus the format/licensing constraints (gADR-0014). A pipeline-only per-game
-configuration living inside the asset pipeline package (mirroring the Balancing
-pipeline's `panda_adventure.targets.json`), NOT in the JSON authority and never
+configuration living inside the asset pipeline package (the layout the Balancing
+pipeline used before gADR-0018 moved its per-game half out to
+`tools/panda_balancing/targets.json`; migrating the asset pipeline likewise is an
+open follow-up), NOT in the JSON authority and never
 derived to a Resource — the game reads assets, not their style. The preprocess stage
 composes it with the Scale spec's target dimensions into the per-asset `asset spec`,
 which renders either as a search query (search-download) or a generation prompt
@@ -427,7 +429,10 @@ Monte-Carlo encounter simulation validates encounter-level numbers; a
 system-dynamics model (first-order nonlinear ODEs over the growth/economy stocks
 and flows) predicts long-term balance trajectories. Deliberately isolated from the
 game's GDScript (reusable across games): it reads and writes the same JSON
-authority the game derives from, and never imports game code.
+authority the game derives from, and never imports game code. The framework
+(`tools/balancing/`) is strictly game-agnostic; everything Panda Adventure
+contributes — the JSON-authority adapter and `targets.json` — lives in the
+`tools/panda_balancing/` plug-in, wired in through config alone (gADR-0018).
 _Avoid_: balance patch, number tweaking; balancing sim (that names only the
 Monte-Carlo half)
 

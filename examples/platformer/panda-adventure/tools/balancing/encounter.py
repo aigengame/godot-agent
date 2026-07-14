@@ -1,41 +1,38 @@
-"""The Monte-Carlo encounter simulation (game-agnostic structure, gADR-0011).
+"""The Monte-Carlo encounter simulation — the pipeline's micro engine.
 
-One encounter pits the modeled Player against one Wave and runs a fixed-timestep
-simulation to an outcome — per-enemy Time-To-Kill, whether/when the Player died
-(Time-To-Die), and whether the Wave was cleared. The gameplay rules are the
-parity-pinned pure functions in ``rules`` (the ``CombatSystem``/``EnemyAI``/
-``WarpSystem``/``ItemSystem`` seams); this module owns only the orchestration a
-controller would own in-engine (the clock, movement/projectile integration, the
-Warp phase machine, RNG, mutation) — never a second copy of a rule.
+One encounter pits the modeled player against one wave and runs a fixed-timestep
+simulation to an outcome — per-enemy Time-To-Kill, whether/when the player died
+(Time-To-Die), and whether the wave was cleared. The gameplay rules are the pure
+functions in ``rules``; this module owns only the orchestration a game controller
+would own in-engine (the clock, movement/projectile integration, the warp phase
+machine, RNG, mutation) — never a second copy of a rule.
 
-Delivery follows the shipped controllers at first-order fidelity:
+Attack delivery, at first-order fidelity:
 
-- **Contact** (melee, and tank since gADR-0009): an ``EnemyAI.can_attack``-gated
-  immediate strike through the Player's i-frame gate, mitigated by the
-  Spacesuit-composed defender (gADR-0008).
-- **Ranged bolts** (gADR-0003): an attack spawns a traveling bolt (per-kind
-  speed/lifetime/spawn offset from the JSON authority); damage lands on ARRIVAL
-  (swept 1D contact against the target's box), and an expired bolt despawns
-  harmless. The Player's Laser bolts travel the same way — a shot's damage is
-  delayed by ``distance / projectile_speed``.
-- **The Boss Warp kit** (gADR-0009): the ``WarpSystem.should_warp`` gate opens
-  the tell (steering and attack suspended), the blink relocates to the pure
-  far-side landing clamped to the Arena (inset by the body's half-width) and
-  drops the Time Dilation Field there, then a no-attack recovery precedes normal
-  AI. While the Player is inside an active field, the Player's movement and the
-  Player's bolts inside it are slowed by the config factor; fire cadence stays
-  full speed (input registers — slowed, not stunned).
+- **Contact**: a ``rules.can_attack``-gated immediate strike through the
+  player's i-frame gate, mitigated by the equipment-composed defender.
+- **Ranged bolts**: an attack spawns a traveling bolt (per-kind speed/lifetime/
+  spawn offset); damage lands on ARRIVAL (swept 1D contact against the target's
+  box), and an expired bolt despawns harmless. The player's bolts travel the
+  same way — a shot's damage is delayed by ``distance / projectile_speed``.
+- **The warp kit**: the ``rules.should_warp`` gate opens the tell (steering and
+  attack suspended), the blink relocates to the pure far-side landing clamped to
+  the arena (inset by the body's half-width) and drops a slow field there, then
+  a no-attack recovery precedes normal AI. While the player is inside an active
+  field, the player's movement and the player's bolts inside it are slowed by
+  the field's factor; fire cadence stays full speed (input registers — slowed,
+  not stunned).
 
-Spatial model (deliberately 1D): actors live on a single horizontal ground line,
-matching the grounded-platformer steering, which is horizontal. Verticality is a
-platformer detail irrelevant to encounter pacing, so ``y`` is pinned to 0: the
-seam's full-2D distance reduces to the horizontal gap, and the y components of
-spawn offsets, ``warp_offset``, and the field sphere project onto the line (the
-``spatial`` named assumption in the targets file).
+Spatial model (deliberately 1D): actors live on a single horizontal ground line —
+the model targets games whose encounter steering is horizontal. Verticality is
+irrelevant to encounter pacing, so ``y`` is pinned to 0: the rules' full-2D
+distance reduces to the horizontal gap, and the y components of spawn offsets,
+``warp_offset``, and the field sphere project onto the line (a documented model
+assumption a targets file should restate for its game).
 
-The Monte-Carlo variability is the modeled human: the Player's shots land with
+The Monte-Carlo variability is the modeled human: the player's shots land with
 probability ``accuracy`` (rolled at fire time — a missed shot spawns no damaging
-bolt) and the Player evades an otherwise-landing enemy attack — contact or bolt
+bolt) and the player evades an otherwise-landing enemy attack — contact or bolt
 arrival — with probability ``dodge_chance``. Everything else is deterministic,
 so a fixed RNG seed yields an identical outcome (the determinism the pipeline
 needs).
@@ -54,9 +51,9 @@ _INF = float("inf")
 
 @dataclass(frozen=True)
 class TimeField:
-    """One active Time Dilation Field (gADR-0009): the static slow zone the
-    Warp Blink drops at its landing. Injectable as an initial condition for
-    deterministic tests; normally spawned by a Warp kind's blink."""
+    """One active slow field: the static zone a warp kind's blink drops at its
+    landing. Injectable as an initial condition for deterministic tests;
+    normally spawned by a warp kind's blink."""
 
     center_x: float
     radius: float
@@ -86,9 +83,9 @@ class _EnemyState:
     hp: float
     last_attack_time: float = rules.NEVER
     ttk: float | None = None  # when it died (None while alive)
-    # The Warp rotation (gADR-0009): "" (none) / "tell" / "recovery", when the
-    # in-flight phase ends, and the cooldown stamp (NEVER = the first warp is
-    # gated by distance alone — the shipped sentinel).
+    # The warp rotation: "" (none) / "tell" / "recovery", when the in-flight
+    # phase ends, and the cooldown stamp (NEVER = the first warp is gated by
+    # distance alone).
     warp_phase: str = ""
     warp_phase_until: float = 0.0
     last_warp_time: float = rules.NEVER
@@ -130,9 +127,9 @@ def _nearest(player_x: float, living: list[_EnemyState]) -> _EnemyState:
 
 
 def _player_time_factor(fields: list[TimeField], x: float, t: float) -> float:
-    """The Player's current time-dilation factor: the factor of an active field
-    containing the Player, else 1.0. The config gate (``time_field_duration``
-    strictly below ``warp_cooldown``) guarantees at most one active field."""
+    """The player's current slow factor: the factor of an active field
+    containing the player, else 1.0. Keeping ``time_field_duration`` strictly
+    below ``warp_cooldown`` guarantees at most one active field."""
     for f in fields:
         if f.expires_at > t and rules.is_inside_field(
             x, 0.0, f.center_x, 0.0, f.radius
@@ -165,11 +162,11 @@ def simulate_encounter(
 ) -> EncounterOutcome:
     """Run one encounter to its outcome (see :class:`EncounterOutcome`).
 
-    Each tick, in order: the Player moves (time-dilated inside an active field)
-    and fires on cadence; the Player's bolts advance (slowed inside a field) and
-    resolve arrivals; each enemy runs its Warp rotation or steers/attacks by the
-    pure seams; enemy bolts advance and resolve arrivals through the i-frame and
-    dodge gates against the Spacesuit-composed defender.
+    Each tick, in order: the player moves (slowed inside an active field) and
+    fires on cadence; the player's bolts advance (slowed inside a field) and
+    resolve arrivals; each enemy runs its warp rotation or steers/attacks by the
+    pure rules; enemy bolts advance and resolve arrivals through the i-frame and
+    dodge gates against the equipment-composed defender.
     """
     enemies = [
         _EnemyState(
@@ -227,8 +224,8 @@ def simulate_encounter(
         fields = [f for f in fields if f.expires_at > t]
         player_factor = _player_time_factor(fields, ps.x, t)
 
-        # --- Player: close to the engagement distance (time-dilated), then
-        # fire on cadence (input registers at full speed, gADR-0009) ---
+        # --- Player: close to the engagement distance (slowed inside a
+        # field), then fire on cadence (input registers at full speed) ---
         target = _nearest(ps.x, living)
         gap = target.x - ps.x
         advance = abs(gap) - player.engagement_distance
@@ -242,7 +239,7 @@ def simulate_encounter(
                 shot_target = _nearest(ps.x, in_range)
                 ps.last_fire_time = t
                 # Accuracy is rolled at fire time: a missed shot spawns no
-                # damaging bolt (the named assumption in the targets file).
+                # damaging bolt (the documented player-model assumption).
                 if rng.random() < player.accuracy:
                     facing = 1.0 if shot_target.x >= ps.x else -1.0
                     player_bolts.append(
@@ -257,7 +254,7 @@ def simulate_encounter(
                     )
 
         # --- Player bolts: advance (slowed inside an active field — the
-        # despawn timer stays on the real clock, gADR-0009), resolve arrivals ---
+        # despawn timer stays on the real clock), resolve arrivals ---
         surviving_player_bolts: list[_Bolt] = []
         for bolt in player_bolts:
             if t >= bolt.expires_at:
@@ -279,16 +276,16 @@ def simulate_encounter(
             surviving_player_bolts.append(bolt)
         player_bolts = surviving_player_bolts
 
-        # --- Enemies: the Warp rotation, then steering + attack delivery ---
+        # --- Enemies: the warp rotation, then steering + attack delivery ---
         for e in living:
             if rules.is_dead(e.hp):  # killed by this tick's bolt arrivals
                 continue
-            # An in-flight Warp phase suspends steering and attack (gADR-0009).
+            # An in-flight warp phase suspends steering and attack.
             if e.warp_phase:
                 if t < e.warp_phase_until:
                     continue
                 if e.warp_phase == "tell":
-                    # The blink: the pure far-side landing clamped to the Arena
+                    # The blink: the pure far-side landing clamped to the arena
                     # inset by the body's half-width, the field dropped at the
                     # SAME instant (the zone is the warp's wake), then recovery.
                     landing_x, _ = rules.warp_landing(
@@ -315,7 +312,7 @@ def simulate_encounter(
                 else:
                     e.warp_phase = ""
                 continue
-            if rules.should_warp(
+            if rules.should_warp(  # the blink-engage gate
                 e.x,
                 0.0,
                 ps.x,
@@ -327,7 +324,7 @@ def simulate_encounter(
                 t,
             ):
                 # The tell begins: the cooldown is stamped at the DECISION
-                # moment (it spans the whole rotation, the shipped contract).
+                # moment (it spans the whole rotation).
                 e.last_warp_time = t
                 e.warp_phase = "tell"
                 e.warp_phase_until = t + e.kind.warp_tell_duration
@@ -355,9 +352,9 @@ def simulate_encounter(
             ):
                 e.last_attack_time = t
                 if e.kind.archetype == "ranged":
-                    # Bolt delivery (gADR-0003): aim at the Player at fire time;
-                    # a Player exactly overhead (dx == 0) fires nothing (the
-                    # shipped zero-aim guard) though the cooldown is stamped.
+                    # Bolt delivery: aim at the player at fire time; a player
+                    # exactly overhead (dx == 0) fires nothing (the zero-aim
+                    # guard) though the cooldown is stamped.
                     aim = ps.x - e.x
                     if aim != 0.0:
                         direction = 1.0 if aim > 0.0 else -1.0
@@ -372,11 +369,11 @@ def simulate_encounter(
                             )
                         )
                 else:
-                    # Contact delivery (melee; tank since gADR-0009).
+                    # Contact delivery (every non-ranged archetype).
                     damage_player(e.kind.stats.attack, t)
 
-        # --- Enemy bolts: advance (never time-dilated — only the Player's
-        # side slows, gADR-0009), resolve arrivals at the Player ---
+        # --- Enemy bolts: advance (never slowed — only the player's side
+        # slows), resolve arrivals at the player ---
         surviving_enemy_bolts: list[_Bolt] = []
         for bolt in enemy_bolts:
             if t >= bolt.expires_at:

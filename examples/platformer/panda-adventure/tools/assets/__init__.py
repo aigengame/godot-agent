@@ -2,10 +2,13 @@
 
 A ``Tool Script`` (GAME-CONTEXT.md) that acquires and conforms the game's textures
 (and, in later slices, sprites/audio/fonts), WITHOUT importing any game code —
-game-agnostic core plus a per-game plug-in, exactly like ``tools/balancing/``
-(gADR-0014). The core is the deep module the wave-3 asset round-outs
-(#442/#443/#444/#445) reuse; there is deliberately NO shared ``tools/_core`` (the
-two pipelines share the two-layer *pattern*, not code).
+game-agnostic core plus a per-game plug-in, the two-layer pattern it shares with
+the Balancing pipeline (gADR-0014). The core is the deep module the wave-3 asset
+round-outs (#442/#443/#444/#445) reuse; there is deliberately NO shared
+``tools/_core`` (the two pipelines share the two-layer *pattern*, not code).
+Since gADR-0018 the Balancing pipeline keeps its per-game half in a SIBLING
+plug-in package (``tools/panda_balancing/``); this pipeline still keeps its
+plug-in in-package — migrating it likewise is an open follow-up.
 
 Two layers:
 

@@ -1,65 +1,29 @@
-"""Validate mode: per-wave measured TTK/TTD vs design targets (gADR-0011, #437).
+"""Validate mode: per-wave measured TTK/TTD vs design targets.
 
-Runs the Monte-Carlo encounter simulation over every Wave, summarizes the
-per-run samples, and checks each Wave's median TTK/TTD against its design target
-within a configurable relative tolerance. This is a PURE READ of the JSON
-authority: it produces a report object and writes NOTHING back to config — this
-slice is validate-only. Emitting the report to stdout or an ``--out`` path is
-the caller's job (``cli``); those paths are never a config file.
+Runs the Monte-Carlo encounter simulation over every wave, summarizes the
+per-run samples, and checks each wave's median TTK/TTD against its design target
+within a configurable relative tolerance. This is a PURE READ of the game's
+config authority: it produces a report object and writes NOTHING back to config.
+Emitting the report to stdout or an ``--out`` path is the caller's job
+(``cli``); those paths are never a config file.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from . import statistics
 from .encounter import run_wave
-from .model import GameData, PlayerModel, SimConfig, Targets, WaveTarget
+from .model import GameData, PlayerModel, SimConfig, Targets
 from .statistics import Distribution
 
 
 @dataclass(frozen=True)
-class PipelineConfig:
-    """One targets file parsed: where the config lives, the player-model
-    assumptions, the sim controls, and the design targets."""
-
-    config_dir: str
-    player_model_params: dict[str, Any]
-    sim: SimConfig
-    targets: Targets
-
-
-def load_pipeline_config(path: Path) -> PipelineConfig:
-    """Parse a targets file (the per-game configuration) into a PipelineConfig."""
-    doc = json.loads(path.read_text(encoding="utf-8"))
-    sim = doc["simulation"]
-    return PipelineConfig(
-        config_dir=doc["config_dir"],
-        player_model_params=dict(doc["player_model"]),
-        sim=SimConfig(
-            dt=sim["dt"],
-            max_time=sim["max_time"],
-            runs=sim["runs"],
-            seed=sim["seed"],
-        ),
-        targets=Targets(
-            waves=tuple(
-                WaveTarget(wave=w["wave"], ttk=w["ttk"], ttd=w["ttd"])
-                for w in doc["waves"]
-            ),
-            tolerance=doc["tolerance"],
-        ),
-    )
-
-
-@dataclass(frozen=True)
 class WaveReport:
-    """One Wave's validate result: the measured TTK/TTD distributions and clear/
+    """One wave's validate result: the measured TTK/TTD distributions and clear/
     death rates, its targets, and whether the medians fall within tolerance
-    (None when the Wave has no target — report only)."""
+    (None when the wave has no target — report only)."""
 
     wave: int
     ttk: Distribution
@@ -83,7 +47,7 @@ class ValidationReport:
 
     @property
     def all_within_tolerance(self) -> bool:
-        """True iff every Wave that HAS a target is within tolerance on both
+        """True iff every wave that HAS a target is within tolerance on both
         TTK and TTD. A run with no targets at all is vacuously within."""
         checks = [
             ok
@@ -108,9 +72,9 @@ def run_validation(
     sim: SimConfig,
     targets: Targets,
 ) -> ValidationReport:
-    """Simulate every Wave and compare the median TTK/TTD to its design target.
+    """Simulate every wave and compare the median TTK/TTD to its design target.
 
-    Each Wave draws from its own ``seed + wave.index`` RNG stream, so the whole
+    Each wave draws from its own ``seed + wave.index`` RNG stream, so the whole
     report is reproducible from ``sim.seed`` yet waves stay independent. Reads
     only; produces no config.
     """

@@ -12,6 +12,14 @@ stand on, decided in the 2026-07-07 P2-S1 grilling interview (HITL). It is the a
 analogue of gADR-0011 (the Balancing pipeline) and reuses gADR-0013's authority
 patterns.
 
+> **Outcome note (2026-07-14).** The Balancing-pipeline layout this record cites
+> as its mirror ("`tools/balancing/`'s core + `game_config` +
+> `panda_adventure.targets.json`") has since changed: gADR-0018 moved balancing's
+> per-game half out to the sibling plug-in `tools/panda_balancing/` (adapter +
+> targets). The two-layer *pattern* decided here is unchanged; the asset
+> pipeline still keeps its plug-in in-package, and migrating it to the
+> gADR-0018 split is an open follow-up.
+
 We decide six things:
 
 - **A standalone `tools/assets/` package, mirroring the Balancing pipeline's

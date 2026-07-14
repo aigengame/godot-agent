@@ -16,7 +16,6 @@ import math
 from random import Random
 
 import build_config
-from balancing import game_config
 from balancing.encounter import TimeField, run_wave, simulate_encounter
 from balancing.model import (
     CombatParams,
@@ -25,7 +24,9 @@ from balancing.model import (
     Spawn,
     StatBlock,
     Wave,
+    build_player_model,
 )
+from panda_balancing import adapter
 
 CONFIG_DIR = build_config.GAME_DIR / "data" / "json"
 
@@ -174,10 +175,10 @@ def test_spacesuit_defender_composition_from_json() -> None:
     config's base defense PLUS the items config's ``spacesuit_defense`` —
     composed exactly like ``ItemSystem.effective_defender`` (other stats copied,
     the attacker side stays the BASE block)."""
-    game = game_config.load_game_data(CONFIG_DIR)
+    game = adapter.load_game_data(CONFIG_DIR)
     combat_doc = json.loads((CONFIG_DIR / "combat_config.json").read_text())
     items_doc = json.loads((CONFIG_DIR / "items_config.json").read_text())
-    player = game_config.build_player_model(game, _PLAYER_MODEL_PARAMS)
+    player = build_player_model(game, _PLAYER_MODEL_PARAMS)
     base_defense = combat_doc["player_stats"]["defense"]
     bonus = items_doc["spacesuit_defense"]
     assert player.defender is not None
@@ -479,9 +480,9 @@ def test_determinism_same_seed() -> None:
 def test_reads_from_json_authority() -> None:
     """The sim runs from the game's real JSON authority alone (no game code):
     every wave produces finite, non-empty samples."""
-    game = game_config.load_game_data(CONFIG_DIR)
+    game = adapter.load_game_data(CONFIG_DIR)
     assert len(game.waves) == 4  # the demo's default schedule
-    player = game_config.build_player_model(game, _PLAYER_MODEL_PARAMS)
+    player = build_player_model(game, _PLAYER_MODEL_PARAMS)
     for wave in game.waves:
         samples = run_wave(
             player,
