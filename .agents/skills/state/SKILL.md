@@ -57,15 +57,23 @@ unchanged — at most refresh the date. Don't churn the file with non-progress.
    execution order. Promote Backlog items here when they are the right next start.
 4. **Reconcile the Backlog** — the unfinished cross-session items that must survive the rewrite:
    - **Inherit by filtering**: start from the previous STATE.md's Backlog (and any Next up items
-     that never ran). Drop an item **only with evidence** it is done or obsolete — check the
-     conversation, corroborate with the tracker when one exists. When unsure, **keep it**: this is
-     the one section where uncertainty preserves a line instead of deleting it.
-   - **Demote**: planned work this session started but left unfinished — typically displaced by
-     inserted tasks — moves here rather than lingering in "Next up".
+     that never ran). Drop an item **only with evidence** — it is done, obsolete, promoted into
+     "Next up", or newly homed in the project's tracker (its reference is the evidence) — check
+     the conversation, corroborate with the tracker when one exists. When unsure, **keep it**:
+     this is the one section where uncertainty preserves a line instead of deleting it.
+   - **Demote**: unfinished work — typically displaced by inserted tasks — moves here **only when
+     it is not selected for "Next up"**. Interrupted work that should simply resume next session
+     belongs in "Next up" (step 3), not here.
+   - **Park**: a newly discovered or accepted item deliberately deferred to a later session —
+     never started, not selected for "Next up" — also enters here, so it cannot fall between the
+     two lists.
    - **One home per item**: an item appears in "Next up" *or* the Backlog, never both.
-   - **Keep it an index**: anchor items to tracker references (e.g. `#N`) where they exist. An
-     item that is substantive or has sat here for more than a couple of sessions belongs in the
-     project's tracker — file it when authorized (else leave a draft) and keep only the reference.
+   - **Stamp, and promote oldest-first**: each item carries the date it entered
+     (`since YYYY-MM-DD`) — the snapshot's only observable age. When the Backlog exceeds its
+     budget, or an item is clearly substantive, move items into the project's tracker
+     **oldest-first**; the filed reference is what lets the entry leave. With no tracker, or no
+     authorization to write it, the budget yields: keep every item (staying visibly over budget
+     is the signal to get them homed) — silent truncation is never allowed.
 5. **Add pitfalls/experience only if it serves "Next up".** Include a note **only when this
    session's work is continuous with or related to the recommended next work**, so the note will
    actually get reused. If the next work is unrelated, **omit it** — experience that doesn't help
@@ -87,7 +95,9 @@ _Cross-session daily report (≤15 lines, rewritten each session via `/state`). 
 - **Last session:** <what was completed/changed; one line, e.g. issue #N>
 - **Pitfalls/experience:** <only if it helps "Next up"; otherwise omit this line>
 - **Next up:** <recommended items to START next, in execution order, e.g. issue #N>
-- **Backlog:** <unfinished cross-session carry-over NOT selected for "Next up" — interrupted or parked items, anchored to tracker refs (#N) where they exist; ≤5 items>
+- **Backlog:** <unfinished cross-session carry-over NOT selected for "Next up"; one line per item>
+  - <interrupted or parked item, anchored to a tracker ref (#N) where one exists> _(since YYYY-MM-DD)_
+  - <item not yet in the tracker — promote it there oldest-first when the list overflows> _(since YYYY-MM-DD)_
 
 _Updated: <YYYY-MM-DD>_
 ```
@@ -100,10 +110,13 @@ _Updated: <YYYY-MM-DD>_
 - **Omit rather than mislead** — every field is optional; drop any line that is stale, unverified,
   or not useful to the next session. Never carry a phase forward just because it was there before.
 - **Backlog drops need evidence** — the inverse of the rule above, so unfinished work cannot
-  silently vanish in a rewrite: carry an item forward unless you can point at its completion or
-  obsolescence.
-- **Backlog ≤5 items, one line each** — overflow means items belong in the project's tracker;
-  the Backlog is execution carry-over anchored by reference, never a second plan.
+  silently vanish in a rewrite: carry an item forward unless you can point at its completion,
+  obsolescence, promotion into "Next up", or its new tracker home.
+- **Backlog budget: 5 items, one line each, each stamped `since YYYY-MM-DD`** — overflow is
+  resolved by promoting the OLDEST items into the project's tracker, never by truncation; with
+  no tracker or no authorization to write it, keep the items and stay visibly over budget —
+  losing work is worse than breaking the budget. The Backlog is execution carry-over anchored
+  by reference, never a second plan.
 - **One home per item** — "Next up" (ordered, what to start) or Backlog (parked, must not be
   lost), never both.
 - **Pitfalls only when they serve "Next up"** — record experience only when this session's work is
