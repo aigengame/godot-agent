@@ -18,4 +18,7 @@ Five canonical triage roles, default label names. See `docs/agents/triage-labels
 
 ### Domain docs
 
-Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+One `CONTEXT.md` + `docs/adr/` at the repo root — the `gda` domain. Two subtrees carry
+their own local domain contexts (overrides declared in their own `AGENTS.md`):
+`examples/platformer/panda-adventure/` (game domain) and `libs/gda-balancing/`
+(balancing-toolkit domain). See `docs/agents/domain.md`.

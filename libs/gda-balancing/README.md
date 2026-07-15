@@ -1,10 +1,10 @@
 # gda-balancing
 
 Game numeric design & balancing toolkit — design a game's numbers before development
-(standard-Schema attribute/build/growth/economy templates for the RPG and Roguelike
+(Standard Schema attribute/build/growth/economy templates for the RPG and Roguelike
 families), validate and tune balance quantitatively during it (Monte-Carlo + system-dynamics
 simulation, metrics and weighted scoring), and emit the result as structured,
-Schema-standard JSON.
+Standard Schema JSON.
 
 A standalone, engine- and game-agnostic sibling product of `gda` — it neither depends on nor
 extends `gda`; its CLI follows the family's interface conventions.

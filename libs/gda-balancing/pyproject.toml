@@ -1,7 +1,7 @@
 [project]
 name = "gda-balancing"
-version = "0.1.0"
-description = "Game numeric design & balancing toolkit — standard-Schema numeric design (RPG & Roguelike templates), simulation-backed balance validation and tuning, structured JSON output."
+version = "0.0.0"
+description = "Game numeric design & balancing toolkit — Standard Schema numeric design (RPG & Roguelike templates), simulation-backed balance validation and tuning, structured JSON output."
 requires-python = ">=3.13"
 dependencies = []
 

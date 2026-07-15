@@ -12,7 +12,7 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 
 ## File structure
 
-This is a single-context repo:
+The repo root is a single context — the `gda` domain:
 
 ```
 /
@@ -22,6 +22,14 @@ This is a single-context repo:
 │   └── ...
 └── src/
 ```
+
+## Local domain overrides
+
+Two subtrees override this convention with their own local domain context. Inside them,
+follow the local `AGENTS.md` / `docs/agents/domain.md` instead of this file:
+
+- `examples/platformer/panda-adventure/` — the game domain (`GAME-CONTEXT.md`, `docs/gadr/`).
+- `libs/gda-balancing/` — the balancing-toolkit domain (`BALANCING-CONTEXT.md`, `docs/badr/`).
 
 ## Use the glossary's vocabulary
 

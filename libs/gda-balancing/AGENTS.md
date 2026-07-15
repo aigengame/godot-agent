@@ -1,5 +1,5 @@
 This directory is **gda-balancing** — a standalone, engine- and game-agnostic numeric
-design & balancing toolkit: standard-Schema numeric design (attributes, builds, growth,
+design & balancing toolkit: Standard Schema numeric design (attributes, builds, growth,
 economy, encounters), simulation-backed balance validation and tuning, structured JSON
 output. It is a **sibling product** of `gda` in the same family — it neither depends on
 nor extends `gda`; the `gda-` prefix is the product-family brand, not component
@@ -47,17 +47,19 @@ directory. You **may read** the parent `gda` docs when the work concerns
 CLI-interface-style alignment (see below) or family conventions — just don't treat them as
 this toolkit's domain authority.
 
-See `./docs/agents/domain.md` for the authoritative detail.
+This section is the loaded summary; `./docs/agents/domain.md` is the authoritative
+detail — on any divergence, it wins.
 
 ## Development conventions
 
 - **CLI interface style follows `gda`** (adjudicated 2026-07-15, recorded on PRD #501):
   the family's interface conventions and `gda`'s accumulated CLI spec experience are the
   reference. The binding contract (command taxonomy, result/error envelopes, exit-code
-  semantics, self-description) is designed under issue #518 and recorded as bADRs — that
-  is the single authority; read the parent CLI-contract ADRs as *reference input* only.
+  semantics, self-description) will be designed under issue #518 and recorded as bADRs —
+  once landed, those bADRs are the single authority; read the parent CLI-contract ADRs as
+  *reference input* only.
 - **Engine- and game-agnostic core** — the toolkit names no game identity and imports no
-  game or engine code (nor `gda`); agnosticism is enforced by packaging plus isolation
-  gates at the hardened (recursive, AST-level) standard.
+  game or engine code (nor `gda`); agnosticism is enforced by packaging plus an isolation
+  gate (landing with #502) at the hardened (recursive, AST-level) standard.
 - **Schema is the single authority** — the standard Schema is the sole spec and authority
-  source for numeric design; games consume the toolkit's Schema-standard output (PRD #501).
+  source for numeric design; games consume the toolkit's Standard Schema output (PRD #501).

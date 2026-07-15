@@ -19,7 +19,7 @@ _Avoid_: gda balancing module, balancing plugin
 The machine-readable schema for game numeric systems (character attributes, combat, builds,
 encounters, growth, economy) that is the toolkit's **sole spec and single authority source**.
 The pipeline designs and configures numbers before game development; a game is then developed
-consuming the pipeline's Schema-standard output. Non-standard game configs are not adapted or
+consuming the pipeline's Standard Schema output. Non-standard game configs are not adapted or
 imported.
 _Avoid_: config format, data model, descriptor
 
