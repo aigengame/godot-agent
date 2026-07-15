@@ -19,7 +19,9 @@ import pytest
 from PIL import Image, ImageDraw
 
 import build_config
-from assets import game_config, manifest, pipeline, postprocess, preprocess
+import panda_assets
+from assets import config as assets_config
+from assets import manifest, pipeline, postprocess, preprocess
 from assets.acquire import AcquireError, search_download
 from assets.backends import (
     BuiltinBackend,
@@ -30,7 +32,7 @@ from assets.backends import (
 from assets.emitter import JsonManifestEmitter
 from assets.model import AcquireMode, ManifestEntry, Source
 
-STYLE = game_config.load_style_config()
+STYLE = assets_config.load_style_config(panda_assets.STYLE_PATH)
 
 
 # --------------------------------------------------------------------------- #
@@ -52,11 +54,11 @@ def test_target_dims_resolves_a_nested_scale_key() -> None:
     at ``pickup_sizes.<item>`` and resolves to that box; a plain (single-segment)
     key still resolves the top-level ``player_projectile_size`` (gADR-0013).
     """
-    assert game_config.target_dims(STYLE, "pickup_sizes.bun") == (18, 14)
-    assert game_config.target_dims(STYLE, "pickup_sizes.wine") == (12, 20)
-    assert game_config.target_dims(STYLE, "player_projectile_size") == (18, 6)
-    with pytest.raises(KeyError):
-        game_config.target_dims(STYLE, "pickup_sizes.nope")
+    assert assets_config.target_dims(STYLE, "pickup_sizes.bun") == (18, 14)
+    assert assets_config.target_dims(STYLE, "pickup_sizes.wine") == (12, 20)
+    assert assets_config.target_dims(STYLE, "player_projectile_size") == (18, 6)
+    with pytest.raises(assets_config.ConfigError):
+        assets_config.target_dims(STYLE, "pickup_sizes.nope")
 
 
 def test_pickup_and_bolt_specs_read_their_nested_dims() -> None:
@@ -313,7 +315,7 @@ def test_builtin_backend_uses_configured_fallback(tmp_path: Path) -> None:
 def test_shipped_builtin_backend_is_unavailable_on_claude_code() -> None:
     """The COMMITTED config's builtin backend has no command/fallback, so on an
     agent without image generation it fails loudly (the demo's chosen posture)."""
-    backend = game_config.make_builtin_backend(STYLE)
+    backend = assets_config.make_builtin_backend(STYLE)
     assert backend.available is False
 
 

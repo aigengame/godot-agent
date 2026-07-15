@@ -24,7 +24,9 @@ import pytest
 from PIL import Image
 
 import build_config
-from assets import game_config, lifecycle, manifest, pipeline
+import panda_assets
+from assets import config as assets_config
+from assets import lifecycle, manifest, pipeline
 from assets.emitter import JsonManifestEmitter
 from assets.lifecycle import (
     LicenseModeError,
@@ -358,15 +360,15 @@ def test_size_gate_ignores_large_text_asset(tmp_path: Path) -> None:
 
 
 def test_style_config_carries_lfs_threshold() -> None:
-    """T is pipeline-config spec-data in panda_adventure.style.json (gADR-0015)."""
-    config = game_config.load_style_config()
+    """T is pipeline-config spec-data in the plug-in's style.json (gADR-0015)."""
+    config = assets_config.load_style_config(panda_assets.STYLE_PATH)
     assert config.lfs_size_threshold_bytes == _T  # 1 MB default
 
 
 def test_committed_repo_passes_the_configured_gate() -> None:
     """The committed assets tree passes the gate at the CONFIGURED threshold —
     the end-to-end wiring the CI test tier runs (gADR-0015)."""
-    config = game_config.load_style_config()
+    config = assets_config.load_style_config(panda_assets.STYLE_PATH)
     lifecycle.validate_committed_asset_sizes(GAME_DIR, config.lfs_size_threshold_bytes)
 
 

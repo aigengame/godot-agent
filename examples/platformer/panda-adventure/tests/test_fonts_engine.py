@@ -23,7 +23,8 @@ import pytest
 
 from gda.binary import resolve_godot_binary
 
-from assets import game_config
+import panda_assets
+from assets import config as assets_config
 
 import build_config
 
@@ -36,7 +37,11 @@ _COPY_IGNORE = shutil.ignore_patterns(".godot", "build", "__pycache__", "tests")
 # monospace, so "HP 100/100" (10 glyphs) renders at 10 * hud_font_size px at that
 # native size (1:1) — the metric the styled-HUD visual-smoke checkpoint asserts on.
 _CELL = int(
-    game_config.scale_value(game_config.load_style_config(), "hud_font_size", GAME_DIR)
+    assets_config.scale_value(
+        assets_config.load_style_config(panda_assets.STYLE_PATH),
+        "hud_font_size",
+        GAME_DIR,
+    )
 )
 _EXPECTED_WIDTH = 10 * _CELL
 

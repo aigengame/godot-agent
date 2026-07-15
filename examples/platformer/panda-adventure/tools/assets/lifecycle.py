@@ -1,11 +1,11 @@
-"""Asset-lifecycle governance — the size-based Git-LFS gate (gADR-0015).
+"""Asset-lifecycle governance — the size-based Git-LFS gate.
 
 A large binary can appear in ANY asset category (a BGM track, a 2K/4K background),
 so the plain-git-vs-LFS boundary is a single size threshold ``T`` applied uniformly,
 never a per-category rule: an ``assets/**`` file at or over ``T`` must be tracked by
 Git LFS; below ``T`` it stays in plain git. This gate enforces that mechanically so
 a large file is *born* in LFS rather than committed to plain git and migrated later
-(which rewrites history — the failure mode gADR-0015 exists to avoid).
+(which rewrites history — the failure mode this gate exists to avoid).
 
 The core (:func:`find_unlfs_oversize`) is pure — it takes the file sizes and an
 injected "is this path LFS-tracked?" predicate, so it is unit-testable with no git.
@@ -29,7 +29,7 @@ class AssetSizeError(Exception):
 
 
 class LicenseModeError(Exception):
-    """A manifest entry's license is inconsistent with its acquire mode (gADR-0015)."""
+    """A manifest entry's license is inconsistent with its acquire mode."""
 
 
 @dataclass(frozen=True)
@@ -47,10 +47,10 @@ def find_license_mode_violations(
     download_licenses: Collection[str],
 ) -> list[LicenseModeViolation]:
     """The licensing gate's pure core: which ``(id, acquire_mode, license)`` entries
-    record a license inconsistent with how the asset was acquired (gADR-0015 §5d).
+    record a license inconsistent with how the asset was acquired.
 
     A ``search_download`` asset carries a DOWNLOAD license (its source's terms — the
-    ``download_licenses`` allowlist, CC0/CC-BY). A ``generation`` asset carries its
+    ``download_licenses`` allowlist). A ``generation`` asset carries its
     BACKEND's usage terms instead — a distinct, non-empty token that must NOT be a
     download license (so a generated asset mislabeled ``CC0`` is caught). Other/blank
     modes carry no rule here (the record-shape gate covers missing fields). Backend-
@@ -87,7 +87,7 @@ def find_license_mode_violations(
                         mode,
                         license_name,
                         "a generated asset must record its backend's usage terms, "
-                        f"not a download license ({sorted(allowed)}) — gADR-0015 §5d",
+                        f"not a download license ({sorted(allowed)})",
                     )
                 )
     return out
@@ -109,7 +109,7 @@ def validate_license_modes(
         )
         raise LicenseModeError(
             f"{len(violations)} manifest entr(ies) with a license inconsistent with "
-            f"the acquire mode (gADR-0015 §5d): {listing}"
+            f"the acquire mode: {listing}"
         )
     return violations
 
@@ -218,6 +218,6 @@ def validate_committed_asset_sizes(
             f"{len(violations)} asset(s) at/over {threshold} bytes committed "
             f"outside Git LFS: {listing}. Track the path(s) with `git lfs track` "
             "so a large file is born in LFS, never committed to plain git and "
-            "migrated later — which rewrites history (gADR-0015)."
+            "migrated later — which rewrites history."
         )
     return violations

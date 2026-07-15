@@ -1,24 +1,24 @@
 """The asset pipeline's plain dataclasses — the game-agnostic core's vocabulary.
 
 The read-only value types the preprocess -> acquire -> postprocess -> emit stages
-pass between them (gADR-0014). No IO, no game code, no Godot: just the shapes.
+pass between them. No IO, no game code, no engine binding: just the shapes.
 
 - ``StyleDescriptor`` — the machine-consumable style parameters shared across BOTH
-  acquire modes (Style descriptor, GAME-CONTEXT): style keywords/prompt fragment,
-  the bounded pixel-art palette, per-category hints, and the format/licensing
-  constraints. A per-game plug-in input, loaded from ``*.style.json``.
+  acquire modes: style keywords/prompt fragment, the bounded pixel-art palette,
+  per-category hints, and the format/licensing constraints. A per-game plug-in
+  input, loaded from the game's style config.
 - ``Source`` — one configurable open-asset source (search-download) or the marker
-  of a generation channel; CC0/CC-BY only (never hardcoded, gADR-0014).
+  of a generation channel; its licenses are config, never hardcoded here.
 - ``AssetSpec`` — the preprocess output: the style descriptor composed with the
-  Scale spec's target dimensions for ONE asset, rendered as a search query or a
+  size spec's target dimensions for ONE asset, rendered as a search query or a
   generation prompt (one spec, both modes, so style coheres).
 - ``AcquireResult`` — what the acquire stage returns: the raw acquired file plus
   its recorded provenance and license (a pipeline invariant).
 - ``ManifestEntry`` — one Asset manifest record: ``id -> {path, category,
   acquire_mode, source, license, license_url, target_dims}`` plus optional
   provenance detail (the source URL for search-download, the prompt/backend for
-  generation). The single HOME of an asset's path; the JSON authority references
-  the ``id`` and the builder composes ``id -> path`` (gADR-0014).
+  generation). The single HOME of an asset's path; a game's config authority
+  references the ``id`` and its builder composes ``id -> path``.
 """
 
 from __future__ import annotations
@@ -29,14 +29,14 @@ from pathlib import Path
 
 
 class AcquireMode(str, Enum):
-    """The two acquire modes (gADR-0014). Value is the manifest ``acquire_mode``."""
+    """The two acquire modes. Value is the manifest ``acquire_mode``."""
 
     SEARCH_DOWNLOAD = "search_download"
     GENERATION = "generation"
 
 
 class GenerationBackendKind(str, Enum):
-    """Generation's two independent backends (gADR-0014).
+    """Generation's two independent backends.
 
     ``MCP`` is a pluggable external MCP image-generation channel (Gemini being the
     first); ``BUILTIN`` is the running agent's own image generation, delegated
@@ -56,7 +56,7 @@ class StyleDescriptor:
     ``category_hints`` refine per category; ``formats``/``allowed_licenses`` are
     the format/licensing constraints; ``chroma_key`` is the solid background color
     a generation backend is asked to render behind the subject so postprocess can
-    key it out (Style descriptor, gADR-0014).
+    key it out.
     """
 
     keywords: tuple[str, ...]
@@ -70,7 +70,7 @@ class StyleDescriptor:
 
 @dataclass(frozen=True)
 class Source:
-    """One configurable acquire source (gADR-0014): CC0/CC-BY, never hardcoded."""
+    """One configurable acquire source; its licenses are config, never hardcoded."""
 
     name: str
     kind: str  # "search-download" | "generation"
@@ -85,12 +85,12 @@ class AssetSpec:
 
     Rendered as a search query (search-download) or a generation prompt
     (generation) by :mod:`preprocess`, so one spec drives both modes and the
-    style coheres (gADR-0014). ``subject``/``hint`` are optional per-asset recipe
-    overrides: an asset whose id is a namespaced slug (``pickup_bun``) needs a
-    human subject (``a steamed bun``), and an asset that does not fit its
-    category's shared style hint (a food ITEM in the ``textures`` category, whose
-    default hint reads "environment prop, tileable") supplies its own — so the
-    recipe still fully determines a reproducible prompt.
+    style coheres. ``subject``/``hint`` are optional per-asset recipe
+    overrides: an asset whose id is a namespaced slug (``item_torch``) needs a
+    human subject (``a wooden torch``), and an asset that does not fit its
+    category's shared style hint (a hand-held ITEM in a category whose default
+    hint reads "environment prop, tileable") supplies its own — so the recipe
+    still fully determines a reproducible prompt.
     """
 
     id: str
@@ -103,7 +103,7 @@ class AssetSpec:
     @property
     def subject_terms(self) -> str:
         """The concrete thing the query/prompt is about: the recipe ``subject``
-        override, else the id humanized (``obstacle_crate`` -> ``obstacle crate``)."""
+        override, else the id humanized (``stone_arch`` -> ``stone arch``)."""
         return self.subject or self.id.replace("_", " ")
 
     @property
@@ -122,7 +122,7 @@ class AcquireResult:
     """What the acquire stage returns before postprocess: the raw file + record.
 
     ``raw_path`` is the acquired file as-fetched/as-generated; postprocess conforms
-    it and the emitter records the rest into the Asset manifest (gADR-0014). The
+    it and the emitter records the rest into the Asset manifest. The
     license is a pipeline invariant — an acquire that cannot record one fails.
     """
 
@@ -140,7 +140,7 @@ class AcquireResult:
 
 @dataclass(frozen=True)
 class FrameLayout:
-    """How a packed spritesheet is tiled (gADR-0015): the per-frame box + grid.
+    """How a packed spritesheet is tiled: the per-frame box + grid.
 
     A sprite-frame set is committed as ONE spritesheet per animation state; this
     records how that sheet is laid out so the manifest carries it and the
@@ -159,11 +159,11 @@ class FrameLayout:
 
 @dataclass(frozen=True)
 class SpriteAnimation:
-    """One animation state fed to the multi-animation SpriteFrames deriver (gADR-0015).
+    """One animation state fed to the multi-animation SpriteFrames deriver.
 
     A character's animated look is ONE Godot ``SpriteFrames`` holding several named
-    animations (idle/run/jump/fire/…), each its own committed sheet (gADR-0015: one
-    sheet per animation state). This is the deriver's per-state input: the state's
+    animations (idle/run/jump/fire/…), each its own committed sheet (one sheet per
+    animation state). This is the deriver's per-state input: the state's
     ``name``, the committed sheet's ``res://`` path, its :class:`FrameLayout`, and
     the playback ``speed``/``loop`` the emitted animation carries (looping for a
     locomotion base state, one-shot for a verb). A value shape (no Pillow, no Godot).
@@ -178,17 +178,17 @@ class SpriteAnimation:
 
 @dataclass(frozen=True)
 class ManifestEntry:
-    """One Asset manifest record (gADR-0014).
+    """One Asset manifest record.
 
     The seven core fields (``path``/``category``/``acquire_mode``/``source``/
     ``license``/``license_url``/``target_dims``) plus optional provenance detail.
     ``path`` is the resource path the game loads (``res://...``); it is the single
     home of the asset's path (the authority references ``id``, the builder composes
     ``id -> path``). A sprite-set entry additionally carries its ``frame_layout``
-    (gADR-0015) — the packed sheet's tiling, which a plain texture entry omits. A
-    generated entry records its ``prompt``/``backend``/``model`` provenance for
-    audit and APPROXIMATE regeneration — an image model has no seed, so the exact
-    pixels are not byte-reproducible (gADR-0015).
+    — the packed sheet's tiling, which a plain texture entry omits. A generated
+    entry records its ``prompt``/``backend``/``model`` provenance for audit and
+    APPROXIMATE regeneration — an image model has no seed, so the exact pixels
+    are not byte-reproducible.
     """
 
     id: str

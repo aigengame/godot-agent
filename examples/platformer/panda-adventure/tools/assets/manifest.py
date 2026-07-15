@@ -1,4 +1,4 @@
-"""The Asset manifest — read/merge the per-category fragments (gADR-0014).
+"""The Asset manifest — read/merge the per-category fragments.
 
 The manifest is the single record-of-source registry for produced assets, split
 per category (``<assets_root>/manifest/<category>.json``) so parallel pipeline
@@ -19,8 +19,8 @@ from .model import FrameLayout, ManifestEntry
 # The per-category fragment lives under this directory of the assets root.
 MANIFEST_DIRNAME = "manifest"
 
-# The seven core manifest fields (gADR-0014), in a deterministic write order;
-# optional provenance detail follows.
+# The seven core manifest fields, in a deterministic write order; optional
+# provenance detail follows.
 _CORE_FIELDS = (
     "path",
     "category",

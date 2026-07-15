@@ -1,7 +1,7 @@
-"""Emitters — the pluggable output side of the pipeline (gADR-0014).
+"""Emitters — the pluggable output side of the pipeline.
 
-The Tool Script framework carries pluggable output emitters (JSON/XML/Resource/…)
-so the core is reusable beyond this demo; the asset pipeline's default emitter
+The framework carries pluggable output emitters (JSON/XML/Resource/…) so the
+core is reusable across games; the asset pipeline's default emitter
 writes the acquired+postprocessed asset's record into the Asset manifest as JSON.
 An emitter is the WRITE side of :mod:`manifest`: given a :class:`ManifestEntry`,
 it persists it deterministically (sorted ids, stable field order) so the committed

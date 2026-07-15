@@ -1,40 +1,41 @@
-"""Asset pipeline — the Tool Script family that produces the game's binary assets.
+"""Asset pipeline framework — the game-agnostic core that produces binary assets.
 
-A ``Tool Script`` (GAME-CONTEXT.md) that acquires and conforms the game's textures
-(and, in later slices, sprites/audio/fonts), WITHOUT importing any game code —
-game-agnostic core plus a per-game plug-in, the two-layer pattern it shares with
-the Balancing pipeline (gADR-0014). The core is the deep module the wave-3 asset
-round-outs (#442/#443/#444/#445) reuse; there is deliberately NO shared
-``tools/_core`` (the two pipelines share the two-layer *pattern*, not code).
-Since gADR-0018 the Balancing pipeline keeps its per-game half in a SIBLING
-plug-in package (``tools/panda_balancing/``); this pipeline still keeps its
-plug-in in-package — migrating it likewise is an open follow-up.
+A reusable pipeline that acquires and conforms a game's textures, sprites,
+fonts, and audio WITHOUT importing any game code: the framework package
+contains no game. Everything a game contributes — its style config, sources,
+generation channels, and per-asset acquire recipes — lives in a sibling
+plug-in package and is wired in through configuration alone (the CLI's
+required ``--config`` style file), so pointing the pipeline at a different
+game needs no framework edits. That isolation is pinned by a fast test gate
+(no game imports, no game vocabulary, no per-game config file in this
+package). Godot is the framework's TARGET, not a game coupling: the derivers
+emit Godot resource formats (``SpriteFrames`` ``.tres``, AngelCode ``.fnt``)
+by design.
 
-Two layers:
+Modules:
 
-- **Game-agnostic core** — the reusable pipeline structure:
-  - ``model`` — the plain value types (StyleDescriptor, AssetSpec, AcquireResult,
-    ManifestEntry) the stages pass between them.
-  - ``preprocess`` — compose the Style descriptor + the Scale spec's target
-    dimensions into a per-asset ``asset spec`` and render it as a search query
-    (search-download) or a generation prompt (generation): one spec, both modes.
-  - ``acquire`` — the two-mode acquire interface (search-download + generation),
-    with the network / API boundary injected so CI mocks it.
-  - ``backends`` — generation's two independent backends: ``McpBackend`` (an
-    external image-gen MCP channel; Gemini first) and ``BuiltinBackend`` (the
-    running agent's own generation, delegated out-of-process).
-  - ``postprocess`` — conform the acquired image to the pixel-art regime and the
-    exact target size (downscale, palette-quantize, chroma-key crop) with Pillow.
-  - ``manifest`` / ``emitter`` — read and (JSON-default) write the Asset manifest,
-    the single record-of-source registry keyed by an asset ``id``.
-  - ``pipeline`` / ``cli`` — orchestrate one asset end-to-end; the ``python -m
-    assets`` on-demand driver.
-
-- **Per-game plug-in** (Panda Adventure's instantiation) — JSON reading only:
-  - ``game_config`` — map this game's ``panda_adventure.style.json`` and
-    ``scale_spec.json`` into the core's types, and build the generation backends.
-  - ``panda_adventure.style.json`` — the Style descriptor (keywords, bounded
-    pixel-art palette, per-category hints), the format/licensing constraints, the
-    configurable CC0/CC-BY sources, the generation channels, and the per-asset
-    acquire recipes.
+- ``config`` — the style-config schema home: parse the per-game style file
+  into the framework's types, with typed structured refusals for malformed
+  input; the config surface (size-spec reads, asset paths, backend factories).
+- ``model`` — the plain value types (StyleDescriptor, AssetSpec, AcquireResult,
+  ManifestEntry) the stages pass between them.
+- ``preprocess`` — compose the Style descriptor + the size spec's target
+  dimensions into a per-asset ``asset spec`` and render it as a search query
+  (search-download) or a generation prompt (generation): one spec, both modes.
+- ``acquire`` — the two-mode acquire interface (search-download + generation),
+  with the network / API boundary injected so CI mocks it.
+- ``backends`` — generation's two independent backends: ``McpBackend`` (an
+  external image-gen MCP channel) and ``BuiltinBackend`` (the running agent's
+  own generation, delegated out-of-process).
+- ``postprocess`` — conform the acquired image to the pixel-art regime and the
+  exact target size (downscale, palette-quantize, chroma-key crop) with Pillow.
+- ``packer`` / ``spriteframes`` — pack loose frames into one spritesheet, and
+  derive the byte-stable Godot ``SpriteFrames`` resource from its layout.
+- ``fonts`` — derive a byte-stable AngelCode ``.fnt`` from a glyph sheet + grid.
+- ``lifecycle`` — asset-lifecycle governance: the size-based Git-LFS gate and
+  the license/acquire-mode consistency gate.
+- ``manifest`` / ``emitter`` — read and (JSON-default) write the Asset manifest,
+  the single record-of-source registry keyed by an asset ``id``.
+- ``pipeline`` / ``cli`` — orchestrate one asset end-to-end; the ``python -m
+  assets`` on-demand driver.
 """

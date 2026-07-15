@@ -1,7 +1,10 @@
-"""The asset pipeline CLI: ``python -m assets <command>`` (gADR-0014).
+"""The asset pipeline CLI: ``python -m assets --config <style.json> <command>``.
 
 The on-demand driver for the acquire stage (a live operation — network / API keys /
-cost — never a CI gate). Commands:
+cost — never a CI gate). The per-game wiring is entirely config-driven: the
+required ``--config`` style file names everything the game contributes (its root,
+sources, generation channels, and per-asset recipes); ``--game-root`` overrides
+the config's own root (e.g. to acquire into an isolated copy). Commands:
 
 - ``acquire <id>`` — run preprocess -> acquire -> postprocess -> emit for one
   configured asset, writing the produced asset file and its Asset manifest record.
@@ -9,6 +12,11 @@ cost — never a CI gate). Commands:
 - ``query <id>`` / ``prompt <id>`` — print the rendered search query / generation
   prompt for an asset (inspect what a mode would ask for, no acquire).
 - ``list`` — list the configured assets and their recipes.
+
+Every refused or invalid input — an unreadable or malformed style config, an
+asset/source/backend the config does not declare, or a license outside the
+configured allowlist — is a structured error on stderr with exit 2, never a
+traceback.
 """
 
 from __future__ import annotations
@@ -18,25 +26,35 @@ import json
 import sys
 from pathlib import Path
 
-from . import game_config, pipeline, preprocess
-from .game_config import StyleConfig
+from . import config, pipeline, preprocess
+from .acquire import AcquireError
+from .config import ConfigError, StyleConfig
 from .manifest import entry_to_dict
 from .model import AcquireMode
 
+# The usage/refusal exit code — distinct from a successful run (0).
+EXIT_REFUSED = 2
+
+
+def _fail(code: str, detail: str) -> int:
+    """Print a structured refusal to stderr and return ``EXIT_REFUSED``."""
+    print(json.dumps({"error": code, "detail": detail}), file=sys.stderr)
+    return EXIT_REFUSED
+
 
 def _load(args: argparse.Namespace) -> StyleConfig:
-    return game_config.load_style_config(args.config)
+    return config.load_style_config(args.config)
 
 
 def _run_acquire(args: argparse.Namespace) -> int:
-    config = _load(args)
+    cfg = _load(args)
     backend = None
     if args.backend:
         backend = pipeline._default_backend(
-            config, {"backend": args.backend}, args.game_root
+            cfg, {"backend": args.backend}, args.game_root
         )
     entry = pipeline.acquire_asset(
-        config,
+        cfg,
         args.id,
         game_root=args.game_root,
         mode=AcquireMode(args.mode) if args.mode else None,
@@ -48,22 +66,22 @@ def _run_acquire(args: argparse.Namespace) -> int:
 
 
 def _run_query(args: argparse.Namespace) -> int:
-    config = _load(args)
-    spec = pipeline.build_spec_for(config, args.id, args.game_root)
+    cfg = _load(args)
+    spec = pipeline.build_spec_for(cfg, args.id, args.game_root)
     print(preprocess.render_search_query(spec))
     return 0
 
 
 def _run_prompt(args: argparse.Namespace) -> int:
-    config = _load(args)
-    spec = pipeline.build_spec_for(config, args.id, args.game_root)
+    cfg = _load(args)
+    spec = pipeline.build_spec_for(cfg, args.id, args.game_root)
     print(preprocess.render_generation_prompt(spec))
     return 0
 
 
 def _run_list(args: argparse.Namespace) -> int:
-    config = _load(args)
-    print(json.dumps(config.assets, indent=2, ensure_ascii=False))
+    cfg = _load(args)
+    print(json.dumps(cfg.assets, indent=2, ensure_ascii=False))
     return 0
 
 
@@ -72,14 +90,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         type=Path,
-        default=game_config.DEFAULT_STYLE_PATH,
-        help="the per-game style config (default: the committed panda_adventure one)",
+        required=True,
+        help="the per-game style config file (the pipeline's whole per-game surface)",
     )
     parser.add_argument(
         "--game-root",
         type=Path,
-        default=game_config.GAME_ROOT,
-        help="the game root the assets/scale spec resolve against",
+        default=None,
+        help="override the game root the assets/size spec resolve against "
+        "(default: the style config's own game_root)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -111,7 +130,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except ConfigError as exc:
+        return _fail(exc.code, exc.detail)
+    except AcquireError as exc:
+        # A refused acquire input (a disallowed license, a recipe with no URL,
+        # an empty fetch): the same structured envelope as a config refusal.
+        return _fail("acquire_refused", str(exc))
 
 
 if __name__ == "__main__":

@@ -19,6 +19,12 @@ patterns.
 > targets). The two-layer *pattern* decided here is unchanged; the asset
 > pipeline still keeps its plug-in in-package, and migrating it to the
 > gADR-0018 split is an open follow-up.
+>
+> **Outcome note (2026-07-15).** That follow-up is **done**: gADR-0019 (#495)
+> applied the split — the per-game half now lives in `tools/panda_assets/`
+> (`style.json`, ex-`panda_adventure.style.json`, plus the HUD font build) and
+> `tools/assets/` is pinned game-agnostic by `tests/test_assets_isolation.py`.
+> This record's in-package layout prose describes the pre-split state.
 
 We decide six things:
 
