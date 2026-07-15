@@ -16,7 +16,9 @@ the config's own root (e.g. to acquire into an isolated copy). Commands:
 Every refused or invalid input — an unreadable or malformed style config, an
 asset/source/backend the config does not declare, or a license outside the
 configured allowlist — is a structured error on stderr with exit 2, never a
-traceback.
+traceback. A generation backend that is unavailable or fails (no builtin
+image generation and no fallback, a failed or timed-out channel call) gets
+the same envelope: the CLI's failure surface is uniformly machine-readable.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from pathlib import Path
 
 from . import config, pipeline, preprocess
 from .acquire import AcquireError
+from .backends import GenerationError
 from .config import ConfigError, StyleConfig
 from .manifest import entry_to_dict
 from .model import AcquireMode
@@ -138,6 +141,12 @@ def main(argv: list[str] | None = None) -> int:
         # A refused acquire input (a disallowed license, a recipe with no URL,
         # an empty fetch): the same structured envelope as a config refusal.
         return _fail("acquire_refused", str(exc))
+    except GenerationError as exc:
+        # A generation backend failure (an agent with no builtin image gen and
+        # no fallback, a failed or timed-out channel call): a runtime capability
+        # gap rather than a bad input, but the same envelope — the CLI never
+        # surfaces a traceback for a foreseeable failure mode.
+        return _fail("generation_failed", str(exc))
 
 
 if __name__ == "__main__":

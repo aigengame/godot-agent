@@ -187,9 +187,10 @@ def _read_config_doc(path: Path) -> dict[str, Any]:
     return doc
 
 
-def _parse_style(path: Path, doc: dict[str, Any]) -> StyleDescriptor:
+def _parse_style(
+    path: Path, doc: dict[str, Any], constraints: dict[str, Any]
+) -> StyleDescriptor:
     style_doc = _typed(path, doc, "style", dict)
-    constraints = _typed(path, doc, "constraints", dict)
     return StyleDescriptor(
         keywords=tuple(_typed(path, style_doc, "keywords", list, "style.")),
         prompt_fragment=_typed(path, style_doc, "prompt_fragment", str, "style."),
@@ -262,6 +263,36 @@ def _parse_assets(path: Path, doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return assets
 
 
+def _parse_category_licenses(
+    path: Path, constraints: dict[str, Any]
+) -> dict[str, tuple[str, ...]]:
+    """The per-category download-license extensions, typed at the boundary.
+
+    Each VALUE must be an array of strings — a bare string would silently
+    iterate into a per-character allowlist, and the allowlist feeds the
+    license gate, so a wrong-typed value refuses structured like every other
+    nested field. The ``_``-prefixed documentation keys (the config's
+    _readme/_note convention) are skipped, so only real category names carry
+    extensions."""
+    out: dict[str, tuple[str, ...]] = {}
+    entries = _typed_opt(
+        path, constraints, "category_licenses", dict, {}, "constraints."
+    )
+    for category, licenses in entries.items():
+        if category.startswith("_"):
+            continue
+        if not isinstance(licenses, list) or any(
+            not isinstance(entry, str) for entry in licenses
+        ):
+            raise _invalid(
+                path,
+                f"'constraints.category_licenses.{category}' must be an array "
+                "of strings",
+            )
+        out[category] = tuple(licenses)
+    return out
+
+
 def load_style_config(path: Path) -> StyleConfig:
     """Parse a style config file (the per-game configuration) into a
     :class:`StyleConfig`.
@@ -273,11 +304,12 @@ def load_style_config(path: Path) -> StyleConfig:
     """
     path = path.resolve()
     doc = _read_config_doc(path)
+    constraints = _typed(path, doc, "constraints", dict)
     lifecycle = _typed_opt(path, doc, "lifecycle", dict, {})
     return StyleConfig(
         path=path,
         game_root=resolve_against(path.parent, _typed(path, doc, "game_root", str)),
-        style=_parse_style(path, doc),
+        style=_parse_style(path, doc, constraints),
         sources=_parse_sources(path, doc),
         assets=_parse_assets(path, doc),
         assets_root=_typed_opt(path, doc, "assets_root", str, "assets"),
@@ -288,20 +320,7 @@ def load_style_config(path: Path) -> StyleConfig:
         lfs_size_threshold_bytes=_typed_opt(
             path, lifecycle, "lfs_size_threshold_bytes", int, 1_048_576, "lifecycle."
         ),
-        # Skip the ``_``-prefixed documentation keys (the config's _readme/_note
-        # convention), so only real category names carry license extensions.
-        category_licenses={
-            category: tuple(licenses)
-            for category, licenses in _typed_opt(
-                path,
-                _typed(path, doc, "constraints", dict),
-                "category_licenses",
-                dict,
-                {},
-                "constraints.",
-            ).items()
-            if not category.startswith("_")
-        },
+        category_licenses=_parse_category_licenses(path, constraints),
     )
 
 

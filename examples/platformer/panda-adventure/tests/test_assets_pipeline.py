@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw
 
 import build_config
 import panda_assets
+from assets import cli
 from assets import config as assets_config
 from assets import manifest, pipeline, postprocess, preprocess
 from assets.acquire import AcquireError, search_download
@@ -432,6 +433,51 @@ def _stage_scale_spec(root: Path) -> None:
         (build_config.GAME_DIR / "data/json/scale_spec.json").read_text("utf-8"),
         encoding="utf-8",
     )
+
+
+# --------------------------------------------------------------------------- #
+# Structured refusals — the schema boundary and the CLI envelope (gADR-0019).
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("bad_value", ["OFL", 123, {"license": "OFL"}])
+def test_category_licenses_value_must_be_string_array(
+    tmp_path: Path, bad_value
+) -> None:
+    """A wrong-typed category_licenses VALUE refuses structured at load (#497
+    review): a bare string would otherwise silently iterate into a
+    per-character allowlist feeding the license gate, and a non-iterable would
+    be a raw TypeError instead of the schema boundary's ConfigError."""
+    doc = json.loads(panda_assets.STYLE_PATH.read_text("utf-8"))
+    doc["constraints"]["category_licenses"] = {"fonts": bad_value}
+    bad = tmp_path / "style.json"
+    bad.write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(assets_config.ConfigError) as exc:
+        assets_config.load_style_config(bad)
+    assert exc.value.code == "config_invalid"
+    assert "category_licenses.fonts" in exc.value.detail
+
+
+def test_cli_generation_failure_is_a_structured_refusal(capsys) -> None:
+    """An acquire whose generation backend is unavailable (no builtin image gen,
+    no fallback — the committed config's posture) exits 2 with a JSON envelope,
+    never a traceback (#497 review). Forces the builtin backend onto a
+    generation-mode asset; the failure is raised before any network/API call."""
+    rc = cli.main(
+        [
+            "--config",
+            str(panda_assets.STYLE_PATH),
+            "acquire",
+            "pickup_bun",
+            "--backend",
+            "builtin",
+            "--no-emit",
+        ]
+    )
+    assert rc == cli.EXIT_REFUSED
+    err = json.loads(capsys.readouterr().err)
+    assert err["error"] == "generation_failed"
+    assert "no built-in image generation" in err["detail"]
 
 
 # --------------------------------------------------------------------------- #
