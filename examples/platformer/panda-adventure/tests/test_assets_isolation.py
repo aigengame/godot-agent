@@ -19,24 +19,20 @@ drives an engine.
 
 from __future__ import annotations
 
+import ast
 import re
 
 import build_config
 
 FRAMEWORK_DIR = build_config.GAME_DIR / "tools" / "assets"
 
-# Imports that would couple the framework to this game, its tooling, or an
-# engine process. Pillow/mcp are the framework's own (dev/live) dependencies.
-_FORBIDDEN_IMPORTS = (
-    "import gda",
-    "from gda",
-    "import godot",
-    "import build_config",
-    "from build_config",
-    "import panda_assets",
-    "from panda_assets",
-    "import panda_balancing",
-    "from panda_balancing",
+# Top-level module roots that would couple the framework to this game, its
+# tooling, or an engine process. Checked syntax-aware over every import
+# statement — absolute or lazy, ``import X`` or ``from X import …`` — so a
+# spelling variant cannot slip past a substring needle. Pillow/mcp are the
+# framework's own (dev/live) dependencies; relative imports stay in-package.
+_FORBIDDEN_IMPORT_ROOTS = frozenset(
+    {"gda", "godot", "build_config", "panda_assets", "panda_balancing"}
 )
 
 # Game/domain vocabulary the framework must describe generically instead
@@ -52,7 +48,11 @@ _FORBIDDEN_WORDS = re.compile(
 
 
 def _framework_sources() -> list:
-    files = sorted(FRAMEWORK_DIR.glob("*.py"))
+    """Every Python source in the framework package, RECURSIVELY — a future
+    subpackage must not slip under the gate."""
+    files = sorted(
+        p for p in FRAMEWORK_DIR.rglob("*.py") if "__pycache__" not in p.parts
+    )
     assert files, f"no framework sources found under {FRAMEWORK_DIR}"
     return files
 
@@ -60,11 +60,22 @@ def _framework_sources() -> list:
 def test_framework_imports_no_game_code() -> None:
     """The framework is pure-Python and game-agnostic: no Godot binding, no gda,
     no game builder, no per-game plug-in — only stdlib, its own dependencies
-    (Pillow, the lazy-imported mcp client), and sibling modules."""
+    (Pillow, the lazy-imported mcp client), and sibling modules. AST-walked, so
+    lazy in-function imports and both import spellings are covered."""
     for path in _framework_sources():
-        source = path.read_text(encoding="utf-8")
-        for needle in _FORBIDDEN_IMPORTS:
-            assert needle not in source, f"{path.name} imports game code: {needle!r}"
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                roots = [alias.name.split(".")[0] for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                roots = [node.module.split(".")[0]]
+            else:
+                continue
+            for root in roots:
+                assert root not in _FORBIDDEN_IMPORT_ROOTS, (
+                    f"{path.relative_to(FRAMEWORK_DIR)}:{node.lineno} imports "
+                    f"game code: {root!r}"
+                )
 
 
 def test_framework_speaks_no_game_vocabulary() -> None:
@@ -81,6 +92,11 @@ def test_framework_speaks_no_game_vocabulary() -> None:
 
 def test_framework_carries_no_per_game_config() -> None:
     """No per-game configuration file lives inside the framework package — the
-    style config is the plug-in's (``tools/panda_assets/style.json``)."""
-    strays = [p.name for p in FRAMEWORK_DIR.iterdir() if p.suffix == ".json"]
+    style config is the plug-in's (``tools/panda_assets/style.json``). Recursive,
+    like the source scan."""
+    strays = [
+        str(p.relative_to(FRAMEWORK_DIR))
+        for p in FRAMEWORK_DIR.rglob("*.json")
+        if "__pycache__" not in p.parts
+    ]
     assert strays == [], f"per-game config inside the framework package: {strays}"

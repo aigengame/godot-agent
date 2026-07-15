@@ -458,6 +458,101 @@ def test_category_licenses_value_must_be_string_array(
     assert "category_licenses.fonts" in exc.value.detail
 
 
+@pytest.mark.parametrize(
+    ("mutate", "needle"),
+    [
+        (lambda d: d["style"]["keywords"].append(123), "style.keywords"),
+        (lambda d: d["style"]["palette"].append(7), "style.palette"),
+        (lambda d: d["constraints"]["formats"].append(1), "constraints.formats"),
+        (
+            lambda d: d["constraints"]["allowed_licenses"].append(0),
+            "constraints.allowed_licenses",
+        ),
+        (
+            lambda d: d["style"].__setitem__("category_hints", {"textures": 5}),
+            "style.category_hints.textures",
+        ),
+        (
+            lambda d: d["generation"]["mcp"]["channels"]["gemini"].__setitem__(
+                "command", []
+            ),
+            "command",
+        ),
+        (
+            lambda d: d["generation"]["mcp"]["channels"]["gemini"].__setitem__(
+                "command", ["ok", 3]
+            ),
+            "command",
+        ),
+        (
+            lambda d: d["generation"]["builtin"].__setitem__("command", "run-me"),
+            "generation.builtin.command",
+        ),
+    ],
+    ids=[
+        "keywords-int",
+        "palette-int",
+        "formats-int",
+        "licenses-int",
+        "hint-nonstring",
+        "channel-command-empty",
+        "channel-command-int",
+        "builtin-command-string",
+    ],
+)
+def test_malformed_nested_config_refuses_at_load(
+    tmp_path: Path, mutate, needle: str
+) -> None:
+    """ELEMENT-level bad nested config refuses structured AT LOAD (#497 review
+    pass 2): a stray number in keywords/palette/formats/allowed_licenses, a
+    non-string category hint, or a malformed generation command used to load
+    fine and crash later (e.g. `query` joining an int keyword raised a raw
+    TypeError past the JSON envelope). The schema boundary now owns the whole
+    class."""
+    doc = json.loads(panda_assets.STYLE_PATH.read_text("utf-8"))
+    mutate(doc)
+    bad = tmp_path / "style.json"
+    bad.write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(assets_config.ConfigError) as exc:
+        assets_config.load_style_config(bad)
+    assert exc.value.code == "config_invalid"
+    assert needle in exc.value.detail
+
+
+def test_builtin_backend_missing_executable_is_a_generation_error(
+    tmp_path: Path,
+) -> None:
+    """A configured-but-unrunnable builtin command is normalized to the backend's
+    one GenerationError contract (#497 review pass 2) — never a raw
+    FileNotFoundError out of the acquire path (the CLI maps it to the exit-2
+    envelope like every generation failure)."""
+    backend = BuiltinBackend(command=["/nonexistent/imagegen", "{prompt}", "{output}"])
+    with pytest.raises(GenerationError, match="could not run"):
+        backend.generate("a prompt", tmp_path / "out.png")
+
+
+def test_builtin_backend_timeout_is_a_generation_error(tmp_path: Path) -> None:
+    """A hung builtin command is bounded by the backend timeout and surfaces as
+    a GenerationError, not a raw subprocess.TimeoutExpired (#497 review pass 2)."""
+    import sys
+
+    backend = BuiltinBackend(
+        command=[sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.5
+    )
+    with pytest.raises(GenerationError, match="timed out"):
+        backend.generate("a prompt", tmp_path / "out.png")
+
+
+def test_mcp_backend_missing_executable_is_a_generation_error(tmp_path: Path) -> None:
+    """An MCP channel whose server executable cannot launch fails as a
+    GenerationError (#497 review pass 2): startup/transport failures are
+    normalized at the backend boundary, not just tool-call errors."""
+    pytest.importorskip("mcp")
+    backend = McpBackend("bad", ["/nonexistent/mcp-server"], timeout=5.0)
+    with pytest.raises(GenerationError, match="failed to start or communicate"):
+        backend.generate("a prompt", tmp_path / "out.png")
+
+
 def test_cli_generation_failure_is_a_structured_refusal(capsys) -> None:
     """An acquire whose generation backend is unavailable (no builtin image gen,
     no fallback — the committed config's posture) exits 2 with a JSON envelope,

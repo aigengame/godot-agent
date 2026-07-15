@@ -100,7 +100,19 @@ class McpBackend:
 
     def generate(self, prompt: str, out_path: Path) -> None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        text = asyncio.run(self._call(prompt, out_path))
+        try:
+            text = asyncio.run(self._call(prompt, out_path))
+        except GenerationError:
+            raise
+        except Exception as exc:
+            # Launch/transport/session failures (a missing server executable, a
+            # broken stdio pipe, a protocol error during initialize) are
+            # foreseeable channel failures, normalized HERE so every caller sees
+            # the one GenerationError contract instead of a raw spawn error.
+            # Process interrupts stay BaseException and pass through.
+            raise GenerationError(
+                f"MCP channel {self._channel!r} failed to start or communicate: {exc!r}"
+            ) from exc
         if not out_path.exists() or out_path.stat().st_size == 0:
             raise GenerationError(
                 f"MCP channel {self._channel!r} returned no image at {out_path} "
@@ -202,9 +214,26 @@ class BuiltinBackend:
             arg.replace("{prompt}", prompt).replace("{output}", str(out_path))
             for arg in self._command
         ]
-        proc = subprocess.run(
-            argv, capture_output=True, text=True, env=self._env, timeout=self._timeout
-        )
+        try:
+            proc = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                env=self._env,
+                timeout=self._timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise GenerationError(
+                f"builtin generation command timed out after {self._timeout}s: "
+                f"{argv[0]}"
+            ) from exc
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            # A missing/unrunnable executable or an unlaunchable argv is a
+            # foreseeable backend failure: the one GenerationError contract,
+            # never a raw FileNotFoundError out of the acquire path.
+            raise GenerationError(
+                f"builtin generation command could not run ({argv[0] if argv else '<empty>'}): {exc}"
+            ) from exc
         if proc.returncode != 0:
             raise GenerationError(
                 f"builtin generation command failed ({proc.returncode}): "

@@ -123,6 +123,19 @@ def _typed_opt(
     return _typed(path, mapping, key, kind, where)
 
 
+def _string_array(
+    path: Path, mapping: dict[str, Any], key: str, where: str = ""
+) -> tuple[str, ...]:
+    """A required array-of-strings field, checked down to its ELEMENTS: a stray
+    number inside keywords/palette/formats/allowed_licenses would otherwise
+    load fine and surface later as a raw TypeError in a prompt join or a
+    license comparison, far from the config that caused it."""
+    values = _typed(path, mapping, key, list, where)
+    if any(not isinstance(value, str) for value in values):
+        raise _invalid(path, f"'{where}{key}' must be an array of strings")
+    return tuple(values)
+
+
 def resolve_against(base_dir: Path, value: str) -> Path:
     """Resolve a configured path value: absolute passes through, relative
     resolves against ``base_dir``. A string the OS cannot treat as a path (an
@@ -191,16 +204,28 @@ def _parse_style(
     path: Path, doc: dict[str, Any], constraints: dict[str, Any]
 ) -> StyleDescriptor:
     style_doc = _typed(path, doc, "style", dict)
+    hints = _typed_opt(path, style_doc, "category_hints", dict, {}, "style.")
+    for category, hint in hints.items():
+        # ``_``-prefixed keys are documentation (the config's _readme/_note
+        # convention); a real category's hint must be a string.
+        if not category.startswith("_") and not isinstance(hint, str):
+            raise _invalid(
+                path,
+                f"'style.category_hints.{category}' must be a string, "
+                f"got {type(hint).__name__}",
+            )
     return StyleDescriptor(
-        keywords=tuple(_typed(path, style_doc, "keywords", list, "style.")),
+        keywords=_string_array(path, style_doc, "keywords", "style."),
         prompt_fragment=_typed(path, style_doc, "prompt_fragment", str, "style."),
-        palette=tuple(_typed(path, style_doc, "palette", list, "style.")),
-        category_hints=dict(
-            _typed_opt(path, style_doc, "category_hints", dict, {}, "style.")
-        ),
-        formats=tuple(_typed(path, constraints, "formats", list, "constraints.")),
-        allowed_licenses=tuple(
-            _typed(path, constraints, "allowed_licenses", list, "constraints.")
+        palette=_string_array(path, style_doc, "palette", "style."),
+        category_hints={
+            category: hint
+            for category, hint in hints.items()
+            if not category.startswith("_")
+        },
+        formats=_string_array(path, constraints, "formats", "constraints."),
+        allowed_licenses=_string_array(
+            path, constraints, "allowed_licenses", "constraints."
         ),
         chroma_key=_typed(path, constraints, "chroma_key", str, "constraints."),
     )
@@ -293,6 +318,49 @@ def _parse_category_licenses(
     return out
 
 
+def _parse_generation(path: Path, doc: dict[str, Any]) -> dict[str, Any]:
+    """Validate the generation block's sub-shapes at the load boundary.
+
+    A channel's ``command`` (and the builtin backend's, when set) must be a
+    NON-EMPTY array of strings: a wrong-typed or empty command would otherwise
+    load fine and only fail at generate time — as a raw process-spawn error
+    instead of this module's structured refusal. ``_``-prefixed channel keys
+    are documentation and skipped."""
+    generation = dict(_typed_opt(path, doc, "generation", dict, {}))
+    mcp = _typed_opt(path, generation, "mcp", dict, {}, "generation.")
+    channels = _typed_opt(path, mcp, "channels", dict, {}, "generation.mcp.")
+    for name, spec in channels.items():
+        if name.startswith("_"):
+            continue
+        where = f"generation.mcp.channels.{name}."
+        if not isinstance(spec, dict):
+            raise _invalid(
+                path,
+                f"'generation.mcp.channels.{name}' must be an object, "
+                f"got {type(spec).__name__}",
+            )
+        command = _typed(path, spec, "command", list, where)
+        if not command or any(not isinstance(part, str) for part in command):
+            raise _invalid(
+                path, f"'{where}command' must be a non-empty array of strings"
+            )
+        _typed_opt(path, spec, "tool", str, None, where)
+        _typed_opt(path, spec, "arguments", dict, {}, where)
+    builtin = _typed_opt(path, generation, "builtin", dict, {}, "generation.")
+    command = builtin.get("command")
+    if command is not None and (
+        not isinstance(command, list)
+        or not command
+        or any(not isinstance(part, str) for part in command)
+    ):
+        raise _invalid(
+            path,
+            "'generation.builtin.command' must be null or a non-empty array of strings",
+        )
+    _typed_opt(path, builtin, "fallback", str, None, "generation.builtin.")
+    return generation
+
+
 def load_style_config(path: Path) -> StyleConfig:
     """Parse a style config file (the per-game configuration) into a
     :class:`StyleConfig`.
@@ -316,7 +384,7 @@ def load_style_config(path: Path) -> StyleConfig:
         scale_spec_rel=_typed_opt(
             path, doc, "scale_spec", str, "data/json/scale_spec.json"
         ),
-        generation=dict(_typed_opt(path, doc, "generation", dict, {})),
+        generation=_parse_generation(path, doc),
         lfs_size_threshold_bytes=_typed_opt(
             path, lifecycle, "lfs_size_threshold_bytes", int, 1_048_576, "lifecycle."
         ),
