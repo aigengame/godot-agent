@@ -6,7 +6,7 @@ description: Update STATE.md — the lightweight cross-session "daily report" of
 # State
 
 Maintain `STATE.md` at the repo root: a lightweight **cross-session daily report** so the next
-worker learns in ≤15 lines where the project is, what the last session did, which pitfalls to
+worker learns in ~15 lines where the project is, what the last session did, which pitfalls to
 reuse, what to pick up next, and which unfinished items must not be forgotten. This is the
 feedback loop that makes development experience **compound** instead of re-discovering project
 status every session.
@@ -78,9 +78,12 @@ unchanged — at most refresh the date. Don't churn the file with non-progress.
    session's work is continuous with or related to the recommended next work**, so the note will
    actually get reused. If the next work is unrelated, **omit it** — experience that doesn't help
    the next task is noise, not a war-story archive.
-6. **Rewrite `STATE.md`** from the template — **overwrite, never append**; ≤15 lines; terse; drop
-   any field you have nothing accurate and useful for (the Backlog re-emits its *filtered
-   inheritance* — a fresh rewrite, not an append). Stamp the date.
+6. **Rewrite `STATE.md`** from the template — **overwrite, never append**; ≤15 lines, except
+   when step 4's no-loss fallback leaves the Backlog over its own budget: then the file grows by
+   exactly those Backlog lines — the line budget yields with the item budget, it is never
+   rebalanced by dropping an item. Terse; drop any field you have nothing accurate and useful
+   for (the Backlog re-emits its *filtered inheritance* — a fresh rewrite, not an append).
+   Stamp the date.
 7. **Do not auto-commit.** Just leave the rewritten `STATE.md` in the working tree. Whether it is
    tracked or kept as a local-only working aid is the project's choice — this skill never commits it.
 
@@ -89,7 +92,7 @@ unchanged — at most refresh the date. Don't churn the file with non-progress.
 ```markdown
 # STATE — <project>
 
-_Cross-session daily report (≤15 lines, rewritten each session via `/state`). Durable decisions live elsewhere, not here._
+_Cross-session daily report (~15 lines, rewritten each session via `/state`). Durable decisions live elsewhere, not here._
 
 - **Phase/milestone:** <current stage, in the project's own terms — omit if you can't confirm the *current* one>
 - **Last session:** <what was completed/changed; one line, e.g. issue #N>
@@ -106,7 +109,9 @@ _Updated: <YYYY-MM-DD>_
 
 ## Guardrails
 
-- **≤15 lines** of content; keep it scannable.
+- **≤15 lines** of content; keep it scannable. One exception: when the Backlog's no-loss
+  fallback keeps items past its own budget, the file grows by exactly those lines — a
+  line-budget breach is never resolved by dropping a Backlog item.
 - **Omit rather than mislead** — every field is optional; drop any line that is stale, unverified,
   or not useful to the next session. Never carry a phase forward just because it was there before.
 - **Backlog drops need evidence** — the inverse of the rule above, so unfinished work cannot
