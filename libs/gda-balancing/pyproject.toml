@@ -1,0 +1,18 @@
+[project]
+name = "gda-balancing"
+version = "0.1.0"
+description = "Game numeric design & balancing toolkit — standard-Schema numeric design (RPG & Roguelike templates), simulation-backed balance validation and tuning, structured JSON output."
+requires-python = ">=3.13"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/aigengame/godot-agent"
+Repository = "https://github.com/aigengame/godot-agent"
+Issues = "https://github.com/aigengame/godot-agent/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gda_balancing"]
