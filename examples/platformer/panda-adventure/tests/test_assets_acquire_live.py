@@ -25,13 +25,15 @@ import pytest
 from PIL import Image
 
 import build_config
-from assets import game_config, pipeline
+import panda_assets
+from assets import config as assets_config
+from assets import pipeline
 from assets.backends import BuiltinImageGenUnavailable
 from assets.model import AcquireMode
 
 pytestmark = pytest.mark.acquire_live
 
-STYLE = game_config.load_style_config()
+STYLE = assets_config.load_style_config(panda_assets.STYLE_PATH)
 
 
 def _game_root(tmp_path: Path) -> Path:
@@ -125,7 +127,7 @@ def test_mcp_gemini_real_generation(tmp_path: Path) -> None:
     pytest.importorskip("google.genai", reason="install the assets-live group")
 
     root = _game_root(tmp_path)
-    backend = game_config.make_mcp_backend(STYLE, "gemini")
+    backend = assets_config.make_mcp_backend(STYLE, "gemini")
     entry = pipeline.acquire_asset(
         STYLE,
         "obstacle_crate",
@@ -150,7 +152,7 @@ def test_builtin_backend_error_path_on_this_agent(tmp_path: Path) -> None:
     command and no fallback), it fails LOUDLY with the clear user-facing error,
     never a silent no-op (gADR-0014).
     """
-    backend = game_config.make_builtin_backend(STYLE)
+    backend = assets_config.make_builtin_backend(STYLE)
     if backend.available:
         pytest.skip("this agent has built-in image generation — see the real-gen path")
     with pytest.raises(BuiltinImageGenUnavailable):

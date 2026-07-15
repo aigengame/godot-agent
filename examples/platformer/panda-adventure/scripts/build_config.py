@@ -1127,9 +1127,11 @@ def validate_asset_sizes(root: Path = GAME_DIR) -> list[Any]:
     the size gate is repo-scoped. Raises ``assets.lifecycle.AssetSizeError`` on a
     violation.
     """
-    from assets import game_config, lifecycle
+    from assets import config as assets_config
+    from assets import lifecycle
+    from panda_assets import STYLE_PATH
 
-    config = game_config.load_style_config()
+    config = assets_config.load_style_config(STYLE_PATH)
     return lifecycle.validate_committed_asset_sizes(
         root, config.lfs_size_threshold_bytes
     )
@@ -1149,9 +1151,11 @@ def validate_asset_licenses(root: Path = GAME_DIR) -> list[Any]:
     it is general across asset slices. Raises ``assets.lifecycle.LicenseModeError``
     on a violation.
     """
-    from assets import game_config, lifecycle
+    from assets import config as assets_config
+    from assets import lifecycle
+    from panda_assets import STYLE_PATH
 
-    config = game_config.load_style_config()
+    config = assets_config.load_style_config(STYLE_PATH)
     by_category: dict[str, list[tuple[str, str, str]]] = {}
     for asset_id, rec in load_asset_manifest(root).items():
         entry = (

@@ -1,7 +1,7 @@
-"""Preprocess — compose the Style descriptor + Scale spec into a per-asset spec.
+"""Preprocess — compose the Style descriptor + size spec into a per-asset spec.
 
-The head of the pipeline (gADR-0014): it builds ONE :class:`AssetSpec` from the
-shared Style descriptor and the Scale spec's target dimensions for an asset, then
+The head of the pipeline: it builds ONE :class:`AssetSpec` from the
+shared Style descriptor and the size spec's target dimensions for an asset, then
 renders it as either a search query (search-download) or a generation prompt
 (generation). One spec, both modes, so a downloaded asset and a generated asset
 target the same style and size.
@@ -43,7 +43,7 @@ def _subject_terms(spec: AssetSpec) -> str:
 
 def render_search_query(spec: AssetSpec) -> str:
     """The search-download query: the subject, the style keywords, the category
-    hint — the terms an open-asset search matches against (gADR-0014)."""
+    hint — the terms an open-asset search matches against."""
     parts = [_subject_terms(spec), *spec.style.keywords]
     if spec.category_hint:
         parts.append(spec.category_hint)
@@ -53,7 +53,7 @@ def render_search_query(spec: AssetSpec) -> str:
 def render_generation_prompt(spec: AssetSpec) -> str:
     """The generation prompt: the style prompt fragment, the subject, the category
     hint, an explicit solid-background instruction (so postprocess can key it out),
-    and a single-centered-subject framing (gADR-0014)."""
+    and a single-centered-subject framing."""
     w, h = spec.target_dims
     parts = [
         spec.style.prompt_fragment,

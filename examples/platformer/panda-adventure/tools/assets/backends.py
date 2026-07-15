@@ -1,18 +1,18 @@
 """Generation's two backends: an external MCP channel and the agent's own gen.
 
-Generation derives two INDEPENDENT backends (gADR-0014):
+Generation derives two INDEPENDENT backends:
 
 - :class:`McpBackend` — an MCP *client* that speaks to a pluggable external
-  image-generation MCP channel over stdio. ``scripts/mcp/gemini_img_gen.py``
-  (Gemini) is the first channel; more are added as new channels, never new acquire
-  modes. The ``mcp`` / ``google-genai`` dependencies live in the optional live-only
-  group CI does not install, so they are **lazy-imported** inside the methods here
-  — importing this module never requires them, keeping CI collection green.
+  image-generation MCP channel over stdio (a Gemini stdio server being the
+  first configured channel); more providers are added as new channels, never
+  new acquire modes. The ``mcp`` / ``google-genai`` dependencies live in an
+  optional live-only group CI does not install, so they are **lazy-imported**
+  inside the methods here — importing this module never requires them, keeping
+  CI collection green.
 - :class:`BuiltinBackend` — the running agent's OWN built-in image generation,
-  invoked out-of-process (the pipeline renders the prompt, the agent generates, the
-  pipeline ingests). An agent WITHOUT the capability (Claude Code has none) follows
-  a configured fallback backend or raises a clear user-facing error — never a
-  silent no-op.
+  invoked out-of-process (the pipeline renders the prompt, the agent generates,
+  the pipeline ingests). An agent WITHOUT the capability follows a configured
+  fallback backend or raises a clear user-facing error — never a silent no-op.
 
 Both satisfy the :class:`GenerationBackend` protocol; the acquire stage treats them
 uniformly.
@@ -33,9 +33,9 @@ class GenerationError(RuntimeError):
 class BuiltinImageGenUnavailable(GenerationError):
     """The running agent has no built-in image generation and no fallback.
 
-    Raised (never a silent no-op, gADR-0014) when BuiltinBackend is asked to
-    generate on an agent that cannot — the clear, user-facing failure the demo's
-    live test asserts on Claude Code.
+    Raised (never a silent no-op) when BuiltinBackend is asked to generate on
+    an agent that cannot — the clear, user-facing failure a live test asserts
+    on an agent with no native image generation.
     """
 
 
@@ -92,7 +92,7 @@ class McpBackend:
         """The concrete image model this channel is configured to use, if any.
 
         Read from the channel's ``arguments`` (e.g. the Gemini ``model``), so the
-        acquire stage can record it as generation provenance (gADR-0014). ``None``
+        acquire stage can record it as generation provenance. ``None``
         when the channel leaves the tool's own default model in force.
         """
         value = self._arguments.get("model")
@@ -100,7 +100,19 @@ class McpBackend:
 
     def generate(self, prompt: str, out_path: Path) -> None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        text = asyncio.run(self._call(prompt, out_path))
+        try:
+            text = asyncio.run(self._call(prompt, out_path))
+        except GenerationError:
+            raise
+        except Exception as exc:
+            # Launch/transport/session failures (a missing server executable, a
+            # broken stdio pipe, a protocol error during initialize) are
+            # foreseeable channel failures, normalized HERE so every caller sees
+            # the one GenerationError contract instead of a raw spawn error.
+            # Process interrupts stay BaseException and pass through.
+            raise GenerationError(
+                f"MCP channel {self._channel!r} failed to start or communicate: {exc!r}"
+            ) from exc
         if not out_path.exists() or out_path.stat().st_size == 0:
             raise GenerationError(
                 f"MCP channel {self._channel!r} returned no image at {out_path} "
@@ -109,7 +121,7 @@ class McpBackend:
 
     async def _call(self, prompt: str, out_path: Path) -> str:
         # Lazy import: the live-only group carries `mcp`; CI never installs it, so
-        # importing this module must not need it (gADR-0014).
+        # importing this module must not need it.
         from datetime import timedelta
 
         from mcp import ClientSession, StdioServerParameters
@@ -158,9 +170,8 @@ class BuiltinBackend:
     The pipeline renders the prompt and hands it to the agent's generator via a
     configured out-of-process ``command`` (which must write the image to
     ``out_path``). When no command is configured — the running agent has no
-    built-in generator, e.g. Claude Code — a configured ``fallback`` backend is
-    used, or, absent one, :class:`BuiltinImageGenUnavailable` is raised (never a
-    silent no-op, gADR-0014).
+    built-in generator — a configured ``fallback`` backend is used, or, absent
+    one, :class:`BuiltinImageGenUnavailable` is raised (never a silent no-op).
     """
 
     def __init__(
@@ -196,16 +207,33 @@ class BuiltinBackend:
             raise BuiltinImageGenUnavailable(
                 "the running agent has no built-in image generation and no "
                 "fallback backend is configured — set generation.builtin.command "
-                "for a capable agent, or generation.builtin.fallback (e.g. the "
-                "Gemini MCP channel) to delegate (gADR-0014)"
+                "for a capable agent, or generation.builtin.fallback (e.g. an "
+                "MCP image-gen channel) to delegate"
             )
         argv = [
             arg.replace("{prompt}", prompt).replace("{output}", str(out_path))
             for arg in self._command
         ]
-        proc = subprocess.run(
-            argv, capture_output=True, text=True, env=self._env, timeout=self._timeout
-        )
+        try:
+            proc = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                env=self._env,
+                timeout=self._timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise GenerationError(
+                f"builtin generation command timed out after {self._timeout}s: "
+                f"{argv[0]}"
+            ) from exc
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            # A missing/unrunnable executable or an unlaunchable argv is a
+            # foreseeable backend failure: the one GenerationError contract,
+            # never a raw FileNotFoundError out of the acquire path.
+            raise GenerationError(
+                f"builtin generation command could not run ({argv[0] if argv else '<empty>'}): {exc}"
+            ) from exc
         if proc.returncode != 0:
             raise GenerationError(
                 f"builtin generation command failed ({proc.returncode}): "

@@ -1,16 +1,16 @@
 """SpriteFrames deriver — a packed sheet + its layout into a Godot resource.
 
-The read-side counterpart of the :mod:`packer` (gADR-0015): given the committed
+The read-side counterpart of the :mod:`packer`: given the committed
 spritesheet's ``res://`` path and its :class:`~assets.model.FrameLayout`, this
 emits a Godot ``SpriteFrames`` ``.tres`` — one ``AtlasTexture`` sub-resource per
 frame (its ``region`` the frame's box in the sheet) and one animation that
-sequences them. So wave-3's sprite slices turn a loose-frame acquisition into a
+sequences them. So a sprite slice turns a loose-frame acquisition into a
 ready animation resource without re-deriving the geometry by hand.
 
-Pure text emission, the ``build_config`` idiom: byte-stable output (deterministic
-sub-resource ids, no ``uid`` — gda authors uid-free, gADR-0036), no Godot, no IO,
-so it runs in the fast CI tier. That the emitted text really loads as a Godot
-resource is proven by the engine-tier ``test_spriteframes_engine.py``.
+Pure text emission: byte-stable output (deterministic sub-resource ids, no
+``uid`` — a committed derived artifact must re-derive identically), no Godot,
+no IO, so it runs in the fast CI tier. That the emitted text really loads as a
+Godot resource is proven by an engine-tier test.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ from __future__ import annotations
 from .model import FrameLayout, SpriteAnimation
 
 # The default playback speed (fps) an emitted animation carries; a caller retunes
-# per state. Frame durations are uniform (1.0 each) — gADR-0015 commits one sheet
-# per animation state, not per-frame timing.
+# per state. Frame durations are uniform (1.0 each) — the committed unit is one
+# sheet per animation state, not per-frame timing.
 _DEFAULT_SPEED = 8.0
 # The ext_resource id the sheet texture is referenced by. A stable literal (not a
 # random suffix like the editor's) so the derived .tres is byte-identical per run.
@@ -127,14 +127,13 @@ def _animation_dict(state: SpriteAnimation, ext_id: str) -> tuple[str, str]:
 def derive_spriteframes_set(states: list[SpriteAnimation]) -> str:
     """Derive one ``SpriteFrames`` ``.tres`` holding SEVERAL named animations.
 
-    The multi-state counterpart of :func:`derive_spriteframes` (gADR-0015): a
+    The multi-state counterpart of :func:`derive_spriteframes`: a
     character's animated look is ONE ``SpriteFrames`` an ``AnimatedSprite2D`` plays
     by name, composed from several per-state sheets (idle/run/jump/fire/…), one
     ``ext_resource`` per sheet (deterministic id ``"{i+1}_{name}"``) and one
     ``AtlasTexture`` per frame. ``states`` order fixes the serialization order, so
-    the output is byte-stable and uid-free (gda authors uid-free, gADR-0036). That
-    it really loads as a Godot resource is proven by the engine-tier
-    ``test_player_spriteframes_engine.py``.
+    the output is byte-stable and uid-free. That it really loads as a Godot
+    resource is proven by an engine-tier test.
     """
     if not states:
         raise ValueError("cannot derive a SpriteFrames set with no animation states")

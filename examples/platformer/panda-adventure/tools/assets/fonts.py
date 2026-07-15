@@ -1,12 +1,13 @@
 """Bitmap-font deriver — a packed glyph sheet + its grid into a Godot font.
 
-The UI-branch counterpart of the :mod:`spriteframes` deriver (gADR-0014): given a
+The UI-branch counterpart of the :mod:`spriteframes` deriver: given a
 committed glyph sheet's ``res://`` path and its uniform-grid
 :class:`~assets.model.FrameLayout` (reused — a glyph grid is a frame grid whose
 cells are read as glyphs), this emits an **AngelCode BMFont** ``.fnt`` that maps a
 contiguous run of codepoints onto the sheet's cells. Godot's font importer loads
-that ``.fnt`` natively as a ``FontFile`` (a ``Font``), so a wave-3 UI slice turns a
-loose glyph sheet into a ready HUD font without hand-authoring per-glyph metrics.
+that ``.fnt`` natively as a ``FontFile`` (a ``Font``), so a UI slice turns a
+loose glyph sheet into a ready bitmap font without hand-authoring per-glyph
+metrics.
 
 Why ``.fnt`` and not a ``.tres`` (the shape :mod:`spriteframes` emits): a
 ``SpriteFrames`` serializes cleanly as text with an ``ext_resource`` pointing at
@@ -18,10 +19,10 @@ bitmap-font format: deterministic text that references the sheet PNG by a relati
 page filename — the same "reference the sheet, don't inline it" property, in the
 format Godot actually supports for it.
 
-Pure text emission, the ``build_config`` idiom: byte-stable output (fixed field
-order, no ``uid`` — a ``.fnt`` carries none; gda authors uid-free, gADR-0036), no
-Godot, no IO, so it runs in the fast CI tier. That the emitted ``.fnt`` really
-loads as a Godot ``Font`` is proven by the engine-tier ``test_fonts_engine.py``.
+Pure text emission: byte-stable output (fixed field order, no ``uid`` — a
+committed derived artifact must re-derive identically, and a ``.fnt`` carries
+none), no Godot, no IO, so it runs in the fast CI tier. That the emitted
+``.fnt`` really loads as a Godot ``Font`` is proven by an engine-tier test.
 """
 
 from __future__ import annotations

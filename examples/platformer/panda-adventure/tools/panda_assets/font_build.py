@@ -1,9 +1,13 @@
 """Acquire + wire the HUD's bitmap font through the asset pipeline (P2-S9, #445).
 
 The UI branch's one-shot acquisition step (gADR-0014), the analogue of a sprite
-slice's ``pack_sprite_set`` call: it produces the committed glyph sheet, derives
-its Godot font, and records the Asset manifest entry, reusing the pipeline's
-deep modules rather than re-implementing them —
+slice's ``pack_sprite_set`` call — and, since gADR-0019, PER-GAME PLUG-IN CODE:
+it lives beside this game's ``style.json`` rather than inside the framework
+package, because everything it hardcodes (the ``hud_font`` asset id, the
+committed Press Start 2P source, the ``hud_font_size`` Scale-spec key) is this
+game's contribution. It produces the committed glyph sheet, derives its Godot
+font, and records the Asset manifest entry, reusing the framework's deep
+modules rather than re-implementing them —
 
 1. **raster the glyph sheet** — render a uniform grid of printable ASCII glyphs
    (U+0020..U+007E) from the acquired pixel font into fixed cells, then conform it
@@ -28,20 +32,19 @@ new native size rather than scaling a stale bitmap.
 
 Run once, commit its outputs (``assets/fonts/hud_font.png``,
 ``assets/fonts/hud_font.fnt``, ``assets/manifest/fonts.json``, plus the committed
-``.ttf``/``OFL.txt`` source). This module uses package-relative imports, so it must
-be run as a MODULE, not as a file script — from the game directory
+``.ttf``/``OFL.txt`` source). This module uses package imports, so it must be run
+as a MODULE, not as a file script — from the game directory
 (``examples/platformer/panda-adventure``)::
 
-    PYTHONPATH=tools python -m assets.hud_font_build
+    PYTHONPATH=tools python -m panda_assets.font_build
 
-(the ``python -m assets`` invocation the pipeline uses; running ``python
-tools/assets/hud_font_build.py`` fails with ``ImportError``). The committed
-artifacts are the source of truth (no network — the ``.ttf`` is in-repo). What
-re-derives **byte-identically** is the ``.fnt`` layout and the manifest — they
-describe the glyph GRID, not pixels; the rendered ``.png`` sheet is a valid
-Scale-spec-sized atlas but is **not** cross-environment byte-reproducible (freetype
-rasterization varies by version/platform — gADR-0015). ``test_fonts_deriver``
-asserts exactly that split.
+(running ``python tools/panda_assets/font_build.py`` fails with ``ImportError``).
+The committed artifacts are the source of truth (no network — the ``.ttf`` is
+in-repo). What re-derives **byte-identically** is the ``.fnt`` layout and the
+manifest — they describe the glyph GRID, not pixels; the rendered ``.png`` sheet is
+a valid Scale-spec-sized atlas but is **not** cross-environment byte-reproducible
+(freetype rasterization varies by version/platform — gADR-0015).
+``test_fonts_deriver`` asserts exactly that split.
 """
 
 from __future__ import annotations
@@ -51,12 +54,15 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from . import acquire, game_config
-from .acquire import Fetch
-from .emitter import JsonManifestEmitter
-from .fonts import derive_bitmap_font
-from .model import AssetSpec, FrameLayout, ManifestEntry
-from .postprocess import postprocess_image
+from assets import acquire
+from assets.acquire import Fetch
+from assets.config import StyleConfig, load_style_config, scale_value
+from assets.emitter import JsonManifestEmitter
+from assets.fonts import derive_bitmap_font
+from assets.model import AssetSpec, FrameLayout, ManifestEntry
+from assets.postprocess import postprocess_image
+
+from . import STYLE_PATH
 
 # The committed HUD-font asset id — the manifest primary key, the id the HUD's
 # `hud_font` reference resolves against, AND the key of this font's acquire recipe
@@ -87,14 +93,14 @@ ROWS = (GLYPH_COUNT + COLUMNS - 1) // COLUMNS
 NATIVE_SIZE_SCALE_KEY = "hud_font_size"
 
 
-def native_cell_size(config: game_config.StyleConfig, game_root: Path) -> int:
+def native_cell_size(config: StyleConfig, game_root: Path) -> int:
     """The font's native square-cell size, read from the Scale spec (gADR-0013).
 
     The HUD renders at ``hud_font_size``, so baking the bitmap at that native size
     makes it render 1:1 (crisp). Read here, never hardcoded, so the Scale spec is
     the single authority — retuning it regenerates the font at the new size.
     """
-    return int(game_config.scale_value(config, NATIVE_SIZE_SCALE_KEY, game_root))
+    return int(scale_value(config, NATIVE_SIZE_SCALE_KEY, game_root))
 
 
 def _committed_source_fetch(ttf_path: Path) -> Fetch:
@@ -151,29 +157,32 @@ def raster_glyph_sheet(dst: Path, ttf_path: Path, cell: int) -> tuple[int, int]:
 
 
 def build(
-    game_root: Path = game_config.GAME_ROOT, *, fetch: Fetch | None = None
+    game_root: Path | None = None, *, fetch: Fetch | None = None
 ) -> ManifestEntry:
     """Produce the committed sheet + ``.fnt`` and emit the manifest entry.
 
     Acquisition flows through the configured pipeline recipe (gADR-0014): the
     ``hud_font`` asset's ``acquire`` recipe in the Style descriptor names the source,
     url, license, and attribution, and :func:`assets.acquire.search_download` fetches
-    the TTF and records that provenance — nothing hardcoded here. ``fetch`` defaults
-    to reading the committed source TTF (offline, reproducible); pass
+    the TTF and records that provenance — nothing hardcoded here. ``game_root``
+    defaults to the style config's own root (``style.json``'s ``game_root``, so the
+    build writes into whatever tree carries this plug-in); ``fetch`` defaults to
+    reading the committed source TTF (offline, reproducible) — pass
     ``acquire.default_fetch`` for a live re-acquire from the recipe url.
     """
-    config = game_config.load_style_config()
-    cell = native_cell_size(config, game_root)
+    config = load_style_config(STYLE_PATH)
+    root = game_root if game_root is not None else config.game_root
+    cell = native_cell_size(config, root)
     request = config.assets[ASSET_ID]
     recipe = dict(request["acquire"])
     category = str(request["category"])
     source = config.sources[str(recipe["source"])]
-    ttf_path = game_root / SOURCE_TTF_REL
+    ttf_path = root / SOURCE_TTF_REL
 
     sheet_res = f"res://{config.assets_root}/{category}/{ASSET_ID}.png"
     fnt_res = f"res://{config.assets_root}/{category}/{ASSET_ID}.fnt"
-    sheet_path = game_root / config.assets_root / category / f"{ASSET_ID}.png"
-    fnt_path = game_root / config.assets_root / category / f"{ASSET_ID}.fnt"
+    sheet_path = root / config.assets_root / category / f"{ASSET_ID}.png"
+    fnt_path = root / config.assets_root / category / f"{ASSET_ID}.fnt"
 
     spec = AssetSpec(
         id=ASSET_ID, category=category, target_dims=(cell, cell), style=config.style
@@ -228,13 +237,13 @@ def build(
         attribution=result.attribution,
         frame_layout=layout,
     )
-    JsonManifestEmitter(game_root, config.assets_root).emit(entry)
+    JsonManifestEmitter(root, config.assets_root).emit(entry)
     return entry
 
 
 def main() -> None:
     entry = build()
-    print(f"hud_font_build: wrote {entry.path} + its glyph sheet and manifest entry")
+    print(f"font_build: wrote {entry.path} + its glyph sheet and manifest entry")
 
 
 if __name__ == "__main__":

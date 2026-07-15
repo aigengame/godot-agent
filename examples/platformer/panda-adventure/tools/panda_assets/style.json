@@ -1,5 +1,6 @@
 {
-  "_readme": "gADR-0014. The tracer's search_download acquire fetches a preconfigured, license-verified 'url' per asset (below) rather than driving a live open-asset search over the rendered query — a live search API is a follow-up; the fixed candidate keeps the demo reproducible.",
+  "_readme": "gADR-0014/gADR-0019. The tracer's search_download acquire fetches a preconfigured, license-verified 'url' per asset (below) rather than driving a live open-asset search over the rendered query — a live search API is a follow-up; the fixed candidate keeps the demo reproducible. game_root resolves relative to THIS file (gADR-0018's idiom); assets_root and scale_spec resolve relative to game_root.",
+  "game_root": "../..",
   "assets_root": "assets",
   "scale_spec": "data/json/scale_spec.json",
   "style": {
@@ -175,7 +176,7 @@
     },
     "hud_font": {
       "category": "fonts",
-      "_note": "P2-S9 (#445): the HUD bitmap font. Its committed form is the derived AngelCode .fnt recorded under manifest id 'hud_font'; the search_download acquire fetches the OFL pixel-font TTF below, which tools/assets/hud_font_build.py rasterizes into the glyph sheet and derives. No scale_key — the font's native size is the Scale spec's hud_font_size (gADR-0013), read by the font build, not a 2-D box.",
+      "_note": "P2-S9 (#445): the HUD bitmap font. Its committed form is the derived AngelCode .fnt recorded under manifest id 'hud_font'; the search_download acquire fetches the OFL pixel-font TTF below, which tools/panda_assets/font_build.py rasterizes into the glyph sheet and derives. No scale_key — the font's native size is the Scale spec's hud_font_size (gADR-0013), read by the font build, not a 2-D box.",
       "acquire": {
         "mode": "search_download",
         "source": "google-fonts",

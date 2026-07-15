@@ -19,10 +19,12 @@ from pathlib import Path
 from PIL import Image
 
 import build_config
-from assets import game_config, hud_font_build
+import panda_assets
+from assets import config as assets_config
 from assets.fonts import derive_bitmap_font
 from assets.manifest import load_manifest
 from assets.model import FrameLayout
+from panda_assets import font_build
 
 _SHEET_RES = "res://assets/fonts/hud_font.png"
 
@@ -31,8 +33,10 @@ _SHEET_RES = "res://assets/fonts/hud_font.png"
 # against it (never a literal 16) makes these tests catch drift if the font stopped
 # tracking the Scale spec.
 _CELL = int(
-    game_config.scale_value(
-        game_config.load_style_config(), "hud_font_size", build_config.GAME_DIR
+    assets_config.scale_value(
+        assets_config.load_style_config(panda_assets.STYLE_PATH),
+        "hud_font_size",
+        build_config.GAME_DIR,
     )
 )
 
@@ -103,7 +107,7 @@ def test_committed_hud_font_fnt_is_a_fresh_derive() -> None:
     entry = load_manifest(build_config.GAME_DIR, "assets")["hud_font"]
     assert entry.frame_layout is not None
     expected = derive_bitmap_font(
-        _SHEET_RES, entry.frame_layout, first_codepoint=hud_font_build.FIRST_CODEPOINT
+        _SHEET_RES, entry.frame_layout, first_codepoint=font_build.FIRST_CODEPOINT
     )
     committed = (build_config.GAME_DIR / "assets" / "fonts" / "hud_font.fnt").read_text(
         encoding="utf-8"
@@ -116,25 +120,26 @@ def test_documented_rebuild_command_runs_and_regenerates_valid_assets(
 ) -> None:
     """The DOCUMENTED re-derivation command runs and regenerates valid font assets.
 
-    hud_font_build uses package-relative imports, so it must run as a MODULE
-    (``PYTHONPATH=tools python -m assets.hud_font_build``) — ``python
-    tools/assets/hud_font_build.py`` fails with ``ImportError``. This runs the exact
-    documented command against an ISOLATED copy of the project — NEVER the tracked
-    tree, so the test can neither discard a developer's uncommitted edits nor leave
-    the worktree dirty on failure — and asserts (a) it exits 0, (b) the TEXT
-    artifacts (the ``.fnt`` layout + the manifest) match the committed ones: they
-    describe the glyph GRID, not pixels, so they ARE byte-deterministic, and (c) the
-    rendered ``.png`` sheet is a valid atlas at the Scale-spec grid size. The PNG is
-    deliberately NOT asserted byte-identical: freetype's rasterization is not
-    byte-reproducible across freetype versions/platforms (gADR-0015), so the committed
-    sheet is a valid committed artifact, not a cross-env-reproducible one. (No network
-    — the injected fetch reads the in-repo TTF.)"""
+    font_build uses package imports, so it must run as a MODULE
+    (``PYTHONPATH=tools python -m panda_assets.font_build``) — ``python
+    tools/panda_assets/font_build.py`` fails with ``ImportError``. This runs the
+    exact documented command against an ISOLATED copy of the project — NEVER the
+    tracked tree, so the test can neither discard a developer's uncommitted edits
+    nor leave the worktree dirty on failure — and asserts (a) it exits 0, (b) the
+    TEXT artifacts (the ``.fnt`` layout + the manifest) match the committed ones:
+    they describe the glyph GRID, not pixels, so they ARE byte-deterministic, and
+    (c) the rendered ``.png`` sheet is a valid atlas at the Scale-spec grid size.
+    The PNG is deliberately NOT asserted byte-identical: freetype's rasterization
+    is not byte-reproducible across freetype versions/platforms (gADR-0015), so the
+    committed sheet is a valid committed artifact, not a cross-env-reproducible
+    one. (No network — the injected fetch reads the in-repo TTF.)"""
     src = build_config.GAME_DIR
     game = tmp_path / "game"
-    # Copy ONLY what build() + game_config + the injected fetch read, so the command
-    # writes into the copy (GAME_ROOT resolves from the imported package's location,
-    # under the copy's tools/): the tools/ package (carrying the style config), the
-    # Scale spec (the native size authority), and the source TTF (+ its license).
+    # Copy ONLY what build() + the style config + the injected fetch read, so the
+    # command writes into the copy (the copied style.json's game_root resolves to
+    # the copy's root, gADR-0019): the tools/ packages (framework + plug-in with
+    # the style config), the Scale spec (the native size authority), and the
+    # source TTF (+ its license).
     shutil.copytree(
         src / "tools", game / "tools", ignore=shutil.ignore_patterns("__pycache__")
     )
@@ -146,7 +151,7 @@ def test_documented_rebuild_command_runs_and_regenerates_valid_assets(
 
     env = {**os.environ, "PYTHONPATH": str(game / "tools")}
     run = subprocess.run(
-        [sys.executable, "-m", "assets.hud_font_build"],
+        [sys.executable, "-m", "panda_assets.font_build"],
         cwd=game,
         env=env,
         capture_output=True,

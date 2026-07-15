@@ -1,8 +1,8 @@
 """Postprocess — conform an acquired image to the pixel-art regime + target size.
 
-The deterministic tail of the pipeline (gADR-0014): whatever the acquire stage
+The deterministic tail of the pipeline: whatever the acquire stage
 produced (a downloaded pixel sheet or a high-resolution generated render), this
-conforms it to the Scale spec's exact target dimensions and the bounded pixel-art
+conforms it to the size spec's exact target dimensions and the bounded pixel-art
 palette, so assets from BOTH acquire modes read as one style. Pure Pillow, no
 network, no game code — the CI-tested stage (Pillow is a dev dependency, the
 acquire boundary is mocked, so these transforms run in the fast suite).
@@ -15,7 +15,7 @@ Stages, in order:
    generated asset arrives with a transparent background like a downloaded sprite.
 2. **downscale to the pixel grid** — resize to the exact target dimensions with a
    box-averaging filter, collapsing a high-resolution source onto the 1:1 pixel
-   grid (PPU 1, gADR-0013).
+   grid (PPU 1).
 3. **palette-quantize** — snap every RGB pixel to the nearest bounded-palette
    color (no dithering — pixel art wants flat blocks), preserving a binary alpha.
 4. **exact-dimension conform** — guarantee the output is exactly ``target_dims``.

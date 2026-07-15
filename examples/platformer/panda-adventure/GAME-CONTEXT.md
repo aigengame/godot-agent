@@ -349,10 +349,10 @@ The shared art-direction input that makes mixed-source assets cohere across BOTH
 acquire modes — the machine-consumable style parameters (shared style
 keywords/prompt fragment, the bounded pixel-art palette, per-category style hints)
 plus the format/licensing constraints (gADR-0014). A pipeline-only per-game
-configuration living inside the asset pipeline package (the layout the Balancing
-pipeline used before gADR-0018 moved its per-game half out to
-`tools/panda_balancing/targets.json`; migrating the asset pipeline likewise is an
-open follow-up), NOT in the JSON authority and never
+configuration living in the game's asset plug-in package
+(`tools/panda_assets/style.json`, gADR-0019 — the framework/plug-in split
+gADR-0018 established, applied to assets; the framework package carries no
+per-game config), NOT in the JSON authority and never
 derived to a Resource — the game reads assets, not their style. The preprocess stage
 composes it with the Scale spec's target dimensions into the per-asset `asset spec`,
 which renders either as a search query (search-download) or a generation prompt

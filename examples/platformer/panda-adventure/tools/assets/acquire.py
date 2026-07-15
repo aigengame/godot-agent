@@ -1,17 +1,16 @@
 """Acquire — the two-mode interface that fulfils an :class:`AssetSpec`.
 
-Acquire is an interface with two modes (gADR-0014):
+Acquire is an interface with two modes:
 
 - :func:`search_download` — fetch a candidate from a configurable open-asset
-  source (CC0/CC-BY only), recording provenance and license.
+  source (allowlisted download licenses only), recording provenance and license.
 - :func:`generate` — render the spec's prompt through a generation backend
   (:class:`~assets.backends.GenerationBackend`), recording the prompt and backend.
 
 Both return an :class:`AcquireResult` naming the RAW acquired file (postprocess
 conforms it next) and its record. The network / API boundary is injected — the
-``fetch`` callable for search-download, the ``backend`` for generation — so the
-fast CI suite mocks it while the on-demand ``acquire_live`` tests use the real
-thing.
+``fetch`` callable for search-download, the ``backend`` for generation — so a
+fast test suite mocks it while on-demand live tests use the real thing.
 """
 
 from __future__ import annotations
@@ -26,11 +25,11 @@ from .model import AcquireResult, AcquireMode, AssetSpec, Source
 # The acquire boundary the unit tests mock: given a URL, return the raw bytes.
 Fetch = Callable[[str], bytes]
 
-_USER_AGENT = "panda-adventure-asset-pipeline/0 (+gADR-0014; CC0/CC-BY fetch)"
+_USER_AGENT = "asset-pipeline/0 (open-license fetch)"
 
 
 class AcquireError(RuntimeError):
-    """An acquire attempt failed (bad license, empty fetch, missing source)."""
+    """An acquire attempt failed (bad license, empty fetch, missing URL)."""
 
 
 def default_fetch(url: str, *, timeout: float = 60.0) -> bytes:
@@ -44,7 +43,7 @@ def _check_license(license_name: str, allowed: tuple[str, ...]) -> None:
     if license_name not in allowed:
         raise AcquireError(
             f"license {license_name!r} is not in the allowed set {list(allowed)} "
-            "— the pipeline records CC0/CC-BY only (gADR-0014)"
+            "— a download must carry a license from the configured allowlist"
         )
 
 
@@ -61,23 +60,22 @@ def search_download(
 
     The recipe (from the per-game config) names the direct ``url`` for this asset
     within the configurable ``source``; the license defaults to the source's
-    ``default_license`` unless the recipe overrides it. Rejects a non-CC0/CC-BY
-    license before writing anything.
+    ``default_license`` unless the recipe overrides it. Rejects a license outside
+    the allowlist before writing anything.
 
-    Scope note (the tracer, #439): this resolves a **preconfigured source URL**
-    from the recipe rather than driving a live search over
-    ``render_search_query(spec)``. The rendered query is authored (preprocess
-    composes it, and it is what a live search WOULD submit), but wiring a live
-    open-asset search API is a deliberate follow-up — the tracer pins the
-    end-to-end path with a fixed, license-verified candidate so the demo is
-    reproducible (gADR-0014).
+    Scope note: this resolves a **preconfigured source URL** from the recipe
+    rather than driving a live search over ``render_search_query(spec)``. The
+    rendered query is authored (preprocess composes it, and it is what a live
+    search WOULD submit), but wiring a live open-asset search API is a deliberate
+    follow-up — the fixed, license-verified candidate keeps an acquire
+    reproducible.
     """
     # Configured direct URL, not a live search hit — see the scope note above.
     url = recipe.get("url")
     if not isinstance(url, str) or not url:
         raise AcquireError(
             f"asset {spec.id!r} search-download recipe has no 'url' — the "
-            "configurable source needs a candidate URL (gADR-0014)"
+            "configurable source needs a candidate URL"
         )
     license_name = str(recipe.get("license", source.default_license))
     _check_license(license_name, allowed_licenses)
@@ -110,7 +108,7 @@ def generate(
 
     A generated asset's license is the project's own (configured) — it is authored
     by the pipeline, not sourced — and its provenance IS the prompt and the backend
-    channel, recorded for reproducibility (gADR-0014).
+    channel, recorded for reproducibility.
     """
     backend.generate(prompt, raw_dest)
     if not raw_dest.exists() or raw_dest.stat().st_size == 0:
@@ -126,7 +124,7 @@ def generate(
         prompt=prompt,
         backend=backend.name,
         # The concrete image model, when the backend exposes one (McpBackend
-        # reads it from its channel arguments) — generation provenance, gADR-0014.
+        # reads it from its channel arguments) — generation provenance.
         model=getattr(backend, "model", None),
     )
 

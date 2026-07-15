@@ -1,9 +1,9 @@
-"""Frames -> sheet packer — loose frame files into one spritesheet (gADR-0015).
+"""Frames -> sheet packer — loose frame files into one spritesheet.
 
 Many open-asset sources deliver a sprite-frame set as loose files (B-form). The
 committed sprite artifact, though, is always ONE spritesheet per animation state
-(A-form): far fewer files, one ``.import`` per set, atlas- and pixel-grid-friendly
-(gADR-0013). This reusable postprocess tool packs the loose frames into that sheet
+(A-form): far fewer files, one ``.import`` per set, atlas- and pixel-grid-friendly.
+This reusable postprocess tool packs the loose frames into that sheet
 and records the frame layout the manifest carries and the :mod:`spriteframes`
 deriver turns into ``AtlasTexture`` regions.
 
@@ -23,8 +23,8 @@ from .model import FrameLayout
 __all__ = ["FrameLayout", "pack_frames"]
 
 # Past this many frames a horizontal strip grows unwieldy (and hits texture-width
-# limits), so the packer switches to a near-square grid (gADR-0015). Spec-ish
-# default; a caller can override per set.
+# limits), so the packer switches to a near-square grid. Spec-ish default; a
+# caller can override per set.
 _DEFAULT_GRID_THRESHOLD = 8
 
 
