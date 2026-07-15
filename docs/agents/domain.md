@@ -12,10 +12,11 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 
 ## File structure
 
-The repo root is a single context — the `gda` domain:
+The repo root's own context is the `gda` domain:
 
 ```
 /
+├── CONTEXT-MAP.md
 ├── CONTEXT.md
 ├── docs/adr/
 │   ├── 0000-architecture-design.md
@@ -23,13 +24,10 @@ The repo root is a single context — the `gda` domain:
 └── src/
 ```
 
-## Local domain overrides
-
-Two subtrees override this convention with their own local domain context. Inside them,
-follow the local `AGENTS.md` / `docs/agents/domain.md` instead of this file:
-
-- `examples/platformer/panda-adventure/` — the game domain (`GAME-CONTEXT.md`, `docs/gadr/`).
-- `libs/gda-balancing/` — the balancing-toolkit domain (`BALANCING-CONTEXT.md`, `docs/badr/`).
+This repo is **multi-context**: `CONTEXT-MAP.md` at the repo root is the single routing
+authority for which domain contexts exist and where. A non-root domain's layout and
+override rules live in that subtree's own `AGENTS.md` / `docs/agents/domain.md` — inside
+such a subtree, follow the local convention instead of this file.
 
 ## Use the glossary's vocabulary
 
