@@ -19,10 +19,10 @@ Align with the repo-root `AGENTS.md` for everything **except domain docs**:
 
 ### Domain docs (local override)
 
-**This section supersedes the repo-root "Domain docs" convention** (`Single-context: one
-CONTEXT.md + docs/adr/ at the repo root`) for all **toolkit-domain** knowledge. The
-toolkit's domain context is confined to this directory and must **not** pollute the
-parent's docs.
+**This section is the toolkit domain's local convention** — the repo root routes domain
+contexts via `CONTEXT-MAP.md` and delegates each non-root domain's layout and override
+rules to its own `AGENTS.md`, i.e. here. The toolkit's domain context is confined to this
+directory and must **not** pollute the parent's docs.
 
 Local layout (analogue of the parent's):
 
@@ -61,5 +61,5 @@ detail — on any divergence, it wins.
 - **Engine- and game-agnostic core** — the toolkit names no game identity and imports no
   game or engine code (nor `gda`); agnosticism is enforced by packaging plus an isolation
   gate (landing with #502) at the hardened (recursive, AST-level) standard.
-- **Schema is the single authority** — the standard Schema is the sole spec and authority
+- **Schema is the single authority** — the Standard Schema is the sole spec and authority
   source for numeric design; games consume the toolkit's Standard Schema output (PRD #501).

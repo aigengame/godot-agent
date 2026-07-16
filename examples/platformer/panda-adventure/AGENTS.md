@@ -19,9 +19,10 @@ Align with the repo-root `AGENTS.md` for everything **except domain docs**:
 
 ### Domain docs (local override)
 
-**This section supersedes the repo-root "Domain docs" convention** (`Single-context: one
-CONTEXT.md + docs/adr/ at the repo root`) for all **game-domain** knowledge. The game's
-domain context is confined to this directory and must **not** pollute the parent's docs.
+**This section is the game domain's local convention** — the repo root routes domain
+contexts via `CONTEXT-MAP.md` and delegates each non-root domain's layout and override
+rules to its own `AGENTS.md`, i.e. here. The game's domain context is confined to this
+directory and must **not** pollute the parent's docs.
 
 Local layout (analogue of the parent's):
 
