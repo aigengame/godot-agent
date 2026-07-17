@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: proposed
 ---
 
 # Formulas as data: named forms first, a closed-operator expression tree as fallback
@@ -16,18 +16,27 @@ coefficients. This bADR fixes the authoritative formula representations (design 
 - **Two authoritative representations, layered:**
   1. **Named form** — a declared, parameterized formula shape: a form id plus named
      parameters (e.g. `{"form": "linear", "params": {"base": 20, "per_point": 5}}`),
-     including lookup/curve tables for sampled curves. The v1 form set is fixed in #504
-     from what the genre templates actually need (candidates: linear, piecewise linear,
-     polynomial, exponential, lookup table). Precedent, multi-party (#503 research):
+     including lookup/curve tables for sampled curves. **The v1 form set is normative
+     here**: `linear`, `piecewise_linear`, `polynomial`, `exponential`, `lookup_table`.
+     Adding a form is a schema **minor** bump (bADR-0001) justified by template need —
+     never an implementation-time choice. Precedent, multi-party (#503 research):
      engine framework — Unreal GAS curve tables (row per stat, column per level, CSV/JSON
      import, explicitly for whole-game rebalancing and spreadsheet pipelines); Unity —
      `AnimationCurve` documented as a general-purpose data curve with `Evaluate(time)`
      keyframe lookup, plus community stat systems shipping curve-typed stat values;
      tabletop — d20's Score→Modifier published lookup tables; literature — the canonical
      Game Balance text treats spreadsheets as the baseline numeric-design medium.
-  2. **Expression tree** — a JSON-structured AST over a **closed operator set**
-     (arithmetic, min/max, rounding, attribute/parameter/level references; exact v1 set
-     fixed in #504). The general fallback for arbitrary per-game formulas (US7).
+  2. **Expression tree** — a JSON-structured AST over a **closed operator set**. **The
+     v1 operator set is normative here**: node kinds `literal` and `ref` (an attribute
+     or parameter id — the only reference kinds; there is no special context reference),
+     and operators `add`, `subtract`, `multiply`, `divide`, `min`, `max`, `floor`,
+     `ceil`, `round`, `power`. No conditionals in v1; adding an operator is a schema
+     **minor** bump (bADR-0001). The general fallback for arbitrary per-game formulas
+     (US7). Progression variables (e.g. a level) are **ordinary attributes** a template
+     declares (`base: direct`) and formulas reference like any other — US3's "HP from
+     VIT and Level" is expressible today; progression *semantics* over such attributes
+     land with the `growth` section (#507) as a minor bump, adding no new reference
+     kind.
      Precedent, expression-language ecosystem (#503 research): JsonLogic (explicitly "an
      abstract syntax tree", one operator per rule) and MathJSON (function application as
      JSON arrays); CEL attests the closed-set discipline — deliberately
@@ -53,9 +62,21 @@ coefficients. This bADR fixes the authoritative formula representations (design 
   showing the whole computation explicitly — is the more human-readable; the priority
   order optimizes for tunability, not against readability.
 
-- **Parameters are first-class and named.** Formulas reference declared parameters by
-  name; the parameter set is the design's tuning surface. (Tuning ranges/annotations on
+- **Parameters are first-class, named, and declared in one home.** The document's
+  top-level `parameters` section (bADR-0001) is the sole declaration home: a map of
+  parameter id → value (ids per bADR-0002's namespace rules). Formulas reference
+  declared parameters by id; an undeclared reference is a typed refusal (bADR-0004).
+  The parameter set is the design's tuning surface. (Tuning ranges/annotations on
   parameters are Phase-2 material — the declaration shape reserves room, milestone #9.)
+
+- **Numeric semantics.** Formula values are IEEE-754 doubles. Every formula evaluation
+  must produce a **finite** result: division by zero, overflow to infinity, or NaN is
+  an **Evaluation refusal** — the single sanctioned downstream refusal class
+  (bADR-0004): finiteness depends on runtime values the boundary funnel cannot see, so
+  the evaluator refuses with a stable code rather than propagating a non-finite value.
+  Expression trees are bounded — depth ≤ 32, ≤ 256 nodes per formula (v1 normative
+  limits; raising them is a minor bump) — so evaluation cost is bounded by
+  construction.
 
 - **Operator closure is a validation surface.** An expression tree using an operator
   outside the closed set, or referencing an undeclared attribute/parameter, is an
@@ -105,8 +126,9 @@ coefficients. This bADR fixes the authoritative formula representations (design 
 
 - #504 implements exactly two evaluators (form interpreter, tree walker) behind one
   formula seam; adding a v1 form or operator is a schema **minor** bump (bADR-0001).
-- Expression-tree depth/size limits become semantic rules (bADR-0004) so pathological
-  documents are refused at the boundary, not discovered in the evaluator.
+- The pinned tree limits (depth ≤ 32, ≤ 256 nodes) are enforced as element-level
+  semantic rules at the boundary funnel (bADR-0004) — pathological documents are refused
+  at the boundary, not discovered in the evaluator.
 - The Phase-2 tuning loop (milestone #9) gets its knob inventory for free: the declared
   parameter set.
 

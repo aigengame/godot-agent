@@ -44,11 +44,12 @@ the toolkit stays game-agnostic.
 _Avoid_: config file, numbers file, design config
 
 **Attribute facet**:
-One of the orthogonal properties an attribute declaration composes freely: `domain`
-(number / percentage / probability), `base` (direct vs formula), `accepts` (contribution
-channels: allocation, effects), `bounds` (mandatory for percentage/probability domains),
-and descriptive `category`. Facet validity is enforced at the boundary funnel; no facet
-combination is mandatory (bADR-0002).
+One of the orthogonal properties an attribute declaration composes: `domain`
+(number / percentage / probability), `base` (direct vs formula — the single scalar
+authority), `accepts` (contribution channels: allocation, effects), `bounds` (mandatory
+for percentage/probability domains), and descriptive `category`. Facets combine subject
+to the cross-facet validity rules enforced at the boundary funnel; no *named tier
+composition* is ever mandatory (bADR-0002).
 _Avoid_: attribute type, tier (different concept)
 
 **Attribute tier**:
@@ -61,17 +62,26 @@ _Avoid_: stat level, attribute class, schema-enforced tier
 **Effect**:
 A first-class, time-scoped carrier of numeric influence — the numerical core of a
 buff/debuff, status effect, or over-time effect: a list of modifiers, a duration
-(instant / timed / infinite), an optional tick period, and a per-type stacking policy
-declared as data (bADR-0006). Builds offer effects; combat applies them; simulation
-consumes their numbers.
+(instant / timed / infinite), an optional tick period, a reference to a declared
+stacking type, and its own re-application `lifetime` (independent / refresh)
+(bADR-0006). Builds offer effects; combat applies them; simulation consumes their
+numbers.
 _Avoid_: buff (as the generic term), status (alone), proc
 
 **Modifier**:
 One numeric operation inside an `Effect`: a target attribute, an operation
-(add / multiply / override), and a formula-capable magnitude (per-tick amount when the
-effect is periodic). Not an attribute tier and not a bounded correction coefficient
-(bADR-0006).
+(add / multiply / override), an application kind — continuous (contributes to the value
+pipeline while active) or one_shot/periodic (a delta to the simulated current value) —
+and a formula-capable magnitude (per-tick amount when periodic). Not an attribute tier
+and not a bounded correction coefficient (bADR-0006).
 _Avoid_: modifier tier, correction coefficient, stat bonus (vague)
+
+**Stacking policy**:
+How same-type effect magnitudes combine — `aggregation` (stack / keep_best), declared
+**once per stacking type** in the document's stacking-type catalog, the single authority
+no individual effect can override. Orthogonal to an effect's re-application `lifetime`.
+Declared data, never formula logic (bADR-0006).
+_Avoid_: stacking rule (as a per-effect property), stack behavior
 
 **Named form**:
 A parameterized formula shape — a form id plus named parameters (e.g. linear, piecewise
@@ -104,8 +114,9 @@ _Avoid_: input guard, validation pass (as something repeatable downstream)
 The element-level rejection of invalid input: a stable refusal code, a JSON Pointer to the
 offending element, and human-readable detail; validation reports **all** violations
 (bounded), not fail-fast. A refusal rejects invalid *input*; a verdict judges a *valid*
-design against balance targets — the two are never conflated (bADR-0004). The CLI envelope
-carrying refusals is #518's contract.
+design against balance targets — the two are never conflated (bADR-0004). One downstream
+class exists beyond the funnel: the non-finite `Evaluation refusal` (bADR-0003). The CLI
+envelope carrying refusals is #518's contract.
 _Avoid_: validation error (vague), warning, exception
 
 **Structural schema**:
@@ -116,10 +127,11 @@ toolkit installed.
 _Avoid_: meta-schema (JSON Schema term of art for schemas-of-schemas), the JSON file
 
 **Semantic rule catalog**:
-The machine-readable catalog of semantic-layer rules — rule id (identical to the refusal
-code), scope, description, since-version. Together with the structural schema it is the
-complete machine-readable answer to "what is a valid Design document"; derived from the
-validator or guarded by conformance tests, never hand-maintained twice (bADR-0005).
+The machine-readable **index** of semantic-phase rules — rule id (identical to the
+refusal code), scope, description, since-version. Together with the structural schema it
+answers "what is structurally well-formed and which semantic rules exist"; full validity
+additionally requires the versioned validator, the third required artifact. Derived from
+the validator or guarded by conformance tests, never hand-maintained twice (bADR-0005).
 _Avoid_: rules doc, validation spec (as a prose document)
 
 ### Simulation

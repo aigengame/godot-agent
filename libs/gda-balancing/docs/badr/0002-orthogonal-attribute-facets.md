@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: proposed
 ---
 
 # Orthogonal attribute facets; tiers are template compositions, not schema law
@@ -16,11 +16,16 @@ superseding the fixed primary/derived/modifier taxonomy of its earlier draft.
 ## Decision
 
 - **An attribute declaration is a composition of orthogonal facets.** Every attribute
-  carries `id`, `default`, and independently composes:
+  carries `id` and independently composes:
   - **`domain`** — `number` | `percentage` | `probability` (the value space;
-    `probability` implies [0,1]).
+    `probability` implies [0,1]). A `percentage` value is expressed as a **fraction**
+    (`0.3` = 30%, `1.5` = +150%) — one convention everywhere; the 0–100 scale never
+    appears in a Design document.
   - **`base`** — exactly one of `direct` (a configured value) or `formula` (a named
-    form or expression tree, bADR-0003). How the base value is determined.
+    form or expression tree, bADR-0003). **The `base` is the single scalar authority
+    for the attribute** — there is no separate `default` field; what a genre template
+    ships as an attribute's "default" *is* the `direct` base value (or formula
+    parameters) in the template instance.
   - **`accepts`** — a subset of `{allocation, effects}`: which contribution channels
     may add to the attribute — player allocation (with an allocation range when
     present), and/or effect modifiers (bADR-0006).
@@ -34,16 +39,43 @@ superseding the fixed primary/derived/modifier taxonomy of its earlier draft.
   - **`category`** — optional descriptive grouping label (resource / offensive /
     defensive / mobility, …) with no computational semantics.
 
-- **One uniform value pipeline.** For every attribute:
-  `final = clamp( combine( base, allocation?, effect modifiers? ), bounds )`.
-  The combine order and per-channel semantics (allocation adds to a direct base;
-  effect modifiers apply per their operation and stacking policy, bADR-0006) are fixed
-  as semantic rules in #504 — never left to implementations.
+- **One uniform value pipeline, with a fixed combine order.** For every attribute:
+  `final = clamp( combine( base, allocation?, effect modifiers? ), bounds )`, where
+  `combine` is normative:
+  1. evaluate `base` (direct value, or formula per bADR-0003);
+  2. add the allocation contribution (legal only on a `direct` base — cross-facet rule
+     below);
+  3. apply **continuous** effect modifiers in two stages (normative interaction in
+     bADR-0006): stacking *selection* first (per stacking type — `stack` keeps every
+     instance, `keep_best` keeps the strongest bonus and penalty per group), then
+     operation *combination* — surviving `add` magnitudes sum, surviving `multiply`
+     factors compose multiplicatively, a surviving `override` replaces the result;
+  4. clamp to `bounds`.
+  This pipeline defines the attribute's **definition-time final value**. Simulation
+  seeds per-entity *current* values from it; **one-shot and periodic effect modifiers
+  are deltas to those simulated current values** (bADR-0006) and never alter the
+  declarations or this pipeline.
 
 - **Cross-facet rule (conservative default).** `accepts: allocation` is legal only with
   `base: direct` — allocation onto a formula-computed base is refused as a semantic
   rule. If template development surfaces a real allocation-onto-formula pattern,
   relaxing the rule is additive (a minor bump, bADR-0001).
+
+- **Identifiers and namespaces.** Every id in a Design document matches
+  `^[a-z][a-z0-9_]*$`. Ids are unique **within their kind's namespace** — attributes,
+  effects (bADR-0006), parameters (bADR-0003), stacking types (bADR-0006), and tier
+  names each form one document-wide namespace; a duplicate id within a namespace is an
+  element-level typed refusal (bADR-0004). References (formula `ref`s, effect targets,
+  tier assignments) resolve within the declaring document only — never across documents.
+
+- **Tier compositions are declared data.** The `attributes` section carries two parts:
+  `tiers` — an optional map of tier name → **facet pattern** (a partial facet
+  constraint, e.g. `{"base": "direct", "accepts": ["allocation"]}`) — and `items` — the
+  attribute declarations, each optionally labeled `tier: <name>`. A labeled attribute's
+  facets must satisfy its tier's pattern (element-level semantic rule). This is the data
+  representation of "a tier is a named facet composition": genre templates ship their
+  tier vocabulary as `tiers` entries, and the extension seam is adding or changing
+  compositions — plain data, no schema fork.
 
 - **A tier is template vocabulary, not schema law.** A `tier` is a *named facet
   composition a genre template groups its attributes by*. The Schema enforces facet
