@@ -48,9 +48,11 @@ exit codes — is #518's contract, not this document's.
      integrity (formula `ref`s, effect targets, stacking types, tier labels — bADR-0002,
      bADR-0003, bADR-0006), id uniqueness per namespace (bADR-0002), formula-reference
      acyclicity, operator closure and tree limits (bADR-0003), cross-facet rules and the
-     bounds obligation by domain (bADR-0002), effect `application`/`period`/`override`
-     consistency (bADR-0006), `$schema`-agreement and reserved-section refusal
-     (bADR-0001).
+     bounds obligation by domain and tier-pattern satisfaction (bADR-0002), effect
+     `application`×`duration` legality, `override`-on-delta legality, temporal
+     validity (positive finite duration/period, minimum granularity, tick budget),
+     stacking declaration rules (bADR-0006), `$schema`-agreement and reserved-section
+     refusal (bADR-0001).
 
 - **Ingress caps (v1 normative; raising any is a minor bump).** Document ≤ 10 MiB;
   JSON nesting depth ≤ 64; ≤ 10 000 elements per collection; expression-tree limits per
@@ -105,7 +107,12 @@ exit codes — is #518's contract, not this document's.
   violation fixture — the catalog cannot drift from the validator (bADR-0005).
 - Downstream engine code (#504 onward) is written assumption-free of invalid input —
   simpler, and any internal defensive check is a smell.
-- Normative test vectors accompany #504: minimal valid document, version-dispatch
-  refusals, cap violations, each semantic rule's fixture, interacting-effect snapshot/
-  ordering vectors (bADR-0006), a non-finite Evaluation-refusal vector (division by
-  zero at simulation time, bADR-0003), and round-trip equality (bADR-0005).
+- Normative test vectors accompany #504: minimal valid document; version-dispatch
+  refusals; cap violations; each semantic rule's fixture; a same-id
+  attribute-vs-parameter reference vector (typed `attr`/`param` nodes, bADR-0003);
+  tier-pattern satisfaction and violation (bADR-0002); interacting-effect
+  same-instant snapshot/ordering and stacking-selection vectors (bADR-0006); invalid
+  temporal values (zero/negative/sub-granularity period, tick-budget overflow); a
+  non-finite Evaluation-refusal vector (division by zero at simulation time,
+  bADR-0003); and round-trip equality including absent-default vs materialized-default
+  equivalence (bADR-0005).

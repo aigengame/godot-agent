@@ -62,9 +62,9 @@ _Avoid_: stat level, attribute class, schema-enforced tier
 **Effect**:
 A first-class, time-scoped carrier of numeric influence — the numerical core of a
 buff/debuff, status effect, or over-time effect: a list of modifiers, a duration
-(instant / timed / infinite), an optional tick period, a reference to a declared
-stacking type, and its own re-application `lifetime` (independent / refresh)
-(bADR-0006). Builds offer effects; combat applies them; simulation consumes their
+(instant / timed / infinite), an optional tick period, and — for persistent
+timed/infinite effects — a reference to a declared stacking type plus its own
+re-application `lifetime` (independent / refresh) (bADR-0006). Builds offer effects; combat applies them; simulation consumes their
 numbers.
 _Avoid_: buff (as the generic term), status (alone), proc
 
@@ -105,9 +105,12 @@ _Avoid_: placeholder section, stub, TODO section
 ### Validation & self-description
 
 **Boundary funnel**:
-The single validation boundary every Design document crosses before any use — structural
-layer (against the structural schema) then semantic layer (against the semantic rule
-catalog). Downstream code never re-validates and never defends (bADR-0004).
+The single validation boundary every Design document crosses before any use — three
+phases, each gating the next: preflight (ingress caps + version dispatch), structural
+(against the structural schema), semantic (the rules the semantic rule catalog indexes).
+Validity is a property of a document *state*: any mutation re-enters the funnel before
+evaluation or emission. Downstream code never re-validates input; the one sanctioned
+downstream class is the non-finite `Evaluation refusal` (bADR-0004).
 _Avoid_: input guard, validation pass (as something repeatable downstream)
 
 **Typed refusal**:

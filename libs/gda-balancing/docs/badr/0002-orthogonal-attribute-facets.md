@@ -54,7 +54,11 @@ superseding the fixed primary/derived/modifier taxonomy of its earlier draft.
   This pipeline defines the attribute's **definition-time final value**. Simulation
   seeds per-entity *current* values from it; **one-shot and periodic effect modifiers
   are deltas to those simulated current values** (bADR-0006) and never alter the
-  declarations or this pipeline.
+  declarations or this pipeline. **Per-instant composition:** the observed current
+  value at any simulation instant is `clamp( pipeline value recomputed with the
+  currently-active continuous modifiers + the accumulated delta ledger, bounds )` —
+  continuous contributions are a recomputed component, deltas are a ledger; the
+  evaluator realization is #504's implementation of exactly this formula.
 
 - **Cross-facet rule (conservative default).** `accepts: allocation` is legal only with
   `base: direct` — allocation onto a formula-computed base is refused as a semantic
@@ -68,14 +72,19 @@ superseding the fixed primary/derived/modifier taxonomy of its earlier draft.
   element-level typed refusal (bADR-0004). References (formula `ref`s, effect targets,
   tier assignments) resolve within the declaring document only — never across documents.
 
-- **Tier compositions are declared data.** The `attributes` section carries two parts:
-  `tiers` — an optional map of tier name → **facet pattern** (a partial facet
-  constraint, e.g. `{"base": "direct", "accepts": ["allocation"]}`) — and `items` — the
-  attribute declarations, each optionally labeled `tier: <name>`. A labeled attribute's
-  facets must satisfy its tier's pattern (element-level semantic rule). This is the data
-  representation of "a tier is a named facet composition": genre templates ship their
-  tier vocabulary as `tiers` entries, and the extension seam is adding or changing
-  compositions — plain data, no schema fork.
+- **Tier compositions are declared data, with defined pattern satisfaction.** The
+  `attributes` section carries two parts: `tiers` — an optional map of tier name →
+  **facet pattern** — and `items` — the attribute declarations, each optionally labeled
+  `tier: <name>`. A facet pattern may constrain any subset of `domain`, `base`, and
+  `accepts`; **satisfaction is normative**: an omitted facet is unconstrained; `domain`
+  matches by equality; `base` matches by declared *kind* (`direct` | `formula`);
+  `accepts` matches by **exact set equality** (a pattern `{"accepts": ["allocation"]}`
+  is satisfied only by attributes accepting exactly `{allocation}` — a tier that admits
+  both channels writes both). A labeled attribute violating its tier's pattern is an
+  element-level typed refusal. This is the data representation of "a tier is a named
+  facet composition": genre templates ship their tier vocabulary as `tiers` entries,
+  and the extension seam is adding or changing compositions — plain data, no schema
+  fork.
 
 - **A tier is template vocabulary, not schema law.** A `tier` is a *named facet
   composition a genre template groups its attributes by*. The Schema enforces facet
@@ -131,10 +140,15 @@ superseding the fixed primary/derived/modifier taxonomy of its earlier draft.
 
 ## Consequences
 
-- Formula-reference acyclicity (any `formula` base referencing attributes, bADR-0003;
-  any effect magnitude referencing attributes, bADR-0006) is an element-level semantic
-  rule at the boundary funnel (bADR-0004), as are the cross-facet rules (allocation
-  legality, bounds obligation by domain).
+- **Formula-reference acyclicity is defined over base formulas only.** The dependency
+  graph's nodes are the declared attributes; there is an edge A → B iff A's **base
+  formula** references B (`attr` nodes, bADR-0003; parameters are constants and add no
+  edges). That graph must be acyclic — an element-level semantic rule at the boundary
+  funnel (bADR-0004), as are the cross-facet rules (allocation legality, bounds
+  obligation by domain, tier-pattern satisfaction). **Effect magnitudes are exempt from
+  the static graph**: they evaluate against snapshots (bADR-0006), so a magnitude may
+  reference its own target — the read observes the pre-instant state, never the value
+  being written.
 - The facet model is the core the designed and reserved sections build on: `effects`
   modifiers target attributes (bADR-0006); `builds` pools offer effects (#506);
   `combat` consumes attribute values (#520).

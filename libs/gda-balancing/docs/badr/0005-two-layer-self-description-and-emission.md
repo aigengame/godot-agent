@@ -72,9 +72,12 @@ is that contract; how the *Schema* describes itself is this one.
   canonical JSON: UTF-8, stable (sorted) object key order, LF line endings,
   shortest-round-trip number rendering, and optional fields with defined defaults
   materialized explicitly. Round-trip acceptance is **parsed-JSON semantic equality** —
-  key order and whitespace are insignificant, numbers compare by value — never byte
-  equality of arbitrary input; canonical emission makes byte-stable output an emergent
-  property for toolkit-emitted documents.
+  key order and whitespace are insignificant, numbers compare by value, and **an absent
+  optional field is semantically equal to its defined default materialized
+  explicitly** (so valid non-canonical input round-trips through canonical emission
+  without a semantic change) — never byte equality of arbitrary input; canonical
+  emission makes byte-stable output an emergent property for toolkit-emitted
+  documents.
 
 ## Considered options
 
@@ -107,7 +110,11 @@ is that contract; how the *Schema* describes itself is this one.
   (structural schema, rule catalog, validator) in lockstep. Artifact `$id`s carry the
   full schema version; a document's declared `major.minor` resolves to the validator's
   shipped patch of that line (bADR-0001's patch normalization). A published version's
-  self-description is immutable.
+  self-description is immutable. **Historical minors need no separate distribution**:
+  because minors are strictly additive (bADR-0001), a validator supporting `X.Y` ships
+  the definitions of **every minor `X.0 … X.Y`** within its own artifact set — serving
+  an older declared minor means validating against that minor's (subset) envelope, not
+  fetching an older artifact.
 
 ## References
 

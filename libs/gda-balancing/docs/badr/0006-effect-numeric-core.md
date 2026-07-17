@@ -29,7 +29,15 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
   - `period`: tick interval in seconds — required iff any modifier declares
     `application: periodic`; the magnitude of a periodic modifier is the per-tick
     amount
-  - `stacking`: `{ type: <stacking-type id>, lifetime: independent | refresh }`
+  - `stacking`: `{ type: <stacking-type id>, lifetime: independent | refresh }` —
+    required for `timed`/`infinite` effects, **forbidden on `duration: instant`**
+    (an instant effect leaves no persistent instance to stack or refresh)
+  - **Temporal validity (element-level semantic rules):** a `timed` duration and any
+    `period` must be positive and finite; `period ≥ 0.05` seconds (v1 minimum
+    granularity); for a `timed` periodic effect, `duration / period ≤ 10 000` — the
+    per-instance tick budget is bounded at the funnel, not discovered in simulation.
+    (Infinite periodic effects are bounded by the simulation horizon, a Phase-2
+    parameter — the per-horizon tick count inherits the same budget.)
 
 - **Two application kinds, two state models — never mixed.**
   - A **continuous** modifier contributes to its target's computed final value for as
@@ -46,14 +54,24 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
     `periodic` modifiers require `duration: timed | infinite`; `one_shot` modifiers are
     legal on any duration (they apply once, at application).
 
-- **Deterministic temporal semantics.** Magnitude formulas are evaluated against a
-  **snapshot** of attribute state taken at the moment of application (one_shot) or at
-  each tick boundary (periodic/continuous re-evaluation). When multiple effects apply
-  or tick at the same instant, they are processed in a **stable order**: by application
-  time, then by effect id. A periodic effect's first tick occurs one full `period`
-  after application; a `timed` effect's modifiers cease exactly at expiry (no partial
-  final tick). These rules make interacting-effect vectors reproducible; encounter-level
-  scheduling (who applies what when) remains #520's design.
+- **Deterministic temporal semantics.**
+  - **Evaluation moments.** A `one_shot` magnitude evaluates once, at application. A
+    `periodic` magnitude evaluates at each tick boundary. A `continuous` magnitude
+    evaluates **once at application and holds constant** while the effect is active —
+    unless its effect declares a `period`, in which case it re-evaluates at each tick
+    boundary. There is no implicit tick: no `period`, no re-evaluation.
+  - **Snapshot-consistent instants.** All magnitudes evaluated at one instant read a
+    **common pre-instant snapshot** of attribute state — a read never observes a write
+    made in the same instant. The **stable order** (application time, then effect id,
+    then modifier position within the effect) governs only the sequence of *writes*:
+    one_shot/periodic deltas apply to the simulated current value in stable order,
+    **clamping to the target's bounds after each delta** (bounded pools never
+    transiently escape their bounds).
+  - **Boundaries.** A periodic effect's first tick occurs one full `period` after
+    application; a `timed` effect's modifiers cease exactly at expiry (no partial
+    final tick).
+  These rules make interacting-effect vectors reproducible; encounter-level scheduling
+  (who applies what when) remains #520's design.
 
 - **Stacking types are a single-authority catalog.** The `effects` section declares a
   document-level `stacking_types` map: stacking-type id → `{ aggregation: stack |
@@ -63,7 +81,9 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
 
 - **Stacking selection precedes operation combination — two stages, never one.** This
   is the normative interaction between the stacking catalog and the value pipeline's
-  step 3 (bADR-0002):
+  step 3 (bADR-0002). Stacking operates on **persistent effect instances**
+  (`timed`/`infinite`); modifiers from every effect participate in the *global*
+  grouping below — an effect's own modifier list has no private combination order.
   1. **Selection.** Active continuous modifiers are grouped by (stacking type, target
      attribute, operation). `stack` keeps every instance. `keep_best` keeps, per group,
      the strongest bonus **and** the strongest penalty — for `add`, the largest
@@ -72,9 +92,18 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
      instance by the stable order. (The per-type keep-best-bonus/worst-penalty rule is
      the verified tabletop precedent.)
   2. **Combination.** Survivors combine by operation: `add` magnitudes sum, `multiply`
-     factors compose multiplicatively, a surviving `override` replaces the result.
+     factors compose multiplicatively; if overrides from **different** stacking types
+     survive selection, the **latest-applied by the stable order** wins globally and
+     replaces the result.
   "Stacking policy" names stage 1's per-type selection only — the operation order of
   stage 2 is the pipeline's, not the stacking type's.
+  - **Delta-emitting instances stack too:** for `periodic` modifiers, selection applies
+    at the instance level per (stacking type, target, operation) — under `keep_best`
+    only the instance with the largest-magnitude per-tick delta (evaluated at its own
+    application snapshot; largest bonus and harshest penalty each survive) emits ticks;
+    under `stack`, all instances emit. **`one_shot` deltas are never subject to
+    stacking selection**: they apply exactly once, at application, whatever the
+    effect's duration — an already-applied delta cannot be retroactively unselected.
 
 - **Aggregation and lifetime are orthogonal**: `aggregation` (on the type) governs
   stage-1 selection; `lifetime` (on the effect) governs what a re-application does to

@@ -14,12 +14,13 @@ coefficients. This bADR fixes the authoritative formula representations (design 
 ## Decision
 
 - **Two authoritative representations, layered:**
-  1. **Named form** — a declared, parameterized formula shape: a form id plus named
-     parameters (e.g. `{"form": "linear", "params": {"base": 20, "per_point": 5}}`),
-     including lookup/curve tables for sampled curves. **The v1 form set is normative
-     here**: `linear`, `piecewise_linear`, `polynomial`, `exponential`, `lookup_table`.
-     Adding a form is a schema **minor** bump (bADR-0001) justified by template need —
-     never an implementation-time choice. Precedent, multi-party (#503 research):
+  1. **Named form** — a declared, parameterized formula shape: a form id, an `input`
+     reference, and form-specific fields (e.g. `{"form": "linear", "input":
+     {"attr": "vit"}, "base": 20, "per_point": {"param": "hp_per_vit"}}`), including
+     lookup/curve tables for sampled curves. **The v1 form set is normative here**:
+     `linear`, `piecewise_linear`, `polynomial`, `exponential`, `lookup_table` — each
+     with the normative contract below. Adding a form is a schema **minor** bump
+     (bADR-0001) justified by template need — never an implementation-time choice. Precedent, multi-party (#503 research):
      engine framework — Unreal GAS curve tables (row per stat, column per level, CSV/JSON
      import, explicitly for whole-game rebalancing and spreadsheet pipelines); Unity —
      `AnimationCurve` documented as a general-purpose data curve with `Evaluate(time)`
@@ -27,16 +28,40 @@ coefficients. This bADR fixes the authoritative formula representations (design 
      tabletop — d20's Score→Modifier published lookup tables; literature — the canonical
      Game Balance text treats spreadsheets as the baseline numeric-design medium.
   2. **Expression tree** — a JSON-structured AST over a **closed operator set**. **The
-     v1 operator set is normative here**: node kinds `literal` and `ref` (an attribute
-     or parameter id — the only reference kinds; there is no special context reference),
-     and operators `add`, `subtract`, `multiply`, `divide`, `min`, `max`, `floor`,
-     `ceil`, `round`, `power`. No conditionals in v1; adding an operator is a schema
-     **minor** bump (bADR-0001). The general fallback for arbitrary per-game formulas
-     (US7). Progression variables (e.g. a level) are **ordinary attributes** a template
-     declares (`base: direct`) and formulas reference like any other — US3's "HP from
-     VIT and Level" is expressible today; progression *semantics* over such attributes
-     land with the `growth` section (#507) as a minor bump, adding no new reference
-     kind.
+     v1 node and operator set is normative here**: leaf nodes `{"literal": <number>}`,
+     `{"attr": "<attribute id>"}`, and `{"param": "<parameter id>"}` — references are
+     **typed at the node**, so an id existing in both the attribute and parameter
+     namespaces (legal, bADR-0002) is never ambiguous; there is no bare untyped `ref`
+     and no special context reference. Operator nodes are `{"op": "<name>", "args":
+     [<nodes>]}` with fixed arity: `add`, `multiply`, `min`, `max` are n-ary (≥ 2);
+     `subtract`, `divide`, `power` are binary; `floor`, `ceil`, `round` are unary.
+     `round` rounds **half away from zero**. No conditionals in v1; adding an operator
+     is a schema **minor** bump (bADR-0001). The general fallback for arbitrary
+     per-game formulas (US7). Progression variables (e.g. a level) are **ordinary
+     attributes** a template declares (`base: direct`) and formulas reference like any
+     other — US3's "HP from VIT and Level" is expressible today; progression
+     *semantics* over such attributes land with the `growth` section (#507) as a minor
+     bump, adding no new reference kind.
+
+- **Normative v1 named-form contracts.** Every named form declares `input` — a single
+  typed reference node (`attr` or `param`) that is the form's independent variable —
+  and its form-specific fields. Each field value is either a **literal number** or a
+  **parameter reference** `{"param": "<id>"}`: the top-level `parameters` section
+  remains the *sole declaration home* (a form never declares parameters, it references
+  them), and only referenced parameters are tuning knobs — a literal is a deliberate
+  non-knob. The forms, with `x` = the evaluated input:
+  - `linear` — fields `base`, `per_point`; value `base + per_point·x`.
+  - `piecewise_linear` — field `points`: an array of `[x, y]` pairs, `x` strictly
+    increasing, ≥ 2 pairs; value by linear interpolation between neighboring points;
+    inputs outside the range **clamp** to the first/last `y` (no extrapolation).
+  - `polynomial` — field `coefficients`: `[c0, c1, …, cn]` in **ascending degree**
+    (value `c0 + c1·x + … + cn·xⁿ`), 1–8 coefficients.
+  - `exponential` — fields `coefficient`, `growth_rate` (> 0); value
+    `coefficient · growth_rate^x`.
+  - `lookup_table` — field `table`: an array of `[x, y]` pairs, ≥ 1 pair, `x` strictly
+    increasing; a **step function**: value is the `y` of the greatest `x ≤ input`;
+    inputs below the first `x` take the first `y`. (Interpolating curves use
+    `piecewise_linear`; `lookup_table` never interpolates.)
      Precedent, expression-language ecosystem (#503 research): JsonLogic (explicitly "an
      abstract syntax tree", one operator per rule) and MathJSON (function application as
      JSON arrays); CEL attests the closed-set discipline — deliberately
