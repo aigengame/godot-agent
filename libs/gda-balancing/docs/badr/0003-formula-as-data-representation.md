@@ -4,12 +4,12 @@ status: accepted
 
 # Formulas as data: named forms first, a closed-operator expression tree as fallback
 
-Derived attributes and growth curves need formulas that are inspectable, mechanically
-validatable, and mutable by agents (PRD #501 US3, US8) — and tunable by Phase-2 search
-methods. The demo hardcodes every formula in Python (`rules.py` damage/level functions)
-with config supplying only scalar coefficients; that inversion — code owns the formula,
-data owns a few knobs — is exactly what the Standard Schema reverses. This bADR fixes the
-authoritative formula representations (design gate #503).
+Attribute bases, effect magnitudes, and growth curves need formulas that are
+inspectable, mechanically validatable, and mutable by agents (PRD #501 US3, US8) — and
+tunable by Phase-2 search methods. PRD #501's problem statement records the inversion
+this bADR reverses: code owning the formulas while data supplies only scalar
+coefficients. This bADR fixes the authoritative formula representations (design gate
+#503).
 
 ## Decision
 
@@ -39,11 +39,19 @@ authoritative formula representations (design gate #503).
      tree therefore goes *beyond* engine precedent, and necessarily so: a design-time
      pure-data authority has no code layer to escape to.
 
-- **Named forms are the preferred representation** for growth and derived-stat curves.
+- **Formula consumers.** One representation pair serves every formula in the document:
+  attribute bases declared `formula` (bADR-0002), effect modifier magnitudes including
+  per-tick amounts (bADR-0006), and — as their sections land — growth/economy curves
+  (#507). No consumer gets a private formula dialect.
+
+- **Named forms are the preferred representation** for growth curves, derived bases,
+  and effect magnitudes.
   Their parameters are explicit, named tuning knobs — Phase-2 sensitivity analysis and
   search operate on named parameters directly, with no structure mining. Templates
   (#505, #506) ship named-form-heavy defaults; the expression tree is reached for only
-  when no form fits.
+  when no form fits. Of the two authoritative representations, the expression tree —
+  showing the whole computation explicitly — is the more human-readable; the priority
+  order optimizes for tunability, not against readability.
 
 - **Parameters are first-class and named.** Formulas reference declared parameters by
   name; the parameter set is the design's tuning surface. (Tuning ranges/annotations on
@@ -64,7 +72,7 @@ authoritative formula representations (design gate #503).
   expressions hides them from the validator and from Phase-2 tuning. The deviation is
   kept honest by fixing its **evaluation semantics**: a declared cap/floor is exactly a
   clamp applied to the attribute's **final value** — formula-computed and/or
-  contribution-driven, whichever its tier admits (per-tier obligations, bADR-0002) —
+  contribution-driven, whichever channels its facets admit (bADR-0002) —
   semantically equivalent to lowering into an in-expression `min(max(…))` at evaluation
   time, i.e. the declarative field changes *where bounds are stated*, not *how they
   compute* (which matches dominant practice). (`min`/`max` *operators* remain available inside expressions for genuine
@@ -91,8 +99,7 @@ authoritative formula representations (design gate #503).
   becomes a second spec surface; JSON Schema can only pattern-check it (structural
   validation stops at the string boundary), and agent mutation pays
   parse→mutate→serialize on every edit.
-- **Code plugins for formulas** (rejected outright) — formulas must be data (PRD #501);
-  the demo's hardcoded `rules.py` is the counterexample.
+- **Code plugins for formulas** (rejected outright) — formulas must be data (PRD #501).
 
 ## Consequences
 

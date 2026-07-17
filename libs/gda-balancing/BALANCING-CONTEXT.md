@@ -43,13 +43,35 @@ within it; there is no multi-file document set (bADR-0001). The document names i
 the toolkit stays game-agnostic.
 _Avoid_: config file, numbers file, design config
 
+**Attribute facet**:
+One of the orthogonal properties an attribute declaration composes freely: `domain`
+(number / percentage / probability), `base` (direct vs formula), `accepts` (contribution
+channels: allocation, effects), `bounds` (mandatory for percentage/probability domains),
+and descriptive `category`. Facet validity is enforced at the boundary funnel; no facet
+combination is mandatory (bADR-0002).
+_Avoid_: attribute type, tier (different concept)
+
 **Attribute tier**:
-The layer an attribute declaration belongs to — **primary** (directly allocatable),
-**derived** (computed via formula-as-data, never allocatable), or **modifier**
-(percentage/probability correction with mandatory bounds). One uniform model; genres use
-subsets, never forked models (bADR-0002). In this domain *tier* always means attribute
-layering — the demo's enemy difficulty classes (minion/elite/boss) are a different concept.
-_Avoid_: stat level, attribute class, enemy tier (different concept)
+A genre template's **named facet composition** — the vocabulary a template groups its
+attributes by (e.g. an RPG template's primary/derived/tertiary layers; a survivors-like's
+single flat layer). Template data, not schema law: the Standard Schema requires no tier
+taxonomy to exist (bADR-0002).
+_Avoid_: stat level, attribute class, schema-enforced tier
+
+**Effect**:
+A first-class, time-scoped carrier of numeric influence — the numerical core of a
+buff/debuff, status effect, or over-time effect: a list of modifiers, a duration
+(instant / timed / infinite), an optional tick period, and a per-type stacking policy
+declared as data (bADR-0006). Builds offer effects; combat applies them; simulation
+consumes their numbers.
+_Avoid_: buff (as the generic term), status (alone), proc
+
+**Modifier**:
+One numeric operation inside an `Effect`: a target attribute, an operation
+(add / multiply / override), and a formula-capable magnitude (per-tick amount when the
+effect is periodic). Not an attribute tier and not a bounded correction coefficient
+(bADR-0006).
+_Avoid_: modifier tier, correction coefficient, stat bonus (vague)
 
 **Named form**:
 A parameterized formula shape — a form id plus named parameters (e.g. linear, piecewise

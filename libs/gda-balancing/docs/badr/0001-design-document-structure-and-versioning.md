@@ -4,12 +4,12 @@ status: accepted
 
 # One root Design document per game, semver-versioned, with a closed section envelope
 
-A game's numeric design needs a durable, machine-readable home. The demo's embedded
-pipeline scattered one game's numbers across nine JSON files plus a separate targets file,
-wired together by adapter glue, and carried **no version field anywhere** — schema
-evolution was tracked only in decision-record prose (gADR-0018's rename lists). This bADR
-fixes the document granularity, the top-level section envelope, and the versioning
-contract for the Standard Schema (PRD #501; design gate #503).
+A game's numeric design needs a durable, machine-readable home. PRD #501's problem
+statement records the failure mode this bADR reverses: per-game numbers scattered across
+ad-hoc config files, glued together by adapters, with no version field and schema
+evolution tracked only in prose. This bADR fixes the document granularity, the top-level
+section envelope, and the versioning contract for the Standard Schema (PRD #501; design
+gate #503).
 
 ## Decision
 
@@ -17,14 +17,13 @@ contract for the Standard Schema (PRD #501; design gate #503).
   document — a `Design document`, an instance of the Standard Schema. Subsystems are
   sections *within* it; there is no multi-file document set, no include mechanism, and no
   cross-file references. Tooling may compose or emit it, but the authored authority is one
-  document. (Single-authority principle, PRD #501; the demo's multi-file + adapter shape
-  is the counterexample this reverses.)
+  document. (Single-authority principle, PRD #501.)
 
 - **Closed top-level envelope.** The document's top level is a fixed set of named
   sections; unknown top-level keys are refused (typed refusal, bADR-0004). v1 required
   keys: `schema_version` and `meta` (design identity: name, description, genre lineage —
-  the *document* names its game; the *toolkit* stays game-agnostic). v1 designed section:
-  `attributes` (bADR-0002, bADR-0003).
+  the *document* names its game; the *toolkit* stays game-agnostic). v1 designed
+  sections: `attributes` (bADR-0002, bADR-0003) and `effects` (bADR-0006).
 
 - **Reserved sections, refused until designed.** `combat`, `encounters`, `builds`,
   `growth`, `economy`, and `targets` are reserved section names. Their shapes are designed
@@ -62,14 +61,13 @@ contract for the Standard Schema (PRD #501; design gate #503).
 
 - **One root document** (chosen) — one boundary-funnel input (bADR-0004), no cross-file
   drift, matches the adjudicated strong-single-authority preference.
-- **Multi-file document set** (rejected) — the demo's shape; requires adapter glue and
-  cross-file integrity checking, and splits the authority into fragments that evolve
-  independently.
+- **Multi-file document set** (rejected) — requires adapter glue and cross-file
+  integrity checking, and splits the authority into fragments that evolve independently
+  (the failure mode PRD #501 records).
 - **Semver with declared `schema_version`** (chosen) — the additive/breaking split maps
   directly onto how reserved sections land (each is a minor bump); OpenAPI precedent for
   documents declaring the full version they target.
-- **No document version** (rejected) — the demo's status quo; evolution becomes prose
-  archaeology.
+- **No document version** (rejected) — evolution becomes prose archaeology.
 - **Integer version** (rejected) — cannot distinguish additive from breaking, so every
   consumer must treat every bump as breaking.
 - **Date-based drafts** (JSON Schema's own style; rejected) — communicates recency, not

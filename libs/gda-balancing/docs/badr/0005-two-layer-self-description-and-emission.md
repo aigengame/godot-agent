@@ -19,8 +19,7 @@ is that contract; how the *Schema* describes itself is this one.
   1. **Structural schema** — a JSON Schema 2020-12 document whose instances are Design
      documents; its `$id` embeds the Standard Schema version. Any agent can
      structurally pre-validate a document with off-the-shelf ecosystem validators,
-     without installing the toolkit. (Internal precedent: the demo's hand-written
-     `data/schema/*.schema.json`; the difference here is anti-drift below.)
+     without installing the toolkit.
   2. **Semantic rule catalog** — a machine-readable catalog of the semantic layer's
      rules: rule id (**identical to the refusal code**, bADR-0004), the document scope
      it applies to (JSON Pointer), a human description, and the schema version it

@@ -6,19 +6,18 @@ status: accepted
 
 Agents drive this toolkit (PRD #501 US8, US19); what they need from validation is a
 mechanical answer to "is this Design document valid, and if not, exactly what and where".
-The demo's precedent (`config.py:_typed()`, `ConfigError(code, detail)`) established
-typed refusals distinct from verdicts, but it fails fast on the first error and reports
-location in prose. This bADR fixes the validation semantics of the Standard Schema
-(design gate #503). The CLI surface of these refusals — envelope shape, exit codes — is
-#518's contract, not this document's.
+PRD #501's testing decisions require element-level typed refusals at a boundary funnel,
+distinct from pass/fail verdicts. This bADR fixes the validation semantics of the
+Standard Schema (design gate #503). The CLI surface of these refusals — envelope shape,
+exit codes — is #518's contract, not this document's.
 
 ## Decision
 
 - **One boundary funnel.** Every Design document crosses a single validation boundary
   before any use; downstream code (evaluators, simulation, emission) never re-validates
-  and never defends. The funnel is the only home of refusal logic. (Family precedent:
-  the demo's load-time funnel and the assets pipeline's element-level boundary probes;
-  also the recorded rule against `assert`-guards at external-input boundaries.)
+  and never defends. The funnel is the only home of refusal logic. (Assertion guards
+  are excluded on principle: an uncaught assert turns invalid input into a crash and
+  disappears under optimization — a typed refusal is the only rejection path.)
 
 - **Two layers, in order:**
   1. **Structural** — the document is validated against the published structural schema
@@ -26,10 +25,11 @@ location in prose. This bADR fixes the validation semantics of the Standard Sche
      envelopes, enums, bounds expressible structurally.
   2. **Semantic** — rules beyond structural expressiveness, drawn from the
      machine-readable semantic rule catalog (bADR-0005): version acceptance
-     (bADR-0001), reference integrity (formulas reference declared
-     attributes/parameters), derivation acyclicity (bADR-0002), operator closure and
-     tree limits (bADR-0003), modifier bound domains, reserved-section refusal
-     (bADR-0001).
+     (bADR-0001), reference integrity (formulas and effect modifier targets name
+     declared attributes/parameters — bADR-0002, bADR-0006), formula-reference
+     acyclicity (bADR-0002), operator closure and tree limits (bADR-0003), cross-facet
+     rules and the bounds obligation by domain (bADR-0002), effect duration/stacking
+     validity (bADR-0006), reserved-section refusal (bADR-0001).
 
 - **Element-level typed refusals.** Each violation is reported as a refusal carrying:
   a **stable refusal code**, the **instance path** as a JSON Pointer (RFC 6901) down to
@@ -44,7 +44,7 @@ location in prose. This bADR fixes the validation semantics of the Standard Sche
 
 - **Report-all, bounded.** Validation collects **all** violations (up to a sanity bound)
   instead of failing fast. An agent iterating on a generated document fixes a batch per
-  round trip; fail-fast (the demo's behavior) turns N errors into N round trips.
+  round trip; fail-fast reporting turns N errors into N round trips.
 
 - **Refusal ≠ verdict.** A refusal rejects invalid *input*; a balance pass/fail verdict
   judges a *valid* design against targets (Phase 2). The distinction is semantic here
@@ -54,8 +54,8 @@ location in prose. This bADR fixes the validation semantics of the Standard Sche
 
 - **Single funnel, two layers, report-all** (chosen) — one home for refusal logic;
   ecosystem validators handle the structural layer; agents get batch-fixable reports.
-- **Fail-fast** (rejected) — the demo's behavior; cheapest to implement, most expensive
-  for the agent feedback loop.
+- **Fail-fast** (rejected) — cheapest to implement, most expensive for the agent
+  feedback loop.
 - **Validation sprinkled at use sites** (rejected) — refusal logic fragments, codes
   drift, and downstream code grows defensive re-checks.
 - **Structural layer only** (rejected) — reference integrity, acyclicity, and closure
