@@ -1,0 +1,112 @@
+---
+status: accepted
+---
+
+# Formulas as data: named forms first, a closed-operator expression tree as fallback
+
+Derived attributes and growth curves need formulas that are inspectable, mechanically
+validatable, and mutable by agents (PRD #501 US3, US8) — and tunable by Phase-2 search
+methods. The demo hardcodes every formula in Python (`rules.py` damage/level functions)
+with config supplying only scalar coefficients; that inversion — code owns the formula,
+data owns a few knobs — is exactly what the Standard Schema reverses. This bADR fixes the
+authoritative formula representations (design gate #503).
+
+## Decision
+
+- **Two authoritative representations, layered:**
+  1. **Named form** — a declared, parameterized formula shape: a form id plus named
+     parameters (e.g. `{"form": "linear", "params": {"base": 20, "per_point": 5}}`),
+     including lookup/curve tables for sampled curves. The v1 form set is fixed in #504
+     from what the genre templates actually need (candidates: linear, piecewise linear,
+     polynomial, exponential, lookup table). Precedent, multi-party (#503 research):
+     engine framework — Unreal GAS curve tables (row per stat, column per level, CSV/JSON
+     import, explicitly for whole-game rebalancing and spreadsheet pipelines); Unity —
+     `AnimationCurve` documented as a general-purpose data curve with `Evaluate(time)`
+     keyframe lookup, plus community stat systems shipping curve-typed stat values;
+     tabletop — d20's Score→Modifier published lookup tables; literature — the canonical
+     Game Balance text treats spreadsheets as the baseline numeric-design medium.
+  2. **Expression tree** — a JSON-structured AST over a **closed operator set**
+     (arithmetic, min/max, rounding, attribute/parameter/level references; exact v1 set
+     fixed in #504). The general fallback for arbitrary per-game formulas (US7).
+     Precedent, expression-language ecosystem (#503 research): JsonLogic (explicitly "an
+     abstract syntax tree", one operator per rule) and MathJSON (function application as
+     JSON arrays); CEL attests the closed-set discipline — deliberately
+     non-Turing-complete, host-data-only, with subsetting/extension of the operator
+     surface as a first-class design feature. **Recorded deviation from engine
+     practice:** the dominant engine framework has no in-data expression language — GAS's
+     data layer stops at simple modifier operations plus curve lookups and escapes to
+     C++ (`ExecutionCalculation`) for multi-attribute formulas. An in-schema expression
+     tree therefore goes *beyond* engine precedent, and necessarily so: a design-time
+     pure-data authority has no code layer to escape to.
+
+- **Named forms are the preferred representation** for growth and derived-stat curves.
+  Their parameters are explicit, named tuning knobs — Phase-2 sensitivity analysis and
+  search operate on named parameters directly, with no structure mining. Templates
+  (#505, #506) ship named-form-heavy defaults; the expression tree is reached for only
+  when no form fits.
+
+- **Parameters are first-class and named.** Formulas reference declared parameters by
+  name; the parameter set is the design's tuning surface. (Tuning ranges/annotations on
+  parameters are Phase-2 material — the declaration shape reserves room, milestone #9.)
+
+- **Operator closure is a validation surface.** An expression tree using an operator
+  outside the closed set, or referencing an undeclared attribute/parameter, is an
+  element-level typed refusal at the boundary funnel (bADR-0004) — never a runtime
+  evaluation error.
+
+- **Caps and clamps are first-class schema fields** on attribute declarations
+  (bADR-0002), never functions inside expressions. **This is a recorded deviation
+  without dominant precedent** (#503 research flag): GAS's Min/MaxValue data columns are
+  explicitly non-functional — clamping is hand-coded in imperative hooks
+  (`PreAttributeChange` / `PostGameplayEffectExecute`) — and JsonLogic composes
+  `min`/`max` inside the expression tree. Neither option is available or right here: a
+  design-time pure-data authority has no code hooks, and burying bounds inside
+  expressions hides them from the validator and from Phase-2 tuning. The deviation is
+  kept honest by fixing its **evaluation semantics**: a declared cap/floor is exactly a
+  clamp applied to the attribute's **final value** — formula-computed and/or
+  contribution-driven, whichever its tier admits (per-tier obligations, bADR-0002) —
+  semantically equivalent to lowering into an in-expression `min(max(…))` at evaluation
+  time, i.e. the declarative field changes *where bounds are stated*, not *how they
+  compute* (which matches dominant practice). (`min`/`max` *operators* remain available inside expressions for genuine
+  formula logic; the *output clamp* of an attribute is declarative.)
+
+- **Infix strings are not authoritative.** A spreadsheet-style string syntax (e.g.
+  `"20 + 5*VIT"`) may later be added as one-way authoring sugar that *compiles to* the
+  authoritative representations; it is never stored as the authority and never
+  round-tripped back. Precedent (single ecosystem, labeled as such): MathJSON treats the
+  JSON tree as the canonical computational form and LaTeX as a non-authoritative
+  parse/serialize boundary. (A parallel claim about CEL's canonical AST was refuted in
+  verification — CEL is deliberately **not** cited for this point.)
+
+## Considered options
+
+- **Named forms + closed expression tree** (chosen) — machine-first (US8: agents
+  generate/check/mutate documents), explicit knobs for Phase-2 tuning, expressiveness
+  preserved via the fallback.
+- **Pure expression tree** (rejected) — single mechanism, but tuning knobs become
+  implicit tree leaves; sensitivity analysis must first mine structure to find them.
+- **Pure named forms** (rejected) — an expressiveness ceiling: per-game custom mechanics
+  (US7) would force either forking the toolkit or growing the form set unboundedly.
+- **Infix-string DSL as the authority** (rejected) — human-readable, but the grammar
+  becomes a second spec surface; JSON Schema can only pattern-check it (structural
+  validation stops at the string boundary), and agent mutation pays
+  parse→mutate→serialize on every edit.
+- **Code plugins for formulas** (rejected outright) — formulas must be data (PRD #501);
+  the demo's hardcoded `rules.py` is the counterexample.
+
+## Consequences
+
+- #504 implements exactly two evaluators (form interpreter, tree walker) behind one
+  formula seam; adding a v1 form or operator is a schema **minor** bump (bADR-0001).
+- Expression-tree depth/size limits become semantic rules (bADR-0004) so pathological
+  documents are refused at the boundary, not discovered in the evaluator.
+- The Phase-2 tuning loop (milestone #9) gets its knob inventory for free: the declared
+  parameter set.
+
+## References
+
+- Research provenance (non-normative, provenance-labeled, incl. the refuted-claims list):
+  issue #503 comments — main report and supplement. Precedents examined there: Unreal GAS
+  curve tables & modifier ops; Unity `AnimationCurve` & community stat systems (Fluid
+  Stats); Godot Gameplay Attributes; d20 SRD; Schreiber & Romero, *Game Balance*;
+  JsonLogic; MathJSON; CEL.
