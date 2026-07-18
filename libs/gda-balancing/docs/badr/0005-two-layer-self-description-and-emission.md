@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Two-layer self-description: JSON Schema artifact plus semantic rule catalog

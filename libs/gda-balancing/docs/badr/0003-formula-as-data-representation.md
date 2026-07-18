@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Formulas as data: named forms first, a closed-operator expression tree as fallback

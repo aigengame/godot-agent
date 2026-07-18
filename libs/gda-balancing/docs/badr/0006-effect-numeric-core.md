@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Effects are first-class: the numeric core of buffs, debuffs, and over-time influence

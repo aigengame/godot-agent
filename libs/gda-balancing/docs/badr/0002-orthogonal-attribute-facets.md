@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Orthogonal attribute facets; tiers are template compositions, not schema law

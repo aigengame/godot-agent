@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Validation at one boundary funnel: phased, element-level typed refusals, report-all

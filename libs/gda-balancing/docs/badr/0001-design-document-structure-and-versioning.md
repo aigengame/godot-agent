@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # One root Design document per game, semver-versioned, with a closed section envelope
