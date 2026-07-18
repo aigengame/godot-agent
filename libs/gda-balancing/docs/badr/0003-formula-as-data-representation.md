@@ -35,8 +35,15 @@ coefficients. This bADR fixes the authoritative formula representations (design 
      and no special context reference. Operator nodes are `{"op": "<name>", "args":
      [<nodes>]}` with fixed arity: `add`, `multiply`, `min`, `max` are n-ary (≥ 2);
      `subtract`, `divide`, `power` are binary; `floor`, `ceil`, `round` are unary.
-     `round` rounds **half away from zero**. No conditionals in v1; adding an operator
-     is a schema **minor** bump (bADR-0001). The general fallback for arbitrary
+     `round` rounds **half away from zero**. **Evaluation order is normative**: n-ary
+     operators fold strictly **left to right in `args` order, never reassociated**;
+     binary operators apply as `args[0] op args[1]` (minuend, dividend, base first) —
+     IEEE-754 addition and multiplication are not associative, so argument order is an
+     observable part of the formula and two conforming evaluators must produce
+     bit-identical results. (`power` with a non-integer exponent follows IEEE-754
+     double `pow` semantics; where platform `pow` implementations differ in the final
+     ULP, the toolkit evaluator is the reference — single-authority tie-break.) No
+     conditionals in v1; adding an operator is a schema **minor** bump (bADR-0001). The general fallback for arbitrary
      per-game formulas (US7). Progression variables (e.g. a level) are **ordinary
      attributes** a template declares (`base: direct`) and formulas reference like any
      other — US3's "HP from VIT and Level" is expressible today; progression
@@ -45,11 +52,22 @@ coefficients. This bADR fixes the authoritative formula representations (design 
 
 - **Normative v1 named-form contracts.** Every named form declares `input` — a single
   typed reference node (`attr` or `param`) that is the form's independent variable —
-  and its form-specific fields. Each field value is either a **literal number** or a
-  **parameter reference** `{"param": "<id>"}`: the top-level `parameters` section
-  remains the *sole declaration home* (a form never declares parameters, it references
-  them), and only referenced parameters are tuning knobs — a literal is a deliberate
-  non-knob. The forms, with `x` = the evaluated input:
+  and its form-specific fields. Each **scalar** field value is either a **literal
+  number** or a **parameter reference** `{"param": "<id>"}`: the top-level `parameters`
+  section remains the *sole declaration home* (a form never declares parameters, it
+  references them), and only referenced parameters are tuning knobs — a literal is a
+  deliberate non-knob. **Collection elements are literals only** (v1): every number
+  inside `points`, `coefficients`, and `table` is a literal — tables are sampled data,
+  not knobs; relaxing this is additive (minor bump). **All form-field constraints
+  (strictly-increasing `x`, positivity, entry counts) are checked at the funnel's
+  semantic phase after parameter resolution** — parameters are document-declared
+  constants, so resolution is static and no check ever waits for evaluation time.
+  **Form evaluation order is normative to the same bit-identical standard as the
+  expression tree**: `linear` computes `base + per_point·x`; `polynomial` sums
+  ascending terms left to right, each `xⁱ` by repeated multiplication;
+  `piecewise_linear` interpolates as `y₀ + (y₁ − y₀) · ((x − x₀) / (x₁ − x₀))`;
+  `exponential` computes `coefficient · growth_rate^x` under the `power` semantics
+  above. The forms, with `x` = the evaluated input:
   - `linear` — fields `base`, `per_point`; value `base + per_point·x`.
   - `piecewise_linear` — field `points`: an array of `[x, y]` pairs, `x` strictly
     increasing, ≥ 2 pairs; value by linear interpolation between neighboring points;

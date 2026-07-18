@@ -21,9 +21,9 @@ gate #503).
 
 - **Closed top-level envelope.** The document's top level is a fixed set of named keys;
   unknown top-level keys are refused (typed refusal, bADR-0004). v1 keys:
-  - `schema_version` (required) and `meta` (required — design identity: name,
-    description, genre lineage; the *document* names its game, the *toolkit* stays
-    game-agnostic);
+  - `schema_version` (required) and `meta` (required — design identity: `name` is its
+    only required subfield; `description` and genre lineage are optional; the
+    *document* names its game, the *toolkit* stays game-agnostic);
   - `$schema` (optional) — see the `$schema` rule below;
   - designed v1 sections: `parameters` (bADR-0003 — the declaration home of every named
     parameter formulas reference), `attributes` (bADR-0002), and `effects` (bADR-0006);

@@ -26,9 +26,11 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
     form | expression tree> }` (`one_shot` names the apply-once delta so it can never
     be confused with the `instant` *duration*)
   - `duration`: `instant` | `timed` (with a duration in seconds) | `infinite`
-  - `period`: tick interval in seconds — required iff any modifier declares
-    `application: periodic`; the magnitude of a periodic modifier is the per-tick
-    amount
+  - `period`: tick interval in seconds. **Required** when any modifier declares
+    `application: periodic` (its magnitude is the per-tick amount); **permitted** when
+    any modifier is `continuous` (opting that effect's continuous magnitudes into
+    per-tick re-evaluation); **forbidden** when every modifier is `one_shot` (nothing
+    ticks) — each an element-level semantic rule
   - `stacking`: `{ type: <stacking-type id>, lifetime: independent | refresh }` —
     required for `timed`/`infinite` effects, **forbidden on `duration: instant`**
     (an instant effect leaves no persistent instance to stack or refresh)
@@ -49,6 +51,14 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
     alter declarations and never flow through the pipeline. `override` is illegal on
     one_shot/periodic modifiers (element-level refusal): replacing a current value is a
     set, not a delta, and belongs to no v1 use case.
+  - **Multiplicative deltas lower to additive realized deltas at the event snapshot.**
+    The delta ledger (bADR-0002) is additive; a `multiply` delta realizes as
+    `snapshot observed value × (magnitude − 1)` — evaluated against the same
+    pre-instant snapshot as its magnitude — and that realized amount is written through
+    the ordered, per-delta-clamped ledger like any `add`. An event's effect is fixed at
+    its instant: later pipeline changes never retroactively re-scale already-applied
+    deltas (a separate multiplicative ledger, which would re-scale history, is
+    rejected).
   - **Application × duration legality (element-level semantic rule):** a
     `duration: instant` effect admits only `one_shot` modifiers; `continuous` and
     `periodic` modifiers require `duration: timed | infinite`; `one_shot` modifiers are
@@ -75,9 +85,11 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
 
 - **Stacking types are a single-authority catalog.** The `effects` section declares a
   document-level `stacking_types` map: stacking-type id → `{ aggregation: stack |
-  keep_best }`. Each effect references exactly one declared stacking type; referencing
-  an undeclared type is a typed refusal. Same-type resolution is therefore defined
-  **once per type** — two effects can never assign conflicting rules to one type.
+  keep_best }`. Each **persistent** (`timed`/`infinite`) effect references exactly one
+  declared stacking type (`instant` effects declare none — the scope rule above);
+  referencing an undeclared type is a typed refusal. Same-type resolution is therefore
+  defined **once per type** — two effects can never assign conflicting rules to one
+  type.
 
 - **Stacking selection precedes operation combination — two stages, never one.** This
   is the normative interaction between the stacking catalog and the value pipeline's

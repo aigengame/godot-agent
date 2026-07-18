@@ -45,14 +45,14 @@ exit codes — is #518's contract, not this document's.
      types, required fields, enums, structurally expressible bounds.
   2. **Semantic** — runs only when the structural phase produced **no refusals**
      (structurally broken documents make semantic analysis ill-defined): reference
-     integrity (formula `ref`s, effect targets, stacking types, tier labels — bADR-0002,
+     integrity (formula `attr`/`param` nodes, effect targets, stacking types, tier labels — bADR-0002,
      bADR-0003, bADR-0006), id uniqueness per namespace (bADR-0002), formula-reference
      acyclicity, operator closure and tree limits (bADR-0003), cross-facet rules and the
      bounds obligation by domain and tier-pattern satisfaction (bADR-0002), effect
-     `application`×`duration` legality, `override`-on-delta legality, temporal
-     validity (positive finite duration/period, minimum granularity, tick budget),
-     stacking declaration rules (bADR-0006), `$schema`-agreement and reserved-section
-     refusal (bADR-0001).
+     `application`×`duration` legality, `override`-on-delta legality, the `period`
+     requirement by modifier mix, temporal validity (positive finite duration/period,
+     minimum granularity, tick budget), stacking declaration rules (bADR-0006),
+     `$schema`-agreement and reserved-section refusal (bADR-0001).
 
 - **Ingress caps (v1 normative; raising any is a minor bump).** Document ≤ 10 MiB;
   JSON nesting depth ≤ 64; ≤ 10 000 elements per collection; expression-tree limits per
@@ -107,12 +107,11 @@ exit codes — is #518's contract, not this document's.
   violation fixture — the catalog cannot drift from the validator (bADR-0005).
 - Downstream engine code (#504 onward) is written assumption-free of invalid input —
   simpler, and any internal defensive check is a smell.
-- Normative test vectors accompany #504: minimal valid document; version-dispatch
-  refusals; cap violations; each semantic rule's fixture; a same-id
-  attribute-vs-parameter reference vector (typed `attr`/`param` nodes, bADR-0003);
-  tier-pattern satisfaction and violation (bADR-0002); interacting-effect
-  same-instant snapshot/ordering and stacking-selection vectors (bADR-0006); invalid
-  temporal values (zero/negative/sub-granularity period, tick-budget overflow); a
-  non-finite Evaluation-refusal vector (division by zero at simulation time,
-  bADR-0003); and round-trip equality including absent-default vs materialized-default
-  equivalence (bADR-0005).
+- **The normative vector set is part of this design**: `docs/badr/normative-vectors.md`
+  (V1–V12) gives concrete inputs and required outcomes for the minimal document,
+  typed same-id references, collection-valued forms, tier-pattern satisfaction,
+  stacking/`period` legality, additive and multiplicative deltas with same-instant
+  semantics, global override selection, continuous re-evaluation, the non-finite
+  Evaluation refusal, absent-vs-materialized default equality, and version dispatch.
+  #504 implements these as executable tests (plus per-rule fixtures for every catalog
+  entry) — it does not design their outcomes.

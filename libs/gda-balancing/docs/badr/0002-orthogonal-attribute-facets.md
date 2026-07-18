@@ -28,7 +28,9 @@ superseding the fixed primary/derived/modifier taxonomy of its earlier draft.
     parameters) in the template instance.
   - **`accepts`** — a subset of `{allocation, effects}`: which contribution channels
     may add to the attribute — player allocation (with an allocation range when
-    present), and/or effect modifiers (bADR-0006).
+    present), and/or effect modifiers (bADR-0006). Optional, **default `[]`** (a
+    defined default per bADR-0005's round-trip contract): an attribute that declares
+    nothing accepts nothing.
   - **`bounds`** — optional `floor`/`cap`, **mandatory when `domain` is `percentage`
     or `probability`** (an unbounded percentage is the classic balance failure; the
     obligation attaches to the domain, not to a tier). For `probability` the domain
@@ -69,7 +71,7 @@ superseding the fixed primary/derived/modifier taxonomy of its earlier draft.
   `^[a-z][a-z0-9_]*$`. Ids are unique **within their kind's namespace** — attributes,
   effects (bADR-0006), parameters (bADR-0003), stacking types (bADR-0006), and tier
   names each form one document-wide namespace; a duplicate id within a namespace is an
-  element-level typed refusal (bADR-0004). References (formula `ref`s, effect targets,
+  element-level typed refusal (bADR-0004). References (formula `attr`/`param` nodes, effect targets,
   tier assignments) resolve within the declaring document only — never across documents.
 
 - **Tier compositions are declared data, with defined pattern satisfaction.** The

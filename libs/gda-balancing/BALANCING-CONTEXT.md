@@ -62,9 +62,9 @@ _Avoid_: stat level, attribute class, schema-enforced tier
 **Effect**:
 A first-class, time-scoped carrier of numeric influence — the numerical core of a
 buff/debuff, status effect, or over-time effect: a list of modifiers, a duration
-(instant / timed / infinite), an optional tick period, and — for persistent
-timed/infinite effects — a reference to a declared stacking type plus its own
-re-application `lifetime` (independent / refresh) (bADR-0006). Builds offer effects; combat applies them; simulation consumes their
+(instant / timed / infinite), a tick period (its legality governed by the modifier mix),
+and — for persistent timed/infinite effects — a reference to a declared stacking type
+plus its own re-application `lifetime` (independent / refresh) (bADR-0006). Builds offer effects; combat applies them; simulation consumes their
 numbers.
 _Avoid_: buff (as the generic term), status (alone), proc
 
