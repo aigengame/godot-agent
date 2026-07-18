@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # CLI command taxonomy: domain-object groups under one agent-facing binary

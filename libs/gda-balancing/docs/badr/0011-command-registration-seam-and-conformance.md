@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # One command descriptor seam: registration, projections, and the conformance harness

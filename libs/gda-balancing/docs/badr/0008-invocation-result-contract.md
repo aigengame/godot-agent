@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Invocation result contract: one JSON result, refusal-carrying error envelope, layered exit codes

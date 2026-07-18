@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Surface self-description, structured input, and config/logic separation

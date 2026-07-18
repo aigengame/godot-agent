@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Determinism and seed surfacing: explicit seeds, echoed effective seed, version-scoped reproducibility
