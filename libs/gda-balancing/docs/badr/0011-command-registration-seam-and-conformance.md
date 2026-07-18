@@ -22,21 +22,27 @@ here.
     surfaces;
   - its typed **input and output models** (bADR-0009), with the binding law
     stated: **every input-model field binds as a kebab-case option
-    `--<field-name>`; the descriptor may designate at most one field as the
-    positional argument** (in practice the `Design document` path, bADR-0009).
-    An input schema alone cannot distinguish positional from option — the family
-    recorded exactly this in gda ADR-0015 — so the positional designation lives
-    *in the descriptor*: single registration, still no hand-wired argument maps;
+    `--<field-name>`, except that the descriptor may designate at most one field
+    as the positional argument — the designation *replaces* that field's option
+    binding** (the field is positional-only, never also `--<field-name>`; in
+    practice the `Design document` path, bADR-0009). An input schema alone cannot
+    distinguish positional from option — the family recorded exactly this in gda
+    ADR-0015 — so the positional designation lives *in the descriptor*: the model
+    owns the fields, the descriptor owns argv presentation (bADR-0009's division
+    of authority), single registration, still no hand-wired argument maps;
   - its **handler** — the execution binding, a callable whose outcome is typed:
-    it **returns the output model** (success) **or the funnel's refusal report**
-    (bADR-0004); it never prints, never exits, and never sees a usage error
-    (those are resolved at binding, before invocation). The **dispatch tail owns
-    emission**: it maps the outcome onto bADR-0008 — result on stdout / exit 0,
-    `refusal` envelope / exit 2 — and converts any unexpected handler exception
-    into the `internal` envelope / exit 4. The field plus this outcome law are
-    what make the descriptor *sufficient* to dispatch — without them the
-    single-seam claim would be unearned (gda ADR-0023 carries the same fact as
-    its `operation` + runner selection);
+    it **returns the output model** (success) **or a typed-refusal report** —
+    the funnel's families (bADR-0004) *or*, for evaluating commands, the
+    downstream non-finite Evaluation refusal family (bADR-0003) — so a Phase-2
+    evaluation handler has a declared path for its one sanctioned refusal; it
+    never prints, never exits, and never sees a usage error (those are resolved
+    at binding, before invocation). The **dispatch tail owns emission**: it maps
+    the outcome onto bADR-0008 — result on stdout / exit 0, `refusal` envelope /
+    exit 2 — and **unexpected exceptions remain the sole path to `internal` /
+    exit 4**. The field plus this outcome law are what make the descriptor
+    *sufficient* to dispatch — without them the single-seam claim would be
+    unearned (gda ADR-0023 carries the same fact as its `operation` + runner
+    selection);
   - its execution markings — today exactly one, **stochastic** (bADR-0010);
   - its **conformance fixtures**: a valid invocation case and, for document-taking
     commands, a refusing-input case — the harness's per-command fuel, registered

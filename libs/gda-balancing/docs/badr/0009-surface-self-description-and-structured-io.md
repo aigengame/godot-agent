@@ -22,10 +22,15 @@ input enters, and the config/logic separation every command obeys (design gate #
   rule)*. `help` is the one exempt human-facing surface and carries no `--schema`
   (bADR-0007/0011).
 
-- **Model-driven, single source** *(adopted-from-gda: ADR-0004; anti-drift as in
-  bADR-0005)*. Each command's typed input and output models are the one authority:
-  argv parsing, result serialization, and both `--schema` keys derive from them.
-  A hand-maintained schema copy is prohibited.
+- **Model-driven, with one deliberate division of authority** *(adopted-from-gda:
+  ADR-0004; anti-drift as in bADR-0005)*. Each command's typed input and output
+  models own **field names, types, validation, defaults, result serialization, and
+  both `--schema` keys** — a hand-maintained schema copy is prohibited. **Argv
+  presentation belongs to the Command descriptor** (bADR-0011): the binding law
+  derives each option mechanically from a model field, and the descriptor's
+  positional designation is binding metadata the model deliberately does not carry
+  (an input schema cannot express positional-vs-option, gda ADR-0015). Two
+  authorities, disjoint territories, both inside the single registration.
 
 - **The `schema` group is the sole public delivery channel for the Standard Schema's
   self-description artifacts** *(completes bADR-0005's deferral; maintainer-adjudicated
