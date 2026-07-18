@@ -59,9 +59,12 @@ superseding the fixed primary/derived/modifier taxonomy of its earlier draft.
   seeds per-entity *current* values from it; **one-shot and periodic effect modifiers
   are deltas to those simulated current values** (bADR-0006) and never alter the
   declarations or this pipeline. **Per-instant composition:** the observed current
-  value at any simulation instant is `clamp( pipeline value recomputed with the
-  currently-active continuous modifiers + the accumulated delta ledger, bounds )` —
-  continuous contributions are a recomputed component, deltas are a ledger; the
+  value at any simulation instant is `clamp( P + L, bounds )`, where `P` — the
+  pipeline component — is the pipeline value recomputed with the currently-active
+  continuous modifiers **including the pipeline's own clamp** (so a continuous
+  contribution alone can never carry `P` past a bound; `P ≤ cap` always), and `L` is
+  the accumulated delta ledger (bADR-0006's ledger equation uses this same clamped
+  `P`). Continuous contributions are a recomputed component, deltas are a ledger; the
   evaluator realizing exactly this formula lands with the first simulation slice
   (#510, milestone #9 — vector ownership in bADR-0004).
 
