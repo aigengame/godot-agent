@@ -110,8 +110,10 @@ exit codes — is #518's contract, not this document's.
   violation fixture — the catalog cannot drift from the validator (bADR-0005).
 - Downstream engine code (#504 onward) is written assumption-free of invalid input —
   simpler, and any internal defensive check is a smell.
-- **The normative vector set is part of this design**: `docs/badr/normative-vectors.md`
-  (V1–V17) gives concrete inputs and required outcomes. Ownership is split by the
+- **The normative vector set is part of this design**:
+  `docs/badr/0004-appendix-normative-vectors.md` — this bADR's appendix, a referenced
+  living annex rather than a numbered decision record — (V1–V17) gives concrete inputs
+  and required outcomes. Ownership is split by the
   boundary each vector exercises — no vector is left ownerless:
   - **Validation and definition-time evaluation vectors** (V1–V6, V11, V12, V16 —
     minimal document, typed same-id references, collection-valued forms with their
