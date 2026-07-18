@@ -2,8 +2,8 @@
 
 These vectors are **part of the reviewed design** (bADR-0004): each gives a concrete
 input fragment and its required outcome, so the owning issue (bADR-0004's ownership
-split — validation vectors → #504, runtime evaluation vectors → #510) implements one
-result rather than choosing among several. Fragments assume an enclosing valid Design document
+split — validation and definition-time evaluation vectors → #504, runtime evaluation
+vectors → #510) implements one result rather than choosing among several. Fragments assume an enclosing valid Design document
 (`schema_version`, `meta`) unless the vector says otherwise. Exact refusal-code strings
 are fixed by the generated semantic rule catalog (bADR-0005); vectors identify the
 violated rule by its bADR definition, which the catalog's ids must map onto 1:1.
