@@ -1,8 +1,9 @@
 # Normative vectors — Standard Schema v1 design (#503)
 
 These vectors are **part of the reviewed design** (bADR-0004): each gives a concrete
-input fragment and its required outcome, so #504 implements one result rather than
-choosing among several. Fragments assume an enclosing valid Design document
+input fragment and its required outcome, so the owning issue (bADR-0004's ownership
+split — validation vectors → #504, runtime evaluation vectors → #510) implements one
+result rather than choosing among several. Fragments assume an enclosing valid Design document
 (`schema_version`, `meta`) unless the vector says otherwise. Exact refusal-code strings
 are fixed by the generated semantic rule catalog (bADR-0005); vectors identify the
 violated rule by its bADR definition, which the catalog's ids must map onto 1:1.
@@ -119,8 +120,10 @@ stay `5` for its whole duration.
 ## V10 — Non-finite Evaluation refusal (bADR-0003/0004)
 
 `ratio`: `base: {formula: {"op": "divide", "args": [{"literal": 100},
-{"attr": "armor"}]}}`. A debuff drives `armor`'s current value to `0` at simulation
-time.
+{"attr": "armor"}]}}`. A debuff drove `armor`'s current value to `0` at an **earlier
+instant**, so `armor = 0` is part of the current instant's pre-instant snapshot (a
+same-instant write would be observed only on the following instant, per the
+read-environment rule).
 
 **Expected:** the funnel accepts the document (finiteness is not statically decidable);
 during simulation, `ratio`'s base formula recomputes reading the **pre-instant
@@ -161,3 +164,28 @@ snapshot `100`) and `b_strike` (one_shot `add` `−80`). Stable order by id:
 `b_strike` — `L ← clamp(100 + 20 − 80) − 100 = −60`. Observed `40`. Had the ids
 ordered the strike first: `100 − 80 = 20`, then `+100` saturates at `120` → observed
 `120`. The stable order is therefore load-bearing exactly when writes cross bounds.
+
+## V14 — Instant phase order: activation, delta, expiry (bADR-0006)
+
+Attribute `hp`: `base: {direct: 100}`, `bounds: {floor: 0, cap: 120}`,
+`accepts: ["effects"]`. At t=1, one `timed` 2 s effect applies carrying **both** a
+`continuous` `add` `+20` and a `one_shot` `add` `+10`.
+
+**Expected (phase order: expiry → activation → pipeline → writes):** at t=1 the
+continuous contribution activates first, so the pipeline component becomes
+`P = 100 + 20 = 120`; the one_shot then writes against it —
+`L ← clamp(120 + 0 + 10, [0,120]) − 120 = 0` (fully saturated away). Observed `120`.
+At t=3 (expiry) the continuous contribution leaves: observed
+`clamp(100 + 0) = 100` — **not** `110`, which the rejected write-before-activation
+order (`P = 100`, `L = +10`) would produce. Expiry alone never touches the ledger.
+
+## V15 — Tick coincident with expiry does not fire (bADR-0006)
+
+Attribute `hp`: `base: {direct: 100}`, `bounds: {floor: 0, cap: 120}`,
+`accepts: ["effects"]`. At t=0 a `timed` 4 s effect applies with `period: 2` and a
+single `periodic` `add` `−10` modifier (stacking declared; type immaterial here).
+
+**Expected:** ticks are due at t=2 and t=4. The t=2 tick fires (`L ← clamp(100 + 0 −
+10) − 100 = −10`, observed `90`). At t=4 the effect expires in phase 1 **before**
+phase-4 writes, so the coincident tick does **not** fire: `duration = 2 × period`
+fires exactly one tick. Final observed value `90` — never `80`.

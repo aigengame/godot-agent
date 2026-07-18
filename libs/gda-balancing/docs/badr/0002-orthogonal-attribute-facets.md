@@ -62,7 +62,8 @@ superseding the fixed primary/derived/modifier taxonomy of its earlier draft.
   value at any simulation instant is `clamp( pipeline value recomputed with the
   currently-active continuous modifiers + the accumulated delta ledger, bounds )` —
   continuous contributions are a recomputed component, deltas are a ledger; the
-  evaluator realization is #504's implementation of exactly this formula.
+  evaluator realizing exactly this formula lands with the first simulation slice
+  (#510, milestone #9 — vector ownership in bADR-0004).
 
 - **Cross-facet rule (conservative default).** `accepts: allocation` is legal only with
   `base: direct` — allocation onto a formula-computed base is refused as a semantic

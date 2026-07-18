@@ -44,7 +44,7 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
     horizon, a Phase-2 parameter — the per-horizon tick count inherits the same
     budget.)
 
-- **Two application kinds, two state models — never mixed.**
+- **Three application values, two state models — never mixed.**
   - A **continuous** modifier contributes to its target's computed final value for as
     long as the effect is active, through the uniform value pipeline (bADR-0002); when
     the effect ends, the contribution ends.
@@ -90,9 +90,25 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
     one_shot/periodic deltas apply to the simulated current value in stable order,
     **clamping to the target's bounds after each delta** (bounded pools never
     transiently escape their bounds).
-  - **Boundaries.** A periodic effect's first tick occurs one full `period` after
-    application; a `timed` effect's modifiers cease exactly at expiry (no partial
-    final tick).
+  - **Boundaries.** An effect declaring `period` has its first tick one full `period`
+    after application; a `timed` effect's modifiers cease exactly at expiry (no
+    partial final tick), and **a tick due exactly at expiry does not fire** — expiry
+    (phase 1) precedes writes (phase 4), so a timed effect with
+    `duration = N × period` fires `N − 1` ticks (V15).
+  - **Instant phase order (normative).** Within one simulation instant, four phases
+    run in fixed order: **(1) expiry** — effects ending at this instant deactivate and
+    their continuous contributions leave the active set; **(2) activation** — effects
+    applied at this instant activate; their continuous magnitudes evaluate against the
+    pre-instant snapshot and join the active set; **(3) pipeline recomputation** — the
+    pipeline component `P` for this instant recomputes over the updated active set
+    (stacking selection included), and active continuous magnitudes whose effect
+    declares a `period` with a tick boundary at this instant **re-evaluate here**,
+    against the pre-instant snapshot; **(4) delta writes** — one_shot deltas and
+    periodic-delta ticks due at this instant apply in the stable order through the
+    ledger equation, all against this phase-3 `P`. Consequence: an effect carrying both a continuous and a
+    one_shot modifier activates its continuous contribution **before** its delta
+    writes — the delta lands on the already-buffed pipeline — and expiry alone never
+    touches the ledger (V14 discriminates this from the rejected write-first order).
   These rules make interacting-effect vectors reproducible; encounter-level scheduling
   (who applies what when) remains #520's design.
 
@@ -184,11 +200,14 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
 
 ## Consequences
 
-- #504 implements effect validation — target integrity (every modifier's `target` names
-  a declared attribute), stacking-type reference integrity, `period`/`application`
-  consistency, the `override`-on-delta refusal, and magnitude formula rules
-  (bADR-0003) — plus the continuous-modifier arm of the value pipeline (bADR-0002) and
-  the snapshot/ordering semantics above as the evaluator contract.
+- #504 implements effect **validation** — target integrity (every modifier's `target`
+  names a declared attribute), stacking-type reference integrity,
+  `period`/`application` consistency, the `override`-on-delta refusal, and magnitude
+  formula rules (bADR-0003). The **evaluator contract** — the continuous-modifier arm
+  of the value pipeline (bADR-0002), the snapshot/ordering semantics, the instant
+  phase order, and the ledger equation — is implemented by the first simulation slice
+  (#510, milestone #9), which executes the runtime vectors (bADR-0004's ownership
+  split); the Phase-2 design gate (#509) treats those semantics as fixed contract.
 - Formulas gain a second consumer class (magnitudes) beyond attribute bases — recorded
   in bADR-0003.
 - The `builds` section design (#506) starts from effect references plus the

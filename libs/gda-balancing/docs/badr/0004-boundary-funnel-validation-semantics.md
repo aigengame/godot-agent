@@ -111,11 +111,18 @@ exit codes — is #518's contract, not this document's.
 - Downstream engine code (#504 onward) is written assumption-free of invalid input —
   simpler, and any internal defensive check is a smell.
 - **The normative vector set is part of this design**: `docs/badr/normative-vectors.md`
-  (V1–V13) gives concrete inputs and required outcomes for the minimal document,
-  typed same-id references, collection-valued forms, tier-pattern satisfaction,
-  stacking/`period` legality, additive and multiplicative deltas with same-instant
-  semantics, global override selection, continuous re-evaluation, the non-finite
-  Evaluation refusal, absent-vs-materialized default equality, version dispatch, and
-  saturated-ledger persistence with order-sensitive bound-crossing clamping.
-  #504 implements these as executable tests (plus per-rule fixtures for every catalog
-  entry) — it does not design their outcomes.
+  (V1–V15) gives concrete inputs and required outcomes. Ownership is split by the
+  boundary each vector exercises — no vector is left ownerless:
+  - **Validation vectors** (V1–V6, V11, V12 — minimal document, typed same-id
+    references, collection-valued forms, tier-pattern satisfaction, stacking/`period`
+    legality, absent-vs-materialized default equality, version dispatch): implemented
+    as executable tests by **#504** (schema core & validation), whose funnel boundary
+    they exercise.
+  - **Runtime evaluation vectors** (V7–V10, V13–V15 — same-instant deltas, override
+    selection, continuous re-evaluation, the non-finite Evaluation refusal,
+    saturated-ledger persistence, instant phase order, tick-at-expiry): implemented by
+    **#510**, the
+    first evaluator/simulation slice (Monte-Carlo encounter engine, milestone #9),
+    whose evaluation boundary they exercise; the Phase-2 simulation design gate
+    (#509) treats them as fixed contract, never as design space.
+  Neither issue designs vector outcomes — both implement them.

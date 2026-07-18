@@ -42,14 +42,22 @@ coefficients. This bADR fixes the authoritative formula representations (design 
      observable part of the formula and two conforming evaluators must produce
      bit-identical results **for the arithmetic core** — `add`, `subtract`,
      `multiply`, `divide`, `min`, `max`, `floor`, `ceil`, `round` are all exactly
-     rounded in IEEE-754, and integer-exponent powers evaluate by repeated
-     multiplication, so those results are bit-identical across conforming evaluators
-     by construction. **The claim is deliberately narrower for non-integer `power`**
-     (and `exponential`'s `growth_rate^x`): results follow the platform's IEEE-754
-     double `pow` and may differ in the final ULP across platforms; the **versioned
-     toolkit evaluator is the authoritative reference** — a consumer needing exactness
-     compares against it, and no conformance test asserts bit-equality on non-integer
-     powers. No conditionals in v1; adding an operator is a schema **minor** bump
+     rounded in IEEE-754 round-to-nearest-even, **with FMA contraction forbidden**
+     (every operation is individually rounded; applies equally inside named forms).
+     Signed zero is pinned: `min`/`max` follow IEEE 754-2019 minimum/maximum
+     (`min(+0, −0) = −0`, `max(+0, −0) = +0`); `floor`/`ceil`/`round` preserve the
+     zero's sign. **Integer-exponent `power` is exact on a bounded domain**: for an
+     integer-valued exponent `n` with `|n| ≤ 64` — `x^0 = 1` (including `0^0 = 1`);
+     `n > 0` evaluates as `n − 1` sequential left-to-right multiplications; `n < 0`
+     evaluates `x^|n|` by that procedure then takes a **single** reciprocal
+     `1 / x^|n|` (so `10^-2` is `1/(10·10)`, never `(1/10)·(1/10)`; a zero base under
+     a negative exponent hits the non-finite Evaluation refusal below). The `|n| ≤ 64`
+     bound keeps repeated multiplication within the bounded-cost claim. **The claim is
+     deliberately narrower beyond that domain**: non-integer exponents and `|n| > 64`
+     (and `exponential`'s `growth_rate^x`) follow the platform's IEEE-754 double `pow`
+     and may differ in the final ULP across platforms; the **versioned toolkit
+     evaluator is the authoritative reference** — a consumer needing exactness
+     compares against it, and no conformance test asserts bit-equality there. No conditionals in v1; adding an operator is a schema **minor** bump
      (bADR-0001). The general fallback for arbitrary
      per-game formulas (US7). Progression variables (e.g. a level) are **ordinary
      attributes** a template declares (`base: direct`) and formulas reference like any
