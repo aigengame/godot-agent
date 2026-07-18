@@ -2,9 +2,9 @@
 
 ## Subagent model tier configuration (including built-in Explore/Plan/General subagents and workflow fan-out subagents)
 
-Model-selection principle: choose the subagent model tier heuristically by task
-complexity, weighing quality against token cost. This table implements it — pass
-`model:` explicitly on every dispatch; never silently inherit the session model.
+Concretizes the model-selection principle of RULES.md (if exists), which this
+table implements — pass `model:` explicitly on every dispatch; never silently inherit
+the session model.
 
 - Reconnaissance, exploration, summarization, and retrieval: **Sonnet** by default;
   escalate to **Opus** only when the digest's precision directly gates downstream
