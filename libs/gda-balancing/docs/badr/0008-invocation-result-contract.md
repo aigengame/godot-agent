@@ -81,8 +81,9 @@ refusal codes.
   typed refusal** — the funnel's phases (unparseable JSON, caps, version dispatch,
   structure, semantics; bADR-0004) and, past an accepting funnel, the one downstream
   class, the non-finite Evaluation refusal (bADR-0003). The **v1 normative code
-  set**: `unknown_command`, `unknown_argument`, `argument_conflict`,
-  `invalid_argument`, `unreadable_input`, `unwritable_output`. The family's codes
+  set**: `missing_command`, `unknown_command`, `unknown_argument`,
+  `argument_conflict`, `invalid_argument`, `unreadable_input`,
+  `unwritable_output`. The family's codes
   live in the single registry the conformance harness walks (bADR-0011); additions
   are additive registry entries, never renames, and the seam keeps the two
   namespaces from ever overlapping.

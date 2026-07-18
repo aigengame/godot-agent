@@ -5,10 +5,12 @@ status: proposed
 # Determinism and seed surfacing: explicit seeds, echoed effective seed, version-scoped reproducibility
 
 No randomness exists in the v1 surface — Monte-Carlo estimation is Phase-2 territory
-(#509/#510) — but the seed convention already has consumers: #518 places "how seeds
-surface on the CLI" in this gate, and #504's acceptance requires seeded, deterministic
-tests. This bADR reserves the surface convention so Phase-2 issues inherit one rule
-instead of inventing per-command conventions. It designs no simulation.
+(#509/#510) — but the convention cannot wait for Phase 2: #518 places "how seeds
+surface on the CLI" in this gate, and #504's acceptance phrase "seeded and
+deterministic" needs the contract-level reading this record fixes (v1 is
+deterministic by construction; the seed surface activates at #510). This bADR
+reserves the surface convention so Phase-2 issues inherit one rule instead of
+inventing per-command conventions. It designs no simulation.
 
 ## Decision
 
@@ -67,9 +69,10 @@ is this toolkit's own, assembled from verified external precedent.)*
 - **Seeding via environment variable** (rejected) — hidden global state; violates
   config/logic separation (bADR-0009) and makes the effective seed's provenance
   invisible to the invocation record.
-- **Defer the convention entirely to Phase 2** (rejected) — #504's seeded tests
-  consume the convention now, and deferral invites divergent per-issue conventions
-  that would each be a public ABI by the time Phase 2 consolidates.
+- **Defer the convention entirely to Phase 2** (rejected) — #504's acceptance
+  wording already needs the contract-level reading only this record can fix, and
+  deferral invites divergent per-issue conventions that would each be a public ABI
+  by the time Phase 2 consolidates.
 
 ## Consequences
 

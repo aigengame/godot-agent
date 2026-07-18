@@ -57,9 +57,13 @@ semantics of individual commands stay with their owning issues (#504, #505/#506,
   exemption**: it emits framework help text on stdout at exit 0, is not
   descriptor-registered, and is excluded from `--schema` and the future `manifest`
   (bADR-0009/0011) — the JSON result contract governs every *registered* command,
-  and this exemption is decided here rather than left to framework accident. A
-  third meta name is **reserved**: `manifest`, the deferred aggregate surface
-  manifest (bADR-0009) — reserved on the same terms as the Phase-2 groups above.
+  and this exemption is decided here rather than left to framework accident.
+  **Help is reached only by asking**: a bare `gda-balancing`, or a group named
+  with no command, is a malformed invocation in automation and fails loudly — a
+  usage error (exit 3, `missing_command`, bADR-0008), never an exit-0 help dump
+  that would mask a broken agent script. A third meta name is **reserved**:
+  `manifest`, the deferred aggregate surface manifest (bADR-0009) — reserved on
+  the same terms as the Phase-2 groups above.
 
 - **Verb vocabulary adopted verbatim** *(adopted-from-gda: ADR-0005)*: `create`/
   `delete` for standalone entities vs `add`/`remove` for sub-entities in a container;

@@ -20,15 +20,23 @@ here.
   - its **tree position** (group, command — bADR-0007) and a human **description**
     — the one-line summary shared by `--schema`, the future `manifest`, and help
     surfaces;
-  - its typed **input and output models** (bADR-0009). Argv binding is *derived*
-    from the input model's fields by one mechanical rule — the model is the single
-    source and the CLI layer a thin adapter (gda ADR-0015's discipline); no
-    per-command hand-wired argument maps exist;
-  - its **handler** — the execution binding, a callable from validated input model
-    to output model. Dispatch is: bind argv into the input model, invoke the
-    handler, emit per bADR-0008. This field is what makes the descriptor
-    *sufficient* to dispatch — without it the single-seam claim would be unearned
-    (gda ADR-0023 carries the same fact as its `operation` + runner selection);
+  - its typed **input and output models** (bADR-0009), with the binding law
+    stated: **every input-model field binds as a kebab-case option
+    `--<field-name>`; the descriptor may designate at most one field as the
+    positional argument** (in practice the `Design document` path, bADR-0009).
+    An input schema alone cannot distinguish positional from option — the family
+    recorded exactly this in gda ADR-0015 — so the positional designation lives
+    *in the descriptor*: single registration, still no hand-wired argument maps;
+  - its **handler** — the execution binding, a callable whose outcome is typed:
+    it **returns the output model** (success) **or the funnel's refusal report**
+    (bADR-0004); it never prints, never exits, and never sees a usage error
+    (those are resolved at binding, before invocation). The **dispatch tail owns
+    emission**: it maps the outcome onto bADR-0008 — result on stdout / exit 0,
+    `refusal` envelope / exit 2 — and converts any unexpected handler exception
+    into the `internal` envelope / exit 4. The field plus this outcome law are
+    what make the descriptor *sufficient* to dispatch — without them the
+    single-seam claim would be unearned (gda ADR-0023 carries the same fact as
+    its `operation` + runner selection);
   - its execution markings — today exactly one, **stochastic** (bADR-0010);
   - its **conformance fixtures**: a valid invocation case and, for document-taking
     commands, a refusing-input case — the harness's per-command fuel, registered
@@ -116,9 +124,9 @@ here.
 - Adding a command without a descriptor is structurally impossible; adding one with a
   descriptor drags it under every harness assertion automatically. The harness is
   the executable form of bADR-0008/0009/0010.
-- The descriptor gains fields only when a decided surface needs them (a `--format
-  human` render seam, a `manifest` description field) — each addition rides its
-  owning decision, keeping the seam honest about what exists.
+- The descriptor gains fields only when a decided surface needs them (e.g. a
+  `--format human` render seam, should that flag ever be adopted) — each addition
+  rides its owning decision, keeping the seam honest about what exists.
 
 ## References
 

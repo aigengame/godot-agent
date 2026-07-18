@@ -48,17 +48,22 @@ input enters, and the config/logic separation every command obeys (design gate #
   file-path argument — configuration is data handed to the tool, never encoded in
   flags *(family convention; PRD #501 US19)*. The typed result always stays on
   stdout (bADR-0008); where an artifact file is wanted, an explicit `--out <path>`
-  receives the **artifact body** while stdout carries the result as a receipt
-  naming the sink — `--out` moves the artifact, never the result. Artifact writes
-  are safe by law: an existing destination is overwritten; the write is atomic
-  (write-then-rename), so a failed invocation leaves no partial file; an
-  unwritable sink is a usage error (`unwritable_output`, bADR-0008). **No command
-  ever writes to its input path** *(new ground, grounded in bADR-0004)*: validity
-  is a property of a document state, and any mutated state must visibly re-enter
-  the funnel — an in-place write would silently alias an unvalidated state over
-  the input authority. `--out` resolving to the input path, directly or through a
-  symlink alias, is therefore a usage error. Derived documents (a `design format`
-  emission, a Phase-2 tuning result) are always a new stream or path.
+  receives the **artifact body** while stdout carries the result as a receipt —
+  `--out` moves the artifact, never the result. The receipt is one normative
+  member: **`artifact: {path, bytes}`** (resolved sink path, bytes written),
+  present in the result object exactly when `--out` was used and forbidden
+  otherwise; the rest of the result stays the command's own output model.
+  Artifact writes are safe by law: an existing destination is overwritten; the
+  write is atomic (write-then-rename), so a failed invocation leaves no partial
+  file; an unwritable sink is a usage error (`unwritable_output`, bADR-0008).
+  **No command ever writes to its input path** *(new ground, grounded in
+  bADR-0004)*: validity is a property of a document state, and any mutated state
+  must visibly re-enter the funnel — an in-place write would silently alias an
+  unvalidated state over the input authority. `--out` resolving to the input
+  path, directly or through a symlink alias, is therefore a usage error with the
+  stable code **`argument_conflict`** (the two arguments' *values* collide).
+  Derived documents (a `design format` emission, a Phase-2 tuning result) are
+  always a new stream or path.
 
 - **Structured params input: adopted in principle, deferred in delivery.**
   *(adopted-from-gda: ADR-0015 — semantics reserved verbatim; delivery deferred.)*
@@ -91,7 +96,8 @@ input enters, and the config/logic separation every command obeys (design gate #
   second guarded surface; every workflow it serves is covered by redirecting the
   emission.
 - **Both channels** (rejected) — two authorities for one artifact with no consumer
-  demanding the second; violates the single-authority rule (RULES).
+  demanding the second; two independently served copies of one artifact is the
+  drift-by-design bADR-0005's anti-drift rule exists to prevent.
 - **`--params-json` delivered in v1** (rejected) — all carrying cost, no consumer;
   gda grew it *for* gda-mcp, which has no analogue here yet.
 - **No reservation of the deferred surfaces** (rejected) — retrofit risk: without the

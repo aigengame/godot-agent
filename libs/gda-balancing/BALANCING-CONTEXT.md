@@ -140,10 +140,13 @@ _Avoid_: rules doc, validation spec (as a prose document)
 ### Command surface
 
 **Command descriptor**:
-The single per-command registration object naming a command's tree position (group +
-command), its typed input and output models, and its execution markings (today exactly
-one: stochastic). The only path into the command surface; dispatch, `--schema`, the
-future `manifest`, and the conformance harness are all projections of it (bADR-0011).
+The single per-command registration object naming everything the surface needs to
+run, describe, and conformance-test a command: tree position (group + command), a
+human description, typed input/output models (with the descriptor-designated
+positional argument), the typed handler (the execution binding), execution markings
+(today exactly one: stochastic), and the command's conformance fixtures. The only
+path into the command surface; dispatch, `--schema`, the future `manifest`, and the
+conformance harness are all projections of it (bADR-0011).
 _Avoid_: command spec, command config, registry entry
 
 **Error envelope**:
@@ -164,8 +167,9 @@ _Avoid_: validation result, balance error, failure (vague)
 
 **Usage error**:
 An invocation-surface failure — everything that goes wrong **before** the document's
-bytes reach the `Boundary funnel`: unknown command or flag, argument conflicts, an
-unreadable input path. Exit 3, envelope on stderr, own stable code family (bADR-0008);
+bytes reach the `Boundary funnel`: a bare invocation naming no command, unknown
+command or flag, argument conflicts, an unreadable input path. Exit 3, envelope on
+stderr, own stable code family (bADR-0008);
 unparseable JSON and everything after ingress are typed refusals (the funnel's, or the
 downstream `Evaluation refusal`), never usage errors.
 _Avoid_: refusal (the funnel's word), invalid input (ambiguous)
