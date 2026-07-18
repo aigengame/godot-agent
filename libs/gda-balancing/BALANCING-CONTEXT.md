@@ -12,7 +12,7 @@ it, with structured output suitable for programmatic consumption. (Requirements:
 The toolkit itself. The `gda-` prefix is the **product-family brand** — this is a sibling
 product of `gda`, not a `gda` component (contrast `gda-mcp` / `gda-daemon`, which are gda's
 own components). It neither depends on nor extends `gda`; its CLI *interface style* follows
-gda's conventions (PRD #501 addendum).
+gda's conventions (PRD #501 addendum) — the binding CLI contract is bADR-0007…0011.
 _Avoid_: gda balancing module, balancing plugin
 
 **Standard Schema**:
@@ -119,7 +119,7 @@ offending element, and human-readable detail; validation reports **all** violati
 (bounded), not fail-fast. A refusal rejects invalid *input*; a verdict judges a *valid*
 design against balance targets — the two are never conflated (bADR-0004). One downstream
 class exists beyond the funnel: the non-finite `Evaluation refusal` (bADR-0003). The CLI
-envelope carrying refusals is #518's contract.
+carrier of refusals is the `Error envelope` (bADR-0008).
 _Avoid_: validation error (vague), warning, exception
 
 **Structural schema**:
@@ -136,6 +136,50 @@ answers "what is structurally well-formed and which semantic rules exist"; full 
 additionally requires the versioned validator, the third required artifact. Derived from
 the validator or guarded by conformance tests, never hand-maintained twice (bADR-0005).
 _Avoid_: rules doc, validation spec (as a prose document)
+
+### Command surface
+
+**Command descriptor**:
+The single per-command registration object naming everything the surface needs to
+run, describe, and conformance-test a command: tree position (group + command), a
+human description, typed input/output models (with the descriptor-designated
+positional argument), the typed handler (the execution binding), execution markings
+(today exactly one: stochastic), and the command's conformance fixtures. The only
+path into the command surface; dispatch, `--schema`, the future `manifest`, and the
+conformance harness are all projections of it (bADR-0011).
+_Avoid_: command spec, command config, registry entry
+
+**Error envelope**:
+The single top-level-`error` JSON object a failed invocation emits — category `refusal`
+(stdout, exit 2; carrying typed refusals verbatim — the funnel's families plus the
+downstream `Evaluation refusal` family — report-all) or `usage` / `internal` (stderr,
+exits 3 / 4; a single envelope-level code). It carries the refusal codes without
+minting any; the CLI-usage family plus the fixed `internal_error` code are all the CLI
+contract owns (bADR-0008).
+_Avoid_: error blob, failure JSON, exception dump
+
+**Verdict**:
+The Phase-2 pass/fail judgment of a **valid** design against balance targets — never
+conflated with a refusal, which rejects invalid *input* (bADR-0004). Its CLI channel
+is reserved now: exit 1, verdict report on stdout (bADR-0008); its report shape is
+owned by the Phase-2 design gate.
+_Avoid_: validation result, balance error, failure (vague)
+
+**Usage error**:
+An invocation-surface failure — everything that goes wrong **before** the document's
+bytes reach the `Boundary funnel`: a bare invocation naming no command, unknown
+command or flag, argument conflicts, an unreadable input path. Exit 3, envelope on
+stderr, own stable code family (bADR-0008);
+unparseable JSON and everything after ingress are typed refusals (the funnel's, or the
+downstream `Evaluation refusal`), never usage errors.
+_Avoid_: refusal (the funnel's word), invalid input (ambiguous)
+
+**Effective seed**:
+The seed that actually drove a stochastic run — supplied via `--seed` (unsigned
+32-bit) or drawn fresh — always echoed in the structured result together with the
+toolkit version, and carried by any failure envelope once drawn, so every stochastic
+outcome keeps its own reproduction key (bADR-0008/0010).
+_Avoid_: random seed (ambiguous), default seed
 
 ### Simulation
 
