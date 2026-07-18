@@ -40,10 +40,17 @@ coefficients. This bADR fixes the authoritative formula representations (design 
      binary operators apply as `args[0] op args[1]` (minuend, dividend, base first) —
      IEEE-754 addition and multiplication are not associative, so argument order is an
      observable part of the formula and two conforming evaluators must produce
-     bit-identical results. (`power` with a non-integer exponent follows IEEE-754
-     double `pow` semantics; where platform `pow` implementations differ in the final
-     ULP, the toolkit evaluator is the reference — single-authority tie-break.) No
-     conditionals in v1; adding an operator is a schema **minor** bump (bADR-0001). The general fallback for arbitrary
+     bit-identical results **for the arithmetic core** — `add`, `subtract`,
+     `multiply`, `divide`, `min`, `max`, `floor`, `ceil`, `round` are all exactly
+     rounded in IEEE-754, and integer-exponent powers evaluate by repeated
+     multiplication, so those results are bit-identical across conforming evaluators
+     by construction. **The claim is deliberately narrower for non-integer `power`**
+     (and `exponential`'s `growth_rate^x`): results follow the platform's IEEE-754
+     double `pow` and may differ in the final ULP across platforms; the **versioned
+     toolkit evaluator is the authoritative reference** — a consumer needing exactness
+     compares against it, and no conformance test asserts bit-equality on non-integer
+     powers. No conditionals in v1; adding an operator is a schema **minor** bump
+     (bADR-0001). The general fallback for arbitrary
      per-game formulas (US7). Progression variables (e.g. a level) are **ordinary
      attributes** a template declares (`base: direct`) and formulas reference like any
      other — US3's "HP from VIT and Level" is expressible today; progression
@@ -111,6 +118,18 @@ coefficients. This bADR fixes the authoritative formula representations (design 
   declared parameters by id; an undeclared reference is a typed refusal (bADR-0004).
   The parameter set is the design's tuning surface. (Tuning ranges/annotations on
   parameters are Phase-2 material — the declaration shape reserves room, milestone #9.)
+
+- **Evaluation read environments (normative for every formula consumer).** At
+  **definition time** (validation and simulation seeding), base formulas evaluate in
+  topological order of the acyclic base-formula graph (bADR-0002): an `attr` node
+  reads the referenced attribute's definition-time final value. During **simulation**,
+  every formula evaluated at an instant — base formulas recomputed for the pipeline
+  component and effect magnitudes alike — reads the **common pre-instant snapshot of
+  observed values** (bADR-0006): an `attr` node reads the target's observed value from
+  the snapshot, including delta-ledger state. Dependent base formulas therefore
+  propagate a change on the **next** instant, deterministically — there is no
+  within-instant recomputation cascade. `param` nodes read the document constant in
+  every environment.
 
 - **Numeric semantics.** Formula values are IEEE-754 doubles. Every formula evaluation
   must produce a **finite** result: division by zero, overflow to infinity, or NaN is

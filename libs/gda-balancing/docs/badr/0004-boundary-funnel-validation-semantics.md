@@ -36,17 +36,20 @@ exit codes — is #518's contract, not this document's.
 
 - **Three phases, strictly ordered, each gating the next:**
   0. **Preflight** — ingress caps (below) and version dispatch: the document parses as
-     JSON within the caps, `schema_version` is well-formed, and its major.minor is
-     supported (acceptance + patch normalization per bADR-0001). Preflight selects the
-     versioned artifacts every later phase validates against. Preflight refusals are
-     terminal (nothing else can run without a pinned version).
+     JSON within the caps **with duplicate object keys refused** (map keys are id
+     authorities, bADR-0002 — a lenient parser silently dropping a duplicate would
+     void structural uniqueness, so the funnel's parser must detect and refuse),
+     `schema_version` is well-formed, and its major.minor is supported (acceptance +
+     patch normalization per bADR-0001). Preflight selects the versioned artifacts
+     every later phase validates against. Preflight refusals are terminal (nothing
+     else can run without a pinned version).
   1. **Structural** — the document is validated against the version's published
      structural schema (JSON Schema 2020-12 artifact, bADR-0005): envelope closure,
      types, required fields, enums, structurally expressible bounds.
   2. **Semantic** — runs only when the structural phase produced **no refusals**
      (structurally broken documents make semantic analysis ill-defined): reference
      integrity (formula `attr`/`param` nodes, effect targets, stacking types, tier labels — bADR-0002,
-     bADR-0003, bADR-0006), id uniqueness per namespace (bADR-0002), formula-reference
+     bADR-0003, bADR-0006), formula-reference
      acyclicity, operator closure and tree limits (bADR-0003), cross-facet rules and the
      bounds obligation by domain and tier-pattern satisfaction (bADR-0002), effect
      `application`×`duration` legality, `override`-on-delta legality, the `period`
@@ -108,10 +111,11 @@ exit codes — is #518's contract, not this document's.
 - Downstream engine code (#504 onward) is written assumption-free of invalid input —
   simpler, and any internal defensive check is a smell.
 - **The normative vector set is part of this design**: `docs/badr/normative-vectors.md`
-  (V1–V12) gives concrete inputs and required outcomes for the minimal document,
+  (V1–V13) gives concrete inputs and required outcomes for the minimal document,
   typed same-id references, collection-valued forms, tier-pattern satisfaction,
   stacking/`period` legality, additive and multiplicative deltas with same-instant
   semantics, global override selection, continuous re-evaluation, the non-finite
-  Evaluation refusal, absent-vs-materialized default equality, and version dispatch.
+  Evaluation refusal, absent-vs-materialized default equality, version dispatch, and
+  saturated-ledger persistence with order-sensitive bound-crossing clamping.
   #504 implements these as executable tests (plus per-rule fixtures for every catalog
   entry) — it does not design their outcomes.

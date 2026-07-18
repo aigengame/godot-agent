@@ -18,9 +18,10 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
 - **Effect and Modifier are first-class schema citizens.** An **Effect** is a declared,
   time-scoped carrier of numeric influence. A **Modifier** is one numeric operation
   inside an effect. **The v1 shape is normative here** (ids per bADR-0002's namespace
-  rules):
+  rules; the `effects` section holds `stacking_types` and `items`, and `items` is a
+  **map keyed by effect id** — declarations carry no separate `id` field, the key is
+  the single id authority):
 
-  - `id`
   - `modifiers`: a list of `{ target: <attribute id>, operation: add | multiply |
     override, application: continuous | one_shot | periodic, magnitude: <value | named
     form | expression tree> }` (`one_shot` names the apply-once delta so it can never
@@ -36,10 +37,12 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
     (an instant effect leaves no persistent instance to stack or refresh)
   - **Temporal validity (element-level semantic rules):** a `timed` duration and any
     `period` must be positive and finite; `period ≥ 0.05` seconds (v1 minimum
-    granularity); for a `timed` periodic effect, `duration / period ≤ 10 000` — the
-    per-instance tick budget is bounded at the funnel, not discovered in simulation.
-    (Infinite periodic effects are bounded by the simulation horizon, a Phase-2
-    parameter — the per-horizon tick count inherits the same budget.)
+    granularity); for **any `timed` effect declaring `period`** — whether its ticks
+    drive `periodic` deltas or `continuous` re-evaluation — `duration / period ≤
+    10 000`: the per-instance tick budget is bounded at the funnel, not discovered in
+    simulation. (Infinite effects with a `period` are bounded by the simulation
+    horizon, a Phase-2 parameter — the per-horizon tick count inherits the same
+    budget.)
 
 - **Two application kinds, two state models — never mixed.**
   - A **continuous** modifier contributes to its target's computed final value for as
@@ -59,6 +62,16 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
     its instant: later pipeline changes never retroactively re-scale already-applied
     deltas (a separate multiplicative ledger, which would re-scale history, is
     rejected).
+  - **Saturation is persisted — the ledger-update equation is normative.** With `P` =
+    the pipeline component at the write instant (**constant across all writes of one
+    instant** — the pipeline recomputes only against the pre-instant snapshot, so no
+    same-instant write can change it), `L` = the ledger value before the write, and
+    `d` = the realized delta, each ordered write updates the ledger as
+    `L ← clamp(P + L + d, bounds) − P`. The persisted state after a bound-crossing
+    write is the **saturated effective change**: overflow past a cap or floor is lost
+    at write time, never banked — a later pipeline change re-exposes no clipped
+    remainder (the alternative, storing the full realized delta and clamping only the
+    observed value, is rejected: it silently banks invisible overflow).
   - **Application × duration legality (element-level semantic rule):** a
     `duration: instant` effect admits only `one_shot` modifiers; `continuous` and
     `periodic` modifiers require `duration: timed | infinite`; `one_shot` modifiers are

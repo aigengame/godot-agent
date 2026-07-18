@@ -15,8 +15,10 @@ superseding the fixed primary/derived/modifier taxonomy of its earlier draft.
 
 ## Decision
 
-- **An attribute declaration is a composition of orthogonal facets.** Every attribute
-  carries `id` and independently composes:
+- **An attribute declaration is a composition of orthogonal facets.** Attribute
+  declarations live in the `attributes` section's `items` — a **map keyed by attribute
+  id** (declarations carry no separate `id` field; the map key is the single id
+  authority). Each declaration independently composes:
   - **`domain`** — `number` | `percentage` | `probability` (the value space;
     `probability` implies [0,1]). A `percentage` value is expressed as a **fraction**
     (`0.3` = 30%, `1.5` = +150%) — one convention everywhere; the 0–100 scale never
@@ -68,11 +70,15 @@ superseding the fixed primary/derived/modifier taxonomy of its earlier draft.
   relaxing the rule is additive (a minor bump, bADR-0001).
 
 - **Identifiers and namespaces.** Every id in a Design document matches
-  `^[a-z][a-z0-9_]*$`. Ids are unique **within their kind's namespace** — attributes,
-  effects (bADR-0006), parameters (bADR-0003), stacking types (bADR-0006), and tier
-  names each form one document-wide namespace; a duplicate id within a namespace is an
-  element-level typed refusal (bADR-0004). References (formula `attr`/`param` nodes, effect targets,
-  tier assignments) resolve within the declaring document only — never across documents.
+  `^[a-z][a-z0-9_]*$`. Ids are the **map keys** of their declaring collection —
+  attributes (`items`), effects (bADR-0006), parameters (bADR-0003), stacking types
+  (bADR-0006), and tier names each form one document-wide namespace. Uniqueness within
+  a namespace is structural (map keys), backed by the funnel's preflight refusal of
+  duplicate JSON keys (bADR-0004) so a lenient parser can never silently drop a
+  duplicate declaration; the same id may legally appear in different namespaces
+  (references are typed, bADR-0003). References (formula `attr`/`param` nodes, effect
+  targets, tier assignments) resolve within the declaring document only — never across
+  documents.
 
 - **Tier compositions are declared data, with defined pattern satisfaction.** The
   `attributes` section carries two parts: `tiers` — an optional map of tier name →
