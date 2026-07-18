@@ -189,3 +189,33 @@ single `periodic` `add` `−10` modifier (stacking declared; type immaterial her
 10) − 100 = −10`, observed `90`). At t=4 the effect expires in phase 1 **before**
 phase-4 writes, so the coincident tick does **not** fire: `duration = 2 × period`
 fires exactly one tick. Final observed value `90` — never `80`.
+
+## V16 — `round` tie rule (bADR-0003)
+
+`{"op": "round", "args": [{"literal": 2.5}]}` → `3`;
+`{"op": "round", "args": [{"literal": -2.5}]}` → `-3`;
+`{"op": "round", "args": [{"literal": 2.4}]}` → `2`.
+
+**Expected:** half away from zero only — a round-half-even implementation
+(`round(2.5) = 2`) is non-conforming. The arithmetic rounding mode
+(round-to-nearest-even) governs `add`/`subtract`/`multiply`/`divide`/`min`/`max`
+results, never the semantic `round` operator.
+
+## V17 — Phase-3 suborder: re-evaluate before selecting (bADR-0006)
+
+`charge`: `base: {direct: 10}`, `accepts: ["effects"]`. `power`:
+`base: {direct: 100}`, `accepts: ["effects"]`. Stacking type `buff`:
+`aggregation: keep_best`. Two `infinite` effects of type `buff`, both applied at t=0,
+both declaring `period: 2`, each one `continuous` `add` on `power`:
+
+- `a_steady`: magnitude `{"attr": "charge"}` → `10` at t=0
+- `b_scaling`: magnitude `{"op": "subtract", "args": [{"literal": 21},
+  {"op": "multiply", "args": [{"literal": 2}, {"attr": "charge"}]}]}` → `1` at t=0
+
+At t=0, `keep_best` selects `a_steady` (`10` > `1`): observed `power = 110`. At t=1 a
+one_shot `add` `−9` drives `charge` to `1`.
+
+**Expected at the t=2 tick:** phase 3a re-evaluates **both** magnitudes against the
+pre-instant snapshot (`charge = 1`): `a_steady` → `1`, `b_scaling` → `21 − 2 = 19`;
+phase 3b then selects `b_scaling` (`19`); observed `power = 119`. The rejected
+select-before-re-evaluate order would keep `a_steady` and observe `101`.

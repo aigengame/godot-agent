@@ -41,9 +41,12 @@ coefficients. This bADR fixes the authoritative formula representations (design 
      IEEE-754 addition and multiplication are not associative, so argument order is an
      observable part of the formula and two conforming evaluators must produce
      bit-identical results **for the arithmetic core** — `add`, `subtract`,
-     `multiply`, `divide`, `min`, `max`, `floor`, `ceil`, `round` are all exactly
-     rounded in IEEE-754 round-to-nearest-even, **with FMA contraction forbidden**
-     (every operation is individually rounded; applies equally inside named forms).
+     `multiply`, `divide`, `min`, `max` are exactly rounded in IEEE-754
+     round-to-nearest-even, **with FMA contraction forbidden** (every operation is
+     individually rounded; applies equally inside named forms). `floor`, `ceil`, and
+     `round` are exact integer-valued mappings, not governed by the arithmetic
+     rounding mode: `round`'s tie rule is **half away from zero only**
+     (`round(2.5) = 3`, `round(−2.5) = −3`; V16).
      Signed zero is pinned: `min`/`max` follow IEEE 754-2019 minimum/maximum
      (`min(+0, −0) = −0`, `max(+0, −0) = +0`); `floor`/`ceil`/`round` preserve the
      zero's sign. **Integer-exponent `power` is exact on a bounded domain**: for an
@@ -194,8 +197,13 @@ coefficients. This bADR fixes the authoritative formula representations (design 
 
 ## Consequences
 
-- #504 implements exactly two evaluators (form interpreter, tree walker) behind one
-  formula seam; adding a v1 form or operator is a schema **minor** bump (bADR-0001).
+- **Formula-evaluator ownership (one contract):** #504 implements the two
+  **definition-time formula evaluators** (form interpreter, tree walker) behind one
+  explicit public formula seam — it needs them to evaluate bases at definition time,
+  and the numeric outcomes in V2/V3/V16 are its executable tests. #510 **reuses that
+  seam** for runtime magnitude evaluation (read environments above supply the
+  simulation snapshot); it implements the runtime engine, never a second formula
+  evaluator. Adding a v1 form or operator is a schema **minor** bump (bADR-0001).
 - The pinned tree limits (depth ≤ 32, ≤ 256 nodes) are enforced as element-level
   semantic rules at the boundary funnel (bADR-0004) — pathological documents are refused
   at the boundary, not discovered in the evaluator.

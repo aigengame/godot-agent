@@ -99,11 +99,13 @@ two concepts an earlier draft conflated: an **attribute** is a stat (bADR-0002);
     run in fixed order: **(1) expiry** — effects ending at this instant deactivate and
     their continuous contributions leave the active set; **(2) activation** — effects
     applied at this instant activate; their continuous magnitudes evaluate against the
-    pre-instant snapshot and join the active set; **(3) pipeline recomputation** — the
-    pipeline component `P` for this instant recomputes over the updated active set
-    (stacking selection included), and active continuous magnitudes whose effect
-    declares a `period` with a tick boundary at this instant **re-evaluate here**,
-    against the pre-instant snapshot; **(4) delta writes** — one_shot deltas and
+    pre-instant snapshot and join the active set; **(3) pipeline recomputation**, in a
+    fixed suborder: **(3a)** active continuous magnitudes whose effect declares a
+    `period` with a tick boundary at this instant re-evaluate against the pre-instant
+    snapshot; **(3b)** stacking selection runs over the **updated** magnitudes;
+    **(3c)** operation combination and the pipeline clamp produce this instant's `P`
+    (selection judges current magnitudes — a survivor is never chosen on a stale
+    value; V17 discriminates); **(4) delta writes** — one_shot deltas and
     periodic-delta ticks due at this instant apply in the stable order through the
     ledger equation, all against this phase-3 `P`. Consequence: an effect carrying both a continuous and a
     one_shot modifier activates its continuous contribution **before** its delta

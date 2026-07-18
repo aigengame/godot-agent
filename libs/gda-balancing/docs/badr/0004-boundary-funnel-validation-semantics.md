@@ -111,18 +111,20 @@ exit codes — is #518's contract, not this document's.
 - Downstream engine code (#504 onward) is written assumption-free of invalid input —
   simpler, and any internal defensive check is a smell.
 - **The normative vector set is part of this design**: `docs/badr/normative-vectors.md`
-  (V1–V15) gives concrete inputs and required outcomes. Ownership is split by the
+  (V1–V17) gives concrete inputs and required outcomes. Ownership is split by the
   boundary each vector exercises — no vector is left ownerless:
-  - **Validation vectors** (V1–V6, V11, V12 — minimal document, typed same-id
-    references, collection-valued forms, tier-pattern satisfaction, stacking/`period`
-    legality, absent-vs-materialized default equality, version dispatch): implemented
-    as executable tests by **#504** (schema core & validation), whose funnel boundary
-    they exercise.
-  - **Runtime evaluation vectors** (V7–V10, V13–V15 — same-instant deltas, override
-    selection, continuous re-evaluation, the non-finite Evaluation refusal,
-    saturated-ledger persistence, instant phase order, tick-at-expiry): implemented by
-    **#510**, the
-    first evaluator/simulation slice (Monte-Carlo encounter engine, milestone #9),
-    whose evaluation boundary they exercise; the Phase-2 simulation design gate
+  - **Validation and definition-time evaluation vectors** (V1–V6, V11, V12, V16 —
+    minimal document, typed same-id references, collection-valued forms with their
+    definition-time numeric outcomes, tier-pattern satisfaction, stacking/`period`
+    legality, absent-vs-materialized default equality, version dispatch, `round` tie
+    rule): implemented as executable tests by **#504** (schema core & validation),
+    which owns the funnel boundary and the **definition-time formula evaluators**
+    behind the public formula seam (bADR-0003).
+  - **Runtime evaluation vectors** (V7–V10, V13–V15, V17 — same-instant deltas,
+    override selection, continuous re-evaluation, the non-finite Evaluation refusal,
+    saturated-ledger persistence, instant phase order, tick-at-expiry, phase-3
+    suborder): implemented by **#510**, the first evaluator/simulation slice
+    (Monte-Carlo encounter engine, milestone #9), which reuses #504's formula seam
+    and exercises the runtime evaluation boundary; the Phase-2 simulation design gate
     (#509) treats them as fixed contract, never as design space.
   Neither issue designs vector outcomes — both implement them.
