@@ -111,9 +111,9 @@ exit codes — is #518's contract, not this document's.
 - Downstream engine code (#504 onward) is written assumption-free of invalid input —
   simpler, and any internal defensive check is a smell.
 - **The normative vector set is part of this design**:
-  `docs/badr/0004-appendix-normative-vectors.md` — this bADR's appendix, a referenced
-  living annex rather than a numbered decision record — (V1–V17) gives concrete inputs
-  and required outcomes. Ownership is split by the
+  `docs/badr/0004a-normative-vectors.md` — this bADR's appendix (the `0004a` prefix
+  orders it right after this record), a referenced living annex rather than a numbered
+  decision record — (V1–V17) gives concrete inputs and required outcomes. Ownership is split by the
   boundary each vector exercises — no vector is left ownerless:
   - **Validation and definition-time evaluation vectors** (V1–V6, V11, V12, V16 —
     minimal document, typed same-id references, collection-valued forms with their

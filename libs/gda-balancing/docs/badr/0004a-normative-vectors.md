@@ -1,9 +1,11 @@
 # Normative vectors — Standard Schema v1 design (#503)
 
-> **Not a standalone bADR.** This file is an **appendix to bADR-0004** — a referenced,
-> living data annex (the vector set grows as sections land), not an independent decision
-> record: it carries no decision narrative and consumes no bADR number. bADR-0004 declares
-> it part of the reviewed design and owns its normative status.
+> **Not a standalone bADR.** This file is an **appendix to
+> `0004-boundary-funnel-validation-semantics.md` (bADR-0004)** — a referenced, living
+> data annex (the vector set grows as sections land), not an independent decision
+> record: it carries no decision narrative and consumes no bADR number. bADR-0004
+> declares it part of the reviewed design and owns its normative status. The `0004a`
+> prefix orders it immediately after its owner in the series listing.
 
 These vectors are **part of the reviewed design** (bADR-0004): each gives a concrete
 input fragment and its required outcome, so the owning issue (bADR-0004's ownership
