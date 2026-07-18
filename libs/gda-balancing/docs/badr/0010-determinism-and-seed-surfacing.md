@@ -16,16 +16,25 @@ instead of inventing per-command conventions. It designs no simulation.
 is this toolkit's own, assembled from verified external precedent.)*
 
 - **Stochastic commands take an explicit `--seed <int>`; deterministic commands never
-  do.** A command's descriptor (bADR-0011) declares whether it is stochastic; the
-  flag exists exactly on the stochastic ones. Passing `--seed` to a deterministic
-  command is a usage error (bADR-0008) — the flag's presence is itself surface
+  do.** The seed's domain is pinned: an **unsigned 32-bit integer** (0 ≤ seed <
+  2³²), rendered as a JSON number wherever echoed — chosen to stay inside JSON's
+  exact-integer interoperability band under bADR-0005's shortest-round-trip
+  rendering (a 64-bit seed would cross 2⁵³ and corrupt silently in JSON
+  consumers); out-of-domain values are a usage error (`invalid_argument`,
+  bADR-0008). A command's descriptor (bADR-0011) declares whether it is stochastic;
+  the flag exists exactly on the stochastic ones. Passing `--seed` to a
+  deterministic command is a usage error (bADR-0008) — the flag's presence is
+  itself surface
   truth about the command's nature, and the conformance harness asserts it both ways.
 
 - **An omitted seed is drawn fresh, and the result always echoes the effective
   seed.** When `--seed` is absent, the toolkit draws fresh entropy; either way the
   structured result reports the seed that actually drove the run, alongside the
   toolkit version, so the reproduction key `(seed, input, toolkit version)` is
-  self-contained in every stochastic result. (Precedent: pytest-randomly's
+  self-contained in every stochastic result. The key survives failure: once the
+  seed is drawn, any failure envelope the run emits carries
+  `reproduction: {seed, toolkit_version}` (bADR-0008), so a refused or crashed
+  stochastic run stays replayable. (Precedent: pytest-randomly's
   unconditional `Using --randomly-seed=<int>` header; NumPy's documented
   `SeedSequence` best practice — default `None` in, read `.entropy` back out.)
   **Recorded deviation from SUMO's fixed-default-seed model**: a fixed default makes
@@ -33,11 +42,13 @@ is this toolkit's own, assembled from verified external precedent.)*
   for Monte-Carlo estimation. Determinism-on-demand comes from passing `--seed`;
   reproducibility-always comes from the echo.
 
-- **The reproducibility contract is version-scoped:** same seed + same input + same
-  toolkit version → identical output, within bADR-0003's two-tier determinism
-  boundary (bit-exact arithmetic core, including bounded integer exponents;
-  non-integer/large exponents and `exponential` ULP-loose, with the versioned
-  evaluator as reference). **Cross-version seed replay is explicitly
+- **The reproducibility contract is version- and platform-scoped:** same seed +
+  same input + same toolkit version → identical output **on the same platform and
+  runtime**. Across platforms the promise narrows to exactly bADR-0003's numeric
+  contract — bit-identical on the exact tier (the arithmetic core, including
+  bounded integer exponents), final-ULP variation permitted on the loose tier
+  (non-integer/large exponents, `exponential`) — never a blanket cross-platform
+  byte-equality claim. **Cross-version seed replay is explicitly
   unsupported** (QuickCheck: "saving a seed from one version … is not supported";
   Hypothesis's reproduction blob is "not intended to be stable across versions").
 
@@ -67,8 +78,11 @@ is this toolkit's own, assembled from verified external precedent.)*
 - The command descriptor (bADR-0011) carries the stochastic marking from v1, even
   though no v1 command sets it; the conformance harness's seed assertions activate
   with the first stochastic command.
-- Test suites (from #504 on) pass explicit seeds and assert on the echoed seed field,
-  satisfying the "seeded and deterministic" acceptance mechanically.
+- v1 satisfies "seeded and deterministic" (#504) **by construction**: no v1 command
+  draws randomness, so every run is deterministic and there is no seed to pass or
+  echo — the CLI seed rules above activate with the first stochastic command
+  (#510). Randomness a *test suite* uses internally (e.g. property-based
+  generation) is test-infrastructure state outside this contract.
 
 ## References
 

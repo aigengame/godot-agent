@@ -12,12 +12,15 @@ input enters, and the config/logic separation every command obeys (design gate #
 
 ## Decision
 
-- **Per-command `--schema`, emit-only** *(adopted-from-gda: ADR-0004)*. Every domain
-  command supports `--schema`, which emits a JSON object with keys `input` (the
-  command's parameter schema), `output` (its success-result schema), and `error` (the
-  bADR-0008 envelope schema — **byte-identical across every command**). The flag only
-  emits, never accepts; bare `--schema` wins over any other argument *(adopted:
-  ADR-0015's precedence rule)*.
+- **Per-command `--schema`, emit-only** *(adopted-from-gda: ADR-0004)*. Every
+  **registered** command — domain commands and the registered meta command
+  `version` alike (bADR-0011's meta rule) — supports `--schema`, which emits a JSON
+  object with keys `input` (the command's parameter schema), `output` (its
+  success-result schema), and `error` (the bADR-0008 envelope schema —
+  **byte-identical across every command**). The flag only emits, never accepts;
+  bare `--schema` wins over any other argument *(adopted: ADR-0015's precedence
+  rule)*. `help` is the one exempt human-facing surface and carries no `--schema`
+  (bADR-0007/0011).
 
 - **Model-driven, single source** *(adopted-from-gda: ADR-0004; anti-drift as in
   bADR-0005)*. Each command's typed input and output models are the one authority:
@@ -43,13 +46,19 @@ input enters, and the config/logic separation every command obeys (design gate #
 
 - **Config/logic separation.** Commands take the `Design document` as an explicit
   file-path argument — configuration is data handed to the tool, never encoded in
-  flags *(family convention; PRD #501 US19)*. Command output goes to stdout, or to an
-  explicit `--out <path>` where a file is wanted. **No command ever writes to its
-  input path** *(new ground, grounded in bADR-0004)*: validity is a property of a
-  document state, and any mutated state must visibly re-enter the funnel — an
-  in-place write would silently alias an unvalidated state over the input authority.
-  Derived documents (a `design format` emission, a Phase-2 tuning result) are always
-  a new stream or path.
+  flags *(family convention; PRD #501 US19)*. The typed result always stays on
+  stdout (bADR-0008); where an artifact file is wanted, an explicit `--out <path>`
+  receives the **artifact body** while stdout carries the result as a receipt
+  naming the sink — `--out` moves the artifact, never the result. Artifact writes
+  are safe by law: an existing destination is overwritten; the write is atomic
+  (write-then-rename), so a failed invocation leaves no partial file; an
+  unwritable sink is a usage error (`unwritable_output`, bADR-0008). **No command
+  ever writes to its input path** *(new ground, grounded in bADR-0004)*: validity
+  is a property of a document state, and any mutated state must visibly re-enter
+  the funnel — an in-place write would silently alias an unvalidated state over
+  the input authority. `--out` resolving to the input path, directly or through a
+  symlink alias, is therefore a usage error. Derived documents (a `design format`
+  emission, a Phase-2 tuning result) are always a new stream or path.
 
 - **Structured params input: adopted in principle, deferred in delivery.**
   *(adopted-from-gda: ADR-0015 — semantics reserved verbatim; delivery deferred.)*

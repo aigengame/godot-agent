@@ -171,9 +171,10 @@ downstream `Evaluation refusal`), never usage errors.
 _Avoid_: refusal (the funnel's word), invalid input (ambiguous)
 
 **Effective seed**:
-The seed that actually drove a stochastic run — supplied via `--seed` or drawn fresh —
-always echoed in the structured result together with the toolkit version, so every
-stochastic result carries its own reproduction key (bADR-0010).
+The seed that actually drove a stochastic run — supplied via `--seed` (unsigned
+32-bit) or drawn fresh — always echoed in the structured result together with the
+toolkit version, and carried by any failure envelope once drawn, so every stochastic
+outcome keeps its own reproduction key (bADR-0008/0010).
 _Avoid_: random seed (ambiguous), default seed
 
 ### Simulation

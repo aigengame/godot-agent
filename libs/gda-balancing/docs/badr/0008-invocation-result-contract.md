@@ -18,7 +18,10 @@ refusal codes.
   ADR-0002; JSON-first per bADR-0005)*. A successful command emits its typed result
   object — canonically emitted per bADR-0005 — as the only content on stdout. Human
   diagnostics and progress go to stderr; stderr is never parsed for outcome
-  *(adopted-from-gda: ADR-0002's channel discipline)*.
+  *(adopted-from-gda: ADR-0002's channel discipline)*. The invariant is
+  channel-invariant: with `--out` (bADR-0009) the artifact body moves to the sink
+  while stdout still carries the typed result as the receipt — `--out` never forks
+  the result contract.
 
 - **JSON by default; no human renderer in v1.** *(Recorded deviation from gda's
   human-default + `--json` flag.)* This toolkit is agent-first with no human-terminal
@@ -62,6 +65,14 @@ refusal codes.
   - `usage` and `internal` envelopes carry a single envelope-level `code` and no
     `refusals` list. Internal errors use the single fixed code `internal_error`,
     registered in the same registry as the CLI-usage family (bADR-0011).
+  - **Field law (normative).** `category` and `message` are required in every
+    envelope. For `refusal`: `refusals` (non-empty) and `truncated` are required,
+    envelope-level `code` is forbidden. For `usage`/`internal`: `code` is
+    required, `refusals`/`truncated` are forbidden. Two optional members exist:
+    `diagnostics` (string, `internal` only, populated only under `--debug` — see
+    below) and `reproduction` (below). No other member is permitted — the envelope
+    schema is closed, and it is exactly the uniform `error` schema `--schema`
+    publishes (bADR-0009).
 
 - **The CLI-usage code family — the one family this contract mints** *(new ground)*.
   Its boundary is the funnel's ingress: **everything that fails before the document's
@@ -69,9 +80,12 @@ refusal codes.
   mutually-exclusive arguments, an unreadable input path); **everything after is a
   typed refusal** — the funnel's phases (unparseable JSON, caps, version dispatch,
   structure, semantics; bADR-0004) and, past an accepting funnel, the one downstream
-  class, the non-finite Evaluation refusal (bADR-0003). The family's codes live in
-  the single registry the conformance harness walks (bADR-0011); the seam keeps the
-  two namespaces from ever overlapping.
+  class, the non-finite Evaluation refusal (bADR-0003). The **v1 normative code
+  set**: `unknown_command`, `unknown_argument`, `argument_conflict`,
+  `invalid_argument`, `unreadable_input`, `unwritable_output`. The family's codes
+  live in the single registry the conformance harness walks (bADR-0011); additions
+  are additive registry entries, never renames, and the seam keeps the two
+  namespaces from ever overlapping.
 
 - **Exit-code layering** *(new ground — no dominant industry precedent; this layout is
   the toolkit's own assembly of individually verified precedents, recorded per the
@@ -107,9 +121,20 @@ refusal codes.
     may repurpose it meanwhile, and the internal-error exit does not shift when the
     verdict channel is delivered.
 
-- **Internal errors still emit the envelope.** An unexpected exception produces the
-  `internal` envelope on stderr (a traceback may follow it as plain stderr text) —
-  a bare traceback is never the only output of any invocation.
+- **Failure stderr is exactly one sanitized JSON document.** For exits 3 and 4,
+  stdout is empty and stderr carries the envelope and nothing else — no banner, no
+  trailing traceback — so the failure channel is machine-parseable whole, never by
+  line-sniffing. An unexpected exception's detail (traceback, paths) appears only
+  inside the envelope's `diagnostics` field and only under an explicit `--debug`
+  flag; the default `internal` envelope carries the stable code and a sanitized
+  message. A bare traceback is never any invocation's output.
+
+- **Failures after stochastic execution starts carry the reproduction key.** Once a
+  stochastic command (bADR-0010) has drawn its effective seed, any failure envelope
+  it emits — e.g. a Monte-Carlo run hitting the non-finite Evaluation refusal —
+  includes `reproduction: {seed, toolkit_version}`, so the replay key is never lost
+  to the failure path. Deterministic commands never carry the member. (No v1
+  command is stochastic; #510 inherits this with bADR-0010.)
 
 ## Considered options
 

@@ -35,19 +35,31 @@ semantics of individual commands stay with their owning issues (#504, #505/#506,
     central domain object — the `Standard Schema` — and the surface manifest takes the
     reserved name `manifest` instead (bADR-0009). One word, one owner.
 
-- **Reserved Phase-2 groups: `evaluation` and `tuning`** *(new ground, mirroring
-  bADR-0001's reserved sections)*. Noun groups after the glossary's `Evaluation
-  method` / `Tuning method` — not verb names (`simulate`, `tune`), which would break
-  the groups-are-nouns law. Reserved means: the names are fixed now so no later
-  surface squats on them, they are **absent** from the v1 surface (invoking one is an
-  unknown-command usage error, bADR-0008), and #509/#510 fill them at delivery.
+- **Reserved Phase-2 groups: `evaluation` and `tuning`** *(recorded deviation from
+  gda ADR-0005, which enumerates no future surface up front; the reservation
+  pattern mirrors bADR-0001's reserved sections)*. Noun groups after the glossary's
+  `Evaluation method` / `Tuning method` — not verb names (`simulate`, `tune`),
+  which would break the groups-are-nouns law. Reserved means: the names are fixed
+  now so no later surface squats on them, they are **absent** from the v1 surface
+  (invoking one is an unknown-command usage error, bADR-0008), and #509/#510 fill
+  them at delivery. Why deviate: this surface has already had one name contention
+  (`schema` vs `manifest`, above) and the Phase-2 surfaces are certain per PRD
+  #501 — only their shapes are open. Reserving the two nouns costs nothing
+  publicly (a reserved name has no surface to break, and can still be renamed by
+  amending this record before delivery), while an accidental squat *would* force a
+  breaking rename later.
 
 - **Meta commands stay ungrouped: `version`, `help`** *(adopted-from-gda: ADR-0005)*.
   `version` reports the toolkit package version and the supported Standard Schema
   line as **distinct fields** — the two versions are independent authorities and are
-  never conflated (bADR-0001). A third meta name is **reserved**: `manifest`, the
-  deferred aggregate surface manifest (bADR-0009) — reserved on the same terms as the
-  Phase-2 groups above.
+  never conflated (bADR-0001); it is a registered, `--schema`-bearing command like
+  any other (bADR-0011). **`help` (and `--help`) is the surface's one human-facing
+  exemption**: it emits framework help text on stdout at exit 0, is not
+  descriptor-registered, and is excluded from `--schema` and the future `manifest`
+  (bADR-0009/0011) — the JSON result contract governs every *registered* command,
+  and this exemption is decided here rather than left to framework accident. A
+  third meta name is **reserved**: `manifest`, the deferred aggregate surface
+  manifest (bADR-0009) — reserved on the same terms as the Phase-2 groups above.
 
 - **Verb vocabulary adopted verbatim** *(adopted-from-gda: ADR-0005)*: `create`/
   `delete` for standalone entities vs `add`/`remove` for sub-entities in a container;

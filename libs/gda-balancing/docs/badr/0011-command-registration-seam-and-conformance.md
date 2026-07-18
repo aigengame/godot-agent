@@ -16,15 +16,41 @@ here.
 
 - **Every command registers exactly one frozen Command descriptor** *(pattern
   adopted-from-gda: ADR-0023; field set is balancing-local)*. The descriptor names
-  everything the surface needs to run and describe one command: its tree position
-  (group, command — bADR-0007), its typed input and output models (bADR-0009), and
-  its execution markings — today exactly one, **stochastic** (bADR-0010). Registering
-  the descriptor is the *only* way a command enters the surface; a command without
-  one cannot be wired in.
+  everything the surface needs to run, describe, and conformance-test one command:
+  - its **tree position** (group, command — bADR-0007) and a human **description**
+    — the one-line summary shared by `--schema`, the future `manifest`, and help
+    surfaces;
+  - its typed **input and output models** (bADR-0009). Argv binding is *derived*
+    from the input model's fields by one mechanical rule — the model is the single
+    source and the CLI layer a thin adapter (gda ADR-0015's discipline); no
+    per-command hand-wired argument maps exist;
+  - its **handler** — the execution binding, a callable from validated input model
+    to output model. Dispatch is: bind argv into the input model, invoke the
+    handler, emit per bADR-0008. This field is what makes the descriptor
+    *sufficient* to dispatch — without it the single-seam claim would be unearned
+    (gda ADR-0023 carries the same fact as its `operation` + runner selection);
+  - its execution markings — today exactly one, **stochastic** (bADR-0010);
+  - its **conformance fixtures**: a valid invocation case and, for document-taking
+    commands, a refusing-input case — the harness's per-command fuel, registered
+    with the command so test coverage structurally cannot lag the surface.
+  Registering the descriptor is the *only* way a command enters the surface; a
+  command without one cannot be wired in.
   *(Recorded deviation from gda's field set: `render` — no human renderer exists,
   bADR-0008; `recipe`/`kind`/`projectless` — engine, daemon, and project channels
   have no analogue here. Fields are added when a real second channel exists, not
   speculatively.)*
+
+- **Meta commands follow one rule: registered iff they emit a typed JSON result.**
+  `version` is a registered descriptor like any domain command (typed result,
+  `--schema`, harness rows). `help` / `--help` is the surface's **one exempt
+  human-facing channel** (bADR-0007): framework help text, exit 0, no descriptor,
+  excluded from `--schema` and the future `manifest` exactly as gda excludes
+  non-dispatchable meta commands at the source (ADR-0012). The exemption is a
+  recorded decision, not a framework accident.
+
+- **Fault injection is a harness seam, not a production path.** The registry is
+  data the harness owns in test: it substitutes a command's handler with a failing
+  one to drive the internal-error row (exit 4) without any production fault path.
 
 - **All surface behavior is a projection of the descriptor.** Argv wiring, dispatch,
   `--schema` emission (bADR-0009), the future `manifest` aggregation, and the
@@ -38,21 +64,26 @@ here.
   (gda walks its live Typer tree; the mechanism is free, the walkability is law).
 
 - **The conformance harness ships with the surface, from the first command.** It
-  walks every registered descriptor and asserts, per command, every applicable row
-  of the bADR-0008 contract:
-  - success → exit 0, stdout is exactly one JSON document validating against the
-    descriptor's output schema, canonically emitted (bADR-0005);
-  - refusal (document-taking commands) → exit 2, a `refusal` envelope on stdout
-    whose entry codes all resolve against the typed-refusal namespace — the funnel's
-    preflight/structural families and semantic rule catalog, plus the downstream
-    Evaluation refusal family (bADR-0003/0004/0005) — so the CLI can never grow a
-    second refusal-code registry;
-  - usage → exit 3, a `usage` envelope on stderr with a code from the CLI-usage
-    registry; internal (fault injected) → exit 4, an `internal` envelope on stderr;
+  walks every registered descriptor, drives it with its registered fixtures, and
+  asserts, per command, every applicable row of the bADR-0008 contract:
+  - success (valid fixture) → exit 0, stdout is exactly one JSON document
+    validating against the descriptor's output schema, canonically emitted
+    (bADR-0005);
+  - refusal (refusing fixture, document-taking commands) → exit 2, a `refusal`
+    envelope on stdout whose entry codes all resolve against the typed-refusal
+    namespace — the funnel's preflight/structural families and semantic rule
+    catalog, plus the downstream Evaluation refusal family (bADR-0003/0004/0005) —
+    so the CLI can never grow a second refusal-code registry;
+  - usage → exit 3; internal (via the fault-injection seam) → exit 4; for both:
+    **stdout is empty and stderr parses as exactly one schema-valid envelope**
+    (bADR-0008's field law), with the code resolving against the CLI registry;
   - `--schema` → emits `input`/`output`/`error`, with `error` byte-identical across
     the walk (bADR-0009);
   - seed law → stochastic commands accept `--seed` and echo the effective seed;
     deterministic commands refuse it (bADR-0010);
+  - artifact-sink law → with `--out`, stdout still carries the receipt result
+    naming the sink, the write is atomic, and `--out` aliasing the input path
+    refuses (bADR-0009);
   - input immutability → a command's input file is byte-identical before and after
     (bADR-0009);
   - reserved names → no command occupies `evaluation`/`tuning` before their owning
