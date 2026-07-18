@@ -18,7 +18,7 @@ is this toolkit's own, assembled from verified external precedent.)*
 - **Stochastic commands take an explicit `--seed <int>`; deterministic commands never
   do.** A command's descriptor (bADR-0011) declares whether it is stochastic; the
   flag exists exactly on the stochastic ones. Passing `--seed` to a deterministic
-  command is a usage refusal (bADR-0008) — the flag's presence is itself surface
+  command is a usage error (bADR-0008) — the flag's presence is itself surface
   truth about the command's nature, and the conformance harness asserts it both ways.
 
 - **An omitted seed is drawn fresh, and the result always echoes the effective
@@ -35,8 +35,9 @@ is this toolkit's own, assembled from verified external precedent.)*
 
 - **The reproducibility contract is version-scoped:** same seed + same input + same
   toolkit version → identical output, within bADR-0003's two-tier determinism
-  boundary (bit-exact arithmetic core; pow-family results ULP-loose with the
-  versioned evaluator as reference). **Cross-version seed replay is explicitly
+  boundary (bit-exact arithmetic core, including bounded integer exponents;
+  non-integer/large exponents and `exponential` ULP-loose, with the versioned
+  evaluator as reference). **Cross-version seed replay is explicitly
   unsupported** (QuickCheck: "saving a seed from one version … is not supported";
   Hypothesis's reproduction blob is "not intended to be stable across versions").
 

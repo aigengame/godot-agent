@@ -32,8 +32,14 @@ input enters, and the config/logic separation every command obeys (design gate #
   file path is a public contract** (a site-packages path is a brittle interface
   agents cannot reliably locate, and a second authority surface to guard).
   bADR-0005's "runnable by off-the-shelf validators" is a property of the artifact's
-  *content*; redirecting the emission to a file serves that workflow. Free-standing
-  publication (a hosted URL) is an explicit extension point for a future bADR.
+  *content*; redirecting the emission to a file serves that workflow — any emitted
+  copy is the artifact, so validating "without installing the toolkit" needs only a
+  copy someone emitted, not an installation of one's own. Free-standing publication
+  (a hosted URL) is an explicit extension point for a future bADR; until it exists,
+  the structural schema's `$id` is an *identifier*, not a dereferenceable location
+  (JSON Schema's own treatment of `$id`), and the editor ambient validation
+  bADR-0001/0005 describe via `$schema` requires pointing the editor at an emitted
+  copy.
 
 - **Config/logic separation.** Commands take the `Design document` as an explicit
   file-path argument — configuration is data handed to the tool, never encoded in
@@ -50,7 +56,7 @@ input enters, and the config/logic separation every command obeys (design gate #
   The enabling architecture is mandatory from the first command: typed input models
   with argv as a thin adapter, so a structured-params channel is purely additive.
   The flag `--params-json <json | ->` (with `-` reading stdin), its mutual exclusion
-  with individual arguments (a usage refusal, bADR-0008), and its `--schema`
+  with individual arguments (a usage error, bADR-0008), and its `--schema`
   precedence rule are reserved exactly as gda ADR-0015 defines them, and are
   delivered when an adapter consumer (an MCP or similar protocol adapter) exists.
   Until then the input models are already published through `--schema`'s `input` key,

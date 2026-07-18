@@ -42,10 +42,11 @@ here.
   of the bADR-0008 contract:
   - success → exit 0, stdout is exactly one JSON document validating against the
     descriptor's output schema, canonically emitted (bADR-0005);
-  - input refusal (document-taking commands) → exit 2, a `refusal` envelope on
-    stdout whose entry codes all resolve against the funnel's namespace — the
-    semantic rule catalog plus the preflight/structural/Evaluation families
-    (bADR-0004/0005) — so the CLI can never grow a second refusal-code registry;
+  - refusal (document-taking commands) → exit 2, a `refusal` envelope on stdout
+    whose entry codes all resolve against the typed-refusal namespace — the funnel's
+    preflight/structural families and semantic rule catalog, plus the downstream
+    Evaluation refusal family (bADR-0003/0004/0005) — so the CLI can never grow a
+    second refusal-code registry;
   - usage → exit 3, a `usage` envelope on stderr with a code from the CLI-usage
     registry; internal (fault injected) → exit 4, an `internal` envelope on stderr;
   - `--schema` → emits `input`/`output`/`error`, with `error` byte-identical across
@@ -57,7 +58,8 @@ here.
   - reserved names → no command occupies `evaluation`/`tuning` before their owning
     issues land (bADR-0007).
 
-- **The CLI-usage code family lives in one registry** (bADR-0008), read by dispatch
+- **The CLI-usage code family and the fixed `internal_error` code live in one
+  registry** (bADR-0008), read by dispatch
   and by the harness, drift-tested the way the funnel's catalog is (bADR-0005's
   anti-drift rule; family precedent: gda's authoritative `error_codes` registry and
   its ADR-mirror drift test).

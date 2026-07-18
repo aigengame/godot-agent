@@ -8,8 +8,9 @@ PRD #501 US19 requires structured JSON output and typed machine-readable refusal
 distinct from pass/fail verdicts; bADR-0004 fixes the refusal semantics and hands their
 CLI surface — envelope shape and exit codes — to this gate (#518). This bADR fixes what
 one `gda-balancing` invocation returns: the output channels, the success and failure
-payloads, and the exit-code layering. It carries the funnel's refusal codes; it mints
-exactly one new code family (CLI usage) and no refusal codes.
+payloads, and the exit-code layering. It carries the funnel's refusal codes; it mints exactly one
+new code family (CLI usage) plus the single fixed `internal_error` code, and no
+refusal codes.
 
 ## Decision
 
@@ -49,23 +50,28 @@ exactly one new code family (CLI usage) and no refusal codes.
 
   - `category` ∈ `refusal` | `usage` | `internal` — the discriminator agents branch
     on. (A verdict is not an error and never appears here; see the exit table.)
-  - `refusal` envelopes carry the funnel's report verbatim: each entry is bADR-0004's
-    typed refusal — stable `code`, `path` (RFC 6901 JSON Pointer), human `detail` —
-    with bADR-0004's report-all list semantics (deduplicated, path-then-code order,
-    ≤ 1000 entries, explicit `truncated` marker). Envelope-level `code` is absent for
-    refusals: the codes live in the entries, and **this contract mints no refusal
-    codes** — the namespace is the funnel's (preflight + structural families, the
-    semantic rule catalog, and the Evaluation refusal family; bADR-0003/0004).
+  - `refusal` envelopes carry the refusal report verbatim: each entry is bADR-0004's
+    typed refusal — stable `code`, `path` (bADR-0004's instance path, an RFC 6901
+    JSON Pointer), human `detail` — with bADR-0004's report-all list semantics
+    (deduplicated, path-then-code order, ≤ 1000 entries, explicit `truncated`
+    marker). Envelope-level `code` is absent for refusals: the codes live in the
+    entries, and **this contract mints no refusal codes** — the carried namespace is
+    the funnel's families (preflight + structural + the semantic rule catalog,
+    bADR-0004) plus the one downstream class, the non-finite Evaluation refusal
+    family (bADR-0003).
   - `usage` and `internal` envelopes carry a single envelope-level `code` and no
-    `refusals` list.
+    `refusals` list. Internal errors use the single fixed code `internal_error`,
+    registered in the same registry as the CLI-usage family (bADR-0011).
 
-- **The CLI-usage code family — the one family this contract mints.** Its boundary is
-  the funnel's ingress: **everything that fails before the document's bytes reach the
-  funnel is a usage error** (unknown command or flag, mutually-exclusive arguments,
-  an unreadable input path); **everything after is the funnel's** (unparseable JSON,
-  caps, version dispatch, structure, semantics — all typed refusals, bADR-0004). The
-  family's codes live in the single registry the conformance harness walks
-  (bADR-0011); the seam keeps the two namespaces from ever overlapping.
+- **The CLI-usage code family — the one family this contract mints** *(new ground)*.
+  Its boundary is the funnel's ingress: **everything that fails before the document's
+  bytes reach the funnel is a usage error** (unknown command or flag,
+  mutually-exclusive arguments, an unreadable input path); **everything after is a
+  typed refusal** — the funnel's phases (unparseable JSON, caps, version dispatch,
+  structure, semantics; bADR-0004) and, past an accepting funnel, the one downstream
+  class, the non-finite Evaluation refusal (bADR-0003). The family's codes live in
+  the single registry the conformance harness walks (bADR-0011); the seam keeps the
+  two namespaces from ever overlapping.
 
 - **Exit-code layering** *(new ground — no dominant industry precedent; this layout is
   the toolkit's own assembly of individually verified precedents, recorded per the
@@ -75,7 +81,7 @@ exactly one new code family (CLI usage) and no refusal codes.
   |---|---|---|---|---|
   | `0` | success (incl. validate-passed; later verdict-pass) | result object | stdout | v1 |
   | `1` | **verdict-fail** — a *valid* design judged failing its balance targets | verdict report (shape owned by Phase-2 design) | stdout | reserved |
-  | `2` | **input refusal** — the funnel refused the document | `refusal` envelope | stdout | v1 |
+  | `2` | **refusal** — typed refusals rejected the document (funnel phases, or the downstream Evaluation refusal) | `refusal` envelope | stdout | v1 |
   | `3` | **usage error** — the invocation itself is malformed | `usage` envelope | stderr | v1 |
   | `4` | **internal error** — the toolkit itself failed | `internal` envelope | stderr | v1 |
 
@@ -124,11 +130,9 @@ exactly one new code family (CLI usage) and no refusal codes.
 - **Refusal report on stderr** (rejected) — the refusal report is the primary product
   of a validation run and the batch-fix input for agents (bADR-0004's report-all
   rationale); hiding the product on the diagnostics channel serves no one.
-
-## Considered options — result shape
-
-- **Bare typed result object, envelope only on failure** (chosen) — one top-level
-  `error` key is the in-band discriminator; exit code is the out-of-band one.
+- **Bare typed result object on success, envelope only on failure** (chosen) — one
+  top-level `error` key is the in-band discriminator; exit code is the out-of-band
+  one.
 - **Uniform wrapper around success results too** (rejected) — a second envelope with
   no discriminating job; the success schema is already per-command via `--schema`
   (bADR-0009).

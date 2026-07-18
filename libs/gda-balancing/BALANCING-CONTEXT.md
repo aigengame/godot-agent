@@ -148,10 +148,11 @@ _Avoid_: command spec, command config, registry entry
 
 **Error envelope**:
 The single top-level-`error` JSON object a failed invocation emits — category `refusal`
-(stdout, exit 2; carrying the funnel's typed refusals verbatim, report-all) or
-`usage` / `internal` (stderr, exits 3 / 4; a single envelope-level code). It carries
-the funnel's refusal codes without minting any; the CLI-usage family is the one code
-family the CLI contract owns (bADR-0008).
+(stdout, exit 2; carrying typed refusals verbatim — the funnel's families plus the
+downstream `Evaluation refusal` family — report-all) or `usage` / `internal` (stderr,
+exits 3 / 4; a single envelope-level code). It carries the refusal codes without
+minting any; the CLI-usage family plus the fixed `internal_error` code are all the CLI
+contract owns (bADR-0008).
 _Avoid_: error blob, failure JSON, exception dump
 
 **Verdict**:
@@ -165,7 +166,8 @@ _Avoid_: validation result, balance error, failure (vague)
 An invocation-surface failure — everything that goes wrong **before** the document's
 bytes reach the `Boundary funnel`: unknown command or flag, argument conflicts, an
 unreadable input path. Exit 3, envelope on stderr, own stable code family (bADR-0008);
-unparseable JSON and everything after ingress belong to the funnel, not here.
+unparseable JSON and everything after ingress are typed refusals (the funnel's, or the
+downstream `Evaluation refusal`), never usage errors.
 _Avoid_: refusal (the funnel's word), invalid input (ambiguous)
 
 **Effective seed**:

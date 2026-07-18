@@ -40,12 +40,14 @@ semantics of individual commands stay with their owning issues (#504, #505/#506,
   method` / `Tuning method` — not verb names (`simulate`, `tune`), which would break
   the groups-are-nouns law. Reserved means: the names are fixed now so no later
   surface squats on them, they are **absent** from the v1 surface (invoking one is an
-  unknown-command usage refusal, bADR-0008), and #509/#510 fill them at delivery.
+  unknown-command usage error, bADR-0008), and #509/#510 fill them at delivery.
 
 - **Meta commands stay ungrouped: `version`, `help`** *(adopted-from-gda: ADR-0005)*.
   `version` reports the toolkit package version and the supported Standard Schema
   line as **distinct fields** — the two versions are independent authorities and are
-  never conflated (bADR-0001).
+  never conflated (bADR-0001). A third meta name is **reserved**: `manifest`, the
+  deferred aggregate surface manifest (bADR-0009) — reserved on the same terms as the
+  Phase-2 groups above.
 
 - **Verb vocabulary adopted verbatim** *(adopted-from-gda: ADR-0005)*: `create`/
   `delete` for standalone entities vs `add`/`remove` for sub-entities in a container;
