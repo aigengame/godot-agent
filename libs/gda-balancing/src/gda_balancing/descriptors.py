@@ -15,7 +15,7 @@ designation replaces that field's option binding (bADR-0011's binding law).
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.envelope import RefusalReport
 
@@ -23,6 +23,30 @@ from gda_balancing.envelope import RefusalReport
 # registered command occupies them, and dispatch resolves them as unknown.
 RESERVED_GROUPS = frozenset({"evaluation", "tuning"})
 RESERVED_META = frozenset({"manifest"})
+
+
+class ArtifactSpec(BaseModel):
+    """The one normative receipt member (bADR-0009): the resolved sink path and
+    the byte count written there. Closed and frozen — the receipt shape is a
+    published contract, not an open bag."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str
+    bytes: int
+
+
+class ArtifactReceipt(BaseModel):
+    """The stdout receipt an ``--out`` invocation emits in place of the artifact
+    body (bADR-0009): ``artifact: {path, bytes}`` and nothing else. Present in a
+    result exactly when ``--out`` was used, forbidden otherwise — so every
+    artifact-sink command's output model is ``RootModel[<Body> | ArtifactReceipt]``
+    (see :attr:`CommandDescriptor.artifact_sink`), letting the dispatch tail
+    construct the receipt as the declared output type."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    artifact: ArtifactSpec
 
 
 @dataclass(frozen=True)
@@ -66,9 +90,17 @@ class CommandDescriptor:
     handler: Callable[..., BaseModel | RefusalReport]
     fixtures: ConformanceFixtures
     positional_field: str | None = None
-    # Execution markings — today exactly one (bADR-0010/0011). No v1 command
-    # sets it; the harness's seed row keys off it.
+    # Execution markings (bADR-0010/0011); the harness's per-marking rows key
+    # off them.
     stochastic: bool = field(default=False)
+    # `artifact_sink` marks a command that emits a canonical artifact and so
+    # accepts `--out <path>` (bADR-0009): the artifact body goes to the sink and
+    # stdout carries an `ArtifactReceipt` instead. Only such commands accept
+    # `--out`; every other command rejects it as an unknown argument. Contract:
+    # an artifact-sink command's `output_model` MUST be
+    # `RootModel[<Body> | ArtifactReceipt]`, so the dispatch tail can construct
+    # the receipt as the declared output type.
+    artifact_sink: bool = field(default=False)
 
     def __post_init__(self) -> None:
         if self.group in RESERVED_GROUPS or (

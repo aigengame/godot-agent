@@ -12,14 +12,21 @@ bare traceback is never any invocation's output; ``--debug`` routes it into
 ``diagnostics``.
 """
 
+import os
+import tempfile
 import traceback
 from collections.abc import Sequence
 from typing import Any, TextIO
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from gda_balancing.commands import REGISTRY
-from gda_balancing.descriptors import CommandDescriptor, option_bindings
+from gda_balancing.descriptors import (
+    ArtifactReceipt,
+    ArtifactSpec,
+    CommandDescriptor,
+    option_bindings,
+)
 from gda_balancing.emit import canonical_json, model_payload
 from gda_balancing.envelope import (
     ERROR_ENVELOPE_SCHEMA,
@@ -37,6 +44,7 @@ from gda_balancing.envelope import (
 _SCHEMA_FLAG = "--schema"
 _HELP_FLAG = "--help"
 _DEBUG_FLAG = "--debug"
+_OUT_FLAG = "--out"
 
 
 class _UsageError(Exception):
@@ -124,7 +132,7 @@ def _dispatch(
         stdout.write(_render_command_help(descriptor))
         return EXIT_SUCCESS
 
-    values = _bind(descriptor, tail)
+    values, out = _bind(descriptor, tail)
     try:
         input_obj = descriptor.input_model(**values)
     except ValidationError as err:
@@ -146,28 +154,59 @@ def _dispatch(
             f"handler returned {type(outcome).__name__}, not the declared "
             f"output model {descriptor.output_model.__name__}"
         )
-    stdout.write(canonical_json(model_payload(outcome)))
+    body = canonical_json(model_payload(outcome))
+    if descriptor.artifact_sink and out is not None:
+        # The BODY arm goes to the sink; stdout carries the receipt (bADR-0009).
+        # The sink is written BEFORE stdout, and an unwritable sink raises
+        # `_UsageError` (exit 3) while stdout is still untouched — so the
+        # exit-3-implies-empty-stdout law holds even on a write failure.
+        receipt = _write_artifact(descriptor, out, body)
+        stdout.write(canonical_json(model_payload(receipt)))
+        return EXIT_SUCCESS
+    stdout.write(body)
     return EXIT_SUCCESS
 
 
-def _bind(descriptor: CommandDescriptor, tail: list[str]) -> dict[str, str]:
-    """Apply the binding law to the command tail (bADR-0011).
+def _bind(
+    descriptor: CommandDescriptor, tail: list[str]
+) -> tuple[dict[str, str], str | None]:
+    """Apply the binding law to the command tail (bADR-0011); return the bound
+    model values and the ``--out`` sink path (``None`` when absent).
 
-    Every option is valued (``--name value`` or ``--name=value``); no v1
-    input model declares a boolean flag. ``--debug`` is the dispatch-owned
-    global flag and is skipped here.
+    Every option is valued (``--name value`` or ``--name=value``); no v1 input
+    model declares a boolean flag. ``--debug`` is the dispatch-owned global flag
+    and ``--out`` the dispatch-owned artifact sink (bADR-0009) — both are read
+    here, never bound as model fields. ``--out`` is accepted only for an
+    ``artifact_sink`` command; anywhere else it is an unknown argument.
     """
     options = option_bindings(descriptor)
     values: dict[str, str] = {}
     positionals: list[str] = []
+    out: str | None = None
     i = 0
     while i < len(tail):
         token = tail[i]
         if token == _DEBUG_FLAG:
             i += 1
             continue
+        name, eq, inline_value = token.partition("=")
+        if name == _OUT_FLAG:
+            if not descriptor.artifact_sink:
+                raise _UsageError("unknown_argument", f"unknown argument: {name}")
+            if out is not None:
+                raise _UsageError(
+                    "argument_conflict", f"argument named more than once: {name}"
+                )
+            if eq:
+                out = inline_value
+            else:
+                i += 1
+                if i >= len(tail):
+                    raise _UsageError("invalid_argument", f"missing value for {name}")
+                out = tail[i]
+            i += 1
+            continue
         if token.startswith("--"):
-            name, eq, inline_value = token.partition("=")
             field = options.get(name)
             if field is None:
                 raise _UsageError("unknown_argument", f"unknown argument: {name}")
@@ -194,7 +233,62 @@ def _bind(descriptor: CommandDescriptor, tail: list[str]) -> dict[str, str]:
         )
     if positionals and descriptor.positional_field is not None:
         values[descriptor.positional_field] = positionals[0]
-    return values
+
+    if out is not None and descriptor.positional_field is not None:
+        _reject_input_aliasing(out, values.get(descriptor.positional_field))
+    return values, out
+
+
+def _reject_input_aliasing(out: str, input_path: str | None) -> None:
+    """No command writes to its input path (bADR-0009): an ``--out`` resolving
+    to the input document — directly or through a symlink alias — is a usage
+    `argument_conflict`.
+
+    The guard treats the positional as an *input path* only when it names an
+    existing filesystem entry: a command whose positional is a read document
+    (``design format``) always has one, while a command whose positional is an
+    enum name (``schema get``'s ``structural``/``catalog``) has no input file to
+    alias, so it is exempt. ``realpath`` resolves symlinks on both sides, so the
+    check catches an aliased sink as well as a directly-named one.
+    """
+    if input_path is None or not os.path.exists(input_path):
+        return
+    if os.path.realpath(out) == os.path.realpath(input_path):
+        raise _UsageError(
+            "argument_conflict", "--out must not resolve to the input path"
+        )
+
+
+def _write_artifact(descriptor: CommandDescriptor, out: str, body: str) -> BaseModel:
+    """Write the artifact ``body`` to the sink atomically and return the receipt
+    as the descriptor's declared output model (bADR-0009).
+
+    The write is atomic — a temp file in the sink's own directory, then
+    ``os.replace`` — so a failed invocation leaves no partial file and an
+    existing destination is overwritten wholesale. Any ``OSError`` (unwritable
+    directory, replace failure) is a usage `unwritable_output`; the temp file is
+    cleaned up first, and stdout is still untouched, so the exit-3 stdout-empty
+    law holds.
+    """
+    body_bytes = body.encode("utf-8")
+    directory = os.path.dirname(out) or "."
+    tmp_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=directory, delete=False) as handle:
+            tmp_name = handle.name
+            handle.write(body_bytes)
+        os.replace(tmp_name, out)
+    except OSError as err:
+        if tmp_name is not None and os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+        raise _UsageError(
+            "unwritable_output", f"cannot write output file: {out}"
+        ) from err
+    return descriptor.output_model(
+        root=ArtifactReceipt(
+            artifact=ArtifactSpec(path=os.path.realpath(out), bytes=len(body_bytes))
+        )
+    )
 
 
 def _schema_projection(descriptor: CommandDescriptor) -> dict[str, Any]:

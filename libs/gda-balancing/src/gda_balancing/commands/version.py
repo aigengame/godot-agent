@@ -2,9 +2,10 @@
 
 `version` self-describes both authorities as distinct fields, never a single
 conflated string (bADR-0009): the toolkit package version and the supported
-Standard Schema line (bADR-0001's major.minor line, e.g. ``"1.0"``).
-``supported_schema_line`` is ``null`` until #504 lands the first validatable
-Standard Schema implementation (adjudicated 2026-07-19 on #502).
+Standard Schema line (bADR-0001's major.minor line, e.g. ``"1.0"``). Now that
+#504 lands the first validatable Standard Schema implementation,
+``supported_schema_line`` reports that line (:data:`SUPPORTED_LINE`), never
+``null``.
 """
 
 from importlib.metadata import version as package_version
@@ -12,6 +13,7 @@ from importlib.metadata import version as package_version
 from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
+from gda_balancing.schema.version import SUPPORTED_LINE
 
 
 class VersionInput(BaseModel):
@@ -30,7 +32,7 @@ class VersionResult(BaseModel):
 def run_version(_: VersionInput) -> VersionResult:
     return VersionResult(
         toolkit_version=package_version("gda-balancing"),
-        supported_schema_line=None,
+        supported_schema_line=SUPPORTED_LINE,
     )
 
 

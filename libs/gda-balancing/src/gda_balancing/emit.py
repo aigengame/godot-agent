@@ -28,5 +28,9 @@ def canonical_json(payload: Any) -> str:
 
 
 def model_payload(model: BaseModel) -> dict[str, Any]:
-    """Dump a typed model with its defined defaults materialized explicitly."""
-    return model.model_dump(mode="json")
+    """Dump a typed model with its defined defaults materialized explicitly,
+    rendering each field under its serialization alias (``by_alias=True``) so an
+    aliased field like ``DesignDocument.schema_ref`` emits as ``"$schema"`` — the
+    key the generated structural schema (also alias-keyed) validates against.
+    Alias-free models are unaffected."""
+    return model.model_dump(mode="json", by_alias=True)

@@ -20,7 +20,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, RootModel
 
-from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
+from gda_balancing.descriptors import (
+    ArtifactReceipt,
+    CommandDescriptor,
+    ConformanceFixtures,
+)
 from gda_balancing.schema.artifacts import generate_catalog, generate_structural_schema
 
 
@@ -32,9 +36,12 @@ class SchemaGetInput(BaseModel):
     artifact: Literal["structural", "catalog"]
 
 
-class SchemaArtifact(RootModel[dict[str, Any]]):
+class SchemaArtifact(RootModel[dict[str, Any] | ArtifactReceipt]):
     """A self-description artifact — the bare schema object, no wrapper
-    (bADR-0008). The ``RootModel`` root dumps as the raw JSON object."""
+    (bADR-0008) — or, when ``--out`` was given, the :class:`ArtifactReceipt` the
+    dispatch tail substitutes (bADR-0009). The union is the artifact-sink
+    output-model contract; the body arm is the raw JSON object the ``RootModel``
+    root dumps directly."""
 
 
 def run_schema_get(inp: SchemaGetInput) -> SchemaArtifact:
@@ -53,5 +60,8 @@ SCHEMA_GET = CommandDescriptor(
     output_model=SchemaArtifact,
     handler=run_schema_get,
     positional_field="artifact",
+    # The self-description artifacts are artifacts too (bADR-0009): `--out`
+    # redirects the emitted schema to the sink under the same artifact law.
+    artifact_sink=True,
     fixtures=ConformanceFixtures(valid_args=("structural",)),
 )

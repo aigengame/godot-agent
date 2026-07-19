@@ -6,6 +6,7 @@ proves both installed entry points end to end.
 
 import dataclasses
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -165,6 +166,72 @@ class TestPerDescriptorRows:
     def test_seed_row_deterministic_refuses_seed(self, descriptor, run_cli, invocation):
         assert not descriptor.stochastic  # no v1 command is stochastic
         argv = [*invocation(descriptor), "--seed", "1"]
+        exit_code, stdout, stderr = run_cli(argv)
+        assert (exit_code, stdout) == (3, "")
+        assert _assert_envelope(stderr, "usage")["code"] == "unknown_argument"
+
+    # --- Artifact-sink rows (bADR-0009), keyed on `descriptor.artifact_sink` ---
+
+    def test_artifact_sink_row(self, descriptor, run_cli, invocation, tmp_path):
+        # `--out <path>` moves the artifact body to the sink and puts the receipt
+        # on stdout; the sink's bytes equal the no-`--out` stdout of the same
+        # invocation, and the receipt names the resolved sink and its byte size.
+        if not descriptor.artifact_sink:
+            pytest.skip("not an artifact-sink command")
+        argv = invocation(descriptor)
+        _, body, _ = run_cli(argv)
+        sink = tmp_path / "artifact.json"
+        exit_code, stdout, stderr = run_cli([*argv, "--out", str(sink)])
+        assert (exit_code, stderr) == (0, "")
+        assert sink.read_bytes() == body.encode("utf-8")
+        payload = json.loads(stdout)
+        jsonschema.validate(payload, descriptor.output_model.model_json_schema())
+        assert payload["artifact"]["path"] == os.path.realpath(str(sink))
+        assert payload["artifact"]["bytes"] == sink.stat().st_size
+        # Atomic write-then-rename leaves the sink's directory with no temp litter.
+        assert [p.name for p in tmp_path.iterdir()] == ["artifact.json"]
+
+    def test_receipt_forbidden_without_out(self, descriptor, run_cli, invocation):
+        # bADR-0009: the receipt member is present exactly when `--out` was used,
+        # forbidden otherwise — so a no-`--out` object body carries no `artifact`.
+        if not descriptor.artifact_sink:
+            pytest.skip("not an artifact-sink command")
+        _, stdout, _ = run_cli(invocation(descriptor))
+        parsed = json.loads(stdout)
+        if isinstance(parsed, dict):
+            assert "artifact" not in parsed
+
+    def test_out_aliasing_input_is_argument_conflict(
+        self, descriptor, run_cli, invocation
+    ):
+        # No command writes to its input path (bADR-0009): `--out <the input
+        # path>` is a usage `argument_conflict`, and the input file is untouched.
+        if not descriptor.artifact_sink or descriptor.fixtures.valid_document is None:
+            pytest.skip("not an artifact-sink command with a document input")
+        argv = invocation(descriptor)
+        input_path = argv[-1]  # the positional path is appended last
+        before = Path(input_path).read_bytes()
+        exit_code, stdout, stderr = run_cli([*argv, "--out", input_path])
+        assert (exit_code, stdout) == (3, "")
+        assert _assert_envelope(stderr, "usage")["code"] == "argument_conflict"
+        assert Path(input_path).read_bytes() == before
+
+    def test_unwritable_sink_is_usage_error(self, descriptor, run_cli, invocation):
+        # An unwritable sink is a usage `unwritable_output` (bADR-0008/0009); the
+        # write precedes stdout, so exit 3 keeps stdout empty.
+        if not descriptor.artifact_sink:
+            pytest.skip("not an artifact-sink command")
+        argv = [*invocation(descriptor), "--out", "/nonexistent-dir/x.json"]
+        exit_code, stdout, stderr = run_cli(argv)
+        assert (exit_code, stdout) == (3, "")
+        assert _assert_envelope(stderr, "usage")["code"] == "unwritable_output"
+
+    def test_non_sink_rejects_out(self, descriptor, run_cli, invocation):
+        # Only artifact-sink commands accept `--out`; anywhere else it is an
+        # unknown argument (bADR-0009).
+        if descriptor.artifact_sink:
+            pytest.skip("artifact-sink command accepts --out")
+        argv = [*invocation(descriptor), "--out", "x"]
         exit_code, stdout, stderr = run_cli(argv)
         assert (exit_code, stdout) == (3, "")
         assert _assert_envelope(stderr, "usage")["code"] == "unknown_argument"
