@@ -1,15 +1,12 @@
 """The bADR-0011 conformance harness — walks the registry, asserts every
 applicable bADR-0008 row per registered command, plus the cross-walk laws
-(reserved names, envelope byte-identity) and the true-subprocess smoke that
-proves both installed entry points end to end.
+(reserved names, envelope byte-identity). The true-subprocess tier lives in
+test_e2e_cli.py per the family's e2e naming convention.
 """
 
 import dataclasses
 import json
 import os
-import shutil
-import subprocess
-import sys
 from pathlib import Path
 
 import jsonschema
@@ -304,89 +301,3 @@ class TestSurfaceLaws:
             exit_code, stdout, stderr = run_cli(argv)
             assert (exit_code, stderr) == (0, "")
             assert "usage:" in stdout
-
-
-class TestEntryPointSmoke:
-    """True subprocesses: the packaging claim #502 exists to prove."""
-
-    def _console_script(self) -> str:
-        script = shutil.which("gda-balancing")
-        assert script is not None, (
-            "console script `gda-balancing` not on PATH — run the suite via "
-            "`uv run pytest` after `uv sync --all-packages` (the entry point "
-            "is what this smoke test exists to prove)"
-        )
-        return script
-
-    def test_both_entry_points_agree_on_the_valid_row(self):
-        console = subprocess.run(
-            [self._console_script(), "version"], capture_output=True, text=True
-        )
-        module = subprocess.run(
-            [sys.executable, "-m", "gda_balancing", "version"],
-            capture_output=True,
-            text=True,
-        )
-        assert (console.returncode, console.stderr) == (0, "")
-        assert (module.returncode, module.stderr) == (0, "")
-        assert console.stdout == module.stdout
-        json.loads(console.stdout)
-
-    def test_stream_separation_end_to_end(self):
-        result = subprocess.run(
-            [self._console_script()], capture_output=True, text=True
-        )
-        assert (result.returncode, result.stdout) == (3, "")
-        assert _assert_envelope(result.stderr, "usage")["code"] == "missing_command"
-
-    # --- The key user path, as real processes (RULES DoD: automated e2e on
-    # the path an agent actually drives — author a document, validate it, get
-    # typed refusals, format canonically, read the self-description). The
-    # in-process rows above prove the behavior; these prove the same commands
-    # through the installed entry point, OS argv/streams, and real files.
-
-    _MINIMAL_DOC = '{"schema_version": "1.0.0", "meta": {"name": "smallest"}}'
-
-    def _run(self, *argv: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [self._console_script(), *argv], capture_output=True, text=True
-        )
-
-    def test_validate_key_path(self, tmp_path):
-        doc = tmp_path / "doc.json"
-        doc.write_text(self._MINIMAL_DOC, encoding="utf-8")
-        result = self._run("design", "validate", str(doc))
-        assert (result.returncode, result.stderr) == (0, "")
-        assert result.stdout == '{"valid": true}\n'
-
-    def test_refusal_key_path(self, tmp_path):
-        doc = tmp_path / "doc.json"
-        doc.write_text(self._MINIMAL_DOC.replace("1.0.0", "9.0.0"), encoding="utf-8")
-        result = self._run("design", "validate", str(doc))
-        assert (result.returncode, result.stderr) == (2, "")
-        payload = json.loads(result.stdout)
-        jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
-        assert payload["error"]["category"] == "refusal"
-        codes = {r["code"] for r in payload["error"]["refusals"]}
-        assert codes == {"unsupported_schema_version"}
-
-    def test_format_with_sink_key_path(self, tmp_path):
-        doc = tmp_path / "doc.json"
-        doc.write_text(self._MINIMAL_DOC, encoding="utf-8")
-        sink = tmp_path / "canonical.json"
-        bare = self._run("design", "format", str(doc))
-        sunk = self._run("design", "format", str(doc), "--out", str(sink))
-        assert (bare.returncode, bare.stderr) == (0, "")
-        assert (sunk.returncode, sunk.stderr) == (0, "")
-        # The sink holds exactly the artifact the bare invocation printed,
-        # and the receipt names it (bADR-0009).
-        assert sink.read_text(encoding="utf-8") == bare.stdout
-        receipt = json.loads(sunk.stdout)["artifact"]
-        assert receipt["path"] == str(sink.resolve())
-        assert receipt["bytes"] == sink.stat().st_size
-
-    def test_schema_get_key_path(self):
-        result = self._run("schema", "get", "structural")
-        assert (result.returncode, result.stderr) == (0, "")
-        artifact = json.loads(result.stdout)
-        assert artifact["$id"].endswith("1.0.0")
