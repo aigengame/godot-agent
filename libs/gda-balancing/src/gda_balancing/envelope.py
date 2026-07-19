@@ -52,6 +52,19 @@ REFUSAL_BOUND = 1000
 # RFC 6901 JSON Pointer ("" is the whole document; each token escapes ~ and /).
 _JSON_POINTER_PATTERN = r"^(/([^/~]|~[01])*)*$"
 
+# The published-schema form of the constraint. Sharing the regex TEXT alone
+# is not engine-stable: Python's `re` (the jsonschema validator) lets the
+# terminal `$` also match before a trailing newline, so a lone "\n" would
+# satisfy the pattern via zero repetitions — while pydantic's Rust engine
+# (the model side) anchors `$` at true end-of-text and rejects it. RFC 6901
+# requires empty-or-leading-"/", encoded here explicitly without relying on
+# `$` semantics; the sibling `pattern` keeps the token-escape validity.
+_JSON_POINTER_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "pattern": _JSON_POINTER_PATTERN,
+    "anyOf": [{"const": ""}, {"pattern": "^/"}],
+}
+
 
 class Refusal(BaseModel):
     """One element-level typed refusal (bADR-0004): stable code, JSON Pointer
@@ -116,10 +129,7 @@ ERROR_ENVELOPE_SCHEMA: dict[str, Any] = {
                                 "type": "object",
                                 "properties": {
                                     "code": {"type": "string"},
-                                    "path": {
-                                        "type": "string",
-                                        "pattern": _JSON_POINTER_PATTERN,
-                                    },
+                                    "path": _JSON_POINTER_SCHEMA,
                                     "detail": {"type": "string"},
                                 },
                                 "required": ["code", "path", "detail"],

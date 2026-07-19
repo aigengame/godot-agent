@@ -103,6 +103,31 @@ def test_refusal_path_is_a_json_pointer():
     _invalid({"error": {**base, "refusals": [not_a_pointer]}})
 
 
+def test_lone_newline_path_is_rejected_by_model_and_schema():
+    # Engine-divergence regression: Python `re` lets the terminal `$` match
+    # before a trailing newline, so a lone "\n" satisfied the bare pointer
+    # pattern on the jsonschema side while pydantic's Rust engine rejected
+    # it. The published schema now encodes RFC 6901's empty-or-leading-"/"
+    # shape without relying on `$`; both sides must reject.
+    with pytest.raises(PydanticValidationError):
+        Refusal(code="c", path="\n", detail="d")
+    base = {"category": "refusal", "message": "rejected", "truncated": False}
+    _invalid(
+        {"error": {**base, "refusals": [{"code": "c", "path": "\n", "detail": "d"}]}}
+    )
+    # A newline INSIDE a token stays legal on both sides (RFC 6901 allows
+    # any non-`/`/`~` character in a reference token).
+    embedded = Refusal(code="c", path="/a\nb", detail="d")
+    _valid(
+        {
+            "error": {
+                **base,
+                "refusals": [embedded.model_dump(mode="json")],
+            }
+        }
+    )
+
+
 def test_usage_carries_no_reproduction():
     # Usage errors resolve at binding, before execution — a seed can never
     # have been drawn, so the usage branch has no `reproduction` member.
