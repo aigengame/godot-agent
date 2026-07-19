@@ -268,15 +268,18 @@ def _power(base: float, exponent: float) -> float:
         n = int(exponent)
         if n == 0:
             return 1.0  # including 0**0 == 1
+        # Every multiplication is individually finiteness-checked: an
+        # intermediate overflow must refuse, never hide behind a later
+        # reciprocal (`1e200**-2` is a refusal, not a silent 0.0).
         magnitude = base
         for _ in range(abs(n) - 1):
-            magnitude = magnitude * base
+            magnitude = _finite(magnitude * base, "power")
         if n > 0:
             return magnitude
-        # n < 0: a SINGLE reciprocal of x^|n| (so 10^-2 == 1/(10*10)).
-        if base == 0.0:
-            raise EvaluationRefusal("zero base raised to a negative exponent")
-        return 1.0 / magnitude
+        # n < 0: a SINGLE reciprocal of x^|n| (so 10^-2 == 1/(10*10)), through
+        # the checked division so a zero (or underflowed-to-zero) magnitude is
+        # a typed refusal, never a raw ZeroDivisionError.
+        return _divide(1.0, magnitude, "power")
     # Non-integer or out-of-domain exponent: platform IEEE-754 `pow`, whose
     # final ULP may differ across platforms (bADR-0003 narrows the claim here).
     try:

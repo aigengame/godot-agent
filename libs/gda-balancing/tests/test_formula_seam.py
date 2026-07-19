@@ -214,3 +214,24 @@ def test_evaluate_bases_floor_clamp() -> None:
         }
     )
     assert evaluate_bases(document) == {"floored": 0.0}
+
+
+def test_power_intermediate_overflow_refuses() -> None:
+    # 1e200^-2: the intermediate square overflows — a refusal, never a
+    # silent 0.0 behind the reciprocal.
+    with pytest.raises(EvaluationRefusal) as excinfo:
+        _eval({"op": "power", "args": [{"literal": 1e200}, {"literal": -2.0}]})
+    assert excinfo.value.code == "non_finite_evaluation"
+
+
+def test_power_underflowed_reciprocal_refuses() -> None:
+    # 1e-200^-2: the square underflows to 0.0; the reciprocal must be the
+    # checked division's typed refusal, never a raw ZeroDivisionError.
+    with pytest.raises(EvaluationRefusal) as excinfo:
+        _eval({"op": "power", "args": [{"literal": 1e-200}, {"literal": -2.0}]})
+    assert excinfo.value.code == "non_finite_evaluation"
+
+
+def test_power_zero_base_negative_exponent_refuses() -> None:
+    with pytest.raises(EvaluationRefusal):
+        _eval({"op": "power", "args": [{"literal": 0.0}, {"literal": -1.0}]})
