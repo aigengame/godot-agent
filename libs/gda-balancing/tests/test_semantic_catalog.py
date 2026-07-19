@@ -48,6 +48,28 @@ def test_rule_refuses_exactly_its_violation_fixture(rule) -> None:
     assert {r.code for r in semantic.run(doc, raw)} == {rule.code}
 
 
+# The one known earlier-phase shadowing: any depth-33 expression tree has JSON
+# nesting > 64, so preflight's terminal `nesting_too_deep` fires before the
+# semantic phase can (see the module docstring). A NEW shadowing of any other
+# rule must either be fixed or explicitly excepted here.
+_FUNNEL_SHADOWED = frozenset({"expression_tree_too_deep"})
+
+
+@pytest.mark.parametrize("rule", SEMANTIC_RULES, ids=[r.code for r in SEMANTIC_RULES])
+def test_rule_fixture_refuses_end_to_end(rule, run_cli, tmp_path) -> None:
+    # The CLI route: an agent submitting the fixture gets exit 2 carrying
+    # exactly this rule's code — funnel reachability as an executable
+    # invariant, not an assumption the semantic-layer walk leaves open.
+    if rule.code in _FUNNEL_SHADOWED:
+        pytest.skip("structurally shadowed by the preflight nesting cap")
+    doc_path = tmp_path / "fixture.json"
+    doc_path.write_text(json.dumps(rule.violation_fixture), encoding="utf-8")
+    exit_code, stdout, stderr = run_cli(["design", "validate", str(doc_path)])
+    assert (exit_code, stderr) == (2, "")
+    codes = {r["code"] for r in json.loads(stdout)["error"]["refusals"]}
+    assert codes == {rule.code}
+
+
 def test_registry_codes_are_unique() -> None:
     codes = [rule.code for rule in SEMANTIC_RULES]
     assert len(codes) == len(set(codes))
