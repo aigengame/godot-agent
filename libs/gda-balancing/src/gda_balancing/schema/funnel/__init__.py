@@ -2,16 +2,18 @@
 
 Every Design document crosses this single boundary before any use; downstream
 code never re-validates and never defends (bADR-0004). This package is the
-funnel's public face. It runs Phase 0 (preflight) then Phase 1 (structural),
-each gating the next, and returns the **typed Design document** on success; the
-semantic phase (Phase 2) arrives in a later stage, unioning its rule catalog
-into :func:`refusal_code_namespace`.
+funnel's public face. It runs Phase 0 (preflight), Phase 1 (structural), then
+Phase 2 (semantic), each gating the next, and returns the **typed Design
+document** on success. The semantic phase's rule codes union into
+:func:`refusal_code_namespace`.
 """
+
+from typing import Any, cast
 
 from pydantic import ValidationError
 
 from gda_balancing.envelope import RefusalReport, UnreadableInputError
-from gda_balancing.schema.funnel import report
+from gda_balancing.schema.funnel import report, semantic
 from gda_balancing.schema.funnel.preflight import (
     MAX_DOCUMENT_BYTES,
     PREFLIGHT_CODES,
@@ -55,6 +57,11 @@ def validate(data: bytes) -> DesignDocument | RefusalReport:
     here is therefore an *engine-parity bug*, not a user error: it is re-raised
     as a :class:`RuntimeError` so it takes the internal path (exit 4), never a
     silent refusal. The engine-parity tests exist to keep this unreachable.
+
+    The semantic phase (Phase 2) runs last, on the *typed* document plus the raw
+    parsed root (bADR-0004: it runs only when the structural phase produced no
+    refusals). Its refusals are assembled and returned; a document clearing all
+    three phases is returned as its typed :class:`DesignDocument`.
     """
     pre_refusals, root = preflight(data)
     preflight_report = report.assemble(pre_refusals)
@@ -66,20 +73,36 @@ def validate(data: bytes) -> DesignDocument | RefusalReport:
         return structural_report
 
     try:
-        return DesignDocument.model_validate(root)
+        document = DesignDocument.model_validate(root)
     except ValidationError as exc:
         raise RuntimeError(
             "structural schema passed but model construction failed — "
             f"engine-parity bug: {exc}"
         ) from exc
 
+    # `root` is a parsed object; the semantic rules that read raw top-level keys
+    # (`$schema`, reserved sections) need a dict. Preflight already refused a
+    # non-object root as `malformed_schema_version`, and the structural phase
+    # re-validates the closed object envelope — so by here `root` is a dict. The
+    # cast records that invariant without an input-boundary assert.
+    raw = cast(dict[str, Any], root)
+    semantic_report = report.assemble(semantic.run(document, raw))
+    if semantic_report is not None:
+        return semantic_report
+
+    return document
+
 
 def refusal_code_namespace() -> frozenset[str]:
     """Every stable refusal code the funnel can emit.
 
-    The preflight family plus the single structural code; a later stage unions
-    the semantic rule catalog into it. The conformance harness asserts every
-    emitted refusal code resolves against this namespace, so the CLI can never
-    grow a second refusal-code registry (bADR-0011).
+    The preflight family, the single structural code, and every semantic rule's
+    code (the rule id *is* its refusal code, bADR-0004/0005). The conformance
+    harness asserts every emitted refusal code resolves against this namespace,
+    so the CLI can never grow a second refusal-code registry (bADR-0011).
     """
-    return PREFLIGHT_CODES | {STRUCTURAL_VIOLATION}
+    return (
+        PREFLIGHT_CODES
+        | {STRUCTURAL_VIOLATION}
+        | {rule.code for rule in semantic.SEMANTIC_RULES}
+    )

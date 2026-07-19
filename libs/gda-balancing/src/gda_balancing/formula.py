@@ -29,6 +29,7 @@ Numeric contract (bADR-0003, summarized; the bADR is authoritative):
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from pydantic import TypeAdapter
 
@@ -55,6 +56,10 @@ from gda_balancing.schema.model.formula import (
     UnaryOp,
 )
 
+if TYPE_CHECKING:
+    from gda_balancing.schema.model.attributes import Bounds
+    from gda_balancing.schema.model.document import DesignDocument
+
 __all__ = [
     # Refusal contract
     "NON_FINITE_EVALUATION",
@@ -63,6 +68,7 @@ __all__ = [
     "FormulaEnv",
     "parse_formula",
     "evaluate",
+    "evaluate_bases",
     # Re-exported model vocabulary
     "Formula",
     "NamedForm",
@@ -157,6 +163,56 @@ def evaluate(formula: Formula, env: FormulaEnv) -> float:
     ):
         return _eval_form(formula, env)
     return _eval_node(formula, env)
+
+
+def evaluate_bases(document: "DesignDocument") -> dict[str, float]:
+    """The definition-time final value of every attribute base (bADR-0002/0003).
+
+    Evaluates the attributes in topological order of the acyclic base-formula
+    graph (bADR-0002): a ``direct`` base yields its configured value; a
+    ``formula`` base evaluates against a :class:`FormulaEnv` whose ``attr_values``
+    are the finals computed so far — so an ``attr`` node reads the referenced
+    attribute's definition-time final. Each result is then clamped to the
+    attribute's declared ``bounds`` (``floor`` first, then ``cap``; an absent
+    side is unbounded). At definition time the value pipeline has no allocation
+    or effect contributions, so the final **is** ``clamp(base, bounds)``
+    (bADR-0002), and a dependent formula reads that clamped final.
+
+    **Precondition:** ``document`` has passed the boundary funnel (references
+    declared, graph acyclic — bADR-0004); violations are caller bugs, not
+    handled here. A non-finite base raises :class:`EvaluationRefusal`
+    (bADR-0003's single sanctioned downstream refusal class), which propagates.
+    """
+    # Lazy import: the seam depends on schema internals, never the reverse
+    # (bADR-0003) — and importing at call time keeps the module-load graph free
+    # of the funnel package.
+    from gda_balancing.schema.funnel.semantic.graph import topological_order
+
+    items = document.attributes.items
+    finals: dict[str, float] = {}
+    for attr_id in topological_order(document):
+        base = items[attr_id].base
+        if isinstance(base, DirectBase):
+            value = _finite(base.direct, f"base {attr_id!r}")
+        else:
+            value = evaluate(
+                base.formula,
+                FormulaEnv(attr_values=finals, params=document.parameters),
+            )
+        finals[attr_id] = _clamp(value, items[attr_id].bounds)
+    return finals
+
+
+def _clamp(value: float, bounds: "Bounds | None") -> float:
+    """Clamp ``value`` to ``bounds`` — ``floor`` first, then ``cap`` — treating
+    an absent side as unbounded (bADR-0002)."""
+    if bounds is None:
+        return value
+    if bounds.floor is not None:
+        value = max(value, bounds.floor)
+    if bounds.cap is not None:
+        value = min(value, bounds.cap)
+    return value
 
 
 # --- Finiteness, division, and the signed-zero-aware min/max ---------------

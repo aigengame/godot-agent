@@ -34,7 +34,7 @@ from typing import Any
 
 from gda_balancing.schema.model.document import DesignDocument
 from gda_balancing.schema.model.ids import ID_PATTERN
-from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
+from gda_balancing.schema.version import SCHEMA_VERSION, STRUCTURAL_SCHEMA_ID
 
 # The JSON Schema dialect the artifact declares itself in (2020-12, bADR-0005).
 _DIALECT = "https://json-schema.org/draft/2020-12/schema"
@@ -56,6 +56,39 @@ def generate_structural_schema() -> dict[str, Any]:
     schema["$id"] = STRUCTURAL_SCHEMA_ID
     _harden(schema)
     return schema
+
+
+def generate_catalog() -> dict[str, Any]:
+    """Build the published **semantic rule catalog** (bADR-0005).
+
+    A machine-readable index of the semantic phase's rules — each entry is
+    ``{id, scope, description, since_version}`` — **projected** from the single
+    rule registry (:data:`gda_balancing.schema.funnel.semantic.SEMANTIC_RULES`),
+    never hand-written: the rule id *is* the refusal code (bADR-0004), so the
+    catalog cannot drift from the validator. Entries are sorted by id for a
+    stable artifact.
+
+    ``since_version`` is line-granular (``"1.0"``), matching bADR-0001's
+    acceptance granularity — a validator serving ``X.Y`` ships every rule of
+    ``X.0 … X.Y`` — while the top-level ``schema_version`` is the full version
+    the artifact set was published at.
+    """
+    # Lazy import keeps the structural-schema generation path (the funnel's hot
+    # path) decoupled from the semantic layer.
+    from gda_balancing.schema.funnel.semantic import SEMANTIC_RULES
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "rules": [
+            {
+                "id": rule.code,
+                "scope": rule.scope,
+                "description": rule.description,
+                "since_version": rule.since_version,
+            }
+            for rule in sorted(SEMANTIC_RULES, key=lambda r: r.code)
+        ],
+    }
 
 
 def _harden(node: object) -> None:

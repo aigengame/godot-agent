@@ -1,9 +1,10 @@
-"""`design validate` behavior — the preflight phase of the boundary funnel.
+"""`design validate` behavior — the boundary funnel end to end.
 
 Drives the command end to end through ``run_cli`` (in-process dispatch, real
 argv binding). A passing document validates as ``{"valid": true}``; every
 refusal path asserts the exit code and the typed refusal codes/paths bADR-0004
-and bADR-0004a (V1, V12) fix. Refusal envelopes are validated against the one
+and bADR-0004a fix (preflight V12, structural V1/V2, and the semantic phase's
+V2/V3/V4/V12-reserved rules). Refusal envelopes are validated against the one
 closed error schema, never inspected free-form.
 """
 
@@ -13,6 +14,10 @@ import jsonschema
 
 from gda_balancing.emit import canonical_json
 from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
+from gda_balancing.formula import evaluate_bases
+from gda_balancing.schema.funnel import validate
+from gda_balancing.schema.model.document import DesignDocument
+from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
 
 _MINIMAL = '{"schema_version": "1.0.0", "meta": {"name": "smallest"}}'
 
@@ -246,6 +251,225 @@ def test_v2_untyped_formula_ref_is_a_structural_refusal(run_cli, tmp_path):
     refusals = _refusals(stdout)
     assert refusals
     assert all(r["code"] == "structural_violation" for r in refusals)
+
+
+# --- Semantic phase: V2 positive + seam (bADR-0002/0003/0004) ---------------
+
+_V2_DOCUMENT = {
+    "schema_version": "1.0.0",
+    "meta": {"name": "v2"},
+    "parameters": {"power": 10},
+    "attributes": {
+        "items": {
+            "power": {"domain": "number", "base": {"direct": 5}},
+            "strike": {
+                "domain": "number",
+                "base": {
+                    "formula": {
+                        "op": "add",
+                        "args": [{"attr": "power"}, {"param": "power"}],
+                    }
+                },
+            },
+        }
+    },
+}
+
+
+def test_v2_full_document_validates(run_cli, tmp_path):
+    # `power` is declared in both namespaces; the typed nodes disambiguate, and
+    # the document clears the whole funnel (preflight → structural → semantic).
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, json.dumps(_V2_DOCUMENT))
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+
+
+def test_v2_definition_time_finals_through_the_seam():
+    # A validated document is the seam's precondition; `validate` is the funnel's
+    # public face. strike = power(5) + param power(10) = 15.
+    outcome = validate(json.dumps(_V2_DOCUMENT).encode("utf-8"))
+    assert isinstance(outcome, DesignDocument)
+    assert evaluate_bases(outcome) == {"power": 5.0, "strike": 15.0}
+
+
+# --- V3: strictly-increasing form points (semantic) -------------------------
+
+
+def test_v3_non_increasing_points_are_refused(run_cli, tmp_path):
+    document = {
+        "schema_version": "1.0.0",
+        "meta": {"name": "v3"},
+        "attributes": {
+            "items": {
+                "level": {"domain": "number", "base": {"direct": 3}},
+                "curve": {
+                    "domain": "number",
+                    "base": {
+                        "formula": {
+                            "form": "piecewise_linear",
+                            "input": {"attr": "level"},
+                            "points": [[5, 30], [1, 10]],
+                        }
+                    },
+                },
+            }
+        },
+    }
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("form_points_not_increasing", "/attributes/items/curve/base/formula/points")
+    ]
+
+
+# --- V4: tier-pattern satisfaction, exact-set accepts (semantic) ------------
+
+
+def test_v4_tier_pattern_exact_set_matching(run_cli, tmp_path):
+    document = {
+        "schema_version": "1.0.0",
+        "meta": {"name": "v4"},
+        "attributes": {
+            "tiers": {
+                "primary": {"base": "direct", "accepts": ["allocation", "effects"]}
+            },
+            "items": {
+                "str": {
+                    "domain": "number",
+                    "base": {"direct": 8},
+                    "accepts": ["allocation", "effects"],
+                    "tier": "primary",
+                },
+                "agi": {
+                    "domain": "number",
+                    "base": {"direct": 8},
+                    "accepts": ["allocation"],
+                    "tier": "primary",
+                },
+            },
+        },
+    }
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    # `str` conforms (exactly {allocation, effects}); only `agi` is refused.
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("tier_pattern_unsatisfied", "/attributes/items/agi")
+    ]
+
+
+# --- V12: reserved section refused until designed (semantic) ----------------
+
+
+def test_v12_reserved_section_is_refused(run_cli, tmp_path):
+    document = {
+        "schema_version": "1.0.0",
+        "meta": {"name": "reserved"},
+        "builds": {},
+    }
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("reserved_section_present", "/builds")
+    ]
+
+
+# --- $schema agreement (bADR-0001, semantic) --------------------------------
+
+
+def test_schema_reference_disagreement_is_refused(run_cli, tmp_path):
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "x"}, '
+        '"$schema": "urn:something-else"}'
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("schema_reference_disagreement", "/$schema")
+    ]
+
+
+def test_schema_reference_agreement_validates(run_cli, tmp_path):
+    content = json.dumps(
+        {
+            "schema_version": "1.0.0",
+            "meta": {"name": "x"},
+            "$schema": STRUCTURAL_SCHEMA_ID,
+        }
+    )
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, content)
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+
+
+# --- Base-formula acyclicity (bADR-0002, semantic) --------------------------
+
+
+def test_mutual_base_formula_cycle_refuses_both_bases(run_cli, tmp_path):
+    document = {
+        "schema_version": "1.0.0",
+        "meta": {"name": "cycle"},
+        "attributes": {
+            "items": {
+                "alpha": {"domain": "number", "base": {"formula": {"attr": "beta"}}},
+                "beta": {"domain": "number", "base": {"formula": {"attr": "alpha"}}},
+            }
+        },
+    }
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("base_formula_cycle", "/attributes/items/alpha/base"),
+        ("base_formula_cycle", "/attributes/items/beta/base"),
+    ]
+
+
+# --- Expression-tree limits (bADR-0003, semantic) ---------------------------
+
+
+def _tree_document(name: str, formula: dict) -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "meta": {"name": name},
+        "attributes": {
+            "items": {"t": {"domain": "number", "base": {"formula": formula}}}
+        },
+    }
+
+
+def test_wide_expression_tree_exceeding_node_cap_is_refused(run_cli, tmp_path):
+    # 256 literal args + 1 `add` = 257 nodes > 256, but only depth 2 — so it
+    # exercises the node-count limit, and its JSON nesting is shallow enough to
+    # clear preflight and reach the semantic phase.
+    wide = {"op": "add", "args": [{"literal": 1} for _ in range(256)]}
+    document = _tree_document("wide", wide)
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("expression_tree_too_large", "/attributes/items/t/base/formula")
+    ]
+
+
+def test_deep_expression_tree_is_refused(run_cli, tmp_path):
+    # A depth-33 expression tree violates the semantic depth cap (> 32) — but any
+    # tree that deep also has JSON nesting > 64, so the funnel's terminal
+    # preflight nesting cap refuses it FIRST with `nesting_too_deep`; the
+    # semantic `expression_tree_too_deep` rule is structurally shadowed here (it
+    # is asserted directly in test_semantic_catalog.py). Either way the document
+    # is refused (exit 2), never accepted.
+    node: dict = {"literal": 1}
+    for _ in range(32):
+        node = {"op": "floor", "args": [node]}
+    document = _tree_document("deep", node)
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    codes = {r["code"] for r in _refusals(stdout)}
+    assert codes == {"nesting_too_deep"}
 
 
 # --- Usage boundary (bADR-0008) --------------------------------------------

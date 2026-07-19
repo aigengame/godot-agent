@@ -1,11 +1,20 @@
 """The public formula seam's contract (bADR-0003, vectors V2/V3/V16).
 
-These tests import ONLY :mod:`gda_balancing.formula` — the one authorized
-external boundary for the definition-time evaluators (bADR-0003). Formulas are
-built from JSON-shaped dicts via ``parse_formula`` so the tests exercise the
-same parse path a document funnel would, never the internal model classes.
+The single-formula tests import ONLY :mod:`gda_balancing.formula` — the one
+authorized external boundary for the definition-time evaluators (bADR-0003).
+Formulas are built from JSON-shaped dicts via ``parse_formula`` so the tests
+exercise the same parse path a document funnel would, never the internal model
+classes.
+
+The ``evaluate_bases`` tests are the seam's *document-level* face: they compute
+the definition-time final values of a whole document's attribute bases. That
+function's precondition is a **funnel-validated document** (references declared,
+graph acyclic — bADR-0002/0003), so those tests obtain their input through
+:func:`gda_balancing.schema.funnel.validate`, the funnel's public face — the
+sanctioned way to produce the ``DesignDocument`` the seam consumes.
 """
 
+import json
 import math
 
 import pytest
@@ -15,13 +24,22 @@ from gda_balancing.formula import (
     EvaluationRefusal,
     FormulaEnv,
     evaluate,
+    evaluate_bases,
     parse_formula,
 )
+from gda_balancing.schema.funnel import validate
+from gda_balancing.schema.model.document import DesignDocument
 
 
 def _eval(data: object, *, attrs=None, params=None) -> float:
     env = FormulaEnv(attr_values=attrs or {}, params=params or {})
     return evaluate(parse_formula(data), env)
+
+
+def _validated(document: dict) -> DesignDocument:
+    outcome = validate(json.dumps(document).encode("utf-8"))
+    assert isinstance(outcome, DesignDocument), outcome
+    return outcome
 
 
 def test_v2_typed_same_id_refs_disambiguate() -> None:
@@ -122,3 +140,77 @@ def test_linear_form_resolves_param_scalar_field() -> None:
         params={"gain": 5.0},
     )
     assert result == 35.0  # 20 + 5 * 3
+
+
+# --- evaluate_bases: definition-time final values (bADR-0002/0003) ----------
+
+
+def test_evaluate_bases_v2_typed_refs() -> None:
+    # V2: `strike` reads `power`'s definition-time final (5) plus the parameter
+    # `power` (10) -> 15; the topological order evaluates `power` first.
+    document = _validated(
+        {
+            "schema_version": "1.0.0",
+            "meta": {"name": "v2"},
+            "parameters": {"power": 10},
+            "attributes": {
+                "items": {
+                    "power": {"domain": "number", "base": {"direct": 5}},
+                    "strike": {
+                        "domain": "number",
+                        "base": {
+                            "formula": {
+                                "op": "add",
+                                "args": [{"attr": "power"}, {"param": "power"}],
+                            }
+                        },
+                    },
+                }
+            },
+        }
+    )
+    assert evaluate_bases(document) == {"power": 5.0, "strike": 15.0}
+
+
+def test_evaluate_bases_clamps_then_dependents_read_the_clamped_final() -> None:
+    # `capped` has direct base 10 but a cap of 5 -> final 5. A dependent formula
+    # reading `capped` observes the CLAMPED final (5), never the raw base (10).
+    document = _validated(
+        {
+            "schema_version": "1.0.0",
+            "meta": {"name": "clamp"},
+            "attributes": {
+                "items": {
+                    "capped": {
+                        "domain": "number",
+                        "base": {"direct": 10},
+                        "bounds": {"cap": 5},
+                    },
+                    "dependent": {
+                        "domain": "number",
+                        "base": {"formula": {"attr": "capped"}},
+                    },
+                }
+            },
+        }
+    )
+    assert evaluate_bases(document) == {"capped": 5.0, "dependent": 5.0}
+
+
+def test_evaluate_bases_floor_clamp() -> None:
+    document = _validated(
+        {
+            "schema_version": "1.0.0",
+            "meta": {"name": "floor"},
+            "attributes": {
+                "items": {
+                    "floored": {
+                        "domain": "number",
+                        "base": {"direct": -3},
+                        "bounds": {"floor": 0},
+                    }
+                }
+            },
+        }
+    )
+    assert evaluate_bases(document) == {"floored": 0.0}
