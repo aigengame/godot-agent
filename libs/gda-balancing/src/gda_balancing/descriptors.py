@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel
 
+from gda_balancing.envelope import RefusalReport
+
 # Reserved by bADR-0007 for Phase 2; the conformance harness asserts no
 # registered command occupies them, and dispatch resolves them as unknown.
 RESERVED_GROUPS = frozenset({"evaluation", "tuning"})
@@ -27,11 +29,13 @@ RESERVED_META = frozenset({"manifest"})
 class ConformanceFixtures:
     """Per-command cases the conformance harness drives (bADR-0011).
 
-    ``valid_argv`` is a full argv for one valid invocation. ``refusing_input``
-    is required for document-taking commands only — none exist in v1 (#504).
+    ``valid_args`` is the argument *tail* of one valid invocation — the
+    command path itself is derived from the descriptor by every harness row,
+    so fixture and identity cannot drift apart. ``refusing_input`` is
+    required for document-taking commands only — none exist in v1 (#504).
     """
 
-    valid_argv: tuple[str, ...]
+    valid_args: tuple[str, ...] = ()
     refusing_input: str | None = None
 
 
@@ -45,11 +49,12 @@ class CommandDescriptor:
     input_model: type[BaseModel]
     output_model: type[BaseModel]
     # Pure: takes the bound input model and returns the output model on
-    # success (v1) or a typed-refusal report (#504); never prints, never
+    # success or a typed-refusal report (bADR-0011's two normative outcomes;
+    # #504's funnel is the first refusal producer); never prints, never
     # exits, never sees a usage error. An unexpected exception here is the
     # sole path to `internal` / exit 4. Typed `...` because each command's
     # handler takes its own concrete input model (contravariance).
-    handler: Callable[..., BaseModel]
+    handler: Callable[..., BaseModel | RefusalReport]
     fixtures: ConformanceFixtures
     positional_field: str | None = None
     # Execution markings — today exactly one (bADR-0010/0011). No v1 command
@@ -69,6 +74,20 @@ class CommandDescriptor:
                 f"positional designation {self.positional_field!r} names no "
                 f"{self.input_model.__name__} field"
             )
+
+
+def build_registry(*descriptors: CommandDescriptor) -> tuple[CommandDescriptor, ...]:
+    """Assemble the registry, enforcing single-authority command identity:
+    a duplicate ``(group, command)`` path is a registration error, never a
+    silently-shadowed dispatch."""
+    seen: set[tuple[str | None, str]] = set()
+    for descriptor in descriptors:
+        path = (descriptor.group, descriptor.command)
+        if path in seen:
+            joined = " ".join(p for p in path if p is not None)
+            raise ValueError(f"duplicate command registration: {joined}")
+        seen.add(path)
+    return tuple(descriptors)
 
 
 def option_bindings(descriptor: CommandDescriptor) -> dict[str, str]:

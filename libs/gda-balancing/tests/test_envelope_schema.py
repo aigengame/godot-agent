@@ -13,8 +13,12 @@ from gda_balancing.envelope import (
     CLI_ERROR_CODES,
     ERROR_ENVELOPE_SCHEMA,
     INTERNAL_ERROR,
+    REFUSAL_BOUND,
     USAGE_CODES,
+    Refusal,
+    RefusalReport,
     internal_envelope,
+    refusal_envelope,
     usage_envelope,
 )
 
@@ -35,6 +39,14 @@ def test_builders_emit_schema_valid_envelopes():
     _valid(usage_envelope("missing_command", "no command named"))
     _valid(internal_envelope("it broke"))
     _valid(internal_envelope("it broke", diagnostics="Traceback ..."))
+    _valid(
+        refusal_envelope(
+            RefusalReport(
+                refusals=(Refusal(code="c", path="/attributes/0", detail="d"),),
+                truncated=True,
+            )
+        )
+    )
 
 
 def test_builders_reject_unregistered_codes():
@@ -54,6 +66,46 @@ def test_refusal_field_law():
                 "refusals": [REFUSAL_ITEM],
                 "truncated": False,
                 "code": "invalid_argument",
+            }
+        }
+    )
+
+
+def test_refusal_report_is_bounded():
+    base = {"category": "refusal", "message": "rejected", "truncated": True}
+    at_bound = [REFUSAL_ITEM] * REFUSAL_BOUND
+    _valid({"error": {**base, "refusals": at_bound}})
+    _invalid({"error": {**base, "refusals": at_bound + [REFUSAL_ITEM]}})
+
+
+def test_refusal_path_is_a_json_pointer():
+    base = {"category": "refusal", "message": "rejected", "truncated": False}
+    whole_document = {"code": "c", "path": "", "detail": "d"}
+    _valid({"error": {**base, "refusals": [whole_document]}})
+    not_a_pointer = {"code": "c", "path": "not-a-pointer", "detail": "d"}
+    _invalid({"error": {**base, "refusals": [not_a_pointer]}})
+
+
+def test_usage_carries_no_reproduction():
+    # Usage errors resolve at binding, before execution — a seed can never
+    # have been drawn, so the usage branch has no `reproduction` member.
+    _invalid(
+        {
+            "error": {
+                "category": "usage",
+                "code": "unknown_command",
+                "message": "m",
+                "reproduction": {"seed": 1, "toolkit_version": "0.0.0"},
+            }
+        }
+    )
+    _valid(
+        {
+            "error": {
+                "category": "internal",
+                "code": INTERNAL_ERROR,
+                "message": "m",
+                "reproduction": {"seed": 1, "toolkit_version": "0.0.0"},
             }
         }
     )

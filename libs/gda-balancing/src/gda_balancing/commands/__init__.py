@@ -7,6 +7,6 @@ the tuple.
 """
 
 from gda_balancing.commands.version import VERSION
-from gda_balancing.descriptors import CommandDescriptor
+from gda_balancing.descriptors import CommandDescriptor, build_registry
 
-REGISTRY: tuple[CommandDescriptor, ...] = (VERSION,)
+REGISTRY: tuple[CommandDescriptor, ...] = build_registry(VERSION)

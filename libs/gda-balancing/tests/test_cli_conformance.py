@@ -4,6 +4,7 @@ applicable bADR-0008 row per registered command, plus the cross-walk laws
 proves both installed entry points end to end.
 """
 
+import dataclasses
 import json
 import shutil
 import subprocess
@@ -17,13 +18,25 @@ from gda_balancing.descriptors import (
     RESERVED_GROUPS,
     RESERVED_META,
     CommandDescriptor,
+    build_registry,
 )
 from gda_balancing.emit import canonical_json
-from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA, USAGE_CODES
+from gda_balancing.envelope import (
+    ERROR_ENVELOPE_SCHEMA,
+    USAGE_CODES,
+    Refusal,
+    RefusalReport,
+)
 
 
 def _command_path(descriptor: CommandDescriptor) -> list[str]:
     return ([descriptor.group] if descriptor.group else []) + [descriptor.command]
+
+
+def _valid_invocation(descriptor: CommandDescriptor) -> list[str]:
+    """Every row derives the command path from the descriptor itself — the
+    fixture contributes only the argument tail, so identity cannot drift."""
+    return [*_command_path(descriptor), *descriptor.fixtures.valid_args]
 
 
 def _assert_envelope(stderr_text: str, category: str) -> dict:
@@ -40,7 +53,7 @@ _IDS = [" ".join(_command_path(d)) for d in REGISTRY]
 @pytest.mark.parametrize("descriptor", REGISTRY, ids=_IDS)
 class TestPerDescriptorRows:
     def test_success_row(self, descriptor, run_cli):
-        exit_code, stdout, stderr = run_cli(list(descriptor.fixtures.valid_argv))
+        exit_code, stdout, stderr = run_cli(_valid_invocation(descriptor))
         assert (exit_code, stderr) == (0, "")
         payload = json.loads(stdout)
         jsonschema.validate(payload, descriptor.output_model.model_json_schema())
@@ -49,14 +62,14 @@ class TestPerDescriptorRows:
         assert stdout == canonical_json(payload)
 
     def test_usage_row(self, descriptor, run_cli):
-        argv = [*descriptor.fixtures.valid_argv, "--no-such-argument"]
+        argv = [*_valid_invocation(descriptor), "--no-such-argument"]
         exit_code, stdout, stderr = run_cli(argv)
         assert (exit_code, stdout) == (3, "")
         error = _assert_envelope(stderr, "usage")
         assert error["code"] in USAGE_CODES
 
     def test_internal_row(self, descriptor, run_cli, fault_registry):
-        argv = list(descriptor.fixtures.valid_argv)
+        argv = _valid_invocation(descriptor)
         exit_code, stdout, stderr = run_cli(argv, fault_registry)
         assert (exit_code, stdout) == (4, "")
         error = _assert_envelope(stderr, "internal")
@@ -65,7 +78,7 @@ class TestPerDescriptorRows:
         assert "Traceback" not in stderr  # sanitized by default
 
     def test_internal_row_debug_diagnostics(self, descriptor, run_cli, fault_registry):
-        argv = [*descriptor.fixtures.valid_argv, "--debug"]
+        argv = [*_valid_invocation(descriptor), "--debug"]
         exit_code, stdout, stderr = run_cli(argv, fault_registry)
         assert (exit_code, stdout) == (4, "")
         error = _assert_envelope(stderr, "internal")
@@ -85,7 +98,7 @@ class TestPerDescriptorRows:
 
     def test_seed_row_deterministic_refuses_seed(self, descriptor, run_cli):
         assert not descriptor.stochastic  # no v1 command is stochastic
-        argv = [*descriptor.fixtures.valid_argv, "--seed", "1"]
+        argv = [*_valid_invocation(descriptor), "--seed", "1"]
         exit_code, stdout, stderr = run_cli(argv)
         assert (exit_code, stdout) == (3, "")
         assert _assert_envelope(stderr, "usage")["code"] == "unknown_argument"
@@ -111,6 +124,31 @@ class TestSurfaceLaws:
             exit_code, stdout, stderr = run_cli([reserved])
             assert (exit_code, stdout) == (3, "")
             assert _assert_envelope(stderr, "usage")["code"] == "unknown_command"
+
+    def test_refusal_outcome_maps_to_refusal_envelope_exit_2(self, run_cli):
+        # No v1 command produces refusals (#504 lands the funnel); the seam
+        # is proven by injection, like the internal row: a handler returning
+        # a RefusalReport must yield the refusal envelope on STDOUT, exit 2.
+        report = RefusalReport(
+            refusals=(
+                Refusal(code="some_refusal", path="/attributes/0", detail="why"),
+            ),
+            truncated=False,
+        )
+        registry = tuple(
+            dataclasses.replace(d, handler=lambda _i, _r=report: _r) for d in REGISTRY
+        )
+        for descriptor in registry:
+            exit_code, stdout, stderr = run_cli(_valid_invocation(descriptor), registry)
+            assert (exit_code, stderr) == (2, "")
+            payload = json.loads(stdout)
+            jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
+            assert payload["error"]["category"] == "refusal"
+            assert payload["error"]["truncated"] is False
+
+    def test_duplicate_command_registration_is_rejected(self):
+        with pytest.raises(ValueError, match="duplicate command registration"):
+            build_registry(REGISTRY[0], REGISTRY[0])
 
     def test_bare_invocation_is_missing_command_never_help(self, run_cli):
         exit_code, stdout, stderr = run_cli([])

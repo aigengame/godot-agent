@@ -4,7 +4,7 @@ The toolkit names no game identity and imports no game, engine, or `gda`
 code; this gate is the single owner of that constraint, at the hardened
 standard: recursive file collection and AST-level import walking (syntax-
 aware, so lazy in-function imports and both `import X` / `from X import Y`
-spellings are covered), a word-boundary vocabulary scan, and a stray
+spellings are covered), an identifier-aware vocabulary scan, and a stray
 per-game-config scan.
 
 This module is the package's sole sanctioned appearance of the forbidden
@@ -16,6 +16,8 @@ file and nothing else.
 import ast
 import re
 from pathlib import Path
+
+import pytest
 
 _PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 _SRC_DIR = _PACKAGE_ROOT / "src" / "gda_balancing"
@@ -35,11 +37,38 @@ _FORBIDDEN_IMPORT_ROOTS = frozenset(
     }
 )
 
-# Engine identity, the engine's scripting language, the example game's
-# identity, and its decision-record prefix. Deliberately NOT a bare `gda`
-# word: it is a substring of this package's own name (`gda-balancing`), and
-# the import gate above already owns the import axis.
-_FORBIDDEN_VOCABULARY = re.compile(r"\b(godot|gdscript|panda|gadr)\b", re.IGNORECASE)
+# Game-identity vocabulary: engine identities and scripting language, the
+# example game's identity + decision-record prefix, its item/actor identity
+# nouns, and the mechanic fields PRD #501 names as the prior leak class
+# (warp kit, time fields). Deliberate exclusions: a bare `gda` (substring of
+# this package's own name; the import gate owns the import axis) and the
+# predecessor gate's genre-generic mechanics words (gravity, hud, obstacle,
+# crate, pickup, boss) — genre templates may legitimately speak those;
+# `unity` collides with the math term, accepted (write `1` instead).
+_FORBIDDEN_TERMS = (
+    "godot",
+    "gdscript",
+    "unity",
+    "unreal",
+    "panda",
+    "gadr",
+    "spacesuit",
+    "laser",
+    "bun",
+    "wine",
+    "warp",
+    "time_field",
+    "time_dilation",
+)
+
+# Identifier-aware boundaries: `\b` treats `_` as a word character, so a
+# snake_case compound like `warp_charges` would slip past `\bwarp\b`. These
+# lookarounds bound terms by "not a letter/digit" instead, catching the term
+# bare, in snake_case, and in SCREAMING_CASE alike.
+_FORBIDDEN_VOCABULARY = re.compile(
+    r"(?<![a-zA-Z0-9])(" + "|".join(_FORBIDDEN_TERMS) + r")(?![a-zA-Z0-9])",
+    re.IGNORECASE,
+)
 
 
 def _python_sources() -> list[Path]:
@@ -99,3 +128,34 @@ def test_toolkit_carries_no_per_game_config() -> None:
         for path in sorted(_SRC_DIR.rglob("*.json"))
     ]
     assert not stray, "per-game config files inside the toolkit:\n" + "\n".join(stray)
+
+
+@pytest.mark.parametrize("term", _FORBIDDEN_TERMS)
+def test_vocabulary_gate_catches_each_denylisted_term(term: str) -> None:
+    """Red-proof per term: bare, SCREAMING_CASE, and snake_case-compound
+    spellings must all trip the scan (the identifier-aware boundaries exist
+    for the compound forms, which `\\b` would miss)."""
+    for sample in (
+        term,
+        term.upper(),
+        f"max_{term}_charges = 3",
+        f"{term.upper()}_DEFENSE = 0.5",
+    ):
+        assert _FORBIDDEN_VOCABULARY.search(sample), sample
+
+
+@pytest.mark.parametrize(
+    "benign",
+    [
+        "gda-balancing",  # the package's own name
+        "gda_balancing.dispatch",
+        "unrealistic growth curves",  # `unreal` bounded by letters
+        "bundle size",  # `bun` bounded by letters
+        "pickup_radius = 2.5",  # genre-generic mechanics stay legal
+        "boss_encounter waves",
+        "gravity_scale",
+        "over-time effects tick each period",  # bare `time` is not identity
+    ],
+)
+def test_vocabulary_gate_allows_family_and_genre_generic_speech(benign: str) -> None:
+    assert not _FORBIDDEN_VOCABULARY.search(benign), benign

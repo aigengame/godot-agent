@@ -44,5 +44,5 @@ VERSION = CommandDescriptor(
     input_model=VersionInput,
     output_model=VersionResult,
     handler=run_version,
-    fixtures=ConformanceFixtures(valid_argv=("version",)),
+    fixtures=ConformanceFixtures(valid_args=()),
 )

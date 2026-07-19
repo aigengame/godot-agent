@@ -15,8 +15,16 @@ from pydantic import BaseModel
 
 
 def canonical_json(payload: Any) -> str:
-    """Render ``payload`` as one canonical JSON document ending in a single LF."""
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
+    """Render ``payload`` as one canonical JSON document ending in a single LF.
+
+    ``allow_nan=False``: NaN/±Infinity are not JSON, so a non-finite value
+    reaching this seam is a toolkit bug and raises (→ `internal`/exit 4) —
+    the one sanctioned non-finite path is the upstream Evaluation refusal
+    (bADR-0003/0004), which never lets such a value reach emission.
+    """
+    return (
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n"
+    )
 
 
 def model_payload(model: BaseModel) -> dict[str, Any]:

@@ -4,10 +4,12 @@ Everything here is a projection of the descriptor registry (bADR-0011):
 command resolution, the binding law, per-command ``--schema``, and help. The
 dispatch tail owns emission — handlers return outcomes as data and this
 module maps them onto the invocation-result contract: success → canonical
-result on stdout / exit 0; usage error → one `usage` envelope on stderr /
-exit 3 with stdout empty; an unexpected exception → one sanitized `internal`
-envelope on stderr / exit 4 (the sole internal path). A bare traceback is
-never any invocation's output; ``--debug`` routes it into ``diagnostics``.
+result on stdout / exit 0; typed-refusal report → `refusal` envelope on
+stdout / exit 2 (#504 lands the first producer); usage error → one `usage`
+envelope on stderr / exit 3 with stdout empty; an unexpected exception → one
+sanitized `internal` envelope on stderr / exit 4 (the sole internal path). A
+bare traceback is never any invocation's output; ``--debug`` routes it into
+``diagnostics``.
 """
 
 import traceback
@@ -22,9 +24,12 @@ from gda_balancing.emit import canonical_json, model_payload
 from gda_balancing.envelope import (
     ERROR_ENVELOPE_SCHEMA,
     EXIT_INTERNAL,
+    EXIT_REFUSAL,
     EXIT_SUCCESS,
     EXIT_USAGE,
+    RefusalReport,
     internal_envelope,
+    refusal_envelope,
     usage_envelope,
 )
 
@@ -119,8 +124,11 @@ def _dispatch(
     except ValidationError as err:
         raise _UsageError("invalid_argument", _summarize(err)) from err
 
-    output = descriptor.handler(input_obj)
-    stdout.write(canonical_json(model_payload(output)))
+    outcome = descriptor.handler(input_obj)
+    if isinstance(outcome, RefusalReport):
+        stdout.write(canonical_json(refusal_envelope(outcome)))
+        return EXIT_REFUSAL
+    stdout.write(canonical_json(model_payload(outcome)))
     return EXIT_SUCCESS
 
 

@@ -17,6 +17,8 @@ command is stochastic, bADR-0010).
 
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict
+
 # Exit codes (bADR-0008). Channel follows meaning: exits 0-2 write stdout;
 # exits 3/4 keep stdout empty and write exactly one envelope to stderr.
 EXIT_SUCCESS = 0
@@ -42,6 +44,37 @@ USAGE_CODES = frozenset(
 INTERNAL_ERROR = "internal_error"
 
 CLI_ERROR_CODES = USAGE_CODES | {INTERNAL_ERROR}
+
+# Report-all is bounded (bADR-0004): at most 1000 refusals, with `truncated`
+# marking a cut — encoded in the published schema so the contract carries it.
+REFUSAL_BOUND = 1000
+
+# RFC 6901 JSON Pointer ("" is the whole document; each token escapes ~ and /).
+_JSON_POINTER_PATTERN = r"^(/([^/~]|~[01])*)*$"
+
+
+class Refusal(BaseModel):
+    """One element-level typed refusal (bADR-0004): stable code, JSON Pointer
+    to the offending element, human-readable detail."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    code: str
+    path: str
+    detail: str
+
+
+class RefusalReport(BaseModel):
+    """The typed-refusal handler outcome (bADR-0011): what a handler returns
+    instead of its output model when the document is refused. The dispatch
+    tail maps it onto the `refusal` envelope / exit 2; #504's boundary funnel
+    is the first producer."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    refusals: tuple[Refusal, ...]
+    truncated: bool
+
 
 _REPRODUCTION_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -72,11 +105,15 @@ ERROR_ENVELOPE_SCHEMA: dict[str, Any] = {
                         "refusals": {
                             "type": "array",
                             "minItems": 1,
+                            "maxItems": REFUSAL_BOUND,
                             "items": {
                                 "type": "object",
                                 "properties": {
                                     "code": {"type": "string"},
-                                    "path": {"type": "string"},
+                                    "path": {
+                                        "type": "string",
+                                        "pattern": _JSON_POINTER_PATTERN,
+                                    },
                                     "detail": {"type": "string"},
                                 },
                                 "required": ["code", "path", "detail"],
@@ -90,12 +127,14 @@ ERROR_ENVELOPE_SCHEMA: dict[str, Any] = {
                     "additionalProperties": False,
                 },
                 {
+                    # No `reproduction` member: a usage error is resolved at
+                    # binding, before execution starts, so an effective seed
+                    # can never have been drawn (bADR-0008/0010).
                     "type": "object",
                     "properties": {
                         "category": {"const": "usage"},
                         "code": {"enum": sorted(USAGE_CODES)},
                         "message": {"type": "string"},
-                        "reproduction": _REPRODUCTION_SCHEMA,
                     },
                     "required": ["category", "code", "message"],
                     "additionalProperties": False,
@@ -118,6 +157,18 @@ ERROR_ENVELOPE_SCHEMA: dict[str, Any] = {
     "required": ["error"],
     "additionalProperties": False,
 }
+
+
+def refusal_envelope(report: RefusalReport) -> dict[str, Any]:
+    """Build a `refusal` envelope carrying the report's refusals verbatim."""
+    return {
+        "error": {
+            "category": "refusal",
+            "message": "the document was refused; see refusals",
+            "refusals": [r.model_dump(mode="json") for r in report.refusals],
+            "truncated": report.truncated,
+        }
+    }
 
 
 def usage_envelope(code: str, message: str) -> dict[str, Any]:
