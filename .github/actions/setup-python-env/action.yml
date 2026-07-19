@@ -24,8 +24,13 @@ runs:
         save-cache: ${{ inputs.save-cache }}
         cache-dependency-glob: |
           pyproject.toml
+          libs/gda-balancing/pyproject.toml
           uv.lock
 
     - name: Install dependencies
       shell: bash
-      run: uv sync --frozen --dev
+      # --all-packages installs every workspace member (gda + gda-balancing)
+      # into the one venv, putting the member's console script on PATH for its
+      # entry-point smoke tests. gda's own closure is unchanged (the member is
+      # not a gda dependency).
+      run: uv sync --frozen --dev --all-packages
