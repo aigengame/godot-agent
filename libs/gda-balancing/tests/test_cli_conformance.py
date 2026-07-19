@@ -102,6 +102,12 @@ class TestPerDescriptorRows:
         # The identity check is EXACT: an output-model SUBCLASS with an extra
         # field would pass isinstance yet serialize past the closed output
         # schema — it must take the internal path like any wrong model.
+        if descriptor.output_model.__pydantic_root_model__:
+            pytest.skip(
+                "RootModel output: pydantic forbids a subclass carrying an extra "
+                "field, so the closed-schema subclass risk this row guards is "
+                "structurally unreachable (the artifact IS the bare result)"
+            )
         extended = create_model(
             "Extended", __base__=descriptor.output_model, unexpected=(int, 7)
         )

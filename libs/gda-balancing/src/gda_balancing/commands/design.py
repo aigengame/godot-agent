@@ -38,10 +38,15 @@ class ValidationResult(BaseModel):
 
 def run_design_validate(inp: DesignValidateInput) -> ValidationResult | RefusalReport:
     """Load the document and run the funnel; a refusal report is the product on
-    an invalid document, :class:`ValidationResult` on one that passes."""
+    an invalid document, :class:`ValidationResult` on one that passes.
+
+    The funnel returns the typed :class:`DesignDocument` on success; this
+    command reports only *that* it validated (``design format`` consumes the
+    typed document in a later stage), so the document is mapped to the fixed
+    :class:`ValidationResult`."""
     data = funnel.load(inp.document)
     outcome = funnel.validate(data)
-    if outcome is not None:
+    if isinstance(outcome, RefusalReport):
         return outcome
     return ValidationResult()
 

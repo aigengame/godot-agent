@@ -5,6 +5,10 @@ description = "Game numeric design & balancing toolkit — Standard Schema numer
 requires-python = ">=3.13"
 dependencies = [
     "pydantic>=2.13.4",
+    # The boundary funnel's structural phase (bADR-0004) validates Design
+    # documents against the generated JSON Schema 2020-12 artifact with
+    # jsonschema at runtime — no longer dev-only (#504).
+    "jsonschema>=4.25",
 ]
 
 [project.urls]

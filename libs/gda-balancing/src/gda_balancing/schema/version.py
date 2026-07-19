@@ -25,7 +25,14 @@ STRUCTURAL_SCHEMA_ID = f"urn:gda-balancing:standard-schema:{SCHEMA_VERSION}"
 
 # Full-semver numeric triple (OpenAPI-style, bADR-0001 e.g. "1.1.0");
 # pre-release/build suffixes are not part of the document contract.
-_SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+#
+# The tail anchor is `\Z`, not `$`: Python's `re` lets `$` also match *before* a
+# trailing newline, so `"1.0.0\n"` would otherwise parse as the line `"1.0"`
+# instead of refusing as `malformed_schema_version`. `\Z` (true end of string)
+# is correct here because this regex is **runtime-only Python, never published**
+# — published-artifact patterns are the opposite case (ECMA-262 has no `\Z`),
+# handled by the structural schema's newline guards (schema/artifacts.py).
+_SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\Z")
 
 
 def parse_line(version: str) -> str | None:

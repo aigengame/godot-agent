@@ -59,12 +59,16 @@ _VERSION_KEY = "schema_version"
 _VERSION_PATH = pointer.build(_VERSION_KEY)
 
 
-def preflight(data: bytes) -> list[Refusal]:
-    """Run Phase 0 over the raw document bytes; return the refusals it found.
+def preflight(data: bytes) -> tuple[list[Refusal], object | None]:
+    """Run Phase 0 over the raw document bytes; return ``(refusals, root)``.
 
-    An empty list means preflight passed. The result is *not* yet assembled
-    (dedup/order/truncate is :mod:`report`'s job) — this returns raw
-    refusals in discovery order.
+    An empty refusal list means preflight passed and ``root`` is the parsed
+    document the structural/semantic phases validate. ``root`` is ``None``
+    whenever a **terminal** sub-step (1-4, and duplicate keys) refused before a
+    usable document existed; sub-steps 5-6 (caps + version dispatch) refuse *with*
+    the parsed root in hand, but the funnel returns on any preflight refusal, so
+    that root is never consumed. Refusals are raw (dedup/order/truncate is
+    :mod:`report`'s job), in discovery order.
     """
     # 1. Byte cap (terminal) — checked on bytes so it never depends on decode.
     if len(data) > MAX_DOCUMENT_BYTES:
@@ -74,13 +78,13 @@ def preflight(data: bytes) -> list[Refusal]:
                 path="",
                 detail=f"document exceeds the {MAX_DOCUMENT_BYTES}-byte cap",
             )
-        ]
+        ], None
 
     # 2. UTF-8 decode (terminal).
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
-        return [Refusal(code="malformed_json", path="", detail="not valid UTF-8")]
+        return [Refusal(code="malformed_json", path="", detail="not valid UTF-8")], None
 
     # 3. Depth pre-scan (terminal) — string-aware, before json.loads.
     if _max_nesting_depth(text) > MAX_NESTING_DEPTH:
@@ -90,7 +94,7 @@ def preflight(data: bytes) -> list[Refusal]:
                 path="",
                 detail=f"nesting exceeds the depth-{MAX_NESTING_DEPTH} cap",
             )
-        ]
+        ], None
 
     # 4. Parse with a duplicate-key-detecting hook (terminal). Duplicate object
     # keys are refused: map keys are id authorities (bADR-0002), so a lenient
@@ -99,7 +103,7 @@ def preflight(data: bytes) -> list[Refusal]:
     try:
         root = json.loads(text, object_pairs_hook=_dedup_hook(duplicates))
     except json.JSONDecodeError as exc:
-        return [Refusal(code="malformed_json", path="", detail=str(exc))]
+        return [Refusal(code="malformed_json", path="", detail=str(exc))], None
     if duplicates:
         return [
             Refusal(
@@ -108,13 +112,13 @@ def preflight(data: bytes) -> list[Refusal]:
                 detail=f"duplicate object key: {name!r}",
             )
             for name in duplicates
-        ]
+        ], None
 
     # 5 + 6 report together (both are non-terminal within preflight).
     refusals: list[Refusal] = []
     _walk_caps(root, (), refusals)
     refusals.extend(_version_dispatch(root))
-    return refusals
+    return refusals, root
 
 
 def _dedup_hook(duplicates: list[str]) -> Callable[[list[tuple[str, Any]]], Any]:

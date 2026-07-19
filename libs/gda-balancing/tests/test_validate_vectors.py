@@ -172,6 +172,82 @@ def test_report_all_is_ordered_by_path(run_cli, tmp_path):
     assert {r["code"] for r in refusals} == {"number_not_finite"}
 
 
+# --- Semver anchor (the runtime `\Z` fix) ----------------------------------
+
+
+def test_trailing_newline_schema_version_is_malformed(run_cli, tmp_path):
+    # Python's `re` lets `$` match before a trailing newline, so "1.0.0\n" once
+    # parsed as the line "1.0" and was accepted. The runtime anchor is `\Z`
+    # (true end of string), so a trailing newline is a malformed version, never
+    # a smuggled acceptance (a preflight refusal, terminal before structural).
+    content = '{"schema_version": "1.0.0\\n", "meta": {"name": "smallest"}}'
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert refusals[0]["code"] == "malformed_schema_version"
+    assert refusals[0]["path"] == "/schema_version"
+
+
+# --- Structural phase (bADR-0004; V1 closed envelope, V2 typed nodes) -------
+
+
+def test_v1_unknown_top_level_key_refuses_at_the_element(run_cli, tmp_path):
+    # V1: the envelope is closed — an unknown top-level key is a structural
+    # refusal at the KEY (element precision), not just at the document root.
+    content = '{"schema_version": "1.0.0", "meta": {"name": "smallest"}, "extra": {}}'
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert len(refusals) == 1
+    assert refusals[0]["code"] == "structural_violation"
+    assert refusals[0]["path"] == "/extra"
+
+
+def test_type_violation_reports_the_offending_scalar_path(run_cli, tmp_path):
+    # `meta.name` typed wrong: the pointer reaches the scalar, not the object.
+    content = '{"schema_version": "1.0.0", "meta": {"name": 5}}'
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert refusals[0]["code"] == "structural_violation"
+    assert refusals[0]["path"] == "/meta/name"
+
+
+def test_wrong_typed_attribute_entry_refuses_within_its_element(run_cli, tmp_path):
+    # A bad enum on one attribute refuses at that attribute's subtree, never at
+    # the enclosing `items` map (bADR-0004 element precision).
+    document = {
+        "schema_version": "1.0.0",
+        "meta": {"name": "x"},
+        "attributes": {"items": {"vit": {"domain": "bogus", "base": {"direct": 5}}}},
+    }
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert all(r["code"] == "structural_violation" for r in refusals)
+    assert any(r["path"].startswith("/attributes/items/vit") for r in refusals)
+
+
+def test_v2_untyped_formula_ref_is_a_structural_refusal(run_cli, tmp_path):
+    # V2's negative: an untyped `{"ref": ...}` node kind does not exist — the
+    # closed node union refuses it structurally (never a semantic reference
+    # check on a well-formed node).
+    document = {
+        "schema_version": "1.0.0",
+        "meta": {"name": "x"},
+        "attributes": {
+            "items": {
+                "vit": {"domain": "number", "base": {"formula": {"ref": "power"}}}
+            }
+        },
+    }
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert refusals
+    assert all(r["code"] == "structural_violation" for r in refusals)
+
+
 # --- Usage boundary (bADR-0008) --------------------------------------------
 
 
