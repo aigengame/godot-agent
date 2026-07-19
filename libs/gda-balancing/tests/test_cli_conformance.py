@@ -23,6 +23,7 @@ from gda_balancing.descriptors import (
 from gda_balancing.emit import canonical_json
 from gda_balancing.envelope import (
     ERROR_ENVELOPE_SCHEMA,
+    REFUSAL_BOUND,
     USAGE_CODES,
     Refusal,
     RefusalReport,
@@ -129,22 +130,35 @@ class TestSurfaceLaws:
         # No v1 command produces refusals (#504 lands the funnel); the seam
         # is proven by injection, like the internal row: a handler returning
         # a RefusalReport must yield the refusal envelope on STDOUT, exit 2.
-        report = RefusalReport(
-            refusals=(
-                Refusal(code="some_refusal", path="/attributes/0", detail="why"),
-            ),
+        # Driven at both constructible edges — the outcome models bound what
+        # a handler can build (bADR-0011's outcome→invocation-result
+        # invariant: whatever constructs emits schema-valid stdout).
+        minimal = RefusalReport(
+            refusals=(Refusal(code="some_refusal", path="", detail="why"),),
             truncated=False,
         )
-        registry = tuple(
-            dataclasses.replace(d, handler=lambda _i, _r=report: _r) for d in REGISTRY
+        at_bound = RefusalReport(
+            refusals=tuple(
+                Refusal(code="some_refusal", path=f"/attributes/{i}", detail="why")
+                for i in range(REFUSAL_BOUND)
+            ),
+            truncated=True,
         )
-        for descriptor in registry:
-            exit_code, stdout, stderr = run_cli(_valid_invocation(descriptor), registry)
-            assert (exit_code, stderr) == (2, "")
-            payload = json.loads(stdout)
-            jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
-            assert payload["error"]["category"] == "refusal"
-            assert payload["error"]["truncated"] is False
+        for report in (minimal, at_bound):
+            registry = tuple(
+                dataclasses.replace(d, handler=lambda _i, _r=report: _r)
+                for d in REGISTRY
+            )
+            for descriptor in registry:
+                exit_code, stdout, stderr = run_cli(
+                    _valid_invocation(descriptor), registry
+                )
+                assert (exit_code, stderr) == (2, "")
+                payload = json.loads(stdout)
+                jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
+                assert payload["error"]["category"] == "refusal"
+                assert payload["error"]["truncated"] is report.truncated
+                assert len(payload["error"]["refusals"]) == len(report.refusals)
 
     def test_duplicate_command_registration_is_rejected(self):
         with pytest.raises(ValueError, match="duplicate command registration"):

@@ -17,7 +17,7 @@ command is stochastic, bADR-0010).
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # Exit codes (bADR-0008). Channel follows meaning: exits 0-2 write stdout;
 # exits 3/4 keep stdout empty and write exactly one envelope to stderr.
@@ -55,12 +55,17 @@ _JSON_POINTER_PATTERN = r"^(/([^/~]|~[01])*)*$"
 
 class Refusal(BaseModel):
     """One element-level typed refusal (bADR-0004): stable code, JSON Pointer
-    to the offending element, human-readable detail."""
+    to the offending element, human-readable detail.
+
+    The contract's constraints live on the model, not just the published
+    schema, so an invalid refusal is unconstructible — a handler outcome
+    that constructs is guaranteed to emit schema-valid stdout.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     code: str
-    path: str
+    path: str = Field(pattern=_JSON_POINTER_PATTERN)
     detail: str
 
 
@@ -68,11 +73,12 @@ class RefusalReport(BaseModel):
     """The typed-refusal handler outcome (bADR-0011): what a handler returns
     instead of its output model when the document is refused. The dispatch
     tail maps it onto the `refusal` envelope / exit 2; #504's boundary funnel
-    is the first producer."""
+    is the first producer. Bounded 1..REFUSAL_BOUND like the published
+    schema (same constant — one authority for the bound)."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    refusals: tuple[Refusal, ...]
+    refusals: tuple[Refusal, ...] = Field(min_length=1, max_length=REFUSAL_BOUND)
     truncated: bool
 
 

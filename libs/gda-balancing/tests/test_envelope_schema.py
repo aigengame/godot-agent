@@ -8,6 +8,7 @@ schema is closed — no other member is permitted.
 
 import jsonschema
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from gda_balancing.envelope import (
     CLI_ERROR_CODES,
@@ -69,6 +70,22 @@ def test_refusal_field_law():
             }
         }
     )
+
+
+def test_refusal_outcome_models_make_invalid_reports_unconstructible():
+    # The constraints live on the outcome models themselves (same constants
+    # as the published schema), so a handler outcome that constructs is
+    # guaranteed to emit schema-valid stdout — handlers consume the model
+    # types, not the schema.
+    ok = Refusal(code="c", path="/attributes/0", detail="d")
+    with pytest.raises(PydanticValidationError):
+        Refusal(code="c", path="not-a-pointer", detail="d")
+    with pytest.raises(PydanticValidationError):
+        RefusalReport(refusals=(), truncated=False)
+    at_bound = (ok,) * REFUSAL_BOUND
+    _valid(refusal_envelope(RefusalReport(refusals=at_bound, truncated=True)))
+    with pytest.raises(PydanticValidationError):
+        RefusalReport(refusals=at_bound + (ok,), truncated=True)
 
 
 def test_refusal_report_is_bounded():
