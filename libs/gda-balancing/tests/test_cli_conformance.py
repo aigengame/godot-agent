@@ -12,7 +12,7 @@ import sys
 
 import jsonschema
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, create_model
 
 from gda_balancing.commands import REGISTRY
 from gda_balancing.descriptors import (
@@ -95,6 +95,26 @@ class TestPerDescriptorRows:
 
         registry = tuple(
             dataclasses.replace(d, handler=lambda _i: Bogus()) for d in REGISTRY
+        )
+        exit_code, stdout, stderr = run_cli(_valid_invocation(descriptor), registry)
+        assert (exit_code, stdout) == (4, "")
+        assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
+
+    def test_subclass_success_model_row(self, descriptor, run_cli):
+        # The identity check is EXACT: an output-model SUBCLASS with an extra
+        # field would pass isinstance yet serialize past the closed output
+        # schema — it must take the internal path like any wrong model.
+        extended = create_model(
+            "Extended", __base__=descriptor.output_model, unexpected=(int, 7)
+        )
+        registry = tuple(
+            dataclasses.replace(
+                d,
+                handler=lambda i, _d=d, _e=extended: _e.model_validate(
+                    {**_d.handler(i).model_dump(), "unexpected": 7}
+                ),
+            )
+            for d in REGISTRY
         )
         exit_code, stdout, stderr = run_cli(_valid_invocation(descriptor), registry)
         assert (exit_code, stdout) == (4, "")

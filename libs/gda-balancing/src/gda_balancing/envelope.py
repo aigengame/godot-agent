@@ -176,12 +176,21 @@ ERROR_ENVELOPE_SCHEMA: dict[str, Any] = {
 
 
 def refusal_envelope(report: RefusalReport) -> dict[str, Any]:
-    """Build a `refusal` envelope carrying the report's refusals verbatim."""
+    """Build a `refusal` envelope carrying the report's refusals verbatim.
+
+    Items are projected field-by-field, not ``model_dump``ed: a `Refusal`
+    subclass could otherwise serialize extra fields past the closed
+    (additionalProperties: false) item schema — the envelope's shape is
+    owned here, never by whatever runtime type the handler supplied.
+    """
     return {
         "error": {
             "category": "refusal",
             "message": "the document was refused; see refusals",
-            "refusals": [r.model_dump(mode="json") for r in report.refusals],
+            "refusals": [
+                {"code": r.code, "path": r.path, "detail": r.detail}
+                for r in report.refusals
+            ],
             "truncated": report.truncated,
         }
     }

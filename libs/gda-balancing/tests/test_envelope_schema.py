@@ -88,6 +88,22 @@ def test_refusal_outcome_models_make_invalid_reports_unconstructible():
         RefusalReport(refusals=at_bound + (ok,), truncated=True)
 
 
+def test_refusal_envelope_projects_items_exactly():
+    # A Refusal subclass with extra fields must not widen the closed item
+    # schema: the builder projects code/path/detail explicitly, so the
+    # envelope's shape is owned by the builder, not the runtime item type.
+    class SneakyRefusal(Refusal):
+        extra: int = 7
+
+    report = RefusalReport(
+        refusals=(SneakyRefusal(code="c", path="/a", detail="d"),),
+        truncated=False,
+    )
+    env = refusal_envelope(report)
+    assert env["error"]["refusals"] == [{"code": "c", "path": "/a", "detail": "d"}]
+    _valid(env)
+
+
 def test_refusal_report_is_bounded():
     base = {"category": "refusal", "message": "rejected", "truncated": True}
     at_bound = [REFUSAL_ITEM] * REFUSAL_BOUND
