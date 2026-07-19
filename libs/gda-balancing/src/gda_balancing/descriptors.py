@@ -31,12 +31,21 @@ class ConformanceFixtures:
 
     ``valid_args`` is the argument *tail* of one valid invocation — the
     command path itself is derived from the descriptor by every harness row,
-    so fixture and identity cannot drift apart. ``refusing_input`` is
-    required for document-taking commands only — none exist in v1 (#504).
+    so fixture and identity cannot drift apart.
+
+    ``valid_document`` and ``refusing_document`` are the Design-document
+    fixtures for a document-taking command, given as **JSON document content,
+    never a file path**: the harness materializes each to a tmp file and
+    appends that path as the positional argument (a committed ``.json`` file
+    would both be cwd-dependent and trip the isolation gate's per-game-config
+    scan). ``refusing_document`` — a document that provokes a *stable* funnel
+    refusal — is required for a document-taking command (bADR-0011's refusal
+    row); a command that takes no document leaves both ``None``.
     """
 
     valid_args: tuple[str, ...] = ()
-    refusing_input: str | None = None
+    valid_document: str | None = None
+    refusing_document: str | None = None
 
 
 @dataclass(frozen=True)

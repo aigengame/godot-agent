@@ -6,7 +6,8 @@ modules import :mod:`gda_balancing.descriptors`; only this package assembles
 the tuple.
 """
 
+from gda_balancing.commands.design import DESIGN_VALIDATE
 from gda_balancing.commands.version import VERSION
 from gda_balancing.descriptors import CommandDescriptor, build_registry
 
-REGISTRY: tuple[CommandDescriptor, ...] = build_registry(VERSION)
+REGISTRY: tuple[CommandDescriptor, ...] = build_registry(VERSION, DESIGN_VALIDATE)

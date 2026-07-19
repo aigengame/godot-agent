@@ -35,3 +35,16 @@ def parse_line(version: str) -> str | None:
     if match is None:
         return None
     return f"{match.group(1)}.{match.group(2)}"
+
+
+def line_accepted(line: str) -> bool:
+    """Whether this validator serves a well-formed ``major.minor`` line.
+
+    Acceptance rule (bADR-0001): accept iff the line's major equals the
+    supported line's major and its minor is ``<=`` the supported minor. The
+    caller passes a line already validated by :func:`parse_line`, so a plain
+    split is enough — this stays deliberately dumb.
+    """
+    major, _, minor = line.partition(".")
+    supported_major, _, supported_minor = SUPPORTED_LINE.partition(".")
+    return major == supported_major and int(minor) <= int(supported_minor)

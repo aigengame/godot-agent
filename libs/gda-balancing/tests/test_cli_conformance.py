@@ -9,6 +9,7 @@ import json
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import jsonschema
 import pytest
@@ -29,16 +30,11 @@ from gda_balancing.envelope import (
     Refusal,
     RefusalReport,
 )
+from gda_balancing.schema.funnel import refusal_code_namespace
 
 
 def _command_path(descriptor: CommandDescriptor) -> list[str]:
     return ([descriptor.group] if descriptor.group else []) + [descriptor.command]
-
-
-def _valid_invocation(descriptor: CommandDescriptor) -> list[str]:
-    """Every row derives the command path from the descriptor itself — the
-    fixture contributes only the argument tail, so identity cannot drift."""
-    return [*_command_path(descriptor), *descriptor.fixtures.valid_args]
 
 
 def _assert_envelope(stderr_text: str, category: str) -> dict:
@@ -54,8 +50,8 @@ _IDS = [" ".join(_command_path(d)) for d in REGISTRY]
 
 @pytest.mark.parametrize("descriptor", REGISTRY, ids=_IDS)
 class TestPerDescriptorRows:
-    def test_success_row(self, descriptor, run_cli):
-        exit_code, stdout, stderr = run_cli(_valid_invocation(descriptor))
+    def test_success_row(self, descriptor, run_cli, invocation):
+        exit_code, stdout, stderr = run_cli(invocation(descriptor))
         assert (exit_code, stderr) == (0, "")
         payload = json.loads(stdout)
         jsonschema.validate(payload, descriptor.output_model.model_json_schema())
@@ -63,15 +59,15 @@ class TestPerDescriptorRows:
         # reproduces the bytes — sorted keys, LF, defaults materialized.
         assert stdout == canonical_json(payload)
 
-    def test_usage_row(self, descriptor, run_cli):
-        argv = [*_valid_invocation(descriptor), "--no-such-argument"]
+    def test_usage_row(self, descriptor, run_cli, invocation):
+        argv = [*invocation(descriptor), "--no-such-argument"]
         exit_code, stdout, stderr = run_cli(argv)
         assert (exit_code, stdout) == (3, "")
         error = _assert_envelope(stderr, "usage")
         assert error["code"] in USAGE_CODES
 
-    def test_internal_row(self, descriptor, run_cli, fault_registry):
-        argv = _valid_invocation(descriptor)
+    def test_internal_row(self, descriptor, run_cli, fault_registry, invocation):
+        argv = invocation(descriptor)
         exit_code, stdout, stderr = run_cli(argv, fault_registry)
         assert (exit_code, stdout) == (4, "")
         error = _assert_envelope(stderr, "internal")
@@ -79,14 +75,16 @@ class TestPerDescriptorRows:
         assert "diagnostics" not in error  # only under --debug
         assert "Traceback" not in stderr  # sanitized by default
 
-    def test_internal_row_debug_diagnostics(self, descriptor, run_cli, fault_registry):
-        argv = [*_valid_invocation(descriptor), "--debug"]
+    def test_internal_row_debug_diagnostics(
+        self, descriptor, run_cli, fault_registry, invocation
+    ):
+        argv = [*invocation(descriptor), "--debug"]
         exit_code, stdout, stderr = run_cli(argv, fault_registry)
         assert (exit_code, stdout) == (4, "")
         error = _assert_envelope(stderr, "internal")
         assert "injected fault" in error["diagnostics"]
 
-    def test_wrong_success_model_row(self, descriptor, run_cli):
+    def test_wrong_success_model_row(self, descriptor, run_cli, invocation):
         # The declared output model is authoritative at runtime: a handler
         # returning any other model must take the internal path, never emit
         # exit-0 stdout that contradicts the descriptor's own --schema.
@@ -96,11 +94,11 @@ class TestPerDescriptorRows:
         registry = tuple(
             dataclasses.replace(d, handler=lambda _i: Bogus()) for d in REGISTRY
         )
-        exit_code, stdout, stderr = run_cli(_valid_invocation(descriptor), registry)
+        exit_code, stdout, stderr = run_cli(invocation(descriptor), registry)
         assert (exit_code, stdout) == (4, "")
         assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
 
-    def test_subclass_success_model_row(self, descriptor, run_cli):
+    def test_subclass_success_model_row(self, descriptor, run_cli, invocation):
         # The identity check is EXACT: an output-model SUBCLASS with an extra
         # field would pass isinstance yet serialize past the closed output
         # schema — it must take the internal path like any wrong model.
@@ -116,9 +114,35 @@ class TestPerDescriptorRows:
             )
             for d in REGISTRY
         )
-        exit_code, stdout, stderr = run_cli(_valid_invocation(descriptor), registry)
+        exit_code, stdout, stderr = run_cli(invocation(descriptor), registry)
         assert (exit_code, stdout) == (4, "")
         assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
+
+    def test_refusal_row(self, descriptor, run_cli, invocation):
+        # Document-taking commands only: the registered refusing document must
+        # yield a `refusal` envelope on stdout / exit 2, and every entry code
+        # must resolve against the funnel's namespace — the CLI can never grow
+        # a second refusal-code registry (bADR-0011).
+        if descriptor.fixtures.refusing_document is None:
+            pytest.skip("no refusing document: not a document-taking command")
+        exit_code, stdout, stderr = run_cli(invocation(descriptor, refusing=True))
+        assert (exit_code, stderr) == (2, "")
+        payload = json.loads(stdout)
+        jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
+        assert payload["error"]["category"] == "refusal"
+        namespace = refusal_code_namespace()
+        for entry in payload["error"]["refusals"]:
+            assert entry["code"] in namespace
+
+    def test_input_immutability_row(self, descriptor, run_cli, invocation):
+        # A document-taking command never rewrites its input (bADR-0011).
+        if descriptor.fixtures.valid_document is None:
+            pytest.skip("no input document: not a document-taking command")
+        argv = invocation(descriptor)
+        document_path = Path(argv[-1])  # the positional path is appended last
+        before = document_path.read_bytes()
+        run_cli(argv)
+        assert document_path.read_bytes() == before
 
     def test_schema_row(self, descriptor, run_cli):
         argv = [*_command_path(descriptor), "--schema"]
@@ -132,9 +156,9 @@ class TestPerDescriptorRows:
         exit_code, _stdout, stderr = run_cli(argv)
         assert (exit_code, stderr) == (0, "")
 
-    def test_seed_row_deterministic_refuses_seed(self, descriptor, run_cli):
+    def test_seed_row_deterministic_refuses_seed(self, descriptor, run_cli, invocation):
         assert not descriptor.stochastic  # no v1 command is stochastic
-        argv = [*_valid_invocation(descriptor), "--seed", "1"]
+        argv = [*invocation(descriptor), "--seed", "1"]
         exit_code, stdout, stderr = run_cli(argv)
         assert (exit_code, stdout) == (3, "")
         assert _assert_envelope(stderr, "usage")["code"] == "unknown_argument"
@@ -161,7 +185,7 @@ class TestSurfaceLaws:
             assert (exit_code, stdout) == (3, "")
             assert _assert_envelope(stderr, "usage")["code"] == "unknown_command"
 
-    def test_refusal_outcome_maps_to_refusal_envelope_exit_2(self, run_cli):
+    def test_refusal_outcome_maps_to_refusal_envelope_exit_2(self, run_cli, invocation):
         # No v1 command produces refusals (#504 lands the funnel); the seam
         # is proven by injection, like the internal row: a handler returning
         # a RefusalReport must yield the refusal envelope on STDOUT, exit 2.
@@ -185,9 +209,7 @@ class TestSurfaceLaws:
                 for d in REGISTRY
             )
             for descriptor in registry:
-                exit_code, stdout, stderr = run_cli(
-                    _valid_invocation(descriptor), registry
-                )
+                exit_code, stdout, stderr = run_cli(invocation(descriptor), registry)
                 assert (exit_code, stderr) == (2, "")
                 payload = json.loads(stdout)
                 jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)

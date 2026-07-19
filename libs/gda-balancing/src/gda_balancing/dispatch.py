@@ -28,6 +28,7 @@ from gda_balancing.envelope import (
     EXIT_SUCCESS,
     EXIT_USAGE,
     RefusalReport,
+    UnreadableInputError,
     internal_envelope,
     refusal_envelope,
     usage_envelope,
@@ -68,6 +69,11 @@ def dispatch(
         return _dispatch(list(argv), stdout, registry)
     except _UsageError as err:
         stderr.write(canonical_json(usage_envelope(err.code, err.message)))
+        return EXIT_USAGE
+    except UnreadableInputError as err:
+        # The funnel's loader raised before any document bytes were read: a
+        # usage error at the funnel's ingress (bADR-0008), not a refusal.
+        stderr.write(canonical_json(usage_envelope("unreadable_input", str(err))))
         return EXIT_USAGE
     except Exception as exc:
         diagnostics = traceback.format_exc() if _DEBUG_FLAG in argv else None
