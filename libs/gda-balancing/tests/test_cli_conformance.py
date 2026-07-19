@@ -12,6 +12,7 @@ import sys
 
 import jsonschema
 import pytest
+from pydantic import BaseModel
 
 from gda_balancing.commands import REGISTRY
 from gda_balancing.descriptors import (
@@ -84,6 +85,20 @@ class TestPerDescriptorRows:
         assert (exit_code, stdout) == (4, "")
         error = _assert_envelope(stderr, "internal")
         assert "injected fault" in error["diagnostics"]
+
+    def test_wrong_success_model_row(self, descriptor, run_cli):
+        # The declared output model is authoritative at runtime: a handler
+        # returning any other model must take the internal path, never emit
+        # exit-0 stdout that contradicts the descriptor's own --schema.
+        class Bogus(BaseModel):
+            unexpected: int = 7
+
+        registry = tuple(
+            dataclasses.replace(d, handler=lambda _i: Bogus()) for d in REGISTRY
+        )
+        exit_code, stdout, stderr = run_cli(_valid_invocation(descriptor), registry)
+        assert (exit_code, stdout) == (4, "")
+        assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
 
     def test_schema_row(self, descriptor, run_cli):
         argv = [*_command_path(descriptor), "--schema"]

@@ -128,6 +128,15 @@ def _dispatch(
     if isinstance(outcome, RefusalReport):
         stdout.write(canonical_json(refusal_envelope(outcome)))
         return EXIT_REFUSAL
+    if not isinstance(outcome, descriptor.output_model):
+        # The declared output model is authoritative at runtime, not merely
+        # descriptive: a handler that returns anything else is a toolkit bug
+        # and takes the unexpected-exception path (`internal` / exit 4) —
+        # success stdout can never contradict the descriptor's own --schema.
+        raise TypeError(
+            f"handler returned {type(outcome).__name__}, not the declared "
+            f"output model {descriptor.output_model.__name__}"
+        )
     stdout.write(canonical_json(model_payload(outcome)))
     return EXIT_SUCCESS
 
