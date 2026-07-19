@@ -66,6 +66,10 @@ jobs:
         # Scope (src + tests) and mode (basic) come from [tool.pyright] in pyproject (ADR-0030).
         run: uv run --frozen pyright
 
+      - name: Type check gda-balancing
+        # The workspace member carries its own [tool.pyright] scope (#502).
+        run: uv run --frozen pyright --project libs/gda-balancing
+
   python:
     name: Python unit tests and package build
     runs-on: ubuntu-latest
@@ -93,8 +97,20 @@ jobs:
       - name: Run Panda Adventure pure-Python tests
         run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "not e2e and not engine and not acquire_live"
 
+      # The root testpaths also excludes the gda-balancing workspace member;
+      # its pure-Python suite (CLI conformance harness + isolation gate, #502)
+      # runs here by explicit path, keeping the two products' suites separate.
+      - name: Run gda-balancing tests
+        run: uv run --frozen pytest libs/gda-balancing/tests
+
       - name: Build distributions
         run: uv build
+
+      # Build smoke only: proves the member's backend/layout stay buildable.
+      # Not uploaded — gda-balancing publishing is deferred (ADR-0037). Its own
+      # out-dir keeps the member dists out of the gda-distributions artifact.
+      - name: Build gda-balancing distributions
+        run: uv build --package gda-balancing --out-dir dist-gda-balancing
 
       - name: Upload distributions
         uses: actions/upload-artifact@v7.0.1
