@@ -45,7 +45,19 @@ from gda_balancing.schema.version import line_accepted, parse_line
 
 # v1 normative ingress caps (bADR-0004); raising any is a minor schema bump.
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024  # 10 MiB
-MAX_NESTING_DEPTH = 64
+# The nesting cap must *compose* with bADR-0003's expression-tree depth limit
+# (32): every op node contributes 2 JSON nesting levels (its object + its `args`
+# array), so a legal depth-32 tree already reaches ~64 levels of raw nesting, and
+# its deepest legal declaration site adds more — `/effects/items/<id>/modifiers/
+# <i>/magnitude` (or `/attributes/items/<id>/base/formula`) is itself ~7 levels
+# deep, plus collection-nesting headroom. At 64 those failed to compose: a
+# depth-31/32 formula was unreachable (refused `nesting_too_deep` before its
+# `expression_tree_too_deep` rule could speak). 96 clears the deepest legal
+# formula at every site while still bounding recursion (#527 review; bADR-0004
+# amendment 2026-07-20). The raise was gated on linearizing structural validation
+# (:mod:`gda_balancing.schema.artifacts`) — under the previous exponential
+# validator the lower cap was a load-bearing shadow, not slack.
+MAX_NESTING_DEPTH = 96
 MAX_COLLECTION_ELEMENTS = 10_000
 
 # Every stable refusal code preflight can emit. The funnel's public

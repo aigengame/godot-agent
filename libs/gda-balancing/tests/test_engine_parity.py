@@ -20,8 +20,11 @@ from pathlib import Path
 
 import jsonschema
 import pytest
+from pydantic import ValidationError
 
 from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
+from gda_balancing.schema.funnel.structural import structural
+from gda_balancing.schema.model.document import DesignDocument
 
 _GOLDEN = Path(__file__).parent / "goldens" / "structural_schema.json"
 
@@ -120,6 +123,79 @@ def test_divergence_sweep_never_takes_the_internal_path(document, run_cli, tmp_p
     assert exit_code in (0, 2), f"unexpected exit {exit_code} (engine-parity break?)"
 
 
+# --- OpNode reshape equivalence: schema verdict ⇔ model construction (#527) ---
+#
+# The linear reshape (single `$defs/OpNode`, arity by if/then) must give the SAME
+# accept/reject verdict as the pydantic model's construction — both are local-shape
+# checks, and structural-pass ⇒ construction-success is the funnel's load-bearing
+# invariant (bADR-0004/0005). This battery pins that on a spread of valid trees and
+# every arity/operator/node-kind violation the reshape could have loosened.
+
+_EQUIVALENCE_TREES = {
+    # accepted by both
+    "literal": {"literal": 5},
+    "attr": {"attr": "power"},
+    "param": {"param": "hp"},
+    "nary-2": {"op": "add", "args": [{"literal": 1}, {"literal": 2}]},
+    "nary-4": {"op": "min", "args": [{"literal": i} for i in range(4)]},
+    "binary-2": {"op": "power", "args": [{"attr": "power"}, {"literal": 2}]},
+    "unary-1": {"op": "floor", "args": [{"literal": 1}]},
+    "nested": {
+        "op": "add",
+        "args": [{"op": "floor", "args": [{"literal": 1}]}, {"param": "hp"}],
+    },
+    "deep-legal": None,  # filled below (depth-8 chain)
+    # rejected by both — arity
+    "nary-1": {"op": "add", "args": [{"literal": 1}]},
+    "binary-1": {"op": "subtract", "args": [{"literal": 1}]},
+    "binary-3": {
+        "op": "divide",
+        "args": [{"literal": 1}, {"literal": 2}, {"literal": 3}],
+    },
+    "unary-0": {"op": "ceil", "args": []},
+    "unary-2": {"op": "round", "args": [{"literal": 1}, {"literal": 2}]},
+    # rejected by both — closure
+    "unknown-op": {"op": "frobnicate", "args": [{"literal": 1}]},
+    "untyped-node": {"ref": "power"},
+    "op-without-args": {"op": "add"},
+}
+
+
+def _chain(depth: int) -> dict:
+    node: dict = {"literal": 1}
+    for _ in range(depth - 1):
+        node = {"op": "floor", "args": [node]}
+    return node
+
+
+_EQUIVALENCE_TREES["deep-legal"] = _chain(8)
+
+
+def _as_document(formula: dict) -> dict:
+    return {
+        **_VALID_MINIMAL,
+        "attributes": {
+            "items": {"t": {"domain": "number", "base": {"formula": formula}}}
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "formula", _EQUIVALENCE_TREES.values(), ids=_EQUIVALENCE_TREES.keys()
+)
+def test_reshaped_schema_verdict_matches_model_construction(formula):
+    document = _as_document(formula)
+    schema_accepts = not structural(document)
+    try:
+        DesignDocument.model_validate(document)
+        model_accepts = True
+    except ValidationError:
+        model_accepts = False
+    assert schema_accepts == model_accepts, (
+        f"engine disagreement: structural={schema_accepts} model={model_accepts}"
+    )
+
+
 # --- The published artifact: golden snapshot + portability/hardening ---------
 
 
@@ -158,3 +234,38 @@ def test_golden_is_portable_and_hardened():
     _walk(schema)
     assert pattern_nodes
     assert all(node.get("additionalProperties") is False for node in pattern_nodes)
+
+
+def test_golden_op_node_is_the_linear_shape():
+    # The reshape (#527): the golden carries ONE `$defs/OpNode` object whose
+    # `args.items` recurses the node union exactly once, with arity as if/then
+    # clauses — and NO exponential-prone three-variant operator `oneOf` (its
+    # OpenAPI `op` discriminator, which jsonschema evaluates by descending every
+    # branch's `args`) survives anywhere.
+    schema = json.loads(_GOLDEN.read_text(encoding="utf-8"))
+    defs = schema["$defs"]
+    assert not (set(defs) & {"NaryOp", "BinaryOp", "UnaryOp"})
+    op_node = defs["OpNode"]
+    assert op_node["properties"]["args"]["items"] == {"$ref": "#/$defs/Node"}
+    assert [c["then"]["properties"]["args"] for c in op_node["allOf"]] == [
+        {"minItems": 2},
+        {"minItems": 2, "maxItems": 2},
+        {"minItems": 1, "maxItems": 1},
+    ]
+    assert defs["Node"]["oneOf"][0] == {"$ref": "#/$defs/OpNode"}
+    # No operator discriminator (the exponential fingerprint) anywhere.
+    op_discriminators: list[object] = []
+
+    def _walk(node: object) -> None:
+        if isinstance(node, dict):
+            disc = node.get("discriminator")
+            if isinstance(disc, dict) and disc.get("propertyName") == "op":
+                op_discriminators.append(node)
+            for value in node.values():
+                _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(schema)
+    assert op_discriminators == []

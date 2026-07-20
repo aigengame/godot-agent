@@ -7,12 +7,13 @@ Two conformance surfaces:
 
 * **Per-rule** (bADR-0004: "each rule refuses its violation fixture") — for every
   registered rule, its ``violation_fixture`` is a valid-except-for-this-rule
-  document that the semantic phase refuses with *exactly* this rule's code. This
-  is asserted at the semantic-phase layer (on the typed document), because one
-  rule — ``expression_tree_too_deep`` — is structurally shadowed at the full
-  funnel by the preflight JSON-nesting cap (any depth-33 tree has JSON nesting
-  > 64, so preflight refuses it terminally before the semantic phase; see
-  ``test_deep_expression_tree_is_refused`` in test_validate_vectors.py).
+  document that the semantic phase refuses with *exactly* this rule's code,
+  asserted both at the semantic-phase layer (on the typed document) and end to
+  end through the CLI. No rule is shadowed by an earlier phase any longer: once
+  the nesting cap composes with the formula depth limit (96 ≥ a legal depth-≤32
+  tree, #527) and structural validation is linear, a depth-33 tree clears
+  preflight and the structural phase and is refused by ``expression_tree_too_deep``
+  itself (see ``test_deep_expression_tree_is_refused`` in test_validate_vectors.py).
 * **Catalog↔registry identity** — the published ``schema get catalog`` artifact's
   rule ids equal the sorted registry codes, each entry carries the full metadata,
   and the bytes match a committed golden.
@@ -48,11 +49,13 @@ def test_rule_refuses_exactly_its_violation_fixture(rule) -> None:
     assert {r.code for r in semantic.run(doc, raw)} == {rule.code}
 
 
-# The one known earlier-phase shadowing: any depth-33 expression tree has JSON
-# nesting > 64, so preflight's terminal `nesting_too_deep` fires before the
-# semantic phase can (see the module docstring). A NEW shadowing of any other
-# rule must either be fixed or explicitly excepted here.
-_FUNNEL_SHADOWED = frozenset({"expression_tree_too_deep"})
+# No rule is shadowed by an earlier phase: the nesting cap now composes with the
+# formula depth limit (96 clears a legal depth-≤32 tree, #527) and structural
+# validation is linear, so `expression_tree_too_deep`'s depth-33 fixture reaches
+# the semantic phase and refuses with its own code end to end. The mechanism is
+# kept (empty) so a NEW earlier-phase shadowing of any rule is a deliberate,
+# documented exception here rather than a silent gap.
+_FUNNEL_SHADOWED: frozenset[str] = frozenset()
 
 
 @pytest.mark.parametrize("rule", SEMANTIC_RULES, ids=[r.code for r in SEMANTIC_RULES])
@@ -61,7 +64,7 @@ def test_rule_fixture_refuses_end_to_end(rule, run_cli, tmp_path) -> None:
     # exactly this rule's code — funnel reachability as an executable
     # invariant, not an assumption the semantic-layer walk leaves open.
     if rule.code in _FUNNEL_SHADOWED:
-        pytest.skip("structurally shadowed by the preflight nesting cap")
+        pytest.skip("structurally shadowed by an earlier funnel phase")
     doc_path = tmp_path / "fixture.json"
     doc_path.write_text(json.dumps(rule.violation_fixture), encoding="utf-8")
     exit_code, stdout, stderr = run_cli(["design", "validate", str(doc_path)])

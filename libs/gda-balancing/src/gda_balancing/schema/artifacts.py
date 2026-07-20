@@ -27,6 +27,25 @@ guards close that hole so structural-pass ⇒ model-construction-success:
 Precedent: :data:`gda_balancing.envelope._JSON_POINTER_SCHEMA`'s ``anyOf`` guard
 — the same Python-``re`` vs Rust-regex trailing-newline divergence, fixed in the
 same structural style rather than by sharing a raw pattern string.
+
+**Linear-time expression-tree validation — why the OpNode reshape exists.**
+pydantic emits the expression-tree node as a *smart-union projection*: an
+operator application is a three-variant ``oneOf`` (n-ary / binary / unary), each
+variant recursing into ``args.items`` — the full node union again. ``jsonschema``
+evaluates every ``oneOf`` branch independently (a failed ``op`` enum does **not**
+prune that branch's ``args`` recursion), so a depth-``d`` tree costs ``~3**d``:
+0.13 s at depth 8, 1.2 s at 10, 10.6 s at 12 (PR #527 review) — exponential, and
+a legal depth-≤32 formula (bADR-0003) is unvalidatable. The reshape
+(:func:`_linearize_op_nodes`) collapses those three variants into **one**
+``$defs/OpNode`` object schema whose ``args.items`` references the node union
+**exactly once**, with arity carried by an ``allOf`` of three ``if``/``then``
+clauses that constrain only ``args`` **counts** (``minItems``/``maxItems``) and
+recurse into nothing. The single ``args.items`` recursion per level makes
+validation linear; the ``if``/``then``/``allOf`` keywords are core 2020-12, so
+the artifact stays ECMA-262-portable. This mirrors the model-side
+single-dispatch discrimination (:mod:`gda_balancing.schema.model.formula`) — one
+authority, a linear projection around it (bADR-0005 anti-drift), the two engines
+kept in lockstep by :mod:`gda_balancing.tests.test_engine_parity`.
 """
 
 import copy
@@ -42,18 +61,38 @@ _DIALECT = "https://json-schema.org/draft/2020-12/schema"
 # The trailing-newline guard, shared by both fix sites (see module docstring).
 _NO_NEWLINE: dict[str, Any] = {"not": {"pattern": "\\n"}}
 
+# The closed operator set (bADR-0003), grouped by arity. The base OpNode schema
+# admits any of them with `args` `minItems: 1`; the if/then clauses tighten the
+# count per arity — n-ary `≥ 2`, binary/unary exactly `2`/`1`. This must mirror
+# the operator literals of the model's `NaryOp`/`BinaryOp`/`UnaryOp` (a divergence
+# would refuse a legal operator or admit an illegal arity); the engine-parity
+# tests hold the two in lockstep.
+_NARY_OPS = ("add", "multiply", "min", "max")
+_BINARY_OPS = ("subtract", "divide", "power")
+_UNARY_OPS = ("floor", "ceil", "round")
+_ALL_OPS = (*_NARY_OPS, *_BINARY_OPS, *_UNARY_OPS)
+
+# The consolidated $defs entries the reshape introduces, and the ones it retires.
+_OPNODE_REF = "#/$defs/OpNode"
+_NODE_REF = "#/$defs/Node"
+_LEAF_REFS = ("#/$defs/LiteralNode", "#/$defs/AttrRef", "#/$defs/ParamRef")
+_RETIRED_OP_DEFS = ("NaryOp", "BinaryOp", "UnaryOp")
+
 
 def generate_structural_schema() -> dict[str, Any]:
     """Build the published structural schema from :class:`DesignDocument`.
 
     Deterministic and side-effect-free: the pydantic validation-mode schema is
     deep-copied, then post-processed in place — top-level dialect/``$id`` set,
-    every ``title`` stripped (snapshot stability across pydantic versions), and
-    the two newline guards applied wherever they apply.
+    the exponential-prone OpNode smart-union projection reshaped into the linear
+    single-``$defs/OpNode`` form (see the module docstring), every ``title``
+    stripped (snapshot stability across pydantic versions), and the two newline
+    guards applied wherever they apply.
     """
     schema = copy.deepcopy(DesignDocument.model_json_schema())
     schema["$schema"] = _DIALECT
     schema["$id"] = STRUCTURAL_SCHEMA_ID
+    _linearize_op_nodes(schema)
     _harden(schema)
     return schema
 
@@ -88,6 +127,132 @@ def generate_catalog() -> dict[str, Any]:
             }
             for rule in sorted(SEMANTIC_RULES, key=lambda r: r.code)
         ],
+    }
+
+
+def _linearize_op_nodes(schema: dict[str, Any]) -> None:
+    """Reshape the OpNode smart-union projection into the linear form, in place.
+
+    Two deterministic steps (see the module docstring for the *why*):
+
+    1. Walk the whole schema **bottom-up** and collapse each inlined union:
+       every three-variant operator ``oneOf`` (fingerprinted by its OpenAPI
+       ``discriminator.propertyName == "op"`` — ``jsonschema`` ignores that
+       keyword, so it is free identity, not semantics) becomes a ``$ref`` to the
+       single :data:`_OPNODE_REF`, and the four-arm node union that wraps it
+       becomes a ``$ref`` to :data:`_NODE_REF`. Bottom-up order means the op
+       ``$ref`` is already in place when the enclosing node union is tested.
+    2. Retire the now-unreferenced ``NaryOp``/``BinaryOp``/``UnaryOp`` ``$defs``
+       (their only references were inside the collapsed op unions) and install
+       the consolidated ``OpNode`` (the one recursive ``args.items``, arity by
+       ``if``/``then``) and ``Node`` (the leaf ∪ op union) definitions.
+
+    The consolidated defs are installed **after** the walk so the walk never
+    rewrites them (``Node`` is itself a four-ref union — it would otherwise be
+    collapsed into a self-``$ref``).
+    """
+    _collapse_unions(schema)
+    defs = schema["$defs"]
+    for name in _RETIRED_OP_DEFS:
+        defs.pop(name, None)
+    defs["OpNode"] = _op_node_def()
+    defs["Node"] = _node_def()
+
+
+def _collapse_unions(container: object) -> None:
+    """Rewrite a container's child values in place, collapsing the op/node
+    unions to ``$ref``s (recurses children first, so replacements compose)."""
+    if isinstance(container, dict):
+        for key, value in list(container.items()):
+            container[key] = _collapsed(value)
+    elif isinstance(container, list):
+        for index, value in enumerate(container):
+            container[index] = _collapsed(value)
+
+
+def _collapsed(value: object) -> object:
+    if isinstance(value, dict):
+        _collapse_unions(value)
+        if _is_op_union(value):
+            return {"$ref": _OPNODE_REF}
+        if _is_node_union(value):
+            return {"$ref": _NODE_REF}
+        return value
+    if isinstance(value, list):
+        _collapse_unions(value)
+    return value
+
+
+def _is_op_union(node: dict[str, Any]) -> bool:
+    """A three-variant operator ``oneOf``, identified by the OpenAPI operator
+    discriminator pydantic emits on it (``propertyName == "op"``)."""
+    discriminator = node.get("discriminator")
+    return isinstance(discriminator, dict) and discriminator.get("propertyName") == "op"
+
+
+def _is_node_union(node: dict[str, Any]) -> bool:
+    """The four-arm expression-tree node union: a bare ``oneOf`` of exactly the
+    op ``$ref`` (already collapsed) plus the three leaf ``$ref``s — nothing else.
+    A ``title`` is tolerated (pydantic labels the top-level alias); it is stripped
+    by :func:`_harden` regardless."""
+    if set(node) - {"title"} != {"oneOf"}:
+        return False
+    arms = node["oneOf"]
+    if not isinstance(arms, list) or len(arms) != 4:
+        return False
+    refs = {
+        arm.get("$ref")
+        for arm in arms
+        if isinstance(arm, dict) and set(arm) == {"$ref"}
+    }
+    return refs == {_OPNODE_REF, *_LEAF_REFS}
+
+
+def _op_node_def() -> dict[str, Any]:
+    """The single consolidated operator-node schema. ``args.items`` references the
+    node union **once**; arity is an ``allOf`` of ``if``/``then`` clauses that
+    constrain only the ``args`` count — no clause recurses, so validation stays
+    linear in tree size."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "op": {"type": "string", "enum": list(_ALL_OPS)},
+            "args": {"type": "array", "minItems": 1, "items": {"$ref": _NODE_REF}},
+        },
+        "required": ["op", "args"],
+        "allOf": [
+            _arity_clause(_NARY_OPS, min_items=2, max_items=None),
+            _arity_clause(_BINARY_OPS, min_items=2, max_items=2),
+            _arity_clause(_UNARY_OPS, min_items=1, max_items=1),
+        ],
+    }
+
+
+def _arity_clause(
+    ops: tuple[str, ...], *, min_items: int, max_items: int | None
+) -> dict[str, Any]:
+    """One arity ``if``/``then``: when ``op`` is in ``ops``, constrain the
+    ``args`` count. The ``if`` reads only ``op`` (never ``args``), and the
+    ``then`` carries only count keywords — no recursive subschema."""
+    constraint: dict[str, Any] = {"minItems": min_items}
+    if max_items is not None:
+        constraint["maxItems"] = max_items
+    return {
+        "if": {"properties": {"op": {"enum": list(ops)}}, "required": ["op"]},
+        "then": {"properties": {"args": constraint}},
+    }
+
+
+def _node_def() -> dict[str, Any]:
+    """The expression-tree node union: an operator application or one of the three
+    leaves. The single recursion seam every ``args.items`` and formula/magnitude
+    tree arm now references."""
+    return {
+        "oneOf": [
+            {"$ref": _OPNODE_REF},
+            *({"$ref": ref} for ref in _LEAF_REFS),
+        ]
     }
 
 

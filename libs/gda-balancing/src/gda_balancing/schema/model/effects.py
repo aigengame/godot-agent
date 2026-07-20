@@ -18,9 +18,9 @@ a magnitude is a value, not a facet). It reuses the one formula vocabulary
 (:mod:`gda_balancing.schema.model.formula`).
 """
 
-from typing import Literal, Union
+from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag
 
 from gda_balancing.schema.model.formula import Formula
 from gda_balancing.schema.model.ids import IdStr
@@ -48,9 +48,31 @@ Application = Literal["continuous", "one_shot", "periodic"]
 # A modifier's magnitude (bADR-0006/0003): a bare scalar number, a named form, or
 # an expression tree — the formula representations, unwrapped (a magnitude is a
 # value, not a `base` facet, so it carries no `direct`/`formula` envelope). A
-# float is a scalar; the two `Formula` arms are objects, so the union
-# disambiguates without a discriminator.
-Magnitude = Union[float, Formula]
+# float is a scalar; the two `Formula` arms are objects. Single-dispatch on
+# shape (a non-dict numeric ⇒ the float arm, an object ⇒ the formula arm) keeps
+# a formula-valued magnitude linear (mirroring `Formula`/`Node`, bADR-0003), and
+# the wire format is unchanged.
+
+
+def _magnitude_tag(value: object) -> str | None:
+    """A magnitude is a bare ``scalar`` number or a ``formula`` object. A JSON
+    bool is neither (it must never coerce to the float arm)."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return "scalar"
+    if isinstance(value, (dict, BaseModel)):
+        return "formula"
+    return None
+
+
+Magnitude = Annotated[
+    Union[
+        Annotated[float, Tag("scalar")],
+        Annotated[Formula, Tag("formula")],
+    ],
+    Discriminator(_magnitude_tag),
+]
 
 
 class StackingType(BaseModel):

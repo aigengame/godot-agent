@@ -62,6 +62,8 @@ exit codes — is #518's contract, not this document's.
   bADR-0003. Cap violations are typed refusals at preflight — resource exhaustion is a
   refusal class, not a crash class.
 
+  > **Amendment (2026-07-20, #527 review):** nesting cap raised 64 → 96 so bADR-0003's depth-≤32 formulas are expressible at every legal declaration site; the original constants failed to compose (formula depths 31–32 were unreachable). The raise was gated on linearizing structural validation — under the previous exponential validator the lower cap was a load-bearing shadow.
+
 - **Element-level typed refusals.** Each violation is reported as a refusal carrying:
   a **stable refusal code**, the **instance path** as a JSON Pointer (RFC 6901) down to
   the offending element — never just the enclosing collection — and a human-readable

@@ -9,8 +9,10 @@ closed error schema, never inspected free-form.
 """
 
 import json
+import time
 
 import jsonschema
+import pytest
 
 from gda_balancing.emit import canonical_json
 from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
@@ -139,8 +141,9 @@ def test_duplicate_keys_at_distinct_paths_do_not_collapse(run_cli, tmp_path):
 
 def test_deep_nesting_is_a_refusal_not_a_crash(run_cli, tmp_path):
     # The depth pre-scan turns a pathologically deep document into a typed
-    # refusal (exit 2), never a RecursionError (which would be exit 4).
-    content = "[" * 65 + "]" * 65
+    # refusal (exit 2), never a RecursionError (which would be exit 4). One past
+    # the composed cap (96, #527): 97 raw brackets.
+    content = "[" * 97 + "]" * 97
     exit_code, stdout, _ = _run(run_cli, tmp_path, content)
     assert exit_code == 2  # specifically NOT 4
     refusals = _refusals(stdout)
@@ -557,7 +560,7 @@ def test_mutual_base_formula_cycle_refuses_both_bases(run_cli, tmp_path):
     ]
 
 
-# --- Expression-tree limits (bADR-0003, semantic) ---------------------------
+# --- Expression-tree limits & linear-time validation (bADR-0003, #527) -------
 
 
 def _tree_document(name: str, formula: dict) -> dict:
@@ -568,6 +571,66 @@ def _tree_document(name: str, formula: dict) -> dict:
             "items": {"t": {"domain": "number", "base": {"formula": formula}}}
         },
     }
+
+
+def _unary_chain(depth: int) -> dict:
+    """A ``floor`` chain of expression-tree depth ``depth`` (``depth - 1`` ops
+    around a literal leaf)."""
+    node: dict = {"literal": 1}
+    for _ in range(depth - 1):
+        node = {"op": "floor", "args": [node]}
+    return node
+
+
+# A deliberately generous wall-clock ceiling. Post-fix the reshaped OpNode schema
+# recurses `args.items` once per level, so a legal depth-32 tree validates in
+# ~milliseconds; pre-fix it was ~3**depth (>10 s at depth 12, unrunnable at 32),
+# so any near-instant bound is a decisive regression guard. 5 s absorbs a loaded
+# CI box without ever admitting the exponential path.
+_LATENCY_CEILING_SECONDS = 5.0
+
+
+def test_max_depth_expression_tree_validates_in_linear_time(run_cli, tmp_path):
+    # A depth-32 unary chain is the deepest legal formula (bADR-0003). It clears
+    # the composed nesting cap (#527: 96 ≥ its ~68 JSON levels) and validates —
+    # and must do so fast, or the exponential validator has regressed.
+    document = _tree_document("deep", _unary_chain(32))
+    start = time.perf_counter()
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, json.dumps(document))
+    elapsed = time.perf_counter() - start
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+    assert elapsed < _LATENCY_CEILING_SECONDS, f"validation took {elapsed:.2f}s"
+
+
+def test_deep_expression_tree_is_refused(run_cli, tmp_path):
+    # A depth-33 tree exceeds the semantic depth cap (> 32). Now that the nesting
+    # cap composes (#527) it clears preflight and the linear structural phase, so
+    # the semantic `expression_tree_too_deep` rule — no longer shadowed by
+    # `nesting_too_deep` — is what refuses it, at the formula pointer. Still fast.
+    document = _tree_document("t", _unary_chain(33))
+    start = time.perf_counter()
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    elapsed = time.perf_counter() - start
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("expression_tree_too_deep", "/attributes/items/t/base/formula")
+    ]
+    assert elapsed < _LATENCY_CEILING_SECONDS, f"validation took {elapsed:.2f}s"
+
+
+def test_max_size_wide_tree_validates_in_linear_time(run_cli, tmp_path):
+    # 255 literal args + 1 `add` = 256 nodes == the cap (not > 256): valid. A wide
+    # tree validates each arg once, so it too is linear in node count.
+    wide = {"op": "add", "args": [{"literal": 1} for _ in range(255)]}
+    document = _tree_document("wide", wide)
+    start = time.perf_counter()
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, json.dumps(document))
+    elapsed = time.perf_counter() - start
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+    assert elapsed < _LATENCY_CEILING_SECONDS, f"validation took {elapsed:.2f}s"
 
 
 def test_wide_expression_tree_exceeding_node_cap_is_refused(run_cli, tmp_path):
@@ -584,21 +647,34 @@ def test_wide_expression_tree_exceeding_node_cap_is_refused(run_cli, tmp_path):
     ]
 
 
-def test_deep_expression_tree_is_refused(run_cli, tmp_path):
-    # A depth-33 expression tree violates the semantic depth cap (> 32) — but any
-    # tree that deep also has JSON nesting > 64, so the funnel's terminal
-    # preflight nesting cap refuses it FIRST with `nesting_too_deep`; the
-    # semantic `expression_tree_too_deep` rule is structurally shadowed here (it
-    # is asserted directly in test_semantic_catalog.py). Either way the document
-    # is refused (exit 2), never accepted.
-    node: dict = {"literal": 1}
-    for _ in range(32):
-        node = {"op": "floor", "args": [node]}
-    document = _tree_document("deep", node)
+# --- Operator arity strictness (the reshape must preserve it, both engines) --
+
+_ARITY_VIOLATIONS = {
+    "nary-underfull": {"op": "add", "args": [{"literal": 1}]},
+    "binary-overfull": {
+        "op": "subtract",
+        "args": [{"literal": 1}, {"literal": 2}, {"literal": 3}],
+    },
+    "binary-underfull": {"op": "power", "args": [{"literal": 1}]},
+    "unary-overfull": {"op": "floor", "args": [{"literal": 1}, {"literal": 2}]},
+}
+
+
+@pytest.mark.parametrize(
+    "formula", _ARITY_VIOLATIONS.values(), ids=_ARITY_VIOLATIONS.keys()
+)
+def test_operator_arity_violation_is_a_structural_refusal(formula, run_cli, tmp_path):
+    # The reshaped OpNode carries arity as if/then `args`-count clauses (n-ary
+    # ≥ 2, binary/unary exactly 2/1). A wrong arg count is a *structural* refusal
+    # (exit 2) — proving the linear reshape kept arity strictness that the pydantic
+    # model enforces too (the accept ⇔ construct equivalence is pinned in
+    # test_engine_parity.py).
+    document = _tree_document("t", formula)
     exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
     assert exit_code == 2
-    codes = {r["code"] for r in _refusals(stdout)}
-    assert codes == {"nesting_too_deep"}
+    refusals = _refusals(stdout)
+    assert refusals
+    assert all(r["code"] == "structural_violation" for r in refusals)
 
 
 # --- Effects: V5 instant vs persistent stacking (bADR-0006) -----------------

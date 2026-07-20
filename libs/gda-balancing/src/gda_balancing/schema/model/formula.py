@@ -19,7 +19,7 @@ one sanctioned formula seam (bADR-0003); import the vocabulary from there.
 
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag
 
 from gda_balancing.schema.model.ids import IdStr
 
@@ -177,16 +177,91 @@ OpNode = Annotated[
     Field(discriminator="op"),
 ]
 
-# The expression-tree node: a leaf or an operator application. Not a
-# `Field(discriminator=…)` union — the leaf kinds carry distinct required
-# fields (`literal`/`attr`/`param`) rather than a shared tag, so a smart union
-# under `extra="forbid"` disambiguates them.
-Node = Union[LiteralNode, AttrRef, ParamRef, OpNode]
+
+# --- Single-dispatch discrimination (linear validation) --------------------
+#
+# The four node kinds and the two formula/base representations are disjoint on
+# a single dict key each — leaf/op nodes by `op`/`literal`/`attr`/`param`, a
+# formula by `form`, a base by `direct`/`formula`. Encoding that as a **callable
+# discriminator** (`pydantic.Discriminator` keying on key presence) makes
+# validation single-dispatch: pydantic descends the one matching arm rather than
+# trying every arm of a smart union. A smart union's retry cost compounds with
+# tree depth; single-dispatch keeps a legal depth-≤32 tree (bADR-0003) linear on
+# the pydantic side, the mirror of the published schema's linear reshape
+# (bADR-0005; :mod:`gda_balancing.schema.artifacts`). The wire format is
+# unchanged — the discriminator reads the same keys the smart union did, and the
+# generated JSON schema loses only the (non-normative) OpenAPI `discriminator`
+# annotation, emitting a plain ``oneOf`` the reshape step then linearizes.
+#
+# Each discriminator accepts **both** a raw dict (first validation) and a model
+# instance (re-validation / round-trip), and returns ``None`` on an
+# unrecognizable input so pydantic raises a clean union error rather than
+# mis-dispatching.
+
+
+def _node_tag(value: object) -> str | None:
+    """Tag an expression-tree node by its sole distinguishing key."""
+    if isinstance(value, dict):
+        for key in ("op", "literal", "attr", "param"):
+            if key in value:
+                return key
+        return None
+    if isinstance(value, (NaryOp, BinaryOp, UnaryOp)):
+        return "op"
+    if isinstance(value, LiteralNode):
+        return "literal"
+    if isinstance(value, AttrRef):
+        return "attr"
+    if isinstance(value, ParamRef):
+        return "param"
+    return None
+
+
+# The expression-tree node: a leaf or an operator application. Single-dispatch
+# on the distinguishing key (`op` ⇒ an operator application — itself discriminated
+# on `op` — else the leaf named by its lone key).
+Node = Annotated[
+    Union[
+        Annotated[OpNode, Tag("op")],
+        Annotated[LiteralNode, Tag("literal")],
+        Annotated[AttrRef, Tag("attr")],
+        Annotated[ParamRef, Tag("param")],
+    ],
+    Discriminator(_node_tag),
+]
 
 
 # --- The formula (either representation) -----------------------------------
 
-Formula = Union[NamedForm, Node]
+
+def _formula_tag(value: object) -> str | None:
+    """A formula is a **named form** (carries ``form``) or else an expression
+    **tree** node."""
+    if isinstance(value, dict):
+        return "form" if "form" in value else "node"
+    if isinstance(
+        value,
+        (
+            LinearForm,
+            PiecewiseLinearForm,
+            PolynomialForm,
+            ExponentialForm,
+            LookupTableForm,
+        ),
+    ):
+        return "form"
+    if isinstance(value, (NaryOp, BinaryOp, UnaryOp, LiteralNode, AttrRef, ParamRef)):
+        return "node"
+    return None
+
+
+Formula = Annotated[
+    Union[
+        Annotated[NamedForm, Tag("form")],
+        Annotated[Node, Tag("node")],
+    ],
+    Discriminator(_formula_tag),
+]
 
 
 # --- Base facet wrappers (bADR-0002; consumed by a later stage) ------------
@@ -208,7 +283,28 @@ class FormulaBase(BaseModel):
     formula: Formula
 
 
-Base = Union[DirectBase, FormulaBase]
+def _base_tag(value: object) -> str | None:
+    """A base is a direct scalar (``direct``) or a formula (``formula``)."""
+    if isinstance(value, dict):
+        if "direct" in value:
+            return "direct"
+        if "formula" in value:
+            return "formula"
+        return None
+    if isinstance(value, DirectBase):
+        return "direct"
+    if isinstance(value, FormulaBase):
+        return "formula"
+    return None
+
+
+Base = Annotated[
+    Union[
+        Annotated[DirectBase, Tag("direct")],
+        Annotated[FormulaBase, Tag("formula")],
+    ],
+    Discriminator(_base_tag),
+]
 
 
 # Resolve the recursive `"Node"` forward references and the `Formula` alias
