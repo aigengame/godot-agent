@@ -104,3 +104,21 @@ class TestKeyUserPath:
         assert (result.returncode, result.stderr) == (0, "")
         artifact = json.loads(result.stdout)
         assert artifact["$id"].endswith("1.0.0")
+
+    def test_template_instantiate_key_path(self, tmp_path):
+        # The #505 key path: instantiate (`template get` is instantiate,
+        # bADR-0012 — `--out` writes the consumer's starting document),
+        # validate it, emit it canonically; then `template list` names it.
+        doc = tmp_path / "my_design.json"
+        got = _run("template", "get", "rpg", "--out", str(doc))
+        assert (got.returncode, got.stderr) == (0, "")
+        assert json.loads(got.stdout)["artifact"]["path"] == str(doc.resolve())
+        validated = _run("design", "validate", str(doc))
+        assert (validated.returncode, validated.stderr) == (0, "")
+        assert validated.stdout == '{"valid": true}\n'
+        emitted = _run("design", "format", str(doc))
+        assert (emitted.returncode, emitted.stderr) == (0, "")
+        assert emitted.stdout == doc.read_text(encoding="utf-8")
+        listed = _run("template", "list")
+        assert (listed.returncode, listed.stderr) == (0, "")
+        assert any(t["id"] == "rpg" for t in json.loads(listed.stdout)["templates"])
