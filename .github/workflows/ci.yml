@@ -107,8 +107,10 @@ jobs:
         run: uv build
 
       # Build smoke only: proves the member's backend/layout stay buildable.
-      # Not uploaded — gda-balancing publishing is deferred (ADR-0037). Its own
-      # out-dir keeps the member dists out of the gda-distributions artifact.
+      # Not uploaded — the member's release build is the Release workflow's own
+      # build-release-gda-balancing job (#528 wired its publish tail), and CI
+      # ships no release artifacts for either package. Its own out-dir keeps the
+      # member dists out of the gda-distributions artifact.
       - name: Build gda-balancing distributions
         run: uv build --package gda-balancing --out-dir dist-gda-balancing
 

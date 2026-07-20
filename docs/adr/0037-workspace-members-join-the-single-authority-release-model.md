@@ -60,11 +60,20 @@ separate release trains, and no hand-edited version anywhere.**
 
 > **Outcome (2026-07-20, #528):** this record's two deferred consequences are
 > now discharged.
-> - The root package declares `"exclude-paths": ["libs/gda-balancing"]`
->   (mechanism verified against release-please's manifest documentation), so a
->   releasing-typed commit touching only the member's path no longer proposes a
->   root `gda` release — retiring the absorption fact above and the
->   two-Release-PR slip mode below.
+> - The root package declares
+>   `"exclude-paths": ["libs/gda-balancing", "uv.lock"]`, so a member-only
+>   commit no longer proposes a root `gda` release — retiring the absorption
+>   fact above and the two-Release-PR slip mode below. **The shared lock is
+>   part of the exclusion by necessity and by principle**: release-please drops
+>   a commit from a package only when *every* changed file is excluded, and a
+>   realistic member change updates `libs/gda-balancing/pyproject.toml`
+>   *together with* the workspace-wide `uv.lock` (#527 is exactly that shape),
+>   so excluding the member path alone would leave such commits absorbed. The
+>   lock is also not part of any published distribution — the `gda` sdist ships
+>   `pyproject.toml` dependency ranges, never `uv.lock` (verified against a
+>   built sdist) — so a lock-only change alters no shipped artifact and
+>   warrants no version bump. Genuine root dependency changes still bump `gda`
+>   because they edit the root `pyproject.toml`, which is not excluded.
 > - The member's **publish tail is wired**: a mirror of the gda build →
 >   PyPI → GitHub-release chain keyed on the path-prefixed cut outputs, with
 >   its own PyPI trusted publisher under the **distinct** `pypi-gda-balancing`
@@ -88,7 +97,10 @@ separate release trains, and no hand-edited version anywhere.**
 - A slipped releasing-typed commit under `libs/` proposes **two** Release PRs
   (member and root). Separate PRs make the mistake recoverable — close the
   unwanted PR(s) and fix the title going forward — instead of releasing both
-  from one merge.
+  from one merge. *(Superseded by the Outcome note above: the root package now
+  excludes the member's path and the shared lock, so a member-only commit
+  proposes only the member's Release PR. Separate PRs remain the recovery
+  property for any commit that genuinely spans both packages.)*
 - The member's changelog will accumulate at `libs/gda-balancing/CHANGELOG.md`
   once its first releasing commit lands; until then release-please proposes
   nothing for it (its history is non-releasing by discipline).
