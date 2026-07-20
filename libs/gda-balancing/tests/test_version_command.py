@@ -29,3 +29,15 @@ def test_version_output_is_canonical(run_cli):
         f'{{"supported_schema_line": "{SUPPORTED_LINE}", '
         f'"toolkit_version": "{package_version("gda-balancing")}"}}\n'
     )
+
+
+def test_supported_schema_line_is_a_required_string_not_nullable(run_cli):
+    # optional≠nullable on the surface's own results (PR #527 multi#4): the
+    # `--schema` output declares `supported_schema_line` as a plain required
+    # string — no nullable `anyOf`/`{"type": "null"}` arm, no `null` default.
+    _, stdout, _ = run_cli(["version", "--schema"])
+    output = json.loads(stdout)["output"]
+    field = output["properties"]["supported_schema_line"]
+    assert field["type"] == "string"
+    assert "anyOf" not in field and "default" not in field
+    assert "supported_schema_line" in output["required"]

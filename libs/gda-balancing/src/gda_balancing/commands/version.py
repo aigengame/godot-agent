@@ -23,10 +23,16 @@ class VersionInput(BaseModel):
 
 
 class VersionResult(BaseModel):
+    """The two never-conflated authorities (bADR-0009). Both are required,
+    typed strings: ``supported_schema_line`` is no longer nullable now that #504
+    lands the first validatable Standard Schema — optional≠nullable applies to
+    the surface's own results too, so it is always present and always a string,
+    never ``null`` (PR #527 multi#4)."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     toolkit_version: str
-    supported_schema_line: str | None = None
+    supported_schema_line: str
 
 
 def run_version(_: VersionInput) -> VersionResult:

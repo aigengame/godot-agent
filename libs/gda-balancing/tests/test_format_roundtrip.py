@@ -34,18 +34,64 @@ def test_minimal_document_formats_to_canonical_form(run_cli, tmp_path):
     exit_code, stdout, stderr = _format(run_cli, tmp_path, _MINIMAL)
     assert (exit_code, stderr) == (0, "")
     payload = json.loads(stdout)
-    # V11: absent optional facets are materialized to their defined defaults —
-    # including the designed-but-empty `effects` section (bADR-0006).
+    # V11 (post PR #527 multi#4): an optional member is absent-or-typed, so an
+    # absent optional (`$schema`, `meta.description`) is OMITTED — never emitted
+    # as `null`. Only genuine domain defaults are materialized: the empty
+    # `parameters`/`attributes`/`effects` sections (bADR-0006) stay present.
     assert payload == {
-        "$schema": None,
         "attributes": {"items": {}, "tiers": {}},
         "effects": {"items": {}, "stacking_types": {}},
-        "meta": {"description": None, "name": "smallest"},
+        "meta": {"name": "smallest"},
         "parameters": {},
         "schema_version": "1.0.0",
     }
     # Canonical: re-rendering the parsed document reproduces the bytes.
     assert stdout == canonical_json(payload)
+
+
+def _has_null(value) -> bool:
+    """Any ``null`` anywhere in a parsed JSON value — an object member value, an
+    array element, or the value itself."""
+    if value is None:
+        return True
+    if isinstance(value, dict):
+        return any(_has_null(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_has_null(v) for v in value)
+    return False
+
+
+def test_formatted_minimal_document_has_no_null_members(run_cli, tmp_path):
+    # optional≠nullable (PR #527 multi#4): canonical emission omits absent
+    # optionals rather than materializing `null`, so NO serialized value is null
+    # — while the genuine domain defaults (`accepts`, the empty sections) stay.
+    _, stdout, _ = _format(run_cli, tmp_path, _MINIMAL)
+    payload = json.loads(stdout)
+    assert not _has_null(payload), payload
+    # The domain defaults are still materialized, not dropped.
+    assert payload["parameters"] == {}
+    assert payload["attributes"] == {"items": {}, "tiers": {}}
+    assert payload["effects"] == {"items": {}, "stacking_types": {}}
+
+
+def test_formatted_attribute_materializes_accepts_but_omits_absent_facets(
+    run_cli, tmp_path
+):
+    # An attribute declaring only the required facets: `accepts` is a genuine
+    # domain default (materialized to `[]`), but the absent optional facets
+    # (`bounds`, `category`, `tier`) are OMITTED, not emitted as `null`.
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "a"}, '
+        '"attributes": {"items": {"power": {"domain": "number", '
+        '"base": {"direct": 1}}}}}'
+    )
+    _, stdout, _ = _format(run_cli, tmp_path, content)
+    payload = json.loads(stdout)
+    assert not _has_null(payload), payload
+    attribute = payload["attributes"]["items"]["power"]
+    assert attribute["accepts"] == []  # domain default, materialized
+    for absent in ("bounds", "category", "tier"):
+        assert absent not in attribute
 
 
 def test_out_writes_the_body_to_the_sink_and_emits_a_receipt(run_cli, tmp_path):

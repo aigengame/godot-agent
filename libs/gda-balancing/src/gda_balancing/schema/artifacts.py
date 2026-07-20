@@ -28,6 +28,24 @@ Precedent: :data:`gda_balancing.envelope._JSON_POINTER_SCHEMA`'s ``anyOf`` guard
 — the same Python-``re`` vs Rust-regex trailing-newline divergence, fixed in the
 same structural style rather than by sharing a raw pattern string.
 
+**Optional is absent-or-typed, never null — why the null arms are dropped.** An
+optional document member is either *absent* or carries a *typed value*; an
+explicit ``null`` is neither (bADR-0005). pydantic projects an ``X | None``
+field as an ``anyOf``/``oneOf`` carrying a ``{"type": "null"}`` arm plus a
+``"default": null`` annotation — which would *admit* an explicit ``null`` and
+coerce it to the field default. :func:`_strip_nullability` removes that: every
+null union arm is dropped (a now one-armed union collapses to its sole arm) and
+every ``"default": null`` annotation is stripped, while genuine domain defaults
+(``"default": []``) are kept. The published schema thereby becomes **stricter**
+than pydantic construction — it refuses an explicit ``null`` *before* the model
+would coerce it — so the funnel's structural-pass ⇒ model-construction-success
+invariant (bADR-0004/0005) is preserved by construction. The reserved-section
+``Any`` fields are untouched by design: their permissive ``{}`` schema stays
+(stripping their bare ``"default": null`` leaves exactly ``{}``), so an explicit
+``"builds": null`` still passes the structural phase and is refused by the
+semantic ``reserved_section_present`` rule, which keys on the raw key's presence,
+not its value.
+
 **Linear-time expression-tree validation — why the OpNode reshape exists.**
 pydantic emits the expression-tree node as a *smart-union projection*: an
 operator application is a three-variant ``oneOf`` (n-ary / binary / unary), each
@@ -85,14 +103,16 @@ def generate_structural_schema() -> dict[str, Any]:
     Deterministic and side-effect-free: the pydantic validation-mode schema is
     deep-copied, then post-processed in place — top-level dialect/``$id`` set,
     the exponential-prone OpNode smart-union projection reshaped into the linear
-    single-``$defs/OpNode`` form (see the module docstring), every ``title``
-    stripped (snapshot stability across pydantic versions), and the two newline
-    guards applied wherever they apply.
+    single-``$defs/OpNode`` form (see the module docstring), the ``X | None``
+    null arms dropped so an optional member is absent-or-typed (never null),
+    every ``title`` stripped (snapshot stability across pydantic versions), and
+    the two newline guards applied wherever they apply.
     """
     schema = copy.deepcopy(DesignDocument.model_json_schema())
     schema["$schema"] = _DIALECT
     schema["$id"] = STRUCTURAL_SCHEMA_ID
     _linearize_op_nodes(schema)
+    _strip_nullability(schema)
     _harden(schema)
     return schema
 
@@ -254,6 +274,48 @@ def _node_def() -> dict[str, Any]:
             *({"$ref": ref} for ref in _LEAF_REFS),
         ]
     }
+
+
+def _strip_nullability(node: object) -> None:
+    """Recursively enforce optional≠nullable on the generated schema, in place.
+
+    Two deterministic edits per object node (children are visited first, so a
+    collapsed arm is already settled when its enclosing node is rewritten):
+
+    1. **Drop the null union arm.** For an ``anyOf``/``oneOf`` (the pydantic
+       ``X | None`` projection), remove every ``{"type": "null"}`` arm. If the
+       filtered union has exactly one arm left, collapse it: pop the keyword and
+       merge that lone arm's keys into the node (the optional field's schema *is*
+       its typed arm). A multi-arm union keeps the filtered list.
+    2. **Strip a null default.** Remove a ``"default": null`` annotation (the
+       companion of an ``X | None`` field, and the bare annotation on a reserved
+       section — stripping it there leaves the permissive ``{}``). A genuine
+       domain default (``"default": []``) is kept.
+
+    The result is **stricter** than pydantic construction — an explicit ``null``
+    is refused structurally before the model would coerce it to the field default
+    — so structural-pass ⇒ construction-success still holds (bADR-0004/0005).
+    """
+    if isinstance(node, dict):
+        for value in list(node.values()):
+            _strip_nullability(value)
+        if "default" in node and node["default"] is None:
+            del node["default"]
+        for keyword in ("anyOf", "oneOf"):
+            arms = node.get(keyword)
+            if not isinstance(arms, list):
+                continue
+            kept = [arm for arm in arms if arm != {"type": "null"}]
+            if len(kept) == len(arms):
+                continue
+            if len(kept) == 1:
+                del node[keyword]
+                node.update(kept[0])
+            else:
+                node[keyword] = kept
+    elif isinstance(node, list):
+        for item in node:
+            _strip_nullability(item)
 
 
 def _harden(node: object) -> None:

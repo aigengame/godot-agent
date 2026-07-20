@@ -236,6 +236,40 @@ def test_golden_is_portable_and_hardened():
     assert all(node.get("additionalProperties") is False for node in pattern_nodes)
 
 
+def test_golden_is_absent_or_typed_never_nullable():
+    # optional≠nullable (PR #527 multi#4): the published schema drops every
+    # pydantic `X | None` null arm and `"default": null` annotation, so an
+    # explicit `null` refuses structurally. This is a structural-shape guard on
+    # the golden — not a shared pattern string — matching the two-engine posture.
+    schema = json.loads(_GOLDEN.read_text(encoding="utf-8"))
+    null_arms: list[object] = []
+    null_defaults: list[object] = []
+
+    def _walk(node: object) -> None:
+        if isinstance(node, dict):
+            if node.get("default", "sentinel") is None:
+                null_defaults.append(node)
+            for keyword in ("anyOf", "oneOf"):
+                arms = node.get(keyword)
+                if isinstance(arms, list) and {"type": "null"} in arms:
+                    null_arms.append(node)
+            for value in node.values():
+                _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(schema)
+    assert null_arms == []
+    assert null_defaults == []
+    # The reserved-section carve-out is untouched: each stays the permissive `{}`
+    # (an explicit `null` clears the structural phase, and the semantic
+    # `reserved_section_present` rule — keyed on the raw key — owns the refusal).
+    reserved = ("combat", "encounters", "builds", "growth", "economy", "targets")
+    for section in reserved:
+        assert schema["properties"][section] == {}
+
+
 def test_golden_op_node_is_the_linear_shape():
     # The reshape (#527): the golden carries ONE `$defs/OpNode` object whose
     # `args.items` recurses the node union exactly once, with arity as if/then

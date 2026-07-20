@@ -714,6 +714,56 @@ def test_schema_reference_agreement_validates(run_cli, tmp_path):
     assert stdout == canonical_json({"valid": True})
 
 
+# --- Optional members are absent-or-typed, never null (PR #527 multi#4) ------
+#
+# An optional member is either absent or carries a typed value — an explicit
+# `null` is neither. The published structural schema drops the pydantic `X |
+# None` null arm, so a member present-but-null refuses *structurally* (exit 2)
+# rather than being coerced to the field default. This holds uniformly for every
+# optional member; the reserved sections keep their permissive carve-out.
+
+
+def test_explicit_null_schema_reference_is_a_structural_refusal(run_cli, tmp_path):
+    # `$schema` is optional, but present-and-null is neither absent nor a string:
+    # the null arm is gone from the published schema, so it refuses structurally
+    # at `/$schema` — never a smuggled acceptance via coercion to `None` (which
+    # the semantic $schema-agreement rule, keyed on `is not None`, would miss).
+    content = '{"schema_version": "1.0.0", "meta": {"name": "x"}, "$schema": null}'
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("structural_violation", "/$schema")
+    ]
+
+
+def test_explicit_null_optional_field_is_a_structural_refusal(run_cli, tmp_path):
+    # The same contract on a nested optional: `meta.description` present-and-null
+    # is a structural refusal (uniform — null is not a value), not a document
+    # that quietly formats back with `"description": null`.
+    content = '{"schema_version": "1.0.0", "meta": {"name": "x", "description": null}}'
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("structural_violation", "/meta/description")
+    ]
+
+
+def test_explicit_null_reserved_section_is_still_reserved(run_cli, tmp_path):
+    # The reserved sections keep their permissive `{}` schema (null passes
+    # structurally) so the semantic `reserved_section_present` — which reads the
+    # raw key, not the value — remains the owner: an explicit `"builds": null`
+    # refuses as a reserved section, exactly as `"builds": {}` does.
+    content = '{"schema_version": "1.0.0", "meta": {"name": "x"}, "builds": null}'
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("reserved_section_present", "/builds")
+    ]
+
+
 # --- Base-formula acyclicity (bADR-0002, semantic) --------------------------
 
 
