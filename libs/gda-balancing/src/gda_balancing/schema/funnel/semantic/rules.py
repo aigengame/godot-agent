@@ -114,6 +114,14 @@ def _attr_tokens(attr_id: str) -> tuple[str, ...]:
     return ("attributes", "items", attr_id)
 
 
+def _base_tokens(attr_id: str) -> tuple[str, ...]:
+    return (*_attr_tokens(attr_id), "base")
+
+
+def _bounds_tokens(attr_id: str) -> tuple[str, ...]:
+    return (*_attr_tokens(attr_id), "bounds")
+
+
 def _formula_tokens(attr_id: str) -> tuple[str, ...]:
     return (*_attr_tokens(attr_id), "base", "formula")
 
@@ -292,6 +300,99 @@ def _check_bounds_required_for_domain(
                     "bounds_required_for_domain",
                     _attr_tokens(attr_id),
                     f"domain {attribute.domain!r} requires declared bounds",
+                )
+            )
+    return refusals
+
+
+def _check_bounds_empty(doc: DesignDocument, _raw: dict[str, Any]) -> list[Refusal]:
+    """A declared ``bounds`` object must declare at least one of ``floor``/``cap``
+    (bADR-0002): an empty ``bounds`` narrows nothing, and on the mandatory
+    domains it would void the domain's bounds obligation. Domain-independent — a
+    ``bounds: {}`` is meaningless in every domain."""
+    refusals: list[Refusal] = []
+    for attr_id, attribute in doc.attributes.items.items():
+        bounds = attribute.bounds
+        if bounds is not None and bounds.floor is None and bounds.cap is None:
+            refusals.append(
+                _refuse(
+                    "bounds_empty",
+                    _bounds_tokens(attr_id),
+                    "declared bounds must declare at least one of floor/cap",
+                )
+            )
+    return refusals
+
+
+def _check_bounds_inverted(doc: DesignDocument, _raw: dict[str, Any]) -> list[Refusal]:
+    """With both sides present, ``floor`` must not exceed ``cap`` (bADR-0002):
+    an inverted interval clamps every value to an empty range."""
+    refusals: list[Refusal] = []
+    for attr_id, attribute in doc.attributes.items.items():
+        bounds = attribute.bounds
+        if (
+            bounds is not None
+            and bounds.floor is not None
+            and bounds.cap is not None
+            and bounds.floor > bounds.cap
+        ):
+            refusals.append(
+                _refuse(
+                    "bounds_inverted",
+                    _bounds_tokens(attr_id),
+                    f"bounds floor {bounds.floor} exceeds cap {bounds.cap}",
+                )
+            )
+    return refusals
+
+
+def _check_bounds_outside_domain(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    """A ``probability`` attribute's bounds declare *design* limits narrowing
+    within the domain's representable ``[0, 1]`` space (bADR-0002); a declared
+    side outside ``[0, 1]`` is not a narrowing but a contradiction of the domain.
+    ``percentage`` fractions are unbounded above, and ``number`` is unbounded —
+    neither carries a range rule."""
+    refusals: list[Refusal] = []
+    for attr_id, attribute in doc.attributes.items.items():
+        if attribute.domain != "probability":
+            continue
+        bounds = attribute.bounds
+        if bounds is None:
+            continue
+        sides = [side for side in (bounds.floor, bounds.cap) if side is not None]
+        if any(side < 0 or side > 1 for side in sides):
+            refusals.append(
+                _refuse(
+                    "bounds_outside_domain",
+                    _bounds_tokens(attr_id),
+                    "probability bounds must lie within the domain's [0, 1] space",
+                )
+            )
+    return refusals
+
+
+def _check_base_outside_domain(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    """A ``probability`` domain pins the representable value space to ``[0, 1]``
+    (bADR-0002); a ``direct`` base outside it is a static design error. Only the
+    direct scalar is statically checkable — a formula base evaluates at
+    definition time and is clamped by the pipeline (bADR-0002/0003), so it
+    carries no static rule."""
+    refusals: list[Refusal] = []
+    for attr_id, attribute in doc.attributes.items.items():
+        if attribute.domain != "probability":
+            continue
+        base = attribute.base
+        if isinstance(base, DirectBase) and (base.direct < 0 or base.direct > 1):
+            refusals.append(
+                _refuse(
+                    "base_outside_domain",
+                    _base_tokens(attr_id),
+                    "a probability direct base must lie within the domain's "
+                    "[0, 1] space",
                 )
             )
     return refusals
@@ -920,6 +1021,87 @@ SEMANTIC_RULES: tuple[SemanticRule, ...] = (
         violation_fixture=_with(
             attributes={
                 "items": {"crit": {"domain": "probability", "base": {"direct": 0.3}}}
+            }
+        ),
+    ),
+    SemanticRule(
+        code="bounds_empty",
+        scope="/attributes/items/{id}/bounds",
+        description=(
+            "A declared bounds object declares neither floor nor cap "
+            "(it narrows nothing)."
+        ),
+        since_version=_SINCE,
+        check=_check_bounds_empty,
+        violation_fixture=_with(
+            attributes={
+                "items": {
+                    "span": {
+                        "domain": "number",
+                        "base": {"direct": 5},
+                        "bounds": {},
+                    }
+                }
+            }
+        ),
+    ),
+    SemanticRule(
+        code="bounds_inverted",
+        scope="/attributes/items/{id}/bounds",
+        description="A bounds object declares floor greater than cap.",
+        since_version=_SINCE,
+        check=_check_bounds_inverted,
+        violation_fixture=_with(
+            attributes={
+                "items": {
+                    "span": {
+                        "domain": "number",
+                        "base": {"direct": 5},
+                        "bounds": {"floor": 100, "cap": 0},
+                    }
+                }
+            }
+        ),
+    ),
+    SemanticRule(
+        code="bounds_outside_domain",
+        scope="/attributes/items/{id}/bounds",
+        description=(
+            "A probability attribute's bounds declare a side outside the "
+            "domain's [0, 1] space."
+        ),
+        since_version=_SINCE,
+        check=_check_bounds_outside_domain,
+        violation_fixture=_with(
+            attributes={
+                "items": {
+                    "crit": {
+                        "domain": "probability",
+                        "base": {"direct": 0.3},
+                        "bounds": {"floor": -1, "cap": 2},
+                    }
+                }
+            }
+        ),
+    ),
+    SemanticRule(
+        code="base_outside_domain",
+        scope="/attributes/items/{id}/base",
+        description=(
+            "A probability attribute's direct base is outside the domain's "
+            "[0, 1] space."
+        ),
+        since_version=_SINCE,
+        check=_check_base_outside_domain,
+        violation_fixture=_with(
+            attributes={
+                "items": {
+                    "crit": {
+                        "domain": "probability",
+                        "base": {"direct": 2},
+                        "bounds": {"floor": 0, "cap": 0.5},
+                    }
+                }
             }
         ),
     ),

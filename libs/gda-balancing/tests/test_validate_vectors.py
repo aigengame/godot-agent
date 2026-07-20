@@ -491,6 +491,183 @@ def test_v4_tier_pattern_exact_set_matching(run_cli, tmp_path):
     ]
 
 
+# --- Unique accepts channels (structural, both engines) ---------------------
+
+
+def test_duplicate_accepts_on_attribute_is_a_structural_refusal(run_cli, tmp_path):
+    # A repeated contribution channel declares nothing new — the `uniqueItems`
+    # guard on the published array refuses it structurally (exit 2), never a
+    # pydantic-construction crash (exit 4). The pointer reaches the offending
+    # array element, not the enclosing attribute.
+    document = {
+        "schema_version": "1.0.0",
+        "meta": {"name": "dup"},
+        "attributes": {
+            "items": {
+                "power": {
+                    "domain": "number",
+                    "base": {"direct": 10},
+                    "accepts": ["effects", "effects"],
+                }
+            }
+        },
+    }
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2  # specifically NOT 4
+    refusals = _refusals(stdout)
+    assert all(r["code"] == "structural_violation" for r in refusals)
+    assert any(r["path"] == "/attributes/items/power/accepts" for r in refusals), (
+        refusals
+    )
+
+
+def test_duplicate_accepts_on_tier_pattern_is_a_structural_refusal(run_cli, tmp_path):
+    # The tier pattern's `accepts` facet carries the same uniqueness guard.
+    document = {
+        "schema_version": "1.0.0",
+        "meta": {"name": "dup-tier"},
+        "attributes": {
+            "tiers": {"primary": {"accepts": ["allocation", "allocation"]}},
+        },
+    }
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2  # specifically NOT 4
+    refusals = _refusals(stdout)
+    assert all(r["code"] == "structural_violation" for r in refusals)
+    assert any(r["path"] == "/attributes/tiers/primary/accepts" for r in refusals), (
+        refusals
+    )
+
+
+# --- Facet validity: bounds domain rules + direct-base domain (semantic) ----
+#
+# bADR-0002: bounds are mandatory on percentage/probability and must *narrow
+# within* the domain; probability's value space is pinned to [0, 1]. These
+# vectors are the PR #527 review probes the funnel used to wrongly accept.
+
+
+def _attr_document(attr: dict, *, attr_id: str = "crit", name: str = "facet") -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "meta": {"name": name},
+        "attributes": {"items": {attr_id: attr}},
+    }
+
+
+def test_probability_empty_bounds_is_refused(run_cli, tmp_path):
+    # `bounds: {}` on a probability attribute narrows nothing — it declares the
+    # object without either side, voiding the domain's bounds obligation. Only
+    # `bounds_empty` fires (the object is present, so `bounds_required` does not).
+    document = _attr_document(
+        {"domain": "probability", "base": {"direct": 0.3}, "bounds": {}}
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("bounds_empty", "/attributes/items/crit/bounds")
+    ]
+
+
+def test_probability_bounds_outside_domain_is_refused(run_cli, tmp_path):
+    # floor -1 and cap 2 both exceed the domain's [0, 1] space: a probability
+    # bound may only narrow within it, never past it.
+    document = _attr_document(
+        {
+            "domain": "probability",
+            "base": {"direct": 0.3},
+            "bounds": {"floor": -1, "cap": 2},
+        }
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("bounds_outside_domain", "/attributes/items/crit/bounds")
+    ]
+
+
+def test_number_inverted_bounds_is_refused(run_cli, tmp_path):
+    # floor 100 > cap 0 clamps every value to an empty range. On a `number`
+    # attribute no other bounds rule applies, so `bounds_inverted` fires alone.
+    document = _attr_document(
+        {"domain": "number", "base": {"direct": 5}, "bounds": {"floor": 100, "cap": 0}},
+        attr_id="span",
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("bounds_inverted", "/attributes/items/span/bounds")
+    ]
+
+
+def test_probability_direct_base_outside_domain_is_refused(run_cli, tmp_path):
+    # A probability `direct` base of 2 is outside the domain's [0, 1] value
+    # space. Valid bounds are supplied so the pre-existing `bounds_required`
+    # rule does not co-fire — isolating the new `base_outside_domain` check.
+    document = _attr_document(
+        {
+            "domain": "probability",
+            "base": {"direct": 2},
+            "bounds": {"floor": 0, "cap": 1},
+        }
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("base_outside_domain", "/attributes/items/crit/base")
+    ]
+
+
+# --- Positive guards: the shapes bADR-0002 explicitly permits ---------------
+
+
+def test_probability_bounds_narrowing_within_domain_is_valid(run_cli, tmp_path):
+    # A crit-chance cap of 0.5: bounds that narrow *within* [0, 1] are exactly
+    # what the domain's mandatory bounds are for.
+    document = _attr_document(
+        {
+            "domain": "probability",
+            "base": {"direct": 0.3},
+            "bounds": {"floor": 0, "cap": 0.5},
+        }
+    )
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, json.dumps(document))
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+
+
+def test_number_bounds_with_only_floor_is_valid(run_cli, tmp_path):
+    # A single-sided bound declares something, so it is not empty; `number` is
+    # unbounded, so a lone floor is legal.
+    document = _attr_document(
+        {"domain": "number", "base": {"direct": 5}, "bounds": {"floor": 0}},
+        attr_id="span",
+    )
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, json.dumps(document))
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+
+
+@pytest.mark.parametrize("boundary", [0, 1])
+def test_probability_direct_base_at_domain_boundary_is_valid(
+    run_cli, tmp_path, boundary
+):
+    # [0, 1] is inclusive: a direct base of exactly 0 or 1 is inside the space.
+    document = _attr_document(
+        {
+            "domain": "probability",
+            "base": {"direct": boundary},
+            "bounds": {"floor": 0, "cap": 1},
+        }
+    )
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, json.dumps(document))
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+
+
 # --- V12: reserved section refused until designed (semantic) ----------------
 
 

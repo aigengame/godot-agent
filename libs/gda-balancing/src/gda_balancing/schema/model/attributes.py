@@ -15,9 +15,9 @@ single scalar authority for an attribute (bADR-0002): exactly one of a ``direct`
 value or a ``formula`` — there is no separate ``default`` field.
 """
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from gda_balancing.schema.model.formula import Base
 from gda_balancing.schema.model.ids import IdStr
@@ -31,6 +31,27 @@ BaseKind = Literal["direct", "formula"]
 
 # The contribution channels an attribute may accept (bADR-0002/0006).
 Channel = Literal["allocation", "effects"]
+
+
+def _unique_channels(channels: tuple[Channel, ...]) -> tuple[Channel, ...]:
+    """`accepts` is a **set** of channels (bADR-0002): a repeated channel adds
+    nothing and is refused. The pydantic side enforces it here; the published
+    schema carries the mirror ``uniqueItems`` (see :data:`Channels`), so a
+    duplicate is a *structural* refusal on both engines, never an exit-4 crash."""
+    if len(set(channels)) != len(channels):
+        raise ValueError("accepts channels must be unique")
+    return channels
+
+
+# A `{allocation, effects}` subset carried as an ordered tuple, but with **set**
+# semantics: no channel repeats. `json_schema_extra` puts ``uniqueItems: true``
+# on the generated array so `jsonschema` (ECMA-portable keyword) refuses a
+# duplicate structurally — the read-side mirror of the pydantic validator.
+Channels = Annotated[
+    tuple[Channel, ...],
+    AfterValidator(_unique_channels),
+    Field(json_schema_extra={"uniqueItems": True}),
+]
 
 
 class Bounds(BaseModel):
@@ -62,7 +83,7 @@ class Tier(BaseModel):
 
     domain: Domain | None = None
     base: BaseKind | None = None
-    accepts: tuple[Channel, ...] | None = None
+    accepts: Channels | None = None
 
 
 class Attribute(BaseModel):
@@ -77,7 +98,7 @@ class Attribute(BaseModel):
     # `accepts` has a defined default `()` (bADR-0002/0005 round-trip contract):
     # an attribute that declares nothing accepts nothing. Canonical emission
     # materializes the empty list; an absent `accepts` is semantically equal.
-    accepts: tuple[Channel, ...] = ()
+    accepts: Channels = ()
     bounds: Bounds | None = None
     category: str | None = None
     tier: str | None = None
