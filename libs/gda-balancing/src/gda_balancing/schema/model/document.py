@@ -23,18 +23,30 @@ from gda_balancing.schema.model.effects import Effects
 from gda_balancing.schema.model.ids import IdStr
 
 
+class GenreLineage(BaseModel):
+    """Descriptive genre lineage (bADR-0001, landed by #505/bADR-0012): the
+    Genre-template family a document descends from (``family``, e.g. a genre
+    family id) and optionally the subtype within it (``variant``). Purely
+    informational — no toolkit code branches on it; genre templates are data,
+    never code paths (bADR-0002)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    family: IdStr
+    variant: IdStr | None = None
+
+
 class Meta(BaseModel):
     """Design identity (bADR-0001): the *document* names its game, the
-    *toolkit* stays game-agnostic. ``name`` is the only required subfield.
-
-    The optional genre-lineage field lands with the templates issue (#505),
-    not here.
+    *toolkit* stays game-agnostic. ``name`` is the only required subfield;
+    ``description`` and the ``genre`` lineage are optional.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
     description: str | None = None
+    genre: GenreLineage | None = None
 
 
 class DesignDocument(BaseModel):
