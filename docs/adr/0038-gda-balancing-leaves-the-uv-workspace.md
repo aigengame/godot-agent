@@ -85,6 +85,17 @@ uv project inside the repo, with its own lock under its own directory.**
   and `fix` alone (`deps` and `revert` are visible sections here, and
   release-please's default versioning strategy patch-bumps them). A breaking
   `!` marker releases on any type.
+  `changelog-sections` is an **inherited input**, like the four in
+  `release_tags.py`: release-please resolves it per package, a package's own
+  value overriding the top-level default, with its built-in
+  `DEFAULT_CHANGELOG_SECTIONS` under that. The guard resolves the same way and
+  then combines the touched packages' sets **conservatively — releasing for
+  ANY of them, not for all of them**. Reading only the top-level list would
+  have passed a PR whose type is visible solely through a package override;
+  requiring every touched package to release it would pass one that bumps the
+  root alone, which is the original harm. The shipped config declares no
+  package-level override, so all packages resolve to the one top-level list
+  today and a drift test pins that.
   The guard runs on **title edits** as well as pushes: its verdict is a
   function of the PR title, and the default `pull_request` activity types omit
   `edited`, so without it a mixed-path PR could pass as `chore` and then be

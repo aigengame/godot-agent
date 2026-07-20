@@ -13,8 +13,18 @@ restated:
   section is release-producing, because release-please's default versioning
   strategy patch-bumps such a commit. Hard-coding `{feat, fix}` missed `deps`
   and `revert`, which this repo's config exposes as visible sections.
+  `changelog-sections` is resolved **per package** — a package's own value,
+  else the top-level one, else release-please's defaults — because
+  release-please lets a package override it and reading only the top level
+  would then describe a package's release train incorrectly.
 - **The member directory** comes from the root package's `exclude-paths`, the
   single authority for "which paths do not count for the root package".
+
+The verdict combines the per-package sets **conservatively**: a title is
+releasing if it release-produces for ANY package the PR touches, not only when
+it does so for all of them. A type that releases only the root still reproduces
+the harm this guard exists to stop — a member-scoped change bumping `gda` — and
+a guard may fail a harmless PR but must never pass a harmful one.
 
 A hand-maintained copy of either would drift out of agreement with the very
 mechanism this guard exists to protect.
@@ -41,17 +51,38 @@ from typing import Any
 _HEADER = re.compile(r"^(?P<type>[a-zA-Z]+)(?:\([^)]*\))?(?P<bang>!)?:")
 
 
+# The non-hidden entries of release-please's own `DEFAULT_CHANGELOG_SECTIONS`
+# (`src/util/filter-commits.ts`), used when neither the package nor the
+# top-level config declares `changelog-sections`.
+_DEFAULT_VISIBLE_TYPES = frozenset({"feat", "fix", "perf", "revert"})
+
+
 class ScopeGuardConfigError(Exception):
     """A config this guard cannot derive its inputs from."""
 
 
-def releasing_types(config: dict[str, Any]) -> set[str]:
-    sections = config.get("changelog-sections")
+def releasing_types(config: dict[str, Any], path: str) -> set[str]:
+    """The releasing conventional-commit types for ONE package.
+
+    `changelog-sections` is an inherited input like the four in
+    `release_tags.py`: release-please resolves it per package, taking the
+    package's own value when it declares one and the top-level value otherwise.
+    Reading only the top level would describe a package that overrides it
+    incorrectly — and in the permissive direction, which is the one a guard must
+    never get wrong.
+
+    With neither level declaring sections, release-please falls back to its own
+    `DEFAULT_CHANGELOG_SECTIONS`; `_DEFAULT_VISIBLE_TYPES` mirrors that list's
+    non-hidden entries. Note it does NOT contain `deps`, which is this repo's
+    own addition to the top-level list — a config that dropped its sections
+    would stop guarding `deps`, which is why the drift test pins the shipped
+    config's resolved sets rather than trusting the fallback.
+    """
+    packages = config.get("packages") or {}
+    package = packages.get(path) or {}
+    sections = package.get("changelog-sections") or config.get("changelog-sections")
     if not sections:
-        raise ScopeGuardConfigError(
-            "release-please-config.json declares no changelog-sections, so the "
-            "releasing conventional-commit types cannot be derived."
-        )
+        return set(_DEFAULT_VISIBLE_TYPES)
     return {section["type"] for section in sections if not section.get("hidden", False)}
 
 
@@ -155,13 +186,44 @@ class Verdict:
         )
 
 
+def touched_packages(config: dict[str, Any], changed_files: list[str]) -> list[str]:
+    """The declared packages whose release train this PR's files can reach.
+
+    The root `"."` is ALWAYS in scope: it is the package every unexcluded path
+    belongs to, so any PR that can fail this guard touches it by definition, and
+    keeping it in scope for an empty file listing stops a missing listing from
+    silently disarming the guard.
+    """
+    packages = config.get("packages") or {}
+    members = [
+        path
+        for path in packages
+        if path != "." and any(_under(f, path) for f in changed_files)
+    ]
+    return [".", *members]
+
+
 def verdict(title: str, changed_files: list[str], config: dict[str, Any]) -> Verdict:
     directories = member_dirs(config)
     inside = [f for f in changed_files if any(_under(f, d) for d in directories)]
     inside_set = set(inside)
+
+    # CONSERVATIVE union, not intersection: the title is releasing if it
+    # release-produces for ANY package the PR touches. The finding phrased the
+    # harm as "releases both", but a type that releases only the root still
+    # reproduces the original damage — a member-scoped change bumping `gda` —
+    # and a guard must never have a false pass. Under today's config no package
+    # overrides `changelog-sections`, so every package resolves to the same set
+    # and the two predicates coincide; they diverge only once an override lands.
+    releasing = {
+        commit_type
+        for path in touched_packages(config, changed_files)
+        for commit_type in releasing_types(config, path)
+    }
+
     return Verdict(
         title=title,
-        releasing=is_releasing_title(title, releasing_types(config)),
+        releasing=is_releasing_title(title, releasing),
         member_dirs=directories,
         inside=inside,
         outside=[f for f in changed_files if f not in inside_set],

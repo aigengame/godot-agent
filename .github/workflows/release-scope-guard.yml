@@ -47,7 +47,10 @@ jobs:
       # Both the releasing-commit types and the member directory are derived
       # from release-please-config.json by scripts/release_scope_guard.py — the
       # single authority, covered by tests/test_release_scope_guard.py. The
-      # script is stdlib-only, so no Python environment needs syncing here.
+      # types are resolved PER PACKAGE (a package's own changelog-sections
+      # override the top-level ones) and combined conservatively: releasing for
+      # any touched package is releasing. The script is stdlib-only, so no
+      # Python environment needs syncing here.
       - name: Assert a releasing-typed member PR stays inside the member directory
         env:
           GH_TOKEN: ${{ github.token }}

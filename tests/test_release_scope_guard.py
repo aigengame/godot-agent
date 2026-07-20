@@ -11,21 +11,131 @@ ROOT = Path(__file__).resolve().parents[1]
 REAL_CONFIG = json.loads((ROOT / "release-please-config.json").read_text())
 
 
-def test_releasing_types_are_the_visible_changelog_sections():
-    # Every non-hidden section is release-producing: release-please's default
-    # versioning strategy patch-bumps such a commit, so `deps` and `revert`
-    # count exactly as much as `feat` and `fix`.
-    assert release_scope_guard.releasing_types(REAL_CONFIG) == {
+def test_a_packages_own_changelog_sections_override_the_top_level_ones():
+    # release-please resolves `changelog-sections` per package with the
+    # top-level value as the DEFAULT, so a package that declares its own is not
+    # described by the top-level list at all.
+    config = {
+        "changelog-sections": [{"type": "feat", "section": "Features"}],
+        "packages": {
+            ".": {"exclude-paths": ["libs/member"]},
+            "libs/member": {
+                "changelog-sections": [{"type": "security", "section": "Security"}]
+            },
+        },
+    }
+
+    assert release_scope_guard.releasing_types(config, "libs/member") == {"security"}
+
+
+SECURITY_ONLY = [{"type": "security", "section": "Security"}]
+
+
+def test_a_type_visible_only_via_package_overrides_still_straddles_the_boundary():
+    # The reviewer's repro: top-level makes only `feat` visible, but BOTH
+    # packages override that with `security`. Reading only the top-level
+    # sections called this title non-releasing and passed a PR that proposes
+    # two Release PRs.
+    config = {
+        "changelog-sections": [{"type": "feat", "section": "Features"}],
+        "packages": {
+            ".": {
+                "exclude-paths": ["libs/gda-balancing"],
+                "changelog-sections": SECURITY_ONLY,
+            },
+            "libs/gda-balancing": {"changelog-sections": SECURITY_ONLY},
+        },
+    }
+
+    result = release_scope_guard.verdict(
+        "security(gda-balancing): patch a hole",
+        ["libs/gda-balancing/pyproject.toml", "README.md"],
+        config,
+    )
+
+    assert result.releasing is True
+    assert result.ok is False
+
+
+def test_a_type_a_package_hides_still_straddles_when_another_releases_it():
+    # The conservative predicate: `feat` is hidden for the member but visible
+    # for the root, so this PR bumps `gda` alone. An "only when it releases
+    # BOTH" predicate would pass it — yet it reproduces exactly the original
+    # harm, a member-scoped change bumping the root.
+    # Top-level does not make `feat` visible either, so this case also rules out
+    # reading the top-level list alone — all three candidate rules disagree here.
+    config = {
+        "changelog-sections": SECURITY_ONLY,
+        "packages": {
+            ".": {
+                "exclude-paths": ["libs/gda-balancing"],
+                "changelog-sections": [{"type": "feat", "section": "Features"}],
+            },
+            "libs/gda-balancing": {
+                "changelog-sections": [
+                    {"type": "feat", "section": "Features", "hidden": True},
+                    *SECURITY_ONLY,
+                ]
+            },
+        },
+    }
+
+    result = release_scope_guard.verdict("feat: x", MIXED, config)
+
+    assert release_scope_guard.releasing_types(config, ".") == {"feat"}
+    assert release_scope_guard.releasing_types(config, "libs/gda-balancing") == {
+        "security"
+    }
+    assert result.releasing is True
+    assert result.ok is False
+
+
+def test_a_type_only_the_member_declares_still_straddles_the_boundary():
+    config = {
+        "changelog-sections": [{"type": "feat", "section": "Features"}],
+        "packages": {
+            ".": {"exclude-paths": ["libs/gda-balancing"]},
+            "libs/gda-balancing": {
+                "changelog-sections": [
+                    {"type": "feat", "section": "Features"},
+                    *SECURITY_ONLY,
+                ]
+            },
+        },
+    }
+
+    result = release_scope_guard.verdict("security: x", MIXED, config)
+
+    # The root inherits the top-level list, which never mentions `security`.
+    assert release_scope_guard.releasing_types(config, ".") == {"feat"}
+    assert result.releasing is True
+    assert result.ok is False
+
+
+def test_a_config_declaring_no_sections_falls_back_to_release_pleases_defaults():
+    # release-please's own DEFAULT_CHANGELOG_SECTIONS, non-hidden entries.
+    config = {"packages": {".": {"exclude-paths": ["libs/gda-balancing"]}}}
+
+    assert release_scope_guard.releasing_types(config, ".") == {
         "feat",
         "fix",
-        "deps",
+        "perf",
         "revert",
     }
 
 
-def test_a_config_without_changelog_sections_fails_loudly():
-    with pytest.raises(release_scope_guard.ScopeGuardConfigError):
-        release_scope_guard.releasing_types({"packages": {".": {}}})
+def test_the_shipped_config_resolves_the_same_sections_for_every_package():
+    # Drift alarm: today's config declares no package-level override, so both
+    # packages resolve to the one top-level list. If that ever stops holding,
+    # this fails and the per-package resolution above is what keeps the guard
+    # correct.
+    for path in REAL_CONFIG["packages"]:
+        assert release_scope_guard.releasing_types(REAL_CONFIG, path) == {
+            "feat",
+            "fix",
+            "deps",
+            "revert",
+        }, path
 
 
 RELEASING = {"feat", "fix", "deps", "revert"}
