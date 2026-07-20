@@ -57,7 +57,7 @@ from gda_balancing.schema.model.formula import (
 )
 
 if TYPE_CHECKING:
-    from gda_balancing.schema.model.attributes import Bounds
+    from gda_balancing.schema.model.attributes import Attribute
     from gda_balancing.schema.model.document import DesignDocument
 
 __all__ = [
@@ -69,6 +69,7 @@ __all__ = [
     "parse_formula",
     "evaluate",
     "evaluate_bases",
+    "clamp_to_attribute",
     # Re-exported model vocabulary
     "Formula",
     "NamedForm",
@@ -173,10 +174,14 @@ def evaluate_bases(document: "DesignDocument") -> dict[str, float]:
     ``formula`` base evaluates against a :class:`FormulaEnv` whose ``attr_values``
     are the finals computed so far — so an ``attr`` node reads the referenced
     attribute's definition-time final. Each result is then clamped to the
-    attribute's declared ``bounds`` (``floor`` first, then ``cap``; an absent
-    side is unbounded). At definition time the value pipeline has no allocation
-    or effect contributions, so the final **is** ``clamp(base, bounds)``
-    (bADR-0002), and a dependent formula reads that clamped final.
+    attribute's **effective bounds** via :func:`clamp_to_attribute` — the
+    composition of its domain's intrinsic space with its declared ``bounds``
+    (``floor`` first, then ``cap``; an absent side is unbounded), so a
+    ``probability`` formula base that overshoots ``[0, 1]`` is pulled back into
+    the domain even when the declared bounds do not restate that side. At
+    definition time the value pipeline has no allocation or effect contributions,
+    so the final **is** ``clamp_to_attribute(base)`` (bADR-0002), and a dependent
+    formula reads that clamped final.
 
     **Precondition:** ``document`` has passed the boundary funnel (references
     declared, graph acyclic — bADR-0004); violations are caller bugs, not
@@ -199,20 +204,51 @@ def evaluate_bases(document: "DesignDocument") -> dict[str, float]:
                 base.formula,
                 FormulaEnv(attr_values=finals, params=document.parameters),
             )
-        finals[attr_id] = _clamp(value, items[attr_id].bounds)
+        finals[attr_id] = clamp_to_attribute(value, items[attr_id])
     return finals
 
 
-def _clamp(value: float, bounds: "Bounds | None") -> float:
-    """Clamp ``value`` to ``bounds`` — ``floor`` first, then ``cap`` — treating
-    an absent side as unbounded (bADR-0002)."""
-    if bounds is None:
-        return value
-    if bounds.floor is not None:
-        value = max(value, bounds.floor)
-    if bounds.cap is not None:
-        value = min(value, bounds.cap)
+def clamp_to_attribute(value: float, attribute: "Attribute") -> float:
+    """Clamp ``value`` to ``attribute``'s **effective bounds** — the composition
+    of its domain's intrinsic value space with its declared ``bounds``
+    (``floor`` first, then ``cap``) — bADR-0002.
+
+    A ``probability`` domain intrinsically pins the value space to ``[0, 1]``;
+    declared bounds only *narrow within* it, so the effective floor is
+    ``max(0.0, declared floor if any)`` and the effective cap is
+    ``min(1.0, declared cap if any)`` — an overshooting value is pulled back into
+    the domain even when the bounds do not restate that side. ``percentage`` (a
+    fraction, unbounded above) and ``number`` carry no intrinsic space: only
+    their declared bounds clamp. The static semantic rules already refuse a
+    ``probability``'s declared bounds / direct base outside ``[0, 1]``
+    (bADR-0004); this clamp covers what those cannot — a **formula-derived**
+    value.
+
+    Exposed as a seam because **#510 reuses it** for the runtime pipeline's
+    clamp: bADR-0002's per-instant composition (``clamp(P + L, bounds)``) applies
+    this same bounds law over these same effective bounds, so the runtime
+    evaluator shares this helper rather than re-deriving the composition.
+    """
+    floor, cap = _effective_bounds(attribute)
+    if floor is not None:
+        value = max(value, floor)
+    if cap is not None:
+        value = min(value, cap)
     return value
+
+
+def _effective_bounds(attribute: "Attribute") -> tuple[float | None, float | None]:
+    """The (floor, cap) that actually clamp ``attribute`` — its declared bounds
+    composed with the domain's intrinsic space (bADR-0002). Only ``probability``
+    contributes an intrinsic ``[0, 1]``; ``percentage``/``number`` clamp by
+    declared bounds alone."""
+    bounds = attribute.bounds
+    floor = bounds.floor if bounds is not None else None
+    cap = bounds.cap if bounds is not None else None
+    if attribute.domain == "probability":
+        floor = 0.0 if floor is None else max(0.0, floor)
+        cap = 1.0 if cap is None else min(1.0, cap)
+    return floor, cap
 
 
 # --- Finiteness, division, and the signed-zero-aware min/max ---------------

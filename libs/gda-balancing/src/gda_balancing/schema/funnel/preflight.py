@@ -236,13 +236,28 @@ def _walk_caps(
     """Path-tracked walk collecting every duplicate-key, collection-size,
     non-finite-number and non-Unicode-string violation (report-all). Recursion
     is bounded: the depth pre-scan already guaranteed depth
-    ``<= MAX_NESTING_DEPTH``."""
+    ``<= MAX_NESTING_DEPTH``.
+
+    One report-all exception: a **surrogate-bearing object key** is refused at
+    the enclosing element and its subtree is **not** descended into — that
+    subtree's elements cannot be addressed by a safely-encodable pointer, so any
+    descendant refusal would carry the surrogate in its path (finding-2, #527
+    recheck-2). Values under safely-encodable keys keep full recursion."""
     if isinstance(value, dict):
         for key in duplicates.get(id(value), ()):
+            if not _is_unicode_text(key):
+                # A duplicated surrogate key cannot bear a safe key pointer;
+                # minting a key-bearing `duplicate_object_key` pointer here is
+                # exactly the finding-2 hole (a surrogate-bearing Refusal.path →
+                # exit 4). The value-iteration below emits `string_not_unicode`
+                # for this same key at the enclosing element (the deepest safely
+                # encodable pointer), so the duplication still refuses — skip the
+                # ambiguous key-bearing refusal rather than a surrogate path.
+                continue
             refusals.append(
                 Refusal(
                     code="duplicate_object_key",
-                    path=pointer.build(*tokens, key),
+                    path=_safe_pointer(*tokens, key),
                     detail=f"duplicate object key: {key!r}",
                 )
             )
@@ -252,8 +267,13 @@ def _walk_caps(
             if not _is_unicode_text(key):
                 # A surrogate-bearing key cannot itself be a safely encodable
                 # pointer token, so the refusal names the offending member's
-                # enclosing element (the deepest encodable pointer).
+                # enclosing element (the deepest encodable pointer) — and the
+                # member's subtree is NOT recursed into: its contents cannot be
+                # addressed safely, so any descendant refusal would carry the
+                # surrogate in its path (finding-2, #527 recheck-2). Values under
+                # safe keys keep full recursion.
                 refusals.append(_not_unicode(tokens, "object key"))
+                continue
             _walk_caps(item, (*tokens, key), duplicates, refusals)
     elif isinstance(value, list):
         if len(value) > MAX_COLLECTION_ELEMENTS:
@@ -280,6 +300,28 @@ def _walk_caps(
             refusals.append(_not_unicode(tokens, "string"))
 
 
+def _safe_tokens(tokens: tuple[str | int, ...]) -> tuple[str | int, ...]:
+    """Truncate ``tokens`` at the first that cannot be a safe RFC 6901 pointer
+    token — a string carrying an unpaired surrogate — so a refusal always names
+    the deepest safely-encodable ancestor, never a surrogate-bearing pointer
+    (which would build a `Refusal` pydantic rejects, exit 4; #527 recheck-2).
+    Integer indices are always safe. The walk already stops descending into a
+    surrogate-keyed subtree, so on the recursive path this is a no-op; it stays
+    as a construction-time guard so NO `Refusal` in preflight can carry a
+    non-encodable path."""
+    safe: list[str | int] = []
+    for token in tokens:
+        if isinstance(token, str) and not _is_unicode_text(token):
+            break
+        safe.append(token)
+    return tuple(safe)
+
+
+def _safe_pointer(*tokens: str | int) -> str:
+    """Build a pointer over the deepest safely-encodable prefix of ``tokens``."""
+    return pointer.build(*_safe_tokens(tokens))
+
+
 def _has_finite_double(value: int) -> bool:
     """Whether a JSON integer literal has a finite IEEE-754 double value. A huge
     magnitude raises ``OverflowError`` on ``float()`` (or, defensively, converts
@@ -293,7 +335,7 @@ def _has_finite_double(value: int) -> bool:
 def _not_finite(tokens: tuple[str | int, ...]) -> Refusal:
     return Refusal(
         code="number_not_finite",
-        path=pointer.build(*tokens),
+        path=_safe_pointer(*tokens),
         detail="number has no finite IEEE-754 double value",
     )
 
@@ -319,7 +361,7 @@ def _not_unicode(tokens: tuple[str | int, ...], subject: str) -> Refusal:
     # refusal itself stays UTF-8 encodable.
     return Refusal(
         code="string_not_unicode",
-        path=pointer.build(*tokens),
+        path=_safe_pointer(*tokens),
         detail=f"{subject} is not valid UTF-8 text (contains an unpaired surrogate)",
     )
 
@@ -327,7 +369,7 @@ def _not_unicode(tokens: tuple[str | int, ...], subject: str) -> Refusal:
 def _too_large(tokens: tuple[str | int, ...], size: int) -> Refusal:
     return Refusal(
         code="collection_too_large",
-        path=pointer.build(*tokens),
+        path=_safe_pointer(*tokens),
         detail=(
             f"collection has {size} entries, over the "
             f"{MAX_COLLECTION_ELEMENTS}-element cap"

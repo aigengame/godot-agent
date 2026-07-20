@@ -296,6 +296,71 @@ def test_surrogate_object_key_is_string_not_unicode(run_cli, tmp_path):
     assert refusals[0]["path"] == "/parameters"
 
 
+def test_surrogate_key_with_non_finite_descendant_is_refused_not_a_crash(
+    run_cli, tmp_path
+):
+    # The finding-2 hole (#527 recheck-2): a surrogate KEY combined with a
+    # descendant violation. The key refuses `string_not_unicode` at the enclosing
+    # element; the walk must NOT then recurse into the surrogate-keyed subtree
+    # (whose value 1e999 is non-finite) with the raw surrogate in the pointer
+    # tokens — that built a surrogate-bearing Refusal.path → pydantic
+    # ValidationError → exit 4. It is refused at `/parameters` (exit 2), and the
+    # envelope stays UTF-8 encodable.
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "x"}, '
+        '"parameters": {"\\ud800": 1e999}}'
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2  # specifically NOT 4
+    assert _is_utf8_encodable(stdout)
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("string_not_unicode", "/parameters")
+    ]
+
+
+def test_duplicated_surrogate_key_is_refused_at_a_safe_path(run_cli, tmp_path):
+    # The duplicate-key sibling of the finding-2 hole: a *duplicated* surrogate
+    # key built the key-bearing `duplicate_object_key` pointer before validating
+    # the key's encodability → surrogate-bearing Refusal.path → exit 4. It now
+    # refuses `string_not_unicode` at the enclosing safe element (`/parameters`),
+    # never a surrogate path; the envelope stays UTF-8 encodable.
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "x"}, '
+        '"parameters": {"\\ud800": 1, "\\ud800": 2}}'
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2  # specifically NOT 4
+    assert _is_utf8_encodable(stdout)
+    refusals = _refusals(stdout)
+    # No refusal names a surrogate pointer; the enclosing element is the deepest
+    # safely-encodable one.
+    assert all(_is_utf8_encodable(r["path"]) for r in refusals)
+    assert ("string_not_unicode", "/parameters") in [
+        (r["code"], r["path"]) for r in refusals
+    ]
+
+
+def test_surrogate_key_deep_subtree_reports_no_surrogate_path(run_cli, tmp_path):
+    # A surrogate key over a DEEP subtree carrying several violations. The subtree
+    # cannot be addressed safely, so the walk stops at the surrogate member and
+    # reports only `string_not_unicode` at the enclosing element — NO refusal path
+    # may contain a surrogate, and the whole envelope must stay UTF-8 encodable.
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "x"}, '
+        '"parameters": {"\\ud800": {"a": 1e999, "b": {"c": 1e999, "d": "\\ud801"}}}}'
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2  # specifically NOT 4
+    assert _is_utf8_encodable(stdout)
+    refusals = _refusals(stdout)
+    assert all(_is_utf8_encodable(r["path"]) for r in refusals)
+    assert all(_is_utf8_encodable(r["detail"]) for r in refusals)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("string_not_unicode", "/parameters")
+    ]
+
+
 def test_surrogate_document_never_reaches_format_emission(run_cli, tmp_path):
     # `design format` runs the same funnel; the surrogate document is refused at
     # preflight, so it never reaches canonical emission — exit 2, never the
@@ -646,6 +711,26 @@ def test_number_bounds_with_only_floor_is_valid(run_cli, tmp_path):
     document = _attr_document(
         {"domain": "number", "base": {"direct": 5}, "bounds": {"floor": 0}},
         attr_id="span",
+    )
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, json.dumps(document))
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+
+
+def test_probability_formula_base_overshooting_domain_still_validates(
+    run_cli, tmp_path
+):
+    # The finding-3 document (#527 recheck-2) is LEGAL: a probability formula base
+    # of 2 with a declared floor of 0 passes the funnel (the base_outside_domain
+    # rule is static/direct-base-only). Overshoot is a *value* concern the
+    # definition-time clamp handles (see the seam tests), not a validation defect
+    # — so validation stays exit 0 and the funnel/format path is unchanged.
+    document = _attr_document(
+        {
+            "domain": "probability",
+            "base": {"formula": {"literal": 2}},
+            "bounds": {"floor": 0},
+        }
     )
     exit_code, stdout, stderr = _run(run_cli, tmp_path, json.dumps(document))
     assert (exit_code, stderr) == (0, "")
