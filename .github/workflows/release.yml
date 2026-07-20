@@ -445,11 +445,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Tag identity is DERIVED from release-please-config.json, never
-          # restated here: the config's per-package `component` and
-          # `include-component-in-tag` (with the top-level value as the default)
-          # are what release-please itself uses to build a tag, so adding or
-          # renaming a package needs no edit in this workflow and cannot drift
-          # from the authority.
+          # restated here. release-please builds a tag from FOUR inherited
+          # inputs — `component`, `include-component-in-tag`, `include-v-in-tag`
+          # and `tag-separator`, each resolved per package with the top-level
+          # value as the default — so all four are read here. Restating any of
+          # them (or assuming a default the config may later override) would
+          # make this gate look for a tag release-please never creates.
           required="$(python3 - <<'PY'
           import json
 
@@ -457,21 +458,29 @@ jobs:
 
           config = json.load(open("release-please-config.json"))
           manifest = json.load(open(".release-please-manifest.json"))
-          default_in_tag = config.get("include-component-in-tag", True)
+
+          def setting(package, key, fallback):
+              # Per-package value, else the top-level default, else
+              # release-please's own default.
+              if key in package:
+                  return package[key]
+              return config.get(key, fallback)
 
           for path, version in manifest.items():
               if version == PLACEHOLDER:
                   continue
               package = config["packages"][path]
               component = package.get("component")
-              in_tag = package.get("include-component-in-tag", default_in_tag)
+              in_tag = setting(package, "include-component-in-tag", True)
+              include_v = setting(package, "include-v-in-tag", True)
+              separator = setting(package, "tag-separator", "-")
               if in_tag and not component:
                   raise SystemExit(
                       f"package {path!r} sets include-component-in-tag without a "
                       f"component, so its tag cannot be derived"
                   )
-              prefix = f"{component}-v" if in_tag else "v"
-              print(f"{prefix}{version}")
+              prefix = f"{component}{separator}" if in_tag else ""
+              print(f"{prefix}{'v' if include_v else ''}{version}")
           PY
           )"
 

@@ -20,7 +20,7 @@
   ],
   "packages": {
     ".": {
-      "exclude-paths": ["libs/gda-balancing", "uv.lock"]
+      "exclude-paths": ["libs/gda-balancing"]
     },
     "libs/gda-balancing": {
       "component": "gda-balancing",
