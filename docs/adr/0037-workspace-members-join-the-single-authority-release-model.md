@@ -59,7 +59,12 @@ separate release trains, and no hand-edited version anywhere.**
   `libs/gda-balancing/**` keep non-bumping conventional-commit types
   (`chore`/`docs`/`refactor`/...) until a member release is deliberately
   wanted. Registration governs the version line; it does not open the release
-  train.
+  train. *(Historical — superseded by the dated **Flip** note in Consequences:
+  the member's path is excluded and the discipline is lifted for it. The
+  underlying rule still holds for un-excluded paths — a title there must be
+  truthful about its effect on `gda`, which means a non-releasing type for
+  non-`gda` work such as `examples/**`, and a truthful releasing type for a
+  genuine `gda` change.)*
 - **Publishing gda-balancing is deferred.** No PyPI publish tail, no trusted
   publisher, no artifact upload. Known dormant consequence, accepted: if a
   member Release PR were merged today, the cut job would leave a tag-less
@@ -67,6 +72,9 @@ separate release trains, and no hand-edited version anywhere.**
   maintenance tag gate (#79/#82) only guards the root package's tag. The
   member's first-release issue must wire its publish tail, extend the tag
   gate to its component, and only then may member PRs adopt releasing types.
+  *(Historical — all three preconditions were met by #528/#529; see the dated
+  **Flip** note in Consequences. Publishing is wired but no member release has
+  been cut yet.)*
 
 ## Consequences
 
@@ -100,8 +108,29 @@ separate release trains, and no hand-edited version anywhere.**
 >   never-released marker (release-please's first bump cannot produce it), and
 >   requiring a tag that cannot exist yet would deadlock both trains.
 >
-> Remaining before member PRs may adopt releasing types: the title-discipline
-> flip itself, tracked on #528. Until then the discipline stays in force.
+> **Flip (2026-07-20, #528):** every precondition this record set is now met —
+> publish tail wired, tag gate extended, and the `Member releasing-PR scope
+> guard` made a **required** status check — so the non-releasing title
+> discipline is **lifted for `libs/gda-balancing`**: its PRs use truthful
+> `feat`/`fix` types and release on their own train.
+>
+> Two limits the flip does **not** touch, both still in force:
+> - **It is scoped to the excluded path only.** Every un-excluded path is still
+>   attributed to the root package, so a title there must honestly describe the
+>   change's effect on `gda`: a genuine `gda` feature or fix keeps its truthful
+>   releasing type and bumps `gda` — that is the normal release flow
+>   (ADR-0007/ADR-0034) — while work that merely *lives* in an un-excluded path
+>   without being a `gda` change (`examples/**`, panda) takes a non-releasing
+>   type so it does not bump `gda` falsely. The flip changes which paths are
+>   attributed to the root, not the rule that the type must be truthful.
+> - **A PR spanning the member and anything outside it is still absorbed.** The
+>   scope guard refuses such a PR when its title is releasing-typed; split it.
+>
+> **First-release changelog:** the member's foundation (#502, #504) landed under
+> `chore` titles by the very constraint this issue retires, so those commits are
+> invisible to release-please's changelog. The first member release therefore
+> gets **hand-authored release notes** describing the schema core as a one-time
+> cost of the old discipline; every release after it is fully generated.
 
 
 - One ledger now spans both packages; neither `pyproject.toml`, the manifest,
@@ -119,7 +148,10 @@ separate release trains, and no hand-edited version anywhere.**
   at PR time.)*
 - The member's changelog will accumulate at `libs/gda-balancing/CHANGELOG.md`
   once its first releasing commit lands; until then release-please proposes
-  nothing for it (its history is non-releasing by discipline).
+  nothing for it (its history is non-releasing by discipline). *(The
+  parenthetical is historical — the discipline is lifted per the **Flip** note;
+  the changelog still starts empty because the pre-flip history is `chore`,
+  which is why the first release's notes are hand-authored.)*
 
 ## Considered options
 

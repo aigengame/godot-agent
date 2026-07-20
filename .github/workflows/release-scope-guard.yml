@@ -31,15 +31,18 @@ jobs:
       contents: read
       pull-requests: read
 
-    # NOTE: a guard only blocks a merge once it is a REQUIRED status check. Add
-    # "Member releasing-PR scope guard" to the branch protection rules for
-    # `main` — a repo-settings action a maintainer must take, which no workflow
-    # can do for itself. Until then this reports but does not enforce.
+    # LOAD-BEARING (#528): "Member releasing-PR scope guard" is a REQUIRED
+    # status check on `main`, and gda-balancing PRs now carry truthful
+    # releasing types (`feat`/`fix`/...) — so this job is what actually stops a
+    # releasing-typed PR that spans `libs/gda-balancing/**` AND anything
+    # outside it from merging into both release histories (ADR-0037's flip
+    # note, ADR-0038).
     #
-    # Currently belt-and-braces regardless: member PRs are still held to
-    # non-releasing types by discipline. It becomes truly load-bearing when #528
-    # flips that discipline and member PRs start carrying truthful feat/fix
-    # titles.
+    # The required-check configuration is part of the guarantee, not a
+    # convenience: a guard only blocks a merge while it is required, and no
+    # workflow can grant itself that status. If the rule is ever removed from
+    # the ruleset, this job silently degrades to advisory and the flipped title
+    # discipline loses its enforcement — keep it required.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
