@@ -59,7 +59,9 @@ separate release trains, and no hand-edited version anywhere.**
   `libs/gda-balancing/**` keep non-bumping conventional-commit types
   (`chore`/`docs`/`refactor`/...) until a member release is deliberately
   wanted. Registration governs the version line; it does not open the release
-  train.
+  train. *(Historical — superseded by the dated **Flip** note in Consequences:
+  the member's path is excluded and the discipline is lifted for it. Still
+  current for every un-excluded path, e.g. `examples/**`.)*
 - **Publishing gda-balancing is deferred.** No PyPI publish tail, no trusted
   publisher, no artifact upload. Known dormant consequence, accepted: if a
   member Release PR were merged today, the cut job would leave a tag-less
@@ -67,6 +69,9 @@ separate release trains, and no hand-edited version anywhere.**
   maintenance tag gate (#79/#82) only guards the root package's tag. The
   member's first-release issue must wire its publish tail, extend the tag
   gate to its component, and only then may member PRs adopt releasing types.
+  *(Historical — all three preconditions were met by #528/#529; see the dated
+  **Flip** note in Consequences. Publishing is wired but no member release has
+  been cut yet.)*
 
 ## Consequences
 
@@ -136,7 +141,10 @@ separate release trains, and no hand-edited version anywhere.**
   at PR time.)*
 - The member's changelog will accumulate at `libs/gda-balancing/CHANGELOG.md`
   once its first releasing commit lands; until then release-please proposes
-  nothing for it (its history is non-releasing by discipline).
+  nothing for it (its history is non-releasing by discipline). *(The
+  parenthetical is historical — the discipline is lifted per the **Flip** note;
+  the changelog still starts empty because the pre-flip history is `chore`,
+  which is why the first release's notes are hand-authored.)*
 
 ## Considered options
 

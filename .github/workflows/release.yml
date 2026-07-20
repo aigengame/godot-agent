@@ -197,9 +197,9 @@ jobs:
       # Idempotent via skip-existing: PyPI files are immutable, so a re-run from
       # the same tagged commit skips whatever already landed and uploads the rest,
       # mirroring the --clobber idempotency of the gh release upload downstream.
-      # Configuring the PyPI pending publisher is the one-time human step on #207;
-      # until then this step fails the release — intended, it gates tag creation on
-      # a working publisher.
+      # The trusted publisher for `gda` is configured (#207); this step failing
+      # is therefore a real publish failure, and it gates tag creation on a
+      # working publisher — no tag is minted unless PyPI accepted the upload.
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
