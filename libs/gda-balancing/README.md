@@ -14,7 +14,8 @@ extends `gda`; its CLI follows the family's interface conventions.
   [Phase 2 — balance simulation](https://github.com/aigengame/godot-agent/milestone/9)
 - Status: Phase 1 in progress. The Standard Schema core ships — a Design document validates
   through the boundary funnel, round-trips as canonical JSON, and the schema describes
-  itself. Genre templates, evaluation, and tuning are still ahead; the package is **not
+  itself — and the first Genre template (the RPG family) ships behind `template list`/`get`.
+  Further templates, evaluation, and tuning are still ahead; the package is **not
   published to PyPI yet**.
 
 ## Commands
@@ -22,10 +23,17 @@ extends `gda`; its CLI follows the family's interface conventions.
 ```bash
 gda-balancing design validate <document>   # validate through the boundary funnel
 gda-balancing design format <document>     # emit the validated document, canonically
+gda-balancing template list                # the shipped Genre templates
+gda-balancing template get rpg             # emit a Genre template as a Design document
 gda-balancing schema get structural        # the JSON Schema 2020-12 artifact
 gda-balancing schema get catalog           # the semantic rule catalog
 gda-balancing version                      # package version + supported Schema line
 ```
+
+To start a game's numeric design from a template, instantiate it —
+`template get rpg --out my_design.json` — then name your game in `meta`, adjust the
+`parameters`, and keep `design validate` green as you iterate. The RPG template's tiers,
+defaults, and formulas are documented in [`docs/templates/rpg.md`](docs/templates/rpg.md).
 
 Every command emits one JSON document: the typed result on stdout at exit 0, or an error
 envelope — `refusal` (exit 2, on stdout), `usage` (exit 3) or `internal` (exit 4). Add
