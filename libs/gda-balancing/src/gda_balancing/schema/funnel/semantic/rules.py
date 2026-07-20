@@ -30,8 +30,12 @@ base and its magnitude templates); a behavioral anti-drift test — parametrized
 over ``(rule, template)`` — holds the templates in lockstep with the pointers
 the checks emit, in **both** directions: emitted ⊆ declared (no emitted path
 escapes a template) and declared ⊆ exercised (every template has a fixture that
-refuses at it), so a future third formula consumer omitted from the corpus fails
-the test (bADR-0005 amendment).
+refuses at it) — but only over the **declared** scope set. It enforces the mutual
+consistency of the three manual declarations (``_iter_formula_sites``, the
+``scope`` arrays, the fixture factories), not the discovery of an entirely
+undeclared site: a new formula consumer must be added to all three together, and
+one omitted from *both* the corpus and the templates passes silently (bADR-0005
+amendment).
 """
 
 from collections.abc import Callable, Iterator

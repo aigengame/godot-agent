@@ -371,6 +371,80 @@ def test_surrogate_key_deep_subtree_reports_no_surrogate_path(run_cli, tmp_path)
     ]
 
 
+def test_sibling_surrogate_keys_aggregate_into_one_named_refusal(run_cli, tmp_path):
+    # The recheck-4 Required finding: two DISTINCT unrepresentable sibling keys
+    # each minted a generic `string_not_unicode` at the same safe ancestor with
+    # the same detail, so report-all's (code, path) dedup collapsed them into ONE
+    # refusal that named NEITHER key. The key-caused refusal must aggregate per
+    # (safe ancestor, code) with ALL escaped offending keys in the detail, so no
+    # distinct offending key can be dropped.
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "x"}, '
+        '"parameters": {"\\ud800": 1, "\\ud801": 2}}'
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2  # specifically NOT 4
+    assert _is_utf8_encodable(stdout)
+    refusals = _refusals(stdout)
+    assert all(_is_utf8_encodable(r["path"]) for r in refusals)
+    assert all(_is_utf8_encodable(r["detail"]) for r in refusals)
+    # Exactly one string_not_unicode at the ancestor, naming BOTH escaped keys.
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("string_not_unicode", "/parameters")
+    ]
+    detail = refusals[0]["detail"]
+    assert "\\ud800" in detail and "\\ud801" in detail
+
+
+def test_duplicated_sibling_surrogate_keys_lose_nothing(run_cli, tmp_path):
+    # Both unrepresentable sibling keys are ALSO duplicated. Without aggregation
+    # the second key's `duplicate_object_key` (and `string_not_unicode`) vanished
+    # under (code, path) dedup. Aggregated: one `duplicate_object_key` and one
+    # `string_not_unicode`, each at `/parameters` naming BOTH escaped keys —
+    # nothing lost, no surrogate in any path or detail.
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "x"}, '
+        '"parameters": {"\\ud800": 1, "\\ud800": 2, "\\ud801": 3, "\\ud801": 4}}'
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2  # specifically NOT 4
+    assert _is_utf8_encodable(stdout)
+    refusals = _refusals(stdout)
+    assert all(_is_utf8_encodable(r["path"]) for r in refusals)
+    assert all(_is_utf8_encodable(r["detail"]) for r in refusals)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("duplicate_object_key", "/parameters"),
+        ("string_not_unicode", "/parameters"),
+    ]
+    for refusal in refusals:
+        assert "\\ud800" in refusal["detail"] and "\\ud801" in refusal["detail"]
+
+
+def test_surrogate_keys_under_different_ancestors_stay_separate(run_cli, tmp_path):
+    # Surrogate keys under DIFFERENT ancestors have distinct safe pointers, so
+    # they naturally stay separate refusals — one per ancestor, each naming only
+    # its own offending key.
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "x"}, '
+        '"parameters": {"\\ud800": 1}, "effects": {"\\ud801": 1}}'
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2  # specifically NOT 4
+    assert _is_utf8_encodable(stdout)
+    refusals = _refusals(stdout)
+    assert all(_is_utf8_encodable(r["path"]) for r in refusals)
+    assert all(_is_utf8_encodable(r["detail"]) for r in refusals)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("string_not_unicode", "/effects"),
+        ("string_not_unicode", "/parameters"),
+    ]
+    by_path = {r["path"]: r["detail"] for r in refusals}
+    assert (
+        "\\ud800" in by_path["/parameters"] and "\\ud801" not in by_path["/parameters"]
+    )
+    assert "\\ud801" in by_path["/effects"] and "\\ud800" not in by_path["/effects"]
+
+
 def test_surrogate_document_never_reaches_format_emission(run_cli, tmp_path):
     # `design format` runs the same funnel; the surrogate document is refused at
     # preflight, so it never reaches canonical emission — exit 2, never the

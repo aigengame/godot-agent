@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
 from gda_balancing.envelope import Refusal
@@ -238,33 +238,34 @@ def _walk_caps(
     is bounded: the depth pre-scan already guaranteed depth
     ``<= MAX_NESTING_DEPTH``.
 
-    One report-all exception: a **surrogate-bearing object key** is refused at
-    the enclosing element and its subtree is **not** descended into — that
-    subtree's elements cannot be addressed by a safely-encodable pointer, so any
+    One report-all exception: an **unrepresentable object key** (one that is not
+    a valid Unicode scalar string) cannot be named by a safely-encodable pointer,
+    so it is refused at the enclosing element and its subtree is **not** descended
+    into — that subtree's elements cannot be addressed by a safe pointer, so any
     descendant refusal would carry the surrogate in its path (finding-2, #527
-    recheck-2). Values under safely-encodable keys keep full recursion. The
-    duplication of such a key is still reported (report-all survives an
-    unaddressable key, #527 recheck-3): the `duplicate_object_key` anchors at the
-    same enclosing element with the offending key **escaped** into the detail —
-    never a raw surrogate in path OR detail."""
+    recheck-2). Values under safely-encodable keys keep full recursion.
+
+    Because such a key cannot appear in the pointer, several unrepresentable
+    sibling keys would otherwise all mint the *same* generic `(code, path)` and
+    collapse under :mod:`report`'s dedup — dropping every key name but the first
+    (#527 recheck-4). So key-caused refusals **aggregate per (safe ancestor,
+    code)**: one `string_not_unicode` (and, for the duplicated ones, one
+    `duplicate_object_key`) at the enclosing element, its detail listing **all**
+    offending keys `ascii()`-escaped and sorted by that escape — deterministic,
+    always encodable, and never dropped by dedup. Report-all survives an
+    unaddressable key (#527 recheck-3): the duplication of an unrepresentable key
+    is still reported. Representable keys keep their exact per-element behavior:
+    a representable duplicate keeps its own key pointer, and a value under a
+    representable key keeps its own safe path."""
     if isinstance(value, dict):
+        unrepresentable_dupes: list[str] = []
         for key in duplicates.get(id(value), ()):
             if not _is_unicode_text(key):
-                # A duplicated surrogate key cannot bear a safe *key* pointer, so
-                # minting `(*tokens, key)` here is the finding-2 hole (a
-                # surrogate-bearing Refusal.path → exit 4). But report-all must
-                # not silently drop the duplication: anchor it at the deepest
-                # safely-encodable ancestor (the enclosing element) with the key
-                # escaped into the detail (`ascii()` keeps the detail encodable).
-                # The value-iteration below adds `string_not_unicode` for this
-                # same key at the same element (#527 recheck-3, F1).
-                refusals.append(
-                    Refusal(
-                        code="duplicate_object_key",
-                        path=_safe_pointer(*tokens),
-                        detail=f"duplicate object key: {ascii(key)}",
-                    )
-                )
+                # A duplicated unrepresentable key cannot bear a safe *key*
+                # pointer, so minting `(*tokens, key)` here is the finding-2 hole
+                # (a surrogate-bearing Refusal.path → exit 4). Defer it to the
+                # per-ancestor aggregate below rather than drop it.
+                unrepresentable_dupes.append(key)
                 continue
             refusals.append(
                 Refusal(
@@ -273,20 +274,28 @@ def _walk_caps(
                     detail=f"duplicate object key: {key!r}",
                 )
             )
+        if unrepresentable_dupes:
+            refusals.append(
+                _keys_aggregate("duplicate_object_key", tokens, unrepresentable_dupes)
+            )
         if len(value) > MAX_COLLECTION_ELEMENTS:
             refusals.append(_too_large(tokens, len(value)))
+        unrepresentable_keys: list[str] = []
         for key, item in value.items():
             if not _is_unicode_text(key):
                 # A surrogate-bearing key cannot itself be a safely encodable
-                # pointer token, so the refusal names the offending member's
-                # enclosing element (the deepest encodable pointer) — and the
-                # member's subtree is NOT recursed into: its contents cannot be
-                # addressed safely, so any descendant refusal would carry the
-                # surrogate in its path (finding-2, #527 recheck-2). Values under
+                # pointer token — its subtree is NOT recursed into (its contents
+                # are unaddressable, finding-2, #527 recheck-2). Defer to the
+                # per-ancestor aggregate so distinct sibling keys are never
+                # collapsed by (code, path) dedup (#527 recheck-4). Values under
                 # safe keys keep full recursion.
-                refusals.append(_not_unicode(tokens, "object key"))
+                unrepresentable_keys.append(key)
                 continue
             _walk_caps(item, (*tokens, key), duplicates, refusals)
+        if unrepresentable_keys:
+            refusals.append(
+                _keys_aggregate("string_not_unicode", tokens, unrepresentable_keys)
+            )
     elif isinstance(value, list):
         if len(value) > MAX_COLLECTION_ELEMENTS:
             refusals.append(_too_large(tokens, len(value)))
@@ -375,6 +384,32 @@ def _not_unicode(tokens: tuple[str | int, ...], subject: str) -> Refusal:
         code="string_not_unicode",
         path=_safe_pointer(*tokens),
         detail=f"{subject} is not valid UTF-8 text (contains an unpaired surrogate)",
+    )
+
+
+# Detail prefix per key-caused refusal code — the shared aggregate names every
+# offending key rather than the enclosing element only.
+_KEY_AGGREGATE_PREFIX = {
+    "string_not_unicode": "object keys are not valid Unicode scalar strings",
+    "duplicate_object_key": "duplicate object keys are not valid Unicode scalar strings",
+}
+
+
+def _keys_aggregate(
+    code: str, tokens: tuple[str | int, ...], keys: Iterable[str]
+) -> Refusal:
+    """One refusal for all unrepresentable ``keys`` of a single dict, anchored at
+    that dict's safe pointer. An unrepresentable key cannot appear in the pointer,
+    so distinct sibling keys would otherwise share one ``(code, path)`` and
+    collapse under report-all dedup, dropping every name but the first (#527
+    recheck-4). Aggregating per (safe ancestor, code) — with **all** keys
+    ``ascii()``-escaped and sorted by that escape — keeps the refusal
+    deterministic, always encodable, and lossless."""
+    listed = ", ".join(sorted(ascii(key) for key in keys))
+    return Refusal(
+        code=code,
+        path=_safe_pointer(*tokens),
+        detail=f"{_KEY_AGGREGATE_PREFIX[code]}: {listed}",
     )
 
 
