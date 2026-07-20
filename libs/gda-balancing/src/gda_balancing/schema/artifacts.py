@@ -127,6 +127,13 @@ def generate_catalog() -> dict[str, Any]:
     catalog cannot drift from the validator. Entries are sorted by id for a
     stable artifact.
 
+    ``scope`` is emitted as a JSON **array** of RFC 6901 pointer templates.
+    bADR-0005 calls a rule's scope "a JSON Pointer template"; a rule may apply
+    at more than one site (the two reference-integrity rules walk both attribute
+    base formulas and effect magnitudes), so the field carries **one template
+    per site** — a single-site rule is a one-element array. Machine-readable by
+    construction: consumers read the array, never split a comma-joined string.
+
     ``since_version`` is line-granular (``"1.0"``), matching bADR-0001's
     acceptance granularity — a validator serving ``X.Y`` ships every rule of
     ``X.0 … X.Y`` — while the top-level ``schema_version`` is the full version
@@ -141,7 +148,7 @@ def generate_catalog() -> dict[str, Any]:
         "rules": [
             {
                 "id": rule.code,
-                "scope": rule.scope,
+                "scope": list(rule.scope),
                 "description": rule.description,
                 "since_version": rule.since_version,
             }

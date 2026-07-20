@@ -28,7 +28,14 @@ from gda_balancing.schema.model.document import DesignDocument
 
 _GOLDEN = Path(__file__).parent / "goldens" / "structural_schema.json"
 
-_VALID_MINIMAL = {"schema_version": "1.0.0", "meta": {"name": "smallest"}}
+# The committed minimal-document golden, loaded once as the compose base for the
+# parity vectors below (load-and-edit from the one fixture, not a re-inlined
+# literal).
+_VALID_MINIMAL = json.loads(
+    (Path(__file__).parent / "fixtures" / "minimal_design.json").read_text(
+        encoding="utf-8"
+    )
+)
 
 
 def _doc(tmp_path, document: dict) -> str:

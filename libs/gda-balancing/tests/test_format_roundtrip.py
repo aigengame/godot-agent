@@ -17,8 +17,6 @@ from gda_balancing.emit import canonical_json
 from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
 
-_MINIMAL = '{"schema_version": "1.0.0", "meta": {"name": "smallest"}}'
-
 
 def _doc(tmp_path, content, name="doc.json") -> str:
     path = tmp_path / name
@@ -30,8 +28,8 @@ def _format(run_cli, tmp_path, content, name="doc.json"):
     return run_cli(["design", "format", _doc(tmp_path, content, name)])
 
 
-def test_minimal_document_formats_to_canonical_form(run_cli, tmp_path):
-    exit_code, stdout, stderr = _format(run_cli, tmp_path, _MINIMAL)
+def test_minimal_document_formats_to_canonical_form(run_cli, minimal_design_path):
+    exit_code, stdout, stderr = run_cli(["design", "format", str(minimal_design_path)])
     assert (exit_code, stderr) == (0, "")
     payload = json.loads(stdout)
     # V11 (post PR #527 multi#4): an optional member is absent-or-typed, so an
@@ -61,11 +59,11 @@ def _has_null(value) -> bool:
     return False
 
 
-def test_formatted_minimal_document_has_no_null_members(run_cli, tmp_path):
+def test_formatted_minimal_document_has_no_null_members(run_cli, minimal_design_path):
     # optional≠nullable (PR #527 multi#4): canonical emission omits absent
     # optionals rather than materializing `null`, so NO serialized value is null
     # — while the genuine domain defaults (`accepts`, the empty sections) stay.
-    _, stdout, _ = _format(run_cli, tmp_path, _MINIMAL)
+    _, stdout, _ = run_cli(["design", "format", str(minimal_design_path)])
     payload = json.loads(stdout)
     assert not _has_null(payload), payload
     # The domain defaults are still materialized, not dropped.
@@ -94,13 +92,15 @@ def test_formatted_attribute_materializes_accepts_but_omits_absent_facets(
         assert absent not in attribute
 
 
-def test_out_writes_the_body_to_the_sink_and_emits_a_receipt(run_cli, tmp_path):
+def test_out_writes_the_body_to_the_sink_and_emits_a_receipt(
+    run_cli, tmp_path, minimal_design_path
+):
     # The no-`--out` stdout is the artifact body.
-    _, body, _ = _format(run_cli, tmp_path, _MINIMAL)
+    _, body, _ = run_cli(["design", "format", str(minimal_design_path)])
     sink = tmp_path / "out" / "formatted.json"
     sink.parent.mkdir()
     exit_code, stdout, stderr = run_cli(
-        ["design", "format", _doc(tmp_path, _MINIMAL), "--out", str(sink)]
+        ["design", "format", str(minimal_design_path), "--out", str(sink)]
     )
     assert (exit_code, stderr) == (0, "")
     # The artifact body — byte-identical to the no-`--out` stdout — went to the

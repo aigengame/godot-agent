@@ -12,6 +12,13 @@ descriptor's ``valid_document`` / ``refusing_document`` fixtures are JSON
 and appends the path as the positional argument. Content (never a committed
 ``.json`` path) keeps fixtures cwd-independent and off the isolation gate's
 per-game-config scan.
+
+``minimal_design_path`` is the one committed golden of the V1 minimal Design
+document (``tests/fixtures/minimal_design.json``) — the single source the
+boundary tests point at instead of each re-inlining the same minimal literal.
+A test needing the text (to mutate it) reads it off the path; a test needing a
+dict loads it. It lives under ``tests/`` so the isolation gate's per-game-config
+scan (``src/`` only) never sees it, and it names no game identity.
 """
 
 import io
@@ -26,6 +33,15 @@ from gda_balancing.descriptors import CommandDescriptor
 from gda_balancing.dispatch import dispatch
 
 RunResult = tuple[int, str, str]
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture
+def minimal_design_path() -> Path:
+    """The committed V1 minimal Design document — the one golden the boundary
+    tests point at instead of re-inlining the minimal literal."""
+    return _FIXTURES_DIR / "minimal_design.json"
 
 
 def _run(

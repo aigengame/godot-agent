@@ -91,16 +91,19 @@ Check = Callable[[DesignDocument, dict[str, Any]], list[Refusal]]
 class SemanticRule:
     """One semantic rule — its own catalog entry, refusal-code owner, and check.
 
-    ``code`` is the stable id (== refusal code == catalog id); ``scope`` is the
-    JSON Pointer *template* it applies to (``{id}``/``{section}`` placeholders);
-    ``description`` is the human catalog line; ``since_version`` is the schema
-    line the rule appeared in; ``check`` collects this rule's refusals over a
-    document; ``violation_fixture`` is a complete Design document refusing with
-    exactly this code.
+    ``code`` is the stable id (== refusal code == catalog id); ``scope`` is a
+    tuple of the JSON Pointer *templates* it applies to (``{id}``/``{section}``
+    placeholders) — one template per site, so a single-site rule is a
+    one-element tuple and a rule spanning two sites (the reference-integrity
+    rules, which walk both attribute base formulas and effect magnitudes)
+    carries one template each; ``description`` is the human catalog line;
+    ``since_version`` is the schema line the rule appeared in; ``check`` collects
+    this rule's refusals over a document; ``violation_fixture`` is a complete
+    Design document refusing with exactly this code.
     """
 
     code: str
-    scope: str
+    scope: tuple[str, ...]
     description: str
     since_version: str
     check: Check
@@ -915,8 +918,8 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     SemanticRule(
         code="attribute_reference_undefined",
         scope=(
-            "/attributes/items/{id}/base/formula, "
-            "/effects/items/{id}/modifiers/{index}/magnitude"
+            "/attributes/items/{id}/base/formula",
+            "/effects/items/{id}/modifiers/{index}/magnitude",
         ),
         description=(
             "An attr node — in an attribute base formula or an effect magnitude "
@@ -938,8 +941,8 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     SemanticRule(
         code="parameter_reference_undefined",
         scope=(
-            "/attributes/items/{id}/base/formula, "
-            "/effects/items/{id}/modifiers/{index}/magnitude"
+            "/attributes/items/{id}/base/formula",
+            "/effects/items/{id}/modifiers/{index}/magnitude",
         ),
         description=(
             "A param node — in an attribute base formula or an effect magnitude "
@@ -960,7 +963,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="tier_reference_undefined",
-        scope="/attributes/items/{id}",
+        scope=("/attributes/items/{id}",),
         description="An attribute's tier label names no declared tier.",
         since_version=_SINCE,
         check=_check_tier_reference_undefined,
@@ -978,7 +981,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="base_formula_cycle",
-        scope="/attributes/items/{id}/base",
+        scope=("/attributes/items/{id}/base",),
         description=(
             "An attribute participates in a cycle of the base-formula dependency graph."
         ),
@@ -1001,7 +1004,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="allocation_requires_direct_base",
-        scope="/attributes/items/{id}",
+        scope=("/attributes/items/{id}",),
         description=(
             "An attribute accepts 'allocation' but declares a formula base "
             "(allocation is legal only on a direct base)."
@@ -1022,7 +1025,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="bounds_required_for_domain",
-        scope="/attributes/items/{id}",
+        scope=("/attributes/items/{id}",),
         description=(
             "A percentage/probability attribute declares no bounds (bounds are "
             "mandatory for those domains)."
@@ -1037,7 +1040,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="bounds_empty",
-        scope="/attributes/items/{id}/bounds",
+        scope=("/attributes/items/{id}/bounds",),
         description=(
             "A declared bounds object declares neither floor nor cap "
             "(it narrows nothing)."
@@ -1058,7 +1061,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="bounds_inverted",
-        scope="/attributes/items/{id}/bounds",
+        scope=("/attributes/items/{id}/bounds",),
         description="A bounds object declares floor greater than cap.",
         since_version=_SINCE,
         check=_check_bounds_inverted,
@@ -1076,7 +1079,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="bounds_outside_domain",
-        scope="/attributes/items/{id}/bounds",
+        scope=("/attributes/items/{id}/bounds",),
         description=(
             "A probability attribute's bounds declare a side outside the "
             "domain's [0, 1] space."
@@ -1097,7 +1100,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="base_outside_domain",
-        scope="/attributes/items/{id}/base",
+        scope=("/attributes/items/{id}/base",),
         description=(
             "A probability attribute's direct base is outside the domain's "
             "[0, 1] space."
@@ -1118,7 +1121,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="tier_pattern_unsatisfied",
-        scope="/attributes/items/{id}",
+        scope=("/attributes/items/{id}",),
         description=(
             "A labeled attribute violates its tier's facet pattern (accepts by "
             "exact set equality)."
@@ -1143,7 +1146,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="form_points_not_increasing",
-        scope="/attributes/items/{id}/base/formula/points",
+        scope=("/attributes/items/{id}/base/formula/points",),
         description=(
             "A piecewise_linear/lookup_table form's x-values are not strictly "
             "increasing."
@@ -1170,7 +1173,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="form_points_insufficient",
-        scope="/attributes/items/{id}/base/formula/points",
+        scope=("/attributes/items/{id}/base/formula/points",),
         description=(
             "A piecewise_linear form has fewer than 2 points, or a lookup_table "
             "fewer than 1 entry."
@@ -1197,7 +1200,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="form_coefficients_count_invalid",
-        scope="/attributes/items/{id}/base/formula/coefficients",
+        scope=("/attributes/items/{id}/base/formula/coefficients",),
         description="A polynomial form has 0 or more than 8 coefficients.",
         since_version=_SINCE,
         check=_check_form_coefficients_count_invalid,
@@ -1221,7 +1224,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="exponential_growth_rate_positive",
-        scope="/attributes/items/{id}/base/formula/growth_rate",
+        scope=("/attributes/items/{id}/base/formula/growth_rate",),
         description=(
             "An exponential form's resolved growth_rate is not strictly positive."
         ),
@@ -1248,7 +1251,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="expression_tree_too_deep",
-        scope="/attributes/items/{id}/base/formula",
+        scope=("/attributes/items/{id}/base/formula",),
         description="A base-formula expression tree is deeper than 32.",
         since_version=_SINCE,
         check=_check_expression_tree_too_deep,
@@ -1262,7 +1265,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="expression_tree_too_large",
-        scope="/attributes/items/{id}/base/formula",
+        scope=("/attributes/items/{id}/base/formula",),
         description="A base-formula expression tree has more than 256 nodes.",
         since_version=_SINCE,
         check=_check_expression_tree_too_large,
@@ -1276,7 +1279,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="reserved_section_present",
-        scope="/{section}",
+        scope=("/{section}",),
         description=(
             "A reserved top-level section is present (refused until its owning "
             "issue designs it)."
@@ -1288,7 +1291,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     # --- Effects (bADR-0006) -----------------------------------------------
     SemanticRule(
         code="modifier_target_undefined",
-        scope="/effects/items/{id}/modifiers/{index}",
+        scope=("/effects/items/{id}/modifiers/{index}",),
         description=(
             "A modifier's target names no attribute declared in attributes.items."
         ),
@@ -1309,7 +1312,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="stacking_type_undefined",
-        scope="/effects/items/{id}/stacking",
+        scope=("/effects/items/{id}/stacking",),
         description=(
             "A persistent effect's stacking.type names no declared stacking type."
         ),
@@ -1329,7 +1332,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="application_duration_illegal",
-        scope="/effects/items/{id}/modifiers/{index}",
+        scope=("/effects/items/{id}/modifiers/{index}",),
         description=(
             "An instant effect carries a non-one_shot modifier "
             "(continuous/periodic require a timed/infinite duration)."
@@ -1349,7 +1352,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="instant_effect_forbids_stacking",
-        scope="/effects/items/{id}/stacking",
+        scope=("/effects/items/{id}/stacking",),
         description="An instant effect declares stacking (it leaves no instance).",
         since_version=_SINCE,
         check=_check_instant_effect_forbids_stacking,
@@ -1368,7 +1371,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="persistent_effect_requires_stacking",
-        scope="/effects/items/{id}",
+        scope=("/effects/items/{id}",),
         description="A timed/infinite effect declares no stacking.",
         since_version=_SINCE,
         check=_check_persistent_effect_requires_stacking,
@@ -1385,7 +1388,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="override_forbidden_on_delta",
-        scope="/effects/items/{id}/modifiers/{index}",
+        scope=("/effects/items/{id}/modifiers/{index}",),
         description=(
             "An override modifier is applied as a one_shot/periodic delta "
             "(override replaces, it is not a delta)."
@@ -1405,7 +1408,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="period_required_for_periodic",
-        scope="/effects/items/{id}",
+        scope=("/effects/items/{id}",),
         description="An effect with a periodic modifier declares no period.",
         since_version=_SINCE,
         check=_check_period_required_for_periodic,
@@ -1424,7 +1427,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="period_forbidden_when_all_one_shot",
-        scope="/effects/items/{id}/period",
+        scope=("/effects/items/{id}/period",),
         description="An effect whose modifiers are all one_shot declares a period.",
         since_version=_SINCE,
         check=_check_period_forbidden_when_all_one_shot,
@@ -1442,7 +1445,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="temporal_value_not_positive",
-        scope="/effects/items/{id}/duration",
+        scope=("/effects/items/{id}/duration",),
         description="A timed duration or a period is not strictly positive.",
         since_version=_SINCE,
         check=_check_temporal_value_not_positive,
@@ -1461,7 +1464,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="period_below_minimum_granularity",
-        scope="/effects/items/{id}/period",
+        scope=("/effects/items/{id}/period",),
         description="A period is below the v1 minimum tick granularity (0.05 s).",
         since_version=_SINCE,
         check=_check_period_below_minimum_granularity,
@@ -1481,7 +1484,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="tick_budget_exceeded",
-        scope="/effects/items/{id}/period",
+        scope=("/effects/items/{id}/period",),
         description=(
             "A timed effect's duration / period exceeds the per-instance tick "
             "budget (10 000)."
@@ -1510,7 +1513,7 @@ def _schema_reference_rule(structural_schema_id: str) -> SemanticRule:
     ``$id`` a document declaring this line's version must point ``$schema`` at."""
     return SemanticRule(
         code="schema_reference_disagreement",
-        scope="/$schema",
+        scope=("/$schema",),
         description=(
             "The document's $schema disagrees with the versioned structural schema $id."
         ),

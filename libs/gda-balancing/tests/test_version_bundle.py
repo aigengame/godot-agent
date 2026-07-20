@@ -7,6 +7,11 @@ to one bundle and validates against *its* members. With only ``1.0`` registered
 that seam is invisible, so these tests inject a *synthetic* second line through a
 test-scoped ``resolve`` (dependency injection — no global is mutated) to prove a
 newer minor validates under its own bundle while an older document keeps its own.
+
+These are **supplemental internal diagnostics** (#504's external-boundary
+criterion): the acceptance evidence lives at the CLI/JSON surfaces and the
+public formula seam, while these exercise the bundle-resolution seam directly to
+keep the multi-line contract diagnosable ahead of a second registered line.
 """
 
 import json
@@ -71,7 +76,7 @@ def _synthetic_second_line() -> VersionBundle:
     base = current_bundle()
     extra = SemanticRule(
         code=_SYNTHETIC_CODE,
-        scope="/",
+        scope=("/",),
         description="synthetic marker rule for the second-line seam test",
         since_version="1.1",
         check=lambda _doc, _raw: [

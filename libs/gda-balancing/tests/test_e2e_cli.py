@@ -26,8 +26,6 @@ import jsonschema
 
 from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
 
-_MINIMAL_DOC = '{"schema_version": "1.0.0", "meta": {"name": "smallest"}}'
-
 
 def _console_script() -> str:
     script = shutil.which("gda-balancing")
@@ -66,16 +64,19 @@ class TestEntryPoints:
 
 
 class TestKeyUserPath:
-    def test_validate_key_path(self, tmp_path):
-        doc = tmp_path / "doc.json"
-        doc.write_text(_MINIMAL_DOC, encoding="utf-8")
-        result = _run("design", "validate", str(doc))
+    def test_validate_key_path(self, minimal_design_path):
+        # The committed minimal-document golden, straight through the installed
+        # console script and the OS file/argv boundary.
+        result = _run("design", "validate", str(minimal_design_path))
         assert (result.returncode, result.stderr) == (0, "")
         assert result.stdout == '{"valid": true}\n'
 
-    def test_refusal_key_path(self, tmp_path):
+    def test_refusal_key_path(self, tmp_path, minimal_design_path):
         doc = tmp_path / "doc.json"
-        doc.write_text(_MINIMAL_DOC.replace("1.0.0", "9.0.0"), encoding="utf-8")
+        mutated = minimal_design_path.read_text(encoding="utf-8").replace(
+            "1.0.0", "9.0.0"
+        )
+        doc.write_text(mutated, encoding="utf-8")
         result = _run("design", "validate", str(doc))
         assert (result.returncode, result.stderr) == (2, "")
         payload = json.loads(result.stdout)
@@ -84,12 +85,10 @@ class TestKeyUserPath:
         codes = {r["code"] for r in payload["error"]["refusals"]}
         assert codes == {"unsupported_schema_version"}
 
-    def test_format_with_sink_key_path(self, tmp_path):
-        doc = tmp_path / "doc.json"
-        doc.write_text(_MINIMAL_DOC, encoding="utf-8")
+    def test_format_with_sink_key_path(self, tmp_path, minimal_design_path):
         sink = tmp_path / "canonical.json"
-        bare = _run("design", "format", str(doc))
-        sunk = _run("design", "format", str(doc), "--out", str(sink))
+        bare = _run("design", "format", str(minimal_design_path))
+        sunk = _run("design", "format", str(minimal_design_path), "--out", str(sink))
         assert (bare.returncode, bare.stderr) == (0, "")
         assert (sunk.returncode, sunk.stderr) == (0, "")
         # The sink holds exactly the artifact the bare invocation printed,

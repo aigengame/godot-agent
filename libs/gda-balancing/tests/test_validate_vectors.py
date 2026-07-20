@@ -21,8 +21,6 @@ from gda_balancing.schema.funnel import validate
 from gda_balancing.schema.model.document import DesignDocument
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
 
-_MINIMAL = '{"schema_version": "1.0.0", "meta": {"name": "smallest"}}'
-
 
 def _doc(tmp_path, content, name="doc.json") -> str:
     path = tmp_path / name
@@ -44,8 +42,11 @@ def _refusals(stdout: str) -> list[dict]:
 # --- Passing documents -----------------------------------------------------
 
 
-def test_v1_minimal_document_validates(run_cli, tmp_path):
-    exit_code, stdout, stderr = _run(run_cli, tmp_path, _MINIMAL)
+def test_v1_minimal_document_validates(run_cli, minimal_design_path):
+    # The committed minimal-document golden, validated through the CLI boundary.
+    exit_code, stdout, stderr = run_cli(
+        ["design", "validate", str(minimal_design_path)]
+    )
     assert (exit_code, stderr) == (0, "")
     assert stdout == canonical_json({"valid": True})
 

@@ -34,6 +34,11 @@ _GOLDEN = Path(__file__).parent / "goldens" / "semantic_catalog.json"
 
 @pytest.mark.parametrize("rule", SEMANTIC_RULES, ids=[r.code for r in SEMANTIC_RULES])
 def test_rule_refuses_exactly_its_violation_fixture(rule) -> None:
+    """The semantic-layer walk — a **supplemental internal diagnostic** (#504's
+    external-boundary criterion): it asserts each rule at the semantic phase on
+    the typed document, while the acceptance evidence lives at the CLI/JSON
+    surface (``test_rule_fixture_refuses_end_to_end`` runs the same fixtures
+    through ``design validate``) and the public formula seam."""
     # The fixture is a complete, structurally valid document (it constructs), so
     # the semantic phase is what refuses it.
     raw = rule.violation_fixture
@@ -98,7 +103,12 @@ def test_catalog_entries_carry_full_metadata(run_cli) -> None:
     by_id = {entry["id"]: entry for entry in catalog["rules"]}
     for rule in SEMANTIC_RULES:
         entry = by_id[rule.code]
-        assert entry["scope"] == rule.scope
+        # `scope` is a JSON array of RFC 6901 pointer templates — one element
+        # per site a rule applies to (a single-site rule is a one-element array;
+        # the two reference-integrity rules carry both their formula and their
+        # magnitude sites).
+        assert isinstance(entry["scope"], list)
+        assert entry["scope"] == list(rule.scope)
         assert entry["description"] == rule.description
         assert entry["since_version"] == rule.since_version
         assert sorted(entry) == ["description", "id", "scope", "since_version"]

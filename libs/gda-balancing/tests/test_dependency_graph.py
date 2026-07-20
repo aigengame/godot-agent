@@ -5,6 +5,13 @@ formula seam share: :func:`cycle_members` (the ``base_formula_cycle`` rule) and
 :func:`topological_order` (the seam's ``evaluate_bases``). The graph is built
 from typed documents constructed straight through the model — these are unit
 tests of the graph, below the funnel.
+
+These are **supplemental internal diagnostics** (#504's external-boundary
+criterion): the acceptance evidence lives at the CLI/JSON surfaces and the
+public formula seam — ``base_formula_cycle`` end to end in
+test_validate_vectors.py / test_semantic_catalog.py, ``evaluate_bases`` at the
+seam in test_formula_seam.py — while these keep the shared graph directly
+diagnosable.
 """
 
 from gda_balancing.schema.funnel.semantic.graph import cycle_members, topological_order
