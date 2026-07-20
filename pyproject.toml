@@ -81,15 +81,13 @@ assets-live = [
     "google-genai>=1.0",
 ]
 
-[tool.uv.workspace]
-# Explicit membership (no glob): the workspace holds exactly the sibling
-# product gda-balancing (#502). gda does NOT depend on the member — it enters
-# the dev environment only via `uv sync --all-packages`, so gda's dependency
-# closure and built wheel are unchanged.
-members = ["libs/gda-balancing"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `scripts/` holds repo-automation modules the workflows call directly (they are
+# stdlib-only so any environment can run them). They are not part of the shipped
+# `gda` distribution, so they live outside `src/`; putting the directory on the
+# test path is what lets `tests/` import and cover them.
+pythonpath = ["scripts"]
 markers = [
     "e2e: tests that spawn a real Godot process (requires a 4.4+ engine)",
 ]
@@ -114,6 +112,10 @@ select = ["E4", "E7", "E9", "F"]
 # `basic` mode is the starting point — a strictness ratchet and a possible `ty`
 # migration are tracked separately. The Typer same-named-subcommand idiom (see the
 # ruff F811 ignore above, ADR-0023) is suppressed inline at the command defs.
-include = ["src", "tests"]
+include = ["src", "tests", "scripts"]
+# `scripts/` is not importable as a package from the repo root, so pyright needs
+# the same path the pytest `pythonpath` gives the suite in order to resolve
+# `import release_tags` from a test module.
+extraPaths = ["scripts"]
 pythonVersion = "3.13"
 typeCheckingMode = "basic"

@@ -1,6 +1,13 @@
 name: CI
 
 on:
+  # Deliberately the DEFAULT pull_request activity types (opened, synchronize,
+  # reopened) — notably NOT `edited`. Everything in this workflow is a function
+  # of the tree, so editing a PR's title or body cannot change its outcome and
+  # re-running the whole suite (including a Godot install) for a typo fix would
+  # be pure waste. The one check that IS a function of the title lives in
+  # release-scope-guard.yml, which subscribes to `edited` for exactly that
+  # reason.
   pull_request:
   push:
     branches:
@@ -37,6 +44,9 @@ jobs:
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
         with:
+          # ruff is file-based and gates the whole repo from the root
+          # environment, so the member project need not be synced (ADR-0038).
+          sync: root
           # The python job already populates the dependency cache for this key;
           # this job only reads it, so skip a redundant (racing) cache save.
           save-cache: false
@@ -58,6 +68,9 @@ jobs:
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
         with:
+          # One pyright run per project, each against its own resolved
+          # dependencies — the two projects lock separately (ADR-0038).
+          sync: both
           # The python job already populates the dependency cache for this key;
           # this job only reads it, so skip a redundant (racing) cache save.
           save-cache: false
@@ -67,8 +80,10 @@ jobs:
         run: uv run --frozen pyright
 
       - name: Type check gda-balancing
-        # The workspace member carries its own [tool.pyright] scope (#502).
-        run: uv run --frozen pyright --project libs/gda-balancing
+        # gda-balancing is its own uv project (ADR-0038) with its own pyright
+        # pin, so the run resolves from the member environment; pyright's
+        # --project points at the member's [tool.pyright] scope (#502).
+        run: uv run --frozen --project libs/gda-balancing pyright --project libs/gda-balancing
 
   python:
     name: Python unit tests and package build
@@ -85,6 +100,11 @@ jobs:
 
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          # This job runs both products' suites and builds both distributions,
+          # so it syncs both independent projects (ADR-0038). It is also the
+          # job that populates the shared dependency cache for the others.
+          sync: both
 
       - name: Run unit tests
         run: uv run --frozen pytest -m "not e2e"
@@ -97,20 +117,22 @@ jobs:
       - name: Run Panda Adventure pure-Python tests
         run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "not e2e and not engine and not acquire_live"
 
-      # The root testpaths also excludes the gda-balancing workspace member;
-      # its pure-Python suite (CLI conformance harness + isolation gate, #502)
-      # runs here by explicit path, keeping the two products' suites separate.
+      # gda-balancing is a separate uv project (ADR-0038), so its suite runs
+      # against its OWN environment via --project — which is also what puts its
+      # `gda-balancing` console script on PATH for the subprocess e2e tier.
       - name: Run gda-balancing tests
-        run: uv run --frozen pytest libs/gda-balancing/tests
+        run: uv run --frozen --project libs/gda-balancing pytest libs/gda-balancing/tests
 
       - name: Build distributions
         run: uv build
 
       # Build smoke only: proves the member's backend/layout stay buildable.
-      # Not uploaded — gda-balancing publishing is deferred (ADR-0037). Its own
-      # out-dir keeps the member dists out of the gda-distributions artifact.
+      # Not uploaded — the member's release build is the Release workflow's own
+      # build-release-gda-balancing job (#528 wired its publish tail), and CI
+      # ships no release artifacts for either package. Its own out-dir keeps the
+      # member dists out of the gda-distributions artifact.
       - name: Build gda-balancing distributions
-        run: uv build --package gda-balancing --out-dir dist-gda-balancing
+        run: uv build --project libs/gda-balancing --out-dir dist-gda-balancing
 
       - name: Upload distributions
         uses: actions/upload-artifact@v7.0.1
@@ -118,6 +140,42 @@ jobs:
           name: gda-distributions
           path: dist/
           if-no-files-found: error
+
+  coinstall-smoke:
+    name: Both products co-install
+    runs-on: ubuntu-latest
+
+    # Replaces feedback the shared workspace lock used to give for free (ADR-0038).
+    # While gda and gda-balancing resolved into one lock, uv proved on every
+    # change that their dependency closures stay mutually satisfiable; two
+    # independent locks each resolve alone and can silently drift into wheels
+    # that cannot be installed side by side (a user who wants both, or a future
+    # agent image carrying both, would hit it first). So the co-installability
+    # claim becomes an explicit test: build both wheels, install them together
+    # into one clean environment, and run a command from each.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          # Neither project's venv is used here — the build backends run in
+          # uv's own isolated build envs and the smoke install is a fresh venv.
+          sync: none
+          save-cache: false
+
+      - name: Build both wheels
+        run: |
+          uv build --out-dir dist-coinstall
+          uv build --project libs/gda-balancing --out-dir dist-coinstall
+
+      - name: Install both into one clean environment and run each command
+        run: |
+          uv venv coinstall-venv
+          uv pip install --python coinstall-venv/bin/python dist-coinstall/*.whl
+          ./coinstall-venv/bin/gda --help
+          ./coinstall-venv/bin/gda-balancing version
 
   godot-e2e:
     name: Godot e2e tests
@@ -135,6 +193,9 @@ jobs:
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
         with:
+          # Engine-backed tiers are gda's and the example game's only; the
+          # member ships no engine-facing code (ADR-0038).
+          sync: root
           save-cache: false
 
       # install-godot also installs the matching export templates, so this job can

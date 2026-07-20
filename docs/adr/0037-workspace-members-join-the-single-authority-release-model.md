@@ -4,6 +4,15 @@ status: accepted
 
 # Workspace members join the single-authority release model
 
+> **Superseded in part (2026-07-20, #528) by
+> [ADR-0038](0038-gda-balancing-leaves-the-uv-workspace.md):** the *workspace
+> premise* below no longer holds. `libs/gda-balancing` left the uv workspace
+> and is now an independent uv project with its own `uv.lock`, so the
+> statements here that assume `[tool.uv.workspace]`, a single shared lock, or
+> `uv sync --all-packages` are superseded — each is marked inline. The release
+> model this record decides (one manifest ledger, per-package components,
+> disjoint tags, separate Release PRs) is **unchanged**.
+
 The repo becomes a uv workspace with #502: `libs/gda-balancing` is wired in as
 an independently versioned member (a sibling product; not a `gda` dependency).
 ADR-0008 made release-please the single authority for *the* version — written
@@ -42,6 +51,9 @@ separate release trains, and no hand-edited version anywhere.**
 - The release workflow's uv.lock sync iterates **all** Release PR branches:
   the single workspace lock records every member's version, so a member
   Release PR needs the same sync the root needed (#97).
+  *(Superseded by ADR-0038: there is no single workspace lock any more. Each
+  branch now refreshes **both** locks — the root's and the member's — and
+  commits whichever changed. The sync-every-branch rule itself stands.)*
 - **Because the root absorbs all commits, the non-releasing title discipline
   for member PRs continues after registration**: PRs whose changes live under
   `libs/gda-balancing/**` keep non-bumping conventional-commit types
@@ -58,14 +70,53 @@ separate release trains, and no hand-edited version anywhere.**
 
 ## Consequences
 
+> **Outcome (2026-07-20, #528):** this record's deferred consequences are
+> discharged as follows — one of them only partly, and said so plainly.
+> - The root package declares `"exclude-paths": ["libs/gda-balancing"]`, so a
+>   commit whose changed files all live under the member's path no longer
+>   proposes a root `gda` release.
+>   **The exclusion had a verified limit, recorded here rather than glossed:**
+>   release-please drops a commit from a package only when *every* changed file
+>   is excluded, and its matcher treats each entry as a **directory prefix**
+>   (`file.indexOf(path + "/") === 0`) — so a root-level *file* such as the
+>   workspace `uv.lock` could not be excluded at all. A member change that also
+>   updated the shared lock (a dependency change; #527 is exactly that shape)
+>   therefore still counted for the root package.
+>   **Resolved by [ADR-0038](0038-gda-balancing-leaves-the-uv-workspace.md)**
+>   (same issue, later in the round): the member left the uv workspace and took
+>   its lock with it, so there is no longer a root-level file a member change
+>   can touch, and the one `exclude-paths` entry now covers the member's whole
+>   change surface. The all-files rule still holds, so a releasing-typed member
+>   PR must stay inside the member directory — a CI guard asserts that.
+> - The member's **publish tail is wired**: a mirror of the gda build →
+>   PyPI → GitHub-release chain keyed on the path-prefixed cut outputs, with
+>   its own PyPI trusted publisher under the **distinct** `pypi-gda-balancing`
+>   environment (a shared environment would let either product's publish job
+>   mint a token for the other, since the OIDC trust tuple is
+>   owner/repo/workflow/environment). The member's GitHub release un-drafts
+>   with `--latest=false` so the repo-global Latest badge stays on gda (#87).
+> - The **tag gate now covers every manifest package**, skipping any component
+>   still at the `0.0.0` placeholder: that version is an unambiguous
+>   never-released marker (release-please's first bump cannot produce it), and
+>   requiring a tag that cannot exist yet would deadlock both trains.
+>
+> Remaining before member PRs may adopt releasing types: the title-discipline
+> flip itself, tracked on #528. Until then the discipline stays in force.
+
+
 - One ledger now spans both packages; neither `pyproject.toml`, the manifest,
-  `uv.lock`, tags, nor changelogs are hand-versioned for any member.
+  a `uv.lock`, tags, nor changelogs are hand-versioned for any member.
 - The gda pipeline is provably unaffected: its jobs key on the root-scoped
   action outputs, and a (future) member release leaves them all skipped.
 - A slipped releasing-typed commit under `libs/` proposes **two** Release PRs
   (member and root). Separate PRs make the mistake recoverable — close the
   unwanted PR(s) and fix the title going forward — instead of releasing both
-  from one merge.
+  from one merge. *(Narrowed by the Outcome note above: a commit confined to
+  the member's path now proposes only the member's Release PR. Under ADR-0038 a
+  member dependency change is confined too — the shared lock is gone — so this
+  bullet now describes a commit that genuinely spans both packages, where
+  separate PRs remain the recovery property and a CI guard rejects the shape
+  at PR time.)*
 - The member's changelog will accumulate at `libs/gda-balancing/CHANGELOG.md`
   once its first releasing commit lands; until then release-please proposes
   nothing for it (its history is non-releasing by discipline).

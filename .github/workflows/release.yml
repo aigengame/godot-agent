@@ -48,6 +48,13 @@ jobs:
       # The commit release-please tagged the release at — not necessarily the
       # push HEAD, so build-release builds the right tree under concurrency (#83).
       sha: ${{ steps.release.outputs.sha }}
+      # The non-root package's outputs are path-prefixed while the root's stay
+      # unprefixed (ADR-0037), so the gda tail above is untouched by the
+      # gda-balancing tail below and a run can carry either, both, or neither
+      # release.
+      balancing_release_created: ${{ steps.release.outputs['libs/gda-balancing--release_created'] }}
+      balancing_tag_name: ${{ steps.release.outputs['libs/gda-balancing--tag_name'] }}
+      balancing_sha: ${{ steps.release.outputs['libs/gda-balancing--sha'] }}
     steps:
       - name: Run release-please (release cutting only)
         uses: googleapis/release-please-action@v4
@@ -88,6 +95,9 @@ jobs:
 
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          # The gda release train touches only the root project (ADR-0038).
+          sync: root
 
       - name: Run unit tests
         run: uv run --frozen pytest -m "not e2e"
@@ -103,26 +113,20 @@ jobs:
         # silently-skipped e2e is visible in the release log, not mistaken for a pass.
         run: uv run --frozen pytest -m e2e -rs
 
+      # The expected tag is DERIVED by scripts/release_tags.py, the single
+      # authority shared with the member build job and the release-PR tag gate
+      # below. Composing it here would be a second implementation that a
+      # supported config change (include-v-in-tag, tag-separator) could put out
+      # of step with the tag release-please actually mints.
       - name: Validate release tag
         run: |
-          uv run python - <<'PY'
-          import os
-          import tomllib
-
-          release_tag = os.environ["RELEASE_TAG"]
-          if not release_tag.startswith("v"):
-              raise SystemExit(f"Release tag must start with 'v': {release_tag}")
-
-          with open("pyproject.toml", "rb") as pyproject:
-              version = tomllib.load(pyproject)["project"]["version"]
-
-          expected_tag = f"v{version}"
-          if release_tag != expected_tag:
-              raise SystemExit(
-                  f"Release tag {release_tag} does not match pyproject.toml version {version}; "
-                  f"expected {expected_tag}"
-              )
-          PY
+          version="$(uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          expected_tag="$(uv run python scripts/release_tags.py --tag-for . --version "$version")"
+          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "Release tag ${RELEASE_TAG} does not match pyproject.toml version ${version}; expected ${expected_tag}" >&2
+            exit 1
+          fi
+          echo "Release tag ${RELEASE_TAG} matches pyproject.toml version ${version}."
 
       - name: Build distributions
         run: uv build
@@ -252,6 +256,150 @@ jobs:
           # draft is published out of order (#87).
           gh release edit "$RELEASE_TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
 
+  # --- gda-balancing tail (ADR-0037) -------------------------------------------
+  # A mirror of the three gda jobs above, keyed on gda-balancing's path-prefixed
+  # cut-release outputs and its own PyPI environment, so the two products'
+  # release trains are independent: neither can publish the other, and a run
+  # that cuts only one leaves the other's jobs skipped. gda-balancing ships no
+  # engine-facing code, so its build job runs the package suite only — no Godot.
+  # "member" below means a non-root release-please package: gda-balancing is an
+  # independent uv project, NOT a uv workspace member (ADR-0038), which is why
+  # these jobs sync and build only its own project.
+
+  build-release-gda-balancing:
+    name: Build and verify gda-balancing release artifacts
+    runs-on: ubuntu-latest
+    needs: cut-release
+    if: >-
+      !failure() && !cancelled() &&
+      needs.cut-release.outputs.balancing_release_created == 'true'
+    # Deliberately NO id-token, exactly as in build-release: the job that runs
+    # project, test, and build-backend code never holds publishing authority
+    # (ADR-0016).
+    permissions:
+      contents: read
+
+    env:
+      RELEASE_TAG: ${{ needs.cut-release.outputs.balancing_tag_name }}
+
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.cut-release.outputs.balancing_sha }}
+
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          # ONLY the member: gda-balancing is an independent uv project
+          # (ADR-0038) and its release train must not resolve, install, or
+          # depend on anything from the root gda project.
+          sync: member
+
+      # The member is engine- and game-agnostic by construction (its isolation
+      # gate is part of this suite), so there is no e2e tier to install Godot for.
+      - name: Run gda-balancing tests
+        run: uv run --frozen --project libs/gda-balancing pytest libs/gda-balancing/tests
+
+      # Same derivation as the root build job — scripts/release_tags.py is the
+      # one authority. The tag prefix is NOT restated here: it follows from the
+      # package's `component` plus the four inherited tag inputs, so a config
+      # change moves this check and release-please together.
+      - name: Validate release tag
+        run: |
+          version="$(uv run --project libs/gda-balancing python -c 'import tomllib; print(tomllib.load(open("libs/gda-balancing/pyproject.toml", "rb"))["project"]["version"])')"
+          expected_tag="$(uv run --project libs/gda-balancing python scripts/release_tags.py --tag-for libs/gda-balancing --version "$version")"
+          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "Release tag ${RELEASE_TAG} does not match libs/gda-balancing/pyproject.toml version ${version}; expected ${expected_tag}" >&2
+            exit 1
+          fi
+          echo "Release tag ${RELEASE_TAG} matches libs/gda-balancing/pyproject.toml version ${version}."
+
+      - name: Build distributions
+        run: uv build --project libs/gda-balancing --out-dir dist/
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: gda-balancing-release-distributions
+          path: dist/
+          if-no-files-found: error
+          overwrite: true
+
+  publish-pypi-gda-balancing:
+    name: Publish gda-balancing to PyPI (Trusted Publishing)
+    runs-on: ubuntu-latest
+    needs:
+      - cut-release
+      - build-release-gda-balancing
+    # Same run-on-failure rationale as publish-pypi: an upstream failure must
+    # FAIL this job rather than skip it, so "Re-run failed jobs" re-runs the
+    # whole member tail (ADR-0007).
+    if: ${{ !cancelled() && needs.cut-release.outputs.balancing_release_created == 'true' }}
+    permissions:
+      id-token: write
+    # A DISTINCT environment from the root's `pypi`: the OIDC trust tuple is
+    # (owner, repo, workflow, environment), so sharing one environment would let
+    # either product's publish job mint a token valid for the other. The PyPI
+    # trusted publisher for gda-balancing is configured with this exact name. No
+    # protection rules, matching the root's posture — the human gate is the
+    # Release PR merge (ADR-0007/0016/0037).
+    environment:
+      name: pypi-gda-balancing
+      url: https://pypi.org/p/gda-balancing
+    steps:
+      - name: Require the build to have succeeded
+        if: ${{ needs.build-release-gda-balancing.result != 'success' }}
+        run: |
+          echo "build-release-gda-balancing did not succeed (result: ${{ needs.build-release-gda-balancing.result }})." >&2
+          echo "Failing so 'Re-run failed jobs' re-runs this job once the build is repaired." >&2
+          exit 1
+
+      - name: Download distributions
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: gda-balancing-release-distributions
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
+  publish-github-release-gda-balancing:
+    name: Publish gda-balancing GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - cut-release
+      - publish-pypi-gda-balancing
+    if: ${{ !cancelled() && needs.cut-release.outputs.balancing_release_created == 'true' }}
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.cut-release.outputs.balancing_tag_name }}
+    steps:
+      - name: Require the PyPI publish to have succeeded
+        if: ${{ needs.publish-pypi-gda-balancing.result != 'success' }}
+        run: |
+          echo "publish-pypi-gda-balancing did not succeed (result: ${{ needs.publish-pypi-gda-balancing.result }})." >&2
+          echo "Failing before the un-draft so no tag is created; 'Re-run failed jobs' re-runs this once PyPI is repaired." >&2
+          exit 1
+
+      - name: Download distributions
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: gda-balancing-release-distributions
+          path: dist/
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          # NOT --latest: the repo-global Latest badge stays pinned to the gda
+          # product's releases (#87), which a member release must not steal.
+          gh release edit "$RELEASE_TAG" --draft=false --latest=false --repo "$GITHUB_REPOSITORY"
+
   release-pr:
     name: Maintain release PR
     runs-on: ubuntu-latest
@@ -260,6 +408,9 @@ jobs:
       - build-release
       - publish-pypi
       - publish-github-release
+      - build-release-gda-balancing
+      - publish-pypi-gda-balancing
+      - publish-github-release-gda-balancing
     # Runs after any cut release is published. The same-run `needs` only sees
     # this run's job statuses, but the hazard is repo-global and survives the
     # run: a failed verify-and-build chain leaves a tag-less draft whose merged
@@ -277,27 +428,72 @@ jobs:
       - name: Check out the release manifest
         uses: actions/checkout@v6
 
-      - name: Require the manifest version's tag before maintaining the release PR
+      # Establishes uv on the repo's pinned Python for this whole job — the tag
+      # gate below and the lock sync at the end both need it. `sync: none`
+      # because scripts/release_tags.py is stdlib-only and the lock sync runs
+      # `uv lock`, so neither project's environment needs resolving; the point
+      # is the PINNED INTERPRETER, since a bare `python3` is whatever the runner
+      # image ships and neither .python-version nor a project .venv redirects
+      # it.
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync: none
+          # This job syncs no dependencies, so it has no closure worth saving.
+          save-cache: "false"
+
+      # The gate covers EVERY manifest package (ADR-0037): a tag-less draft in
+      # any component re-opens #82's spurious-full-history-PR hazard for that
+      # component's train. A component still at the `0.0.0` placeholder has
+      # never released and has no tag to require — release-please's first bump
+      # can never produce 0.0.0, so the placeholder is an unambiguous
+      # never-released marker. Requiring its tag anyway would deadlock BOTH
+      # trains: the member has no tag until its first release, and without
+      # maintenance no Release PR proposing that release is ever created.
+      - name: Require every released component's tag before maintaining the release PR
         id: tag_gate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version="$(python3 -c "import json; print(json.load(open('.release-please-manifest.json'))['.'])")"
-          tag="v${version}"
-          # Bounded retry: a tag created by the publish step moments ago may not
-          # be visible immediately (read-after-write), which would otherwise let
-          # an all-green release run still regenerate the spurious PR (#79/#82).
-          for attempt in $(seq 1 6); do
-            if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
-              echo "Tag ${tag} is visible; maintaining the release PR."
-              echo "tag_present=true" >> "$GITHUB_OUTPUT"
-              exit 0
+          # Tag identity is DERIVED by scripts/release_tags.py, never restated
+          # here — the same authority the two build jobs above validate against,
+          # so all three agree by construction. It reads all FOUR inherited tag
+          # inputs (`component`, `include-component-in-tag`, `include-v-in-tag`,
+          # `tag-separator`), skips never-released placeholder packages, and
+          # fails loudly on a config it cannot derive from.
+          #
+          # `--no-project` keeps the stdlib-only claim honest (no lock read, no
+          # venv resolved); `--python 3.13` pins the interpreter rather than
+          # inheriting the runner image's `python3`.
+          required="$(uv run --no-project --python 3.13 python scripts/release_tags.py --required-tags)"
+
+          missing=""
+          for tag in $required; do
+            # Bounded retry: a tag created by the publish step moments ago may not
+            # be visible immediately (read-after-write), which would otherwise let
+            # an all-green release run still regenerate the spurious PR (#79/#82).
+            found=false
+            for attempt in $(seq 1 6); do
+              if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+                echo "Tag ${tag} is visible."
+                found=true
+                break
+              fi
+              echo "Tag ${tag} not visible yet (attempt ${attempt}/6); waiting 5s..."
+              sleep 5
+            done
+            if [ "$found" = false ]; then
+              missing="${missing} ${tag}"
             fi
-            echo "Tag ${tag} not visible yet (attempt ${attempt}/6); waiting 5s..."
-            sleep 5
           done
+
+          if [ -z "$missing" ]; then
+            echo "Every released component's tag is visible; maintaining the release PR."
+            echo "tag_present=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "tag_present=false" >> "$GITHUB_OUTPUT"
-          echo "::warning title=Release pipeline needs recovery::Tag ${tag} for the current manifest version does not exist, so release-PR maintenance is skipped to avoid regenerating a spurious full-history Release PR (#79). A previous release likely failed to publish, leaving a tag-less draft. See ADR-0007 for recovery."
+          echo "::warning title=Release pipeline needs recovery::Tag(s)${missing} for the current manifest version(s) do not exist, so release-PR maintenance is skipped to avoid regenerating a spurious full-history Release PR (#79). A previous release likely failed to publish, leaving a tag-less draft. See ADR-0007 for recovery."
 
       - name: Run release-please (release PR maintenance only)
         id: release
@@ -308,35 +504,43 @@ jobs:
           manifest-file: .release-please-manifest.json
           skip-github-release: true
 
-      # Bring uv.lock under release-please's single version authority (ADR-0008):
-      # release-please bumps pyproject.toml/the manifest but never touches
-      # uv.lock's editable `gda` self-version, so it would drift every release
-      # (#97). Regenerate uv.lock on the Release PR branch so the lock's gda
-      # version tracks the bumped pyproject.toml and both land in the same PR.
+      # Bring both uv.lock files under release-please's single version authority
+      # (ADR-0008): release-please bumps pyproject.toml/the manifest but never
+      # touches a lock's editable self-version, so it would drift every release
+      # (#97). Regenerate the locks on the Release PR branch so each lock's
+      # self-version tracks its bumped pyproject.toml and both land in the same PR.
       #
       # Both steps run only when maintenance ran (tag_present) AND at least one
       # Release PR exists (steps.release.outputs.prs is the JSON array of
       # PullRequest objects, unset otherwise), so a normal no-op push that
       # maintains nothing is unaffected. With two manifest packages and
       # separate-pull-requests (ADR-0037), each package gets its own Release PR
-      # and every one needs the lock sync — the workspace lock records the
-      # member's version too (same drift class as #97).
-      - name: Set up uv
-        if: steps.tag_gate.outputs.tag_present == 'true' && steps.release.outputs.prs
-        uses: astral-sh/setup-uv@v8.2.0
+      # and each needs ITS lock synced — the two projects lock independently
+      # now (ADR-0038), so there is no longer one lock recording both versions.
+      #
+      # uv is already installed for this job by the setup step above (the tag
+      # gate needs the same pinned interpreter), so there is no separate uv
+      # setup here — one toolchain step per job, not two that could drift.
 
       # release-please force-updates its branches each run, so this re-applies
-      # the lock each run — intended: every Release PR branch ends every run
-      # with the synced lock. Pushes with the default GITHUB_TOKEN do not
+      # the locks each run — intended: every Release PR branch ends every run
+      # with its lock synced. Pushes with the default GITHUB_TOKEN do not
       # trigger workflows (recursion guard), which is fine here. uv sync
-      # --frozen would NOT rewrite the lock, so we run uv lock. On a branch
-      # whose uv.lock is already in sync the loop body is a no-op.
-      - name: Sync uv.lock on the Release PR branches
+      # --frozen would NOT rewrite a lock, so we run uv lock. On a branch whose
+      # locks are already in sync the loop body is a no-op.
+      #
+      # Both locks are refreshed on EVERY Release PR branch and then only the
+      # one that actually changed is committed. Deriving which lock to touch
+      # from the branch name would mean parsing release-please's branch-naming
+      # convention — a second, brittle authority on package identity. Running
+      # both is idempotent (a lock already in sync produces no diff), so "which
+      # package is this branch for?" is answered by the diff, not by a guess.
+      - name: Sync the uv.lock files on the Release PR branches
         if: steps.tag_gate.outputs.tag_present == 'true' && steps.release.outputs.prs
         env:
           RELEASE_PRS: ${{ steps.release.outputs.prs }}
         run: |
-          branches="$(echo "$RELEASE_PRS" | python3 -c 'import json, sys
+          branches="$(echo "$RELEASE_PRS" | uv run --no-project --python 3.13 python -c 'import json, sys
           for pr in json.load(sys.stdin):
               name = pr.get("headBranchName", "")
               if name:
@@ -355,11 +559,15 @@ jobs:
             # fail because the bare fetch updates only FETCH_HEAD, not origin/$branch.
             git checkout -B "$branch" FETCH_HEAD
             uv lock
-            if git diff --quiet -- uv.lock; then
-              echo "uv.lock already in sync on ${branch}; nothing to do."
+            uv lock --project libs/gda-balancing
+            if git diff --quiet -- uv.lock libs/gda-balancing/uv.lock; then
+              echo "Both uv.lock files already in sync on ${branch}; nothing to do."
               continue
             fi
-            git add uv.lock
+            # Stage only the lock(s) that actually changed — `git add` on an
+            # unchanged path is a no-op, so naming both is safe and keeps the
+            # commit to whichever package this branch releases.
+            git add uv.lock libs/gda-balancing/uv.lock
             git commit -m "chore: sync uv.lock with the release version"
             git push origin "HEAD:${branch}"
           done <<< "$branches"

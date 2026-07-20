@@ -1,0 +1,82 @@
+name: Release scope guard
+
+# A releasing-typed PR that touches BOTH libs/gda-balancing and anything outside
+# it would propose two Release PRs (ADR-0037/0038). This workflow refuses that
+# shape at PR time.
+#
+# `edited` is LOAD-BEARING here, and is why this is its own workflow rather than
+# a job in ci.yml. The verdict is a function of the PR TITLE, and the default
+# pull_request activity types (opened, synchronize, reopened) do not include a
+# title change. Without `edited`, a mixed-path PR could pass this guard as
+# `chore: …`, then have only its title edited to a releasing type: same head
+# SHA, existing green check, guard never re-runs — and it merges. The rest of CI
+# is a function of the tree only and deliberately stays on the default types, so
+# a title edit does not re-run the whole suite (see the comment in ci.yml).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  member-release-scope:
+    name: Member releasing-PR scope guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+
+    # NOTE: a guard only blocks a merge once it is a REQUIRED status check. Add
+    # "Member releasing-PR scope guard" to the branch protection rules for
+    # `main` — a repo-settings action a maintainer must take, which no workflow
+    # can do for itself. Until then this reports but does not enforce.
+    #
+    # Currently belt-and-braces regardless: member PRs are still held to
+    # non-releasing types by discipline. It becomes truly load-bearing when #528
+    # flips that discipline and member PRs start carrying truthful feat/fix
+    # titles.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # `sync: none` — the guard is stdlib-only, so neither project's
+      # dependencies need resolving. What this step DOES buy is the pinned
+      # interpreter: a bare `python3` is whatever the runner image ships, and
+      # neither .python-version nor a project .venv redirects it. uv is
+      # installed here pinned to the repo's Python so the run step below can
+      # name it explicitly.
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync: none
+          # This job syncs no dependencies, so it has no closure worth saving.
+          save-cache: "false"
+
+      # Both the releasing-commit types and the member directory are derived
+      # from release-please-config.json by scripts/release_scope_guard.py — the
+      # single authority, covered by tests/test_release_scope_guard.py. The
+      # types are resolved PER PACKAGE (a package's own changelog-sections
+      # override the top-level ones, by key presence) and combined
+      # conservatively: releasing for any touched package is releasing. A
+      # config declaring sections at neither level fails the guard loudly
+      # rather than falling back to a default set, because release-please's
+      # defaults vary by `release-type` (ADR-0038).
+      #
+      # `--no-project` keeps the stdlib-only claim honest — no lock is read and
+      # no venv is resolved — while `--python 3.13` pins the interpreter the
+      # script actually runs on.
+      - name: Assert a releasing-typed member PR stays inside the member directory
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --paginate --jq '.[].filename' > changed-files.txt
+          uv run --no-project --python 3.13 python \
+            scripts/release_scope_guard.py --changed-files changed-files.txt

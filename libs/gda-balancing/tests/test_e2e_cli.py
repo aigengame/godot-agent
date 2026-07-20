@@ -30,9 +30,10 @@ from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
 def _console_script() -> str:
     script = shutil.which("gda-balancing")
     assert script is not None, (
-        "console script `gda-balancing` not on PATH — run the suite via "
-        "`uv run pytest` after `uv sync --all-packages` (the entry point "
-        "is what this e2e tier exists to prove)"
+        "console script `gda-balancing` not on PATH — this package is its own "
+        "uv project, so run the suite from its environment: "
+        "`uv run --project libs/gda-balancing pytest libs/gda-balancing/tests` "
+        "(the entry point is what this e2e tier exists to prove)"
     )
     return script
 

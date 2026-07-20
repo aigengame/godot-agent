@@ -19,7 +19,9 @@
     { "type": "ci", "section": "Continuous Integration", "hidden": true }
   ],
   "packages": {
-    ".": {},
+    ".": {
+      "exclude-paths": ["libs/gda-balancing"]
+    },
     "libs/gda-balancing": {
       "component": "gda-balancing",
       "include-component-in-tag": true
