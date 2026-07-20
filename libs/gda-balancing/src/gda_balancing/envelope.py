@@ -19,6 +19,21 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+
+class UnreadableInputError(Exception):
+    """The boundary funnel's loader could not read the input document —
+    the path is missing, is a directory, or is permission-denied.
+
+    Dispatch maps it to the usage `unreadable_input` code / exit 3
+    (bADR-0008's usage/refusal boundary: everything that fails *before* the
+    document's bytes reach the funnel is a usage error; unparseable bytes,
+    caps, and version dispatch are the funnel's own refusals). It lives here
+    — the error-vocabulary home — so the funnel (and any handler) raises it
+    without importing dispatch, and dispatch catches it without importing
+    ``schema/``.
+    """
+
+
 # Exit codes (bADR-0008). Channel follows meaning: exits 0-2 write stdout;
 # exits 3/4 keep stdout empty and write exactly one envelope to stderr.
 EXIT_SUCCESS = 0

@@ -2,9 +2,11 @@
 
 `version` self-describes both authorities as distinct fields, never a single
 conflated string (bADR-0009): the toolkit package version and the supported
-Standard Schema line (bADR-0001's major.minor line, e.g. ``"1.0"``).
-``supported_schema_line`` is ``null`` until #504 lands the first validatable
-Standard Schema implementation (adjudicated 2026-07-19 on #502).
+Standard Schema line (bADR-0001's major.minor line, e.g. ``"1.0"``). Now that
+#504 lands the first validatable Standard Schema implementation,
+``supported_schema_line`` reports the current (newest) line — the newest
+registered bundle's line (:func:`~gda_balancing.schema.bundle.current_bundle`) —
+never ``null``.
 """
 
 from importlib.metadata import version as package_version
@@ -12,6 +14,7 @@ from importlib.metadata import version as package_version
 from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
+from gda_balancing.schema.bundle import current_bundle
 
 
 class VersionInput(BaseModel):
@@ -21,16 +24,22 @@ class VersionInput(BaseModel):
 
 
 class VersionResult(BaseModel):
+    """The two never-conflated authorities (bADR-0009). Both are required,
+    typed strings: ``supported_schema_line`` is no longer nullable now that #504
+    lands the first validatable Standard Schema — optional≠nullable applies to
+    the surface's own results too, so it is always present and always a string,
+    never ``null`` (PR #527 multi#4)."""
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     toolkit_version: str
-    supported_schema_line: str | None = None
+    supported_schema_line: str
 
 
 def run_version(_: VersionInput) -> VersionResult:
     return VersionResult(
         toolkit_version=package_version("gda-balancing"),
-        supported_schema_line=None,
+        supported_schema_line=current_bundle().line,
     )
 
 

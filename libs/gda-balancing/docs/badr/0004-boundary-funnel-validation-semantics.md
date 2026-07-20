@@ -62,6 +62,8 @@ exit codes — is #518's contract, not this document's.
   bADR-0003. Cap violations are typed refusals at preflight — resource exhaustion is a
   refusal class, not a crash class.
 
+  > **Amendment (2026-07-20, #527 review):** nesting cap raised 64 → 96 so bADR-0003's depth-≤32 formulas are expressible at every legal declaration site; the original constants failed to compose (formula depths 31–32 were unreachable). The raise was gated on linearizing structural validation — under the previous exponential validator the lower cap was a load-bearing shadow.
+
 - **Element-level typed refusals.** Each violation is reported as a refusal carrying:
   a **stable refusal code**, the **instance path** as a JSON Pointer (RFC 6901) down to
   the offending element — never just the enclosing collection — and a human-readable
@@ -72,6 +74,8 @@ exit codes — is #518's contract, not this document's.
   keyword location, the **instance location as a JSON Pointer**, and the error — the
   structural phase's refusals are a direct projection of that standard output into the
   toolkit's refusal shape.
+
+  > **Amendment (2026-07-20, #527 recheck 3–4):** an offending element whose own key (or a key on its path) is not a valid Unicode scalar string cannot be named by an emittable RFC 6901 pointer. Such refusals — `string_not_unicode` for the key itself, and `duplicate_object_key` for a duplicated unrepresentable key — anchor at the **deepest safely-encodable ancestor** and the member's subtree is not walked further (its contents are unaddressable). Because an unaddressable key never appears in the pointer, several unrepresentable sibling keys under one ancestor would share a single `(code, instance path)` and be dropped by report-all's dedup. So key-caused refusals **aggregate per (safe ancestor, code)**: one refusal per code at the ancestor, its detail listing **all** offending keys escaped and deterministically ordered — so `(code, path)` dedup can never drop a distinct offending key. This is the single sanctioned exception to element-precision; report-all is otherwise unaffected.
 
 - **Report-all, deterministic, bounded.** Within each executed phase, validation
   collects **all** violations rather than failing fast — an agent fixes a batch per

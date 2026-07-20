@@ -290,11 +290,15 @@ name = "gda-balancing"
 version = "0.0.0"
 source = { editable = "libs/gda-balancing" }
 dependencies = [
+    { name = "jsonschema" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.13.4" }]
+requires-dist = [
+    { name = "jsonschema", specifier = ">=4.25" },
+    { name = "pydantic", specifier = ">=2.13.4" },
+]
 
 [[package]]
 name = "google-auth"

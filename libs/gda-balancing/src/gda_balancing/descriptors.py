@@ -15,7 +15,7 @@ designation replaces that field's option binding (bADR-0011's binding law).
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.envelope import RefusalReport
 
@@ -25,18 +25,51 @@ RESERVED_GROUPS = frozenset({"evaluation", "tuning"})
 RESERVED_META = frozenset({"manifest"})
 
 
+class ArtifactSpec(BaseModel):
+    """The one normative receipt member (bADR-0009): the resolved sink path and
+    the byte count written there. Closed and frozen — the receipt shape is a
+    published contract, not an open bag."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str
+    bytes: int
+
+
+class ArtifactReceipt(BaseModel):
+    """The stdout receipt an ``--out`` invocation emits in place of the artifact
+    body (bADR-0009): ``artifact: {path, bytes}`` and nothing else. Present in a
+    result exactly when ``--out`` was used, forbidden otherwise — so every
+    artifact-sink command's output model is ``RootModel[<Body> | ArtifactReceipt]``
+    (see :attr:`CommandDescriptor.artifact_sink`), letting the dispatch tail
+    construct the receipt as the declared output type."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    artifact: ArtifactSpec
+
+
 @dataclass(frozen=True)
 class ConformanceFixtures:
     """Per-command cases the conformance harness drives (bADR-0011).
 
     ``valid_args`` is the argument *tail* of one valid invocation — the
     command path itself is derived from the descriptor by every harness row,
-    so fixture and identity cannot drift apart. ``refusing_input`` is
-    required for document-taking commands only — none exist in v1 (#504).
+    so fixture and identity cannot drift apart.
+
+    ``valid_document`` and ``refusing_document`` are the Design-document
+    fixtures for a document-taking command, given as **JSON document content,
+    never a file path**: the harness materializes each to a tmp file and
+    appends that path as the positional argument (a committed ``.json`` file
+    would both be cwd-dependent and trip the isolation gate's per-game-config
+    scan). ``refusing_document`` — a document that provokes a *stable* funnel
+    refusal — is required for a document-taking command (bADR-0011's refusal
+    row); a command that takes no document leaves both ``None``.
     """
 
     valid_args: tuple[str, ...] = ()
-    refusing_input: str | None = None
+    valid_document: str | None = None
+    refusing_document: str | None = None
 
 
 @dataclass(frozen=True)
@@ -57,9 +90,17 @@ class CommandDescriptor:
     handler: Callable[..., BaseModel | RefusalReport]
     fixtures: ConformanceFixtures
     positional_field: str | None = None
-    # Execution markings — today exactly one (bADR-0010/0011). No v1 command
-    # sets it; the harness's seed row keys off it.
+    # Execution markings (bADR-0010/0011); the harness's per-marking rows key
+    # off them.
     stochastic: bool = field(default=False)
+    # `artifact_sink` marks a command that emits a canonical artifact and so
+    # accepts `--out <path>` (bADR-0009): the artifact body goes to the sink and
+    # stdout carries an `ArtifactReceipt` instead. Only such commands accept
+    # `--out`; every other command rejects it as an unknown argument. Contract:
+    # an artifact-sink command's `output_model` MUST be
+    # `RootModel[<Body> | ArtifactReceipt]`, so the dispatch tail can construct
+    # the receipt as the declared output type.
+    artifact_sink: bool = field(default=False)
 
     def __post_init__(self) -> None:
         if self.group in RESERVED_GROUPS or (

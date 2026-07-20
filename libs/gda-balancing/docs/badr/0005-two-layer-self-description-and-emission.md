@@ -26,6 +26,14 @@ is that contract; how the *Schema* describes itself is this one.
      version it appeared in. The catalog inventories the rules; it does not execute
      them.
 
+     > **Amendment (2026-07-20, #527 recheck):** a rule's catalog `scope` is one
+     > **or more** JSON Pointer templates — the field is a JSON array with one
+     > template per site the rule can report (multi-site rules exist: shared
+     > formula rules fire at attribute bases and effect magnitudes; temporal rules
+     > at duration and period). The array shape and full-site enumeration are
+     > enforced by a behavioral anti-drift test (every emitted refusal path matches
+     > one of its rule's templates).
+
 - **Honest division of labor — the validator is itself a required artifact.** The
   structural schema makes structure mechanically validatable by any ecosystem
   validator. Semantic validity (acyclicity, reference integrity, cross-facet
@@ -78,6 +86,14 @@ is that contract; how the *Schema* describes itself is this one.
   without a semantic change) — never byte equality of arbitrary input; canonical
   emission makes byte-stable output an emergent property for toolkit-emitted
   documents.
+
+  > **Amendment (2026-07-20, #527 review):** "optional fields with defined defaults
+  > materialized explicitly" means genuine **domain** defaults (an empty `accepts`,
+  > the empty designed sections). An **optional member without a domain default is
+  > absent-or-typed, never `null`**: it is omitted from canonical emission, and the
+  > published structural schema drops the `X | None` null arm so an explicit `null`
+  > refuses structurally. Round-trip equality reads accordingly: an absent optional
+  > equals its materialized domain default, or its own omission when it has none.
 
 ## Considered options
 
