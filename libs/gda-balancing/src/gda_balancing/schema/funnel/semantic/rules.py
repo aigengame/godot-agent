@@ -572,19 +572,27 @@ def _check_expression_tree_too_large(
     return refusals
 
 
-def _check_schema_reference_disagreement(
-    _doc: DesignDocument, raw: dict[str, Any]
-) -> list[Refusal]:
-    reference = raw.get("$schema")
-    if reference is not None and reference != STRUCTURAL_SCHEMA_ID:
-        return [
-            _refuse(
-                "schema_reference_disagreement",
-                ("$schema",),
-                "$schema does not match the versioned structural schema $id",
-            )
-        ]
-    return []
+def _schema_reference_disagreement_check(structural_schema_id: str) -> Check:
+    """The ``$schema``-agreement check for one line, closing over *that line's*
+    structural-schema ``$id``. This is the only line-specific rule (bADR-0001):
+    a document's ``$schema`` must resolve to the ``$id`` of the version it
+    declares, so the comparison target is the resolved bundle's id — never a
+    process-global 'current' id. The check keeps the ``(doc, raw)`` signature
+    every other rule has; the id is captured, not passed."""
+
+    def check(_doc: DesignDocument, raw: dict[str, Any]) -> list[Refusal]:
+        reference = raw.get("$schema")
+        if reference is not None and reference != structural_schema_id:
+            return [
+                _refuse(
+                    "schema_reference_disagreement",
+                    ("$schema",),
+                    "$schema does not match the versioned structural schema $id",
+                )
+            ]
+        return []
+
+    return check
 
 
 def _check_reserved_section_present(
@@ -900,7 +908,10 @@ _STACKING = {"type": "combine", "lifetime": "independent"}
 
 # --- The one registry ------------------------------------------------------
 
-SEMANTIC_RULES: tuple[SemanticRule, ...] = (
+# Every rule whose behavior does not depend on the resolved line — all but
+# `schema_reference_disagreement`, which compares against the line's own
+# structural-schema `$id` and so is spliced in per-line by `build_semantic_rules`.
+_LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     SemanticRule(
         code="attribute_reference_undefined",
         scope=(
@@ -1264,16 +1275,6 @@ SEMANTIC_RULES: tuple[SemanticRule, ...] = (
         ),
     ),
     SemanticRule(
-        code="schema_reference_disagreement",
-        scope="/$schema",
-        description=(
-            "The document's $schema disagrees with the versioned structural schema $id."
-        ),
-        since_version=_SINCE,
-        check=_check_schema_reference_disagreement,
-        violation_fixture={**_base_document(), "$schema": "urn:disagrees"},
-    ),
-    SemanticRule(
         code="reserved_section_present",
         scope="/{section}",
         description=(
@@ -1502,3 +1503,35 @@ SEMANTIC_RULES: tuple[SemanticRule, ...] = (
         ),
     ),
 )
+
+
+def _schema_reference_rule(structural_schema_id: str) -> SemanticRule:
+    """The one line-specific rule, bound to ``structural_schema_id`` — the
+    ``$id`` a document declaring this line's version must point ``$schema`` at."""
+    return SemanticRule(
+        code="schema_reference_disagreement",
+        scope="/$schema",
+        description=(
+            "The document's $schema disagrees with the versioned structural schema $id."
+        ),
+        since_version=_SINCE,
+        check=_schema_reference_disagreement_check(structural_schema_id),
+        violation_fixture={**_base_document(), "$schema": "urn:disagrees"},
+    )
+
+
+def build_semantic_rules(structural_schema_id: str) -> tuple[SemanticRule, ...]:
+    """The full v1 semantic rule set for one line — the line-independent rules
+    plus the ``$schema``-agreement rule bound to this line's structural-schema
+    ``$id``. One builder, so a bundle's rules and the ``$schema`` target it
+    compares against cannot drift (bADR-0001/0005). Registry order is
+    insignificant: the catalog sorts by id, the namespace is a set, and the
+    report sorts by ``(path, code)``."""
+    return (*_LINE_INDEPENDENT_RULES, _schema_reference_rule(structural_schema_id))
+
+
+# The v1 line's rule registry — the one authority the catalog and the
+# conformance walk project from (bADR-0005). It is the 1.0 bundle's
+# `semantic_rules`; the funnel runs the *resolved bundle's* rules, never this
+# global directly.
+SEMANTIC_RULES: tuple[SemanticRule, ...] = build_semantic_rules(STRUCTURAL_SCHEMA_ID)

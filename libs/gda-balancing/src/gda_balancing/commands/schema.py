@@ -25,7 +25,7 @@ from gda_balancing.descriptors import (
     CommandDescriptor,
     ConformanceFixtures,
 )
-from gda_balancing.schema.artifacts import generate_catalog, generate_structural_schema
+from gda_balancing.schema.bundle import current_bundle
 
 
 class SchemaGetInput(BaseModel):
@@ -45,11 +45,14 @@ class SchemaArtifact(RootModel[dict[str, Any] | ArtifactReceipt]):
 
 
 def run_schema_get(inp: SchemaGetInput) -> SchemaArtifact:
-    """Emit the requested artifact. Never refuses — a self-description artifact
-    is always available for a bound (hence valid) artifact name."""
+    """Emit the requested artifact for the current (newest) schema line. Never
+    refuses — a self-description artifact is always available for a bound (hence
+    valid) artifact name. Self-description is line-agnostic, so it reads the
+    newest bundle (:func:`~gda_balancing.schema.bundle.current_bundle`)."""
+    bundle = current_bundle()
     if inp.artifact == "catalog":
-        return SchemaArtifact(root=generate_catalog())
-    return SchemaArtifact(root=generate_structural_schema())
+        return SchemaArtifact(root=bundle.catalog())
+    return SchemaArtifact(root=bundle.structural_schema())
 
 
 SCHEMA_GET = CommandDescriptor(

@@ -4,8 +4,9 @@
 conflated string (bADR-0009): the toolkit package version and the supported
 Standard Schema line (bADR-0001's major.minor line, e.g. ``"1.0"``). Now that
 #504 lands the first validatable Standard Schema implementation,
-``supported_schema_line`` reports that line (:data:`SUPPORTED_LINE`), never
-``null``.
+``supported_schema_line`` reports the current (newest) line — the newest
+registered bundle's line (:func:`~gda_balancing.schema.bundle.current_bundle`) —
+never ``null``.
 """
 
 from importlib.metadata import version as package_version
@@ -13,7 +14,7 @@ from importlib.metadata import version as package_version
 from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
-from gda_balancing.schema.version import SUPPORTED_LINE
+from gda_balancing.schema.bundle import current_bundle
 
 
 class VersionInput(BaseModel):
@@ -38,7 +39,7 @@ class VersionResult(BaseModel):
 def run_version(_: VersionInput) -> VersionResult:
     return VersionResult(
         toolkit_version=package_version("gda-balancing"),
-        supported_schema_line=SUPPORTED_LINE,
+        supported_schema_line=current_bundle().line,
     )
 
 

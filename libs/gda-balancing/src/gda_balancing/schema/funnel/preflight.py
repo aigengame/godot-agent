@@ -34,14 +34,19 @@ spirit ("resource exhaustion is a refusal class, not a crash class"):
   reason: canonical emission must be encodable.
 """
 
+from __future__ import annotations
+
 import json
 import math
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from gda_balancing.envelope import Refusal
 from gda_balancing.schema import pointer
-from gda_balancing.schema.version import line_accepted, parse_line
+from gda_balancing.schema.version import parse_line
+
+if TYPE_CHECKING:
+    from gda_balancing.schema.bundle import VersionBundle
 
 # v1 normative ingress caps (bADR-0004); raising any is a minor schema bump.
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024  # 10 MiB
@@ -82,42 +87,63 @@ _VERSION_KEY = "schema_version"
 _VERSION_PATH = pointer.build(_VERSION_KEY)
 
 
-def preflight(data: bytes) -> tuple[list[Refusal], object | None]:
-    """Run Phase 0 over the raw document bytes; return ``(refusals, root)``.
+def preflight(
+    data: bytes, resolve: Callable[[str], VersionBundle | None]
+) -> tuple[list[Refusal], object | None, VersionBundle | None]:
+    """Run Phase 0 over the raw document bytes; return ``(refusals, root,
+    bundle)``.
 
-    An empty refusal list means preflight passed and ``root`` is the parsed
-    document the structural/semantic phases validate. ``root`` is ``None``
-    whenever a **terminal** sub-step (1-4) refused before a usable document
-    existed; sub-steps 5-6 (the caps/duplicate/unicode walk + version dispatch)
-    refuse *with* the parsed root in hand, but the funnel returns on any
-    preflight refusal, so that root is never consumed. Refusals are raw
-    (dedup/order/truncate is :mod:`report`'s job), in discovery order.
+    An empty refusal list means preflight passed, ``root`` is the parsed
+    document the structural/semantic phases validate, and ``bundle`` is the
+    resolved version bundle those phases validate it *against* (bADR-0001).
+    ``root`` and ``bundle`` are ``None`` whenever a **terminal** sub-step (1-4)
+    refused before a usable document existed; sub-steps 5-6 (the
+    caps/duplicate/unicode walk + version dispatch) refuse *with* the parsed root
+    in hand. ``bundle`` is non-``None`` exactly when version dispatch (sub-step
+    6) resolved a supported line — which an empty refusal list implies — so the
+    funnel can proceed against it. ``resolve`` maps a well-formed ``major.minor``
+    line to its bundle (or ``None`` when unsupported); injecting it keeps this
+    phase free of a load-time ``bundle`` dependency and lets tests drive a
+    synthetic registry. Refusals are raw (dedup/order/truncate is :mod:`report`'s
+    job), in discovery order.
     """
     # 1. Byte cap (terminal) — checked on bytes so it never depends on decode.
     if len(data) > MAX_DOCUMENT_BYTES:
-        return [
-            Refusal(
-                code="document_too_large",
-                path="",
-                detail=f"document exceeds the {MAX_DOCUMENT_BYTES}-byte cap",
-            )
-        ], None
+        return (
+            [
+                Refusal(
+                    code="document_too_large",
+                    path="",
+                    detail=f"document exceeds the {MAX_DOCUMENT_BYTES}-byte cap",
+                )
+            ],
+            None,
+            None,
+        )
 
     # 2. UTF-8 decode (terminal).
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
-        return [Refusal(code="malformed_json", path="", detail="not valid UTF-8")], None
+        return (
+            [Refusal(code="malformed_json", path="", detail="not valid UTF-8")],
+            None,
+            None,
+        )
 
     # 3. Depth pre-scan (terminal) — string-aware, before json.loads.
     if _max_nesting_depth(text) > MAX_NESTING_DEPTH:
-        return [
-            Refusal(
-                code="nesting_too_deep",
-                path="",
-                detail=f"nesting exceeds the depth-{MAX_NESTING_DEPTH} cap",
-            )
-        ], None
+        return (
+            [
+                Refusal(
+                    code="nesting_too_deep",
+                    path="",
+                    detail=f"nesting exceeds the depth-{MAX_NESTING_DEPTH} cap",
+                )
+            ],
+            None,
+            None,
+        )
 
     # 4. Parse with a duplicate-key-recording hook. Map keys are id authorities
     # (bADR-0002), so a lenient parser silently keeping the last value would void
@@ -132,7 +158,7 @@ def preflight(data: bytes) -> tuple[list[Refusal], object | None]:
         # pathological integer literal that trips CPython's integer-string digit
         # limit *inside* the parser (a bare `ValueError`) is a malformed document
         # too, never an uncaught crash (exit 4).
-        return [Refusal(code="malformed_json", path="", detail=str(exc))], None
+        return [Refusal(code="malformed_json", path="", detail=str(exc))], None, None
 
     # 5 + 6 report together (all non-terminal within preflight). Duplicate keys
     # are reported here too — with their recovered element pointers — so several
@@ -140,8 +166,9 @@ def preflight(data: bytes) -> tuple[list[Refusal], object | None]:
     # collapsing under one enclosing-collection path.
     refusals: list[Refusal] = []
     _walk_caps(root, (), duplicates, refusals)
-    refusals.extend(_version_dispatch(root))
-    return refusals, root
+    version_refusals, bundle = _version_dispatch(root, resolve)
+    refusals.extend(version_refusals)
+    return refusals, root, bundle
 
 
 def _dedup_hook(
@@ -308,13 +335,16 @@ def _too_large(tokens: tuple[str | int, ...], size: int) -> Refusal:
     )
 
 
-def _version_dispatch(root: object) -> list[Refusal]:
-    """Resolve the declared ``schema_version`` to a supported line (bADR-0001).
+def _version_dispatch(
+    root: object, resolve: Callable[[str], VersionBundle | None]
+) -> tuple[list[Refusal], VersionBundle | None]:
+    """Resolve the declared ``schema_version`` to a supported bundle (bADR-0001).
 
     The root must be an object carrying a full-semver string the validator
-    both understands (``parse_line``) and serves (``line_accepted``). Patch is
-    ignored by construction — ``parse_line`` drops it — so ``1.0.999`` on a
-    ``1.0`` validator is accepted.
+    both understands (``parse_line``) and serves (``resolve`` returns a bundle).
+    Patch is ignored by construction — ``parse_line`` drops it — so ``1.0.999``
+    on a ``1.0`` validator resolves to the ``1.0`` bundle. On success returns
+    ``([], bundle)``; on any version fault returns the refusal and ``None``.
     """
     if not isinstance(root, dict):
         return [
@@ -323,7 +353,7 @@ def _version_dispatch(root: object) -> list[Refusal]:
                 path=_VERSION_PATH,
                 detail="document root is not a JSON object",
             )
-        ]
+        ], None
     raw = root.get(_VERSION_KEY)
     if not isinstance(raw, str):
         return [
@@ -332,7 +362,7 @@ def _version_dispatch(root: object) -> list[Refusal]:
                 path=_VERSION_PATH,
                 detail="schema_version is missing or not a string",
             )
-        ]
+        ], None
     line = parse_line(raw)
     if line is None:
         return [
@@ -341,13 +371,14 @@ def _version_dispatch(root: object) -> list[Refusal]:
                 path=_VERSION_PATH,
                 detail=f"schema_version {raw!r} is not a full semver string",
             )
-        ]
-    if not line_accepted(line):
+        ], None
+    bundle = resolve(line)
+    if bundle is None:
         return [
             Refusal(
                 code="unsupported_schema_version",
                 path=_VERSION_PATH,
                 detail=f"schema line {line} is not supported by this validator",
             )
-        ]
-    return []
+        ], None
+    return [], bundle

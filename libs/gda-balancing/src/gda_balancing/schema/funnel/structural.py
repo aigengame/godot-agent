@@ -25,43 +25,62 @@ each is drilled to the member so an agent gets the exact pointer:
   projected to **one refusal per failing key** at ``…/<key>``.
 """
 
+from __future__ import annotations
+
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jsonschema
 
 from gda_balancing.envelope import Refusal
 from gda_balancing.schema import pointer
-from gda_balancing.schema.artifacts import generate_structural_schema
+
+if TYPE_CHECKING:
+    from gda_balancing.schema.bundle import VersionBundle
 
 # The single stable structural refusal code (bADR-0004): structural refusals
 # share one code family, with the violated JSON Schema keyword in the detail.
 STRUCTURAL_VIOLATION = "structural_violation"
 
-_validator: jsonschema.Draft202012Validator | None = None
+# One Draft 2020-12 validator per resolved line, keyed on `bundle.line`. Each
+# line has its own structural schema (bADR-0001/0005), so a document is checked
+# against the definition of the version it declares — never a single global
+# validator that would silently apply a newer minor's shape to an older document.
+_validators: dict[str, jsonschema.Draft202012Validator] = {}
 
 
-def _get_validator() -> jsonschema.Draft202012Validator:
-    """The lazily-built, process-wide Draft 2020-12 validator over the generated
-    structural schema. Built once — schema generation is deterministic."""
-    global _validator
-    if _validator is None:
-        _validator = jsonschema.Draft202012Validator(generate_structural_schema())
-    return _validator
+def _validator_for(bundle: VersionBundle) -> jsonschema.Draft202012Validator:
+    """The lazily-built, cached validator over ``bundle``'s structural schema.
+    Built once per line — schema generation is deterministic."""
+    validator = _validators.get(bundle.line)
+    if validator is None:
+        validator = jsonschema.Draft202012Validator(bundle.structural_schema())
+        _validators[bundle.line] = validator
+    return validator
 
 
-def structural(parsed: object) -> list[Refusal]:
-    """Validate ``parsed`` against the structural schema; return the refusals.
+def structural(parsed: object, bundle: VersionBundle | None = None) -> list[Refusal]:
+    """Validate ``parsed`` against ``bundle``'s structural schema; return the
+    refusals.
 
     An empty list means the document is structurally well-formed (the semantic
     phase runs next). Refusals are returned raw, in jsonschema's discovery order
-    — dedup/order/truncate is :mod:`report`'s job.
+    — dedup/order/truncate is :mod:`report`'s job. ``bundle`` defaults to the
+    newest line (:func:`~gda_balancing.schema.bundle.current_bundle`) for
+    line-agnostic callers; the funnel passes the *resolved* bundle so the
+    document is validated under the version it declared.
     """
+    if bundle is None:
+        # Lazy import keeps the funnel free of a load-time `bundle` dependency
+        # (the bundle imports this package's rules — see schema/bundle.py).
+        from gda_balancing.schema.bundle import current_bundle
+
+        bundle = current_bundle()
     # `parsed` is JSON the funnel already decoded; widen to Any at the
     # jsonschema boundary, whose stub types the instance as a JSON-value union.
     instance: Any = parsed
     refusals: list[Refusal] = []
-    for error in _get_validator().iter_errors(instance):
+    for error in _validator_for(bundle).iter_errors(instance):
         refusals.extend(_project(error))
     return refusals
 
