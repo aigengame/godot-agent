@@ -58,14 +58,27 @@ separate release trains, and no hand-edited version anywhere.**
 
 ## Consequences
 
-> **Outcome (2026-07-20, #528):** the root package now declares
-> `"exclude-paths": ["libs/gda-balancing"]` (mechanism verified against
-> release-please's manifest documentation), so a releasing-typed commit that
-> only touches the member's path no longer proposes a root `gda` release —
-> retiring the absorption fact above and the two-Release-PR slip mode below.
-> The member's **non-releasing title discipline stays in force**: this ADR's
-> flip precondition (wire the publish tail, extend the tag gate to the member
-> component) is unchanged and tracked on #528.
+> **Outcome (2026-07-20, #528):** this record's two deferred consequences are
+> now discharged.
+> - The root package declares `"exclude-paths": ["libs/gda-balancing"]`
+>   (mechanism verified against release-please's manifest documentation), so a
+>   releasing-typed commit touching only the member's path no longer proposes a
+>   root `gda` release — retiring the absorption fact above and the
+>   two-Release-PR slip mode below.
+> - The member's **publish tail is wired**: a mirror of the gda build →
+>   PyPI → GitHub-release chain keyed on the path-prefixed cut outputs, with
+>   its own PyPI trusted publisher under the **distinct** `pypi-gda-balancing`
+>   environment (a shared environment would let either product's publish job
+>   mint a token for the other, since the OIDC trust tuple is
+>   owner/repo/workflow/environment). The member's GitHub release un-drafts
+>   with `--latest=false` so the repo-global Latest badge stays on gda (#87).
+> - The **tag gate now covers every manifest package**, skipping any component
+>   still at the `0.0.0` placeholder: that version is an unambiguous
+>   never-released marker (release-please's first bump cannot produce it), and
+>   requiring a tag that cannot exist yet would deadlock both trains.
+>
+> Remaining before member PRs may adopt releasing types: the title-discipline
+> flip itself, tracked on #528. Until then the discipline stays in force.
 
 
 - One ledger now spans both packages; neither `pyproject.toml`, the manifest,
