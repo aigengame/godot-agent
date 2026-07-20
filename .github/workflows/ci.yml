@@ -1,6 +1,13 @@
 name: CI
 
 on:
+  # Deliberately the DEFAULT pull_request activity types (opened, synchronize,
+  # reopened) — notably NOT `edited`. Everything in this workflow is a function
+  # of the tree, so editing a PR's title or body cannot change its outcome and
+  # re-running the whole suite (including a Godot install) for a typo fix would
+  # be pure waste. The one check that IS a function of the title lives in
+  # release-scope-guard.yml, which subscribes to `edited` for exactly that
+  # reason.
   pull_request:
   push:
     branches:
@@ -169,104 +176,6 @@ jobs:
           uv pip install --python coinstall-venv/bin/python dist-coinstall/*.whl
           ./coinstall-venv/bin/gda --help
           ./coinstall-venv/bin/gda-balancing version
-
-  member-release-scope:
-    name: Member releasing-PR scope guard
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request' }}
-    permissions:
-      contents: read
-      pull-requests: read
-
-    # release-please drops a commit from the root `gda` package only when EVERY
-    # changed file is excluded, and `exclude-paths` matches directory prefixes
-    # only (ADR-0038). So a releasing-typed PR that touches gda-balancing AND
-    # anything outside it proposes two Release PRs — the mistake ADR-0037
-    # describes. This guard catches it at PR time.
-    #
-    # Currently belt-and-braces: member PRs are still held to non-releasing
-    # types by discipline. It becomes LOAD-BEARING when #528 flips that
-    # discipline and member PRs start carrying truthful feat/fix titles.
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Assert a releasing-typed member PR stays inside the member directory
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
-            --paginate --jq '.[].filename' > changed-files.txt
-          python3 - <<'PY'
-          import json
-          import os
-          import re
-
-          # The member directory is DERIVED from release-please-config.json's
-          # root exclude-paths, never restated: that list is the single
-          # authority for "which paths do not count for the root package", and
-          # a second hand-maintained copy here would drift out of agreement
-          # with the very mechanism this guard exists to protect.
-          config = json.load(open("release-please-config.json"))
-          excluded = config["packages"]["."].get("exclude-paths") or []
-          if not excluded:
-              raise SystemExit(
-                  "release-please-config.json declares no exclude-paths for the "
-                  "root package, so this guard cannot derive a member directory."
-              )
-
-          title = os.environ["PR_TITLE"]
-          # `type: `, `type!: `, `type(scope): `, `type(scope)!: `.
-          header = re.match(r"^(?P<type>[a-zA-Z]+)(?:\([^)]*\))?(?P<bang>!)?:", title)
-          # The types that make release-please propose a release in this repo's
-          # config, plus the `!` breaking marker — which bumps on ANY type.
-          releasing = bool(header) and (
-              header.group("type").lower() in {"feat", "fix"}
-              or header.group("bang") is not None
-          )
-
-          def under(path: str, directory: str) -> bool:
-              # release-please's own matcher semantics: a directory prefix
-              # (`file.indexOf(path + "/") === 0`), never a file or a glob.
-              return path.startswith(directory.rstrip("/") + "/")
-
-          files = [
-              line for line in open("changed-files.txt").read().splitlines() if line
-          ]
-          inside = [f for f in files if any(under(f, d) for d in excluded)]
-          outside = [f for f in files if f not in inside]
-
-          if not releasing:
-              print(f"PR title {title!r} declares no releasing type; guard is a no-op.")
-              raise SystemExit(0)
-          if not inside:
-              print(
-                  f"PR touches no file under {excluded}; "
-                  "not a member PR, guard is a no-op."
-              )
-              raise SystemExit(0)
-          if not outside:
-              print(
-                  f"Releasing-typed member PR is confined to {excluded}; "
-                  "only the member's release train can be proposed."
-              )
-              raise SystemExit(0)
-
-          listing = "\n".join(f"  {path}" for path in outside)
-          raise SystemExit(
-              f"PR title {title!r} declares a releasing conventional-commit type "
-              f"and the PR touches {excluded}, but these changed files fall "
-              f"outside it:\n{listing}\n\n"
-              "release-please excludes a commit from the root `gda` package only "
-              "when EVERY changed file is excluded, so merging this would propose "
-              "BOTH a gda release and a gda-balancing release (ADR-0037/0038).\n"
-              "Fix by splitting the PR: keep the releasing-typed change confined "
-              "to the member directory, and move the files above into a separate "
-              "PR (a non-releasing type, or its own gda-releasing one)."
-          )
-          PY
 
   godot-e2e:
     name: Godot e2e tests

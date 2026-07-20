@@ -113,26 +113,20 @@ jobs:
         # silently-skipped e2e is visible in the release log, not mistaken for a pass.
         run: uv run --frozen pytest -m e2e -rs
 
+      # The expected tag is DERIVED by scripts/release_tags.py, the single
+      # authority shared with the member build job and the release-PR tag gate
+      # below. Composing it here would be a second implementation that a
+      # supported config change (include-v-in-tag, tag-separator) could put out
+      # of step with the tag release-please actually mints.
       - name: Validate release tag
         run: |
-          uv run python - <<'PY'
-          import os
-          import tomllib
-
-          release_tag = os.environ["RELEASE_TAG"]
-          if not release_tag.startswith("v"):
-              raise SystemExit(f"Release tag must start with 'v': {release_tag}")
-
-          with open("pyproject.toml", "rb") as pyproject:
-              version = tomllib.load(pyproject)["project"]["version"]
-
-          expected_tag = f"v{version}"
-          if release_tag != expected_tag:
-              raise SystemExit(
-                  f"Release tag {release_tag} does not match pyproject.toml version {version}; "
-                  f"expected {expected_tag}"
-              )
-          PY
+          version="$(uv run python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          expected_tag="$(uv run python scripts/release_tags.py --tag-for . --version "$version")"
+          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "Release tag ${RELEASE_TAG} does not match pyproject.toml version ${version}; expected ${expected_tag}" >&2
+            exit 1
+          fi
+          echo "Release tag ${RELEASE_TAG} matches pyproject.toml version ${version}."
 
       - name: Build distributions
         run: uv build
@@ -307,28 +301,19 @@ jobs:
       - name: Run gda-balancing tests
         run: uv run --frozen --project libs/gda-balancing pytest libs/gda-balancing/tests
 
+      # Same derivation as the root build job — scripts/release_tags.py is the
+      # one authority. The tag prefix is NOT restated here: it follows from the
+      # package's `component` plus the four inherited tag inputs, so a config
+      # change moves this check and release-please together.
       - name: Validate release tag
         run: |
-          uv run --project libs/gda-balancing python - <<'PY'
-          import os
-          import tomllib
-
-          release_tag = os.environ["RELEASE_TAG"]
-          prefix = "gda-balancing-v"
-          if not release_tag.startswith(prefix):
-              raise SystemExit(f"Release tag must start with {prefix!r}: {release_tag}")
-
-          with open("libs/gda-balancing/pyproject.toml", "rb") as pyproject:
-              version = tomllib.load(pyproject)["project"]["version"]
-
-          expected_tag = f"{prefix}{version}"
-          if release_tag != expected_tag:
-              raise SystemExit(
-                  f"Release tag {release_tag} does not match "
-                  f"libs/gda-balancing/pyproject.toml version {version}; "
-                  f"expected {expected_tag}"
-              )
-          PY
+          version="$(uv run --project libs/gda-balancing python -c 'import tomllib; print(tomllib.load(open("libs/gda-balancing/pyproject.toml", "rb"))["project"]["version"])')"
+          expected_tag="$(uv run --project libs/gda-balancing python scripts/release_tags.py --tag-for libs/gda-balancing --version "$version")"
+          if [ "$RELEASE_TAG" != "$expected_tag" ]; then
+            echo "Release tag ${RELEASE_TAG} does not match libs/gda-balancing/pyproject.toml version ${version}; expected ${expected_tag}" >&2
+            exit 1
+          fi
+          echo "Release tag ${RELEASE_TAG} matches libs/gda-balancing/pyproject.toml version ${version}."
 
       - name: Build distributions
         run: uv build --project libs/gda-balancing --out-dir dist/
@@ -456,45 +441,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Tag identity is DERIVED from release-please-config.json, never
-          # restated here. release-please builds a tag from FOUR inherited
-          # inputs — `component`, `include-component-in-tag`, `include-v-in-tag`
-          # and `tag-separator`, each resolved per package with the top-level
-          # value as the default — so all four are read here. Restating any of
-          # them (or assuming a default the config may later override) would
-          # make this gate look for a tag release-please never creates.
-          required="$(python3 - <<'PY'
-          import json
-
-          PLACEHOLDER = "0.0.0"
-
-          config = json.load(open("release-please-config.json"))
-          manifest = json.load(open(".release-please-manifest.json"))
-
-          def setting(package, key, fallback):
-              # Per-package value, else the top-level default, else
-              # release-please's own default.
-              if key in package:
-                  return package[key]
-              return config.get(key, fallback)
-
-          for path, version in manifest.items():
-              if version == PLACEHOLDER:
-                  continue
-              package = config["packages"][path]
-              component = package.get("component")
-              in_tag = setting(package, "include-component-in-tag", True)
-              include_v = setting(package, "include-v-in-tag", True)
-              separator = setting(package, "tag-separator", "-")
-              if in_tag and not component:
-                  raise SystemExit(
-                      f"package {path!r} sets include-component-in-tag without a "
-                      f"component, so its tag cannot be derived"
-                  )
-              prefix = f"{component}{separator}" if in_tag else ""
-              print(f"{prefix}{'v' if include_v else ''}{version}")
-          PY
-          )"
+          # Tag identity is DERIVED by scripts/release_tags.py, never restated
+          # here — the same authority the two build jobs above validate against,
+          # so all three agree by construction. It reads all FOUR inherited tag
+          # inputs (`component`, `include-component-in-tag`, `include-v-in-tag`,
+          # `tag-separator`), skips never-released placeholder packages, and
+          # fails loudly on a config it cannot derive from.
+          required="$(python3 scripts/release_tags.py --required-tags)"
 
           missing=""
           for tag in $required; do

@@ -76,11 +76,37 @@ uv project inside the repo, with its own lock under its own directory.**
   authority on package identity.
 - **A releasing-typed member PR must stay inside the member directory**, since
   the all-files rule still holds: a `feat` touching the member *and* anything
-  outside it proposes two Release PRs. A CI guard asserts this at PR time,
-  deriving the member directory from `release-please-config.json`'s root
-  `exclude-paths` rather than restating it. The guard is belt-and-braces while
-  the non-releasing title discipline is still in force, and becomes
-  load-bearing when #528 flips it.
+  outside it proposes two Release PRs. A guard asserts this at PR time
+  (`scripts/release_scope_guard.py`, run by the `release-scope-guard`
+  workflow). Both of its inputs are **derived** from
+  `release-please-config.json` rather than restated: the member directory from
+  the root package's `exclude-paths`, and the set of releasing commit types
+  from the **non-hidden `changelog-sections`** — which is wider than `feat`
+  and `fix` alone (`deps` and `revert` are visible sections here, and
+  release-please's default versioning strategy patch-bumps them). A breaking
+  `!` marker releases on any type.
+  The guard runs on **title edits** as well as pushes: its verdict is a
+  function of the PR title, and the default `pull_request` activity types omit
+  `edited`, so without it a mixed-path PR could pass as `chore` and then be
+  retitled to a releasing type against the same green check. That is why it is
+  its own workflow — the rest of CI is a function of the tree and does not want
+  to re-run on a title edit. It blocks a merge only once it is a **required
+  status check**, which is a repo-settings action.
+  The guard is belt-and-braces while the non-releasing title discipline is
+  still in force, and becomes load-bearing when #528 flips it.
+
+- **Tag identity has one implementation.** Three places need to know a
+  package's tag — the root release build's validation, the member release
+  build's validation, and the release-PR tag gate — and each composing its own
+  would let a supported config change (`include-v-in-tag`, `tag-separator`)
+  make release-please mint a tag one of them rejects.
+  `scripts/release_tags.py` is the single derivation all three call, reading
+  all four inherited inputs per package with the top-level value as the
+  default. Its **supported contract is an explicit `component` key**:
+  release-please can also resolve a component from other package metadata, but
+  reimplementing that resolution would be a second copy of release-please's
+  internals, so a config that would need inference fails loudly instead. A test
+  asserts the shipped config stays inside that contract.
 - **ADR-0037's release model is otherwise unchanged.** One manifest ledger,
   per-package components, disjoint tag namespaces, separate Release PRs, the
   member's own PyPI environment, and the tag gate over every released component

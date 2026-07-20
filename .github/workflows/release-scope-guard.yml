@@ -1,0 +1,59 @@
+name: Release scope guard
+
+# A releasing-typed PR that touches BOTH libs/gda-balancing and anything outside
+# it would propose two Release PRs (ADR-0037/0038). This workflow refuses that
+# shape at PR time.
+#
+# `edited` is LOAD-BEARING here, and is why this is its own workflow rather than
+# a job in ci.yml. The verdict is a function of the PR TITLE, and the default
+# pull_request activity types (opened, synchronize, reopened) do not include a
+# title change. Without `edited`, a mixed-path PR could pass this guard as
+# `chore: …`, then have only its title edited to a releasing type: same head
+# SHA, existing green check, guard never re-runs — and it merges. The rest of CI
+# is a function of the tree only and deliberately stays on the default types, so
+# a title edit does not re-run the whole suite (see the comment in ci.yml).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  member-release-scope:
+    name: Member releasing-PR scope guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+
+    # NOTE: a guard only blocks a merge once it is a REQUIRED status check. Add
+    # "Member releasing-PR scope guard" to the branch protection rules for
+    # `main` — a repo-settings action a maintainer must take, which no workflow
+    # can do for itself. Until then this reports but does not enforce.
+    #
+    # Currently belt-and-braces regardless: member PRs are still held to
+    # non-releasing types by discipline. It becomes truly load-bearing when #528
+    # flips that discipline and member PRs start carrying truthful feat/fix
+    # titles.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # Both the releasing-commit types and the member directory are derived
+      # from release-please-config.json by scripts/release_scope_guard.py — the
+      # single authority, covered by tests/test_release_scope_guard.py. The
+      # script is stdlib-only, so no Python environment needs syncing here.
+      - name: Assert a releasing-typed member PR stays inside the member directory
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --paginate --jq '.[].filename' > changed-files.txt
+          python3 scripts/release_scope_guard.py --changed-files changed-files.txt
