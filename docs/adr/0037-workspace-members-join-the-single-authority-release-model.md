@@ -58,6 +58,16 @@ separate release trains, and no hand-edited version anywhere.**
 
 ## Consequences
 
+> **Outcome (2026-07-20, #528):** the root package now declares
+> `"exclude-paths": ["libs/gda-balancing"]` (mechanism verified against
+> release-please's manifest documentation), so a releasing-typed commit that
+> only touches the member's path no longer proposes a root `gda` release —
+> retiring the absorption fact above and the two-Release-PR slip mode below.
+> The member's **non-releasing title discipline stays in force**: this ADR's
+> flip precondition (wire the publish tail, extend the tag gate to the member
+> component) is unchanged and tracked on #528.
+
+
 - One ledger now spans both packages; neither `pyproject.toml`, the manifest,
   `uv.lock`, tags, nor changelogs are hand-versioned for any member.
 - The gda pipeline is provably unaffected: its jobs key on the root-scoped
