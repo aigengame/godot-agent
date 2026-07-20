@@ -87,15 +87,28 @@ uv project inside the repo, with its own lock under its own directory.**
   `!` marker releases on any type.
   `changelog-sections` is an **inherited input**, like the four in
   `release_tags.py`: release-please resolves it per package, a package's own
-  value overriding the top-level default, with its built-in
-  `DEFAULT_CHANGELOG_SECTIONS` under that. The guard resolves the same way and
-  then combines the touched packages' sets **conservatively — releasing for
-  ANY of them, not for all of them**. Reading only the top-level list would
-  have passed a PR whose type is visible solely through a package override;
+  value overriding the top-level default. The guard resolves it the same way,
+  **by key presence rather than truthiness** — release-please's precedence is
+  nullish, so a package declaring an explicit `[]` overrides the top-level
+  list with "no visible sections" and must not silently inherit it. It then
+  combines the touched packages' sets **conservatively — releasing for ANY of
+  them, not for all of them**. Reading only the top-level list would have
+  passed a PR whose type is visible solely through a package override;
   requiring every touched package to release it would pass one that bumps the
   root alone, which is the original harm. The shipped config declares no
   package-level override, so all packages resolve to the one top-level list
   today and a drift test pins that.
+  **There is no default fallback: a package with sections at neither level
+  fails the guard loudly.** release-please's built-in defaults are
+  per-`release-type`, and this repo declares `"release-type": "python"`, whose
+  strategy makes `deps` and `docs` visible on top of the generic
+  `DEFAULT_CHANGELOG_SECTIONS` (`feat, fix, perf, revert`). Falling back to
+  the generic list therefore reported a `deps:` or `docs:` title as
+  non-releasing — a FALSE PASS, the one direction a guard must never fail in.
+  The alternative, reimplementing upstream's per-strategy default tables,
+  would make the guard a second authority on release-please's internals, which
+  is exactly what deriving its inputs from the config exists to avoid. So the
+  config is required to say what it means.
   The guard runs on **title edits** as well as pushes: its verdict is a
   function of the PR title, and the default `pull_request` activity types omit
   `edited`, so without it a mixed-path PR could pass as `chore` and then be
@@ -118,6 +131,19 @@ uv project inside the repo, with its own lock under its own directory.**
   reimplementing that resolution would be a second copy of release-please's
   internals, so a config that would need inference fails loudly instead. A test
   asserts the shipped config stays inside that contract.
+- **The release scripts are stdlib-only about DEPENDENCIES, not about the
+  interpreter.** `release_tags.py` and `release_scope_guard.py` import nothing
+  outside the stdlib, so no job that runs them has to resolve or install either
+  project's closure — that is the whole benefit, and it is why their jobs use
+  `setup-python-env` with `sync: none`. It is *not* a claim that any
+  interpreter will do. Both are load-bearing release gates and both target the
+  repo's pinned Python like the rest of the codebase, so every call site names
+  the interpreter explicitly (`uv run --no-project --python 3.13 python …`):
+  `--no-project` keeps the no-sync property honest, `--python` pins the
+  version. A bare `python3` would be whatever the runner image happens to
+  ship — neither `.python-version` nor a project `.venv` redirects it — which
+  makes the gate's interpreter a property of GitHub's base image rather than of
+  this repo.
 - **ADR-0037's release model is otherwise unchanged.** One manifest ledger,
   per-package components, disjoint tag namespaces, separate Release PRs, the
   member's own PyPI environment, and the tag gate over every released component

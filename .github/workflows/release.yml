@@ -428,6 +428,20 @@ jobs:
       - name: Check out the release manifest
         uses: actions/checkout@v6
 
+      # Establishes uv on the repo's pinned Python for this whole job — the tag
+      # gate below and the lock sync at the end both need it. `sync: none`
+      # because scripts/release_tags.py is stdlib-only and the lock sync runs
+      # `uv lock`, so neither project's environment needs resolving; the point
+      # is the PINNED INTERPRETER, since a bare `python3` is whatever the runner
+      # image ships and neither .python-version nor a project .venv redirects
+      # it.
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync: none
+          # This job syncs no dependencies, so it has no closure worth saving.
+          save-cache: "false"
+
       # The gate covers EVERY manifest package (ADR-0037): a tag-less draft in
       # any component re-opens #82's spurious-full-history-PR hazard for that
       # component's train. A component still at the `0.0.0` placeholder has
@@ -447,7 +461,11 @@ jobs:
           # inputs (`component`, `include-component-in-tag`, `include-v-in-tag`,
           # `tag-separator`), skips never-released placeholder packages, and
           # fails loudly on a config it cannot derive from.
-          required="$(python3 scripts/release_tags.py --required-tags)"
+          #
+          # `--no-project` keeps the stdlib-only claim honest (no lock read, no
+          # venv resolved); `--python 3.13` pins the interpreter rather than
+          # inheriting the runner image's `python3`.
+          required="$(uv run --no-project --python 3.13 python scripts/release_tags.py --required-tags)"
 
           missing=""
           for tag in $required; do
@@ -499,9 +517,10 @@ jobs:
       # separate-pull-requests (ADR-0037), each package gets its own Release PR
       # and each needs ITS lock synced — the two projects lock independently
       # now (ADR-0038), so there is no longer one lock recording both versions.
-      - name: Set up uv
-        if: steps.tag_gate.outputs.tag_present == 'true' && steps.release.outputs.prs
-        uses: astral-sh/setup-uv@v8.2.0
+      #
+      # uv is already installed for this job by the setup step above (the tag
+      # gate needs the same pinned interpreter), so there is no separate uv
+      # setup here — one toolchain step per job, not two that could drift.
 
       # release-please force-updates its branches each run, so this re-applies
       # the locks each run — intended: every Release PR branch ends every run
@@ -521,7 +540,7 @@ jobs:
         env:
           RELEASE_PRS: ${{ steps.release.outputs.prs }}
         run: |
-          branches="$(echo "$RELEASE_PRS" | python3 -c 'import json, sys
+          branches="$(echo "$RELEASE_PRS" | uv run --no-project --python 3.13 python -c 'import json, sys
           for pr in json.load(sys.stdin):
               name = pr.get("headBranchName", "")
               if name:

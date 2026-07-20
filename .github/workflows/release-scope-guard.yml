@@ -44,13 +44,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      # `sync: none` — the guard is stdlib-only, so neither project's
+      # dependencies need resolving. What this step DOES buy is the pinned
+      # interpreter: a bare `python3` is whatever the runner image ships, and
+      # neither .python-version nor a project .venv redirects it. uv is
+      # installed here pinned to the repo's Python so the run step below can
+      # name it explicitly.
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync: none
+          # This job syncs no dependencies, so it has no closure worth saving.
+          save-cache: "false"
+
       # Both the releasing-commit types and the member directory are derived
       # from release-please-config.json by scripts/release_scope_guard.py — the
       # single authority, covered by tests/test_release_scope_guard.py. The
       # types are resolved PER PACKAGE (a package's own changelog-sections
-      # override the top-level ones) and combined conservatively: releasing for
-      # any touched package is releasing. The script is stdlib-only, so no
-      # Python environment needs syncing here.
+      # override the top-level ones, by key presence) and combined
+      # conservatively: releasing for any touched package is releasing. A
+      # config declaring sections at neither level fails the guard loudly
+      # rather than falling back to a default set, because release-please's
+      # defaults vary by `release-type` (ADR-0038).
+      #
+      # `--no-project` keeps the stdlib-only claim honest — no lock is read and
+      # no venv is resolved — while `--python 3.13` pins the interpreter the
+      # script actually runs on.
       - name: Assert a releasing-typed member PR stays inside the member directory
         env:
           GH_TOKEN: ${{ github.token }}
@@ -59,4 +78,5 @@ jobs:
         run: |
           gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
             --paginate --jq '.[].filename' > changed-files.txt
-          python3 scripts/release_scope_guard.py --changed-files changed-files.txt
+          uv run --no-project --python 3.13 python \
+            scripts/release_scope_guard.py --changed-files changed-files.txt

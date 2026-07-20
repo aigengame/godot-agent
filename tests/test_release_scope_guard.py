@@ -28,6 +28,45 @@ def test_a_packages_own_changelog_sections_override_the_top_level_ones():
     assert release_scope_guard.releasing_types(config, "libs/member") == {"security"}
 
 
+def test_a_package_declaring_an_empty_section_list_overrides_the_top_level_one():
+    # release-please's precedence is NULLISH, not truthy: an explicit `[]` is a
+    # declaration ("no visible sections"), so the package inherits nothing and
+    # releases on no type at all. Resolving with `package.get(...) or top_level`
+    # would silently inherit `feat` here and over-report the package.
+    #
+    # An explicit `[]` IS explicit, so the fail-loud rule below does NOT apply
+    # to it — this must resolve, not raise.
+    config = {
+        "changelog-sections": [{"type": "feat", "section": "Features"}],
+        "packages": {
+            ".": {"exclude-paths": ["libs/member"]},
+            "libs/member": {"changelog-sections": []},
+        },
+    }
+
+    assert release_scope_guard.releasing_types(config, "libs/member") == set()
+    assert release_scope_guard.releasing_types(config, ".") == {"feat"}
+
+
+def test_a_type_no_touched_package_releases_is_not_a_releasing_title():
+    # The end-to-end consequence of the empty-list override: the member makes
+    # nothing visible and the root's own list is empty too, so a `feat` title
+    # bumps neither train and the guard is a no-op even across the boundary.
+    config = {
+        "packages": {
+            ".": {"exclude-paths": ["libs/member"], "changelog-sections": []},
+            "libs/member": {"changelog-sections": []},
+        },
+    }
+
+    result = release_scope_guard.verdict(
+        "feat: x", ["libs/member/x.py", "README.md"], config
+    )
+
+    assert result.releasing is False
+    assert result.ok is True
+
+
 SECURITY_ONLY = [{"type": "security", "section": "Security"}]
 
 
@@ -112,16 +151,17 @@ def test_a_type_only_the_member_declares_still_straddles_the_boundary():
     assert result.ok is False
 
 
-def test_a_config_declaring_no_sections_falls_back_to_release_pleases_defaults():
-    # release-please's own DEFAULT_CHANGELOG_SECTIONS, non-hidden entries.
+def test_a_config_declaring_no_sections_anywhere_fails_loudly():
+    # No fallback: release-please's visible defaults depend on `release-type`
+    # (the python strategy adds `deps` and `docs`), so guessing here would be a
+    # permissive FALSE PASS in a load-bearing guard.
     config = {"packages": {".": {"exclude-paths": ["libs/gda-balancing"]}}}
 
-    assert release_scope_guard.releasing_types(config, ".") == {
-        "feat",
-        "fix",
-        "perf",
-        "revert",
-    }
+    with pytest.raises(release_scope_guard.ScopeGuardConfigError) as raised:
+        release_scope_guard.releasing_types(config, ".")
+
+    assert "." in str(raised.value)
+    assert "changelog-sections" in str(raised.value)
 
 
 def test_the_shipped_config_resolves_the_same_sections_for_every_package():

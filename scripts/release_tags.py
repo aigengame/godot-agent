@@ -23,11 +23,15 @@ tag without naming one raises `TagDerivationError` rather than guessing. The
 repo's config satisfies the contract today, and `tests/test_release_tags.py`
 holds a drift alarm that fails if it stops doing so.
 
-Stdlib only, so any environment — a workflow runner with no venv synced, a
-container, a bare `python3` — can run it. `from __future__ import annotations`
-keeps that claim honest below the repo's own 3.13 floor: the annotations here
-use `X | None`, which an older interpreter would evaluate and reject at import
-time, and a guard that cannot start is a guard that does not guard.
+Stdlib only, so it runs with **no project environment synced** — a workflow
+runner that installed uv but resolved neither project can run it. That is a
+claim about dependencies, NOT about the interpreter: this module targets the
+repo's pinned Python like everything else here, so its call sites name the
+interpreter explicitly (`uv run --no-project --python 3.13 python …`) rather
+than inheriting whatever `python3` a runner image happens to ship. A guard
+whose interpreter drifts with the base image is a guard nobody controls.
+`from __future__ import annotations` stays as hygiene, not as a compatibility
+promise to any older interpreter.
 """
 
 from __future__ import annotations

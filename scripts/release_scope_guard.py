@@ -13,10 +13,13 @@ restated:
   section is release-producing, because release-please's default versioning
   strategy patch-bumps such a commit. Hard-coding `{feat, fix}` missed `deps`
   and `revert`, which this repo's config exposes as visible sections.
-  `changelog-sections` is resolved **per package** — a package's own value,
-  else the top-level one, else release-please's defaults — because
-  release-please lets a package override it and reading only the top level
-  would then describe a package's release train incorrectly.
+  `changelog-sections` is resolved **per package** by key presence — a
+  package's own value when it declares the key, else the top-level one —
+  because release-please lets a package override it and reading only the top
+  level would then describe a package's release train incorrectly. There is
+  no third fallback: a package with sections at neither level fails loudly,
+  since release-please's built-in defaults vary by `release-type` (see
+  `releasing_types`).
 - **The member directory** comes from the root package's `exclude-paths`, the
   single authority for "which paths do not count for the root package".
 
@@ -29,8 +32,8 @@ a guard may fail a harmless PR but must never pass a harmful one.
 A hand-maintained copy of either would drift out of agreement with the very
 mechanism this guard exists to protect.
 
-Stdlib only, so any environment can run it — see `release_tags.py` for why the
-`__future__` import below is part of that claim.
+Stdlib only, so it needs no synced project environment — see `release_tags.py`
+for the interpreter contract that claim does and does not include.
 """
 
 from __future__ import annotations
@@ -51,38 +54,53 @@ from typing import Any
 _HEADER = re.compile(r"^(?P<type>[a-zA-Z]+)(?:\([^)]*\))?(?P<bang>!)?:")
 
 
-# The non-hidden entries of release-please's own `DEFAULT_CHANGELOG_SECTIONS`
-# (`src/util/filter-commits.ts`), used when neither the package nor the
-# top-level config declares `changelog-sections`.
-_DEFAULT_VISIBLE_TYPES = frozenset({"feat", "fix", "perf", "revert"})
-
-
 class ScopeGuardConfigError(Exception):
     """A config this guard cannot derive its inputs from."""
+
+
+_MISSING = object()
 
 
 def releasing_types(config: dict[str, Any], path: str) -> set[str]:
     """The releasing conventional-commit types for ONE package.
 
     `changelog-sections` is an inherited input like the four in
-    `release_tags.py`: release-please resolves it per package, taking the
-    package's own value when it declares one and the top-level value otherwise.
-    Reading only the top level would describe a package that overrides it
-    incorrectly — and in the permissive direction, which is the one a guard must
-    never get wrong.
+    `release_tags.py`, and is resolved the same way: **by key presence** —
+    the package's own value when it declares the key at all, else the
+    top-level value. Nullish precedence is release-please's own rule, and it
+    is why presence rather than truthiness decides: a package declaring an
+    explicit empty list overrides the top-level list with "no visible
+    sections", whereas a truthiness test would silently inherit the top level
+    and over-report that package's releasing types.
 
-    With neither level declaring sections, release-please falls back to its own
-    `DEFAULT_CHANGELOG_SECTIONS`; `_DEFAULT_VISIBLE_TYPES` mirrors that list's
-    non-hidden entries. Note it does NOT contain `deps`, which is this repo's
-    own addition to the top-level list — a config that dropped its sections
-    would stop guarding `deps`, which is why the drift test pins the shipped
-    config's resolved sets rather than trusting the fallback.
+    **A package with no explicit sections at either level raises**, rather
+    than falling back to a default set. release-please's built-in defaults are
+    per-`release-type`: this repo declares `"release-type": "python"`, whose
+    strategy installs its own sections list that additionally makes `deps` and
+    `docs` visible — so the generic `DEFAULT_CHANGELOG_SECTIONS`
+    (`feat, fix, perf, revert`) this guard used to fall back to would report a
+    `deps:` or `docs:` title as non-releasing. That is a FALSE PASS, the one
+    direction a guard must never fail in. Reimplementing upstream's
+    per-strategy default tables would instead make this module a second
+    authority on release-please's internals — the duplication the derived
+    inputs above exist to avoid — so the guard requires the config to say what
+    it means.
     """
     packages = config.get("packages") or {}
     package = packages.get(path) or {}
-    sections = package.get("changelog-sections") or config.get("changelog-sections")
-    if not sections:
-        return set(_DEFAULT_VISIBLE_TYPES)
+    sections = package.get("changelog-sections", _MISSING)
+    if sections is _MISSING:
+        sections = config.get("changelog-sections", _MISSING)
+    if sections is _MISSING:
+        raise ScopeGuardConfigError(
+            f"release-please-config.json declares no changelog-sections for "
+            f"package {path!r} (neither its own nor a top-level default), so "
+            "this guard cannot derive its releasing commit types. Declare them "
+            "explicitly: release-please's built-in defaults vary by "
+            "`release-type` — the python strategy this repo uses makes `deps` "
+            "and `docs` visible on top of the generic defaults — and guessing "
+            "which set applies would let a releasing title pass unguarded."
+        )
     return {section["type"] for section in sections if not section.get("hidden", False)}
 
 
