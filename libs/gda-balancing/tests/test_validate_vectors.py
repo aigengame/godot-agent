@@ -1216,6 +1216,120 @@ def test_magnitude_referencing_undeclared_attribute_is_refused(run_cli, tmp_path
     ]
 
 
+# --- Effects: magnitude shares EVERY formula rule (#527 recheck-1) -----------
+#
+# A formula-capable magnitude (bADR-0003/0006) is a first-class formula consumer,
+# so the form-field rules and the expression-tree caps apply to it exactly as they
+# do to an attribute base — "no consumer gets a private formula dialect" (bADR-0003).
+# Before #527's fix these rules iterated attribute bases only, so a broken magnitude
+# form/tree slipped through the funnel. Each vector below is a document valid
+# except for its one magnitude formula defect.
+
+
+def _magnitude_effect_document(magnitude, *, name: str = "mag") -> dict:
+    """A valid persistent effect on `power` whose sole modifier carries the given
+    magnitude — the enclosing document for a magnitude-formula vector."""
+    return _effects_document(
+        {
+            "stacking_types": {"combine": {"aggregation": "stack"}},
+            "items": {
+                "regen": {
+                    "modifiers": [
+                        {
+                            "target": "power",
+                            "operation": "add",
+                            "application": "continuous",
+                            "magnitude": magnitude,
+                        }
+                    ],
+                    "duration": "infinite",
+                    "stacking": {"type": "combine", "lifetime": "independent"},
+                }
+            },
+        },
+        name=name,
+    )
+
+
+def test_magnitude_lookup_table_empty_is_form_points_insufficient(run_cli, tmp_path):
+    # An empty lookup_table magnitude has no entries — `form_points_insufficient`
+    # fires at the magnitude's `table`, the same rule that guards an attribute base.
+    document = _magnitude_effect_document(
+        {"form": "lookup_table", "input": {"attr": "power"}, "table": []}
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        (
+            "form_points_insufficient",
+            "/effects/items/regen/modifiers/0/magnitude/table",
+        )
+    ]
+
+
+def test_magnitude_deep_expression_tree_is_refused(run_cli, tmp_path):
+    # A depth-33 tree magnitude exceeds the depth cap (> 32); the refusal names the
+    # magnitude's formula root, mirroring the attribute-base tree-cap pointer.
+    document = _magnitude_effect_document(_unary_chain(33))
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("expression_tree_too_deep", "/effects/items/regen/modifiers/0/magnitude")
+    ]
+
+
+def test_magnitude_wide_expression_tree_is_refused(run_cli, tmp_path):
+    # 256 literal args + 1 `add` = 257 nodes > 256: `expression_tree_too_large`
+    # at the magnitude's formula root.
+    wide = {"op": "add", "args": [{"literal": 1} for _ in range(256)]}
+    document = _magnitude_effect_document(wide)
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("expression_tree_too_large", "/effects/items/regen/modifiers/0/magnitude")
+    ]
+
+
+def test_magnitude_piecewise_non_increasing_points_is_refused(run_cli, tmp_path):
+    # A piecewise_linear magnitude with non-increasing x — `form_points_not_increasing`
+    # at the magnitude's `points`.
+    document = _magnitude_effect_document(
+        {
+            "form": "piecewise_linear",
+            "input": {"attr": "power"},
+            "points": [[5, 30], [1, 10]],
+        }
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        (
+            "form_points_not_increasing",
+            "/effects/items/regen/modifiers/0/magnitude/points",
+        )
+    ]
+
+
+def test_valid_named_form_magnitude_still_validates(run_cli, tmp_path):
+    # The positive guard: a well-formed piecewise_linear magnitude (strictly
+    # increasing points) clears every magnitude formula rule and the document is
+    # valid — the fix refuses broken magnitudes without rejecting sound ones.
+    document = _magnitude_effect_document(
+        {
+            "form": "piecewise_linear",
+            "input": {"attr": "power"},
+            "points": [[1, 10], [5, 30]],
+        }
+    )
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, json.dumps(document))
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+
+
 # --- Usage boundary (bADR-0008) --------------------------------------------
 
 

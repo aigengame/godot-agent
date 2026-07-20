@@ -14,12 +14,17 @@ keys the model excludes/aliases), and a ``violation_fixture`` — a complete
 Design document that is valid **except** for this one rule, so the conformance
 harness can assert each rule refuses exactly its fixture (bADR-0004).
 
-Scope note: reference-integrity (undefined ``attr``/``param``) applies to
-attribute **base formulas** and effect **magnitudes** alike — both share the one
-walker (:func:`gda_balancing.schema.funnel.semantic.graph.iter_references`),
-which each caller drives with its own root-pointer tokens. Effect magnitudes join
-the reference walk but **not** the base-formula acyclicity graph (a magnitude may
-reference its own target — bADR-0003/0006).
+Scope note: **every** formula rule — reference-integrity (undefined
+``attr``/``param``), the form-field rules, and the expression-tree caps —
+applies to attribute **base formulas** and effect **magnitudes** alike. They
+all iterate the one formula-site authority (:func:`_iter_formula_sites`), so no
+formula consumer gets a private dialect (bADR-0003): a magnitude form/tree is
+checked exactly as a base is. Effect magnitudes join every formula rule but
+**not** the base-formula acyclicity graph (a magnitude may reference its own
+target — bADR-0003/0006). A rule's catalog ``scope`` therefore lists one JSON
+Pointer template per site it can report (a shared formula rule carries both its
+base and its magnitude templates); a behavioral anti-drift test holds the
+templates in lockstep with the pointers the checks emit (bADR-0005 amendment).
 """
 
 from collections.abc import Callable, Iterator
@@ -92,11 +97,12 @@ class SemanticRule:
     """One semantic rule — its own catalog entry, refusal-code owner, and check.
 
     ``code`` is the stable id (== refusal code == catalog id); ``scope`` is a
-    tuple of the JSON Pointer *templates* it applies to (``{id}``/``{section}``
-    placeholders) — one template per site, so a single-site rule is a
-    one-element tuple and a rule spanning two sites (the reference-integrity
-    rules, which walk both attribute base formulas and effect magnitudes)
-    carries one template each; ``description`` is the human catalog line;
+    tuple of the JSON Pointer *templates* it applies to (``{id}``/``{index}``/
+    ``{section}`` placeholders) — **one template per site the rule can report**,
+    so a single-site rule is a one-element tuple and a multi-site rule (the
+    shared formula rules, which report at both attribute base formulas and effect
+    magnitudes; the temporal rules, at both duration and period) carries one
+    template each; ``description`` is the human catalog line;
     ``since_version`` is the schema line the rule appeared in; ``check`` collects
     this rule's refusals over a document; ``violation_fixture`` is a complete
     Design document refusing with exactly this code.
@@ -184,17 +190,23 @@ def _strictly_increasing(pairs: tuple[tuple[float, float], ...]) -> bool:
 # --- Rule checks -----------------------------------------------------------
 
 
-def _iter_reference_formulas(
+def _iter_formula_sites(
     doc: DesignDocument,
 ) -> Iterator[tuple[Formula, Tokens]]:
-    """Every formula whose references the integrity rules must check, paired with
-    its RFC 6901 root tokens: each attribute **base formula** (bADR-0002/0003)
-    and each effect-**magnitude** formula (bADR-0006). A magnitude that is a bare
-    scalar number carries no references and is skipped — only a named form or an
-    expression tree (both pydantic models) yields references. Effect magnitudes
-    join the reference-integrity walk but **not** the base-formula acyclicity
-    graph: a magnitude may reference its own target (bADR-0003), so it adds no
-    dependency edge."""
+    """Every formula **site** in the document, paired with its RFC 6901
+    formula-root tokens: each attribute **base formula** (``.../base/formula``,
+    bADR-0002/0003) and each effect **magnitude** that is a formula
+    (``.../magnitude``, bADR-0006). A magnitude that is a bare scalar number is
+    not a formula and is skipped — only a named form or an expression tree (both
+    pydantic models) is yielded.
+
+    This is the *one* formula-site authority: every formula rule iterates it —
+    the reference-integrity rules, the form-field rules, and the expression-tree
+    caps — so no formula consumer gets a private dialect (bADR-0003). Effect
+    magnitudes therefore join every formula rule but **not** the base-formula
+    acyclicity graph: a magnitude may reference its own target (bADR-0003), so it
+    adds no dependency edge (that graph lives in :mod:`graph` and reads base
+    formulas only)."""
     for attr_id, attribute in doc.attributes.items.items():
         base = attribute.base
         if isinstance(base, FormulaBase):
@@ -213,7 +225,7 @@ def _reference_undefined(
     formula's and effect magnitude's references of ``want_kind`` and refuse each
     undeclared id at its own node pointer."""
     refusals: list[Refusal] = []
-    for formula, base_tokens in _iter_reference_formulas(doc):
+    for formula, base_tokens in _iter_formula_sites(doc):
         for kind, ref_id, tokens in iter_references(formula, base_tokens):
             if kind == want_kind and not is_declared(ref_id):
                 refusals.append(
@@ -437,26 +449,18 @@ def _violates_tier_pattern(attribute: Any, pattern: Any) -> bool:
     return False
 
 
-def _iter_formula_bases(doc: DesignDocument):
-    """Yield ``(attr_id, formula)`` for every attribute with a formula base."""
-    for attr_id, attribute in doc.attributes.items.items():
-        base = attribute.base
-        if isinstance(base, FormulaBase):
-            yield attr_id, base.formula
-
-
 def _check_form_points_not_increasing(
     doc: DesignDocument, _raw: dict[str, Any]
 ) -> list[Refusal]:
     refusals: list[Refusal] = []
-    for attr_id, formula in _iter_formula_bases(doc):
+    for formula, tokens in _iter_formula_sites(doc):
         if isinstance(formula, PiecewiseLinearForm) and not _strictly_increasing(
             formula.points
         ):
             refusals.append(
                 _refuse(
                     "form_points_not_increasing",
-                    (*_formula_tokens(attr_id), "points"),
+                    (*tokens, "points"),
                     "piecewise_linear points must have strictly increasing x",
                 )
             )
@@ -466,7 +470,7 @@ def _check_form_points_not_increasing(
             refusals.append(
                 _refuse(
                     "form_points_not_increasing",
-                    (*_formula_tokens(attr_id), "table"),
+                    (*tokens, "table"),
                     "lookup_table entries must have strictly increasing x",
                 )
             )
@@ -477,12 +481,12 @@ def _check_form_points_insufficient(
     doc: DesignDocument, _raw: dict[str, Any]
 ) -> list[Refusal]:
     refusals: list[Refusal] = []
-    for attr_id, formula in _iter_formula_bases(doc):
+    for formula, tokens in _iter_formula_sites(doc):
         if isinstance(formula, PiecewiseLinearForm) and len(formula.points) < 2:
             refusals.append(
                 _refuse(
                     "form_points_insufficient",
-                    (*_formula_tokens(attr_id), "points"),
+                    (*tokens, "points"),
                     "piecewise_linear requires at least 2 points",
                 )
             )
@@ -490,7 +494,7 @@ def _check_form_points_insufficient(
             refusals.append(
                 _refuse(
                     "form_points_insufficient",
-                    (*_formula_tokens(attr_id), "table"),
+                    (*tokens, "table"),
                     "lookup_table requires at least 1 entry",
                 )
             )
@@ -501,7 +505,7 @@ def _check_form_coefficients_count_invalid(
     doc: DesignDocument, _raw: dict[str, Any]
 ) -> list[Refusal]:
     refusals: list[Refusal] = []
-    for attr_id, formula in _iter_formula_bases(doc):
+    for formula, tokens in _iter_formula_sites(doc):
         if (
             isinstance(formula, PolynomialForm)
             and not 1 <= len(formula.coefficients) <= 8
@@ -509,7 +513,7 @@ def _check_form_coefficients_count_invalid(
             refusals.append(
                 _refuse(
                     "form_coefficients_count_invalid",
-                    (*_formula_tokens(attr_id), "coefficients"),
+                    (*tokens, "coefficients"),
                     "polynomial requires 1 to 8 coefficients",
                 )
             )
@@ -520,7 +524,7 @@ def _check_exponential_growth_rate_positive(
     doc: DesignDocument, _raw: dict[str, Any]
 ) -> list[Refusal]:
     refusals: list[Refusal] = []
-    for attr_id, formula in _iter_formula_bases(doc):
+    for formula, tokens in _iter_formula_sites(doc):
         if not isinstance(formula, ExponentialForm):
             continue
         rate = formula.growth_rate
@@ -536,7 +540,7 @@ def _check_exponential_growth_rate_positive(
             refusals.append(
                 _refuse(
                     "exponential_growth_rate_positive",
-                    (*_formula_tokens(attr_id), "growth_rate"),
+                    (*tokens, "growth_rate"),
                     "exponential growth_rate must be positive",
                 )
             )
@@ -547,12 +551,12 @@ def _check_expression_tree_too_deep(
     doc: DesignDocument, _raw: dict[str, Any]
 ) -> list[Refusal]:
     refusals: list[Refusal] = []
-    for attr_id, formula in _iter_formula_bases(doc):
+    for formula, tokens in _iter_formula_sites(doc):
         if _is_tree(formula) and _tree_depth(formula) > MAX_TREE_DEPTH:
             refusals.append(
                 _refuse(
                     "expression_tree_too_deep",
-                    _formula_tokens(attr_id),
+                    tokens,
                     f"expression tree depth exceeds {MAX_TREE_DEPTH}",
                 )
             )
@@ -563,12 +567,12 @@ def _check_expression_tree_too_large(
     doc: DesignDocument, _raw: dict[str, Any]
 ) -> list[Refusal]:
     refusals: list[Refusal] = []
-    for attr_id, formula in _iter_formula_bases(doc):
+    for formula, tokens in _iter_formula_sites(doc):
         if _is_tree(formula) and _tree_size(formula) > MAX_TREE_NODES:
             refusals.append(
                 _refuse(
                     "expression_tree_too_large",
-                    _formula_tokens(attr_id),
+                    tokens,
                     f"expression tree exceeds {MAX_TREE_NODES} nodes",
                 )
             )
@@ -963,7 +967,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="tier_reference_undefined",
-        scope=("/attributes/items/{id}",),
+        scope=("/attributes/items/{id}/tier",),
         description="An attribute's tier label names no declared tier.",
         since_version=_SINCE,
         check=_check_tier_reference_undefined,
@@ -1146,7 +1150,12 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="form_points_not_increasing",
-        scope=("/attributes/items/{id}/base/formula/points",),
+        scope=(
+            "/attributes/items/{id}/base/formula/points",
+            "/attributes/items/{id}/base/formula/table",
+            "/effects/items/{id}/modifiers/{index}/magnitude/points",
+            "/effects/items/{id}/modifiers/{index}/magnitude/table",
+        ),
         description=(
             "A piecewise_linear/lookup_table form's x-values are not strictly "
             "increasing."
@@ -1173,7 +1182,12 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="form_points_insufficient",
-        scope=("/attributes/items/{id}/base/formula/points",),
+        scope=(
+            "/attributes/items/{id}/base/formula/points",
+            "/attributes/items/{id}/base/formula/table",
+            "/effects/items/{id}/modifiers/{index}/magnitude/points",
+            "/effects/items/{id}/modifiers/{index}/magnitude/table",
+        ),
         description=(
             "A piecewise_linear form has fewer than 2 points, or a lookup_table "
             "fewer than 1 entry."
@@ -1200,7 +1214,10 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="form_coefficients_count_invalid",
-        scope=("/attributes/items/{id}/base/formula/coefficients",),
+        scope=(
+            "/attributes/items/{id}/base/formula/coefficients",
+            "/effects/items/{id}/modifiers/{index}/magnitude/coefficients",
+        ),
         description="A polynomial form has 0 or more than 8 coefficients.",
         since_version=_SINCE,
         check=_check_form_coefficients_count_invalid,
@@ -1224,7 +1241,10 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="exponential_growth_rate_positive",
-        scope=("/attributes/items/{id}/base/formula/growth_rate",),
+        scope=(
+            "/attributes/items/{id}/base/formula/growth_rate",
+            "/effects/items/{id}/modifiers/{index}/magnitude/growth_rate",
+        ),
         description=(
             "An exponential form's resolved growth_rate is not strictly positive."
         ),
@@ -1251,7 +1271,10 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="expression_tree_too_deep",
-        scope=("/attributes/items/{id}/base/formula",),
+        scope=(
+            "/attributes/items/{id}/base/formula",
+            "/effects/items/{id}/modifiers/{index}/magnitude",
+        ),
         description="A base-formula expression tree is deeper than 32.",
         since_version=_SINCE,
         check=_check_expression_tree_too_deep,
@@ -1265,7 +1288,10 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="expression_tree_too_large",
-        scope=("/attributes/items/{id}/base/formula",),
+        scope=(
+            "/attributes/items/{id}/base/formula",
+            "/effects/items/{id}/modifiers/{index}/magnitude",
+        ),
         description="A base-formula expression tree has more than 256 nodes.",
         since_version=_SINCE,
         check=_check_expression_tree_too_large,
@@ -1445,7 +1471,10 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="temporal_value_not_positive",
-        scope=("/effects/items/{id}/duration",),
+        scope=(
+            "/effects/items/{id}/duration",
+            "/effects/items/{id}/period",
+        ),
         description="A timed duration or a period is not strictly positive.",
         since_version=_SINCE,
         check=_check_temporal_value_not_positive,
