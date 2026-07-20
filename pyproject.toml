@@ -81,13 +81,6 @@ assets-live = [
     "google-genai>=1.0",
 ]
 
-[tool.uv.workspace]
-# Explicit membership (no glob): the workspace holds exactly the sibling
-# product gda-balancing (#502). gda does NOT depend on the member — it enters
-# the dev environment only via `uv sync --all-packages`, so gda's dependency
-# closure and built wheel are unchanged.
-members = ["libs/gda-balancing"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

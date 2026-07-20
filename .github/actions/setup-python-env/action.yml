@@ -1,7 +1,10 @@
 name: Set up Python environment
 description: >-
   Install uv pinned to the project's Python and sync dev dependencies. Single
-  source of truth for the Python toolchain shared by CI and Release.
+  source of truth for the Python toolchain shared by CI and Release. The repo
+  holds two INDEPENDENT uv projects (ADR-0038) — the root `gda` project and
+  `libs/gda-balancing`, each with its own lock and its own venv — so the `sync`
+  input selects which environment(s) a job pays for.
 
 inputs:
   python-version:
@@ -12,6 +15,14 @@ inputs:
     description: Whether setup-uv should save its dependency cache.
     required: false
     default: "true"
+  sync:
+    description: >-
+      Which project environment(s) to sync: `root` (the gda project),
+      `member` (libs/gda-balancing), `both`, or `none` — `none` installs uv
+      only, for a job that builds distributions but runs neither project's
+      code from a synced venv.
+    required: false
+    default: "root"
 
 runs:
   using: composite
@@ -22,15 +33,34 @@ runs:
         python-version: ${{ inputs.python-version }}
         enable-cache: true
         save-cache: ${{ inputs.save-cache }}
+        # Both projects' locks and manifests: the two are resolved separately,
+        # so a change to either must invalidate the shared dependency cache.
         cache-dependency-glob: |
           pyproject.toml
-          libs/gda-balancing/pyproject.toml
           uv.lock
+          libs/gda-balancing/pyproject.toml
+          libs/gda-balancing/uv.lock
 
-    - name: Install dependencies
+    - name: Validate the sync input
       shell: bash
-      # --all-packages installs every workspace member (gda + gda-balancing)
-      # into the one venv, putting the member's console script on PATH for its
-      # entry-point smoke tests. gda's own closure is unchanged (the member is
-      # not a gda dependency).
-      run: uv sync --frozen --dev --all-packages
+      run: |
+        case "${{ inputs.sync }}" in
+          root|member|both|none) ;;
+          *)
+            echo "setup-python-env: invalid sync input '${{ inputs.sync }}' (expected root|member|both|none)" >&2
+            exit 1
+            ;;
+        esac
+
+    # Each project gets its own venv (.venv at the project root), so a job that
+    # needs only one does not pay to resolve and install the other. The member's
+    # release build in particular must not sync the root.
+    - name: Install root (gda) dependencies
+      if: ${{ inputs.sync == 'root' || inputs.sync == 'both' }}
+      shell: bash
+      run: uv sync --frozen --dev
+
+    - name: Install gda-balancing dependencies
+      if: ${{ inputs.sync == 'member' || inputs.sync == 'both' }}
+      shell: bash
+      run: uv sync --frozen --dev --project libs/gda-balancing

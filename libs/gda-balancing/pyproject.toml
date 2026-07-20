@@ -23,6 +23,30 @@ gda-balancing = "gda_balancing.cli:main"
 requires = ["uv_build>=0.11.19,<0.12.0"]
 build-backend = "uv_build"
 
+# This package is an INDEPENDENT uv project, not a member of the repo-root
+# workspace (ADR-0038): its dependency closure locks in this directory's own
+# uv.lock, so every file a member dependency change touches lives under
+# `libs/gda-balancing/` and release-please's root `exclude-paths` covers it.
+# Consequently the member owns its own dev group — the root's dev group is a
+# different environment and no longer installs anything for this suite — and
+# its own `.python-version`: uv does NOT inherit the root's, so without a local
+# pin a member venv would be built on whatever interpreter uv defaults to,
+# diverging from the 3.13 CI resolves against.
+[dependency-groups]
+dev = [
+    # The package's own test tier (its pytest config lives below).
+    "pytest>=9.0.3",
+    # Type-check gate (CI `type-check` job, ADR-0030), run as
+    # `pyright --project libs/gda-balancing` against the [tool.pyright] scope
+    # below. Pinned for the same reason as the root's: a pyright upgrade can
+    # add new checks, so it must be a deliberate uv.lock bump, not a surprise
+    # PR failure; the exact version is locked in this package's uv.lock.
+    "pyright>=1.1.411,<1.2",
+]
+# `ruff` is deliberately absent: it is file-based and the CI `lint` job runs it
+# repo-wide from the root environment, so a second copy here would only be a
+# version that could drift from the one that actually gates.
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

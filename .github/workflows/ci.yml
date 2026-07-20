@@ -37,6 +37,9 @@ jobs:
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
         with:
+          # ruff is file-based and gates the whole repo from the root
+          # environment, so the member project need not be synced (ADR-0038).
+          sync: root
           # The python job already populates the dependency cache for this key;
           # this job only reads it, so skip a redundant (racing) cache save.
           save-cache: false
@@ -58,6 +61,9 @@ jobs:
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
         with:
+          # One pyright run per project, each against its own resolved
+          # dependencies — the two projects lock separately (ADR-0038).
+          sync: both
           # The python job already populates the dependency cache for this key;
           # this job only reads it, so skip a redundant (racing) cache save.
           save-cache: false
@@ -67,8 +73,10 @@ jobs:
         run: uv run --frozen pyright
 
       - name: Type check gda-balancing
-        # The workspace member carries its own [tool.pyright] scope (#502).
-        run: uv run --frozen pyright --project libs/gda-balancing
+        # gda-balancing is its own uv project (ADR-0038) with its own pyright
+        # pin, so the run resolves from the member environment; pyright's
+        # --project points at the member's [tool.pyright] scope (#502).
+        run: uv run --frozen --project libs/gda-balancing pyright --project libs/gda-balancing
 
   python:
     name: Python unit tests and package build
@@ -85,6 +93,11 @@ jobs:
 
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
+        with:
+          # This job runs both products' suites and builds both distributions,
+          # so it syncs both independent projects (ADR-0038). It is also the
+          # job that populates the shared dependency cache for the others.
+          sync: both
 
       - name: Run unit tests
         run: uv run --frozen pytest -m "not e2e"
@@ -97,11 +110,11 @@ jobs:
       - name: Run Panda Adventure pure-Python tests
         run: uv run --frozen pytest examples/platformer/panda-adventure/tests -m "not e2e and not engine and not acquire_live"
 
-      # The root testpaths also excludes the gda-balancing workspace member;
-      # its pure-Python suite (CLI conformance harness + isolation gate, #502)
-      # runs here by explicit path, keeping the two products' suites separate.
+      # gda-balancing is a separate uv project (ADR-0038), so its suite runs
+      # against its OWN environment via --project — which is also what puts its
+      # `gda-balancing` console script on PATH for the subprocess e2e tier.
       - name: Run gda-balancing tests
-        run: uv run --frozen pytest libs/gda-balancing/tests
+        run: uv run --frozen --project libs/gda-balancing pytest libs/gda-balancing/tests
 
       - name: Build distributions
         run: uv build
@@ -112,7 +125,7 @@ jobs:
       # ships no release artifacts for either package. Its own out-dir keeps the
       # member dists out of the gda-distributions artifact.
       - name: Build gda-balancing distributions
-        run: uv build --package gda-balancing --out-dir dist-gda-balancing
+        run: uv build --project libs/gda-balancing --out-dir dist-gda-balancing
 
       - name: Upload distributions
         uses: actions/upload-artifact@v7.0.1
@@ -120,6 +133,140 @@ jobs:
           name: gda-distributions
           path: dist/
           if-no-files-found: error
+
+  coinstall-smoke:
+    name: Both products co-install
+    runs-on: ubuntu-latest
+
+    # Replaces feedback the shared workspace lock used to give for free (ADR-0038).
+    # While gda and gda-balancing resolved into one lock, uv proved on every
+    # change that their dependency closures stay mutually satisfiable; two
+    # independent locks each resolve alone and can silently drift into wheels
+    # that cannot be installed side by side (a user who wants both, or a future
+    # agent image carrying both, would hit it first). So the co-installability
+    # claim becomes an explicit test: build both wheels, install them together
+    # into one clean environment, and run a command from each.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          # Neither project's venv is used here — the build backends run in
+          # uv's own isolated build envs and the smoke install is a fresh venv.
+          sync: none
+          save-cache: false
+
+      - name: Build both wheels
+        run: |
+          uv build --out-dir dist-coinstall
+          uv build --project libs/gda-balancing --out-dir dist-coinstall
+
+      - name: Install both into one clean environment and run each command
+        run: |
+          uv venv coinstall-venv
+          uv pip install --python coinstall-venv/bin/python dist-coinstall/*.whl
+          ./coinstall-venv/bin/gda --help
+          ./coinstall-venv/bin/gda-balancing version
+
+  member-release-scope:
+    name: Member releasing-PR scope guard
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
+      pull-requests: read
+
+    # release-please drops a commit from the root `gda` package only when EVERY
+    # changed file is excluded, and `exclude-paths` matches directory prefixes
+    # only (ADR-0038). So a releasing-typed PR that touches gda-balancing AND
+    # anything outside it proposes two Release PRs — the mistake ADR-0037
+    # describes. This guard catches it at PR time.
+    #
+    # Currently belt-and-braces: member PRs are still held to non-releasing
+    # types by discipline. It becomes LOAD-BEARING when #528 flips that
+    # discipline and member PRs start carrying truthful feat/fix titles.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Assert a releasing-typed member PR stays inside the member directory
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --paginate --jq '.[].filename' > changed-files.txt
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+
+          # The member directory is DERIVED from release-please-config.json's
+          # root exclude-paths, never restated: that list is the single
+          # authority for "which paths do not count for the root package", and
+          # a second hand-maintained copy here would drift out of agreement
+          # with the very mechanism this guard exists to protect.
+          config = json.load(open("release-please-config.json"))
+          excluded = config["packages"]["."].get("exclude-paths") or []
+          if not excluded:
+              raise SystemExit(
+                  "release-please-config.json declares no exclude-paths for the "
+                  "root package, so this guard cannot derive a member directory."
+              )
+
+          title = os.environ["PR_TITLE"]
+          # `type: `, `type!: `, `type(scope): `, `type(scope)!: `.
+          header = re.match(r"^(?P<type>[a-zA-Z]+)(?:\([^)]*\))?(?P<bang>!)?:", title)
+          # The types that make release-please propose a release in this repo's
+          # config, plus the `!` breaking marker — which bumps on ANY type.
+          releasing = bool(header) and (
+              header.group("type").lower() in {"feat", "fix"}
+              or header.group("bang") is not None
+          )
+
+          def under(path: str, directory: str) -> bool:
+              # release-please's own matcher semantics: a directory prefix
+              # (`file.indexOf(path + "/") === 0`), never a file or a glob.
+              return path.startswith(directory.rstrip("/") + "/")
+
+          files = [
+              line for line in open("changed-files.txt").read().splitlines() if line
+          ]
+          inside = [f for f in files if any(under(f, d) for d in excluded)]
+          outside = [f for f in files if f not in inside]
+
+          if not releasing:
+              print(f"PR title {title!r} declares no releasing type; guard is a no-op.")
+              raise SystemExit(0)
+          if not inside:
+              print(
+                  f"PR touches no file under {excluded}; "
+                  "not a member PR, guard is a no-op."
+              )
+              raise SystemExit(0)
+          if not outside:
+              print(
+                  f"Releasing-typed member PR is confined to {excluded}; "
+                  "only the member's release train can be proposed."
+              )
+              raise SystemExit(0)
+
+          listing = "\n".join(f"  {path}" for path in outside)
+          raise SystemExit(
+              f"PR title {title!r} declares a releasing conventional-commit type "
+              f"and the PR touches {excluded}, but these changed files fall "
+              f"outside it:\n{listing}\n\n"
+              "release-please excludes a commit from the root `gda` package only "
+              "when EVERY changed file is excluded, so merging this would propose "
+              "BOTH a gda release and a gda-balancing release (ADR-0037/0038).\n"
+              "Fix by splitting the PR: keep the releasing-typed change confined "
+              "to the member directory, and move the files above into a separate "
+              "PR (a non-releasing type, or its own gda-releasing one)."
+          )
+          PY
 
   godot-e2e:
     name: Godot e2e tests
@@ -137,6 +284,9 @@ jobs:
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
         with:
+          # Engine-backed tiers are gda's and the example game's only; the
+          # member ships no engine-facing code (ADR-0038).
+          sync: root
           save-cache: false
 
       # install-godot also installs the matching export templates, so this job can
