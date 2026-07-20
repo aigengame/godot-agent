@@ -14,27 +14,34 @@ keys the model excludes/aliases), and a ``violation_fixture`` — a complete
 Design document that is valid **except** for this one rule, so the conformance
 harness can assert each rule refuses exactly its fixture (bADR-0004).
 
-Scope note: PR1 reference-integrity (undefined ``attr``/``param``) applies to
-**base formulas only** — no effects section exists yet — but the walker
-(:func:`gda_balancing.schema.funnel.semantic.graph.iter_references`) is written
-so the effects stage reuses it by passing its own base-pointer tokens.
+Scope note: reference-integrity (undefined ``attr``/``param``) applies to
+attribute **base formulas** and effect **magnitudes** alike — both share the one
+walker (:func:`gda_balancing.schema.funnel.semantic.graph.iter_references`),
+which each caller drives with its own root-pointer tokens. Effect magnitudes join
+the reference walk but **not** the base-formula acyclicity graph (a magnitude may
+reference its own target — bADR-0003/0006).
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
+
+from pydantic import BaseModel
 
 from gda_balancing.envelope import Refusal
 from gda_balancing.schema import pointer
 from gda_balancing.schema.funnel.semantic.graph import (
+    Tokens,
     cyclic_components,
     iter_references,
 )
 from gda_balancing.schema.model.document import DesignDocument
+from gda_balancing.schema.model.effects import Effect, TimedDuration
 from gda_balancing.schema.model.formula import (
     BinaryOp,
     DirectBase,
     ExponentialForm,
+    Formula,
     FormulaBase,
     LinearForm,
     LookupTableForm,
@@ -49,6 +56,12 @@ from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
 # v1 normative expression-tree limits (bADR-0003); raising either is a minor bump.
 MAX_TREE_DEPTH = 32
 MAX_TREE_NODES = 256
+
+# v1 effect temporal bounds (bADR-0006): the minimum tick granularity in seconds
+# and the per-instance tick budget (duration / period) any timed effect declaring
+# a period must respect. Raising either is a minor bump.
+MIN_PERIOD_SECONDS = 0.05
+MAX_TICK_BUDGET = 10_000
 
 # The line the whole v1 rule set appeared in — line granularity, matching
 # bADR-0001's acceptance granularity (a validator serving X.Y ships every rule
@@ -105,8 +118,31 @@ def _formula_tokens(attr_id: str) -> tuple[str, ...]:
     return (*_attr_tokens(attr_id), "base", "formula")
 
 
+def _effect_tokens(effect_id: str) -> tuple[str, ...]:
+    return ("effects", "items", effect_id)
+
+
+def _modifier_tokens(effect_id: str, index: int) -> tuple[str | int, ...]:
+    return (*_effect_tokens(effect_id), "modifiers", index)
+
+
+def _magnitude_tokens(effect_id: str, index: int) -> tuple[str | int, ...]:
+    return (*_modifier_tokens(effect_id, index), "magnitude")
+
+
 def _refuse(code: str, tokens: tuple[str | int, ...], detail: str) -> Refusal:
     return Refusal(code=code, path=pointer.build(*tokens), detail=detail)
+
+
+def _is_instant(effect: Effect) -> bool:
+    """An ``instant`` duration leaves no persistent instance (bADR-0006)."""
+    return effect.duration == "instant"
+
+
+def _timed_seconds(effect: Effect) -> float | None:
+    """The seconds of a ``timed`` duration, or ``None`` for instant/infinite."""
+    duration = effect.duration
+    return duration.timed if isinstance(duration, TimedDuration) else None
 
 
 # --- Tree shape helpers ----------------------------------------------------
@@ -137,20 +173,37 @@ def _strictly_increasing(pairs: tuple[tuple[float, float], ...]) -> bool:
 # --- Rule checks -----------------------------------------------------------
 
 
+def _iter_reference_formulas(
+    doc: DesignDocument,
+) -> Iterator[tuple[Formula, Tokens]]:
+    """Every formula whose references the integrity rules must check, paired with
+    its RFC 6901 root tokens: each attribute **base formula** (bADR-0002/0003)
+    and each effect-**magnitude** formula (bADR-0006). A magnitude that is a bare
+    scalar number carries no references and is skipped — only a named form or an
+    expression tree (both pydantic models) yields references. Effect magnitudes
+    join the reference-integrity walk but **not** the base-formula acyclicity
+    graph: a magnitude may reference its own target (bADR-0003), so it adds no
+    dependency edge."""
+    for attr_id, attribute in doc.attributes.items.items():
+        base = attribute.base
+        if isinstance(base, FormulaBase):
+            yield base.formula, _formula_tokens(attr_id)
+    for effect_id, effect in doc.effects.items.items():
+        for index, modifier in enumerate(effect.modifiers):
+            magnitude = modifier.magnitude
+            if isinstance(magnitude, BaseModel):  # a formula, not a bare scalar
+                yield magnitude, _magnitude_tokens(effect_id, index)
+
+
 def _reference_undefined(
     doc: DesignDocument, want_kind: str, code: str, is_declared: Callable[[str], bool]
 ) -> list[Refusal]:
     """Shared driver for the two reference-integrity rules: walk every base
-    formula's references of ``want_kind`` and refuse each undeclared id at its
-    own node pointer."""
+    formula's and effect magnitude's references of ``want_kind`` and refuse each
+    undeclared id at its own node pointer."""
     refusals: list[Refusal] = []
-    for attr_id, attribute in doc.attributes.items.items():
-        base = attribute.base
-        if not isinstance(base, FormulaBase):
-            continue
-        for kind, ref_id, tokens in iter_references(
-            base.formula, _formula_tokens(attr_id)
-        ):
+    for formula, base_tokens in _iter_reference_formulas(doc):
+        for kind, ref_id, tokens in iter_references(formula, base_tokens):
             if kind == want_kind and not is_declared(ref_id):
                 refusals.append(
                     _refuse(code, tokens, f"undefined {want_kind} reference {ref_id!r}")
@@ -447,6 +500,237 @@ def _check_reserved_section_present(
     ]
 
 
+# --- Effect rule checks (bADR-0006) ----------------------------------------
+
+
+def _check_modifier_target_undefined(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    items = doc.attributes.items
+    refusals: list[Refusal] = []
+    for effect_id, effect in doc.effects.items.items():
+        for index, modifier in enumerate(effect.modifiers):
+            if modifier.target not in items:
+                refusals.append(
+                    _refuse(
+                        "modifier_target_undefined",
+                        _modifier_tokens(effect_id, index),
+                        f"modifier target {modifier.target!r} names no declared "
+                        "attribute",
+                    )
+                )
+    return refusals
+
+
+def _check_stacking_type_undefined(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    types = doc.effects.stacking_types
+    refusals: list[Refusal] = []
+    for effect_id, effect in doc.effects.items.items():
+        stacking = effect.stacking
+        if stacking is not None and stacking.type not in types:
+            refusals.append(
+                _refuse(
+                    "stacking_type_undefined",
+                    (*_effect_tokens(effect_id), "stacking"),
+                    f"stacking type {stacking.type!r} names no declared stacking type",
+                )
+            )
+    return refusals
+
+
+def _check_application_duration_illegal(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    """An ``instant`` effect admits only ``one_shot`` modifiers; ``continuous``/
+    ``periodic`` require ``timed``/``infinite`` (bADR-0006)."""
+    refusals: list[Refusal] = []
+    for effect_id, effect in doc.effects.items.items():
+        if not _is_instant(effect):
+            continue
+        for index, modifier in enumerate(effect.modifiers):
+            if modifier.application != "one_shot":
+                refusals.append(
+                    _refuse(
+                        "application_duration_illegal",
+                        _modifier_tokens(effect_id, index),
+                        f"application {modifier.application!r} is illegal on an "
+                        "instant effect (instant admits only one_shot)",
+                    )
+                )
+    return refusals
+
+
+def _check_instant_effect_forbids_stacking(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    refusals: list[Refusal] = []
+    for effect_id, effect in doc.effects.items.items():
+        if _is_instant(effect) and effect.stacking is not None:
+            refusals.append(
+                _refuse(
+                    "instant_effect_forbids_stacking",
+                    (*_effect_tokens(effect_id), "stacking"),
+                    "an instant effect leaves no persistent instance to stack "
+                    "or refresh",
+                )
+            )
+    return refusals
+
+
+def _check_persistent_effect_requires_stacking(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    refusals: list[Refusal] = []
+    for effect_id, effect in doc.effects.items.items():
+        if not _is_instant(effect) and effect.stacking is None:
+            refusals.append(
+                _refuse(
+                    "persistent_effect_requires_stacking",
+                    _effect_tokens(effect_id),
+                    "a timed/infinite effect must declare stacking",
+                )
+            )
+    return refusals
+
+
+def _check_override_forbidden_on_delta(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    """``override`` is a set, not a delta — illegal on ``one_shot``/``periodic``
+    (delta) modifiers (bADR-0006)."""
+    refusals: list[Refusal] = []
+    for effect_id, effect in doc.effects.items.items():
+        for index, modifier in enumerate(effect.modifiers):
+            if modifier.operation == "override" and modifier.application in (
+                "one_shot",
+                "periodic",
+            ):
+                refusals.append(
+                    _refuse(
+                        "override_forbidden_on_delta",
+                        _modifier_tokens(effect_id, index),
+                        "override is illegal on a one_shot/periodic (delta) modifier",
+                    )
+                )
+    return refusals
+
+
+def _check_period_required_for_periodic(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    refusals: list[Refusal] = []
+    for effect_id, effect in doc.effects.items.items():
+        has_periodic = any(m.application == "periodic" for m in effect.modifiers)
+        if has_periodic and effect.period is None:
+            refusals.append(
+                _refuse(
+                    "period_required_for_periodic",
+                    _effect_tokens(effect_id),
+                    "a periodic modifier requires the effect to declare a period",
+                )
+            )
+    return refusals
+
+
+def _check_period_forbidden_when_all_one_shot(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    refusals: list[Refusal] = []
+    for effect_id, effect in doc.effects.items.items():
+        all_one_shot = all(m.application == "one_shot" for m in effect.modifiers)
+        if effect.period is not None and all_one_shot:
+            refusals.append(
+                _refuse(
+                    "period_forbidden_when_all_one_shot",
+                    (*_effect_tokens(effect_id), "period"),
+                    "period is forbidden when every modifier is one_shot "
+                    "(nothing ticks)",
+                )
+            )
+    return refusals
+
+
+def _check_temporal_value_not_positive(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    """A ``timed`` duration and any ``period`` must be positive (finiteness is an
+    ingress guarantee; bADR-0006)."""
+    refusals: list[Refusal] = []
+    for effect_id, effect in doc.effects.items.items():
+        seconds = _timed_seconds(effect)
+        if seconds is not None and not seconds > 0:
+            refusals.append(
+                _refuse(
+                    "temporal_value_not_positive",
+                    (*_effect_tokens(effect_id), "duration"),
+                    "a timed duration must be positive",
+                )
+            )
+        if effect.period is not None and not effect.period > 0:
+            refusals.append(
+                _refuse(
+                    "temporal_value_not_positive",
+                    (*_effect_tokens(effect_id), "period"),
+                    "a period must be positive",
+                )
+            )
+    return refusals
+
+
+def _check_period_below_minimum_granularity(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    """``period ≥ 0.05`` seconds — the v1 minimum tick granularity (bADR-0006). A
+    non-positive period is ``temporal_value_not_positive``'s job; this rule fires
+    only on a positive-but-too-small period, so the two never cascade."""
+    refusals: list[Refusal] = []
+    for effect_id, effect in doc.effects.items.items():
+        period = effect.period
+        if period is not None and 0 < period < MIN_PERIOD_SECONDS:
+            refusals.append(
+                _refuse(
+                    "period_below_minimum_granularity",
+                    (*_effect_tokens(effect_id), "period"),
+                    f"period must be at least {MIN_PERIOD_SECONDS} seconds "
+                    "(v1 minimum granularity)",
+                )
+            )
+    return refusals
+
+
+def _check_tick_budget_exceeded(
+    doc: DesignDocument, _raw: dict[str, Any]
+) -> list[Refusal]:
+    """For any ``timed`` effect declaring ``period`` — whether its ticks drive
+    periodic deltas or continuous re-evaluation — ``duration / period ≤ 10 000``
+    (bADR-0006). Infinite effects are bounded by the simulation horizon, not
+    here. A non-positive duration or period is another rule's job; this one
+    guards ``> 0`` before dividing but does **not** skip a granularity violation,
+    so the report-all dual case (V6) lists both."""
+    refusals: list[Refusal] = []
+    for effect_id, effect in doc.effects.items.items():
+        seconds = _timed_seconds(effect)
+        period = effect.period
+        if (
+            seconds is not None
+            and seconds > 0
+            and period is not None
+            and period > 0
+            and seconds / period > MAX_TICK_BUDGET
+        ):
+            refusals.append(
+                _refuse(
+                    "tick_budget_exceeded",
+                    (*_effect_tokens(effect_id), "period"),
+                    f"duration / period exceeds the per-instance tick budget of "
+                    f"{MAX_TICK_BUDGET}",
+                )
+            )
+    return refusals
+
+
 # --- Violation-fixture builders --------------------------------------------
 
 
@@ -474,15 +758,57 @@ def _wide_add(leaves: int) -> dict[str, Any]:
     return {"op": "add", "args": [{"literal": 1} for _ in range(leaves)]}
 
 
+def _effects_fixture(effects: dict[str, Any]) -> dict[str, Any]:
+    """A valid document with a ``power`` target attribute plus the given
+    ``effects`` section — the enclosing document for the effect-rule fixtures."""
+    return _with(
+        attributes={
+            "items": {
+                "power": {
+                    "domain": "number",
+                    "base": {"direct": 10},
+                    "accepts": ["effects"],
+                }
+            }
+        },
+        effects=effects,
+    )
+
+
+def _modifier(
+    application: str,
+    *,
+    operation: str = "add",
+    target: str = "power",
+    magnitude: Any = 5,
+) -> dict[str, Any]:
+    """One modifier — ``continuous`` ``add`` on ``power`` with a literal
+    magnitude by default; each field overridable for a specific fixture."""
+    return {
+        "target": target,
+        "operation": operation,
+        "application": application,
+        "magnitude": magnitude,
+    }
+
+
+# A stacking-type catalog + reference every persistent-effect fixture reuses.
+_STACKING_TYPES = {"combine": {"aggregation": "stack"}}
+_STACKING = {"type": "combine", "lifetime": "independent"}
+
+
 # --- The one registry ------------------------------------------------------
 
 SEMANTIC_RULES: tuple[SemanticRule, ...] = (
     SemanticRule(
         code="attribute_reference_undefined",
-        scope="/attributes/items/{id}/base/formula",
+        scope=(
+            "/attributes/items/{id}/base/formula, "
+            "/effects/items/{id}/modifiers/{index}/magnitude"
+        ),
         description=(
-            "A base-formula attr node references an id not declared in "
-            "attributes.items."
+            "An attr node — in an attribute base formula or an effect magnitude "
+            "— references an id not declared in attributes.items."
         ),
         since_version=_SINCE,
         check=_check_attribute_reference_undefined,
@@ -499,9 +825,13 @@ SEMANTIC_RULES: tuple[SemanticRule, ...] = (
     ),
     SemanticRule(
         code="parameter_reference_undefined",
-        scope="/attributes/items/{id}/base/formula",
+        scope=(
+            "/attributes/items/{id}/base/formula, "
+            "/effects/items/{id}/modifiers/{index}/magnitude"
+        ),
         description=(
-            "A base-formula param node references an id not declared in parameters."
+            "A param node — in an attribute base formula or an effect magnitude "
+            "— references an id not declared in parameters."
         ),
         since_version=_SINCE,
         check=_check_parameter_reference_undefined,
@@ -771,5 +1101,222 @@ SEMANTIC_RULES: tuple[SemanticRule, ...] = (
         since_version=_SINCE,
         check=_check_reserved_section_present,
         violation_fixture={**_base_document(), "builds": {}},
+    ),
+    # --- Effects (bADR-0006) -----------------------------------------------
+    SemanticRule(
+        code="modifier_target_undefined",
+        scope="/effects/items/{id}/modifiers/{index}",
+        description=(
+            "A modifier's target names no attribute declared in attributes.items."
+        ),
+        since_version=_SINCE,
+        check=_check_modifier_target_undefined,
+        violation_fixture=_effects_fixture(
+            {
+                "stacking_types": _STACKING_TYPES,
+                "items": {
+                    "buff": {
+                        "modifiers": [_modifier("continuous", target="missing")],
+                        "duration": "infinite",
+                        "stacking": _STACKING,
+                    }
+                },
+            }
+        ),
+    ),
+    SemanticRule(
+        code="stacking_type_undefined",
+        scope="/effects/items/{id}/stacking",
+        description=(
+            "A persistent effect's stacking.type names no declared stacking type."
+        ),
+        since_version=_SINCE,
+        check=_check_stacking_type_undefined,
+        violation_fixture=_effects_fixture(
+            {
+                "items": {
+                    "buff": {
+                        "modifiers": [_modifier("continuous")],
+                        "duration": "infinite",
+                        "stacking": {"type": "ghost", "lifetime": "independent"},
+                    }
+                }
+            }
+        ),
+    ),
+    SemanticRule(
+        code="application_duration_illegal",
+        scope="/effects/items/{id}/modifiers/{index}",
+        description=(
+            "An instant effect carries a non-one_shot modifier "
+            "(continuous/periodic require a timed/infinite duration)."
+        ),
+        since_version=_SINCE,
+        check=_check_application_duration_illegal,
+        violation_fixture=_effects_fixture(
+            {
+                "items": {
+                    "burst": {
+                        "modifiers": [_modifier("continuous")],
+                        "duration": "instant",
+                    }
+                }
+            }
+        ),
+    ),
+    SemanticRule(
+        code="instant_effect_forbids_stacking",
+        scope="/effects/items/{id}/stacking",
+        description="An instant effect declares stacking (it leaves no instance).",
+        since_version=_SINCE,
+        check=_check_instant_effect_forbids_stacking,
+        violation_fixture=_effects_fixture(
+            {
+                "stacking_types": _STACKING_TYPES,
+                "items": {
+                    "burst": {
+                        "modifiers": [_modifier("one_shot")],
+                        "duration": "instant",
+                        "stacking": _STACKING,
+                    }
+                },
+            }
+        ),
+    ),
+    SemanticRule(
+        code="persistent_effect_requires_stacking",
+        scope="/effects/items/{id}",
+        description="A timed/infinite effect declares no stacking.",
+        since_version=_SINCE,
+        check=_check_persistent_effect_requires_stacking,
+        violation_fixture=_effects_fixture(
+            {
+                "items": {
+                    "buff": {
+                        "modifiers": [_modifier("continuous")],
+                        "duration": {"timed": 10},
+                    }
+                }
+            }
+        ),
+    ),
+    SemanticRule(
+        code="override_forbidden_on_delta",
+        scope="/effects/items/{id}/modifiers/{index}",
+        description=(
+            "An override modifier is applied as a one_shot/periodic delta "
+            "(override replaces, it is not a delta)."
+        ),
+        since_version=_SINCE,
+        check=_check_override_forbidden_on_delta,
+        violation_fixture=_effects_fixture(
+            {
+                "items": {
+                    "strike": {
+                        "modifiers": [_modifier("one_shot", operation="override")],
+                        "duration": "instant",
+                    }
+                }
+            }
+        ),
+    ),
+    SemanticRule(
+        code="period_required_for_periodic",
+        scope="/effects/items/{id}",
+        description="An effect with a periodic modifier declares no period.",
+        since_version=_SINCE,
+        check=_check_period_required_for_periodic,
+        violation_fixture=_effects_fixture(
+            {
+                "stacking_types": _STACKING_TYPES,
+                "items": {
+                    "dot": {
+                        "modifiers": [_modifier("periodic")],
+                        "duration": {"timed": 10},
+                        "stacking": _STACKING,
+                    }
+                },
+            }
+        ),
+    ),
+    SemanticRule(
+        code="period_forbidden_when_all_one_shot",
+        scope="/effects/items/{id}/period",
+        description="An effect whose modifiers are all one_shot declares a period.",
+        since_version=_SINCE,
+        check=_check_period_forbidden_when_all_one_shot,
+        violation_fixture=_effects_fixture(
+            {
+                "items": {
+                    "strike": {
+                        "modifiers": [_modifier("one_shot")],
+                        "duration": "instant",
+                        "period": 1,
+                    }
+                }
+            }
+        ),
+    ),
+    SemanticRule(
+        code="temporal_value_not_positive",
+        scope="/effects/items/{id}/duration",
+        description="A timed duration or a period is not strictly positive.",
+        since_version=_SINCE,
+        check=_check_temporal_value_not_positive,
+        violation_fixture=_effects_fixture(
+            {
+                "stacking_types": _STACKING_TYPES,
+                "items": {
+                    "buff": {
+                        "modifiers": [_modifier("continuous")],
+                        "duration": {"timed": 0},
+                        "stacking": _STACKING,
+                    }
+                },
+            }
+        ),
+    ),
+    SemanticRule(
+        code="period_below_minimum_granularity",
+        scope="/effects/items/{id}/period",
+        description="A period is below the v1 minimum tick granularity (0.05 s).",
+        since_version=_SINCE,
+        check=_check_period_below_minimum_granularity,
+        violation_fixture=_effects_fixture(
+            {
+                "stacking_types": _STACKING_TYPES,
+                "items": {
+                    "aura": {
+                        "modifiers": [_modifier("continuous")],
+                        "duration": {"timed": 10},
+                        "period": 0.01,
+                        "stacking": _STACKING,
+                    }
+                },
+            }
+        ),
+    ),
+    SemanticRule(
+        code="tick_budget_exceeded",
+        scope="/effects/items/{id}/period",
+        description=(
+            "A timed effect's duration / period exceeds the per-instance tick "
+            "budget (10 000)."
+        ),
+        since_version=_SINCE,
+        check=_check_tick_budget_exceeded,
+        violation_fixture=_effects_fixture(
+            {
+                "stacking_types": _STACKING_TYPES,
+                "items": {
+                    "aura": {
+                        "modifiers": [_modifier("continuous")],
+                        "duration": {"timed": 600},
+                        "period": 0.05,
+                        "stacking": _STACKING,
+                    }
+                },
+            }
+        ),
     ),
 )

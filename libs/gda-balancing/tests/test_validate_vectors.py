@@ -472,6 +472,317 @@ def test_deep_expression_tree_is_refused(run_cli, tmp_path):
     assert codes == {"nesting_too_deep"}
 
 
+# --- Effects: V5 instant vs persistent stacking (bADR-0006) -----------------
+
+
+def _effects_document(effects: dict, *, name: str = "fx") -> dict:
+    """A valid document with a `power` target attribute plus the given effects
+    section — the enclosing document for the effect vectors."""
+    return {
+        "schema_version": "1.0.0",
+        "meta": {"name": name},
+        "attributes": {
+            "items": {
+                "power": {
+                    "domain": "number",
+                    "base": {"direct": 10},
+                    "accepts": ["effects"],
+                }
+            }
+        },
+        "effects": effects,
+    }
+
+
+def test_v5_instant_effect_declaring_stacking_is_refused(run_cli, tmp_path):
+    document = _effects_document(
+        {
+            "stacking_types": {"combine": {"aggregation": "stack"}},
+            "items": {
+                "burst": {
+                    "modifiers": [
+                        {
+                            "target": "power",
+                            "operation": "add",
+                            "application": "one_shot",
+                            "magnitude": 5,
+                        }
+                    ],
+                    "duration": "instant",
+                    "stacking": {"type": "combine", "lifetime": "independent"},
+                }
+            },
+        }
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("instant_effect_forbids_stacking", "/effects/items/burst/stacking")
+    ]
+
+
+def test_v5_timed_effect_without_stacking_is_refused(run_cli, tmp_path):
+    document = _effects_document(
+        {
+            "items": {
+                "buff": {
+                    "modifiers": [
+                        {
+                            "target": "power",
+                            "operation": "add",
+                            "application": "continuous",
+                            "magnitude": 5,
+                        }
+                    ],
+                    "duration": {"timed": 10},
+                }
+            }
+        }
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("persistent_effect_requires_stacking", "/effects/items/buff")
+    ]
+
+
+def test_v5_timed_all_one_shot_with_stacking_is_valid_but_inert(run_cli, tmp_path):
+    # A timed effect whose modifiers are all one_shot still declares stacking:
+    # valid but inert (one_shot deltas are never selection-gated), not a defect.
+    document = _effects_document(
+        {
+            "stacking_types": {"combine": {"aggregation": "stack"}},
+            "items": {
+                "buff": {
+                    "modifiers": [
+                        {
+                            "target": "power",
+                            "operation": "add",
+                            "application": "one_shot",
+                            "magnitude": 5,
+                        }
+                    ],
+                    "duration": {"timed": 10},
+                    "stacking": {"type": "combine", "lifetime": "independent"},
+                }
+            },
+        }
+    )
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, json.dumps(document))
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+
+
+# --- Effects: V6 `period` legality (bADR-0006) ------------------------------
+
+
+def test_v6_all_one_shot_declaring_period_is_refused(run_cli, tmp_path):
+    document = _effects_document(
+        {
+            "items": {
+                "strike": {
+                    "modifiers": [
+                        {
+                            "target": "power",
+                            "operation": "add",
+                            "application": "one_shot",
+                            "magnitude": 5,
+                        }
+                    ],
+                    "duration": "instant",
+                    "period": 1,
+                }
+            }
+        }
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("period_forbidden_when_all_one_shot", "/effects/items/strike/period")
+    ]
+
+
+def test_v6_continuous_only_with_period_is_valid(run_cli, tmp_path):
+    # A continuous-only effect may declare `period`: its continuous magnitudes
+    # re-evaluate at each tick boundary (bADR-0006).
+    document = _effects_document(
+        {
+            "stacking_types": {"combine": {"aggregation": "stack"}},
+            "items": {
+                "aura": {
+                    "modifiers": [
+                        {
+                            "target": "power",
+                            "operation": "add",
+                            "application": "continuous",
+                            "magnitude": 5,
+                        }
+                    ],
+                    "duration": {"timed": 10},
+                    "period": 1,
+                    "stacking": {"type": "combine", "lifetime": "independent"},
+                }
+            },
+        }
+    )
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, json.dumps(document))
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+
+
+def test_v6_period_below_minimum_granularity_is_refused(run_cli, tmp_path):
+    document = _effects_document(
+        {
+            "stacking_types": {"combine": {"aggregation": "stack"}},
+            "items": {
+                "aura": {
+                    "modifiers": [
+                        {
+                            "target": "power",
+                            "operation": "add",
+                            "application": "continuous",
+                            "magnitude": 5,
+                        }
+                    ],
+                    "duration": {"timed": 10},
+                    "period": 0.01,
+                    "stacking": {"type": "combine", "lifetime": "independent"},
+                }
+            },
+        }
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("period_below_minimum_granularity", "/effects/items/aura/period")
+    ]
+
+
+def test_v6_granularity_and_tick_budget_report_all(run_cli, tmp_path):
+    # timed 100 with period 0.005 violates granularity (< 0.05) AND the tick
+    # budget (100 / 0.005 = 20000 > 10000): report-all lists BOTH refusals.
+    document = _effects_document(
+        {
+            "stacking_types": {"combine": {"aggregation": "stack"}},
+            "items": {
+                "aura": {
+                    "modifiers": [
+                        {
+                            "target": "power",
+                            "operation": "add",
+                            "application": "continuous",
+                            "magnitude": 5,
+                        }
+                    ],
+                    "duration": {"timed": 100},
+                    "period": 0.005,
+                    "stacking": {"type": "combine", "lifetime": "independent"},
+                }
+            },
+        }
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    codes = {r["code"] for r in _refusals(stdout)}
+    assert codes == {"period_below_minimum_granularity", "tick_budget_exceeded"}
+
+
+def test_v6_continuous_only_tick_budget_is_refused(run_cli, tmp_path):
+    # A timed 600 s continuous-only effect with period 0.05 → 12000 ticks >
+    # 10000: the budget applies to ANY timed effect declaring `period`.
+    document = _effects_document(
+        {
+            "stacking_types": {"combine": {"aggregation": "stack"}},
+            "items": {
+                "aura": {
+                    "modifiers": [
+                        {
+                            "target": "power",
+                            "operation": "add",
+                            "application": "continuous",
+                            "magnitude": 5,
+                        }
+                    ],
+                    "duration": {"timed": 600},
+                    "period": 0.05,
+                    "stacking": {"type": "combine", "lifetime": "independent"},
+                }
+            },
+        }
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("tick_budget_exceeded", "/effects/items/aura/period")
+    ]
+
+
+# --- Effects: magnitude formula references (bADR-0006/0003) -----------------
+
+
+def test_magnitude_referencing_its_own_target_is_valid(run_cli, tmp_path):
+    # A magnitude may reference its own target attribute — magnitudes are exempt
+    # from base-formula acyclicity (bADR-0003); declaredness still applies.
+    document = _effects_document(
+        {
+            "stacking_types": {"combine": {"aggregation": "stack"}},
+            "items": {
+                "regen": {
+                    "modifiers": [
+                        {
+                            "target": "power",
+                            "operation": "add",
+                            "application": "continuous",
+                            "magnitude": {"attr": "power"},
+                        }
+                    ],
+                    "duration": "infinite",
+                    "stacking": {"type": "combine", "lifetime": "independent"},
+                }
+            },
+        }
+    )
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, json.dumps(document))
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+
+
+def test_magnitude_referencing_undeclared_attribute_is_refused(run_cli, tmp_path):
+    document = _effects_document(
+        {
+            "stacking_types": {"combine": {"aggregation": "stack"}},
+            "items": {
+                "regen": {
+                    "modifiers": [
+                        {
+                            "target": "power",
+                            "operation": "add",
+                            "application": "continuous",
+                            "magnitude": {"attr": "nonexistent"},
+                        }
+                    ],
+                    "duration": "infinite",
+                    "stacking": {"type": "combine", "lifetime": "independent"},
+                }
+            },
+        }
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, json.dumps(document))
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        (
+            "attribute_reference_undefined",
+            "/effects/items/regen/modifiers/0/magnitude",
+        )
+    ]
+
+
 # --- Usage boundary (bADR-0008) --------------------------------------------
 
 

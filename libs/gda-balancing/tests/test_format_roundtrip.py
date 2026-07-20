@@ -34,10 +34,12 @@ def test_minimal_document_formats_to_canonical_form(run_cli, tmp_path):
     exit_code, stdout, stderr = _format(run_cli, tmp_path, _MINIMAL)
     assert (exit_code, stderr) == (0, "")
     payload = json.loads(stdout)
-    # V11: absent optional facets are materialized to their defined defaults.
+    # V11: absent optional facets are materialized to their defined defaults —
+    # including the designed-but-empty `effects` section (bADR-0006).
     assert payload == {
         "$schema": None,
         "attributes": {"items": {}, "tiers": {}},
+        "effects": {"items": {}, "stacking_types": {}},
         "meta": {"description": None, "name": "smallest"},
         "parameters": {},
         "schema_version": "1.0.0",
@@ -134,6 +136,47 @@ _FULL_SURFACE = {
                 "base": {"direct": 0.3},
                 "bounds": {"floor": 0, "cap": 1},
             },
+        },
+    },
+    # Effects (bADR-0006): a stacking type + a timed effect with a continuous
+    # modifier, a period, and stacking — magnitudes covering all three shapes
+    # (a literal scalar, a named form, and an expression tree).
+    "effects": {
+        "stacking_types": {"combine": {"aggregation": "stack"}},
+        "items": {
+            "aura": {
+                "modifiers": [
+                    {
+                        "target": "power",
+                        "operation": "add",
+                        "application": "continuous",
+                        "magnitude": 5,
+                    },
+                    {
+                        "target": "power",
+                        "operation": "multiply",
+                        "application": "continuous",
+                        "magnitude": {
+                            "op": "add",
+                            "args": [{"literal": 1}, {"attr": "power"}],
+                        },
+                    },
+                    {
+                        "target": "str",
+                        "operation": "add",
+                        "application": "continuous",
+                        "magnitude": {
+                            "form": "linear",
+                            "input": {"attr": "level"},
+                            "base": 1,
+                            "per_point": {"param": "rate"},
+                        },
+                    },
+                ],
+                "duration": {"timed": 10},
+                "period": 1,
+                "stacking": {"type": "combine", "lifetime": "independent"},
+            }
         },
     },
 }

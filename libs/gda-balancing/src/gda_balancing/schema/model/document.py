@@ -6,12 +6,12 @@ structurally (bADR-0004). This module owns that envelope's local shape; it is
 the single source of truth the published structural schema is generated from
 (bADR-0005).
 
-The **designed v1 sections** carried here are ``parameters`` (bADR-0003) and
-``attributes`` (bADR-0002); ``effects`` (bADR-0006) is the follow-up stage and
-is deliberately absent. The **reserved sections** are declared permissively so a
-document *using* one clears the structural phase and is refused by the semantic
-phase with its dedicated ``reserved_section_present`` code and a precise pointer
-(bADR-0001, "refused until designed"; V12) — see :class:`DesignDocument`.
+The **designed v1 sections** carried here are ``parameters`` (bADR-0003),
+``attributes`` (bADR-0002), and ``effects`` (bADR-0006). The **reserved
+sections** are declared permissively so a document *using* one clears the
+structural phase and is refused by the semantic phase with its dedicated
+``reserved_section_present`` code and a precise pointer (bADR-0001, "refused
+until designed"; V12) — see :class:`DesignDocument`.
 """
 
 from typing import Any
@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from gda_balancing.schema.model.attributes import Attributes
+from gda_balancing.schema.model.effects import Effects
 from gda_balancing.schema.model.ids import IdStr
 
 
@@ -66,6 +67,7 @@ class DesignDocument(BaseModel):
     schema_ref: str | None = Field(default=None, alias="$schema")
     parameters: dict[IdStr, float] = Field(default_factory=dict)
     attributes: Attributes = Field(default_factory=Attributes)
+    effects: Effects = Field(default_factory=Effects)
 
     # Reserved sections (bADR-0001): permissive shape, refused in the semantic
     # phase; excluded from serialization so canonical emission never carries one.
