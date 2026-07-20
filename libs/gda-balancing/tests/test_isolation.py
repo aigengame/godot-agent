@@ -24,6 +24,12 @@ _SRC_DIR = _PACKAGE_ROOT / "src" / "gda_balancing"
 _TESTS_DIR = _PACKAGE_ROOT / "tests"
 _GATE_FILE = Path(__file__).resolve()
 
+# The shipped Genre templates (bADR-0012): genre-generic Standard Schema
+# instances, deliberately NOT per-game configs — exempt from the stray-config
+# scan below, but held (with the committed test fixtures) to the vocabulary
+# scan, which walks their JSON alongside the Python sources.
+_TEMPLATES_DIR = _SRC_DIR / "templates"
+
 # Top-level import roots of the sibling `gda` product, engine bindings, and
 # the repo's example game's plug-ins/builder.
 _FORBIDDEN_IMPORT_ROOTS = frozenset(
@@ -82,6 +88,17 @@ def _python_sources() -> list[Path]:
     return files
 
 
+def _design_document_sources() -> list[Path]:
+    """The committed Design-document JSON — shipped Genre templates and test
+    fixtures — which speaks domain vocabulary and so joins the vocabulary
+    scan (it cannot import, so the import gate does not apply)."""
+    return [
+        path
+        for base in (_TEMPLATES_DIR, _TESTS_DIR / "fixtures")
+        for path in sorted(base.rglob("*.json"))
+    ]
+
+
 def test_toolkit_imports_no_game_engine_or_gda_code() -> None:
     offenders: list[str] = []
     for path in _python_sources():
@@ -105,7 +122,7 @@ def test_toolkit_imports_no_game_engine_or_gda_code() -> None:
 
 def test_toolkit_speaks_no_game_identity_vocabulary() -> None:
     offenders: list[str] = []
-    for path in _python_sources():
+    for path in _python_sources() + _design_document_sources():
         if path == _GATE_FILE:
             continue  # the denylist itself — the sole sanctioned appearance
         for lineno, line in enumerate(
@@ -123,9 +140,13 @@ def test_toolkit_speaks_no_game_identity_vocabulary() -> None:
 
 
 def test_toolkit_carries_no_per_game_config() -> None:
+    """Genre templates under ``templates/`` are the one sanctioned JSON
+    payload (bADR-0012): genre-generic baselines, not per-game configs. Any
+    other JSON under ``src/`` remains a violation."""
     stray = [
         str(path.relative_to(_PACKAGE_ROOT))
         for path in sorted(_SRC_DIR.rglob("*.json"))
+        if _TEMPLATES_DIR not in path.parents
     ]
     assert not stray, "per-game config files inside the toolkit:\n" + "\n".join(stray)
 
