@@ -60,8 +60,11 @@ separate release trains, and no hand-edited version anywhere.**
   (`chore`/`docs`/`refactor`/...) until a member release is deliberately
   wanted. Registration governs the version line; it does not open the release
   train. *(Historical — superseded by the dated **Flip** note in Consequences:
-  the member's path is excluded and the discipline is lifted for it. Still
-  current for every un-excluded path, e.g. `examples/**`.)*
+  the member's path is excluded and the discipline is lifted for it. The
+  underlying rule still holds for un-excluded paths — a title there must be
+  truthful about its effect on `gda`, which means a non-releasing type for
+  non-`gda` work such as `examples/**`, and a truthful releasing type for a
+  genuine `gda` change.)*
 - **Publishing gda-balancing is deferred.** No PyPI publish tail, no trusted
   publisher, no artifact upload. Known dormant consequence, accepted: if a
   member Release PR were merged today, the cut job would leave a tag-less
@@ -112,10 +115,14 @@ separate release trains, and no hand-edited version anywhere.**
 > `feat`/`fix` types and release on their own train.
 >
 > Two limits the flip does **not** touch, both still in force:
-> - **It is scoped to the excluded path only.** `examples/**` (panda) and every
->   other un-excluded path is still absorbed by the root package, so work there
->   keeps a non-releasing type or it bumps `gda`. The flip follows the
->   exclusion, not the "is it gda?" intuition.
+> - **It is scoped to the excluded path only.** Every un-excluded path is still
+>   attributed to the root package, so a title there must honestly describe the
+>   change's effect on `gda`: a genuine `gda` feature or fix keeps its truthful
+>   releasing type and bumps `gda` — that is the normal release flow
+>   (ADR-0007/ADR-0034) — while work that merely *lives* in an un-excluded path
+>   without being a `gda` change (`examples/**`, panda) takes a non-releasing
+>   type so it does not bump `gda` falsely. The flip changes which paths are
+>   attributed to the root, not the rule that the type must be truthful.
 > - **A PR spanning the member and anything outside it is still absorbed.** The
 >   scope guard refuses such a PR when its title is releasing-typed; split it.
 >

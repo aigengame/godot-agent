@@ -122,9 +122,13 @@ uv project inside the repo, with its own lock under its own directory.**
   > **Outcome (2026-07-20, #528):** the flip has happened and the guard is a
   > **required** status check, so it is load-bearing now: a releasing-typed PR
   > spanning `libs/gda-balancing` and anything outside it cannot merge. The
-  > discipline is lifted for that path only — every un-excluded path
-  > (`examples/**`, root) still needs a non-releasing type (ADR-0037's flip
-  > note).
+  > discipline is lifted for that path only. Every un-excluded path stays
+  > attributed to the **root release train**, so its title type must honestly
+  > describe the change's effect on `gda`: a genuine `gda` feature or fix keeps
+  > its truthful releasing type and bumps `gda` (ADR-0007/ADR-0034), while work
+  > that lands in an un-excluded path without being a `gda` change —
+  > `examples/**` is the standing case — takes a non-releasing type so it does
+  > not bump `gda` falsely (ADR-0037's flip note).
 
 - **Tag identity has one implementation.** Three places need to know a
   package's tag — the root release build's validation, the member release
