@@ -102,15 +102,36 @@ def test_unparseable_text_is_malformed_json(run_cli, tmp_path):
 def test_duplicate_object_key_is_refused(run_cli, tmp_path):
     # Duplicate keys cannot come from json.dumps — a lenient parser would
     # silently keep the last; the funnel must detect and refuse (bADR-0002).
+    # The pointer names the offending element, never just the enclosing
+    # collection (bADR-0004): a doubled top-level `meta` refuses at `/meta`.
     content = (
         '{"schema_version": "1.0.0", "meta": {"name": "a"}, "meta": {"name": "b"}}'
     )
     exit_code, stdout, _ = _run(run_cli, tmp_path, content)
     assert exit_code == 2
     refusals = _refusals(stdout)
-    assert refusals[0]["code"] == "duplicate_object_key"
-    assert refusals[0]["path"] == ""
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("duplicate_object_key", "/meta")
+    ]
     assert "meta" in refusals[0]["detail"]
+
+
+def test_duplicate_keys_at_distinct_paths_do_not_collapse(run_cli, tmp_path):
+    # A doubled nested `power` and a doubled top-level `meta`: two refusals at
+    # their two distinct element pointers, ordered by path — not collapsed under
+    # a single enclosing-collection dedup (bADR-0004 element precision).
+    content = (
+        '{"schema_version": "1.0.0", '
+        '"parameters": {"power": 1, "power": 2}, '
+        '"meta": {"name": "a"}, "meta": {"name": "b"}}'
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2
+    refusals = _refusals(stdout)
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("duplicate_object_key", "/meta"),
+        ("duplicate_object_key", "/parameters/power"),
+    ]
 
 
 # --- Ingress caps -----------------------------------------------------------
@@ -153,6 +174,52 @@ def test_non_finite_number_is_refused_at_its_path(run_cli, tmp_path):
     assert refusals[0]["path"] == "/parameters/p"
 
 
+def test_huge_integer_is_number_not_finite_not_a_crash(run_cli, tmp_path):
+    # A ~400-digit integer literal parses (JSON grammar admits it) but has no
+    # finite IEEE-754 double — `float()` raises OverflowError. It is refused at
+    # ingress as `number_not_finite` (exit 2), never a pydantic-conversion
+    # engine-parity RuntimeError (exit 4).
+    huge = "9" * 400
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "smallest"}, '
+        '"parameters": {"p": ' + huge + "}}"
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2  # specifically NOT 4
+    refusals = _refusals(stdout)
+    assert refusals[0]["code"] == "number_not_finite"
+    assert refusals[0]["path"] == "/parameters/p"
+
+
+def test_precision_losing_integer_is_accepted(run_cli, tmp_path):
+    # An integer that converts to a finite double with mere precision loss is
+    # fine — JSON numbers are doubles (bADR-0005), not a refusal.
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "smallest"}, '
+        '"parameters": {"p": 9007199254740993}}'
+    )
+    exit_code, stdout, stderr = _run(run_cli, tmp_path, content)
+    assert (exit_code, stderr) == (0, "")
+    assert stdout == canonical_json({"valid": True})
+
+
+def test_digit_limit_integer_is_malformed_json_not_a_crash(run_cli, tmp_path):
+    # A 5000-digit integer trips CPython's integer-string conversion digit limit
+    # INSIDE json.loads, which raises a bare ValueError (not a JSONDecodeError).
+    # The parser guard catches ValueError, so it is a `malformed_json` refusal
+    # (exit 2), never an uncaught crash (exit 4).
+    huge = "1" * 5000
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "smallest"}, '
+        '"parameters": {"p": ' + huge + "}}"
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2  # specifically NOT 4
+    refusals = _refusals(stdout)
+    assert refusals[0]["code"] == "malformed_json"
+    assert refusals[0]["path"] == ""
+
+
 def test_oversized_document_is_refused(run_cli, tmp_path):
     padding = "x" * (10 * 1024 * 1024 + 100)
     content = '{"schema_version": "1.0.0", "meta": {"name": "' + padding + '"}}'
@@ -175,6 +242,68 @@ def test_report_all_is_ordered_by_path(run_cli, tmp_path):
     refusals = _refusals(stdout)
     assert [r["path"] for r in refusals] == ["/parameters/a", "/parameters/b"]
     assert {r["code"] for r in refusals} == {"number_not_finite"}
+
+
+# --- Unicode ingress (escaped lone surrogates) ------------------------------
+
+
+def _is_utf8_encodable(text: str) -> bool:
+    """The crash-class invariant: canonical emission is UTF-8 (ensure_ascii=
+    False, bADR-0005), so every emitted byte string must encode — a lone
+    surrogate leaking into a path/detail would re-create the very
+    UnicodeEncodeError the guard prevents."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def test_surrogate_string_value_is_string_not_unicode(run_cli, tmp_path):
+    # json.loads accepts an escaped lone surrogate ("\ud800"); canonical
+    # emission cannot encode it, so `design format` would crash (exit 4) at
+    # output. Preflight refuses it as `string_not_unicode` at the value's path
+    # (exit 2), and the refusal envelope itself stays UTF-8 encodable.
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "x", "description": "\\ud800"}}'
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2  # specifically NOT 4
+    assert _is_utf8_encodable(stdout)
+    refusals = _refusals(stdout)
+    assert refusals[0]["code"] == "string_not_unicode"
+    assert refusals[0]["path"] == "/meta/description"
+
+
+def test_surrogate_object_key_is_string_not_unicode(run_cli, tmp_path):
+    # A lone surrogate in a KEY is refused at the offending member's enclosing
+    # element (embedding the raw surrogate in the pointer would re-create the
+    # UnicodeEncodeError this guard exists to prevent — so the deepest safely
+    # encodable pointer is reported). The refusal envelope stays UTF-8 encodable.
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "x"}, '
+        '"parameters": {"\\ud800": 1}}'
+    )
+    exit_code, stdout, _ = _run(run_cli, tmp_path, content)
+    assert exit_code == 2
+    assert _is_utf8_encodable(stdout)
+    refusals = _refusals(stdout)
+    assert refusals[0]["code"] == "string_not_unicode"
+    assert refusals[0]["path"] == "/parameters"
+
+
+def test_surrogate_document_never_reaches_format_emission(run_cli, tmp_path):
+    # `design format` runs the same funnel; the surrogate document is refused at
+    # preflight, so it never reaches canonical emission — exit 2, never the
+    # exit-4 UnicodeEncodeError the guard prevents, and stdout is encodable.
+    content = (
+        '{"schema_version": "1.0.0", "meta": {"name": "x", "description": "\\ud800"}}'
+    )
+    path = _doc(tmp_path, content)
+    exit_code, stdout, stderr = run_cli(["design", "format", path])
+    assert exit_code == 2  # specifically NOT 4
+    assert _is_utf8_encodable(stdout)
+    assert {r["code"] for r in _refusals(stdout)} == {"string_not_unicode"}
 
 
 # --- Semver anchor (the runtime `\Z` fix) ----------------------------------
