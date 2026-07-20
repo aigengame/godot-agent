@@ -242,17 +242,29 @@ def _walk_caps(
     the enclosing element and its subtree is **not** descended into — that
     subtree's elements cannot be addressed by a safely-encodable pointer, so any
     descendant refusal would carry the surrogate in its path (finding-2, #527
-    recheck-2). Values under safely-encodable keys keep full recursion."""
+    recheck-2). Values under safely-encodable keys keep full recursion. The
+    duplication of such a key is still reported (report-all survives an
+    unaddressable key, #527 recheck-3): the `duplicate_object_key` anchors at the
+    same enclosing element with the offending key **escaped** into the detail —
+    never a raw surrogate in path OR detail."""
     if isinstance(value, dict):
         for key in duplicates.get(id(value), ()):
             if not _is_unicode_text(key):
-                # A duplicated surrogate key cannot bear a safe key pointer;
-                # minting a key-bearing `duplicate_object_key` pointer here is
-                # exactly the finding-2 hole (a surrogate-bearing Refusal.path →
-                # exit 4). The value-iteration below emits `string_not_unicode`
-                # for this same key at the enclosing element (the deepest safely
-                # encodable pointer), so the duplication still refuses — skip the
-                # ambiguous key-bearing refusal rather than a surrogate path.
+                # A duplicated surrogate key cannot bear a safe *key* pointer, so
+                # minting `(*tokens, key)` here is the finding-2 hole (a
+                # surrogate-bearing Refusal.path → exit 4). But report-all must
+                # not silently drop the duplication: anchor it at the deepest
+                # safely-encodable ancestor (the enclosing element) with the key
+                # escaped into the detail (`ascii()` keeps the detail encodable).
+                # The value-iteration below adds `string_not_unicode` for this
+                # same key at the same element (#527 recheck-3, F1).
+                refusals.append(
+                    Refusal(
+                        code="duplicate_object_key",
+                        path=_safe_pointer(*tokens),
+                        detail=f"duplicate object key: {ascii(key)}",
+                    )
+                )
                 continue
             refusals.append(
                 Refusal(

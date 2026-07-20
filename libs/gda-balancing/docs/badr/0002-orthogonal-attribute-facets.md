@@ -69,6 +69,8 @@ superseding the fixed primary/derived/modifier taxonomy of its earlier draft.
   evaluator realizing exactly this formula lands with the first simulation slice
   (#510, milestone #9 — vector ownership in bADR-0004).
 
+  > **Amendment (2026-07-20, #527 recheck 3):** the pipeline's clamp uses **effective bounds = the domain's intrinsic bounds ∩ the declared bounds**: `probability`'s intrinsic space is `[0, 1]` (effective floor `max(0, floor?)`, effective cap `min(1, cap?)`); `percentage` and `number` have no intrinsic bounds, so their effective bounds are the declared ones (absent side unbounded). This binds the definition-time final value (#504's `clamp_to_attribute`) and the runtime per-instant composition #510 inherits (both `P`'s clamp and the ledger equation use the same effective bounds).
+
 - **Cross-facet rule (conservative default).** `accepts: allocation` is legal only with
   `base: direct` — allocation onto a formula-computed base is refused as a semantic
   rule. If template development surfaces a real allocation-onto-formula pattern,

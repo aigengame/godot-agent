@@ -82,7 +82,7 @@ def _synthetic_second_line() -> VersionBundle:
         check=lambda _doc, _raw: [
             Refusal(code=_SYNTHETIC_CODE, path="", detail="second-line marker")
         ],
-        violation_fixture={},
+        violation_fixtures=({},),
     )
     return VersionBundle(
         line="1.1",

@@ -75,6 +75,8 @@ exit codes — is #518's contract, not this document's.
   structural phase's refusals are a direct projection of that standard output into the
   toolkit's refusal shape.
 
+  > **Amendment (2026-07-20, #527 recheck 3):** an offending element whose own key (or a key on its path) is not a valid Unicode scalar string cannot be named by an emittable RFC 6901 pointer. Such refusals — including `duplicate_object_key` for a duplicated unrepresentable key — anchor at the **deepest safely-encodable ancestor**, carry the escaped key name in the detail, and the member's subtree is not walked further (its contents are unaddressable). This is the single sanctioned exception to element-precision; report-all is otherwise unaffected.
+
 - **Report-all, deterministic, bounded.** Within each executed phase, validation
   collects **all** violations rather than failing fast — an agent fixes a batch per
   round trip, not one error per trip. The refusal list is deterministic: deduplicated

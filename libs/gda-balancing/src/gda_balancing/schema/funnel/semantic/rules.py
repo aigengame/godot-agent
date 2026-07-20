@@ -10,9 +10,12 @@ identity.
 
 Every rule carries a ``check`` closing over the typed :class:`DesignDocument`
 plus the raw parsed dict (the ``$schema`` and reserved-section rules read raw
-keys the model excludes/aliases), and a ``violation_fixture`` — a complete
-Design document that is valid **except** for this one rule, so the conformance
-harness can assert each rule refuses exactly its fixture (bADR-0004).
+keys the model excludes/aliases), and ``violation_fixtures`` — **one complete
+Design document per scope template, positionally aligned with** ``scope`` — each
+valid **except** for this one rule at that one template's site, so the
+conformance harness can assert each rule refuses exactly its fixture *and* that
+every declared template is actually exercised (bADR-0004; declared ⊆ exercised,
+#527 recheck-3).
 
 Scope note: **every** formula rule — reference-integrity (undefined
 ``attr``/``param``), the form-field rules, and the expression-tree caps —
@@ -23,8 +26,12 @@ checked exactly as a base is. Effect magnitudes join every formula rule but
 **not** the base-formula acyclicity graph (a magnitude may reference its own
 target — bADR-0003/0006). A rule's catalog ``scope`` therefore lists one JSON
 Pointer template per site it can report (a shared formula rule carries both its
-base and its magnitude templates); a behavioral anti-drift test holds the
-templates in lockstep with the pointers the checks emit (bADR-0005 amendment).
+base and its magnitude templates); a behavioral anti-drift test — parametrized
+over ``(rule, template)`` — holds the templates in lockstep with the pointers
+the checks emit, in **both** directions: emitted ⊆ declared (no emitted path
+escapes a template) and declared ⊆ exercised (every template has a fixture that
+refuses at it), so a future third formula consumer omitted from the corpus fails
+the test (bADR-0005 amendment).
 """
 
 from collections.abc import Callable, Iterator
@@ -104,8 +111,11 @@ class SemanticRule:
     magnitudes; the temporal rules, at both duration and period) carries one
     template each; ``description`` is the human catalog line;
     ``since_version`` is the schema line the rule appeared in; ``check`` collects
-    this rule's refusals over a document; ``violation_fixture`` is a complete
-    Design document refusing with exactly this code.
+    this rule's refusals over a document; ``violation_fixtures`` carries **one
+    fixture per** ``scope`` **template, positionally aligned** — each a complete
+    Design document refusing with exactly this code, at that template's site — so
+    the conformance harness proves every declared template is genuinely reachable,
+    not merely enumerated (declared ⊆ exercised, #527 recheck-3).
     """
 
     code: str
@@ -113,7 +123,19 @@ class SemanticRule:
     description: str
     since_version: str
     check: Check
-    violation_fixture: dict[str, Any]
+    violation_fixtures: tuple[dict[str, Any], ...]
+
+    def __post_init__(self) -> None:
+        # One fixture per scope template, aligned by position: the behavioral
+        # anti-drift guard reads `violation_fixtures[i]` as the exerciser of
+        # `scope[i]`, so a length mismatch is a registry authoring bug caught at
+        # module load, never a silently under-exercised template (#527 recheck-3).
+        if len(self.violation_fixtures) != len(self.scope):
+            raise ValueError(
+                f"{self.code}: {len(self.violation_fixtures)} violation fixtures "
+                f"for {len(self.scope)} scope templates — declare exactly one "
+                "fixture per template, positionally aligned (bADR-0005 anti-drift)"
+            )
 
 
 # --- Pointer helpers -------------------------------------------------------
@@ -913,6 +935,41 @@ _STACKING_TYPES = {"combine": {"aggregation": "stack"}}
 _STACKING = {"type": "combine", "lifetime": "independent"}
 
 
+def _base_formula_fixture(formula: Any) -> dict[str, Any]:
+    """A valid document with a ``level`` input attribute and a ``derived``
+    attribute whose **base formula** carries the sole violation — the
+    attribute-base analogue of :func:`_magnitude_fixture`, exercising a shared
+    formula rule at its ``/attributes/items/{id}/base/formula`` site."""
+    return _with(
+        attributes={
+            "items": {
+                "level": {"domain": "number", "base": {"direct": 3}},
+                "derived": {"domain": "number", "base": {"formula": formula}},
+            }
+        }
+    )
+
+
+def _magnitude_fixture(magnitude: Any) -> dict[str, Any]:
+    """A valid document whose one effect **magnitude** carries the sole violation
+    — the effect-magnitude analogue of :func:`_base_formula_fixture`, exercising a
+    shared formula rule at its ``.../modifiers/{index}/magnitude`` site so every
+    declared template is genuinely reachable (declared ⊆ exercised, #527
+    recheck-3)."""
+    return _effects_fixture(
+        {
+            "stacking_types": _STACKING_TYPES,
+            "items": {
+                "regen": {
+                    "modifiers": [_modifier("continuous", magnitude=magnitude)],
+                    "duration": "infinite",
+                    "stacking": _STACKING,
+                }
+            },
+        }
+    )
+
+
 # --- The one registry ------------------------------------------------------
 
 # Every rule whose behavior does not depend on the resolved line — all but
@@ -931,15 +988,20 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_attribute_reference_undefined,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "strike": {
-                        "domain": "number",
-                        "base": {"formula": {"attr": "missing"}},
+        violation_fixtures=(
+            _with(
+                attributes={
+                    "items": {
+                        "strike": {
+                            "domain": "number",
+                            "base": {"formula": {"attr": "missing"}},
+                        }
                     }
                 }
-            }
+            ),
+            _magnitude_fixture(
+                {"op": "add", "args": [{"attr": "missing"}, {"literal": 1}]}
+            ),
         ),
     ),
     SemanticRule(
@@ -954,15 +1016,20 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_parameter_reference_undefined,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "strike": {
-                        "domain": "number",
-                        "base": {"formula": {"param": "missing"}},
+        violation_fixtures=(
+            _with(
+                attributes={
+                    "items": {
+                        "strike": {
+                            "domain": "number",
+                            "base": {"formula": {"param": "missing"}},
+                        }
                     }
                 }
-            }
+            ),
+            _magnitude_fixture(
+                {"op": "add", "args": [{"param": "missing"}, {"literal": 1}]}
+            ),
         ),
     ),
     SemanticRule(
@@ -971,16 +1038,18 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         description="An attribute's tier label names no declared tier.",
         since_version=_SINCE,
         check=_check_tier_reference_undefined,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "vigor": {
-                        "domain": "number",
-                        "base": {"direct": 5},
-                        "tier": "ghost",
+        violation_fixtures=(
+            _with(
+                attributes={
+                    "items": {
+                        "vigor": {
+                            "domain": "number",
+                            "base": {"direct": 5},
+                            "tier": "ghost",
+                        }
                     }
                 }
-            }
+            ),
         ),
     ),
     SemanticRule(
@@ -991,19 +1060,21 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_base_formula_cycle,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "alpha": {
-                        "domain": "number",
-                        "base": {"formula": {"attr": "beta"}},
-                    },
-                    "beta": {
-                        "domain": "number",
-                        "base": {"formula": {"attr": "alpha"}},
-                    },
+        violation_fixtures=(
+            _with(
+                attributes={
+                    "items": {
+                        "alpha": {
+                            "domain": "number",
+                            "base": {"formula": {"attr": "beta"}},
+                        },
+                        "beta": {
+                            "domain": "number",
+                            "base": {"formula": {"attr": "alpha"}},
+                        },
+                    }
                 }
-            }
+            ),
         ),
     ),
     SemanticRule(
@@ -1015,16 +1086,18 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_allocation_requires_direct_base,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "power": {
-                        "domain": "number",
-                        "base": {"formula": {"literal": 5}},
-                        "accepts": ["allocation"],
+        violation_fixtures=(
+            _with(
+                attributes={
+                    "items": {
+                        "power": {
+                            "domain": "number",
+                            "base": {"formula": {"literal": 5}},
+                            "accepts": ["allocation"],
+                        }
                     }
                 }
-            }
+            ),
         ),
     ),
     SemanticRule(
@@ -1036,10 +1109,14 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_bounds_required_for_domain,
-        violation_fixture=_with(
-            attributes={
-                "items": {"crit": {"domain": "probability", "base": {"direct": 0.3}}}
-            }
+        violation_fixtures=(
+            _with(
+                attributes={
+                    "items": {
+                        "crit": {"domain": "probability", "base": {"direct": 0.3}}
+                    }
+                }
+            ),
         ),
     ),
     SemanticRule(
@@ -1051,16 +1128,18 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_bounds_empty,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "span": {
-                        "domain": "number",
-                        "base": {"direct": 5},
-                        "bounds": {},
+        violation_fixtures=(
+            _with(
+                attributes={
+                    "items": {
+                        "span": {
+                            "domain": "number",
+                            "base": {"direct": 5},
+                            "bounds": {},
+                        }
                     }
                 }
-            }
+            ),
         ),
     ),
     SemanticRule(
@@ -1069,16 +1148,18 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         description="A bounds object declares floor greater than cap.",
         since_version=_SINCE,
         check=_check_bounds_inverted,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "span": {
-                        "domain": "number",
-                        "base": {"direct": 5},
-                        "bounds": {"floor": 100, "cap": 0},
+        violation_fixtures=(
+            _with(
+                attributes={
+                    "items": {
+                        "span": {
+                            "domain": "number",
+                            "base": {"direct": 5},
+                            "bounds": {"floor": 100, "cap": 0},
+                        }
                     }
                 }
-            }
+            ),
         ),
     ),
     SemanticRule(
@@ -1090,16 +1171,18 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_bounds_outside_domain,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "crit": {
-                        "domain": "probability",
-                        "base": {"direct": 0.3},
-                        "bounds": {"floor": -1, "cap": 2},
+        violation_fixtures=(
+            _with(
+                attributes={
+                    "items": {
+                        "crit": {
+                            "domain": "probability",
+                            "base": {"direct": 0.3},
+                            "bounds": {"floor": -1, "cap": 2},
+                        }
                     }
                 }
-            }
+            ),
         ),
     ),
     SemanticRule(
@@ -1111,16 +1194,18 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_base_outside_domain,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "crit": {
-                        "domain": "probability",
-                        "base": {"direct": 2},
-                        "bounds": {"floor": 0, "cap": 0.5},
+        violation_fixtures=(
+            _with(
+                attributes={
+                    "items": {
+                        "crit": {
+                            "domain": "probability",
+                            "base": {"direct": 2},
+                            "bounds": {"floor": 0, "cap": 0.5},
+                        }
                     }
                 }
-            }
+            ),
         ),
     ),
     SemanticRule(
@@ -1132,20 +1217,25 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_tier_pattern_unsatisfied,
-        violation_fixture=_with(
-            attributes={
-                "tiers": {
-                    "primary": {"base": "direct", "accepts": ["allocation", "effects"]}
-                },
-                "items": {
-                    "agi": {
-                        "domain": "number",
-                        "base": {"direct": 8},
-                        "accepts": ["allocation"],
-                        "tier": "primary",
-                    }
-                },
-            }
+        violation_fixtures=(
+            _with(
+                attributes={
+                    "tiers": {
+                        "primary": {
+                            "base": "direct",
+                            "accepts": ["allocation", "effects"],
+                        }
+                    },
+                    "items": {
+                        "agi": {
+                            "domain": "number",
+                            "base": {"direct": 8},
+                            "accepts": ["allocation"],
+                            "tier": "primary",
+                        }
+                    },
+                }
+            ),
         ),
     ),
     SemanticRule(
@@ -1162,22 +1252,35 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_form_points_not_increasing,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "level": {"domain": "number", "base": {"direct": 3}},
-                    "curve": {
-                        "domain": "number",
-                        "base": {
-                            "formula": {
-                                "form": "piecewise_linear",
-                                "input": {"attr": "level"},
-                                "points": [[5, 30], [1, 10]],
-                            }
-                        },
-                    },
+        violation_fixtures=(
+            _base_formula_fixture(
+                {
+                    "form": "piecewise_linear",
+                    "input": {"attr": "level"},
+                    "points": [[5, 30], [1, 10]],
                 }
-            }
+            ),
+            _base_formula_fixture(
+                {
+                    "form": "lookup_table",
+                    "input": {"attr": "level"},
+                    "table": [[5, 30], [1, 10]],
+                }
+            ),
+            _magnitude_fixture(
+                {
+                    "form": "piecewise_linear",
+                    "input": {"attr": "power"},
+                    "points": [[5, 30], [1, 10]],
+                }
+            ),
+            _magnitude_fixture(
+                {
+                    "form": "lookup_table",
+                    "input": {"attr": "power"},
+                    "table": [[5, 30], [1, 10]],
+                }
+            ),
         ),
     ),
     SemanticRule(
@@ -1194,22 +1297,27 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_form_points_insufficient,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "level": {"domain": "number", "base": {"direct": 3}},
-                    "curve": {
-                        "domain": "number",
-                        "base": {
-                            "formula": {
-                                "form": "piecewise_linear",
-                                "input": {"attr": "level"},
-                                "points": [[1, 10]],
-                            }
-                        },
-                    },
+        violation_fixtures=(
+            _base_formula_fixture(
+                {
+                    "form": "piecewise_linear",
+                    "input": {"attr": "level"},
+                    "points": [[1, 10]],
                 }
-            }
+            ),
+            _base_formula_fixture(
+                {"form": "lookup_table", "input": {"attr": "level"}, "table": []}
+            ),
+            _magnitude_fixture(
+                {
+                    "form": "piecewise_linear",
+                    "input": {"attr": "power"},
+                    "points": [[1, 10]],
+                }
+            ),
+            _magnitude_fixture(
+                {"form": "lookup_table", "input": {"attr": "power"}, "table": []}
+            ),
         ),
     ),
     SemanticRule(
@@ -1221,22 +1329,21 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         description="A polynomial form has 0 or more than 8 coefficients.",
         since_version=_SINCE,
         check=_check_form_coefficients_count_invalid,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "level": {"domain": "number", "base": {"direct": 3}},
-                    "poly": {
-                        "domain": "number",
-                        "base": {
-                            "formula": {
-                                "form": "polynomial",
-                                "input": {"attr": "level"},
-                                "coefficients": [1, 2, 3, 4, 5, 6, 7, 8, 9],
-                            }
-                        },
-                    },
+        violation_fixtures=(
+            _base_formula_fixture(
+                {
+                    "form": "polynomial",
+                    "input": {"attr": "level"},
+                    "coefficients": [1, 2, 3, 4, 5, 6, 7, 8, 9],
                 }
-            }
+            ),
+            _magnitude_fixture(
+                {
+                    "form": "polynomial",
+                    "input": {"attr": "power"},
+                    "coefficients": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+                }
+            ),
         ),
     ),
     SemanticRule(
@@ -1250,23 +1357,23 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_exponential_growth_rate_positive,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "level": {"domain": "number", "base": {"direct": 3}},
-                    "escalation": {
-                        "domain": "number",
-                        "base": {
-                            "formula": {
-                                "form": "exponential",
-                                "input": {"attr": "level"},
-                                "coefficient": 1,
-                                "growth_rate": 0,
-                            }
-                        },
-                    },
+        violation_fixtures=(
+            _base_formula_fixture(
+                {
+                    "form": "exponential",
+                    "input": {"attr": "level"},
+                    "coefficient": 1,
+                    "growth_rate": 0,
                 }
-            }
+            ),
+            _magnitude_fixture(
+                {
+                    "form": "exponential",
+                    "input": {"attr": "power"},
+                    "coefficient": 1,
+                    "growth_rate": 0,
+                }
+            ),
         ),
     ),
     SemanticRule(
@@ -1275,15 +1382,12 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
             "/attributes/items/{id}/base/formula",
             "/effects/items/{id}/modifiers/{index}/magnitude",
         ),
-        description="A base-formula expression tree is deeper than 32.",
+        description="A formula expression tree is deeper than 32.",
         since_version=_SINCE,
         check=_check_expression_tree_too_deep,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "deep": {"domain": "number", "base": {"formula": _nested_floor(33)}}
-                }
-            }
+        violation_fixtures=(
+            _base_formula_fixture(_nested_floor(33)),
+            _magnitude_fixture(_nested_floor(33)),
         ),
     ),
     SemanticRule(
@@ -1292,15 +1396,12 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
             "/attributes/items/{id}/base/formula",
             "/effects/items/{id}/modifiers/{index}/magnitude",
         ),
-        description="A base-formula expression tree has more than 256 nodes.",
+        description="A formula expression tree has more than 256 nodes.",
         since_version=_SINCE,
         check=_check_expression_tree_too_large,
-        violation_fixture=_with(
-            attributes={
-                "items": {
-                    "wide": {"domain": "number", "base": {"formula": _wide_add(256)}}
-                }
-            }
+        violation_fixtures=(
+            _base_formula_fixture(_wide_add(256)),
+            _magnitude_fixture(_wide_add(256)),
         ),
     ),
     SemanticRule(
@@ -1312,7 +1413,7 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_reserved_section_present,
-        violation_fixture={**_base_document(), "builds": {}},
+        violation_fixtures=({**_base_document(), "builds": {}},),
     ),
     # --- Effects (bADR-0006) -----------------------------------------------
     SemanticRule(
@@ -1323,17 +1424,19 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_modifier_target_undefined,
-        violation_fixture=_effects_fixture(
-            {
-                "stacking_types": _STACKING_TYPES,
-                "items": {
-                    "buff": {
-                        "modifiers": [_modifier("continuous", target="missing")],
-                        "duration": "infinite",
-                        "stacking": _STACKING,
-                    }
-                },
-            }
+        violation_fixtures=(
+            _effects_fixture(
+                {
+                    "stacking_types": _STACKING_TYPES,
+                    "items": {
+                        "buff": {
+                            "modifiers": [_modifier("continuous", target="missing")],
+                            "duration": "infinite",
+                            "stacking": _STACKING,
+                        }
+                    },
+                }
+            ),
         ),
     ),
     SemanticRule(
@@ -1344,16 +1447,18 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_stacking_type_undefined,
-        violation_fixture=_effects_fixture(
-            {
-                "items": {
-                    "buff": {
-                        "modifiers": [_modifier("continuous")],
-                        "duration": "infinite",
-                        "stacking": {"type": "ghost", "lifetime": "independent"},
+        violation_fixtures=(
+            _effects_fixture(
+                {
+                    "items": {
+                        "buff": {
+                            "modifiers": [_modifier("continuous")],
+                            "duration": "infinite",
+                            "stacking": {"type": "ghost", "lifetime": "independent"},
+                        }
                     }
                 }
-            }
+            ),
         ),
     ),
     SemanticRule(
@@ -1365,15 +1470,17 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_application_duration_illegal,
-        violation_fixture=_effects_fixture(
-            {
-                "items": {
-                    "burst": {
-                        "modifiers": [_modifier("continuous")],
-                        "duration": "instant",
+        violation_fixtures=(
+            _effects_fixture(
+                {
+                    "items": {
+                        "burst": {
+                            "modifiers": [_modifier("continuous")],
+                            "duration": "instant",
+                        }
                     }
                 }
-            }
+            ),
         ),
     ),
     SemanticRule(
@@ -1382,17 +1489,19 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         description="An instant effect declares stacking (it leaves no instance).",
         since_version=_SINCE,
         check=_check_instant_effect_forbids_stacking,
-        violation_fixture=_effects_fixture(
-            {
-                "stacking_types": _STACKING_TYPES,
-                "items": {
-                    "burst": {
-                        "modifiers": [_modifier("one_shot")],
-                        "duration": "instant",
-                        "stacking": _STACKING,
-                    }
-                },
-            }
+        violation_fixtures=(
+            _effects_fixture(
+                {
+                    "stacking_types": _STACKING_TYPES,
+                    "items": {
+                        "burst": {
+                            "modifiers": [_modifier("one_shot")],
+                            "duration": "instant",
+                            "stacking": _STACKING,
+                        }
+                    },
+                }
+            ),
         ),
     ),
     SemanticRule(
@@ -1401,15 +1510,17 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         description="A timed/infinite effect declares no stacking.",
         since_version=_SINCE,
         check=_check_persistent_effect_requires_stacking,
-        violation_fixture=_effects_fixture(
-            {
-                "items": {
-                    "buff": {
-                        "modifiers": [_modifier("continuous")],
-                        "duration": {"timed": 10},
+        violation_fixtures=(
+            _effects_fixture(
+                {
+                    "items": {
+                        "buff": {
+                            "modifiers": [_modifier("continuous")],
+                            "duration": {"timed": 10},
+                        }
                     }
                 }
-            }
+            ),
         ),
     ),
     SemanticRule(
@@ -1421,15 +1532,17 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_override_forbidden_on_delta,
-        violation_fixture=_effects_fixture(
-            {
-                "items": {
-                    "strike": {
-                        "modifiers": [_modifier("one_shot", operation="override")],
-                        "duration": "instant",
+        violation_fixtures=(
+            _effects_fixture(
+                {
+                    "items": {
+                        "strike": {
+                            "modifiers": [_modifier("one_shot", operation="override")],
+                            "duration": "instant",
+                        }
                     }
                 }
-            }
+            ),
         ),
     ),
     SemanticRule(
@@ -1438,17 +1551,19 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         description="An effect with a periodic modifier declares no period.",
         since_version=_SINCE,
         check=_check_period_required_for_periodic,
-        violation_fixture=_effects_fixture(
-            {
-                "stacking_types": _STACKING_TYPES,
-                "items": {
-                    "dot": {
-                        "modifiers": [_modifier("periodic")],
-                        "duration": {"timed": 10},
-                        "stacking": _STACKING,
-                    }
-                },
-            }
+        violation_fixtures=(
+            _effects_fixture(
+                {
+                    "stacking_types": _STACKING_TYPES,
+                    "items": {
+                        "dot": {
+                            "modifiers": [_modifier("periodic")],
+                            "duration": {"timed": 10},
+                            "stacking": _STACKING,
+                        }
+                    },
+                }
+            ),
         ),
     ),
     SemanticRule(
@@ -1457,16 +1572,18 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         description="An effect whose modifiers are all one_shot declares a period.",
         since_version=_SINCE,
         check=_check_period_forbidden_when_all_one_shot,
-        violation_fixture=_effects_fixture(
-            {
-                "items": {
-                    "strike": {
-                        "modifiers": [_modifier("one_shot")],
-                        "duration": "instant",
-                        "period": 1,
+        violation_fixtures=(
+            _effects_fixture(
+                {
+                    "items": {
+                        "strike": {
+                            "modifiers": [_modifier("one_shot")],
+                            "duration": "instant",
+                            "period": 1,
+                        }
                     }
                 }
-            }
+            ),
         ),
     ),
     SemanticRule(
@@ -1478,17 +1595,32 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         description="A timed duration or a period is not strictly positive.",
         since_version=_SINCE,
         check=_check_temporal_value_not_positive,
-        violation_fixture=_effects_fixture(
-            {
-                "stacking_types": _STACKING_TYPES,
-                "items": {
-                    "buff": {
-                        "modifiers": [_modifier("continuous")],
-                        "duration": {"timed": 0},
-                        "stacking": _STACKING,
-                    }
-                },
-            }
+        violation_fixtures=(
+            _effects_fixture(
+                {
+                    "stacking_types": _STACKING_TYPES,
+                    "items": {
+                        "buff": {
+                            "modifiers": [_modifier("continuous")],
+                            "duration": {"timed": 0},
+                            "stacking": _STACKING,
+                        }
+                    },
+                }
+            ),
+            _effects_fixture(
+                {
+                    "stacking_types": _STACKING_TYPES,
+                    "items": {
+                        "dot": {
+                            "modifiers": [_modifier("periodic")],
+                            "duration": {"timed": 10},
+                            "period": 0,
+                            "stacking": _STACKING,
+                        }
+                    },
+                }
+            ),
         ),
     ),
     SemanticRule(
@@ -1497,18 +1629,20 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         description="A period is below the v1 minimum tick granularity (0.05 s).",
         since_version=_SINCE,
         check=_check_period_below_minimum_granularity,
-        violation_fixture=_effects_fixture(
-            {
-                "stacking_types": _STACKING_TYPES,
-                "items": {
-                    "aura": {
-                        "modifiers": [_modifier("continuous")],
-                        "duration": {"timed": 10},
-                        "period": 0.01,
-                        "stacking": _STACKING,
-                    }
-                },
-            }
+        violation_fixtures=(
+            _effects_fixture(
+                {
+                    "stacking_types": _STACKING_TYPES,
+                    "items": {
+                        "aura": {
+                            "modifiers": [_modifier("continuous")],
+                            "duration": {"timed": 10},
+                            "period": 0.01,
+                            "stacking": _STACKING,
+                        }
+                    },
+                }
+            ),
         ),
     ),
     SemanticRule(
@@ -1520,18 +1654,20 @@ _LINE_INDEPENDENT_RULES: tuple[SemanticRule, ...] = (
         ),
         since_version=_SINCE,
         check=_check_tick_budget_exceeded,
-        violation_fixture=_effects_fixture(
-            {
-                "stacking_types": _STACKING_TYPES,
-                "items": {
-                    "aura": {
-                        "modifiers": [_modifier("continuous")],
-                        "duration": {"timed": 600},
-                        "period": 0.05,
-                        "stacking": _STACKING,
-                    }
-                },
-            }
+        violation_fixtures=(
+            _effects_fixture(
+                {
+                    "stacking_types": _STACKING_TYPES,
+                    "items": {
+                        "aura": {
+                            "modifiers": [_modifier("continuous")],
+                            "duration": {"timed": 600},
+                            "period": 0.05,
+                            "stacking": _STACKING,
+                        }
+                    },
+                }
+            ),
         ),
     ),
 )
@@ -1548,7 +1684,7 @@ def _schema_reference_rule(structural_schema_id: str) -> SemanticRule:
         ),
         since_version=_SINCE,
         check=_schema_reference_disagreement_check(structural_schema_id),
-        violation_fixture={**_base_document(), "$schema": "urn:disagrees"},
+        violation_fixtures=({**_base_document(), "$schema": "urn:disagrees"},),
     )
 
 

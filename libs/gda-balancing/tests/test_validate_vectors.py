@@ -322,9 +322,13 @@ def test_surrogate_key_with_non_finite_descendant_is_refused_not_a_crash(
 def test_duplicated_surrogate_key_is_refused_at_a_safe_path(run_cli, tmp_path):
     # The duplicate-key sibling of the finding-2 hole: a *duplicated* surrogate
     # key built the key-bearing `duplicate_object_key` pointer before validating
-    # the key's encodability → surrogate-bearing Refusal.path → exit 4. It now
-    # refuses `string_not_unicode` at the enclosing safe element (`/parameters`),
-    # never a surrogate path; the envelope stays UTF-8 encodable.
+    # the key's encodability → surrogate-bearing Refusal.path → exit 4. Report-all
+    # must survive an unaddressable key (#527 recheck-3, F1): the duplication is
+    # STILL reported — `duplicate_object_key` at the enclosing safe element
+    # (`/parameters`, the deepest safely-encodable pointer), the surrogate key
+    # escaped into the detail (never a raw surrogate in path OR detail) — while
+    # the same key also refuses `string_not_unicode` there. No refusal names a
+    # surrogate pointer; the whole envelope stays UTF-8 encodable.
     content = (
         '{"schema_version": "1.0.0", "meta": {"name": "x"}, '
         '"parameters": {"\\ud800": 1, "\\ud800": 2}}'
@@ -333,12 +337,18 @@ def test_duplicated_surrogate_key_is_refused_at_a_safe_path(run_cli, tmp_path):
     assert exit_code == 2  # specifically NOT 4
     assert _is_utf8_encodable(stdout)
     refusals = _refusals(stdout)
-    # No refusal names a surrogate pointer; the enclosing element is the deepest
-    # safely-encodable one.
+    # No refusal names a surrogate pointer or carries one in its detail; the
+    # enclosing element is the deepest safely-encodable one.
     assert all(_is_utf8_encodable(r["path"]) for r in refusals)
-    assert ("string_not_unicode", "/parameters") in [
-        (r["code"], r["path"]) for r in refusals
+    assert all(_is_utf8_encodable(r["detail"]) for r in refusals)
+    # BOTH the duplication and the non-encodability are reported, at the safe path.
+    assert [(r["code"], r["path"]) for r in refusals] == [
+        ("duplicate_object_key", "/parameters"),
+        ("string_not_unicode", "/parameters"),
     ]
+    # The duplicate refusal names the offending key — escaped, so encodable.
+    dup = next(r for r in refusals if r["code"] == "duplicate_object_key")
+    assert "\\ud800" in dup["detail"]
 
 
 def test_surrogate_key_deep_subtree_reports_no_surrogate_path(run_cli, tmp_path):

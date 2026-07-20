@@ -5,15 +5,22 @@ and this conformance walk are both projections of it (bADR-0005 anti-drift).
 
 Two conformance surfaces:
 
-* **Per-rule** (bADR-0004: "each rule refuses its violation fixture") — for every
-  registered rule, its ``violation_fixture`` is a valid-except-for-this-rule
-  document that the semantic phase refuses with *exactly* this rule's code,
-  asserted both at the semantic-phase layer (on the typed document) and end to
-  end through the CLI. No rule is shadowed by an earlier phase any longer: once
-  the nesting cap composes with the formula depth limit (96 ≥ a legal depth-≤32
-  tree, #527) and structural validation is linear, a depth-33 tree clears
-  preflight and the structural phase and is refused by ``expression_tree_too_deep``
-  itself (see ``test_deep_expression_tree_is_refused`` in test_validate_vectors.py).
+* **Per (rule, scope template)** (bADR-0004: "each rule refuses its violation
+  fixture", sharpened in #527 recheck-3) — a rule carries **one violation fixture
+  per scope template, positionally aligned**, each a valid-except-for-this-rule
+  document that the semantic phase refuses with *exactly* this rule's code, and
+  whose emitted path matches **specifically its aligned template** (not merely
+  some template of the rule). Asserted both at the semantic-phase layer (on the
+  typed document) and end to end through the CLI. Together with the global
+  soundness walk below this makes anti-drift executable in **both** directions:
+  emitted ⊆ declared (no emitted path escapes a template) *and* declared ⊆
+  exercised (every declared template has a fixture that lands on it), so a future
+  third formula consumer that a rule grows but the corpus omits fails the test.
+  No rule is shadowed by an earlier phase any longer: once the nesting cap
+  composes with the formula depth limit (96 ≥ a legal depth-≤32 tree, #527) and
+  structural validation is linear, a depth-33 tree clears preflight and the
+  structural phase and is refused by ``expression_tree_too_deep`` itself (see
+  ``test_deep_expression_tree_is_refused`` in test_validate_vectors.py).
 * **Catalog↔registry identity** — the published ``schema get catalog`` artifact's
   rule ids equal the sorted registry codes, each entry carries the full metadata,
   and the bytes match a committed golden.
@@ -32,21 +39,33 @@ import pytest
 _GOLDEN = Path(__file__).parent / "goldens" / "semantic_catalog.json"
 
 
-@pytest.mark.parametrize("rule", SEMANTIC_RULES, ids=[r.code for r in SEMANTIC_RULES])
-def test_rule_refuses_exactly_its_violation_fixture(rule) -> None:
+# One conformance case per aligned (violation fixture, scope template): a rule
+# with N scope templates yields N cases, and `violation_fixtures[i]` is the
+# fixture that must refuse specifically at `scope[i]` (bADR-0005 anti-drift,
+# declared ⊆ exercised, #527 recheck-3). The dataclass `__post_init__` already
+# guarantees `len(violation_fixtures) == len(scope)`.
+_RULE_TEMPLATE_CASES = [
+    (rule, index) for rule in SEMANTIC_RULES for index in range(len(rule.scope))
+]
+_CASE_IDS = [f"{rule.code}[{index}]" for rule, index in _RULE_TEMPLATE_CASES]
+
+
+@pytest.mark.parametrize(("rule", "index"), _RULE_TEMPLATE_CASES, ids=_CASE_IDS)
+def test_rule_refuses_exactly_its_violation_fixture(rule, index) -> None:
     """The semantic-layer walk — a **supplemental internal diagnostic** (#504's
     external-boundary criterion): it asserts each rule at the semantic phase on
-    the typed document, while the acceptance evidence lives at the CLI/JSON
-    surface (``test_rule_fixture_refuses_end_to_end`` runs the same fixtures
-    through ``design validate``) and the public formula seam."""
-    # The fixture is a complete, structurally valid document (it constructs), so
-    # the semantic phase is what refuses it.
-    raw = rule.violation_fixture
+    the typed document, for **every** aligned fixture, while the acceptance
+    evidence lives at the CLI/JSON surface (``test_rule_fixture_refuses_end_to_end``
+    runs the same fixtures through ``design validate``) and the public formula
+    seam."""
+    # Each aligned fixture is a complete, structurally valid document (it
+    # constructs), so the semantic phase is what refuses it.
+    raw = rule.violation_fixtures[index]
     doc = DesignDocument.model_validate(raw)
 
     # The rule's own check yields only its code (a rule owns one code).
     own = rule.check(doc, raw)
-    assert own, f"{rule.code} did not refuse its own fixture"
+    assert own, f"{rule.code} did not refuse fixture {index}"
     assert {r.code for r in own} == {rule.code}
 
     # Across the whole registry the fixture trips this rule and nothing else —
@@ -63,19 +82,28 @@ def test_rule_refuses_exactly_its_violation_fixture(rule) -> None:
 _FUNNEL_SHADOWED: frozenset[str] = frozenset()
 
 
-@pytest.mark.parametrize("rule", SEMANTIC_RULES, ids=[r.code for r in SEMANTIC_RULES])
-def test_rule_fixture_refuses_end_to_end(rule, run_cli, tmp_path) -> None:
+@pytest.mark.parametrize(("rule", "index"), _RULE_TEMPLATE_CASES, ids=_CASE_IDS)
+def test_rule_fixture_refuses_end_to_end(rule, index, run_cli, tmp_path) -> None:
     # The CLI route: an agent submitting the fixture gets exit 2 carrying
     # exactly this rule's code — funnel reachability as an executable
     # invariant, not an assumption the semantic-layer walk leaves open.
     if rule.code in _FUNNEL_SHADOWED:
         pytest.skip("structurally shadowed by an earlier funnel phase")
+    template = rule.scope[index]
     doc_path = tmp_path / "fixture.json"
-    doc_path.write_text(json.dumps(rule.violation_fixture), encoding="utf-8")
+    doc_path.write_text(json.dumps(rule.violation_fixtures[index]), encoding="utf-8")
     exit_code, stdout, stderr = run_cli(["design", "validate", str(doc_path)])
     assert (exit_code, stderr) == (2, "")
-    codes = {r["code"] for r in json.loads(stdout)["error"]["refusals"]}
-    assert codes == {rule.code}
+    refusals = json.loads(stdout)["error"]["refusals"]
+    # (a) Exactly this rule's code (a rule owns one code, no cascade).
+    assert {r["code"] for r in refusals} == {rule.code}
+    # (b) At least one emitted path matches SPECIFICALLY this fixture's aligned
+    # scope template — declared ⊆ exercised per (rule, template), not merely
+    # "some template of the rule" (which the global soundness walk covers).
+    assert any(_scope_matches(template, r["path"]) for r in refusals), (
+        f"{rule.code}[{index}] emitted {[r['path'] for r in refusals]}, "
+        f"none matching its aligned template {template!r}"
+    )
 
 
 def test_registry_codes_are_unique() -> None:
@@ -156,9 +184,11 @@ def test_schema_get_catalog_matches_golden(run_cli) -> None:
 #     (`.../points`, `.../coefficients`, `.../tier`) can neither absorb a deeper
 #     pointer nor be satisfied by a shallower enclosing one.
 #
-# Soundness (no emitted path escapes its templates) is what this asserts;
-# completeness of each array — that every listed template is reachable — is
-# pinned by the golden + metadata identity tests above.
+# Soundness (no emitted path escapes its templates — emitted ⊆ declared) is what
+# THIS walk asserts; completeness (declared ⊆ exercised — every listed template
+# has a fixture that lands on it) is pinned by the per-(rule, template)
+# end-to-end test above, whose aligned fixtures each refuse specifically at their
+# own template. The two together make anti-drift executable in both directions.
 
 _FORMULA_ROOT_TOKENS = frozenset({"formula", "magnitude"})
 
@@ -189,96 +219,16 @@ def _scope_matches(template: str, path: str) -> bool:
     return all(_token_matches(t, p) for t, p in zip(t_tokens, p_tokens))
 
 
-def _unary_chain(depth: int) -> dict:
-    """A ``floor`` chain of expression-tree depth ``depth`` (``depth - 1`` ops
-    around a literal leaf)."""
-    node: dict = {"literal": 1}
-    for _ in range(depth - 1):
-        node = {"op": "floor", "args": [node]}
-    return node
-
-
-def _magnitude_probe(magnitude: dict) -> dict:
-    """A document valid except for one effect magnitude — the corpus rows that
-    exercise the shared formula rules at their `.../magnitude` site (the attribute
-    `.../base/formula` site is exercised by each rule's own violation fixture)."""
-    return {
-        "schema_version": "1.0.0",
-        "meta": {"name": "magnitude-probe"},
-        "attributes": {
-            "items": {
-                "power": {
-                    "domain": "number",
-                    "base": {"direct": 10},
-                    "accepts": ["effects"],
-                }
-            }
-        },
-        "effects": {
-            "stacking_types": {"combine": {"aggregation": "stack"}},
-            "items": {
-                "regen": {
-                    "modifiers": [
-                        {
-                            "target": "power",
-                            "operation": "add",
-                            "application": "continuous",
-                            "magnitude": magnitude,
-                        }
-                    ],
-                    "duration": "infinite",
-                    "stacking": {"type": "combine", "lifetime": "independent"},
-                }
-            },
-        },
-    }
-
-
-# Magnitude-site probes for every shared formula rule: the form-field rules at
-# `points`/`table`/`coefficients`/`growth_rate`, the tree caps exactly at the
-# magnitude root, and the reference rules descending BELOW the root (the
-# formula-root prefix case — an undefined ref nested in a tree arm).
-_MAGNITUDE_PROBES = [
-    _magnitude_probe({"form": "lookup_table", "input": {"attr": "power"}, "table": []}),
-    _magnitude_probe(
-        {
-            "form": "piecewise_linear",
-            "input": {"attr": "power"},
-            "points": [[5, 30], [1, 10]],
-        }
-    ),
-    _magnitude_probe(
-        {
-            "form": "polynomial",
-            "input": {"attr": "power"},
-            "coefficients": [1, 2, 3, 4, 5, 6, 7, 8, 9],
-        }
-    ),
-    _magnitude_probe(
-        {
-            "form": "exponential",
-            "input": {"attr": "power"},
-            "coefficient": 1,
-            "growth_rate": 0,
-        }
-    ),
-    _magnitude_probe(_unary_chain(33)),
-    _magnitude_probe({"op": "add", "args": [{"literal": 1} for _ in range(256)]}),
-    _magnitude_probe({"op": "add", "args": [{"attr": "ghost"}, {"literal": 1}]}),
-    _magnitude_probe({"op": "add", "args": [{"param": "ghost"}, {"literal": 1}]}),
-]
-
-
 def test_every_emitted_refusal_path_matches_a_scope_template(run_cli, tmp_path) -> None:
     """Every refusal the funnel emits over the corpus is matched by one of its
-    rule's scope templates (see the contract note above). The corpus is each
-    rule's own violation fixture (the attribute-base and effect sites) plus the
-    magnitude probes (the `.../magnitude` sites the shared formula rules gained
-    in #527). This is the behavioral half of the catalog contract: byte-identity
-    pins WHAT the templates are, this pins that they describe where refusals
-    actually land."""
+    rule's scope templates (see the contract note above). The corpus is **every**
+    aligned violation fixture of every rule — which now covers both the
+    `.../base/formula` and the `.../magnitude` site of each shared formula rule,
+    so the separate magnitude probes this test used to carry are subsumed. This is
+    the behavioral soundness half (emitted ⊆ declared): byte-identity pins WHAT
+    the templates are, this pins that no emitted refusal escapes them."""
     rules_by_code = {rule.code: rule for rule in SEMANTIC_RULES}
-    corpus = [rule.violation_fixture for rule in SEMANTIC_RULES] + _MAGNITUDE_PROBES
+    corpus = [fixture for rule in SEMANTIC_RULES for fixture in rule.violation_fixtures]
     doc_path = tmp_path / "doc.json"
     for document in corpus:
         doc_path.write_text(json.dumps(document), encoding="utf-8")
