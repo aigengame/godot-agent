@@ -70,18 +70,22 @@ is that contract; how the *Schema* describes itself is this one.
 
 - **Canonical emission and the round-trip equality contract.** The toolkit emits
   canonical JSON: UTF-8, stable (sorted) object key order, LF line endings,
-  shortest-round-trip number rendering, and only genuine **domain** defaults
-  materialized explicitly (an empty `accepts`, the empty designed sections). An
-  **optional member is absent-or-typed, never `null`**: a pure optional carrying no
-  domain default is *omitted*, not emitted as `null` (the published schema drops the
-  `X | None` null arm to match, so an explicit `null` refuses structurally). Round-trip
-  acceptance is **parsed-JSON semantic equality** — key order and whitespace are
-  insignificant, numbers compare by value, and **an absent optional field is
-  semantically equal to its materialized domain default, or to its own omission when it
-  has none** (so valid non-canonical input round-trips through canonical emission
+  shortest-round-trip number rendering, and optional fields with defined defaults
+  materialized explicitly. Round-trip acceptance is **parsed-JSON semantic equality** —
+  key order and whitespace are insignificant, numbers compare by value, and **an absent
+  optional field is semantically equal to its defined default materialized
+  explicitly** (so valid non-canonical input round-trips through canonical emission
   without a semantic change) — never byte equality of arbitrary input; canonical
   emission makes byte-stable output an emergent property for toolkit-emitted
   documents.
+
+  > **Amendment (2026-07-20, #527 review):** "optional fields with defined defaults
+  > materialized explicitly" means genuine **domain** defaults (an empty `accepts`,
+  > the empty designed sections). An **optional member without a domain default is
+  > absent-or-typed, never `null`**: it is omitted from canonical emission, and the
+  > published structural schema drops the `X | None` null arm so an explicit `null`
+  > refuses structurally. Round-trip equality reads accordingly: an absent optional
+  > equals its materialized domain default, or its own omission when it has none.
 
 ## Considered options
 
