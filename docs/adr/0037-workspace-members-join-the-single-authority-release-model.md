@@ -100,8 +100,25 @@ separate release trains, and no hand-edited version anywhere.**
 >   never-released marker (release-please's first bump cannot produce it), and
 >   requiring a tag that cannot exist yet would deadlock both trains.
 >
-> Remaining before member PRs may adopt releasing types: the title-discipline
-> flip itself, tracked on #528. Until then the discipline stays in force.
+> **Flip (2026-07-20, #528):** every precondition this record set is now met —
+> publish tail wired, tag gate extended, and the `Member releasing-PR scope
+> guard` made a **required** status check — so the non-releasing title
+> discipline is **lifted for `libs/gda-balancing`**: its PRs use truthful
+> `feat`/`fix` types and release on their own train.
+>
+> Two limits the flip does **not** touch, both still in force:
+> - **It is scoped to the excluded path only.** `examples/**` (panda) and every
+>   other un-excluded path is still absorbed by the root package, so work there
+>   keeps a non-releasing type or it bumps `gda`. The flip follows the
+>   exclusion, not the "is it gda?" intuition.
+> - **A PR spanning the member and anything outside it is still absorbed.** The
+>   scope guard refuses such a PR when its title is releasing-typed; split it.
+>
+> **First-release changelog:** the member's foundation (#502, #504) landed under
+> `chore` titles by the very constraint this issue retires, so those commits are
+> invisible to release-please's changelog. The first member release therefore
+> gets **hand-authored release notes** describing the schema core as a one-time
+> cost of the old discipline; every release after it is fully generated.
 
 
 - One ledger now spans both packages; neither `pyproject.toml`, the manifest,

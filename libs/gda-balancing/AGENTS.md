@@ -63,3 +63,13 @@ detail — on any divergence, it wins.
   gate (landing with #502) at the hardened (recursive, AST-level) standard.
 - **Schema is the single authority** — the Standard Schema is the sole spec and authority
   source for numeric design; games consume the toolkit's Standard Schema output (PRD #501).
+- **Own project, own release train** (ADR-0038) — this package is an independent uv project,
+  not a workspace member: it locks separately, so every command run from the repo root needs
+  `--project libs/gda-balancing` (see this package's README). Its PRs therefore use
+  **truthful conventional-commit types** (`feat`/`fix`/…) and release under
+  `gda-balancing-vX.Y.Z` tags — the non-releasing-title discipline that applied before #528
+  is lifted **for this directory only**.
+  - A PR that touches this directory **and anything outside it** is still attributed to the
+    root `gda` package. The `Member releasing-PR scope guard` required check refuses such a
+    PR when its title is releasing-typed — **split it** rather than downgrading the type,
+    because a dependency change that warrants a release should not be recorded as a chore.
