@@ -16,6 +16,7 @@
   "sources": [
     {
       "id": "poncle-steam-1.15-release",
+      "authority_domain": "external_game",
       "kind": "official_documentation",
       "locator": "https://store.steampowered.com/news/app/1794680/view/693137145499484494",
       "version": "Update 1.15 announcement, 2026-06-06",
@@ -24,6 +25,7 @@
     },
     {
       "id": "steamdb-build-23569632",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://steamdb.info/patchnotes/23569632/",
       "version": "Steam build 23569632, 2026-06-05",
@@ -32,6 +34,7 @@
     },
     {
       "id": "vswiki-magic-wand",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://vampire-survivors.fandom.com/wiki/Magic_Wand",
       "version": "page revision visible 2026-07-21",
@@ -40,6 +43,7 @@
     },
     {
       "id": "vswiki-king-bible",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://vampire-survivors.fandom.com/wiki/King_Bible",
       "version": "page revision visible 2026-07-21",
@@ -48,6 +52,7 @@
     },
     {
       "id": "vswiki-weapons",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://vampire-survivors.fandom.com/wiki/Weapons",
       "version": "page revision visible 2026-07-21",
@@ -56,6 +61,7 @@
     },
     {
       "id": "vswiki-level-up",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://vampire-survivors.fandom.com/wiki/Level_up",
       "version": "page revision visible 2026-07-21",
@@ -64,6 +70,7 @@
     },
     {
       "id": "vswiki-passive-items",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://vampire-survivors.fandom.com/wiki/Passive_items",
       "version": "page revision visible 2026-07-21",
@@ -72,6 +79,7 @@
     },
     {
       "id": "vswiki-mad-forest",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://vampire-survivors.fandom.com/wiki/Mad_Forest",
       "version": "page revision visible 2026-07-21",
@@ -80,6 +88,7 @@
     },
     {
       "id": "vswiki-powerups",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://vampire-survivors.fandom.com/wiki/PowerUps",
       "version": "page revision visible 2026-07-21",
@@ -88,6 +97,7 @@
     },
     {
       "id": "gamespot-evolution",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://www.gamespot.com/articles/vampire-survivors-how-to-evolve-weapons/1100-6508815/",
       "version": "article accessed 2026-07-21",
@@ -96,6 +106,7 @@
     },
     {
       "id": "pcgamer-evolution",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://www.pcgamer.com/vampire-survivors-evolve-weapons-evolutions-guide/",
       "version": "article accessed 2026-07-21",
@@ -104,6 +115,7 @@
     },
     {
       "id": "wikipedia-gameplay",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://en.wikipedia.org/wiki/Vampire_Survivors#Gameplay",
       "version": "page revision visible 2026-07-21",
@@ -112,6 +124,7 @@
     },
     {
       "id": "hagenberg-resource-analysis",
+      "authority_domain": "external_game",
       "kind": "research",
       "locator": "https://hagenberg.games/wiki/Vampire_Survivors",
       "version": "page revision visible 2026-07-21",
@@ -120,6 +133,7 @@
     },
     {
       "id": "schema2-coverage-contract",
+      "authority_domain": "schema_contract",
       "kind": "official_documentation",
       "locator": "libs/gda-balancing/docs/standard-schema-2.0/genre-coverage.md",
       "version": "feat/standard-schema-2.0-spec fork at 2026-07-21",
@@ -128,6 +142,7 @@
     },
     {
       "id": "research-auto-target-triangulation",
+      "authority_domain": "research_synthesis",
       "kind": "research",
       "locator": "SOURCES.md#corroborated-research-syntheses",
       "version": "2026-07-21",
@@ -136,6 +151,7 @@
     },
     {
       "id": "research-weapon-timing-triangulation",
+      "authority_domain": "research_synthesis",
       "kind": "research",
       "locator": "SOURCES.md#corroborated-research-syntheses",
       "version": "2026-07-21",
@@ -144,6 +160,7 @@
     },
     {
       "id": "research-offering-triangulation",
+      "authority_domain": "research_synthesis",
       "kind": "research",
       "locator": "SOURCES.md#corroborated-research-syntheses",
       "version": "2026-07-21",
@@ -152,6 +169,7 @@
     },
     {
       "id": "research-evolution-triangulation",
+      "authority_domain": "research_synthesis",
       "kind": "research",
       "locator": "SOURCES.md#corroborated-research-syntheses",
       "version": "2026-07-21",
@@ -160,6 +178,7 @@
     },
     {
       "id": "research-run-reset-triangulation",
+      "authority_domain": "research_synthesis",
       "kind": "research",
       "locator": "SOURCES.md#corroborated-research-syntheses",
       "version": "2026-07-21",
@@ -325,6 +344,9 @@
         {
           "id": "vs.magic-wand.nearest-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "logical_time": "0.0000",
             "player": ["0.0000", "0.0000"],
@@ -336,17 +358,23 @@
             "empty_policy": "empty-outcome"
           },
           "expected_observations": {
-            "candidate_only": true,
             "selected_target": "enemy-a",
             "projectile_count": 1,
             "next_legal_use": "1.2000",
             "ordered_trace": ["spatial-query", "target-select", "projectile-fired", "cooldown-set"]
           },
-          "source_refs": ["research-auto-target-triangulation", "schema2-coverage-contract", "vswiki-magic-wand"]
+          "evidence_refs": {
+            "external_game": ["vswiki-magic-wand"],
+            "research_synthesis": ["research-auto-target-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.magic-wand.tie-policy-refused-v1",
           "kind": "refusal",
+          "claim_subject": "schema_boundary",
+          "claim_status": "contractual",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "player": ["0.0000", "0.0000"],
             "enemies": [
@@ -360,11 +388,18 @@
             "refusal": "rpg.target.tie-policy-missing-refused-v1",
             "game_fact_status": "external equal-distance behavior is unknown; the Schema mapping may not hide it in host order"
           },
-          "source_refs": ["research-auto-target-triangulation", "schema2-coverage-contract"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["research-auto-target-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.magic-wand.cadence-determinism-v1",
           "kind": "determinism",
+          "claim_subject": "schema_boundary",
+          "claim_status": "contractual",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "logical_times": ["0.0000", "1.1999", "1.2000"],
             "same_resolved_model_and_runtime": true
@@ -373,7 +408,11 @@
             "outcomes": ["fired", "cooldown-active", "fired"],
             "trace_and_snapshot_bytes_equal_across_replays": true
           },
-          "source_refs": ["research-auto-target-triangulation", "schema2-coverage-contract", "vswiki-magic-wand"]
+          "evidence_refs": {
+            "external_game": ["vswiki-magic-wand"],
+            "research_synthesis": ["research-auto-target-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         }
       ]
     },
@@ -381,7 +420,7 @@
       "id": "king-bible-duration-cooldown-lifecycle",
       "title": "Duration-bound orbit effect and delayed cooldown lifecycle",
       "families": ["quantity", "action", "effect", "spatial"],
-      "coverage_rows": ["RPG-STAT-01", "RPG-RESOURCE-02", "RPG-EFFECT-03", "RPG-EFFECT-04"],
+      "coverage_rows": ["RPG-STAT-01", "RPG-RESOURCE-02", "RPG-EFFECT-02", "RPG-EFFECT-03", "RPG-EFFECT-04"],
       "source_refs": ["research-weapon-timing-triangulation", "vswiki-king-bible", "vswiki-weapons"],
       "quantities": [
         {
@@ -538,6 +577,9 @@
         {
           "id": "vs.king-bible.lifecycle-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "level": 1,
             "activation_time": "0.0000",
@@ -546,17 +588,23 @@
             "amount": 1
           },
           "expected_observations": {
-            "candidate_only": true,
             "effect_instances": ["king-bible:0"],
             "expiry_time": "3.0000",
             "next_legal_use": "6.0000",
             "ordered_trace": ["effect-applied", "effect-expired", "cooldown-complete"]
           },
-          "source_refs": ["research-weapon-timing-triangulation", "schema2-coverage-contract", "vswiki-king-bible"]
+          "evidence_refs": {
+            "external_game": ["vswiki-king-bible"],
+            "research_synthesis": ["research-weapon-timing-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.king-bible.level-eight-duration-boundary-v1",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "level": 8,
             "activation_time": "10.0000",
@@ -565,17 +613,23 @@
             "external_duration_bonus": "0.5000"
           },
           "expected_observations": {
-            "candidate_only": true,
             "active_until": "16.0000",
             "captured_base_duration_for_cooldown": "4.0000",
             "next_legal_use": "17.0000",
             "research_note": "The detailed modifier/cooldown interaction must be runtime-confirmed before becoming normative."
           },
-          "source_refs": ["research-weapon-timing-triangulation", "schema2-coverage-contract", "vswiki-king-bible"]
+          "evidence_refs": {
+            "external_game": ["vswiki-king-bible"],
+            "research_synthesis": ["research-weapon-timing-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.king-bible.undeclared-duration-read-refused-v1",
           "kind": "refusal",
+          "claim_subject": "schema_boundary",
+          "claim_status": "contractual",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "operation_effects": {"reads": []},
             "operation_body": "read character.duration while computing expiry"
@@ -585,7 +639,11 @@
             "refusal": "rpg.effect.live-read-undeclared-refused-v1",
             "no_effect_instance_published": true
           },
-          "source_refs": ["schema2-coverage-contract", "vswiki-king-bible"]
+          "evidence_refs": {
+            "external_game": ["vswiki-king-bible"],
+            "research_synthesis": [],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         }
       ]
     },
@@ -734,6 +792,9 @@
         {
           "id": "vs.level-up.weighted-distinct-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "controlled_pool": [
               ["empty-tome", 50],
@@ -746,17 +807,23 @@
             "draw_mapping": "Schema candidate roulette over the remaining total weight, stable id order"
           },
           "expected_observations": {
-            "candidate_only": true,
             "offering": ["whip", "king-bible", "magic-wand"],
             "unique": true,
             "draw_indexes": [0, 1, 2],
             "native_game_rng_equivalence_claimed": false
           },
-          "source_refs": ["research-offering-triangulation", "schema2-coverage-contract", "vswiki-level-up"]
+          "evidence_refs": {
+            "external_game": ["vswiki-level-up"],
+            "research_synthesis": ["research-offering-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.level-up.full-slots-filter-outcome-v1",
           "kind": "outcome",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "weapon_slots_used": 6,
             "passive_slots_used": 6,
@@ -768,11 +835,18 @@
             "unowned_items_excluded": true,
             "fallback_used": false
           },
-          "source_refs": ["research-offering-triangulation", "schema2-coverage-contract", "vswiki-level-up"]
+          "evidence_refs": {
+            "external_game": ["vswiki-level-up"],
+            "research_synthesis": ["research-offering-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.level-up.empty-policy-refused-v1",
           "kind": "refusal",
+          "claim_subject": "schema_boundary",
+          "claim_status": "contractual",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "eligible_pool": [],
             "fallback": null
@@ -783,11 +857,18 @@
             "draws_consumed": 0,
             "build_unchanged": true
           },
-          "source_refs": ["research-offering-triangulation", "schema2-coverage-contract"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["research-offering-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.level-up.replay-determinism-v1",
           "kind": "determinism",
+          "claim_subject": "schema_boundary",
+          "claim_status": "contractual",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "named_stream": "run.level-up-offers",
             "root_seed": 104729,
@@ -799,7 +880,11 @@
             "draw_indexes_equal": true,
             "unrelated_stream_insertion_does_not_change_offering": true
           },
-          "source_refs": ["research-offering-triangulation", "schema2-coverage-contract", "vswiki-level-up"]
+          "evidence_refs": {
+            "external_game": ["vswiki-level-up"],
+            "research_synthesis": ["research-offering-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         }
       ]
     },
@@ -908,6 +993,9 @@
         {
           "id": "vs.magic-wand.evolution-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "logical_time": "600.0000",
             "weapon": ["magic-wand", 8],
@@ -915,7 +1003,6 @@
             "chest_policy": "ordinary-mad-forest-evolution-eligible"
           },
           "expected_observations": {
-            "candidate_only": true,
             "weapon_removed": "magic-wand",
             "weapon_added": "holy-wand",
             "weapon_slot_count_delta": 0,
@@ -923,11 +1010,18 @@
             "old_weapon_events_cancelled": true,
             "evolved_cooldown_started_from_zero": true
           },
-          "source_refs": ["research-evolution-triangulation", "schema2-coverage-contract", "vswiki-weapons"]
+          "evidence_refs": {
+            "external_game": ["vswiki-weapons"],
+            "research_synthesis": ["research-evolution-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.magic-wand.pre-threshold-chest-outcome-v1",
           "kind": "outcome",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "logical_time": "599.9999",
             "weapon": ["magic-wand", 8],
@@ -935,16 +1029,22 @@
             "chest_policy": "ordinary-mad-forest-pre-threshold"
           },
           "expected_observations": {
-            "candidate_only": true,
             "evolution_selected": false,
             "base_weapon_retained": "magic-wand",
             "passive_retained": "empty-tome"
           },
-          "source_refs": ["pcgamer-evolution", "research-evolution-triangulation", "schema2-coverage-contract"]
+          "evidence_refs": {
+            "external_game": ["pcgamer-evolution"],
+            "research_synthesis": ["research-evolution-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.magic-wand.full-build-replacement-boundary-v1",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "weapon_slots_used": 6,
             "passive_slots_used": 6,
@@ -958,7 +1058,11 @@
             "passive_slots_used_after": 6,
             "single_atomic_build_transition": true
           },
-          "source_refs": ["gamespot-evolution", "research-evolution-triangulation", "schema2-coverage-contract"]
+          "evidence_refs": {
+            "external_game": ["gamespot-evolution"],
+            "research_synthesis": ["research-evolution-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         }
       ]
     },
@@ -1100,6 +1204,9 @@
         {
           "id": "vs.mad-forest.first-three-waves-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "candidate_wave_rows": [
               {"start": "0.0000", "minimum": 15, "interval": "1.0000"},
@@ -1109,18 +1216,24 @@
             "runtime_entity_budget": 256
           },
           "expected_observations": {
-            "candidate_only": true,
             "wave_boundaries": ["0.0000", "60.0000", "120.0000"],
             "minimums": [15, 30, 50],
             "intervals": ["1.0000", "1.0000", "0.5000"],
             "spawn_keys_are_total_ordered": true,
             "requires_pinned_build_runtime_capture": true
           },
-          "source_refs": ["schema2-coverage-contract", "vswiki-mad-forest", "wikipedia-gameplay"]
+          "evidence_refs": {
+            "external_game": ["vswiki-mad-forest","wikipedia-gameplay"],
+            "research_synthesis": [],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.mad-forest.spawn-cap-refused-v1",
           "kind": "refusal",
+          "claim_subject": "schema_boundary",
+          "claim_status": "contractual",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "wave_minimum": 50,
             "active_enemies": 32,
@@ -1133,11 +1246,18 @@
             "partial_wave_commit": false,
             "terminal_audit_required": true
           },
-          "source_refs": ["schema2-coverage-contract", "vswiki-mad-forest"]
+          "evidence_refs": {
+            "external_game": ["vswiki-mad-forest"],
+            "research_synthesis": [],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.mad-forest.schedule-determinism-v1",
           "kind": "determinism",
+          "claim_subject": "schema_boundary",
+          "claim_status": "contractual",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "same_wave_table_identity": true,
             "same_runtime_profile": true,
@@ -1149,7 +1269,11 @@
             "snapshot_hashes_equal": true,
             "wall_clock_or_frame_rate_is_not_an_ordering_input": true
           },
-          "source_refs": ["poncle-steam-1.15-release", "schema2-coverage-contract", "vswiki-mad-forest"]
+          "evidence_refs": {
+            "external_game": ["poncle-steam-1.15-release","vswiki-mad-forest"],
+            "research_synthesis": [],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         }
       ]
     },
@@ -1291,6 +1415,9 @@
         {
           "id": "vs.run.reset-growth-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "terminal_run": {
               "character_level": 12,
@@ -1302,7 +1429,6 @@
             "purchase": {"powerup": "growth", "rank": 1, "price": 900}
           },
           "expected_observations": {
-            "candidate_only": true,
             "cleared_run_slots": ["run-character-level", "reset-run-weapon-build", "reset-run-passive-build", "run-gold-ledger"],
             "meta_gold_after_transfer": 1000,
             "meta_gold_after_purchase": 100,
@@ -1310,11 +1436,18 @@
             "next_run_growth_multiplier": "1.0300",
             "undeclared_run_state_retained": []
           },
-          "source_refs": ["research-run-reset-triangulation", "schema2-coverage-contract", "vswiki-powerups"]
+          "evidence_refs": {
+            "external_game": ["vswiki-powerups"],
+            "research_synthesis": ["research-run-reset-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.run.implicit-weapon-retention-refused-v1",
           "kind": "refusal",
+          "claim_subject": "schema_boundary",
+          "claim_status": "contractual",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "declared_transfers": [{"from": "reset-run-weapon-build", "to": "meta-unlock-inventory", "amount": "all"}],
             "admitted_transfer_contract": ["run-gold-ledger-to-meta-gold-ledger"]
@@ -1325,11 +1458,18 @@
             "reset_transaction_committed": false,
             "partial_meta_write": false
           },
-          "source_refs": ["research-run-reset-triangulation", "schema2-coverage-contract"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["research-run-reset-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.run.exact-replay-determinism-v1",
           "kind": "determinism",
+          "claim_subject": "schema_boundary",
+          "claim_status": "contractual",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "same_kernel_ldb_lock_rir_runtime_experiment_external_inputs": true,
             "root_seed": 104729,
@@ -1342,11 +1482,18 @@
             "metric_dataset_identity_equal": true,
             "comparison_is_evidence_assertion": false
           },
-          "source_refs": ["poncle-steam-1.15-release", "research-run-reset-triangulation", "schema2-coverage-contract"]
+          "evidence_refs": {
+            "external_game": ["poncle-steam-1.15-release"],
+            "research_synthesis": ["research-run-reset-triangulation"],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         },
         {
           "id": "vs.run.replay-identity-mismatch-refused-v1",
           "kind": "refusal",
+          "claim_subject": "schema_boundary",
+          "claim_status": "contractual",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "left_runtime_profile": "runtime-a",
             "right_runtime_profile": "runtime-b",
@@ -1357,7 +1504,11 @@
             "replay_comparison_published": false,
             "cross_evaluator_comparison_may_be_requested_separately": true
           },
-          "source_refs": ["schema2-coverage-contract", "wikipedia-gameplay"]
+          "evidence_refs": {
+            "external_game": ["wikipedia-gameplay"],
+            "research_synthesis": [],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         }
       ]
     }

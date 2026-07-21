@@ -62,14 +62,20 @@ not new external authorities; each is reproducible from the cited independent re
 
 ## Confidence and oracle use
 
-The corpus separates two kinds of expected observation:
+The corpus assigns each source to `external_game`, `research_synthesis`, or `schema_contract` and
+separates those ids in every oracle's `evidence_refs`. It also separates two claim types:
 
-1. **Game-mapping candidates** use the minimal external values above. Those that depend only on
-   community data remain explicitly marked `candidate_only` and cannot close a coverage row.
-2. **Schema boundary oracles** state what the existing coverage contract requires when the mapped
-   source omits a tie policy, exceeds a declared budget, attempts an undeclared Meta transfer, or
-   compares different replay identities. These are authoritative Schema expectations, not claims
-   about how the proprietary game reports errors.
+1. **Game-mapping candidates** use the minimal external values above and declare
+   `claim_subject: game_mapping` plus `claim_status: candidate`. The typed status replaces the old
+   free-form `candidate_only` observation and cannot be promoted by a corroborated synthesis or a
+   primary Schema-contract reference.
+2. **Schema boundary oracles** declare `claim_subject: schema_boundary` plus
+   `claim_status: contractual`. They state what the existing coverage contract requires when the
+   mapped source omits a tie policy, exceeds a declared budget, attempts an undeclared Meta
+   transfer, or compares different replay identities. These are authoritative Schema expectations,
+   not claims that the proprietary game emitted a refusal.
+
+Every oracle is research-only and declares `conformance_effect: does_not_close_coverage`.
 
 No local copy of build `23569632`, shipped data export, or instrumented runtime trace was available
 to this research pass. Before any of these facts becomes a permanent Golden oracle, capture the

@@ -25,8 +25,8 @@ games/<game-id>/
 ```
 
 `corpus.json` must validate against `corpus.schema.json`. It records a pinned game/platform/content
-scope, source provenance, selected mechanics, explicit state and Operation boundaries, RNG or
-scheduling behavior, and executable oracle cases. `quantities.csv` is the human-auditable numeric
+scope, typed source provenance, selected mechanics, explicit state and Operation boundaries, RNG
+or scheduling behavior, and research oracle cases. `quantities.csv` is the human-auditable numeric
 projection; it must use this exact header and must not become a parallel source of facts that
 disagree with `corpus.json`:
 
@@ -53,18 +53,42 @@ A `kernel` or `host` requirement is an architecture stop signal, not a convenien
 shortcut. The finding must be reconciled into PRD #534, the Architecture, affected bADRs, and the
 coverage matrix before implementation continues.
 
-## Source policy
+## Source and oracle provenance policy
 
-Every fact names one or more source ids and one confidence level:
+Every source declares exactly one `authority_domain`:
+
+- `external_game`: evidence about the pinned game, including official material, shipped data,
+  runtime observations, and externally published community research;
+- `research_synthesis`: a local synthesis that combines or interprets external evidence but cannot
+  promote that evidence's confidence;
+- `schema_contract`: the Standard Schema coverage or semantic contract, which says what a mapping
+  must express and never proves what the external game does.
+
+Every source also declares one confidence level:
 
 1. `primary`: versioned shipped data, open-source code/data, official rules, or a reproducible
    runtime observation;
 2. `corroborated`: two independent references or one reference plus a runtime oracle;
 3. `provisional`: a community reference or inference not yet independently confirmed.
 
-Provisional facts may discover a requirement but cannot serve as the sole oracle for a conformance
-claim. Copyrighted assets, text, and bulk game data are not copied into this repository; record only
-the minimal numeric/behavioral facts required by the selected mechanics and cite their provenance.
+Each oracle separates those domains in `evidence_refs` and declares both `claim_subject` and
+`claim_status`:
+
+- a `game_mapping` claim is `candidate`, `corroborated`, or `observed`;
+- `candidate` preserves an uncertain mapping without presenting it as observed or corroborated;
+- `corroborated` requires non-provisional `external_game` evidence;
+- `observed` requires a primary shipped-data or reproducible runtime-observation source;
+- a `schema_boundary` claim is always `contractual`, cites `schema_contract`, and describes a
+  Standard Schema admission/runtime boundary rather than a refusal observed in the external game.
+
+The `candidate_only` observation flag is forbidden: claim status has one typed home. A Schema
+contract source cannot raise the confidence of a game claim, and a research synthesis cannot
+promote provisional external facts. Every research oracle declares
+`conformance_effect: does_not_close_coverage`; it is input to permanent Golden scenarios and
+vectors, never the evidence that closes a coverage row.
+
+Copyrighted assets, text, and bulk game data are not copied into this repository; record only the
+minimal numeric/behavioral facts required by the selected mechanics and cite their provenance.
 
 ## Research acceptance
 
@@ -76,7 +100,8 @@ A game instance is research-complete only when:
 - quantities distinguish representation, nominal kind, unit, role, domain, rounding, and cap;
 - hidden ordering, RNG consumption, live/snapshot reads, and state scope are recorded rather than
   compressed into prose;
-- uncertainty remains visible and no provisional fact is reported as authoritative.
+- uncertainty remains visible, all oracle claims carry typed status, and no provisional fact is
+  reported as corroborated or observed.
 
 Research completeness is not Schema conformance. A coverage row closes only after its permanent
 Source → HIR → RIR → runtime → public-artifact path and normative vectors pass.

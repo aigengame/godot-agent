@@ -87,6 +87,14 @@ Standard Schema authority and not proof that a Genre coverage row is closed.
   <https://www.reddit.com/r/darksouls/comments/oz56g8/app_ver_103_regulation_ver_104/>
   This supports the Regulation 1.04 label only. It is not used as the sole source of an oracle.
 
+### Schema contract
+
+- `schema2-coverage-contract` —
+  [`genre-coverage.md`](../../../../docs/standard-schema-2.0/genre-coverage.md).
+  This source belongs to the `schema_contract` authority domain. It supports only the nominal-kind
+  mismatch boundary required by Standard Schema; it does not corroborate Dark Souls behavior or
+  raise the confidence of any external-game fact.
+
 ## Uncertainty and promotion requirements
 
 1. The exact Steam depot/build identity and a title-screen capture are absent. Before any permanent

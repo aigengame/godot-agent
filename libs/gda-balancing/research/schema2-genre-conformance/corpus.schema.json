@@ -52,9 +52,20 @@
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "locator", "version", "confidence", "notes"],
+      "required": [
+        "id",
+        "authority_domain",
+        "kind",
+        "locator",
+        "version",
+        "confidence",
+        "notes"
+      ],
       "properties": {
         "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]*$"},
+        "authority_domain": {
+          "enum": ["external_game", "research_synthesis", "schema_contract"]
+        },
         "kind": {
           "enum": [
             "shipped_data",
@@ -218,14 +229,78 @@
     "oracle": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "inputs", "expected_observations", "source_refs"],
+      "required": [
+        "id",
+        "kind",
+        "claim_subject",
+        "claim_status",
+        "conformance_effect",
+        "inputs",
+        "expected_observations",
+        "evidence_refs"
+      ],
       "properties": {
         "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]*$"},
         "kind": {"enum": ["positive", "outcome", "refusal", "boundary", "determinism"]},
+        "claim_subject": {"enum": ["game_mapping", "schema_boundary"]},
+        "claim_status": {
+          "enum": ["candidate", "corroborated", "observed", "contractual"]
+        },
+        "conformance_effect": {"const": "does_not_close_coverage"},
         "inputs": {},
-        "expected_observations": {},
-        "source_refs": {"$ref": "#/$defs/sourceRefs"}
-      }
+        "expected_observations": {
+          "type": "object",
+          "not": {"required": ["candidate_only"]}
+        },
+        "evidence_refs": {"$ref": "#/$defs/oracleEvidenceRefs"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"claim_subject": {"const": "game_mapping"}},
+            "required": ["claim_subject"]
+          },
+          "then": {
+            "properties": {
+              "claim_status": {"enum": ["candidate", "corroborated", "observed"]}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"claim_subject": {"const": "schema_boundary"}},
+            "required": ["claim_subject"]
+          },
+          "then": {
+            "properties": {
+              "claim_status": {"const": "contractual"},
+              "evidence_refs": {
+                "properties": {"schema_contract": {"minItems": 1}}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "oracleEvidenceRefs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external_game", "research_synthesis", "schema_contract"],
+      "properties": {
+        "external_game": {"$ref": "#/$defs/optionalSourceRefs"},
+        "research_synthesis": {"$ref": "#/$defs/optionalSourceRefs"},
+        "schema_contract": {"$ref": "#/$defs/optionalSourceRefs"}
+      },
+      "anyOf": [
+        {"properties": {"external_game": {"minItems": 1}}},
+        {"properties": {"research_synthesis": {"minItems": 1}}},
+        {"properties": {"schema_contract": {"minItems": 1}}}
+      ]
+    },
+    "optionalSourceRefs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9._-]*$"}
     }
   }
 }

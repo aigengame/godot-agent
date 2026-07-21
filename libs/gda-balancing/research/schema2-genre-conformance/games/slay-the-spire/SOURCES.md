@@ -49,6 +49,11 @@ Each id below is a local research synthesis. It is marked corroborated only for 
 listed. The references are community-maintained and may share historical material, so the
 remaining primary-runtime gap is explicit rather than hidden.
 
+`corroborated` here is the synthesis source's confidence, not an oracle claim status. Because this
+instance has not registered the underlying mechanic references as non-provisional
+`external_game` evidence, the corpus conservatively marks the resulting game-mapping oracles as
+`candidate` until that provenance is captured directly.
+
 #### `sts-turn-zones-crosscheck`
 
 - Kind/confidence: research / **corroborated**.

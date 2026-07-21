@@ -16,6 +16,7 @@
   "sources": [
     {
       "id": "community.damage-function",
+      "authority_domain": "external_game",
       "kind": "research",
       "locator": "https://darksouls.wikidot.com/damage-calculation and https://tl.net/blogs/396507-dark-souls-stats-i-damage-formula-and-analysis",
       "version": "Wikidot revision 6, 2022-02-14; TL.net analysis 2012-12-06",
@@ -24,6 +25,7 @@
     },
     {
       "id": "community.endurance-stamina",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://darksouls.wikidot.com/endurance, https://darksouls.wikidot.com/stamina, and https://darksouls.wiki.fextralife.com/file/Dark-Souls/Dark%20Souls%20Stamina%20Regeneration%20Data.pdf",
       "version": "pages retrieved 2026-07-21",
@@ -32,6 +34,7 @@
     },
     {
       "id": "community.longsword",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://darksouls.wikidot.com/longsword and https://darksouls.fandom.com/wiki/Longsword",
       "version": "pages retrieved 2026-07-21",
@@ -40,6 +43,7 @@
     },
     {
       "id": "community.poison",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://darksouls.wikidot.com/poison, https://darksouls.wikidot.com/poison-mist, and https://darksouls.fandom.com/wiki/Poison_(Dark_Souls)",
       "version": "pages retrieved 2026-07-21",
@@ -48,6 +52,7 @@
     },
     {
       "id": "community.regulation-1.04",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "https://www.reddit.com/r/darksouls/comments/oz56g8/app_ver_103_regulation_ver_104/",
       "version": "thread retrieved 2026-07-21",
@@ -56,6 +61,7 @@
     },
     {
       "id": "dsmapstudio.tool",
+      "authority_domain": "external_game",
       "kind": "open_source",
       "locator": "https://github.com/soulsmods/DSMapStudio/tree/97bc264cbc3e82a783eb017f57edf651f8ba000b",
       "version": "commit 97bc264cbc3e82a783eb017f57edf651f8ba000b",
@@ -64,6 +70,7 @@
     },
     {
       "id": "official.patch-1.03",
+      "authority_domain": "external_game",
       "kind": "official_documentation",
       "locator": "https://en.bandainamcoent.eu/dark-souls/news/dark-souls-remastered-patch-note-103",
       "version": "published 2018-07-10 for release 2018-07-11",
@@ -72,6 +79,7 @@
     },
     {
       "id": "official.steam-product",
+      "authority_domain": "external_game",
       "kind": "official_documentation",
       "locator": "https://store.steampowered.com/app/570940/DARK_SOULS_REMASTERED/",
       "version": "page retrieved 2026-07-21",
@@ -80,6 +88,7 @@
     },
     {
       "id": "official.web-manual-actions",
+      "authority_domain": "external_game",
       "kind": "official_documentation",
       "locator": "https://www.fromsoftware.jp/manual/darksoulsremastered/ps4/action1.html",
       "version": "web manual retrieved 2026-07-21",
@@ -88,6 +97,7 @@
     },
     {
       "id": "official.web-manual-equipment",
+      "authority_domain": "external_game",
       "kind": "official_documentation",
       "locator": "https://www.fromsoftware.jp/manual/darksoulsremastered/ps4/menu2.html",
       "version": "web manual retrieved 2026-07-21",
@@ -96,11 +106,21 @@
     },
     {
       "id": "paramdex.ds1r-defs",
+      "authority_domain": "external_game",
       "kind": "open_source",
       "locator": "https://github.com/soulsmods/Paramdex/tree/ff7245e524329bc3eab00036723d2bd53384cedf/DS1R/Defs",
       "version": "commit ff7245e524329bc3eab00036723d2bd53384cedf",
       "confidence": "primary",
       "notes": "Pins DS1R parameter field shapes and domains; PARAMDEF structure alone does not prove concrete shipped-row values."
+    },
+    {
+      "id": "schema2-coverage-contract",
+      "authority_domain": "schema_contract",
+      "kind": "official_documentation",
+      "locator": "libs/gda-balancing/docs/standard-schema-2.0/genre-coverage.md",
+      "version": "feat/standard-schema-2.0-spec fork at 2026-07-21",
+      "confidence": "primary",
+      "notes": "Authority only for Schema modeling and refusal obligations; never for external-game facts."
     }
   ],
   "mechanics": [
@@ -237,6 +257,9 @@
         {
           "id": "dsr.longsword-base-positive",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "upgrade_level": 0,
             "strength": 10,
@@ -249,15 +272,18 @@
             "requirement_outcome": "equipped_effective",
             "full_scaled_attack_rating": "not asserted until correction-graph rows are captured"
           },
-          "source_refs": [
-            "community.longsword",
-            "official.web-manual-equipment",
-            "paramdex.ds1r-defs"
-          ]
+          "evidence_refs": {
+            "external_game": ["community.longsword","official.web-manual-equipment","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         },
         {
           "id": "dsr.longsword-requirement-outcome",
           "kind": "outcome",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "upgrade_level": 0,
             "strength": 9,
@@ -269,15 +295,18 @@
             "base_definition_remains": 80,
             "effective_attack_rating": "not asserted"
           },
-          "source_refs": [
-            "community.longsword",
-            "official.web-manual-equipment",
-            "paramdex.ds1r-defs"
-          ]
+          "evidence_refs": {
+            "external_game": ["community.longsword","official.web-manual-equipment","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         },
         {
           "id": "dsr.longsword-upgrade-five-boundary",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "from_upgrade_level": 0,
             "to_upgrade_level": 5,
@@ -289,7 +318,11 @@
             "total_titanite_shards_consumed": 9,
             "upgrade_transitions": 5
           },
-          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["community.longsword","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         }
       ]
     },
@@ -449,6 +482,9 @@
         {
           "id": "dsr.stamina-action-positive",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "current_stamina": 30,
             "declared_probe_cost": 20,
@@ -460,11 +496,18 @@
             "final_stamina": 10,
             "outcome": "completed"
           },
-          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["official.web-manual-actions","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         },
         {
           "id": "dsr.stamina-insufficient-outcome",
           "kind": "outcome",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "current_stamina": 19,
             "declared_probe_cost": 20
@@ -475,11 +518,18 @@
             "final_stamina": 19,
             "scheduled_resolution_count": 0
           },
-          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["official.web-manual-actions","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         },
         {
           "id": "dsr.stamina-capacity-boundary",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "endurance": 40,
             "current_stamina": 159,
@@ -493,7 +543,11 @@
             "final_stamina": 160,
             "outcome": "capacity_reached"
           },
-          "source_refs": ["community.endurance-stamina", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["community.endurance-stamina","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         }
       ]
     },
@@ -595,6 +649,9 @@
         {
           "id": "dsr.split-damage-positive",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "weapon": "Lightning Longsword +5",
             "motion_value_percent": 100,
@@ -615,15 +672,18 @@
             "pre_postmodifier_total": 160,
             "component_order": ["physical", "lightning"]
           },
-          "source_refs": [
-            "community.damage-function",
-            "community.longsword",
-            "paramdex.ds1r-defs"
-          ]
+          "evidence_refs": {
+            "external_game": ["community.damage-function","community.longsword","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         },
         {
           "id": "dsr.damage-equal-ratio-boundary",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "motion_value_percent": 100,
             "attack_components": {"physical": 80},
@@ -634,11 +694,18 @@
             "post_defense_components": {"physical": 32},
             "pre_postmodifier_total": 32
           },
-          "source_refs": ["community.damage-function", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["community.damage-function","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         },
         {
           "id": "dsr.damage-kind-mismatch-refusal",
           "kind": "refusal",
+          "claim_subject": "schema_boundary",
+          "claim_status": "contractual",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "attack_components": {"physical": 80},
             "defense_components": {"poison_resistance": 80}
@@ -648,7 +715,11 @@
             "reason": "nominal damage/defense kind mismatch",
             "health_write_count": 0
           },
-          "source_refs": ["community.damage-function", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["community.damage-function","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": ["schema2-coverage-contract"]
+          }
         }
       ]
     },
@@ -783,6 +854,9 @@
         {
           "id": "dsr.poison-mist-positive",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "initial_buildup": 0,
             "resistance_threshold": 100,
@@ -798,11 +872,18 @@
             "total_scheduled_damage": 675,
             "expiry_cause": "duration_elapsed"
           },
-          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["community.poison","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         },
         {
           "id": "dsr.poison-threshold-boundary",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "initial_buildup": 99,
             "resistance_threshold": 100,
@@ -815,11 +896,18 @@
             "effect_instance_count": 1,
             "scheduled_expiry_count": 1
           },
-          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["community.poison","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         },
         {
           "id": "dsr.poison-immunity-outcome",
           "kind": "outcome",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "initial_buildup": 90,
             "resistance_threshold": 100,
@@ -832,7 +920,11 @@
             "effect_instance_count": 0,
             "scheduled_event_count": 0
           },
-          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["community.poison","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         }
       ]
     },
@@ -950,6 +1042,9 @@
         {
           "id": "dsr.longsword-purchase-positive",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "initial_souls": 1000,
             "quote_souls": 1000,
@@ -962,11 +1057,18 @@
             "longswords_transferred": 1,
             "ledger_balanced": true
           },
-          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["community.longsword","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         },
         {
           "id": "dsr.longsword-purchase-insufficient",
           "kind": "outcome",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "initial_souls": 999,
             "quote_souls": 1000,
@@ -978,11 +1080,18 @@
             "soul_debit": 0,
             "longswords_transferred": 0
           },
-          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["community.longsword","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         },
         {
           "id": "dsr.longsword-reinforcement-material-boundary",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "initial_upgrade_level": 0,
             "target_upgrade_level": 5,
@@ -996,7 +1105,11 @@
             "material_retired": 9,
             "base_physical_attack": 120
           },
-          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["community.longsword","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         }
       ]
     },
@@ -1093,6 +1206,9 @@
         {
           "id": "dsr.lock-target-singleton-positive",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "lock_radius_m": "15.0",
             "candidates": [
@@ -1117,11 +1233,18 @@
             "target_count": 1,
             "outcome": "selected"
           },
-          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["official.web-manual-actions","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         },
         {
           "id": "dsr.lock-target-out-of-range-outcome",
           "kind": "outcome",
+          "claim_subject": "game_mapping",
+          "claim_status": "corroborated",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "lock_radius_m": "15.0",
             "candidates": [
@@ -1140,7 +1263,11 @@
             "target_count": 0,
             "outcome": "empty"
           },
-          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+          "evidence_refs": {
+            "external_game": ["official.web-manual-actions","paramdex.ds1r-defs"],
+            "research_synthesis": [],
+            "schema_contract": []
+          }
         }
       ]
     }
