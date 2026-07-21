@@ -44,13 +44,13 @@ distribution contract and a falsifiable definition of genre completeness.
 
   | Package | Owns | Does not own |
   |---|---|---|
-  | `game.entity` | entity identity, components, faction/team/relationship, dynamic entity sets | targeting or action lifecycle |
-  | `game.resource` | current/capacity, cost, regeneration, reservation and transfer | action timing or damage stages |
+  | `game.entity` | entity identity, components, defeat/revival state storage, faction/team/relationship, dynamic entity sets | combat resolution, defeat/revival transition policy, targeting, or action lifecycle |
+  | `game.resource` | typed current/capacity storage including health/shield-like quantities, cost, regeneration, reservation and transfer | action timing, damage/healing stages, or lifecycle transition policy |
   | `game.query` | typed target filters, ordering, cardinality, tie-break and empty behavior | target-side effects |
   | `game.check` | threshold/opposed checks, hit resolution, dice/pools, advantage and success degree | damage application |
   | `game.action` | requirements, resource commitment, wind-up/channel, cooldown, completion and interruption | target enumeration or damage math |
   | `game.effect` | application/capture, contributions, transitions, schedule, stacking/reapply/remove and immunity contracts | action lifecycle or combat pipeline |
-  | `game.combat` | typed damage/healing stages, criticals, mitigation/resistance, shields and defeat state | generic effect lifetime or inventory |
+  | `game.combat` | typed damage/healing stages, criticals, mitigation/resistance, shield resolution and defeat/revival transition policy | entity/resource state storage, generic effect lifetime or inventory |
   | `game.build` | equipment/skill/perk selection, prerequisites, exclusivity, slots and synergy declarations | item ownership or reward sampling |
   | `game.progression` | XP, levels, growth, unlocks and progression gates | currency exchange or run reset |
   | `game.economy` | currency, inventory, sources/sinks, transfer, exchange and pricing | stochastic reward selection |
