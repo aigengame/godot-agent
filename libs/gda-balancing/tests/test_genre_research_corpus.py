@@ -266,6 +266,54 @@ def test_schema_contract_cannot_promote_provisional_game_evidence() -> None:
         _validate_corpus(corpus)
 
 
+@pytest.mark.parametrize("kind", ["community_reference", "research"])
+def test_low_authority_source_kinds_cannot_claim_primary(kind: str) -> None:
+    corpus = _load(RESEARCH / "games" / "vampire-survivors" / "corpus.json")
+    source = next(source for source in corpus["sources"] if source["kind"] == kind)
+    source["confidence"] = "primary"
+
+    with pytest.raises(ValidationError):
+        _validate_corpus(corpus)
+
+
+def test_community_reference_cannot_promote_game_claim_by_claiming_primary() -> None:
+    corpus = _load(RESEARCH / "games" / "vampire-survivors" / "corpus.json")
+    oracle = corpus["mechanics"][0]["oracle_vectors"][0]
+    source_id = oracle["evidence_refs"]["external_game"][0]
+    source = next(source for source in corpus["sources"] if source["id"] == source_id)
+    assert source["kind"] == "community_reference"
+    assert source["confidence"] == "provisional"
+    assert oracle["claim_status"] == "candidate"
+
+    source["confidence"] = "primary"
+    oracle["claim_status"] = "corroborated"
+
+    with pytest.raises(ValidationError):
+        _validate_corpus(corpus)
+
+
+@pytest.mark.parametrize(
+    ("authority_domain", "invalid_kind"),
+    [
+        ("research_synthesis", "official_documentation"),
+        ("schema_contract", "research"),
+    ],
+)
+def test_authority_domains_reject_invalid_source_kinds(
+    authority_domain: str, invalid_kind: str
+) -> None:
+    corpus = _load(RESEARCH / "games" / "vampire-survivors" / "corpus.json")
+    source = next(
+        source
+        for source in corpus["sources"]
+        if source["authority_domain"] == authority_domain
+    )
+    source["kind"] = invalid_kind
+
+    with pytest.raises(ValidationError):
+        _validate_corpus(corpus)
+
+
 def test_oracle_rejects_omitted_explicit_claim_status() -> None:
     corpus = _load(RESEARCH / "games" / "vampire-survivors" / "corpus.json")
     del corpus["mechanics"][0]["oracle_vectors"][0]["claim_status"]

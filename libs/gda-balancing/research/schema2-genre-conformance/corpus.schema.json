@@ -80,7 +80,56 @@
         "version": {"type": "string", "minLength": 1},
         "confidence": {"enum": ["primary", "corroborated", "provisional"]},
         "notes": {"type": "string"}
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"confidence": {"const": "primary"}},
+            "required": ["confidence"]
+          },
+          "then": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "shipped_data",
+                  "open_source",
+                  "official_documentation",
+                  "runtime_observation"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {"enum": ["community_reference", "research"]}
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "confidence": {"enum": ["corroborated", "provisional"]}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"authority_domain": {"const": "research_synthesis"}},
+            "required": ["authority_domain"]
+          },
+          "then": {"properties": {"kind": {"const": "research"}}}
+        },
+        {
+          "if": {
+            "properties": {"authority_domain": {"const": "schema_contract"}},
+            "required": ["authority_domain"]
+          },
+          "then": {
+            "properties": {"kind": {"const": "official_documentation"}}
+          }
+        }
+      ]
     },
     "mechanic": {
       "type": "object",
