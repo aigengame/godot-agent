@@ -85,6 +85,20 @@ structured formal judgments, and an honest proof/conformance boundary.
   Runtime/Numeric-profile laws, and a Schema-major review. Merely registering or naming a
   host-language function is never enough.
 
+- **Operation admission is one closed judgment, not a collection of trusted declarations.** The
+  Kernel closes every known node's exact fields. LDB rules validate signature and parameter use,
+  result variants/payload types, kind/unit/Numeric-profile references, purity, and the complete
+  signal/event/cancel/random/state effect surface; they derive effects and resource counts from the
+  program and require exact agreement with declared bounds. Malformed support/domain data or bound
+  types produce typed static Diagnostics, never host exceptions. HIR-to-RIR projects the complete
+  selected Operation, and runtime admission revalidates that projection against the exact selected
+  package release and Lock.
+
+- **Experiment selection and acceptance semantics are language judgments.** The LDB supplies closed
+  typing/evaluation laws for exact-model input overrides, event-sequence references, Metric
+  selectors, empty/missing behavior, and acceptance expressions. Implementations may optimize
+  those judgments but cannot replace them with scenario conditionals or post-hoc host decisions.
+
 - **Name resolution is explicit and deterministic.** Packages contain named modules. Imports are
   selective or explicitly aliased; wildcard imports are forbidden. A declaration or local binding
   cannot shadow another visible binding. Duplicate declarations, unresolved names, and ambiguous
@@ -187,6 +201,11 @@ structured formal judgments, and an honest proof/conformance boundary.
   does not satisfy this decision. A passing conformance implementation must independently implement
   the Kernel Specification's complete bundle bootstrap and node/judgment laws, not parallel
   handwritten registries or coordinated host-semantic dispatch tables.
+- The disposable orthogonality probe demonstrated that closed generic nodes can carry one selected
+  package slice through static projection and runtime admission without RPG-specific dispatch. Its
+  checker, Diagnostic construction, selector, acceptance, and evaluator remain one handwritten
+  Python interpretation; the result refines the required judgments above but does not satisfy this
+  decision or close the Semantic-authority gate.
 - `docs/standard-schema-2.0/` records the open Genre coverage contract and executable-specification
   gates. It deliberately contains no placeholder bundle: #534 remains open until a closed bootstrap
   schema, exhaustive rules, artifact shapes, profiles, and executable vectors are supplied together.
@@ -212,6 +231,10 @@ structured formal judgments, and an honest proof/conformance boundary.
 - Removing or mutating every consulted Language rule must either change canonical bundle/RIR
   identity and specified behavior or produce the same closed refusal in each implementation; a host
   conditional cannot preserve the old behavior behind the changed rule.
+- Mutate known-node extra fields, Operation signatures/parameters/results/kind-unit-profile rules,
+  purity/effects/resource bounds, Quantity support shapes, Experiment selectors, and acceptance.
+  Independent consumers must produce the same typed Diagnostic before partial HIR/RIR/Evaluation;
+  a reidentified but semantically inconsistent RIR projection must fail runtime admission.
 - At least two evaluators that share no host primitive implementation execute each other's RIR and
   agree on operation, Numeric, RNG, scheduler, effect, trace, Metric, and refusal vectors under the
   same Runtime profile definition and their honestly distinct evaluator-bound Resolved Runtime

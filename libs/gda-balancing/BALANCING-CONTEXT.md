@@ -97,8 +97,9 @@ _Avoid_: Source Package (unqualified), design bundle, model config
 The authored authority for scenarios, Metric definitions, targets, sampling/replication design,
 observation and discrepancy models, calibration policy, train/holdout partition, acceptance rule,
 and drift policy. It references an exact `Resolved Model` identity or a declared compatibility
-contract and may bind inputs, but it cannot redefine the model. Exact RIR binding is immutable;
-compatibility binding must resolve to one exact RIR before execution and produce an identified
+contract and may bind inputs, but it cannot redefine the model. Exact Resolved-Model binding is
+immutable; compatibility binding may compare RIR semantic payloads but must resolve to one exact
+Resolved Model before execution and produce an identified
 final-binding receipt. Changing RIR semantics therefore creates a new Experiment Specification
 identity or an explicit, reviewable compatibility-resolution result, never a silent rebind. The
 specification is versioned and hashed independently so evidence identifies both model and
@@ -113,19 +114,28 @@ does not copy or mutate those artifacts. A boolean flag without that evidence ch
 Approval Record (bADR-0012/0018).
 _Avoid_: approval flag, approved model, sign-off note
 
-**Resolved Model (RIR)**:
-The immutable, canonical, content-addressed public intermediate representation produced by
-resolving and compiling a `Model Source Package` under one Schema-major Kernel Specification,
-`Language Definition Bundle`, and generated `Package Lock`. It contains no unresolved name or
-authoring sugar and is the normative
-cross-evaluator semantic boundary and execution authority for the exact build it represents. Its
-identity-bearing form contains semantic normal-form data only: source order, aliases, comments,
-spans, AST/HIR identities, lowering traces, and diagnostic provenance are excluded. It is never an
-authored authority or an editable interchange format (bADR-0012/0013).
-_Avoid_: compiled config, authored IR, normalized source, evaluator plan
+**RIR semantic payload**:
+The immutable canonical semantic normal form produced after Typed HIR. It contains only selected,
+reachable facts that can affect specified observable behavior: resolved symbols and types,
+operation bodies/signatures/effects/results, state and event semantics, and other admitted runtime
+fragments. Source order, aliases, comments, spans, AST/HIR identities, lowering traces, diagnostic
+provenance, and unselected Language Definition Bundle inventory are excluded. If an unused package
+is added to the bundle without changing resolution ambiguity or the selected closure, this payload
+and its content identity remain byte-identical (bADR-0013/0016).
+_Avoid_: Resolved Model (the authority wrapper), compiled source tree, evaluator plan
+
+**Resolved Model**:
+The immutable, content-addressed public execution-authority artifact for one exact build. Its
+identity binds the exact Schema-major Kernel Specification, exact whole `Language Definition
+Bundle`, canonical selected-closure `Package Lock`, and one `RIR semantic payload`. The wrapper
+therefore changes when the exact bundle changes even when an unused-package edit leaves the Lock
+and RIR payload byte-identical. It is the normative cross-evaluator boundary for that exact build,
+not an authored authority or editable interchange format (bADR-0012/0013).
+_Avoid_: RIR semantic payload (unqualified), authored model, normalized source
 
 **Debug Map**:
-A separately content-addressed, non-semantic artifact that binds one exact RIR identity to source
+A separately content-addressed, non-semantic artifact that binds one exact RIR semantic-payload
+identity to source
 spans, AST/HIR identities, lowering traces, and diagnostic provenance. It may change without
 changing an equivalent RIR and cannot affect compilation or runtime behavior (bADR-0013/0022).
 _Avoid_: RIR metadata, semantic provenance, embedded source map
@@ -140,15 +150,28 @@ the same semantic artifacts (bADR-0013).
 _Avoid_: compiler identity in RIR, semantic build id, Resolved Model provenance field
 
 **Package Lock**:
-The generated, content-addressed proof of the exact transitive dependency graph, constraints,
-selected package identities, capability-provider bindings, type/conversion closure,
+The generated, content-addressed proof of the exact **selected transitive closure**: dependency
+graph and constraints, exact package-release identities, capability-provider bindings,
+type/conversion closure,
 operation-version bindings, normative resolution-algorithm/profile identity, and deterministic
 conflict disposition used to build a `Resolved Model`. It projects the Model Source Package's
 requirements through the
 Language Definition Bundle's compatibility rules; it is reproducibility evidence, not an
 independently authored authority. One package id resolves to one exact version; incompatible majors
-require distinct namespaces or an explicit adapter package (bADR-0012/0016).
+require distinct namespaces or an explicit adapter package. It does not copy the whole bundle
+inventory: adding an unselected package must leave Lock bytes unchanged when it introduces no
+candidate/capability ambiguity and the selected closure is otherwise identical (bADR-0012/0016).
 _Avoid_: dependency config, package manifest, lock authority
+
+**Domain package release**:
+One immutable, content-addressed, namespaced package artifact admitted by a Language Definition
+Bundle. It closes metadata and semantic version, dependencies/capabilities, exported Quantity
+kinds/units/profiles/types, complete Operation contracts and bodies, Diagnostics, and normative
+vectors under one release identity; Package Lock binds that exact identity. Reusing one package
+id/version for different content is refused within an admitted bundle. Historical uniqueness
+across independently published bundles requires an explicit release-index/transparency authority
+and is not established by a content hash or semantic-version string alone (bADR-0016).
+_Avoid_: package registry entry, evaluator plugin, split operation registry
 
 **Resolution receipt**:
 A separately identified, non-semantic provenance artifact binding the source requirements,
@@ -249,9 +272,11 @@ _Avoid_: automatic cast, unit normalization (when implicit), compatibility shim
 
 **Capability manifest**:
 The generated inventory of exact packages, operations, types, conversions, Numeric profiles, and
-runtime capabilities available in one Resolved Model. It is a complete projection of the closed
-Package Lock plus RIR for negotiation and evidence, cannot invent or omit inventory, and is not
-authored independently (bADR-0016).
+runtime capabilities available in one Resolved Model. Its inventory payload is a complete
+projection of the selected Package Lock plus RIR semantic payload for negotiation and evidence and
+cannot invent or omit inventory. That inventory remains equal under an unused-package edit, while a
+published manifest artifact that binds the exact Resolved Model wrapper receives a new artifact
+identity. It is never authored independently (bADR-0013/0016).
 _Avoid_: feature list, plugin registry, package manifest
 
 **Reference-standard mapping**:
@@ -318,11 +343,11 @@ _Avoid_: runtime AST, resolved tree, executable model
 The high-level intermediate representation after complete name resolution, type checking, unit
 checking, and static legality checks. It retains source-level structure and provenance useful for
 diagnostics, but every semantically relevant reference and operation is explicit. Its lowering to
-the `Resolved Model (RIR)` must preserve the specified observable behavior (bADR-0013).
+the `RIR semantic payload` must preserve the specified observable behavior (bADR-0013).
 _Avoid_: typed AST (when resolution is incomplete), runtime model, execution plan
 
 **Execution IR (EIR)**:
-An evaluator-specific lowering of one `Resolved Model (RIR)` into layouts, schedules, kernels, or
+An evaluator-specific lowering of one `RIR semantic payload` into layouts, schedules, kernels, or
 other execution details. EIR is neither a stable Standard Schema interchange contract nor a
 language authority; an evaluator proves its behavior against RIR through the reference evaluator,
 normative vectors, and differential tests. Persisted EIR is only a versioned evaluator cache
@@ -579,7 +604,8 @@ _Avoid_: environment, evaluator configuration, resolved execution identity
 
 **Resolved Runtime profile**:
 The generated, content-addressed admission artifact that resolves one Runtime profile definition
-against an exact Schema-major Kernel Specification, Language Definition Bundle, Package Lock/RIR,
+against an exact Schema-major Kernel Specification, Language Definition Bundle, Package Lock,
+Resolved Model/RIR semantic payload,
 evaluator build, platform/runtime scope, and concrete deterministic budgets. It is validated before
 initialization; execution refuses an undeclared or incompatible stream, effect, primitive, profile,
 or budget. An exact replay identity claim requires this profile and every other reproduction input
@@ -590,7 +616,8 @@ _Avoid_: Runtime profile definition, ambient environment, runtime config
 **Cross-evaluator comparison**:
 An immutable conformance artifact comparing observations from independent evaluator realizations
 whose Resolved Runtime profiles intentionally differ. It binds both profiles plus the exact common
-Kernel Specification, Language Definition Bundle, Package Lock/RIR, Runtime profile definition,
+Kernel Specification, Language Definition Bundle, Package Lock, Resolved Model/RIR semantic
+payload, Runtime profile definition,
 Experiment Specification, external inputs, seed, declared portable-observation policy, and every
 match/mismatch. A positive result may support a `cross_evaluator_conformant` Evidence assertion; it
 is never a `Replay comparison` and cannot satisfy `reproducible` (bADR-0014/0018/0022).

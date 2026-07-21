@@ -93,6 +93,12 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   Undo is represented by an explicit compensating event or a higher-level rollback model, not by
   scheduler time travel.
 
+- **Gameplay compensation is not Event rollback.** Package outcomes such as refund, release,
+  reversal, or compensation are ordinary committed domain transitions and may occur in a later
+  Event. `rollback` is reserved for discarding the currently refusing Event's uncommitted buffers;
+  it never erases an earlier Snapshot. A terminal audit must distinguish prior committed state from
+  the refusing Event's discarded writes, events, cancellations, and RNG draws.
+
 - **External input enters only at declared boundaries.** Each input carries a stable source identity
   and monotonically increasing source sequence. At an input boundary, the runtime admits inputs in
   `(source identity, source sequence)` order into the fixed input phase. Duplicate, missing when the
@@ -129,7 +135,8 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   requirements, overflow, and portability constraints. It contains no owning-bundle identity,
   evaluator build, host platform, or deployment fact. Before the first event, tooling generates and
   validates a **Resolved Runtime profile** binding one selected definition to the exact Kernel
-  Specification, Language Definition Bundle, Package Lock/RIR, evaluator/platform scope, and
+  Specification, Language Definition Bundle, selected Package Lock, Resolved Model/RIR semantic
+  payload, evaluator/platform scope, and
   concrete deterministic budgets. A missing, incompatible, or out-of-profile primitive/effect is a
   stage-appropriate refusal; host code may not execute behavior merely because it implements it.
   During execution, budget and declared-effect accounting is deterministic and observable.
@@ -144,7 +151,8 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   match. Independent evaluators truthfully produce different evaluator/platform-bound Resolved
   Runtime profiles, so their observations are compared only through a separately typed
   **Cross-evaluator comparison**. That comparison binds both profiles, the exact common Kernel
-  Specification/LDB/Package Lock/RIR/Runtime-profile-definition/Experiment/input/seed identities,
+  Specification/LDB/Package Lock/Resolved-Model/RIR-semantic-payload/Runtime-profile-definition/
+  Experiment/input/seed identities,
   and an LDB-owned portable-observation policy. It may support `cross_evaluator_conformant` Evidence
   under bADR-0018, but it is not replay and cannot issue `reproducible`.
 
@@ -197,10 +205,12 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 
 ## Validation
 
-- Repeat one run under the same RIR, Experiment Specification, Resolved Runtime profile, external
+- Repeat one run under the same exact Resolved Model wrapper/RIR semantic payload, Experiment
+  Specification, Resolved Runtime profile, external
   inputs, and effective seed; compare ordered events, committed Snapshot hashes, Named-stream draws,
   Metric observations, terminal status, and terminal-audit artifacts through a Replay comparison.
-- Run the same RIR, Experiment Specification, Runtime profile definition, external inputs, and seed
+- Run the same exact Resolved Model wrapper/RIR semantic payload, Experiment Specification, Runtime
+  profile definition, external inputs, and seed
   through independent evaluators under their distinct Resolved Runtime profiles; require a
   separately typed Cross-evaluator comparison to bind both profiles and evaluate the exact declared
   portable observations. It must neither masquerade as Replay nor issue `reproducible`.
@@ -210,6 +220,11 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 - Inject a fault after an event has buffered writes, RNG draws, cancellations, and children; assert
   all are rolled back, prior commits remain, and exactly one retrievable terminal-audit artifact set
   becomes visible with no completed success artifact.
+- Commit a resource reservation, then execute a later compensating interruption whose current
+  Event exceeds a deterministic budget. Assert the prior reservation Snapshot and trace remain,
+  only the current buffers are rolled back, and the terminal audit identifies the first refusing
+  Event plus a complete Diagnostic. Profile or Experiment admission refusal before dispatch must
+  produce no terminal audit.
 - Supply first-draw, stream-independence, mapping-boundary, bias-policy, counter-exhaustion, and
   Numeric overflow/rounding vectors whose canonical observations agree across implementations.
 

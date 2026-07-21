@@ -18,7 +18,7 @@ an explicit boundary for lowering equivalence.
 
 - **The Standard Schema 2.x compilation and execution pipeline is:**
 
-  `Wire representation → Authoring AST → Typed HIR → Resolved Model IR (RIR) → Execution IR (EIR) → Runtime`
+  `Wire representation → Authoring AST → Typed HIR → RIR semantic payload → Resolved Model → Execution IR (EIR) → Runtime`
 
   The arrows are one-way transformations. An implementation may fuse stages internally for
   performance, but it must expose the same diagnostics and conform at the RIR boundary as though
@@ -40,35 +40,43 @@ an explicit boundary for lowering equivalence.
   source-level structure and provenance for diagnostics, but no unresolved name or implicit
   semantic coercion survives it.
 
-- **RIR is the canonical public semantic boundary.** Lowering removes authoring sugar, closes the
-  dependency graph, normalizes declarations and operations, and emits an immutable semantic normal
-  form. Identity-bearing RIR contains only facts that can affect specified observable behavior; it
-  excludes source spans, module ordering, aliases, comments, AST/HIR identities, lowering traces,
-  and diagnostic provenance. A serialized RIR plus exact Schema-major Kernel Specification,
-  Language Definition Bundle, and Package Lock identities is content-addressed as the Resolved
-  Model. Compiler/tool identity is non-semantic build provenance recorded in a separate Build
-  receipt; it cannot change the Resolved Model identity. Independent conforming evaluators accept
-  RIR rather than reinterpreting authored source.
+- **RIR semantic payload is the canonical public semantic boundary.** Lowering removes authoring
+  sugar, closes the selected dependency graph, normalizes declarations and operations, and emits an
+  immutable semantic normal form. Its identity is
+  `H(canonical reachable semantic payload)` and contains only facts that can affect specified
+  observable behavior. Source spans, module ordering, aliases, comments, AST/HIR identities,
+  lowering traces, diagnostic provenance, and unselected bundle inventory are excluded.
 
-- **Runtime-required LDB semantics are embedded as one canonical RIR projection.** RIR carries the
+- **Resolved Model is the exact-build execution-authority wrapper.** Its identity is
+  `H(exact Kernel identity, exact whole-LDB identity, selected Package-Lock identity, RIR semantic
+  payload identity)`. Compiler/tool identity remains non-semantic provenance in a separate Build
+  receipt. Independent conforming evaluators consume the Resolved Model and its RIR payload rather
+  than reinterpreting authored source. Two wrappers may therefore carry byte-identical semantic
+  payloads without being the same exact build, runtime profile, Experiment binding, or Replay
+  subject.
+
+- **Runtime-required selected LDB semantics are embedded as one canonical RIR projection.** RIR carries the
   normalized operation bodies, signatures, effects, variants, and other admitted semantic fragments
   reachable from the model; an evaluator does not choose between embedding them and dynamically
-  dereferencing alternate LDB representations. The exact LDB identity and projection law remain the
-  authority, so embedding is duplication for execution, not a peer definition. Runtime admission
-  rehashes Kernel/LDB/Lock/RIR and verifies that every embedded fragment is the canonical projection
-  of the bound LDB/Package Lock before execution. Evaluator-specific projection choices or host
-  fallbacks are non-conforming.
+  dereferencing alternate LDB representations. The exact whole LDB remains authority through the
+  Resolved Model wrapper, while the selected Package Lock closes the reachable package/type/
+  capability/profile/operation inputs to the projection. Runtime admission rehashes every wrapper
+  member and verifies that every embedded fragment is the complete canonical projection of the
+  bound selected release and Lock before execution. Evaluator-specific projection choices, partial
+  Operation comparisons, or host fallbacks are non-conforming.
 
 - **HIR-to-RIR lowering must preserve specified observable behavior.** For any well-typed model,
   the RIR preserves its exported typed values and units; initialization; readable state;
   transitions; emitted signals and events; event-ordering inputs; named random-stream identity;
   terminal outputs; and declared runtime refusals. Source spans, module layout, comments, aliases,
-  eliminated sugar, and diagnostic provenance are non-semantic and cannot enter RIR identity.
+  eliminated sugar, and diagnostic provenance are non-semantic and cannot enter RIR semantic-
+  payload identity.
   bADR-0022 makes these observations and the lowering relation structured Language rules in the
   Language Definition Bundle.
 
 - **Diagnostic provenance is a separate Debug Map.** A compiler may emit one immutable,
-  content-addressed Debug Map that binds the exact RIR identity to source spans, AST/HIR identities,
+  content-addressed Debug Map that binds the exact RIR semantic-payload identity to source spans,
+  AST/HIR identities,
   lowering-rule applications, and diagnostic locations. The map is a build companion for tooling,
   not part of RIR, execution authority, semantic equivalence, or the Resolved Model identity. A
   source-only change may therefore change the Debug Map while leaving byte-identical RIR. A
@@ -78,8 +86,10 @@ an explicit boundary for lowering equivalence.
 - **EIR is evaluator-specific and non-normative.** An evaluator may lower RIR into specialized
   layouts, schedules, kernels, bytecode, or other plans. EIR is not a stable Standard Schema
   interchange format and cannot add language operations or observable behavior. If persisted, it
-  is an evaluator-versioned cache keyed by the exact RIR, evaluator build, target, and numeric
-  profile; evidence remains anchored to the RIR and evaluator identities rather than EIR encoding.
+  is an evaluator-versioned cache keyed by the exact Resolved Model and RIR semantic payload,
+  evaluator build, target, and numeric
+  profile; evidence remains anchored to the exact Resolved Model, Experiment, Resolved Runtime
+  profile, and evaluator identities rather than EIR encoding.
 
 - **Conformance, not a universal proof obligation, guards RIR-to-EIR lowering.** The specification
   provides a reference evaluator for RIR plus normative positive, negative, limit, replay, and
@@ -119,7 +129,8 @@ an explicit boundary for lowering equivalence.
 - The bADR-0022 Kernel Specification carries irreducible interpreter/runtime semantics; the Language
   Definition Bundle carries parsing, name resolution, typing/effects, units, diagnostics, profiles,
   and HIR-to-RIR rules. A compiler must conform to both before claiming 2.x conformance.
-- RIR needs a canonical encoding, content-identity law, compatibility contract, and normative
+- RIR semantic payload and Resolved Model each need a canonical encoding, distinct content-identity
+  law, compatibility contract, and normative
   vectors. These are public Standard Schema surfaces.
 - Debug Map needs its own closed schema and identity law; build receipts may bind it without making
   its provenance fields semantic or changing the Resolved Model identity.
@@ -137,8 +148,14 @@ an explicit boundary for lowering equivalence.
 - Two accepted sources that differ only in aliases, module/declaration ordering, source spans,
   comments, or eliminated authoring sugar must produce byte-identical canonical RIR even when their
   AST, HIR, and Debug Map identities differ.
-- A change to a resolved type, operation, dependency, Runtime/Numeric profile-definition binding, or other
-  semantic observation must change RIR identity.
+- A change to a selected resolved type, operation, dependency, Runtime/Numeric profile-definition
+  binding, or other semantic observation must change RIR semantic-payload identity.
+- Add one unused package without changing candidate/capability ambiguity or selected transitive
+  closure. The whole-LDB and Resolved Model identities must change; Package Lock and RIR semantic
+  payload bytes must remain identical. Resolution/Build receipts and Resolved Runtime profile must
+  rebind to the new exact build. Byte-identical RIR payloads establish only payload identity;
+  executions under the different exact wrappers/profiles are not Replay and issue no comparison or
+  Evidence claim unless a separately specified judgment authorizes one.
 - Two independent lowerers must produce the same canonical RIR or the same closed lowering refusal
   for every positive, negative, limit, and semantic-equivalence vector.
 - Independent compilers processing equivalent source with the same Kernel Specification, bundle,

@@ -49,11 +49,16 @@ therefore requires a small closed type language and a constrained package extens
   record or attach undeclared fields. Additional behavior composes as a separate component and
   explicit operations over imported contracts.
 
-- **Every Domain package has one versioned, namespaced manifest in the Language Definition Bundle.**
-  It declares exact package identity; semantic version; required and optional dependency ranges;
+- **Every Domain package release is one complete, immutable artifact in the Language Definition
+  Bundle.** Its content identity covers the namespaced package id; semantic version; required and
+  optional dependency ranges;
   provided and required capabilities; exported types, components, operations, conversions, and
-  diagnostics; supported Numeric profiles; and normative-vector inventory. Package contents cannot
-  exist in an evaluator registry without appearing in this authority.
+  diagnostics; supported Numeric/Runtime profiles; complete Operation specifications/bodies; and
+  normative vectors. Splitting those facts across peer registries is prohibited. Package contents
+  cannot exist in an evaluator registry without appearing under this exact release identity.
+  Duplicate `(package id, version)` entries with different content are refused within one admitted
+  bundle. Historical uniqueness across independently published bundles needs an explicit release-
+  index/transparency authority; a semantic-version string alone does not prove it.
 
 - **Dependency resolution is deterministic and single-version per package id.** A Resolved Model
   binds one exact version for every package identity. Incompatible majors coexist only under
@@ -62,8 +67,9 @@ therefore requires a small closed type language and a constrained package extens
   and resolver contract. Empty, conflicting, or cyclic invalid solutions are `resolution` refusals
   with the bounded conflict set.
 
-- **Package Lock and Capability manifest close the complete graph, not a selected-name list.** The
-  lock records every transitive dependency edge and constraint, exact selected package and
+- **Package Lock and Capability manifest close the complete selected graph, not a shallow selected-
+  name list or the whole bundle inventory.** The lock records every selected transitive dependency
+  edge and constraint, exact selected package-release content identity and
   operation version, required/optional capability branch, provider selection, exported nominal type,
   explicit Conversion operation, supported Numeric/Runtime profile definition, and normative
   resolution-algorithm/profile identity needed by RIR. The generated Capability manifest is a
@@ -72,7 +78,10 @@ therefore requires a small closed type language and a constrained package extens
   provenance; it is never independently authored or completed from a broader evaluator registry.
   Missing closure, multiple providers without a declared deterministic choice, incompatible type or
   conversion graphs, or an operation/profile mismatch is a `resolution` refusal. Persisting skeleton
-  artifacts with package names does not establish resolution conformance.
+  artifacts with package names does not establish resolution conformance. Adding an unselected
+  package leaves Lock bytes unchanged only when it creates no candidate/capability ambiguity and
+  every selected closure member is identical; the exact whole LDB still rebinds the Resolved Model
+  under bADR-0013.
 
 - **Resolver implementation provenance is separate.** Package Lock contains the normative
   resolution algorithm/profile identity and semantic result only. A separately identified
@@ -97,6 +106,14 @@ therefore requires a small closed type language and a constrained package extens
   Language Definition Bundle; an irreducible primitive follows the Schema-major Kernel Specification
   amendment and conformance path in bADR-0022. Host evaluator code is a conforming implementation
   only.
+
+- **Operation closure is checked before RIR and revalidated before execution.** Closed Kernel-node
+  shapes reject even unknown fields on known nodes. Static judgments derive parameter use,
+  reachable result tags/payload types, state reads/writes, signal/event/cancel/random effects, and
+  resource counts, then require exact agreement with the selected release's declared signature,
+  kind/unit/Numeric rules, purity, effects, and bounds. Runtime admission compares the complete RIR
+  Operation projection to that exact selected release and rejects an LDB-present but Lock-unselected
+  operation. Reidentifying a partial or inconsistent artifact cannot make it executable.
 
 - **Expected gameplay branches use closed discriminated outcomes.** An operation whose declared
   game semantics can complete as `reserved`, `insufficient`, `immune`, `interrupted`, or another
@@ -185,6 +202,13 @@ therefore requires a small closed type language and a constrained package extens
 - Mutate one transitive constraint, capability provider, type, conversion, or operation version and
   assert the lock/manifest/RIR identity changes or resolution refuses; no hidden evaluator registry
   may keep the old build working.
+- Add an unused package without changing the selected closure or introducing resolution ambiguity;
+  assert byte-identical Package Lock and RIR semantic payload but changed whole-LDB and Resolved
+  Model identities. An LDB-present operation absent from the Lock must refuse at runtime admission.
+- Mutate every nested Operation surface: known-node extra fields, signature/parameters, result
+  variants and payloads, kind/unit/Numeric rules, purity, effects, and resource-bound shape/type/
+  value. Each malformed release must produce a typed refusal before RIR rather than a host
+  exception, and a consistently reidentified RIR projection must still fail runtime admission.
 - Exercise every declared gameplay-outcome variant and reject unknown discriminators, missing
   payloads, and non-exhaustive dependent branches before execution. Resource insufficiency,
   immunity, and legal interruption remain typed outcomes rather than Runtime refusals.

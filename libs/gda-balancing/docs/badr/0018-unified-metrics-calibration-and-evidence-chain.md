@@ -37,6 +37,14 @@ append-only evidence graph.
   acceptance rule, estimator policy, train/holdout partition, and drift policy. The Resolved Model
   exports typed state/events/outputs; it does not own targets or post-hoc acceptance criteria.
 
+- **Experiment inputs, selectors, event sequence, and acceptance are executable contracts.** An
+  input override is checked against the exact-bound Resolved Model symbol's representation,
+  nominal kind, unit, support/domain, and Numeric profile before dispatch. Metric selectors and
+  acceptance use closed LDB-governed expressions with normative typing, ordering, empty-selection,
+  missing-Metric, and identity laws. An empty selector set is legal only when the Experiment permits
+  zero Metrics and acceptance does not depend on a missing observation. A host scenario branch,
+  post-hoc selector, or fixed `satisfied` result cannot replace these authored semantics.
+
 - **An Evaluation run records execution facts without deciding success.** It binds the exact
   Resolved Model, Experiment Specification, Resolved Runtime profile, evaluator build, effective seed and
   Named random streams, external-input identity, ordered trace/snapshots, terminal status, and
@@ -111,7 +119,8 @@ append-only evidence graph.
 
 - **Independent-evaluator agreement is a separate Evidence claim.** A Cross-evaluator comparison
   binds two or more evaluator/platform-specific Resolved Runtime profiles, their exact common Kernel
-  Specification, Language Definition Bundle, Package Lock/RIR, Runtime profile definition,
+  Specification, Language Definition Bundle, Package Lock, Resolved Model/RIR semantic payload,
+  Runtime profile definition,
   Experiment Specification, external inputs, effective seed, LDB-owned portable-observation policy,
   observations, mismatches, and comparison-tool identity. Only a positive, independently validated
   comparison may issue `cross_evaluator_conformant`. It never satisfies `reproducible`; incompatible
@@ -172,6 +181,10 @@ append-only evidence graph.
   fixtures before issuing any assertion; add negative vectors for extra/missing fields,
   kind/unit/dimension mismatch, bad aggregation, unknown policy, identity mismatch, and absent
   prerequisite.
+- Bind one Experiment exactly to a Resolved Model and refuse it against a different wrapper even
+  when both wrappers carry the same RIR semantic payload. Exercise input support boundaries,
+  selector ordering and empty selection, missing selected Metrics, acceptance type/result changes,
+  and every identity mutation before Evaluation issuance.
 - Run an exact replay under one identical Resolved Runtime profile. Assert its positive Replay
   comparison can issue `reproducible`, mismatch returns a Verdict with field diagnostics, and a
   single run or mere replay intent cannot issue it.

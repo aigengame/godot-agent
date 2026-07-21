@@ -120,12 +120,15 @@ distribution contract and a falsifiable definition of genre completeness.
   lifecycle rows.
 
 - **Validation and implementation proofs remain ordered vertical slices.** The disposable
-  layer-connectivity and semantic-authority probes on PRD #534 are not conformance or Genre-closure
-  results. The semantic probe implementation passed its narrow vectors, but the design gate remains
-  open because Kernel/LDB laws still require independent execution rather than coordinated host
-  interpretation. The next independent probe exercises orthogonality: one ordinary attribute is a
-  Model Source-only edit, while each reusable resource/effect mechanic enters through one package/LDB
-  authority edit without RPG-specific core branches. Only after both design gates pass may a
+  layer-connectivity, semantic-authority, and orthogonality probes on PRD #534 are not conformance or
+  Genre-closure results. The semantic probe implementation passed its narrow vectors, but the design
+  gate remains open because Kernel/LDB laws still require independent execution rather than
+  coordinated host interpretation. The orthogonality mechanism probe also passed its selected
+  slice: one admitted generic Quantity attribute used a Model Source-only edit, while selected
+  resource/interruption/effect mechanics entered through complete package-release authorities and
+  generic core paths. It did not cover complete Effect semantics, executable language authority,
+  historical package identity, general solving, normative Evidence, or any Genre row. Only after
+  the remaining design gates pass may a
   production tracer claim the full source-to-RIR, target, cost, check/damage, effect, encounter,
   Metrics, Evidence, and public-CLI path. Supporting Golden scenarios isolate outcome, refusal,
   limit, and boundary cases; implementation does not build every package horizontally before a

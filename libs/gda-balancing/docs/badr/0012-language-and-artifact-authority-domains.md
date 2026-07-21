@@ -56,11 +56,13 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   source of truth.
 
 - **Generated build artifacts have execution authority, not authoring authority.** A **Package
-  Lock** is the generated result of resolving the Model Source Package's requirements under the
-  Language Definition Bundle's compatibility rules. A **Resolved Model** is the immutable,
-  content-addressed result of compiling that source with that lock and language bundle. The
-  Resolved Model is the execution authority for the exact build it represents, but neither it nor
-  the lock may be edited as a substitute for source.
+  Lock** is the generated selected-transitive-closure result of resolving the Model Source
+  Package's requirements under the Language Definition Bundle's compatibility rules. A canonical
+  **RIR semantic payload** is the reachable semantic normal form. A **Resolved Model** is the
+  immutable wrapper binding that payload to the exact Kernel, whole LDB, and Lock identities. The
+  wrapper is the execution authority for the exact build it represents, but none of these generated
+  artifacts may be edited as a substitute for source. A complete content-addressed Domain package
+  release is normative content inside the LDB, never an ambient peer registry.
 
 - **Artifact identity is independent of storage and transport.** Every public artifact has a closed
   envelope that binds its artifact kind, wire-schema identity, content identity, and normative
@@ -89,8 +91,9 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   Downstream artifacts may cache projections for transport, but identity and conflict checks make
   the owning upstream artifact decisive.
 
-- **Experiment binding is explicit and reviewable.** Exact binding never follows a rebuilt model to
-  a new identity. A changed Resolved Model therefore requires a new Experiment-Specification
+- **Experiment binding is explicit and reviewable.** Exact binding names the Resolved Model
+  wrapper, not only its RIR semantic-payload identity, and never follows a rebuilt model to a new
+  identity. A changed Resolved Model therefore requires a new Experiment-Specification
   identity or resolution of its declared compatibility contract. Compatibility binding must select
   exactly one Resolved Model before execution and publish a final binding receipt containing the
   selector, resolver identity, selected exact identity, and review disposition. Zero or multiple
@@ -130,7 +133,9 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   rule contract; language registries or schemas must be generated from the bundle or
   reverse-conformance checked against the authority chain.
 - The compiler boundary becomes explicit: Model Source Package plus Language Definition Bundle
-  resolves dependencies, emits a Package Lock, and builds an immutable Resolved Model.
+  resolves dependencies, emits a selected-closure Package Lock and canonical RIR semantic payload,
+  and builds an immutable exact-authority Resolved Model wrapper. A Resolution receipt still records
+  the exact whole LDB input even when an unused-package edit leaves the Lock unchanged.
 - Experiment, evidence, calibration, and approval artifacts must identify exact upstream content;
   mutation produces a new identity rather than changing prior evidence in place.
 - Public artifact schemas must define envelopes, content-identity verification, Locators, Receipts,
@@ -154,7 +159,8 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   partial set is retrievable; successful cross-process retrieval verifies every envelope and hash.
   Coherently rewriting stored members plus a reidentified receipt while retaining the committed
   publication-index anchor must also be rejected.
-- Exact-bound Experiments refuse a changed RIR identity. Compatibility-bound Experiments cover
+- Exact-bound Experiments refuse a changed Resolved Model identity even when the RIR semantic
+  payload remains equal. Compatibility-bound Experiments cover
   unique, zero-match, and ambiguous resolution and always record the final exact binding receipt.
 
 ## References

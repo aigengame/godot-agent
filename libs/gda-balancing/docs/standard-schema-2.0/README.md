@@ -39,6 +39,34 @@ Kernel-owned admission and LDB-owned post-admission Diagnostic semantics, static
 exhaustiveness, general package solving, complete terminal-audit schemas, store-adapter trust
 boundaries, and independent Evidence validation.
 
+The third disposable
+[orthogonality/extensibility probe](https://github.com/aigengame/godot-agent/commit/b81d8ec)
+passed 40 executable groups, the 1.x regression suite, lint/type checks, and repeated independent
+Standards/Spec mutation review after four repair rounds. In the selected slice it demonstrated an
+admitted generic Quantity attribute through Model Source only; complete content-addressed package
+releases for resource, interruption/refund, and effect lifecycle; closed Operation/result/effect/
+bound projections; exact Experiment input/selector/acceptance execution; selected-Lock runtime
+admission; prior-commit audit; descriptor-owned outcomes; and anchored local publication without
+RPG-specific compiler/runtime dispatch.
+
+This is an **Orthogonality/extensibility mechanism PASS, not a Schema, Semantic-authority, Genre,
+Replay, or Evidence PASS**. The probe exposed one identity ambiguity in the specification; the
+design authority adopts the matrix below, which still requires a normative metamorphic vector
+before acceptance:
+
+| Added unused package, selected closure unchanged | Required result |
+| --- | --- |
+| exact whole LDB identity | changes |
+| selected Package Lock | byte-identical |
+| RIR semantic payload | byte-identical |
+| exact-build Resolved Model wrapper | changes |
+| Resolved Runtime profile | changes |
+| old exact Experiment binding | becomes ineligible; a new Experiment identity or declared compatibility resolution must select the new wrapper |
+
+The probe also leaves historical package id/version uniqueness, executable selector/acceptance and
+Kernel/LDB judgments, general dependency solving, complete Effect breadth, portable publication,
+independent Evidence validation, and every RPG/Roguelike coverage row open.
+
 ## Next validation gates
 
 1. The completed semantic-authority probe remains an open **design gate** until the Kernel
@@ -46,13 +74,13 @@ boundaries, and independent Evidence validation.
    complete Source → HIR → RIR contracts, Kernel-owned admission and LDB-owned post-admission
    Diagnostic contracts are executable, and independent implementations pass the resulting
    mutation/refusal/Cross-evaluator vectors. Hand-coordinated evaluator agreement is insufficient.
-2. The next **Orthogonality/extensibility prototype** must add an ordinary Quantity attribute through
-   one Model Source-only edit, then add discriminated resource outcomes, interruption/refund, and
-   effect stacking/reapplication/removal through one normative package/LDB edit per reusable
-   mechanic. Every projection must be generated or reverse-conformance-checked, with no RPG-specific
-   core compiler/runtime branch. It is an independent design probe and cannot close the still-open
-   semantic-authority gate.
-3. A Roguelike cross-genre tracer follows only after both gates pass; it must reuse the same kernel,
+2. The completed **Orthogonality/extensibility mechanism probe** supplies the identity, package,
+   Operation, Experiment, audit, descriptor, and publication requirements above. Those requirements
+   still need normative Kernel/LDB judgments and production conformance vectors; disposable code
+   cannot close the acceptance criterion by itself.
+3. After executable Kernel/LDB authority passes independent bootstrap/lowerer/evaluator vectors, a
+   production RPG tracer must close its required vertical coverage rows and public artifact path.
+4. A Roguelike cross-genre tracer follows only after those gates pass; it must reuse the same kernel,
    package, runtime, artifact, and evidence contracts rather than creating parallel semantics.
 
 PRD #534 remains open until a later implementation/specification PR supplies and validates:
@@ -62,7 +90,8 @@ PRD #534 remains open until a later implementation/specification PR supplies and
 2. exhaustive machine rules for grammar, resolution, types/effects, evaluation, runtime steps, and
    HIR-to-RIR lowering;
 3. RIR semantic normal form with a separately identified Debug Map and independent-lowerer vectors;
-4. closed AST, Typed HIR, RIR, package/lock/capability, Runtime profile definition, Resolved Runtime
+4. closed AST, Typed HIR, RIR semantic payload, Resolved Model wrapper, package/lock/capability,
+   Runtime profile definition, Resolved Runtime
    profile, Experiment, Metrics, Evaluation run, Replay comparison, Cross-evaluator comparison,
    Evidence, artifact-envelope, receipt, and publication schemas;
 5. exact Numeric-profile and RNG/stream/sampling laws, including draw consumption and bias policy;
