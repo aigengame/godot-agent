@@ -1,0 +1,25 @@
+{
+  "artifact_kind": "model-source-package",
+  "manifest": {
+    "package_id": "example.invalid-rpg-tracer",
+    "requires": [{"id": "core", "version": "1.0.0"}],
+    "version": "0.0.0-prototype"
+  },
+  "modules": [
+    {
+      "declarations": [
+        {"id": "damage", "role": "parameter", "type": "Quantity:damage", "value": 10},
+        {"id": "mana", "role": "parameter", "type": "Quantity:mana", "value": 3},
+        {
+          "expression": {"args": [{"read": "damage"}, {"read": "mana"}], "op": "add"},
+          "id": "invalid_sum",
+          "role": "derived",
+          "type": "Quantity:damage"
+        }
+      ],
+      "id": "stats"
+    },
+    {"id": "combat", "imports": [{"alias": "stats", "module": "stats", "names": ["invalid_sum"]}]}
+  ],
+  "subscriptions": []
+}

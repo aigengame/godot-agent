@@ -1,0 +1,165 @@
+{
+  "artifact_kind": "model-source-package",
+  "manifest": {
+    "package_id": "example.rpg-tracer",
+    "requires": [
+      {"id": "core", "version": "1.0.0"},
+      {"id": "experiment.balance", "version": "1.0.0"},
+      {"id": "game.check", "version": "1.0.0"},
+      {"id": "game.combat", "version": "1.0.0"},
+      {"id": "game.effect", "version": "1.0.0"},
+      {"id": "game.entity", "version": "1.0.0"},
+      {"id": "game.query", "version": "1.0.0"},
+      {"id": "game.resource", "version": "1.0.0"}
+    ],
+    "version": "0.0.0-prototype"
+  },
+  "modules": [
+    {
+      "declarations": [
+        {"id": "base_damage", "role": "parameter", "type": "Quantity:damage", "value": 10},
+        {"id": "progression_bonus", "role": "parameter", "type": "Quantity:damage", "value": 3},
+        {"id": "build_bonus", "role": "parameter", "type": "Quantity:damage", "value": 2},
+        {"id": "effect_bonus", "role": "parameter", "type": "Quantity:damage", "value": 1},
+        {
+          "expression": {
+            "args": [
+              {"read": "base_damage"},
+              {"read": "progression_bonus"},
+              {"read": "build_bonus"},
+              {"read": "effect_bonus"}
+            ],
+            "op": "add"
+          },
+          "id": "spell_power",
+          "role": "derived",
+          "type": "Quantity:damage"
+        },
+        {"id": "mana_cost", "role": "parameter", "type": "Quantity:mana", "value": 4}
+      ],
+      "id": "stats"
+    },
+    {
+      "entities": [
+        {
+          "fields": {
+            "active": {"type": "Bool", "value": true},
+            "health": {"type": "Quantity:health", "value": 20},
+            "mana": {"type": "Quantity:mana", "value": 10},
+            "team": {"type": "Enum:team", "value": "heroes"}
+          },
+          "id": "mage",
+          "type": "Combatant"
+        },
+        {
+          "fields": {
+            "active": {"type": "Bool", "value": true},
+            "defeated": {"type": "Bool", "value": false},
+            "health": {"type": "Quantity:health", "value": 10},
+            "marked": {"type": "Bool", "value": false},
+            "mitigation": {"type": "Quantity:damage", "value": 1},
+            "shield": {"type": "Quantity:health", "value": 2},
+            "team": {"type": "Enum:team", "value": "enemies"}
+          },
+          "id": "goblin",
+          "type": "Combatant"
+        },
+        {
+          "fields": {
+            "active": {"type": "Bool", "value": true},
+            "team": {"type": "Enum:team", "value": "enemies"}
+          },
+          "id": "slime",
+          "type": "Combatant"
+        }
+      ],
+      "handlers": [
+        {
+          "calls": [
+            {
+              "arguments": {"actor": {"event": "actor", "type": "EntityRef:Combatant"}, "target_team": {"literal": "enemies", "type": "Enum:team"}},
+              "bind": "target",
+              "operation": "game.query.select@1"
+            },
+            {
+              "arguments": {"actor": {"event": "actor", "type": "EntityRef:Combatant"}, "amount": {"read": "stats.mana_cost"}, "slot": {"literal": "mana", "type": "Enum:resource-slot"}},
+              "bind": "reservation",
+              "operation": "game.resource.reserve@1"
+            },
+            {
+              "arguments": {"actor": {"event": "actor", "type": "EntityRef:Combatant"}, "critical_stream": {"literal": "combat.critical", "type": "Enum:stream"}, "critical_threshold": {"literal": 50, "type": "Int"}, "hit_stream": {"literal": "combat.hit", "type": "Enum:stream"}, "hit_threshold": {"literal": 100, "type": "Int"}, "target": {"local": "target"}},
+              "bind": "check",
+              "operation": "game.check.resolve@1"
+            },
+            {
+              "arguments": {"check": {"local": "check"}, "power": {"read": "stats.spell_power"}, "target": {"local": "target"}},
+              "bind": "damage",
+              "operation": "game.combat.resolve-damage@1"
+            },
+            {
+              "arguments": {"reservation": {"local": "reservation"}},
+              "operation": "game.resource.commit@1"
+            },
+            {
+              "arguments": {"priority": {"literal": -5, "type": "Int"}, "target": {"local": "target"}},
+              "operation": "core.runtime.schedule-observation@1"
+            }
+          ],
+          "declared_effects": ["emit:game.combat.damage-resolved@1", "read:state", "sample:combat.critical", "sample:combat.hit", "schedule:event", "write:state"],
+          "id": "cast"
+        },
+        {
+          "calls": [
+            {
+              "arguments": {"actor": {"event": "actor", "type": "EntityRef:Combatant"}, "target_team": {"literal": "enemies", "type": "Enum:team"}},
+              "bind": "target",
+              "operation": "game.query.select@1"
+            },
+            {
+              "arguments": {"actor": {"event": "actor", "type": "EntityRef:Combatant"}, "amount": {"read": "stats.mana_cost"}, "slot": {"literal": "mana", "type": "Enum:resource-slot"}},
+              "bind": "reservation",
+              "operation": "game.resource.reserve@1"
+            },
+            {
+              "arguments": {"actor": {"event": "actor", "type": "EntityRef:Combatant"}, "critical_stream": {"literal": "combat.critical", "type": "Enum:stream"}, "critical_threshold": {"literal": 50, "type": "Int"}, "hit_stream": {"literal": "combat.hit", "type": "Enum:stream"}, "hit_threshold": {"literal": 100, "type": "Int"}, "target": {"local": "target"}},
+              "bind": "check",
+              "operation": "game.check.resolve@1"
+            },
+            {
+              "arguments": {"check": {"local": "check"}, "power": {"read": "stats.spell_power"}, "target": {"local": "target"}},
+              "bind": "damage",
+              "operation": "game.combat.resolve-damage@1"
+            },
+            {
+              "arguments": {"reservation": {"local": "reservation"}},
+              "operation": "game.resource.commit@1"
+            },
+            {
+              "arguments": {"priority": {"literal": -5, "type": "Int"}, "target": {"local": "target"}},
+              "operation": "core.runtime.schedule-observation@1"
+            },
+            {
+              "arguments": {"handler": {"literal": "combat.cast", "type": "Enum:handler"}, "priority": {"literal": 10, "type": "Int"}},
+              "operation": "core.runtime.schedule-transition@1"
+            }
+          ],
+          "declared_effects": ["emit:game.combat.damage-resolved@1", "read:state", "sample:combat.critical", "sample:combat.hit", "schedule:event", "write:state"],
+          "id": "cast_cursor_refusal"
+        },
+        {
+          "calls": [
+            {
+              "arguments": {"target": {"signal": "target", "type": "EntityRef:Combatant"}},
+              "operation": "game.effect.apply@1"
+            }
+          ],
+          "declared_effects": ["read:state", "write:state"],
+          "id": "mark_on_damage"
+        }
+      ],
+      "id": "combat",
+      "imports": [{"alias": "stats", "module": "stats", "names": ["mana_cost", "spell_power"]}]
+    }
+  ],
+  "subscriptions": [{"handler": "combat.mark_on_damage", "signal": "game.combat.damage-resolved@1"}]
+}

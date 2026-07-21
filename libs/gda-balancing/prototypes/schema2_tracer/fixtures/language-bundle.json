@@ -1,0 +1,159 @@
+{
+  "artifact_kind": "language-definition-bundle",
+  "bundle_format": "schema2-bootstrap@1",
+  "numeric_profiles": [
+    {
+      "id": "exact-integer-v1",
+      "non_finite": "refuse",
+      "overflow": "refuse",
+      "representations": ["Int"],
+      "rounding": "exact"
+    }
+  ],
+  "operations": [
+    {
+      "effects": ["read:state"],
+      "id": "game.query.select@1",
+      "inputs": [
+        {"name": "actor", "type": "EntityRef:Combatant"},
+        {"name": "target_team", "type": "Enum:team"}
+      ],
+      "package": "game.query",
+      "primitive": "query.select-target",
+      "result": "EntityRef:Combatant"
+    },
+    {
+      "effects": ["read:state"],
+      "id": "game.resource.reserve@1",
+      "inputs": [
+        {"name": "actor", "type": "EntityRef:Combatant"},
+        {"name": "slot", "type": "Enum:resource-slot"},
+        {"name": "amount", "type": "Quantity:mana"}
+      ],
+      "package": "game.resource",
+      "primitive": "resource.reserve",
+      "result": "Record:Reservation"
+    },
+    {
+      "effects": ["sample:combat.hit", "sample:combat.critical"],
+      "id": "game.check.resolve@1",
+      "inputs": [
+        {"name": "actor", "type": "EntityRef:Combatant"},
+        {"name": "target", "type": "EntityRef:Combatant"},
+        {"name": "hit_threshold", "type": "Int"},
+        {"name": "critical_threshold", "type": "Int"},
+        {"name": "hit_stream", "type": "Enum:stream"},
+        {"name": "critical_stream", "type": "Enum:stream"}
+      ],
+      "package": "game.check",
+      "primitive": "check.named-percent",
+      "result": "Record:CheckOutcome"
+    },
+    {
+      "effects": ["read:state", "write:state", "emit:game.combat.damage-resolved@1"],
+      "id": "game.combat.resolve-damage@1",
+      "inputs": [
+        {"name": "target", "type": "EntityRef:Combatant"},
+        {"name": "power", "type": "Quantity:damage"},
+        {"name": "check", "type": "Record:CheckOutcome"}
+      ],
+      "package": "game.combat",
+      "primitive": "combat.staged-damage",
+      "result": "Record:DamageOutcome"
+    },
+    {
+      "effects": ["write:state"],
+      "id": "game.resource.commit@1",
+      "inputs": [{"name": "reservation", "type": "Record:Reservation"}],
+      "package": "game.resource",
+      "primitive": "resource.commit",
+      "result": "Unit"
+    },
+    {
+      "effects": ["read:state", "write:state"],
+      "id": "game.effect.apply@1",
+      "inputs": [{"name": "target", "type": "EntityRef:Combatant"}],
+      "package": "game.effect",
+      "primitive": "effect.apply-marker",
+      "result": "Unit"
+    },
+    {
+      "effects": ["schedule:event"],
+      "id": "core.runtime.schedule-observation@1",
+      "inputs": [
+        {"name": "target", "type": "EntityRef:Combatant"},
+        {"name": "priority", "type": "Int"}
+      ],
+      "package": "core",
+      "primitive": "runtime.schedule-observation",
+      "result": "Unit"
+    },
+    {
+      "effects": ["schedule:event"],
+      "id": "core.runtime.schedule-transition@1",
+      "inputs": [
+        {"name": "handler", "type": "Enum:handler"},
+        {"name": "priority", "type": "Int"}
+      ],
+      "package": "core",
+      "primitive": "runtime.schedule-transition",
+      "result": "Unit"
+    },
+    {
+      "effects": ["read:state"],
+      "id": "experiment.balance.observe@1",
+      "inputs": [{"name": "target", "type": "EntityRef:Combatant"}],
+      "package": "experiment.balance",
+      "primitive": "experiment.observe",
+      "result": "Unit"
+    }
+  ],
+  "packages": [
+    {"id": "core", "version": "1.0.0"},
+    {"id": "experiment.balance", "version": "1.0.0"},
+    {"id": "game.check", "version": "1.0.0"},
+    {"id": "game.combat", "version": "1.0.0"},
+    {"id": "game.effect", "version": "1.0.0"},
+    {"id": "game.entity", "version": "1.0.0"},
+    {"id": "game.query", "version": "1.0.0"},
+    {"id": "game.resource", "version": "1.0.0"}
+  ],
+  "rules": [
+    {"conclusion": {"judgment": "unique", "result": "accept"}, "diagnostic": {"code": "schema2.static.duplicate", "stage": "static"}, "id": "resolution.unique", "phase": "resolution", "premises": [{"op": "truthy", "value": {"fact": "unique"}}]},
+    {"conclusion": {"judgment": "import-resolved", "result": "accept"}, "diagnostic": {"code": "schema2.static.invalid-import", "stage": "static"}, "id": "resolution.import", "phase": "resolution", "premises": [{"op": "truthy", "value": {"fact": "module_exists"}}, {"op": "truthy", "value": {"fact": "alias_explicit"}}, {"op": "truthy", "value": {"fact": "selected_explicit"}}]},
+    {"conclusion": {"judgment": "name-resolved", "result": "accept"}, "diagnostic": {"code": "schema2.static.unresolved-symbol", "stage": "static"}, "id": "resolution.name", "phase": "resolution", "premises": [{"container": {"fact": "names"}, "item": {"fact": "requested"}, "op": "contains"}]},
+    {"conclusion": {"judgment": "type-admitted", "result": "accept"}, "diagnostic": {"code": "schema2.static.unknown-type", "stage": "static"}, "id": "type.admitted", "phase": "typing", "premises": [{"container": {"fact": "admitted"}, "item": {"fact": "actual"}, "op": "contains"}]},
+    {"conclusion": {"judgment": "value-inhabits", "result": "accept"}, "diagnostic": {"code": "schema2.static.value-type-mismatch", "stage": "static"}, "id": "type.value-inhabits", "phase": "typing", "premises": [{"op": "truthy", "value": {"fact": "valid"}}]},
+    {"conclusion": {"judgment": "types-equal", "result": "accept"}, "diagnostic": {"code": "schema2.static.type-mismatch", "stage": "static"}, "id": "type.equal", "phase": "typing", "premises": [{"left": {"fact": "actual"}, "op": "equal", "right": {"fact": "expected"}}]},
+    {"conclusion": {"judgment": "add-compatible", "result": "accept"}, "diagnostic": {"code": "schema2.static.add-type-mismatch", "stage": "static"}, "id": "type.add-compatible", "phase": "typing", "premises": [{"op": "truthy", "value": {"fact": "valid"}}]},
+    {"conclusion": {"judgment": "expression-typed", "result": "accept"}, "diagnostic": {"code": "schema2.static.unknown-expression", "stage": "static"}, "id": "type.expression", "phase": "typing", "premises": [{"op": "truthy", "value": {"fact": "valid"}}]},
+    {"conclusion": {"judgment": "call-arguments-closed", "result": "accept"}, "diagnostic": {"code": "schema2.static.call-arguments", "stage": "static"}, "id": "type.call-arguments", "phase": "typing", "premises": [{"left": {"fact": "actual"}, "op": "set_equal", "right": {"fact": "expected"}}]},
+    {"conclusion": {"judgment": "call-typed", "result": "accept"}, "diagnostic": {"code": "schema2.static.call-type-mismatch", "stage": "static"}, "id": "type.call", "phase": "typing", "premises": [{"left": {"fact": "actual"}, "op": "equal", "right": {"fact": "expected"}}]},
+    {"conclusion": {"judgment": "effects-exact", "result": "accept"}, "diagnostic": {"code": "schema2.static.effect-mismatch", "stage": "static"}, "id": "effect.declared", "phase": "effects", "premises": [{"left": {"fact": "actual"}, "op": "set_equal", "right": {"fact": "expected"}}]},
+    {"conclusion": {"judgment": "package-bound", "result": "accept"}, "diagnostic": {"code": "schema2.resolution.package-conflict", "stage": "resolution"}, "id": "package.exact", "phase": "resolution", "premises": [{"op": "truthy", "value": {"fact": "admitted"}}, {"left": {"fact": "actual_version"}, "op": "equal", "right": {"fact": "expected_version"}}, {"op": "truthy", "value": {"fact": "unique"}}]},
+    {"conclusion": {"judgment": "capability-bound", "result": "accept"}, "diagnostic": {"code": "schema2.resolution.capability-missing", "stage": "resolution"}, "id": "package.capability", "phase": "resolution", "premises": [{"container": {"fact": "locked"}, "item": {"fact": "owner"}, "op": "contains"}]},
+    {"conclusion": {"judgment": "operation-admitted", "result": "accept"}, "diagnostic": {"code": "schema2.static.unknown-operation", "stage": "static"}, "id": "operation.admitted", "phase": "resolution", "premises": [{"container": {"fact": "admitted"}, "item": {"fact": "operation"}, "op": "contains"}]},
+    {"conclusion": {"judgment": "subscription-resolved", "result": "accept"}, "diagnostic": {"code": "schema2.static.invalid-subscription", "stage": "static"}, "id": "subscription.valid", "phase": "effects", "premises": [{"op": "truthy", "value": {"fact": "signal_admitted"}}, {"op": "truthy", "value": {"fact": "handler_resolved"}}]},
+    {"conclusion": {"judgment": "operation-lowered", "result": "accept"}, "diagnostic": {"code": "schema2.resolution.lowering-refused", "stage": "resolution"}, "id": "lower.operation", "phase": "lowering", "premises": [{"op": "truthy", "value": {"fact": "operation_admitted"}}, {"op": "truthy", "value": {"fact": "primitive_present"}}]}
+  ],
+  "runtime_profiles": [
+    {
+      "budgets": {"max_events": 32, "max_queue": 16, "max_zero_time_depth": 8},
+      "id": "exact-rpg-tracer-v1",
+      "named_streams": ["combat.critical", "combat.hit"],
+      "numeric_profile": "exact-integer-v1",
+      "rng": {"algorithm": "sha256-counter-v1", "mapping": "uint64-be-mod-100"},
+      "scheduler": {"phase_order": ["input", "transition", "observation"], "priority": "descending", "sequence": "ascending", "time": "ascending"}
+    }
+  ],
+  "schema_line": "2.0-prototype",
+  "semantic_kernel": {
+    "expression_nodes": ["literal", "read", "exact.add", "event-field", "signal-field", "local"],
+    "runtime_primitives": ["query.select-target", "resource.reserve", "check.named-percent", "combat.staged-damage", "resource.commit", "effect.apply-marker", "runtime.schedule-observation", "runtime.schedule-transition", "experiment.observe"],
+    "type_units": {"Bool": "1", "Int": "1", "Quantity:damage": "game:damage", "Quantity:health": "game:health", "Quantity:mana": "game:mana"}
+  },
+  "signals": [
+    {"id": "game.combat.damage-resolved@1", "payload": {"amount": "Quantity:damage", "defeated": "Bool", "target": "EntityRef:Combatant"}}
+  ],
+  "types": ["Bool", "EntityRef:Combatant", "Enum:handler", "Enum:resource-slot", "Enum:stream", "Enum:team", "Int", "Quantity:damage", "Quantity:health", "Quantity:mana", "Record:CheckOutcome", "Record:DamageOutcome", "Record:Reservation"]
+}

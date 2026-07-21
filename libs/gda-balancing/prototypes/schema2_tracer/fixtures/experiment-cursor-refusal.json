@@ -1,0 +1,21 @@
+{
+  "artifact_kind": "experiment-specification",
+  "effective_seed": 424242,
+  "external_inputs": [
+    {
+      "payload": {"actor": "mage", "handler": "combat.cast_cursor_refusal", "transition_priority": 0},
+      "priority": 0,
+      "source_id": "scenario-driver",
+      "source_sequence": 0,
+      "time": 0
+    }
+  ],
+  "metrics": [
+    {"aggregation": "last", "dimensions": ["entity"], "field": "mana", "id": "caster_mana", "missing": "refuse", "type": "Quantity:mana", "unit": "game:mana", "entity": "mage", "window": "encounter-end"},
+    {"aggregation": "last", "dimensions": ["entity"], "field": "health", "id": "target_health", "missing": "refuse", "type": "Quantity:health", "unit": "game:health", "entity": "goblin", "window": "encounter-end"}
+  ],
+  "partition": "prototype-negative",
+  "replication_id": "rpg.runtime.cursor-refusal-v1/replication-0",
+  "resolved_model_identity": "sha256:c6a5a0e82f0ba294b3351b3e3523e9edebb4a6cffffcfb22e8cc74fa4f8804d1",
+  "runtime_profile": "exact-rpg-tracer-v1"
+}
