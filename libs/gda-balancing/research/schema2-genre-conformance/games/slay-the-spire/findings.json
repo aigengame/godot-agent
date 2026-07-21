@@ -9,8 +9,8 @@
       "status": "refined",
       "required_surface": "domain_package",
       "observation": "The current package map has turn and action ownership but no explicit owner for ordered draw, hand, discard, and exhaust zones or for the atomic move-and-reshuffle contract. Treating these zones as unordered inventory loses observable semantics.",
-      "design_implication": "Add or assign one reusable ordered-card-zone capability under Domain-package authority. It must own stable zone order, instance identity, legal moves, reshuffle handoff, and zone observables while game.turn owns windows and game.action owns action lifecycle. No host card-game branch is justified.",
-      "affected_coverage_rows": ["RPG-COST-01", "RPG-ACTION-02"],
+      "design_implication": "Assign ordered instance zones to game.collection. It owns stable zone order, instance identity, legal moves, named-stream reshuffle handoff, and zone observables while game.turn owns windows and game.action owns action lifecycle. No host card-game branch is justified.",
+      "affected_coverage_rows": ["RPG-COST-01", "RPG-ACTION-02", "ROGUE-DECK-ZONE-01"],
       "regression_vector": "Draw across a two-card draw-pile/three-card discard boundary under a prescribed named-stream shuffle and assert exact hand order, one shuffle, and no duplicate/lost card instance."
     },
     {
@@ -89,8 +89,8 @@
       "status": "refined",
       "required_surface": "domain_package",
       "observation": "Enemy Intent is an observable projection of an already selected upcoming action, not the executable action itself. Runic Dome can mask the projection as Unknown while the same planned action still executes.",
-      "design_implication": "Assign reusable enemy decision/plan and intent-projection contracts to an explicit package boundary or to a closed composition of encounter and action packages. Coverage must observe plan identity, projection policy, and executed action separately; no evaluator-owned AI callback is acceptable.",
-      "affected_coverage_rows": ["RPG-ACTION-02", "RPG-ENCOUNTER-01"],
+      "design_implication": "Assign bounded candidate evaluation, immutable Action-plan construction, and Intent projection to game.decision. game.encounter owns actor/context/window and game.action executes the resolved plan. Coverage must observe plan identity, projection policy, and execution separately; no evaluator-owned AI callback is acceptable.",
+      "affected_coverage_rows": ["RPG-ACTION-02", "RPG-ENCOUNTER-01", "RPG-DECISION-INTENT-01"],
       "regression_vector": "Project one attack plan under normal and Runic Dome visibility; assert the two observables differ while plan identity and executed damage remain equal."
     },
     {

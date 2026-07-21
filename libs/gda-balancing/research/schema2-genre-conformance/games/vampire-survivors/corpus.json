@@ -973,12 +973,12 @@
           "signals": ["chest-reward-selected"],
           "schedules": [],
           "rng_streams": ["run.chest-rewards"],
-          "ordering": "Filter evolution eligibility before the ordinary reward draw and expose the selected definition identity.",
+          "ordering": "Filter evolution eligibility before the ordinary reward draw and expose the selected definition identity with a typed build-replacement disposition.",
           "source_refs": ["research-evolution-triangulation", "schema2-coverage-contract"]
         },
         {
-          "id": "game.build.select@1",
-          "inputs": ["magic-wand-to-holy-wand evolution definition", "selected reward"],
+          "id": "game.build.replace@1",
+          "inputs": ["magic-wand-to-holy-wand evolution definition", "selected reward and build-replacement disposition"],
           "outcomes": ["replaced", "prerequisite-missing", "wrong-chest-policy"],
           "reads": ["evolution-run-weapon-build", "evolution-run-passive-build"],
           "writes": ["evolution-run-weapon-build"],

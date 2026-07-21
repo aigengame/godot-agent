@@ -145,16 +145,20 @@ def test_research_schemas_are_valid_draft_2020_12() -> None:
 
 def test_authoritative_coverage_ids_are_accepted_by_research_contract() -> None:
     coverage_ids = _coverage_ids()
-    assert len(coverage_ids) == 30
+    assert len(coverage_ids) == 32
     assert all(COVERAGE_ID_PATTERN.fullmatch(item) for item in coverage_ids)
     assert "RPG-TURN-SPATIAL-01" in coverage_ids
+    assert "RPG-DECISION-INTENT-01" in coverage_ids
+    assert "ROGUE-DECK-ZONE-01" in coverage_ids
 
 
 def test_authoritative_operation_ids_are_accepted_by_research_contract() -> None:
     operation_ids = _operation_ids()
-    assert len(operation_ids) == 36
+    assert len(operation_ids) == 43
     assert all(OPERATION_ID_PATTERN.fullmatch(item) for item in operation_ids)
     assert "game.spatial.query@1" in operation_ids
+    assert "game.collection.move@1" in operation_ids
+    assert "game.decision.plan@1" in operation_ids
 
 
 def test_every_research_instance_conforms_to_shared_contracts() -> None:
@@ -171,6 +175,21 @@ def test_every_research_instance_conforms_to_shared_contracts() -> None:
         findings_validator.validate(findings)
         assert corpus["game"]["id"] == game_dir.name
         assert findings["game_id"] == game_dir.name
+
+
+def test_research_permanent_operation_refs_are_authoritative() -> None:
+    operation_ids = _operation_ids()
+    for game_dir in sorted((RESEARCH / "games").glob("*")):
+        if not game_dir.is_dir():
+            continue
+        corpus = _load(game_dir / "corpus.json")
+        for mechanic in corpus["mechanics"]:
+            permanent_refs = {
+                operation["id"]
+                for operation in mechanic["operations"]
+                if "@" in operation["id"]
+            }
+            assert permanent_refs <= operation_ids
 
 
 def test_research_references_and_oracles_are_closed() -> None:

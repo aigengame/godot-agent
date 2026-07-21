@@ -87,6 +87,13 @@ promote provisional external facts. Every research oracle declares
 `conformance_effect: does_not_close_coverage`; it is input to permanent Golden scenarios and
 vectors, never the evidence that closes a coverage row.
 
+That non-closing rule is artifact-driven, not caller-driven. A research mapping, expected output,
+fixture name, status field, or caller assertion cannot authorize closure. Even a complete envelope
+and matching content hash establish only integrity. Where a permanent claim requires independent
+verification, its aggregator must also authenticate a Verifier receipt bound to the exact inputs,
+prerequisite graph, verifier/policy identities, and result; without that receipt and applicable
+trust contract, the claim remains `candidate`/open.
+
 Copyrighted assets, text, and bulk game data are not copied into this repository; record only the
 minimal numeric/behavioral facts required by the selected mechanics and cite their provenance.
 
@@ -117,6 +124,11 @@ After instances are mapped into permanent fixtures:
 - authority-token renames must not require host edits;
 - adding one instance must leave unrelated closed rows byte- and behavior-stable where their exact
   authority inputs did not change.
+
+The mapped collection and decision boundaries are part of that abstraction test: ordered instance
+zones remain `game.collection` semantics rather than Core-List or host-card behavior, while bounded
+plan selection and Intent projection remain `game.decision` semantics rather than encounter or
+action execution policy.
 
 Failure of any rule is dogfooding evidence against the current architecture, not a reason to weaken
 the conformance test.

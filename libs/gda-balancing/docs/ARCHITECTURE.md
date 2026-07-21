@@ -288,11 +288,16 @@ composition, while Domain packages own reusable component and operation semantic
 admitted component field does not add a compiler branch. Dynamic membership and target selection
 remain declared operations over `EntityRef`, never evaluator-owned object traversal.
 
-Effects are a composition of separate contracts for apply requirements, snapshot/live capture,
-continuous or discrete contribution, state transition, scheduling, stacking identity/reducer,
-reapplication, removal/expiry/dispel, and immunity. Action owns interruption, combat owns
-damage/healing resolution, resource owns stored quantities, and the runtime owns atomic scheduling;
-no universal Effect object may silently absorb those responsibilities.
+Effects are a composition of separate contracts for apply requirements, value source
+(`base`/authored or `resolved`/derived), capture timing (`snapshot` or `live`), continuous or
+discrete contribution, buildup and threshold activation, state transition, scheduling, stacking
+identity/reducer, reapplication, removal/expiry/dispel, and immunity. Source and timing are
+independent axes: a resolved value may be snapshotted or read live, and a base value may be handled
+the same two ways. Buildup accumulates before activation; crossing its threshold creates exactly one
+effect instance and its bounded schedule, while typed removal cancels that instance's exact
+outstanding events. Action owns interruption, combat owns damage/healing resolution, resource owns
+stored quantities, and the runtime owns atomic scheduling; no universal Effect object may silently
+absorb those responsibilities.
 
 ## 6. Compilation, artifacts, and identity
 
@@ -389,8 +394,25 @@ One dogfooding correction is especially important:
 - `combat` owns damage, healing, and shield **resolution**, plus defeat/revival transition policy.
 
 This prevents three packages from claiming the same fact while still allowing them to compose.
-Similar boundaries must be validated for progression, inventory/equipment, status/effect lifecycle,
-economy, encounter, AI/decision policy, spatial/topology, time/scheduling, and randomness.
+The genre-research reconciliation made five further boundaries explicit:
+
+- `combat` resolves an ordered vector of typed damage components through matching per-kind
+  mitigation before aggregation; a scalar total cannot erase component type or order early;
+- `collection` owns typed ordered instance collections, stable order, zone membership, legal moves,
+  and named-stream shuffle handoff. Core `List` is representation only; `build` owns admission,
+  run scope owns reset, and `economy` owns only economic ledger/inventory facts;
+- `generation` returns a typed offer or selected definition plus a reward disposition. The owning
+  destination package—`economy`, `collection`, `effect`, or `build`—performs the mutation, so a
+  direct card or effect reward does not fabricate an economic transfer;
+- `decision` owns bounded candidate evaluation, immutable Action-plan construction, and intent
+  projection. `encounter` supplies actor, context, and decision window; `action` executes the
+  already resolved plan; and
+- `build` replacement is one atomic transition that removes the exact old admission and installs
+  the exact new one. It is not an observable remove-then-add sequence.
+
+These boundaries compose with the independent Effect source/timing axes and buildup/activation
+contract in section 5.3. Progression, economy, spatial/topology, time/scheduling, and randomness
+still require their own permanent conformance vectors at the relevant coverage gates.
 
 ### 7.3 Genre templates are distributions
 
@@ -417,7 +439,15 @@ template may make a good model easy to start; it may not make otherwise invalid 
 
 Coverage claims are evidence-backed and granular. A `Tracer` row requires a public vertical path;
 broader RPG or Roguelike support requires its own Golden scenarios, vectors, and acceptance evidence.
-All rows in the current matrix remain open.
+A row closes only when the claim evaluator consumes and verifies the exact prerequisite artifacts,
+identities, bindings, and public observations required by that row. A caller assertion, expected
+fixture output, status label, or research mapping cannot authorize closure. Research mappings may
+refine requirements and package boundaries, but they are not conformance evidence. Content
+identity and envelope rehash establish integrity, not independent-verifier provenance. Where the
+claim policy requires independent verification, closure additionally requires an authenticated
+Verifier receipt that binds the eligible verifier and judgment policy to the exact prerequisite and
+result artifact identities. Without a verifiable receipt and applicable independence/trust
+contract, aggregation remains `candidate`/open. All rows in the current matrix remain open.
 
 ### 7.4 Attributing a design failure
 
@@ -602,8 +632,8 @@ coverage from implementation proof.
 
 | Attribute | Architectural mechanism | Current conclusion |
 | --- | --- | --- |
-| Consistency | Scoped authority, canonical terms, one semantic pipeline, identity rules | Macro decisions are aligned after dogfooding corrections; ongoing anti-drift checks are required |
-| Completeness | Closed language/runtime/artifact contracts plus RPG/Roguelike coverage matrix | Requirement contract is broad and systematic; full Schema and genre coverage are not yet proven |
+| Consistency | Scoped authority, canonical terms, one semantic pipeline, identity rules | Macro decisions and the genre-research ownership refinements are aligned; ongoing anti-drift checks are required |
+| Completeness | Closed language/runtime/artifact contracts plus RPG/Roguelike coverage matrix | Research broadened the requirement contract and exposed new Variant rows; all rows remain open, so full Schema and genre coverage are not yet proven |
 | Reliability | Deterministic profiles, atomic events/publication, typed refusals, terminal audits, immutable evidence | The bounded executable authority mechanism passed independent mutation/refusal probes; permanent publication, Evidence issuance, and full-system conformance remain open |
 | Orthogonality | Quantity facets, source/package/kernel extension test, separate authored domains, RIR/EIR split | Selected extension and authority mechanisms passed narrow mutation probes without RPG host dispatch; whole-system and cross-genre proof remain open |
 | Extensibility | Complete content-addressed Domain packages with capabilities and vectors | Package seam is credible; general solving, historical uniqueness, and full mechanic breadth remain open |
@@ -723,6 +753,14 @@ host uncertainty for the tested slice. The remaining gaps require permanent spec
 normative vectors, durable adapters, and cross-genre verticals; another disposable prototype would
 not close them.
 
+Subsequent research instances mapped representative mechanics from three game families into the
+coverage matrix. That exercise did not identify a Kernel- or host-owned stop signal in those
+instances, but it refined eight Domain-package and coverage contracts: split typed damage,
+base/resolved plus snapshot/live Effect axes, buildup/activation, ordered collection zones, closed
+rarity-policy variants, typed reward disposition, decision/intent separation, and atomic build
+replacement. Those mappings are requirement discovery, not executable conformance. They do not
+prove abstraction completeness, close a coverage row, or advance Gate 2.
+
 ## 13. Validation and delivery plan
 
 Work proceeds through gates; later claims depend on earlier authority and conformance.
@@ -758,6 +796,17 @@ package resolution, identity, audit/publication, CLI, comparison, and Evidence p
 that slice. This is not a horizontal implementation of every rule or package. Gate 3 grows the same
 suite source-to-evidence; later gates add general resolver, historical package, broader publication,
 and Evidence cases as their vertical scenarios require them.
+
+Every Gate 2 claim evaluator must consume the exact immutable artifacts named by its prerequisite
+graph, verify their envelopes, hashes, Kernel/LDB identities, package and experiment bindings, and
+public observations, and refuse absent or mutated prerequisites. Caller-supplied booleans,
+research-corpus mappings, fixture names, expected outputs, or workflow labels are never substitute
+authority. Rehashing those artifacts alone does not prove that an independent verifier produced a
+judgment. A closing aggregation must also verify a Verifier receipt's identity and bindings and
+authenticate an eligible independent verifier under the applicable trust contract; otherwise it
+can produce only `candidate`/open state. Gate 2 remains open until those permanent artifacts,
+validators, receipt contract, and verification path exist. The receipt law does not preselect a
+signature algorithm, credential system, or deployment trust topology.
 
 ### Gate 3 — production RPG tracer
 

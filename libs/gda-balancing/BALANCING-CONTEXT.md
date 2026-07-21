@@ -208,7 +208,8 @@ _Avoid_: sample project, demo config, template itself
 The normative proof behind an RPG or Roguelike support claim. Each requirement row identifies its
 owning package capabilities and operations, cross-package boundary, positive Golden scenario,
 negative vector, and observable metric/evidence. A package list or prose example without a closed
-matrix is not representational-adequacy evidence (bADR-0017).
+matrix is not representational-adequacy evidence. Research mappings may discover or refine rows,
+but they are not conformance evidence and cannot close one (bADR-0017).
 _Avoid_: feature checklist, roadmap, package inventory
 
 **Golden scenario**:
@@ -217,6 +218,24 @@ evidence observations that exercises one or more coverage-matrix requirements en
 scenarios test package composition and public artifacts, not private evaluator functions
 (bADR-0017).
 _Avoid_: unit fixture, demo battle, snapshot test (too narrow)
+
+**Claim closure**:
+The transition from an open requirement, coverage row, or evidence assertion to a justified claim.
+Its evaluator consumes the exact immutable prerequisite artifacts and verifies their envelopes,
+hashes, Kernel/LDB identities, bindings, and required public observations. Caller booleans, status
+labels, fixture names, expected outputs, and research mappings are never closure authority. Content
+rehashing proves integrity, not independent verification; a policy requiring independence also
+requires an authenticated `Verifier receipt` bound to the exact prerequisites and result, or the
+claim remains `candidate`/open (bADR-0012/0017).
+_Avoid_: self-attestation, passed flag, expected-result closure
+
+**Verifier receipt**:
+An immutable claim-verification artifact whose identity binds the verifier identity, verifier
+implementation and judgment-policy identities, exact prerequisite artifact identities/graph, and
+resulting judgment artifact identity. A consumer authenticates it and establishes verifier
+eligibility, independence, and trust before closure; its signature and credential mechanism remain
+deployment-policy choices (bADR-0012).
+_Avoid_: checksum, self-signed passed flag, verifier log
 
 ### Standard Schema design
 
@@ -402,12 +421,54 @@ Declared data, never formula logic (bADR-0006).
 _Avoid_: stacking rule (as a per-effect property), stack behavior
 
 **Effect specification (Standard Schema 2.x)**:
-A composition of independently typed contracts for application requirements, value capture,
-continuous contributions, state transitions, scheduling, stacking identity/reducer, reapplication,
-removal/expiry/dispel, and immunity. Action, combat, resource, and runtime packages consume these
-contracts through declared operations; no single Effect object owns every mechanic
+A composition of independently typed contracts for application requirements, value source
+(`base`/authored or `resolved`/derived), capture timing (`snapshot` or `live`), continuous
+contributions, buildup and threshold activation, state transitions, scheduling, stacking
+identity/reducer, reapplication, removal/expiry/dispel, and immunity. Source and capture timing are
+orthogonal. Buildup activation creates one effect instance with a bounded schedule; typed removal
+cancels that instance's exact outstanding events. Action, combat, resource, and runtime packages
+consume these contracts through declared operations; no single Effect object owns every mechanic
 (bADR-0016/0017).
 _Avoid_: modifier list, buff object, monolithic status schema
+
+**Ordered collection**:
+A `game.collection`-owned typed sequence of stable instance identities with explicit zone
+membership, stable order, legal moves, and named-stream shuffle handoff. Core `List` supplies
+representation only; build admission, run reset, and economic ownership stay with their own
+packages (bADR-0017).
+_Avoid_: generic inventory, host card array, unordered deck
+
+**Reward disposition**:
+The typed destination instruction returned with a generated or selected reward definition. It
+names which owning package performs the mutation—such as collection movement, economic transfer,
+effect application, or build admission—without forcing every reward through an economy ledger
+(bADR-0017).
+_Avoid_: reward grant (without destination semantics), universal inventory transfer
+
+**Reward rarity policy**:
+A `game.generation`-owned closed selection policy whose declared variant is fixed, pity,
+guarantee, or fallback composition. Each variant specifies its state, reset, eligibility,
+exhaustion, and refusal laws; a pity bound does not silently imply a guarantee
+(bADR-0017).
+_Avoid_: luck curve, implicit pity, rarity callback
+
+**Action plan**:
+An immutable, fully bound decision result containing the selected action and execution inputs.
+`game.decision` constructs it through bounded candidate evaluation; `game.action` executes it and
+does not repeat selection policy (bADR-0017).
+_Avoid_: AI callback, mutable command, projected intent
+
+**Intent projection**:
+A `game.decision`-owned observation derived from an Action plan for player-facing or evaluator
+inspection. It cannot authorize, mutate, or replace the plan, while encounter owns only the actor,
+context, and decision window (bADR-0017).
+_Avoid_: executable intent, encounter AI, action preview as authority
+
+**Atomic build replacement**:
+One `game.build` transition that removes an exact existing admission and installs an exact
+replacement or refuses with neither change visible. It is not modeled as two separately observable
+remove/add mutations (bADR-0017).
+_Avoid_: unequip then equip, best-effort replacement, compensating add
 
 **Target query**:
 A deterministic, typed selection expression over a dynamic entity set, with filters, ordering,
