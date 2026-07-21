@@ -27,6 +27,7 @@ QUANTITY_COLUMNS = (
     "source_refs",
 )
 COVERAGE_ID_PATTERN = re.compile(r"^(?:RPG|ROGUE)-[A-Z]+(?:-[A-Z]+)*-[0-9]{2}$")
+OPERATION_ID_PATTERN = re.compile(r"^[a-z][a-z0-9._-]*(?:@[0-9]+)?$")
 
 
 def _load(path: Path) -> Any:
@@ -45,6 +46,10 @@ def _coverage_ids() -> frozenset[str]:
             COVERAGE.read_text(),
         )
     )
+
+
+def _operation_ids() -> frozenset[str]:
+    return frozenset(re.findall(r"`([a-z][a-z0-9._-]*@[0-9]+)`", COVERAGE.read_text()))
 
 
 def _quantity_rows(corpus: dict[str, Any]) -> list[dict[str, str]]:
@@ -78,6 +83,13 @@ def test_authoritative_coverage_ids_are_accepted_by_research_contract() -> None:
     assert len(coverage_ids) == 30
     assert all(COVERAGE_ID_PATTERN.fullmatch(item) for item in coverage_ids)
     assert "RPG-TURN-SPATIAL-01" in coverage_ids
+
+
+def test_authoritative_operation_ids_are_accepted_by_research_contract() -> None:
+    operation_ids = _operation_ids()
+    assert len(operation_ids) == 36
+    assert all(OPERATION_ID_PATTERN.fullmatch(item) for item in operation_ids)
+    assert "game.spatial.query@1" in operation_ids
 
 
 def test_every_research_instance_conforms_to_shared_contracts() -> None:

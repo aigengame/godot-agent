@@ -203,7 +203,7 @@
         "source_refs"
       ],
       "properties": {
-        "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]*$"},
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]*(@[0-9]+)?$"},
         "inputs": {"type": "array", "items": {"type": "string"}},
         "outcomes": {"type": "array", "minItems": 1, "items": {"type": "string"}},
         "reads": {"type": "array", "items": {"type": "string"}},
