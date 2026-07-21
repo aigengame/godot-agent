@@ -114,10 +114,9 @@ def _assert_oracle_provenance(corpus: dict[str, Any]) -> None:
                 assert external_sources or evidence_refs["research_synthesis"]
             elif claim_status == "corroborated":
                 assert oracle["claim_subject"] == "game_mapping"
-                assert any(
-                    source["confidence"] in {"primary", "corroborated"}
-                    for source in external_sources
-                ), f"{oracle['id']} has no non-provisional external-game evidence"
+                assert len(external_sources) >= 2, (
+                    f"{oracle['id']} has fewer than two distinct external-game sources"
+                )
             elif claim_status == "observed":
                 assert oracle["claim_subject"] == "game_mapping"
                 assert any(
@@ -260,9 +259,7 @@ def test_schema_contract_cannot_promote_provisional_game_evidence() -> None:
     assert oracle["claim_status"] == "candidate"
     oracle["claim_status"] = "corroborated"
 
-    with pytest.raises(
-        AssertionError, match="no non-provisional external-game evidence"
-    ):
+    with pytest.raises(ValidationError):
         _validate_corpus(corpus)
 
 
@@ -286,6 +283,22 @@ def test_community_reference_cannot_promote_game_claim_by_claiming_primary() -> 
     assert oracle["claim_status"] == "candidate"
 
     source["confidence"] = "primary"
+    oracle["claim_status"] = "corroborated"
+
+    with pytest.raises(ValidationError):
+        _validate_corpus(corpus)
+
+
+def test_single_self_corroborated_source_cannot_promote_game_claim() -> None:
+    corpus = _load(RESEARCH / "games" / "vampire-survivors" / "corpus.json")
+    oracle = corpus["mechanics"][0]["oracle_vectors"][0]
+    source_id = oracle["evidence_refs"]["external_game"][0]
+    source = next(source for source in corpus["sources"] if source["id"] == source_id)
+    assert source["kind"] == "community_reference"
+    assert source["confidence"] == "provisional"
+    assert oracle["claim_status"] == "candidate"
+
+    source["confidence"] = "corroborated"
     oracle["claim_status"] = "corroborated"
 
     with pytest.raises(ValidationError):
