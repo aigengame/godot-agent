@@ -16,6 +16,7 @@
   "sources": [
     {
       "id": "official-steam-store",
+      "authority_domain": "external_game",
       "kind": "official_documentation",
       "locator": "https://store.steampowered.com/app/646570/Slay_the_Spire/",
       "version": "store snapshot accessed 2026-07-21",
@@ -24,6 +25,7 @@
     },
     {
       "id": "official-steam-v2.3.4",
+      "authority_domain": "external_game",
       "kind": "official_documentation",
       "locator": "https://steamcommunity.com/ogg/646570/announcements/detail/5201125680698695379",
       "version": "V2.3.4 announcement, 2022-12-19",
@@ -32,6 +34,7 @@
     },
     {
       "id": "sts-turn-zones-crosscheck",
+      "authority_domain": "research_synthesis",
       "kind": "research",
       "locator": "SOURCES.md#sts-turn-zones-crosscheck",
       "version": "V2.3.4 synthesis accessed 2026-07-21",
@@ -40,6 +43,7 @@
     },
     {
       "id": "sts-card-combat-crosscheck",
+      "authority_domain": "research_synthesis",
       "kind": "research",
       "locator": "SOURCES.md#sts-card-combat-crosscheck",
       "version": "V2.3.4 synthesis accessed 2026-07-21",
@@ -48,6 +52,7 @@
     },
     {
       "id": "sts-runic-cube-crosscheck",
+      "authority_domain": "research_synthesis",
       "kind": "research",
       "locator": "SOURCES.md#sts-runic-cube-crosscheck",
       "version": "V2.3.4 synthesis accessed 2026-07-21",
@@ -56,6 +61,7 @@
     },
     {
       "id": "sts-reward-crosscheck",
+      "authority_domain": "research_synthesis",
       "kind": "research",
       "locator": "SOURCES.md#sts-reward-crosscheck",
       "version": "V2.3.4 synthesis accessed 2026-07-21",
@@ -64,6 +70,7 @@
     },
     {
       "id": "sts-intent-crosscheck",
+      "authority_domain": "research_synthesis",
       "kind": "research",
       "locator": "SOURCES.md#sts-intent-crosscheck",
       "version": "V2.3.4 synthesis accessed 2026-07-21",
@@ -72,6 +79,7 @@
     },
     {
       "id": "sts-meta-crosscheck",
+      "authority_domain": "research_synthesis",
       "kind": "research",
       "locator": "SOURCES.md#sts-meta-crosscheck",
       "version": "V2.3.4 synthesis accessed 2026-07-21",
@@ -80,6 +88,7 @@
     },
     {
       "id": "sts-seed-order-provisional",
+      "authority_domain": "external_game",
       "kind": "community_reference",
       "locator": "SOURCES.md#sts-seed-order-provisional",
       "version": "community observations accessed 2026-07-21",
@@ -197,6 +206,9 @@
         {
           "id": "sts.turn.start-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "energy": 0,
             "draw_pile": ["strike-a", "defend-a", "bash-a", "strike-b", "defend-b"],
@@ -210,11 +222,18 @@
             "draw_pile": [],
             "zone_transition_count": 5
           },
-          "source_refs": ["sts-turn-zones-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-turn-zones-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.turn.reshuffle-boundary-v1",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "draw_pile": ["strike-a", "defend-a"],
             "discard_pile": ["bash-a", "strike-b", "defend-b"],
@@ -228,11 +247,18 @@
             "rng_stream": "combat-card-order",
             "shuffle_count": 1
           },
-          "source_refs": ["sts-turn-zones-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-turn-zones-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.card.insufficient-energy-outcome-v1",
           "kind": "outcome",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "energy": 1,
             "hand": ["bash-a"],
@@ -245,7 +271,11 @@
             "discard_pile": [],
             "scheduled_effects": []
           },
-          "source_refs": ["sts-card-combat-crosscheck", "sts-turn-zones-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-card-combat-crosscheck","sts-turn-zones-crosscheck"],
+            "schema_contract": []
+          }
         }
       ]
     },
@@ -396,6 +426,9 @@
         {
           "id": "sts.combat.block-before-hp-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {"target_hp": 20, "target_block": 4, "attack_damage": 6},
           "expected_observations": {
             "stage_order": ["block", "hp"],
@@ -403,11 +436,18 @@
             "hp_after": 18,
             "hp_lost": 2
           },
-          "source_refs": ["sts-card-combat-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-card-combat-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.combat.block-cap-boundary-v1",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {"block_before": 997, "defend_block": 5},
           "expected_observations": {
             "outcome": "capped",
@@ -415,11 +455,18 @@
             "block_after": 999,
             "committed_delta": 2
           },
-          "source_refs": ["sts-card-combat-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-card-combat-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.combat.scope-cleanup-boundary-v1",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "run_deck": ["strike-a", "status-wound-a"],
             "combat_status_cards": ["status-wound-a"],
@@ -431,7 +478,11 @@
             "active_powers": [],
             "run_deck": ["strike-a"]
           },
-          "source_refs": ["sts-card-combat-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-card-combat-crosscheck"],
+            "schema_contract": []
+          }
         }
       ]
     },
@@ -559,6 +610,9 @@
         {
           "id": "sts.relic.runic-cube-order-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "hp": 30,
             "relics": ["runic-cube"],
@@ -576,11 +630,18 @@
             ],
             "offering_zone": "exhaust"
           },
-          "source_refs": ["sts-runic-cube-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-runic-cube-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.relic.prevented-hp-loss-boundary-v1",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "attempted_hp_loss": 1,
             "committed_hp_loss": 0,
@@ -592,7 +653,11 @@
             "runic_cube_draw_count": 0,
             "draw_pile": ["card-a"]
           },
-          "source_refs": ["sts-runic-cube-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-runic-cube-crosscheck"],
+            "schema_contract": []
+          }
         }
       ]
     },
@@ -668,6 +733,9 @@
         {
           "id": "sts.deck.reward-eligibility-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "character": "ironclad",
             "unlocked_pool": ["anger", "cleave", "shrug-it-off"],
@@ -680,11 +748,18 @@
             "duplicate_count": 0,
             "all_choices_eligible": true
           },
-          "source_refs": ["sts-reward-crosscheck", "sts-meta-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-meta-crosscheck","sts-reward-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.deck.reward-skip-outcome-v1",
           "kind": "outcome",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "master_deck": ["strike-a", "defend-a"],
             "offer": ["anger", "cleave", "shrug-it-off"],
@@ -695,11 +770,18 @@
             "master_deck": ["strike-a", "defend-a"],
             "offer_closed": true
           },
-          "source_refs": ["sts-reward-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-reward-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.deck.locked-card-boundary-v1",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "character": "ironclad",
             "unlocked_pool": ["anger", "cleave"],
@@ -710,7 +792,11 @@
             "eligible_pool": ["anger", "cleave"],
             "excluded": [{"card": "limit-break", "reason": "not-unlocked"}]
           },
-          "source_refs": ["sts-meta-crosscheck", "sts-reward-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-meta-crosscheck","sts-reward-crosscheck"],
+            "schema_contract": []
+          }
         }
       ]
     },
@@ -874,6 +960,9 @@
         {
           "id": "sts.reward.rarity-offset-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "offset_before": -5,
             "prescribed_rarity_results": ["common", "uncommon", "common"],
@@ -885,22 +974,36 @@
             "distinct_choices": true,
             "rng_stream": "run-card-rewards"
           },
-          "source_refs": ["sts-reward-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-reward-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.reward.rarity-offset-cap-boundary-v1",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {"offset_before": 40, "prescribed_rarity_result": "common"},
           "expected_observations": {
             "offset_after": 40,
             "cap_applied": true,
             "guaranteed_rare": false
           },
-          "source_refs": ["sts-reward-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-reward-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.reward.seen-relic-boundary-v1",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "rarity": "common",
             "seen_relics": ["anchor"],
@@ -911,11 +1014,18 @@
             "selected_relic": "vajra",
             "seen_relics_after": ["anchor", "vajra"]
           },
-          "source_refs": ["sts-reward-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-reward-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.reward.complete-input-determinism-v1",
           "kind": "determinism",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "game_version": "V2.3.4",
             "platform": "Steam PC Windows x86-64",
@@ -929,7 +1039,11 @@
             "same_seed_alone_is_not_the_reproduction_key": true,
             "required_trace_fields": ["stream", "draw-index", "eligible-pool", "offset-before", "offset-after"]
           },
-          "source_refs": ["sts-reward-crosscheck", "sts-seed-order-provisional"]
+          "evidence_refs": {
+            "external_game": ["sts-seed-order-provisional"],
+            "research_synthesis": ["sts-reward-crosscheck"],
+            "schema_contract": []
+          }
         }
       ]
     },
@@ -1017,6 +1131,9 @@
         {
           "id": "sts.intent.attack-projection-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "enemy_plan": {"kind": "attack", "damage": 6},
             "visibility_policy": "normal",
@@ -1028,11 +1145,18 @@
             "executed_plan": {"kind": "attack", "damage": 6},
             "player_hp_after": 24
           },
-          "source_refs": ["sts-intent-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-intent-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.intent.runic-dome-mask-boundary-v1",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "enemy_plan": {"kind": "attack", "damage": 6},
             "visibility_policy": "runic-dome",
@@ -1045,7 +1169,11 @@
             "player_hp_after": 24,
             "plan_identity_unchanged_by_mask": true
           },
-          "source_refs": ["sts-intent-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-intent-crosscheck"],
+            "schema_contract": []
+          }
         }
       ]
     },
@@ -1177,6 +1305,9 @@
         {
           "id": "sts.run.meta-unlock-positive-v1",
           "kind": "positive",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "run_deck": ["strike-a", "defend-a", "bash-a"],
             "run_relics": ["burning-blood"],
@@ -1192,11 +1323,18 @@
             "newly_unlocked_cards": ["heavy-blade", "spot-weakness", "limit-break"],
             "next_run_eligible_pool_includes": ["heavy-blade", "spot-weakness", "limit-break"]
           },
-          "source_refs": ["sts-meta-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-meta-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.run.no-implicit-retention-boundary-v1",
           "kind": "boundary",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "prior_run_deck": ["strike-a", "limit-break-a"],
             "prior_run_relics": ["burning-blood", "vajra"],
@@ -1208,11 +1346,18 @@
             "meta_transfers": ["ironclad-unlock-group-1"],
             "next_run_instances_are_fresh": true
           },
-          "source_refs": ["sts-meta-crosscheck"]
+          "evidence_refs": {
+            "external_game": [],
+            "research_synthesis": ["sts-meta-crosscheck"],
+            "schema_contract": []
+          }
         },
         {
           "id": "sts.run.complete-replay-determinism-v1",
           "kind": "determinism",
+          "claim_subject": "game_mapping",
+          "claim_status": "candidate",
+          "conformance_effect": "does_not_close_coverage",
           "inputs": {
             "game_version": "V2.3.4",
             "platform": "Steam PC Windows x86-64",
@@ -1228,7 +1373,11 @@
             "reward_offer_equal": true,
             "same_seed_without_action_trace_is_ineligible": true
           },
-          "source_refs": ["sts-meta-crosscheck", "sts-reward-crosscheck", "sts-seed-order-provisional"]
+          "evidence_refs": {
+            "external_game": ["sts-seed-order-provisional"],
+            "research_synthesis": ["sts-meta-crosscheck","sts-reward-crosscheck"],
+            "schema_contract": []
+          }
         }
       ]
     }

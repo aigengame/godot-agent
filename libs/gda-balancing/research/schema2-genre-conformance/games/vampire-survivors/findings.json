@@ -30,7 +30,7 @@
       "required_surface": "model_source",
       "observation": "King Bible combines independent Area, Speed, Amount, Duration, Cooldown, hitbox delay, and pool-cap quantities with an authored orbit/effect definition.",
       "design_implication": "The instance exercises orthogonal Quantity roles without requiring a weapon-specific primitive or a monolithic Effect object.",
-      "affected_coverage_rows": ["RPG-STAT-01", "RPG-RESOURCE-02", "RPG-EFFECT-03", "RPG-EFFECT-04"],
+      "affected_coverage_rows": ["RPG-STAT-01", "RPG-RESOURCE-02", "RPG-EFFECT-02", "RPG-EFFECT-03", "RPG-EFFECT-04"],
       "regression_vector": "vs.king-bible.lifecycle-positive-v1"
     },
     {
@@ -40,7 +40,7 @@
       "required_surface": "domain_package",
       "observation": "The active duration can include live character Duration contribution while the cited cooldown-extension rule depends on weapon base Duration. A single unqualified duration field loses which value is captured for which transition.",
       "design_implication": "game.effect/game.action contracts must declare base-versus-resolved capture sources and the exact expiry-to-cooldown transition. This refines package semantics and vectors; it does not require a Kernel or host change.",
-      "affected_coverage_rows": ["RPG-RESOURCE-02", "RPG-EFFECT-03", "RPG-EFFECT-04"],
+      "affected_coverage_rows": ["RPG-RESOURCE-02", "RPG-EFFECT-02", "RPG-EFFECT-03", "RPG-EFFECT-04"],
       "regression_vector": "vs.king-bible.level-eight-duration-boundary-v1"
     },
     {
