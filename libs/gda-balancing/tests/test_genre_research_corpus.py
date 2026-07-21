@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,9 +26,10 @@ QUANTITY_COLUMNS = (
     "cap",
     "source_refs",
 )
+COVERAGE_ID_PATTERN = re.compile(r"^(?:RPG|ROGUE)-[A-Z]+(?:-[A-Z]+)*-[0-9]{2}$")
 
 
-def _load(path: Path) -> object:
+def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -37,10 +39,11 @@ def _assert_unique(records: list[dict[str, Any]], field: str, label: str) -> Non
 
 
 def _coverage_ids() -> frozenset[str]:
-    import re
-
     return frozenset(
-        re.findall(r"`((?:RPG|ROGUE)-[A-Z]+-[0-9]{2})`", COVERAGE.read_text())
+        re.findall(
+            r"`((?:RPG|ROGUE)-[A-Z]+(?:-[A-Z]+)*-[0-9]{2})`",
+            COVERAGE.read_text(),
+        )
     )
 
 
@@ -68,6 +71,13 @@ def _quantity_rows(corpus: dict[str, Any]) -> list[dict[str, str]]:
 def test_research_schemas_are_valid_draft_2020_12() -> None:
     for name in ("corpus.schema.json", "findings.schema.json"):
         Draft202012Validator.check_schema(_load(RESEARCH / name))
+
+
+def test_authoritative_coverage_ids_are_accepted_by_research_contract() -> None:
+    coverage_ids = _coverage_ids()
+    assert len(coverage_ids) == 30
+    assert all(COVERAGE_ID_PATTERN.fullmatch(item) for item in coverage_ids)
+    assert "RPG-TURN-SPATIAL-01" in coverage_ids
 
 
 def test_every_research_instance_conforms_to_shared_contracts() -> None:
