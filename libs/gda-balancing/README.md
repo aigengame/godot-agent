@@ -57,5 +57,5 @@ that is what puts `gda-balancing` on `PATH`.
 Design decisions live in [`docs/badr/`](docs/badr) (balancing ADRs) and the domain glossary
 in [`BALANCING-CONTEXT.md`](BALANCING-CONTEXT.md).
 
-The permanent Standard Schema 2.x claim-row closure gate and its explicit non-claims are documented
-in [`conformance/schema2/README.md`](conformance/schema2/README.md).
+The permanent Standard Schema 2.x verified-artifact claim-aggregation sub-slice and its explicit
+non-claims are documented in [`conformance/schema2/README.md`](conformance/schema2/README.md).

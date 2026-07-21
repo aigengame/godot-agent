@@ -1,43 +1,49 @@
-# Schema 2.x claim-row conformance foundation
+# Schema 2.x verified-artifact claim aggregation
 
-This directory documents the permanent machine gate implemented by
-`gda_balancing.schema2.conformance`. The gate answers one narrow question:
+`gda_balancing.schema2.conformance` is one permanent **Gate 2 sub-slice**. It answers a bounded
+structural question:
 
-> Does this exact claim definition have an exact, passed, non-duplicated closure of admitted
-> versioned Operations, positive and negative/boundary normative vectors, and public artifact
-> observations under one exact Kernel/LDB/Lock/RIR/Resolved-Model/Runtime/Experiment subject?
+> Do these exact canonical artifact bytes form a complete, non-duplicated candidate for one exact
+> claim definition and Kernel/LDB/Lock/RIR/Resolved-Model/Runtime/Experiment subject?
 
-The report is deterministic and report-all. It remains `open` for missing, extra, duplicate,
-unpassed, role/disposition-drifting, package-drifting, or subject-drifting facts. Research evidence
-is carried separately and never satisfies an Operation, vector, or public-observation requirement.
-The report echoes the claim-definition identity and complete exact subject, so it is not a detached
-verdict that can be reused for another row or build. A normative vector definition is identified by
-the exact LDB identity plus its vector id; a vector id alone is not a global content identity.
+It does not close the claim. A diagnostic-free report is `candidate`, never `closed`. Content
+addressing proves payload integrity and exact binding; it does not prove that an independent
+Kernel/LDB conformer produced or verified the artifact. Final claim closure therefore still needs
+the permanent authoritative Kernel/LDB artifacts, executable normative vectors, and an independently
+verifiable validator/receipt authenticity contract required by PRD #534 Gate 2.
 
-The typed contract is closed. It has no host handler, dispatch, Kernel override, or bypass field.
-The validation host does not execute an Operation or provide missing language meaning. Content
-identities must already have been rehashed and verified by the conformance step that produced each
-result; a syntactically valid `sha256:` value or `passed: true` is not independently proved by this
-aggregator. Its closure diagnostics are gate-local conformance findings, not Kernel/LDB-owned typed
-refusal Diagnostics and not another language diagnostic catalog.
+## Contract
+
+- Every consumed result is a bounded canonical artifact envelope containing exact payload bytes,
+  artifact kind, wire-schema identity, and content identity. Consumption recalculates identity and
+  strictly parses duplicate-free, finite canonical JSON with deterministic byte/depth/count caps.
+- Operation admission and normative-vector results use closed local wire payloads. Their operation,
+  package, vector role/disposition, exact subject, refusal Diagnostic, and verification-failure facts
+  are parsed from artifact bytes. There is no caller `passed` field or detached result hash.
+- A public-observable requirement binds its source vector, artifact kind, wire-schema identity, and
+  JSON pointer. The source vector, exact subject, and observed field are derived from the public
+  artifact payload.
+- Positive vectors end in `success`; negative vectors end in `outcome` or `refusal`; boundary
+  vectors may use any declared disposition. A refusal requires a typed Diagnostic and its public
+  observation must be a `terminal_audit`. Evaluation, Metric, Replay/Cross-evaluator comparison, or
+  Evidence-success artifacts cannot satisfy a refusal.
+- The report is deterministic and report-all for independently observable missing, extra,
+  duplicate, verification-failure, identity, package, role, disposition, kind, schema, source, and
+  pointer defects. Research records are carried separately and satisfy none of those facts.
+- The typed inputs contain no host handler, dispatch, Kernel override, or semantic bypass field.
 
 ## Explicit non-claims
 
-A green closure report does **not** prove:
+A `candidate` report does **not** prove:
 
-- Kernel/LDB semantic execution, type soundness, lowering correctness, Replay, or Evidence;
-- completeness of the Standard Schema 2.x constructor set;
-- full Schema 2.x feasibility, reliability, orthogonality, or production readiness;
-- closure of PRD #534 or any Tracer, RPG, Roguelike, or Variant coverage row unless that exact row's
-  authoritative machine definition and independently verified results are the inputs.
+- artifact provenance/authenticity or independent verifier agreement;
+- Kernel/LDB semantic execution, type soundness, lowering, Replay, Evidence, or publication safety;
+- the unused-package metamorphic identity contract (whole LDB/Resolved Model/profile change while
+  selected Lock/RIR bytes remain stable and Replay becomes ineligible);
+- completeness, reliability, orthogonality, genre coverage, or production readiness of Schema 2.x;
+- completion of Gate 2, PRD #534, or any Tracer/RPG/Roguelike/Variant row.
 
-The three genre research instances currently machine-record only `Int`/`Fixed` Quantity surfaces.
-Their state-slot prose mentions `List`, `Set`, `Map`, `Record`, and `EntityRef`, but does not execute
-or validate those constructors. `Bool`, `Decimal`, `Float`, `Enum`, `Vector`, and `Distribution`
-also remain unproven by that research. This closure gate must not turn those prose references—or a
-green report over any one row—into a type-system completeness claim.
-
-The executable positive, research-only, identity-blast-radius, outcome/refusal, duplicate, extra,
-failed, and bypass-field fixtures live in
+The executable candidate, tamper, semantic-failure, exact-binding, outcome/refusal, resource-cap,
+report-all, research-only, and bypass fixtures live in
 [`../../tests/test_schema2_conformance_foundation.py`](../../tests/test_schema2_conformance_foundation.py).
-They deliberately use a generic synthetic claim and close no live Genre row.
+They use a generic synthetic claim and close no live Genre row.
