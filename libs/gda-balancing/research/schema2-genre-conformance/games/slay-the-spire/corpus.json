@@ -1,0 +1,1236 @@
+{
+  "artifact_kind": "schema2-genre-research-corpus",
+  "schema_version": 1,
+  "game": {
+    "id": "slay-the-spire",
+    "title": "Slay the Spire",
+    "family": "roguelike",
+    "archetype": "single-player turn-based roguelike deckbuilder"
+  },
+  "version_scope": {
+    "platform": "Steam PC, Windows 10 x86-64, App ID 646570",
+    "version": "V2.3.4",
+    "content_scope": "Unmodded original game; standard Ironclad Ascension 0 slices only; excludes Slay the Spire 2, Daily, Custom, Endless, mods, ports, and board game",
+    "recorded_at": "2026-07-21"
+  },
+  "sources": [
+    {
+      "id": "official-steam-store",
+      "kind": "official_documentation",
+      "locator": "https://store.steampowered.com/app/646570/Slay_the_Spire/",
+      "version": "store snapshot accessed 2026-07-21",
+      "confidence": "primary",
+      "notes": "Pins the original game's identity and official deckbuilding-roguelike scope, not detailed mechanics."
+    },
+    {
+      "id": "official-steam-v2.3.4",
+      "kind": "official_documentation",
+      "locator": "https://steamcommunity.com/ogg/646570/announcements/detail/5201125680698695379",
+      "version": "V2.3.4 announcement, 2022-12-19",
+      "confidence": "primary",
+      "notes": "Pins the named PC release; a future runtime oracle must additionally record build and binary identities."
+    },
+    {
+      "id": "sts-turn-zones-crosscheck",
+      "kind": "research",
+      "locator": "SOURCES.md#sts-turn-zones-crosscheck",
+      "version": "V2.3.4 synthesis accessed 2026-07-21",
+      "confidence": "corroborated",
+      "notes": "Cross-check of turn Energy, draw, hand/discard/exhaust zones, reshuffle, and end-turn behavior."
+    },
+    {
+      "id": "sts-card-combat-crosscheck",
+      "kind": "research",
+      "locator": "SOURCES.md#sts-card-combat-crosscheck",
+      "version": "V2.3.4 synthesis accessed 2026-07-21",
+      "confidence": "corroborated",
+      "notes": "Cross-check of selected card constants, Block/HP order and cap, and combat-scoped Status/Power behavior."
+    },
+    {
+      "id": "sts-runic-cube-crosscheck",
+      "kind": "research",
+      "locator": "SOURCES.md#sts-runic-cube-crosscheck",
+      "version": "V2.3.4 synthesis accessed 2026-07-21",
+      "confidence": "corroborated",
+      "notes": "Cross-check of Offering, actual HP-loss signaling, Runic Cube draw, and observable reaction order."
+    },
+    {
+      "id": "sts-reward-crosscheck",
+      "kind": "research",
+      "locator": "SOURCES.md#sts-reward-crosscheck",
+      "version": "V2.3.4 synthesis accessed 2026-07-21",
+      "confidence": "corroborated",
+      "notes": "Cross-check of reward choice, rarity-offset state, relic rarity, eligibility, and per-run uniqueness."
+    },
+    {
+      "id": "sts-intent-crosscheck",
+      "kind": "research",
+      "locator": "SOURCES.md#sts-intent-crosscheck",
+      "version": "V2.3.4 synthesis accessed 2026-07-21",
+      "confidence": "corroborated",
+      "notes": "Cross-check of enemy planned action, visible Intent projection, and Runic Dome masking."
+    },
+    {
+      "id": "sts-meta-crosscheck",
+      "kind": "research",
+      "locator": "SOURCES.md#sts-meta-crosscheck",
+      "version": "V2.3.4 synthesis accessed 2026-07-21",
+      "confidence": "corroborated",
+      "notes": "Cross-check of run teardown, Ironclad unlock group 1, future pool eligibility, and character-scoped Ascension."
+    },
+    {
+      "id": "sts-seed-order-provisional",
+      "kind": "community_reference",
+      "locator": "SOURCES.md#sts-seed-order-provisional",
+      "version": "community observations accessed 2026-07-21",
+      "confidence": "provisional",
+      "notes": "Lead for path-dependent RNG consumption only; never the sole source of an oracle."
+    }
+  ],
+  "mechanics": [
+    {
+      "id": "sts.turn-energy-zones",
+      "title": "Turn Energy and ordered card-zone transitions",
+      "families": ["quantity", "resource", "action", "turn"],
+      "coverage_rows": ["RPG-COST-01", "RPG-ACTION-02"],
+      "source_refs": ["sts-turn-zones-crosscheck"],
+      "quantities": [
+        {
+          "id": "turn.energy-refresh",
+          "representation": "Int",
+          "kind": "energy",
+          "unit": "energy",
+          "role": "constant",
+          "domain": "exactly 3 at normal player-turn start before modifiers",
+          "rounding": null,
+          "cap": null,
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        },
+        {
+          "id": "turn.hand-draw",
+          "representation": "Int",
+          "kind": "card-count",
+          "unit": "card",
+          "role": "constant",
+          "domain": "exactly 5 at normal player-turn start before modifiers",
+          "rounding": null,
+          "cap": null,
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "combat.energy.current",
+          "value_type": "Quantity<Int,energy>",
+          "scope": "encounter",
+          "initial": 0,
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        },
+        {
+          "id": "combat.draw-pile",
+          "value_type": "List<CardRef>",
+          "scope": "encounter",
+          "initial": [],
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        },
+        {
+          "id": "combat.hand",
+          "value_type": "List<CardRef>",
+          "scope": "encounter",
+          "initial": [],
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        },
+        {
+          "id": "combat.discard-pile",
+          "value_type": "List<CardRef>",
+          "scope": "encounter",
+          "initial": [],
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        },
+        {
+          "id": "combat.exhaust-pile",
+          "value_type": "List<CardRef>",
+          "scope": "encounter",
+          "initial": [],
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "game.turn.start.v1",
+          "inputs": ["turn_id", "draw_count", "energy_refresh"],
+          "outcomes": ["started", "draw-shortfall"],
+          "reads": ["combat.draw-pile", "combat.discard-pile"],
+          "writes": ["combat.energy.current", "combat.draw-pile", "combat.hand", "combat.discard-pile"],
+          "signals": ["turn.started"],
+          "schedules": [],
+          "rng_streams": ["combat-card-order"],
+          "ordering": "Refresh Energy, then draw from the ordered draw pile; if empty, shuffle the discard pile using the named stream and continue drawing.",
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        },
+        {
+          "id": "game.action.play-card.v1",
+          "inputs": ["card_ref", "declared_targets"],
+          "outcomes": ["played", "insufficient", "unplayable", "target-invalid"],
+          "reads": ["combat.energy.current", "combat.hand"],
+          "writes": ["combat.energy.current", "combat.hand", "combat.discard-pile", "combat.exhaust-pile"],
+          "signals": ["card.played", "card.exhausted"],
+          "schedules": ["card-effect-actions"],
+          "rng_streams": [],
+          "ordering": "Validate play and reserve cost before effects; resolve the card's ordered actions, then move its instance to discard or exhaust exactly once.",
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        },
+        {
+          "id": "game.turn.end.v1",
+          "inputs": ["turn_id"],
+          "outcomes": ["ended"],
+          "reads": ["combat.hand", "combat.energy.current"],
+          "writes": ["combat.hand", "combat.discard-pile", "combat.energy.current"],
+          "signals": ["player-turn.ended"],
+          "schedules": ["enemy-turn.actions"],
+          "rng_streams": [],
+          "ordering": "Resolve end-of-player-turn hooks, move non-retained hand cards in stable hand order, drain Energy, then admit enemy actions.",
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "sts.turn.start-positive-v1",
+          "kind": "positive",
+          "inputs": {
+            "energy": 0,
+            "draw_pile": ["strike-a", "defend-a", "bash-a", "strike-b", "defend-b"],
+            "discard_pile": [],
+            "hand": []
+          },
+          "expected_observations": {
+            "outcome": "started",
+            "energy": 3,
+            "hand": ["strike-a", "defend-a", "bash-a", "strike-b", "defend-b"],
+            "draw_pile": [],
+            "zone_transition_count": 5
+          },
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        },
+        {
+          "id": "sts.turn.reshuffle-boundary-v1",
+          "kind": "boundary",
+          "inputs": {
+            "draw_pile": ["strike-a", "defend-a"],
+            "discard_pile": ["bash-a", "strike-b", "defend-b"],
+            "prescribed_shuffle_result": ["defend-b", "bash-a", "strike-b"],
+            "draw_count": 5
+          },
+          "expected_observations": {
+            "hand": ["strike-a", "defend-a", "defend-b", "bash-a", "strike-b"],
+            "draw_pile": [],
+            "discard_pile": [],
+            "rng_stream": "combat-card-order",
+            "shuffle_count": 1
+          },
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        },
+        {
+          "id": "sts.card.insufficient-energy-outcome-v1",
+          "kind": "outcome",
+          "inputs": {
+            "energy": 1,
+            "hand": ["bash-a"],
+            "card": {"id": "bash-a", "cost": 2}
+          },
+          "expected_observations": {
+            "outcome": "insufficient",
+            "energy": 1,
+            "hand": ["bash-a"],
+            "discard_pile": [],
+            "scheduled_effects": []
+          },
+          "source_refs": ["sts-card-combat-crosscheck", "sts-turn-zones-crosscheck"]
+        }
+      ]
+    },
+    {
+      "id": "sts.card-combat-lifecycle",
+      "title": "Card action outcomes, Block/damage order, and combat-scoped Status/Power lifecycle",
+      "families": ["quantity", "resource", "action", "combat", "effect"],
+      "coverage_rows": ["RPG-DAMAGE-01", "RPG-DEFENSE-01", "RPG-EFFECT-03"],
+      "source_refs": ["sts-card-combat-crosscheck"],
+      "quantities": [
+        {
+          "id": "card.strike.cost",
+          "representation": "Int",
+          "kind": "energy-cost",
+          "unit": "energy",
+          "role": "parameter",
+          "domain": "exactly 1 for unupgraded Strike",
+          "rounding": null,
+          "cap": null,
+          "source_refs": ["sts-card-combat-crosscheck"]
+        },
+        {
+          "id": "card.strike.damage",
+          "representation": "Int",
+          "kind": "attack-damage",
+          "unit": "hp",
+          "role": "parameter",
+          "domain": "exactly 6 before modifiers for unupgraded Strike",
+          "rounding": "modifier-specific integer policy; not exercised here",
+          "cap": null,
+          "source_refs": ["sts-card-combat-crosscheck"]
+        },
+        {
+          "id": "card.defend.block",
+          "representation": "Int",
+          "kind": "block",
+          "unit": "block",
+          "role": "parameter",
+          "domain": "exactly 5 before modifiers for unupgraded Defend",
+          "rounding": "modifier-specific integer policy; not exercised here",
+          "cap": "999 total Block",
+          "source_refs": ["sts-card-combat-crosscheck"]
+        },
+        {
+          "id": "card.bash.vulnerable",
+          "representation": "Int",
+          "kind": "effect-duration",
+          "unit": "turn",
+          "role": "parameter",
+          "domain": "exactly 2 for unupgraded Bash",
+          "rounding": null,
+          "cap": null,
+          "source_refs": ["sts-card-combat-crosscheck"]
+        },
+        {
+          "id": "combat.block.maximum",
+          "representation": "Int",
+          "kind": "block",
+          "unit": "block",
+          "role": "constant",
+          "domain": "inclusive range 0..999",
+          "rounding": null,
+          "cap": "999",
+          "source_refs": ["sts-card-combat-crosscheck"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "entity.hp.current",
+          "value_type": "Quantity<Int,health>",
+          "scope": "entity",
+          "initial": 0,
+          "source_refs": ["sts-card-combat-crosscheck"]
+        },
+        {
+          "id": "entity.block.current",
+          "value_type": "Quantity<Int,block>",
+          "scope": "entity",
+          "initial": 0,
+          "source_refs": ["sts-card-combat-crosscheck"]
+        },
+        {
+          "id": "entity.active-powers",
+          "value_type": "List<PowerInstance>",
+          "scope": "encounter",
+          "initial": [],
+          "source_refs": ["sts-card-combat-crosscheck"]
+        },
+        {
+          "id": "combat.status-cards",
+          "value_type": "List<CardRef>",
+          "scope": "encounter",
+          "initial": [],
+          "source_refs": ["sts-card-combat-crosscheck"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "game.combat.gain-block.v1",
+          "inputs": ["target", "typed_block"],
+          "outcomes": ["applied", "capped"],
+          "reads": ["entity.block.current"],
+          "writes": ["entity.block.current"],
+          "signals": ["block.gained"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Apply declared modifiers, then clamp to the 999 Block boundary and emit the committed delta.",
+          "source_refs": ["sts-card-combat-crosscheck"]
+        },
+        {
+          "id": "game.combat.resolve-attack-damage.v1",
+          "inputs": ["source", "target", "typed_attack_damage"],
+          "outcomes": ["blocked", "hp-lost", "defeated"],
+          "reads": ["entity.block.current", "entity.hp.current"],
+          "writes": ["entity.block.current", "entity.hp.current"],
+          "signals": ["block.lost", "player.hp-lost", "entity.defeated"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Attack damage consumes Block first; only the unblocked remainder changes HP; defeat follows the committed HP result.",
+          "source_refs": ["sts-card-combat-crosscheck"]
+        },
+        {
+          "id": "game.effect.apply-combat-status.v1",
+          "inputs": ["target", "effect_definition", "duration_or_intensity"],
+          "outcomes": ["applied", "stacked", "immune"],
+          "reads": ["entity.active-powers"],
+          "writes": ["entity.active-powers"],
+          "signals": ["effect.applied"],
+          "schedules": ["effect.turn-boundary"],
+          "rng_streams": [],
+          "ordering": "Apply the effect's declared duration/intensity stacking policy; Power instances remain encounter-scoped.",
+          "source_refs": ["sts-card-combat-crosscheck"]
+        },
+        {
+          "id": "game.encounter.cleanup-combat-state.v1",
+          "inputs": ["encounter_id", "terminal_outcome"],
+          "outcomes": ["cleaned"],
+          "reads": ["entity.active-powers", "combat.status-cards"],
+          "writes": ["entity.active-powers", "combat.status-cards"],
+          "signals": ["encounter.cleaned"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "After encounter termination, remove encounter-scoped Power and Status state without mutating the run deck.",
+          "source_refs": ["sts-card-combat-crosscheck"]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "sts.combat.block-before-hp-positive-v1",
+          "kind": "positive",
+          "inputs": {"target_hp": 20, "target_block": 4, "attack_damage": 6},
+          "expected_observations": {
+            "stage_order": ["block", "hp"],
+            "block_after": 0,
+            "hp_after": 18,
+            "hp_lost": 2
+          },
+          "source_refs": ["sts-card-combat-crosscheck"]
+        },
+        {
+          "id": "sts.combat.block-cap-boundary-v1",
+          "kind": "boundary",
+          "inputs": {"block_before": 997, "defend_block": 5},
+          "expected_observations": {
+            "outcome": "capped",
+            "uncapped_block": 1002,
+            "block_after": 999,
+            "committed_delta": 2
+          },
+          "source_refs": ["sts-card-combat-crosscheck"]
+        },
+        {
+          "id": "sts.combat.scope-cleanup-boundary-v1",
+          "kind": "boundary",
+          "inputs": {
+            "run_deck": ["strike-a", "status-wound-a"],
+            "combat_status_cards": ["status-wound-a"],
+            "active_powers": ["power-inflame-a"],
+            "encounter_outcome": "victory"
+          },
+          "expected_observations": {
+            "combat_status_cards": [],
+            "active_powers": [],
+            "run_deck": ["strike-a"]
+          },
+          "source_refs": ["sts-card-combat-crosscheck"]
+        }
+      ]
+    },
+    {
+      "id": "sts.relic-passive-reactions",
+      "title": "Model-authored Relic reactions to typed intra-action facts",
+      "families": ["quantity", "action", "effect", "turn"],
+      "coverage_rows": ["RPG-REACTIVE-01"],
+      "source_refs": ["sts-runic-cube-crosscheck"],
+      "quantities": [
+        {
+          "id": "offering.hp-loss",
+          "representation": "Int",
+          "kind": "health-loss",
+          "unit": "hp",
+          "role": "parameter",
+          "domain": "exactly 6 for unupgraded Offering",
+          "rounding": null,
+          "cap": null,
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        },
+        {
+          "id": "offering.energy-gain",
+          "representation": "Int",
+          "kind": "energy",
+          "unit": "energy",
+          "role": "parameter",
+          "domain": "exactly 2 for Offering",
+          "rounding": null,
+          "cap": null,
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        },
+        {
+          "id": "offering.draw-count",
+          "representation": "Int",
+          "kind": "card-count",
+          "unit": "card",
+          "role": "parameter",
+          "domain": "exactly 3 for unupgraded Offering",
+          "rounding": null,
+          "cap": null,
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        },
+        {
+          "id": "runic-cube.draw-count",
+          "representation": "Int",
+          "kind": "card-count",
+          "unit": "card",
+          "role": "constant",
+          "domain": "exactly 1 after an actual HP-loss fact",
+          "rounding": null,
+          "cap": null,
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "player.hp.current",
+          "value_type": "Quantity<Int,health>",
+          "scope": "entity",
+          "initial": 0,
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        },
+        {
+          "id": "player.relics",
+          "value_type": "Set<RelicRef>",
+          "scope": "run",
+          "initial": [],
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        },
+        {
+          "id": "combat.draw-pile",
+          "value_type": "List<CardRef>",
+          "scope": "encounter",
+          "initial": [],
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        },
+        {
+          "id": "combat.hand",
+          "value_type": "List<CardRef>",
+          "scope": "encounter",
+          "initial": [],
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "game.combat.lose-hp.v1",
+          "inputs": ["target", "typed_hp_loss", "cause"],
+          "outcomes": ["lost", "prevented"],
+          "reads": ["player.hp.current"],
+          "writes": ["player.hp.current"],
+          "signals": ["player.hp-lost"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Emit player.hp-lost only after a positive HP delta is established inside the current card-action transaction.",
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        },
+        {
+          "id": "game.effect.react-runic-cube.v1",
+          "inputs": ["player.hp-lost", "relic_instance"],
+          "outcomes": ["drew-one", "not-triggered"],
+          "reads": ["player.relics", "combat.draw-pile"],
+          "writes": ["combat.draw-pile", "combat.hand"],
+          "signals": ["card.drawn"],
+          "schedules": [],
+          "rng_streams": ["combat-card-order"],
+          "ordering": "The resolved Runic Cube subscriber draws immediately after HP loss and before the emitting card continues to its own draw action.",
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        },
+        {
+          "id": "game.action.resolve-offering.v1",
+          "inputs": ["card_instance", "player"],
+          "outcomes": ["resolved", "player-defeated"],
+          "reads": ["player.hp.current", "combat.draw-pile", "combat.hand"],
+          "writes": ["player.hp.current", "combat.draw-pile", "combat.hand"],
+          "signals": ["player.hp-lost", "card.drawn", "card.exhausted"],
+          "schedules": [],
+          "rng_streams": ["combat-card-order"],
+          "ordering": "Lose 6 HP, deliver same-transaction subscribers, gain 2 Energy, draw 3 cards, then exhaust Offering.",
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "sts.relic.runic-cube-order-positive-v1",
+          "kind": "positive",
+          "inputs": {
+            "hp": 30,
+            "relics": ["runic-cube"],
+            "played_card": "offering-a",
+            "draw_pile": ["card-a", "card-b", "card-c", "card-d"]
+          },
+          "expected_observations": {
+            "hp_after": 24,
+            "energy_gained": 2,
+            "draw_trace": [
+              {"card": "card-a", "cause": "runic-cube"},
+              {"card": "card-b", "cause": "offering"},
+              {"card": "card-c", "cause": "offering"},
+              {"card": "card-d", "cause": "offering"}
+            ],
+            "offering_zone": "exhaust"
+          },
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        },
+        {
+          "id": "sts.relic.prevented-hp-loss-boundary-v1",
+          "kind": "boundary",
+          "inputs": {
+            "attempted_hp_loss": 1,
+            "committed_hp_loss": 0,
+            "relics": ["runic-cube"],
+            "draw_pile": ["card-a"]
+          },
+          "expected_observations": {
+            "hp_lost_signal_count": 0,
+            "runic_cube_draw_count": 0,
+            "draw_pile": ["card-a"]
+          },
+          "source_refs": ["sts-runic-cube-crosscheck"]
+        }
+      ]
+    },
+    {
+      "id": "sts.deck-build-constraints",
+      "title": "Run-deck eligibility, distinct reward choices, and explicit skip",
+      "families": ["build", "generation", "run"],
+      "coverage_rows": ["RPG-BUILD-01", "ROGUE-BUILD-01", "ROGUE-REWARD-01"],
+      "source_refs": ["sts-reward-crosscheck", "sts-meta-crosscheck"],
+      "quantities": [
+        {
+          "id": "reward.card-choice-count",
+          "representation": "Int",
+          "kind": "choice-count",
+          "unit": "card",
+          "role": "constant",
+          "domain": "exactly 3 for an unmodified normal-combat reward",
+          "rounding": null,
+          "cap": "3 in this selected policy",
+          "source_refs": ["sts-reward-crosscheck"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "run.master-deck",
+          "value_type": "List<CardInstance>",
+          "scope": "run",
+          "initial": [],
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "meta.unlocked-card-definitions",
+          "value_type": "Set<CardDefinitionRef>",
+          "scope": "meta",
+          "initial": [],
+          "source_refs": ["sts-meta-crosscheck"]
+        },
+        {
+          "id": "run.reward-offer",
+          "value_type": "List<CardDefinitionRef>",
+          "scope": "run",
+          "initial": [],
+          "source_refs": ["sts-reward-crosscheck"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "game.generation.offer-card-reward.v1",
+          "inputs": ["character", "unlocked_pool", "reward_policy", "rng_state"],
+          "outcomes": ["offered", "unsatisfiable"],
+          "reads": ["meta.unlocked-card-definitions"],
+          "writes": ["run.reward-offer"],
+          "signals": ["reward.offered"],
+          "schedules": [],
+          "rng_streams": ["run-card-rewards"],
+          "ordering": "Filter by character, unlock, and policy before ordered distinct draws; do not use deck synergy as an implicit eligibility rule.",
+          "source_refs": ["sts-reward-crosscheck", "sts-meta-crosscheck"]
+        },
+        {
+          "id": "game.build.accept-card-reward.v1",
+          "inputs": ["offer_id", "selected_card_or_skip"],
+          "outcomes": ["accepted", "skipped", "not-offered"],
+          "reads": ["run.reward-offer", "run.master-deck"],
+          "writes": ["run.master-deck", "run.reward-offer"],
+          "signals": ["deck.card-added", "reward.skipped"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Accept exactly one offered card or the explicit skip outcome; soft player strategy is not evaluator-owned build validation.",
+          "source_refs": ["sts-reward-crosscheck"]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "sts.deck.reward-eligibility-positive-v1",
+          "kind": "positive",
+          "inputs": {
+            "character": "ironclad",
+            "unlocked_pool": ["anger", "cleave", "shrug-it-off"],
+            "prescribed_eligible_order": ["anger", "cleave", "shrug-it-off"],
+            "choice_count": 3
+          },
+          "expected_observations": {
+            "outcome": "offered",
+            "ordered_offer": ["anger", "cleave", "shrug-it-off"],
+            "duplicate_count": 0,
+            "all_choices_eligible": true
+          },
+          "source_refs": ["sts-reward-crosscheck", "sts-meta-crosscheck"]
+        },
+        {
+          "id": "sts.deck.reward-skip-outcome-v1",
+          "kind": "outcome",
+          "inputs": {
+            "master_deck": ["strike-a", "defend-a"],
+            "offer": ["anger", "cleave", "shrug-it-off"],
+            "choice": "skip"
+          },
+          "expected_observations": {
+            "outcome": "skipped",
+            "master_deck": ["strike-a", "defend-a"],
+            "offer_closed": true
+          },
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "sts.deck.locked-card-boundary-v1",
+          "kind": "boundary",
+          "inputs": {
+            "character": "ironclad",
+            "unlocked_pool": ["anger", "cleave"],
+            "catalog_pool": ["anger", "cleave", "limit-break"],
+            "choice_count": 2
+          },
+          "expected_observations": {
+            "eligible_pool": ["anger", "cleave"],
+            "excluded": [{"card": "limit-break", "reason": "not-unlocked"}]
+          },
+          "source_refs": ["sts-meta-crosscheck", "sts-reward-crosscheck"]
+        }
+      ]
+    },
+    {
+      "id": "sts.seeded-card-relic-rewards",
+      "title": "Stateful seeded card/relic reward policies",
+      "families": ["quantity", "generation", "build", "run"],
+      "coverage_rows": ["RPG-LOOT-01", "ROGUE-REWARD-01"],
+      "source_refs": ["sts-reward-crosscheck", "sts-seed-order-provisional"],
+      "quantities": [
+        {
+          "id": "reward.normal.common-weight",
+          "representation": "Int",
+          "kind": "probability-weight",
+          "unit": "percent",
+          "role": "parameter",
+          "domain": "exactly 60 before the mutable rarity offset",
+          "rounding": "integer percentage-point policy",
+          "cap": "100 across rarity categories",
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "reward.normal.uncommon-weight",
+          "representation": "Int",
+          "kind": "probability-weight",
+          "unit": "percent",
+          "role": "parameter",
+          "domain": "exactly 37 before the mutable rarity offset",
+          "rounding": "integer percentage-point policy",
+          "cap": "100 across rarity categories",
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "reward.normal.rare-weight",
+          "representation": "Int",
+          "kind": "probability-weight",
+          "unit": "percent",
+          "role": "parameter",
+          "domain": "exactly 3 before the mutable rarity offset",
+          "rounding": "integer percentage-point policy",
+          "cap": "100 across rarity categories",
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "reward.rare-offset.initial",
+          "representation": "Int",
+          "kind": "probability-offset",
+          "unit": "percentage-point",
+          "role": "constant",
+          "domain": "exactly -5 at reset",
+          "rounding": null,
+          "cap": "+40 upper bound",
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "reward.rare-offset.common-step",
+          "representation": "Int",
+          "kind": "probability-offset",
+          "unit": "percentage-point",
+          "role": "constant",
+          "domain": "exactly +1 after each common card roll",
+          "rounding": null,
+          "cap": "+40",
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "reward.rare-offset.maximum",
+          "representation": "Int",
+          "kind": "probability-offset",
+          "unit": "percentage-point",
+          "role": "constant",
+          "domain": "exactly +40",
+          "rounding": null,
+          "cap": "+40",
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "relic.common-weight",
+          "representation": "Int",
+          "kind": "probability-weight",
+          "unit": "percent",
+          "role": "parameter",
+          "domain": "exactly 50 for ordinary relic rarity selection",
+          "rounding": "published whole-percent proportion",
+          "cap": "100 across rarity categories",
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "relic.uncommon-weight",
+          "representation": "Int",
+          "kind": "probability-weight",
+          "unit": "percent",
+          "role": "parameter",
+          "domain": "exactly 33 for ordinary relic rarity selection",
+          "rounding": "published whole-percent proportion",
+          "cap": "100 across rarity categories",
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "relic.rare-weight",
+          "representation": "Int",
+          "kind": "probability-weight",
+          "unit": "percent",
+          "role": "parameter",
+          "domain": "exactly 17 for ordinary relic rarity selection",
+          "rounding": "published whole-percent proportion",
+          "cap": "100 across rarity categories",
+          "source_refs": ["sts-reward-crosscheck"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "run.seed",
+          "value_type": "Int",
+          "scope": "run",
+          "initial": 0,
+          "source_refs": ["sts-seed-order-provisional"]
+        },
+        {
+          "id": "run.card-rarity-offset",
+          "value_type": "Quantity<Int,probability-offset>",
+          "scope": "run",
+          "initial": -5,
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "run.seen-relics",
+          "value_type": "Set<RelicDefinitionRef>",
+          "scope": "run",
+          "initial": [],
+          "source_refs": ["sts-reward-crosscheck"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "game.generation.draw-card-reward.v1",
+          "inputs": ["reward_kind", "eligible_pool", "rarity_policy", "rarity_offset", "rng_state"],
+          "outcomes": ["offered", "unsatisfiable"],
+          "reads": ["run.card-rarity-offset"],
+          "writes": ["run.card-rarity-offset"],
+          "signals": ["reward.offered", "rarity-offset.changed"],
+          "schedules": [],
+          "rng_streams": ["run-card-rewards"],
+          "ordering": "For each ordered choice, apply the current rarity policy, select one eligible distinct card, then update offset state before the next choice.",
+          "source_refs": ["sts-reward-crosscheck", "sts-seed-order-provisional"]
+        },
+        {
+          "id": "game.generation.draw-relic.v1",
+          "inputs": ["source_kind", "eligible_pool_by_rarity", "seen_relics", "rng_state"],
+          "outcomes": ["offered", "pool-exhausted"],
+          "reads": ["run.seen-relics"],
+          "writes": ["run.seen-relics"],
+          "signals": ["relic.offered"],
+          "schedules": [],
+          "rng_streams": ["run-relic-pools"],
+          "ordering": "Resolve source and floor restrictions, exclude seen relics, select rarity and item in declared order, then mark the offered relic seen.",
+          "source_refs": ["sts-reward-crosscheck", "sts-seed-order-provisional"]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "sts.reward.rarity-offset-positive-v1",
+          "kind": "positive",
+          "inputs": {
+            "offset_before": -5,
+            "prescribed_rarity_results": ["common", "uncommon", "common"],
+            "prescribed_cards": ["anger", "uppercut", "cleave"]
+          },
+          "expected_observations": {
+            "ordered_offer": ["anger", "uppercut", "cleave"],
+            "offset_trace": [-5, -4, -4, -3],
+            "distinct_choices": true,
+            "rng_stream": "run-card-rewards"
+          },
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "sts.reward.rarity-offset-cap-boundary-v1",
+          "kind": "boundary",
+          "inputs": {"offset_before": 40, "prescribed_rarity_result": "common"},
+          "expected_observations": {
+            "offset_after": 40,
+            "cap_applied": true,
+            "guaranteed_rare": false
+          },
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "sts.reward.seen-relic-boundary-v1",
+          "kind": "boundary",
+          "inputs": {
+            "rarity": "common",
+            "seen_relics": ["anchor"],
+            "ordered_pool": ["anchor", "vajra", "lantern"]
+          },
+          "expected_observations": {
+            "eligible_pool": ["vajra", "lantern"],
+            "selected_relic": "vajra",
+            "seen_relics_after": ["anchor", "vajra"]
+          },
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "sts.reward.complete-input-determinism-v1",
+          "kind": "determinism",
+          "inputs": {
+            "game_version": "V2.3.4",
+            "platform": "Steam PC Windows x86-64",
+            "seed": "fixture-seed",
+            "prior_random_action_trace": ["neow-choice-0", "normal-reward-0"],
+            "rarity_offset": -5,
+            "eligible_pool_identity": "fixture-pool-v1"
+          },
+          "expected_observations": {
+            "same_complete_input_same_offer": true,
+            "same_seed_alone_is_not_the_reproduction_key": true,
+            "required_trace_fields": ["stream", "draw-index", "eligible-pool", "offset-before", "offset-after"]
+          },
+          "source_refs": ["sts-reward-crosscheck", "sts-seed-order-provisional"]
+        }
+      ]
+    },
+    {
+      "id": "sts.encounter-intents",
+      "title": "Enemy action plan, visible Intent projection, and execution",
+      "families": ["quantity", "action", "combat", "encounter", "evidence"],
+      "coverage_rows": ["RPG-ACTION-02", "RPG-ENCOUNTER-01"],
+      "source_refs": ["sts-intent-crosscheck"],
+      "quantities": [
+        {
+          "id": "intent.attack-damage",
+          "representation": "Int",
+          "kind": "attack-damage",
+          "unit": "hp",
+          "role": "derived",
+          "domain": "non-negative damage projected for the selected enemy action; fixture value 6",
+          "rounding": "selected combat Numeric policy",
+          "cap": null,
+          "source_refs": ["sts-intent-crosscheck"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "enemy.planned-action",
+          "value_type": "EnemyActionPlan",
+          "scope": "action",
+          "initial": null,
+          "source_refs": ["sts-intent-crosscheck"]
+        },
+        {
+          "id": "enemy.visible-intent",
+          "value_type": "IntentProjection",
+          "scope": "action",
+          "initial": null,
+          "source_refs": ["sts-intent-crosscheck"]
+        },
+        {
+          "id": "player.hp.current",
+          "value_type": "Quantity<Int,health>",
+          "scope": "entity",
+          "initial": 0,
+          "source_refs": ["sts-intent-crosscheck"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "game.encounter.plan-enemy-action.v1",
+          "inputs": ["enemy", "encounter_state", "move_policy", "rng_state"],
+          "outcomes": ["planned", "no-legal-move"],
+          "reads": ["enemy.planned-action"],
+          "writes": ["enemy.planned-action"],
+          "signals": ["enemy.action-planned"],
+          "schedules": ["enemy.action"],
+          "rng_streams": ["encounter-enemy-moves"],
+          "ordering": "Select and commit the upcoming action plan before projecting its player-visible Intent.",
+          "source_refs": ["sts-intent-crosscheck"]
+        },
+        {
+          "id": "game.encounter.project-intent.v1",
+          "inputs": ["planned_action", "visibility_policy"],
+          "outcomes": ["visible", "masked"],
+          "reads": ["enemy.planned-action"],
+          "writes": ["enemy.visible-intent"],
+          "signals": ["enemy.intent-projected"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Project the committed action under the visibility policy; masking changes the observable, not the plan.",
+          "source_refs": ["sts-intent-crosscheck"]
+        },
+        {
+          "id": "game.action.execute-enemy-plan.v1",
+          "inputs": ["planned_action", "target"],
+          "outcomes": ["completed", "target-defeated", "interrupted"],
+          "reads": ["enemy.planned-action", "player.hp.current"],
+          "writes": ["player.hp.current"],
+          "signals": ["enemy.action-completed"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "After the player turn, execute the exact committed plan; the visible Intent is not executable authority.",
+          "source_refs": ["sts-intent-crosscheck"]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "sts.intent.attack-projection-positive-v1",
+          "kind": "positive",
+          "inputs": {
+            "enemy_plan": {"kind": "attack", "damage": 6},
+            "visibility_policy": "normal",
+            "player_hp": 30,
+            "player_block": 0
+          },
+          "expected_observations": {
+            "visible_intent": {"kind": "attack", "damage": 6},
+            "executed_plan": {"kind": "attack", "damage": 6},
+            "player_hp_after": 24
+          },
+          "source_refs": ["sts-intent-crosscheck"]
+        },
+        {
+          "id": "sts.intent.runic-dome-mask-boundary-v1",
+          "kind": "boundary",
+          "inputs": {
+            "enemy_plan": {"kind": "attack", "damage": 6},
+            "visibility_policy": "runic-dome",
+            "player_hp": 30,
+            "player_block": 0
+          },
+          "expected_observations": {
+            "visible_intent": {"kind": "unknown"},
+            "executed_plan": {"kind": "attack", "damage": 6},
+            "player_hp_after": 24,
+            "plan_identity_unchanged_by_mask": true
+          },
+          "source_refs": ["sts-intent-crosscheck"]
+        }
+      ]
+    },
+    {
+      "id": "sts.run-reset-meta-replay",
+      "title": "Run teardown, Meta unlock projection, and complete-input replay",
+      "families": ["progression", "generation", "run", "evidence"],
+      "coverage_rows": ["ROGUE-RESET-01", "ROGUE-META-01", "ROGUE-REPLAY-01"],
+      "source_refs": ["sts-meta-crosscheck", "sts-reward-crosscheck", "sts-seed-order-provisional"],
+      "quantities": [
+        {
+          "id": "meta.ironclad-unlock-group",
+          "representation": "Int",
+          "kind": "unlock-stage",
+          "unit": "group",
+          "role": "state",
+          "domain": "integer groups 0..5; fixture crosses from 0 to 1",
+          "rounding": null,
+          "cap": "5",
+          "source_refs": ["sts-meta-crosscheck"]
+        },
+        {
+          "id": "meta.ascension-level",
+          "representation": "Int",
+          "kind": "difficulty-level",
+          "unit": "level",
+          "role": "state",
+          "domain": "character-scoped integer 0..20",
+          "rounding": null,
+          "cap": "20",
+          "source_refs": ["sts-meta-crosscheck"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "run.master-deck",
+          "value_type": "List<CardInstance>",
+          "scope": "run",
+          "initial": [],
+          "source_refs": ["sts-meta-crosscheck"]
+        },
+        {
+          "id": "run.relics",
+          "value_type": "Set<RelicInstance>",
+          "scope": "run",
+          "initial": [],
+          "source_refs": ["sts-meta-crosscheck"]
+        },
+        {
+          "id": "run.encounter-state",
+          "value_type": "EncounterState",
+          "scope": "encounter",
+          "initial": null,
+          "source_refs": ["sts-meta-crosscheck"]
+        },
+        {
+          "id": "meta.ironclad-unlock-group",
+          "value_type": "Quantity<Int,unlock-stage>",
+          "scope": "meta",
+          "initial": 0,
+          "source_refs": ["sts-meta-crosscheck"]
+        },
+        {
+          "id": "meta.unlocked-card-definitions",
+          "value_type": "Set<CardDefinitionRef>",
+          "scope": "meta",
+          "initial": [],
+          "source_refs": ["sts-meta-crosscheck"]
+        },
+        {
+          "id": "meta.ascension-by-character",
+          "value_type": "Map<CharacterRef,Int>",
+          "scope": "meta",
+          "initial": {"ironclad": 0},
+          "source_refs": ["sts-meta-crosscheck"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "game.run.close-and-reset.v1",
+          "inputs": ["run_result", "declared_meta_transfers"],
+          "outcomes": ["reset", "undeclared-transfer"],
+          "reads": ["run.master-deck", "run.relics", "run.encounter-state"],
+          "writes": ["run.master-deck", "run.relics", "run.encounter-state"],
+          "signals": ["run.closed", "run.reset"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Validate declared Meta transfers, commit them separately, then clear every Run and encounter slot before another run is initialized.",
+          "source_refs": ["sts-meta-crosscheck"]
+        },
+        {
+          "id": "game.progression.award-ironclad-unlock.v1",
+          "inputs": ["character", "completed_unlock_group"],
+          "outcomes": ["awarded", "already-unlocked"],
+          "reads": ["meta.ironclad-unlock-group", "meta.unlocked-card-definitions"],
+          "writes": ["meta.ironclad-unlock-group", "meta.unlocked-card-definitions"],
+          "signals": ["meta.content-unlocked"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Advance the character-scoped group and add its ordered content identities to Meta availability.",
+          "source_refs": ["sts-meta-crosscheck"]
+        },
+        {
+          "id": "game.run.initialize-from-meta.v1",
+          "inputs": ["character", "meta_state", "new_seed"],
+          "outcomes": ["initialized"],
+          "reads": ["meta.unlocked-card-definitions", "meta.ascension-by-character"],
+          "writes": ["run.master-deck", "run.relics"],
+          "signals": ["run.initialized"],
+          "schedules": [],
+          "rng_streams": ["run-card-rewards", "run-relic-pools"],
+          "ordering": "Derive new-run eligible definitions from Meta state while creating fresh Run instances and no retained prior-run deck or relic identity.",
+          "source_refs": ["sts-meta-crosscheck", "sts-reward-crosscheck"]
+        },
+        {
+          "id": "core.replay.compare-complete-input.v1",
+          "inputs": ["game_version", "model", "runtime", "experiment", "meta_state", "seed", "external_action_trace"],
+          "outcomes": ["equal", "identity-mismatch", "observation-mismatch"],
+          "reads": [],
+          "writes": [],
+          "signals": [],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Compare two executions only after every reproduction identity and the complete external action trace match.",
+          "source_refs": ["sts-meta-crosscheck", "sts-reward-crosscheck", "sts-seed-order-provisional"]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "sts.run.meta-unlock-positive-v1",
+          "kind": "positive",
+          "inputs": {
+            "run_deck": ["strike-a", "defend-a", "bash-a"],
+            "run_relics": ["burning-blood"],
+            "encounter_state": {"terminal": true},
+            "ironclad_unlock_group_before": 0,
+            "completed_unlock_group": 1
+          },
+          "expected_observations": {
+            "run_deck_after_reset": [],
+            "run_relics_after_reset": [],
+            "encounter_state_after_reset": null,
+            "ironclad_unlock_group_after": 1,
+            "newly_unlocked_cards": ["heavy-blade", "spot-weakness", "limit-break"],
+            "next_run_eligible_pool_includes": ["heavy-blade", "spot-weakness", "limit-break"]
+          },
+          "source_refs": ["sts-meta-crosscheck"]
+        },
+        {
+          "id": "sts.run.no-implicit-retention-boundary-v1",
+          "kind": "boundary",
+          "inputs": {
+            "prior_run_deck": ["strike-a", "limit-break-a"],
+            "prior_run_relics": ["burning-blood", "vajra"],
+            "declared_meta_transfers": ["ironclad-unlock-group-1"]
+          },
+          "expected_observations": {
+            "retained_run_card_instances": [],
+            "retained_run_relic_instances": [],
+            "meta_transfers": ["ironclad-unlock-group-1"],
+            "next_run_instances_are_fresh": true
+          },
+          "source_refs": ["sts-meta-crosscheck"]
+        },
+        {
+          "id": "sts.run.complete-replay-determinism-v1",
+          "kind": "determinism",
+          "inputs": {
+            "game_version": "V2.3.4",
+            "platform": "Steam PC Windows x86-64",
+            "content_scope": "unmodded Ironclad Ascension 0",
+            "meta_state_identity": "fixture-meta-v1",
+            "seed": "fixture-seed",
+            "external_action_trace_identity": "fixture-actions-v1"
+          },
+          "expected_observations": {
+            "same_complete_input": true,
+            "ordered_trace_equal": true,
+            "snapshot_hashes_equal": true,
+            "reward_offer_equal": true,
+            "same_seed_without_action_trace_is_ineligible": true
+          },
+          "source_refs": ["sts-meta-crosscheck", "sts-reward-crosscheck", "sts-seed-order-provisional"]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+mechanic_id,id,representation,kind,unit,role,domain,rounding,cap,source_refs
+sts.card-combat-lifecycle,card.bash.vulnerable,Int,effect-duration,turn,parameter,exactly 2 for unupgraded Bash,,,sts-card-combat-crosscheck
+sts.card-combat-lifecycle,card.defend.block,Int,block,block,parameter,exactly 5 before modifiers for unupgraded Defend,modifier-specific integer policy; not exercised here,999 total Block,sts-card-combat-crosscheck
+sts.card-combat-lifecycle,card.strike.cost,Int,energy-cost,energy,parameter,exactly 1 for unupgraded Strike,,,sts-card-combat-crosscheck
+sts.card-combat-lifecycle,card.strike.damage,Int,attack-damage,hp,parameter,exactly 6 before modifiers for unupgraded Strike,modifier-specific integer policy; not exercised here,,sts-card-combat-crosscheck
+sts.card-combat-lifecycle,combat.block.maximum,Int,block,block,constant,inclusive range 0..999,,999,sts-card-combat-crosscheck
+sts.deck-build-constraints,reward.card-choice-count,Int,choice-count,card,constant,exactly 3 for an unmodified normal-combat reward,,3 in this selected policy,sts-reward-crosscheck
+sts.encounter-intents,intent.attack-damage,Int,attack-damage,hp,derived,non-negative damage projected for the selected enemy action; fixture value 6,selected combat Numeric policy,,sts-intent-crosscheck
+sts.relic-passive-reactions,offering.draw-count,Int,card-count,card,parameter,exactly 3 for unupgraded Offering,,,sts-runic-cube-crosscheck
+sts.relic-passive-reactions,offering.energy-gain,Int,energy,energy,parameter,exactly 2 for Offering,,,sts-runic-cube-crosscheck
+sts.relic-passive-reactions,offering.hp-loss,Int,health-loss,hp,parameter,exactly 6 for unupgraded Offering,,,sts-runic-cube-crosscheck
+sts.relic-passive-reactions,runic-cube.draw-count,Int,card-count,card,constant,exactly 1 after an actual HP-loss fact,,,sts-runic-cube-crosscheck
+sts.run-reset-meta-replay,meta.ascension-level,Int,difficulty-level,level,state,character-scoped integer 0..20,,20,sts-meta-crosscheck
+sts.run-reset-meta-replay,meta.ironclad-unlock-group,Int,unlock-stage,group,state,integer groups 0..5; fixture crosses from 0 to 1,,5,sts-meta-crosscheck
+sts.seeded-card-relic-rewards,relic.common-weight,Int,probability-weight,percent,parameter,exactly 50 for ordinary relic rarity selection,published whole-percent proportion,100 across rarity categories,sts-reward-crosscheck
+sts.seeded-card-relic-rewards,relic.rare-weight,Int,probability-weight,percent,parameter,exactly 17 for ordinary relic rarity selection,published whole-percent proportion,100 across rarity categories,sts-reward-crosscheck
+sts.seeded-card-relic-rewards,relic.uncommon-weight,Int,probability-weight,percent,parameter,exactly 33 for ordinary relic rarity selection,published whole-percent proportion,100 across rarity categories,sts-reward-crosscheck
+sts.seeded-card-relic-rewards,reward.normal.common-weight,Int,probability-weight,percent,parameter,exactly 60 before the mutable rarity offset,integer percentage-point policy,100 across rarity categories,sts-reward-crosscheck
+sts.seeded-card-relic-rewards,reward.normal.rare-weight,Int,probability-weight,percent,parameter,exactly 3 before the mutable rarity offset,integer percentage-point policy,100 across rarity categories,sts-reward-crosscheck
+sts.seeded-card-relic-rewards,reward.normal.uncommon-weight,Int,probability-weight,percent,parameter,exactly 37 before the mutable rarity offset,integer percentage-point policy,100 across rarity categories,sts-reward-crosscheck
+sts.seeded-card-relic-rewards,reward.rare-offset.common-step,Int,probability-offset,percentage-point,constant,exactly +1 after each common card roll,,+40,sts-reward-crosscheck
+sts.seeded-card-relic-rewards,reward.rare-offset.initial,Int,probability-offset,percentage-point,constant,exactly -5 at reset,,+40 upper bound,sts-reward-crosscheck
+sts.seeded-card-relic-rewards,reward.rare-offset.maximum,Int,probability-offset,percentage-point,constant,exactly +40,,+40,sts-reward-crosscheck
+sts.turn-energy-zones,turn.energy-refresh,Int,energy,energy,constant,exactly 3 at normal player-turn start before modifiers,,,sts-turn-zones-crosscheck
+sts.turn-energy-zones,turn.hand-draw,Int,card-count,card,constant,exactly 5 at normal player-turn start before modifiers,,,sts-turn-zones-crosscheck
