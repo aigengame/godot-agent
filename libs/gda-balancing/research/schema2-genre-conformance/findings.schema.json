@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aigengame.dev/gda-balancing/research/schema2-genre-findings-v1.schema.json",
+  "title": "Schema 2.0 genre conformance dogfooding findings",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_kind", "schema_version", "game_id", "findings"],
+  "properties": {
+    "artifact_kind": {"const": "schema2-genre-dogfooding-findings"},
+    "schema_version": {"const": 1},
+    "game_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "mechanic_id",
+          "status",
+          "required_surface",
+          "observation",
+          "design_implication",
+          "affected_coverage_rows",
+          "regression_vector"
+        ],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]*$"},
+          "mechanic_id": {"type": "string", "pattern": "^[a-z][a-z0-9._-]*$"},
+          "status": {"enum": ["confirmed", "refined", "blocked", "out_of_scope"]},
+          "required_surface": {
+            "enum": [
+              "model_source",
+              "template_release",
+              "domain_package",
+              "ldb",
+              "kernel",
+              "host",
+              "out_of_scope"
+            ]
+          },
+          "observation": {"type": "string", "minLength": 1},
+          "design_implication": {"type": "string", "minLength": 1},
+          "affected_coverage_rows": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "pattern": "^(RPG|ROGUE)-[A-Z]+-[0-9]{2}$"}
+          },
+          "regression_vector": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}
