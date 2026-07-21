@@ -1,9 +1,8 @@
-"""Verified-artifact aggregation for one Standard Schema 2.x claim row.
+"""Rejected research utility for one Standard Schema 2.x claim row.
 
-This module is a permanent claim-aggregation sub-slice, not the complete Gate 2
-conformance foundation.  It verifies bounded canonical artifact envelopes and
-exact closure bindings.  It does not execute Kernel/LDB semantics or make a
-bare hash, caller boolean, or host dispatch authoritative.
+Independent review rejected this implementation as a permanent Gate 2
+sub-slice.  It is retained only to reproduce dogfooding findings and cannot
+serve as claim-candidate or claim-closure authority.
 """
 
 from collections import Counter

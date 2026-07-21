@@ -57,5 +57,7 @@ that is what puts `gda-balancing` on `PATH`.
 Design decisions live in [`docs/badr/`](docs/badr) (balancing ADRs) and the domain glossary
 in [`BALANCING-CONTEXT.md`](BALANCING-CONTEXT.md).
 
-The permanent Standard Schema 2.x verified-artifact claim-aggregation sub-slice and its explicit
-non-claims are documented in [`conformance/schema2/README.md`](conformance/schema2/README.md).
+The rejected Standard Schema 2.x claim-aggregation research record, its independent-review findings,
+and retained dogfooding reproductions are documented in
+[`conformance/schema2/README.md`](conformance/schema2/README.md). It is not a permanent Gate 2
+sub-slice or merge candidate.

@@ -1,16 +1,23 @@
-# Schema 2.x verified-artifact claim aggregation
+# Rejected Schema 2.x claim-aggregation research record
 
-`gda_balancing.schema2.conformance` is one permanent **Gate 2 sub-slice**. It answers a bounded
-structural question:
+> **Rejected by independent review.** This implementation must not be merged or treated as a
+> permanent Gate 2 sub-slice, claim candidate, or claim-closure authority. It remains only as a
+> dogfooding research record and reproducible failure fixture.
+
+The review found that the implementation defines identity and wire schemas in host code, accepts
+digest-only prerequisite references instead of resolving the exact artifact graph, incompletely
+binds terminal-audit evidence, and leaves bounded parsing and report-all behavior incomplete. Those
+are architecture-level violations, not missing polish around an otherwise acceptable sub-slice.
+
+`gda_balancing.schema2.conformance` explored the following bounded structural question:
 
 > Do these exact canonical artifact bytes form a complete, non-duplicated candidate for one exact
 > claim definition and Kernel/LDB/Lock/RIR/Resolved-Model/Runtime/Experiment subject?
 
-It does not close the claim. A diagnostic-free report is `candidate`, never `closed`. Content
-addressing proves payload integrity and exact binding; it does not prove that an independent
-Kernel/LDB conformer produced or verified the artifact. Final claim closure therefore still needs
-the permanent authoritative Kernel/LDB artifacts, executable normative vectors, and an independently
-verifiable validator/receipt authenticity contract required by PRD #534 Gate 2.
+Its output is research-only. A diagnostic-free report is not an eligible claim candidate and can
+never authorize closure. Content addressing proves payload integrity only; it does not establish
+the exact prerequisite graph, Kernel/LDB authority, terminal-audit completeness, or independent
+verifier authenticity required by PRD #534 Gate 2.
 
 ## Contract
 
@@ -44,6 +51,6 @@ A `candidate` report does **not** prove:
 - completion of Gate 2, PRD #534, or any Tracer/RPG/Roguelike/Variant row.
 
 The executable candidate, tamper, semantic-failure, exact-binding, outcome/refusal, resource-cap,
-report-all, research-only, and bypass fixtures live in
+report-all, research-only, and bypass fixtures are retained as dogfooding reproductions in
 [`../../tests/test_schema2_conformance_foundation.py`](../../tests/test_schema2_conformance_foundation.py).
-They use a generic synthetic claim and close no live Genre row.
+They use a generic synthetic claim, establish no PASS conclusion, and close no live Genre row.
