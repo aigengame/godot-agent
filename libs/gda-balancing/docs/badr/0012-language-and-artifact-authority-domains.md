@@ -19,23 +19,28 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
 
 ## Decision
 
-- **The Language Definition Bundle is the sole machine authority for Standard Schema 2.x language
-  semantics.** One immutable, versioned bundle defines:
+- **Standard Schema 2.x has one layered machine-authority chain.** The non-self-hosted
+  **Schema-major Kernel Specification** defines how Language Definition Bundles are admitted and
+  interpreted, including the bundle meta-format and irreducible Semantic-kernel laws. Under one
+  exact Kernel Specification, the immutable, versioned **Language Definition Bundle** is the
+  sole language-content authority and defines:
   - grammar and wire-shape definitions;
   - type constructors, name-resolution and typing rules;
   - versioned operation specifications and their semantic contracts;
   - stable diagnostic-code definitions;
   - package manifests, capabilities, dependencies, and compatibility rules.
-  bADR-0022 fixes the canonical bundle, structured-rule meta-format, Semantic kernel, and
-  conformance boundary; field-level wire projections remain generated implementation artifacts,
-  not another authority.
+  bADR-0022 fixes the Kernel-Specification boundary, canonical bundle, structured-rule meta-format,
+  Semantic kernel, and conformance boundary. A host compiler, evaluator, bootstrap interpreter, or
+  reference implementation conforms to this chain; its source code is never another authority.
+  Field-level wire projections remain generated implementation artifacts.
 
 - **Every other language-description surface is a projection or a conforming implementation.**
   Structural schemas, semantic rule catalogs, registries, evaluator tables, documentation
-  projections, and CLI self-description are generated from the Language Definition Bundle where
-  practical. Where direct generation would distort the target representation, a conformance test
-  proves agreement with the bundle. A hand-maintained peer definition is prohibited. An evaluator
-  implements the bundle; its source code is not an alternative language specification.
+  projections, and language-bound fields referenced by Command descriptors are generated from the
+  Language Definition Bundle where practical. The Command descriptor still owns command-surface
+  input/outcome/artifact shape under bADR-0021. Where direct generation would distort the target
+  representation, a conformance test proves agreement with the Kernel Specification and bundle. A
+  hand-maintained peer language definition is prohibited.
 
 - **Authored facts are divided into three non-overlapping authority domains:**
   1. The **Model Source Package** is the sole editable authority for a game's model definitions and
@@ -56,12 +61,35 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   Resolved Model is the execution authority for the exact build it represents, but neither it nor
   the lock may be edited as a substitute for source.
 
+- **Artifact identity is independent of storage and transport.** Every public artifact has a closed
+  envelope that binds its artifact kind, wire-schema identity, content identity, and normative
+  payload. A Locator identifies a retrieval mechanism; a Receipt proves a publication and may bind
+  a Locator, but neither paths nor transport metadata enter content identity. Retrieval revalidates
+  the envelope, schema identity, and content hash. Missing, mismatched, or tampered artifacts are
+  typed refusals rather than implementation fallbacks.
+
+- **One producing outcome publishes one artifact set.** A success or separately typed terminal-audit
+  outcome may stage multiple artifacts, but none is authoritative or discoverable until one
+  immutable publication receipt commits that complete set. A terminal-audit set cannot reuse or
+  partially expose a success set. Failure before the selected outcome's commit point exposes no
+  member. Store layout, retention, transfer, garbage collection, and crash recovery are
+  implementation or deployment policies only where they preserve this visibility, verification,
+  and identity law. A CLI stdout/stderr envelope is emitted after publication and is not part of
+  this cross-transport atomic boundary.
+
 - **References cross domains by identity, never by copied mutable data.** Package locks, resolved
   models, experiments, evidence, and approvals carry content identities for every upstream
   artifact needed to reproduce or audit them. If compatibility-based binding is allowed instead
   of an exact identity, the compatibility contract and the final bound identity are both recorded.
   Downstream artifacts may cache projections for transport, but identity and conflict checks make
   the owning upstream artifact decisive.
+
+- **Experiment binding is explicit and reviewable.** Exact binding never follows a rebuilt model to
+  a new identity. A changed Resolved Model therefore requires a new Experiment-Specification
+  identity or resolution of its declared compatibility contract. Compatibility binding must select
+  exactly one Resolved Model before execution and publish a final binding receipt containing the
+  selector, resolver identity, selected exact identity, and review disposition. Zero or multiple
+  matches are `resolution` refusals; silent or in-place rebinding is prohibited.
 
 - **Schema and product versions remain independent.** “Standard Schema 2.0” identifies the
   language/specification major. It does not imply a `gda-balancing` 2.0.0 release; product version
@@ -77,9 +105,9 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
 
 ## Considered options
 
-- **One language bundle plus scoped authored authority domains** (chosen) — closes machine
-  semantic drift while keeping model, experiment, and governance ownership honest and separately
-  auditable.
+- **One Kernel Specification/LDB chain plus scoped authored authority domains** (chosen) — closes
+  machine semantic drift while keeping model, experiment, and governance ownership honest and
+  separately auditable.
 - **Model Source Package as the global sole authority** (rejected) — would either make scenarios
   and approvals hidden model fields or falsely claim that independently authored facts are derived.
 - **Validator implementation as the language authority** (rejected for 2.x) — makes semantics an
@@ -93,16 +121,32 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
 
 ## Consequences
 
-- bADR-0022 defines the Language Definition Bundle's machine-readable rule/kernel contract;
-  language registries or schemas must now be generated from it or reverse-conformance checked.
+- bADR-0022 defines the Kernel Specification and the Language Definition Bundle's machine-readable
+  rule contract; language registries or schemas must be generated from the bundle or
+  reverse-conformance checked against the authority chain.
 - The compiler boundary becomes explicit: Model Source Package plus Language Definition Bundle
   resolves dependencies, emits a Package Lock, and builds an immutable Resolved Model.
 - Experiment, evidence, calibration, and approval artifacts must identify exact upstream content;
   mutation produces a new identity rather than changing prior evidence in place.
+- Public artifact schemas must define envelopes, content-identity verification, Locators, Receipts,
+  and invocation-level artifact-set publication without making one store layout normative.
+- Experiment tooling must surface exact rebinding as a new authored or compatibility-resolution
+  decision rather than silently following a rebuilt model.
 - bADR-0019 limits Standard Schema 1.x migration to semantics-preserving source conversion and
   explicit deprecation; it creates no rollout/compatibility runtime.
 - bADR-0013…0022 close the formal-semantics, package, CLI, runtime, evidence, migration, external-
   mapping, and command-surface decisions gated by #534.
+
+## Validation
+
+- Two independently implemented Kernel Specification/LDB consumers must reject the same malformed
+  bundle and agree on the same admitted bundle identity, projected inventories, and diagnostics.
+- Projection conformance enumerates grammar, types, operations, packages, diagnostics, profiles,
+  and vectors back to the exact bundle and fails on missing, extra, or changed meaning.
+- A multi-artifact fault-injection vector fails after every staging boundary and proves that no
+  partial set is retrievable; successful cross-process retrieval verifies every envelope and hash.
+- Exact-bound Experiments refuse a changed RIR identity. Compatibility-bound Experiments cover
+  unique, zero-match, and ambiguous resolution and always record the final exact binding receipt.
 
 ## References
 

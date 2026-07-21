@@ -61,8 +61,10 @@ detail — on any divergence, it wins.
   game or engine code (nor `gda`); agnosticism is enforced by packaging plus an isolation
   gate (landing with #502) at the hardened (recursive, AST-level) standard.
 - **Standard Schema is the sole specification family** — inside 2.x, authority is scoped:
-  the Language Definition Bundle owns machine language semantics, while Model Source Packages,
-  Experiment Specifications, and Approval Records own their authored domains (bADR-0012). Games
+  the Schema-major Kernel Specification defines bundle interpretation and irreducible semantics;
+  the Language Definition Bundle owns language content under that kernel; and Model Source
+  Packages, Experiment Specifications, and Approval Records own their authored domains
+  (bADR-0012/0022). Host implementations are conforming implementations, never authority. Games
   consume resolved Standard Schema output; no parallel game-config authority is adapted (PRD #501).
 - **Own project, own release train** (ADR-0038) — this package is an independent uv project,
   not a workspace member: it locks separately, so every command run from the repo root needs

@@ -41,18 +41,30 @@ an explicit boundary for lowering equivalence.
   semantic coercion survives it.
 
 - **RIR is the canonical public semantic boundary.** Lowering removes authoring sugar, closes the
-  dependency graph, normalizes declarations and operations, and emits an immutable canonical
-  representation. A serialized RIR plus its Language Definition Bundle, Package Lock, and compiler
-  identity is content-addressed as the Resolved Model. Independent conforming evaluators accept
+  dependency graph, normalizes declarations and operations, and emits an immutable semantic normal
+  form. Identity-bearing RIR contains only facts that can affect specified observable behavior; it
+  excludes source spans, module ordering, aliases, comments, AST/HIR identities, lowering traces,
+  and diagnostic provenance. A serialized RIR plus exact Schema-major Kernel Specification,
+  Language Definition Bundle, and Package Lock identities is content-addressed as the Resolved
+  Model. Compiler/tool identity is non-semantic build provenance recorded in a separate Build
+  receipt; it cannot change the Resolved Model identity. Independent conforming evaluators accept
   RIR rather than reinterpreting authored source.
 
 - **HIR-to-RIR lowering must preserve specified observable behavior.** For any well-typed model,
   the RIR preserves its exported typed values and units; initialization; readable state;
   transitions; emitted signals and events; event-ordering inputs; named random-stream identity;
   terminal outputs; and declared runtime refusals. Source spans, module layout, comments, aliases,
-  and eliminated sugar are non-semantic except where retained as explicit provenance metadata.
+  eliminated sugar, and diagnostic provenance are non-semantic and cannot enter RIR identity.
   bADR-0022 makes these observations and the lowering relation structured Language rules in the
   Language Definition Bundle.
+
+- **Diagnostic provenance is a separate Debug Map.** A compiler may emit one immutable,
+  content-addressed Debug Map that binds the exact RIR identity to source spans, AST/HIR identities,
+  lowering-rule applications, and diagnostic locations. The map is a build companion for tooling,
+  not part of RIR, execution authority, semantic equivalence, or the Resolved Model identity. A
+  source-only change may therefore change the Debug Map while leaving byte-identical RIR. A
+  separately identified Build receipt binds source, compiler/tool, Resolved Model, Debug Map, and
+  publication facts without entering either RIR or Resolved Model identity.
 
 - **EIR is evaluator-specific and non-normative.** An evaluator may lower RIR into specialized
   layouts, schedules, kernels, bytecode, or other plans. EIR is not a stable Standard Schema
@@ -95,17 +107,36 @@ an explicit boundary for lowering equivalence.
 
 ## Consequences
 
-- The bADR-0022 Language Definition Bundle carries parsing, name resolution, typing/effects, units,
-  diagnostics, observable runtime behavior, and HIR-to-RIR lowering rules; a compiler must conform
-  to all of them before claiming 2.x conformance.
+- The bADR-0022 Kernel Specification carries irreducible interpreter/runtime semantics; the Language
+  Definition Bundle carries parsing, name resolution, typing/effects, units, diagnostics, profiles,
+  and HIR-to-RIR rules. A compiler must conform to both before claiming 2.x conformance.
 - RIR needs a canonical encoding, content-identity law, compatibility contract, and normative
   vectors. These are public Standard Schema surfaces.
+- Debug Map needs its own closed schema and identity law; build receipts may bind it without making
+  its provenance fields semantic or changing the Resolved Model identity.
+- Build receipt needs a closed non-semantic provenance schema and must never participate in the
+  Resolved Model content-identity function.
 - EIR may evolve with an evaluator without a Schema version bump, provided its behavior remains
   conforming and its cache identity prevents stale reuse.
 - CLI and evidence artifacts report the Resolved Model identity and evaluator/numeric profile; they
   do not promise EIR portability.
 - bADR-0014 defines event ordering, snapshots, conflicts, rollback, cancellation, external inputs,
   RNG derivation, and Numeric-profile boundaries that make RIR's observable behavior testable.
+
+## Validation
+
+- Two accepted sources that differ only in aliases, module/declaration ordering, source spans,
+  comments, or eliminated authoring sugar must produce byte-identical canonical RIR even when their
+  AST, HIR, and Debug Map identities differ.
+- A change to a resolved type, operation, dependency, Runtime/Numeric profile-definition binding, or other
+  semantic observation must change RIR identity.
+- Two independent lowerers must produce the same canonical RIR or the same closed lowering refusal
+  for every positive, negative, limit, and semantic-equivalence vector.
+- Independent compilers processing equivalent source with the same Kernel Specification, bundle,
+  and lock must produce one Resolved Model identity even though their Build receipts identify
+  different compiler/tool implementations.
+- An evaluator that did not build the RIR must execute it using only the RIR and its exact public
+  dependencies; deleting the Debug Map cannot change execution, Metrics, trace, or refusal behavior.
 
 ## References
 

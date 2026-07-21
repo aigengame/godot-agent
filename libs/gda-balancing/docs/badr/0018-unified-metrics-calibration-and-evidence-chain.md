@@ -38,10 +38,11 @@ append-only evidence graph.
   exports typed state/events/outputs; it does not own targets or post-hoc acceptance criteria.
 
 - **An Evaluation run records execution facts without deciding success.** It binds the exact
-  Resolved Model, Experiment Specification, Runtime profile, evaluator build, effective seed and
+  Resolved Model, Experiment Specification, Resolved Runtime profile, evaluator build, effective seed and
   Named random streams, external-input identity, ordered trace/snapshots, terminal status, and
-  produced Metric dataset. A runtime refusal may still produce a terminal-evidence receipt, but it
-  cannot produce a completed Evaluation-run success artifact.
+  produced Metric dataset. A runtime refusal instead produces bADR-0014/0015's separately typed,
+  atomically published terminal-audit artifact set; it cannot produce a completed Evaluation-run
+  success artifact or Metric dataset.
 
 - **Calibration requires an explicit Observation model.** The model specifies how latent simulated
   metrics map to observed data, including measurement error/noise, missing and censoring mechanism,
@@ -88,8 +89,27 @@ append-only evidence graph.
   prerequisite assertions. A later assertion can depend on earlier ones but cannot upgrade them in
   place. `approved` exists only as an Approval Record in its governance authority domain.
 
+- **Evidence issuance is a validated judgment, never a side effect of successful serialization or
+  execution.** Before issuing an assertion, its command validates the closed Experiment, Metric,
+  dataset, Evaluation-run, evaluator/tool, policy, and prerequisite-assertion schemas plus their
+  identity graph and semantic compatibility. `well_typed` requires the exact successful static
+  judgment and language identity; `resolved` additionally requires a closed Package Lock,
+  Capability manifest, and RIR; `evaluable` requires a valid Experiment/Metric contract and admitted
+  Runtime/evaluator profile. Missing dimensions, type/unit mismatch, unknown policy, unverified
+  subject identity, or absent prerequisite is an `evaluation` refusal and emits no positive
+  assertion.
+
+- **`reproducible` requires a Replay comparison.** The immutable comparison binds at least
+  two exact Evaluation runs or independent-evaluator observations, their complete reproduction
+  identities, the declared comparable fields, canonicalization/tolerance policy, field-level
+  matches/mismatches, and comparison-tool identity. One successful run, a replay request, or
+  byte-equality observed only inside a test cannot issue `reproducible`. The assertion is emitted
+  only when the comparison completed positively and all prerequisite `resolved`/`evaluable`
+  assertions verify; mismatch is a completed negative Verdict, while missing/incompatible inputs are
+  an `evaluation` refusal.
+
 - **Approval binds exact evidence.** An Approval Record references the precise Resolved Model,
-  Experiment Specification, Runtime profile/evaluator, Metric datasets, Evaluation runs,
+  Experiment Specification, Resolved Runtime profile/evaluator, Metric datasets, Evaluation runs,
   Calibration report, Holdout-verification and Drift-assessment assertions, approval policy, and
   attestation.
   A naked `approved: true`, branch label, or mutable dashboard state is not approval evidence.
@@ -135,11 +155,25 @@ append-only evidence graph.
 - Migration must state whether and how 1.x reports or future legacy telemetry become 2.x datasets;
   unproven provenance cannot be invented.
 
+## Validation
+
+- Validate closed Experiment, Metric definition/sample/dataset, Evaluation run, evaluator/tool,
+  policy, Evidence assertion, Replay comparison, and prerequisite-graph fixtures before issuing any
+  assertion; add negative vectors for extra/missing fields, kind/unit/dimension mismatch, bad
+  aggregation, unknown policy, identity mismatch, and absent prerequisite.
+- Run an exact replay and a second independent evaluator, producing a Replay comparison
+  that names every compared field. Assert positive comparison can issue `reproducible`, mismatch
+  returns a Verdict with field diagnostics, and a single run or mere replay intent cannot issue it.
+- Inject a runtime refusal after committed events; assert only the terminal-audit artifact set is
+  atomically visible and no Evaluation run, Metric dataset, or positive Evidence assertion exists.
+- Mutate an evaluator, Resolved Runtime profile, Experiment, Metric definition, seed/stream, policy, or input
+  identity and assert the evidence graph rebinds to the new identity or refuses stale reuse.
+
 ## References
 
 - PRD #501 — shared simulated/observed Metrics schema requirement.
 - PRD #534 — Standard Schema 2.0 language, runtime, and evidence architecture.
 - bADR-0012 — authored authority domains and Approval Record.
-- bADR-0014 — Runtime profile and deterministic execution identity.
+- bADR-0014 — Runtime profile definitions, Resolved Runtime profiles, and deterministic identity.
 - bADR-0015 — invocation outcomes, refusals, and Verdicts.
 - bADR-0017 — genre coverage and Golden scenarios.

@@ -36,7 +36,7 @@ structured-params adapter part of the first vertical tracer.
   fixtures. Invoking a reserved-but-undelivered group is an unknown-command usage error.
 
 - **There is no standalone `runtime` group.** Runtime execution requires an exact Resolved Model,
-  Experiment Specification, Runtime profile, evaluator, external inputs, and seed identity. Public
+  Experiment Specification, Resolved Runtime profile, external inputs, and seed identity. Public
   execution therefore enters through `experiment run` or `experiment replay`; free-form runtime
   flags cannot become a fourth experiment authority.
 
@@ -63,26 +63,69 @@ structured-params adapter part of the first vertical tracer.
 - **Every registered command ships `--schema`.** Its closed result contains `input`, `success`,
   optional `verdict`, and `error`. `verdict` is present only for commands that can return exit 1;
   `error` includes the applicable bADR-0015 usage/internal and stage-aware refusal variants. The
-  exact same models feed argv/structured binding, dispatch validation, manifest emission, and the
-  conformance harness.
+  exact same models feed argv/structured binding, defaults, required/unknown-field handling, type
+  decoding, conflict detection, dispatch validation, manifest emission, and the conformance harness.
+  A schema with only an object shell while handler code owns its fields, or any parallel parameter
+  map, is non-conforming.
 
-- **Structured params input ships with the first 2.x tracer.** `--params-json <json | ->` binds the
+- **All public command schemas use one closed Command schema profile.** One immutable,
+  content-addressed cross-command rules artifact in the command-descriptor registry exhaustively
+  lists the JSON Schema Draft 2020-12 `$schema` URI, admitted keywords and formats,
+  content/version-derived absolute `$id` law, local `$defs`/exact-content-reference policy, object
+  closure via
+  `unevaluatedProperties: false`, and annotation/default-binding rules. Remote network resolution,
+  unlisted keywords, and implementation-defined formats are prohibited. `default` remains an
+  annotation in JSON Schema; each Command descriptor remains the sole per-command authority and
+  owns/applies its CLI/adapter defaults under the profile.
+  Referenced artifact Structural schemas and their semantic defaults remain LDB-owned and cannot be
+  redefined by a descriptor. The Surface manifest identifies the exact Command schema profile, and
+  changing it is a command-surface compatibility decision.
+
+- **Structured params input is mandatory in every 2.x vertical tracer.** `--params-json <json | ->` binds the
   descriptor's typed input model, with `-` reading stdin. It is mutually exclusive with individual
   argv fields; conflict is a usage error. Bare `--schema` takes precedence over all other arguments
   and emits without reading artifacts or executing the handler. Structured input cannot express
   fields the descriptor does not own.
 
 - **The Command descriptor remains the only registration seam.** In addition to bADR-0015 fields,
-  it owns artifact input/output roles and receipts, structured-params eligibility, and fixtures for
-  success, verdict, every applicable refusal stage, usage, internal fault injection, schema,
-  manifest, and stochastic reproduction. Parallel argument maps, command lists, error schemas, or
-  manifest rows are prohibited.
+  it owns artifact input/output-set roles, publication receipts/locators, structured-params
+  eligibility, closed typed models, and fixtures for success, verdict, every applicable refusal
+  stage, usage, internal fault injection, schema, manifest, and stochastic reproduction. Dispatch
+  cannot accept an input, default, outcome, refusal stage, or artifact behavior absent from that
+  descriptor. Parallel argument maps, command lists, error schemas, artifact lists, or manifest rows
+  are prohibited.
 
-- **Artifact output retains the safe bADR-0009 law.** Results always remain on stdout. `--out`
-  writes the descriptor-declared primary artifact atomically and adds its path/size/content identity
-  receipt to the success result; generated companion-artifact identities remain in the typed result.
-  Input artifacts are never mutated, direct/symlink aliasing of input and output is a usage error,
-  and failed invocations leave no partial authoritative output.
+- **Artifact output uses one invocation-level publication transaction.** Results always remain on
+  stdout. A descriptor declares the complete success artifact set: primary and companion artifacts,
+  their types, content identities, locators, and one set receipt. `--out` selects the declared
+  primary presentation/destination; it is not the atomicity unit. The implementation stages and
+  verifies every member, then makes the set receipt and all locators visible at one commit point. A
+  crash, collision, write fault, or verification failure before that point leaves the previous
+  visible set unchanged and publishes neither a receipt nor a subset. Storage/transport may vary,
+  but every receipt must resolve and rehash independently. Input artifacts are never mutated, and
+  direct/symlink aliasing of any input/output member is a usage error.
+
+- **Refusal publication is separate from success publication.** A pre-runtime refusal publishes no
+  command success artifacts. After runtime dispatch, bADR-0014/0015 requires one separately typed
+  terminal-audit artifact set; the command commits that entire refusal-only set and its locator
+  receipt before emitting the exit-2 envelope. It cannot reuse the success artifact-set type,
+  expose a partial Evaluation run/Metric dataset/Evidence set, or return an unresolvable digest as a
+  receipt.
+
+- **Artifact commit and result-envelope delivery are ordered, not one cross-transport
+  transaction.** The publication transaction covers the durable artifact set, locator index, and
+  receipt only; stdout/stderr cannot participate in that transaction. Every artifact-producing
+  Command descriptor requires a caller-supplied `invocation_key` of 64 lowercase hexadecimal digits
+  encoding 32 octets, exposed as `--invocation-key` and through the same structured input model. The
+  publication index binds `(descriptor identity, invocation_key)` to one canonical command-input
+  identity and committed outcome receipt. That canonical input excludes `invocation_key` and
+  presentation-only output locators. Reuse with different canonical input is an
+  `invocation_key_conflict` usage error and never dispatches; retrying the original command with the
+  same key/input after commit re-emits the stored outcome without executing.
+  Publication failure before commit produces `internal_error` on stderr with exit 4 and no
+  domain-result envelope or receipt. If the set commits but the process crashes or envelope
+  delivery fails, the caller already knows the key and recovery returns the immutable set. Retention
+  may later collect an unclaimed set, but cannot pretend it never committed.
 
 - **Verb meanings are closed.** `get` retrieves one definition/artifact, `list` enumerates,
   `instantiate` creates a new model authority from a template, `check` performs gated analysis,
@@ -115,7 +158,7 @@ structured-params adapter part of the first vertical tracer.
 - **Expose every artifact type as a top-level group** (rejected) — storage nouns such as metrics,
   locks, and traces do not each justify independent workflows.
 - **Continue deferring manifest and structured params** (rejected) — the 2.x surface is large and
-  agent-driven; the first tracer is the real consumer that justifies the adapters.
+  agent-driven; disposable vertical tracers are the first consumers that justify the adapters.
 - **Hand-maintain a CLI manifest** (rejected) — recreates command-surface drift beside the descriptor
   authority.
 - **One generic `artifact` group** (rejected) — erases the domain actions and authority boundaries
@@ -133,6 +176,30 @@ structured-params adapter part of the first vertical tracer.
   protected now.
 - Issue/README/help surfaces must use the same nouns and may not advertise reserved commands as
   available.
+
+## Validation
+
+- Project every live Command descriptor into `--schema` and `manifest`, then drive argv and
+  `--params-json` through those exact models. Cover required, optional/defaulted, unknown,
+  wrong-type, malformed-JSON, stdin, argv/JSON conflict, and bare-`--schema` cases; no handler-local
+  field may be accepted or omitted from the projection.
+- Validate every projection with two independent Draft-2020-12 validators under the closed local
+  profile. Reject remote references, unknown profile keywords/formats, open object shapes, `$id`
+  drift, and any difference between descriptor-applied defaults and schema annotations.
+- Enumerate success, optional Verdict, all applicable closed Refusal stages, usage, and injected
+  internal failure from each descriptor; assert exact model, channel, exit, and artifact behavior.
+- For multi-artifact build and experiment commands, inject faults before staging, between member
+  writes, after verification, and immediately before/after the commit point. Assert readers observe
+  either the old complete set or the new complete set, never a mixture, and every visible locator
+  rehashes to its receipt identity.
+- Inject runtime refusal after committed events and assert exactly one complete terminal-audit set
+  is retrievable while no success artifact member or success-set receipt is visible. Repeat with
+  concurrent readers and crash-recovery fixtures under each standardized store adapter.
+- Fail publication before commit and assert `internal_error`, exit 4, and no visible set. Fail or
+  crash after commit but before/during stdout delivery and assert the set remains retrievable by its
+  caller-known Invocation key and retry of the original command re-emits the recorded envelope
+  without model execution. Reusing the key with changed canonical input must be a usage error before
+  dispatch.
 
 ## References
 

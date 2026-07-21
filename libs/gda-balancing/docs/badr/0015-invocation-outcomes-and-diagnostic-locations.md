@@ -49,12 +49,17 @@ refusal payload stage-aware and artifact-aware.
   - `migration` owns source/artifact conversion preconditions and loss classification.
   - `approval` owns evidence, attestation, and governance-policy preconditions.
   A refusal envelope names the earliest stage that cannot complete; later stages do not run.
+  The set is a closed Schema-major discriminant: a bundle, package, descriptor, or evaluator cannot
+  add, omit, rename, or repurpose a stage. An unknown stage is rejected during ingress rather than
+  forwarded as an extension value. `usage` and `internal` remain Error-envelope categories, never
+  Refusal stages.
 
 - **The 2.x refusal envelope carries Diagnostics rather than 1.x JSON-Pointer-only entries.** The
   closed refusal variant contains `category: refusal`, one `stage`, a non-empty `diagnostics` array,
   and `truncated`. It may additionally carry `reproduction` after stochastic identity exists and a
-  `terminal_evidence` receipt after runtime has committed evidence. It has no envelope-level
-  diagnostic code: stable codes belong to individual entries.
+  `terminal_audit` receipt. A `runtime` refusal must carry that receipt once runtime dispatch has
+  begun; other stages cannot fabricate one. It has no envelope-level diagnostic code: stable codes
+  belong to individual entries.
 
 - **Every Diagnostic has one stable code, explanatory message, tagged primary location, and zero
   or more related locations.** Primary and related locations use a closed tagged union:
@@ -73,10 +78,23 @@ refusal payload stage-aware and artifact-aware.
   the location-kind order above, canonical location key, then code; duplicates are removed by
   `(code, primary location, related locations)`. `truncated` records cap exhaustion.
 
-- **Terminal evidence is referenced, not embedded as accidental success.** A runtime refusal may
-  attach a receipt identifying the ordered trace, last committed snapshot, refusing event, and
-  Runtime profile. The envelope remains category `refusal` and exit 2. Consumers can inspect or
-  replay the evidence without mistaking partial execution for a completed result.
+- **Terminal audit is referenced, retrievable, and never accidental success.** Once dispatch has
+  begun, a runtime refusal atomically publishes a separately typed terminal-audit artifact set and
+  returns its content-identity/locator receipt. The set identifies the ordered committed trace
+  prefix, last committed Snapshot, refusing event, rollback facts, Diagnostic, Resolved Runtime
+  profile, and exact reproduction identities. It is committed as one refusal-only publication
+  under bADR-0021. Only after commit does the command emit the category-`refusal` envelope on stdout
+  with exit 2; stdout is not part of the artifact-store transaction. No completed Evaluation run,
+  Metric dataset, success result, Verdict, or positive Evidence assertion is published. A receipt
+  must resolve to bytes whose identity verifies; an unpublished digest is not a retrievable receipt.
+
+- **Publication/delivery failure has explicit command semantics.** If terminal-audit publication
+  fails before commit, no Runtime-refusal envelope can truthfully carry a receipt; the command emits
+  `internal_error` on stderr with exit 4 and no receipt. If commit succeeds but result-envelope
+  delivery fails or the process crashes, the committed terminal-audit set remains authoritative and
+  recoverable by its caller-supplied Invocation key under bADR-0021. Idempotent retry of the
+  original command with the same canonical input re-emits the recorded Runtime-refusal envelope
+  without re-executing the model.
 
 - **Usage and internal variants remain separate and closed.** They carry one envelope-level code
   and no domain-diagnostic array. Usage covers only command/argument/path failures before artifact
@@ -87,17 +105,18 @@ refusal payload stage-aware and artifact-aware.
 - **The Language Definition Bundle owns typed-refusal diagnostic codes and stage membership.**
   Core and extension packages declare versioned, namespaced codes through the bundle authority.
   The CLI usage family and fixed internal code remain command-surface concerns. A code cannot move
-  stages or change meaning within a compatible Schema line.
+  stages or change meaning within a compatible Schema line. The closed stage vocabulary itself is a
+  Schema-major kernel contract and cannot be extended by bundle content.
 
-- **The Command descriptor remains the sole surface authority.** In 2.x it names the command's
-  input and success-result models; optional verdict model; applicable refusal stages and projected
-  refusal schema; handler; argument presentation; execution markings; and fixtures for every
-  applicable outcome. Dispatch, help/schema/manifest projections, and the conformance harness walk
-  that one registration seam.
+- **The Command descriptor remains the sole per-command surface authority.** Under bADR-0021's
+  shared Command schema profile, it names the command's input and success-result models; optional
+  verdict model; applicable refusal stages and projected refusal schema; handler; argument
+  presentation; execution markings; and fixtures for every applicable outcome. Dispatch,
+  help/schema/manifest projections, and the conformance harness walk that one registration seam.
 
 - **The conformance harness expands without creating a second registry.** It asserts channel,
   exit, closed-envelope shape, diagnostic code/stage membership, stable location encoding,
-  truncation/order/deduplication, terminal-evidence receipts, reproduction identity, and
+  truncation/order/deduplication, terminal-audit receipts, reproduction identity, and
   result/verdict schemas for every registered command.
 
 - **This decision supersedes only the conflicting 2.x portions of bADR-0004, bADR-0008, and
@@ -127,7 +146,7 @@ refusal payload stage-aware and artifact-aware.
 ## Consequences
 
 - The 2.x wire specification needs closed schemas for all location variants, refusal envelopes,
-  terminal-evidence receipts, and verdict reports.
+  terminal-audit artifact sets/receipts, and verdict reports.
 - Existing refusal codes need an explicit 1.x-to-2.x mapping and stage assignment during migration.
 - Runtime, evaluation, migration, and approval implementations gain typed failure paths and may not
   signal expected conditions with exceptions.
@@ -136,6 +155,22 @@ refusal payload stage-aware and artifact-aware.
 - Issue #534's capability mismatch, `not_evaluable`, Runtime refusal, migration, and approval gates
   now have one carrier and stable automation contract.
 
+## Validation
+
+- Enumerate all eight Refusal stages from the authoritative stage contract and reject missing,
+  duplicate, misspelled, unknown, or category-valued stages before command dispatch.
+- For every registered command, execute success, optional Verdict, every applicable Refusal stage,
+  usage, and injected internal failure; assert exact exit, channel, closed schema, location kind,
+  diagnostic ordering/deduplication, and truncation behavior.
+- Inject a runtime fault after dispatch and assert that exit 2 carries one resolving
+  `terminal_audit` receipt, the separately typed artifact set verifies by content identity, and no
+  success artifact set is visible. Faults before dispatch must not claim terminal audit.
+- Fail terminal-audit publication before commit and assert `internal_error`/exit 4 with no receipt;
+  fail or crash after commit but before envelope delivery and assert recovery/retry returns the
+  committed refusal without rerunning the model.
+- Mutate a package Diagnostic code or stage assignment and assert bundle admission or conformance
+  fails rather than allowing an evaluator- or descriptor-local override.
+
 ## References
 
 - PRD #534 — Standard Schema 2.0 language, runtime, and evidence architecture.
@@ -143,3 +178,4 @@ refusal payload stage-aware and artifact-aware.
 - bADR-0008 — current invocation result contract.
 - bADR-0011 — command registration seam and conformance harness.
 - bADR-0014 — deterministic atomic event runtime.
+- bADR-0021 — command descriptors and artifact-set publication.

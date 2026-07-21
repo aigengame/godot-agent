@@ -19,9 +19,10 @@ _Avoid_: gda balancing module, balancing plugin
 **Standard Schema**:
 The versioned language, runtime, artifact, and evidence specification for game numeric systems
 (character attributes, combat, builds, encounters, growth, economy). In Standard Schema 2.x,
-authority is deliberately scoped: the `Language Definition Bundle` is the sole machine authority
-for language semantics, while authored model, experiment, and approval facts belong to separate
-`Authority domains` (bADR-0012). The pipeline designs and configures numbers before game
+authority is deliberately scoped: the `Schema-major Kernel Specification` defines how a
+`Language Definition Bundle` is interpreted, the bundle is the sole language-content authority
+under that kernel, and authored model, experiment, and approval facts belong to separate
+`Authority domains` (bADR-0012/0022). The pipeline designs and configures numbers before game
 development; a game is then developed consuming its resolved output. Non-standard game configs
 are not adapted or imported.
 _Avoid_: config format, data model, descriptor
@@ -35,21 +36,34 @@ global authority for the others (bADR-0012).
 _Avoid_: global source of truth, authority layer
 
 **Language Definition Bundle**:
-The sole machine-readable authority for Standard Schema 2.x language semantics: grammar, type
-constructors and rules, operation specifications, diagnostic codes, package manifests, and
-version/capability compatibility. It also carries the bootstrap Semantic kernel, structured static
-and lowering rules, Runtime/Numeric profiles, and normative vectors. Structural schemas, semantic
-catalogs, registries, evaluator tables, documentation projections, and CLI self-description are
-generated from it or guarded by conformance tests against it; no hand-maintained peer authority is
-allowed (bADR-0012/0022).
+The sole immutable language-content authority under one exact `Schema-major Kernel Specification`:
+grammar, type constructors and rules, operation specifications, diagnostic codes, package
+manifests, version/capability compatibility, Runtime/Numeric profile definitions, and normative
+vectors. It
+must carry structured laws sufficient for two independent conforming implementations to derive the
+same observable operation, Numeric, effect, scheduling, refusal, and RNG behavior. Selecting or
+naming host-language primitives is not sufficient. Structural language schemas, semantic catalogs,
+registries, evaluator tables, documentation projections, and the language-bound members referenced
+by Command descriptors are generated from it or guarded by reverse conformance; command-surface
+shape remains descriptor-owned. No hand-maintained peer language-content authority is allowed
+(bADR-0012/0021/0022).
 _Avoid_: schema registry, implementation registry, language manifest (partial)
 
+**Schema-major Kernel Specification**:
+The versioned, non-self-hosted authority that defines bundle structure and interpretation,
+judgment execution, the irreducible Semantic kernel, exact Numeric and RNG sampling laws,
+event-transition primitives, resource accounting, and their conformance interface. Every Language
+Definition Bundle binds one exact kernel-specification identity. Host implementations conform to
+the kernel and bundle; a Python function, reference evaluator, or implementation table is never
+semantic authority (bADR-0012/0022).
+_Avoid_: reference implementation as authority, host semantic kernel, implicit bootstrap
+
 **Semantic kernel**:
-The closed bootstrap operation set whose structured rules give Standard Schema 2.x its irreducible
-meaning: literals, reads, calls, conditionals, local bindings, bounded aggregation, lookup,
-sampling, and transition/event primitives. Domain operations are defined as kernel compositions
-where possible; an irreducible addition is a Schema-major change with formal rules, reference
-implementation, and normative vectors (bADR-0022).
+The closed bootstrap operation set whose laws are fixed by the Schema-major Kernel Specification:
+literals, reads, calls, conditionals, local bindings, bounded aggregation, lookup, sampling, and
+transition/event primitives. Language Definition Bundle rules compose those primitives into
+language and domain behavior. An irreducible addition is a Schema-major kernel change with formal
+laws, independent conforming implementations, and normative vectors (bADR-0022).
 _Avoid_: standard library, evaluator built-ins, host functions
 
 **Language rule**:
@@ -83,8 +97,12 @@ _Avoid_: Source Package (unqualified), design bundle, model config
 The authored authority for scenarios, Metric definitions, targets, sampling/replication design,
 observation and discrepancy models, calibration policy, train/holdout partition, acceptance rule,
 and drift policy. It references an exact `Resolved Model` identity or a declared compatibility
-contract and may bind inputs, but it cannot redefine the model. It is versioned and hashed
-independently so evidence identifies both model and experiment (bADR-0012/0018).
+contract and may bind inputs, but it cannot redefine the model. Exact RIR binding is immutable;
+compatibility binding must resolve to one exact RIR before execution and produce an identified
+final-binding receipt. Changing RIR semantics therefore creates a new Experiment Specification
+identity or an explicit, reviewable compatibility-resolution result, never a silent rebind. The
+specification is versioned and hashed independently so evidence identifies both model and
+experiment (bADR-0012/0018).
 _Avoid_: experiment config, model overrides, scenario package
 
 **Approval Record**:
@@ -97,19 +115,48 @@ _Avoid_: approval flag, approved model, sign-off note
 
 **Resolved Model (RIR)**:
 The immutable, canonical, content-addressed public intermediate representation produced by
-resolving and compiling a `Model Source Package` under one `Language Definition Bundle` and one
-generated `Package Lock`. It contains no unresolved name or authoring sugar and is the normative
-cross-evaluator semantic boundary and execution authority for the exact build it represents. It is
-never an authored authority or an editable interchange format (bADR-0012/0013).
+resolving and compiling a `Model Source Package` under one Schema-major Kernel Specification,
+`Language Definition Bundle`, and generated `Package Lock`. It contains no unresolved name or
+authoring sugar and is the normative
+cross-evaluator semantic boundary and execution authority for the exact build it represents. Its
+identity-bearing form contains semantic normal-form data only: source order, aliases, comments,
+spans, AST/HIR identities, lowering traces, and diagnostic provenance are excluded. It is never an
+authored authority or an editable interchange format (bADR-0012/0013).
 _Avoid_: compiled config, authored IR, normalized source, evaluator plan
 
+**Debug Map**:
+A separately content-addressed, non-semantic artifact that binds one exact RIR identity to source
+spans, AST/HIR identities, lowering traces, and diagnostic provenance. It may change without
+changing an equivalent RIR and cannot affect compilation or runtime behavior (bADR-0013/0022).
+_Avoid_: RIR metadata, semantic provenance, embedded source map
+
+**Build receipt**:
+A separately identified, non-semantic provenance artifact binding the Model Source Package,
+Schema-major Kernel Specification, Language Definition Bundle, Package Lock, Resolved Model,
+compiler/tool identity, Resolution receipt, optional Debug Map, and publication facts for one build.
+Compiler and resolver implementation identities belong in provenance receipts and never
+participate in RIR or Resolved Model content identity, so independent conforming tools can produce
+the same semantic artifacts (bADR-0013).
+_Avoid_: compiler identity in RIR, semantic build id, Resolved Model provenance field
+
 **Package Lock**:
-The generated, content-addressed record of exact package versions, capabilities, and dependency
-resolution used to build a `Resolved Model`. It projects the Model Source Package's requirements
-through the Language Definition Bundle's compatibility rules; it is reproducibility evidence, not
-an independently authored authority. One package id resolves to one exact version; incompatible
-majors require distinct namespaces or an explicit adapter package (bADR-0012/0016).
+The generated, content-addressed proof of the exact transitive dependency graph, constraints,
+selected package identities, capability-provider bindings, type/conversion closure,
+operation-version bindings, normative resolution-algorithm/profile identity, and deterministic
+conflict disposition used to build a `Resolved Model`. It projects the Model Source Package's
+requirements through the
+Language Definition Bundle's compatibility rules; it is reproducibility evidence, not an
+independently authored authority. One package id resolves to one exact version; incompatible majors
+require distinct namespaces or an explicit adapter package (bADR-0012/0016).
 _Avoid_: dependency config, package manifest, lock authority
+
+**Resolution receipt**:
+A separately identified, non-semantic provenance artifact binding the source requirements,
+Schema-major Kernel Specification, Language Definition Bundle, canonical Package Lock, resolver
+tool/build identity, diagnostics, and publication facts for one resolution attempt. Resolver
+implementation provenance belongs here and never participates in Package Lock or Resolved Model
+content identity (bADR-0012/0016).
+_Avoid_: resolver identity in Package Lock, semantic resolver build, dependency authority
 
 **Genre template**:
 A versioned template release for a genre's numeric design baseline, never an evaluator code path.
@@ -186,6 +233,14 @@ declared reads, writes, emitted signals, scheduled events, and Named random stre
 implements this contract; its host-language function is not the authority (bADR-0012/0016).
 _Avoid_: function registration, evaluator hook, opcode documentation
 
+**Discriminated gameplay outcome**:
+A closed Enum/Record result returned when declared game semantics complete with one expected
+branch, such as `reserved`, `insufficient`, `immune`, or `interrupted`. Every admitted variant has
+one stable tag and variant-specific payload, and Typed HIR consumers must handle variants
+exhaustively before invoking dependent operations. It is neither a Typed refusal nor an internal
+error (bADR-0014/0016).
+_Avoid_: gameplay refusal, expected error, success flag
+
 **Conversion operation**:
 A versioned operation explicitly converting representation, Quantity kind, or unit under declared
 legality and loss behavior. Source must request it and Typed HIR records it; no implicit coercion
@@ -194,15 +249,17 @@ _Avoid_: automatic cast, unit normalization (when implicit), compatibility shim
 
 **Capability manifest**:
 The generated inventory of exact packages, operations, types, conversions, Numeric profiles, and
-runtime capabilities available in one Resolved Model. It is projected from the Language Definition
-Bundle and Package Lock for negotiation and evidence, not authored independently (bADR-0016).
+runtime capabilities available in one Resolved Model. It is a complete projection of the closed
+Package Lock plus RIR for negotiation and evidence, cannot invent or omit inventory, and is not
+authored independently (bADR-0016).
 _Avoid_: feature list, plugin registry, package manifest
 
 **Reference-standard mapping**:
 An explicit record of one mechanism adopted from an external standard, the Standard Schema concept
 it maps to, what is deliberately not adopted, and the conformance evidence required. The external
-standard supplies design provenance; the Language Definition Bundle restates the binding local
-contract and remains the sole authority (bADR-0020).
+standard supplies design provenance; the Schema-major Kernel Specification and Language Definition
+Bundle restate the binding local contract within their authority domains and remain the local
+authorities (bADR-0020).
 _Avoid_: standards compliance (unless fully implemented), inspiration, compatible with (unscoped)
 
 **Physical unit code**:
@@ -394,11 +451,14 @@ _Avoid_: log message, exception, validation warning
 
 **Structural schema**:
 The published JSON Schema 2020-12 projection for a Standard Schema wire artifact, `$id` versioned
-with that artifact contract. Passing it means structurally well-formed — not valid; the semantic
-layer closes the gap. In 1.x it accompanies the required validator (bADR-0005); in 2.x it is
-generated from or conformance-checked against the `Language Definition Bundle` and cannot define
-language semantics independently (bADR-0012). Ecosystem validators can run it without the toolkit
-installed.
+with that artifact contract. Its 2.x dialect/profile and any semantic default are owned by the
+Schema-major Kernel Specification or Language Definition Bundle and projected here; JSON Schema's
+`default` keyword remains annotation only. Passing it means structurally well-formed — not valid;
+the semantic layer closes the gap. In 1.x it accompanies the required validator (bADR-0005); in 2.x
+it is generated from or conformance-checked against the Language Definition Bundle and cannot
+define language semantics independently (bADR-0012/0022). A Command descriptor may reference this
+artifact schema but cannot redefine its fields or defaults. Ecosystem validators can run it without
+the toolkit installed.
 _Avoid_: meta-schema (JSON Schema term of art for schemas-of-schemas), the JSON file
 
 **Semantic rule catalog**:
@@ -421,6 +481,16 @@ manifest projection, structured-params binding, artifact receipts, and the confo
 derive from it (bADR-0011/0015/0021).
 _Avoid_: command spec, command config, registry entry
 
+**Command schema profile**:
+The immutable, content-addressed cross-command authority for schema dialect, reference, closure, and
+annotation/default-binding rules, referenced by every 2.x Command descriptor. It exhaustively lists
+the JSON Schema Draft 2020-12 meta-schema URI and admitted keyword and format sets. Each Command
+descriptor remains the sole per-command authority for input, outcome, CLI defaults, and artifact
+behavior under those shared rules. The Surface manifest identifies the profile's exact version;
+artifact Structural schemas remain Language Definition Bundle projections and are only referenced,
+never redefined (bADR-0021).
+_Avoid_: artifact schema, validator defaults, implicit JSON Schema dialect
+
 **Surface manifest**:
 The aggregate machine-readable projection of every registered 2.x Command descriptor: command
 identity/description, input, success, optional verdict, error schemas, execution markings, and
@@ -435,12 +505,23 @@ parameters absent from the Command descriptor; `--schema` takes precedence witho
 command (bADR-0021).
 _Avoid_: config file, JSON flags, alternate command API
 
+**Invocation key**:
+A caller-supplied idempotency key of 64 lowercase hexadecimal digits encoding 32 octets, required by
+every artifact-producing 2.x command and exposed identically as `--invocation-key` and
+`invocation_key` in structured params. The publication index binds it to one Command descriptor
+identity, canonical command-input identity, and committed outcome receipt. The canonical input
+identity excludes the Invocation key and presentation-only output locator. The key is
+command-delivery metadata, never model/RIR semantics; recovery retries the original command with
+the same key and input (bADR-0021).
+_Avoid_: artifact identity, random run id, generated-only recovery token
+
 **Error envelope**:
 The single closed top-level-`error` JSON object a failed invocation emits. Categories remain
 `refusal` (stdout, exit 2), `usage` (stderr, exit 3), and `internal` (stderr, exit 4). A 2.x refusal
 variant carries one `Refusal stage`, non-empty bounded `Diagnostic` entries, a truncation marker,
-and optional reproduction or terminal-evidence receipts; usage/internal variants carry their own
-single codes and never masquerade as domain diagnostics (bADR-0008/0015).
+an optional reproduction receipt, and a required terminal-audit receipt when runtime dispatch has
+begun; usage/internal variants carry their own single codes and never masquerade as domain
+diagnostics (bADR-0008/0015/0021).
 _Avoid_: error blob, failure JSON, exception dump
 
 **Verdict**:
@@ -465,8 +546,9 @@ The seed that actually drove a stochastic run — supplied via `--seed` (unsigne
 toolkit version, and carried by any failure envelope once drawn, so every stochastic
 outcome keeps its own reproduction key (bADR-0008/0010). For Standard Schema 2.x it is
 the root of named streams and is reproducible only together with the exact Resolved Model,
-Experiment Specification, evaluator, RNG algorithm/derivation, and Numeric profile identities
-(bADR-0014); the current CLI encoding remains in force until the 2.x CLI contract supersedes it.
+Experiment Specification, Resolved Runtime profile, and external-input identities (bADR-0014); the
+Resolved Runtime profile already closes evaluator, platform, Numeric, RNG, scheduler, effect, and
+budget choices. The current CLI encoding remains in force until the 2.x CLI contract supersedes it.
 _Avoid_: random seed (ambiguous), default seed
 
 ### Runtime
@@ -478,15 +560,26 @@ Standard Schema artifacts and the atomic-event runtime without adopting FMU, C A
 co-simulation compatibility (bADR-0014/0020).
 _Avoid_: FMI runtime, process lifecycle, implicit evaluator state
 
-**Runtime profile**:
-The immutable declaration of every execution choice that can affect replay: Language Definition
-Bundle, scheduler semantics, evaluator build, platform/runtime scope, `Numeric profile`, RNG
-algorithm and stream-derivation version, and deterministic resource budgets. Two runs make an
-identity claim only when their Runtime profiles and input artifact identities match (bADR-0014).
-_Avoid_: environment, runtime config (too broad), execution mode
+**Runtime profile definition**:
+The Language Definition Bundle-owned, immutable contract for one admitted execution policy:
+scheduler/phase semantics, budget vocabulary and accounting units, Named-stream derivation,
+`Numeric profile`, complete RNG sampling law, permitted effect sets, primitive requirements,
+overflow behavior, and portability constraints. It contains no bundle identity, evaluator build,
+host platform, or deployment fact, so it cannot form an identity cycle with its owning bundle
+(bADR-0014/0022).
+_Avoid_: environment, evaluator configuration, resolved execution identity
+
+**Resolved Runtime profile**:
+The generated, content-addressed admission artifact that resolves one Runtime profile definition
+against an exact Schema-major Kernel Specification, Language Definition Bundle, Package Lock/RIR,
+evaluator build, platform/runtime scope, and concrete deterministic budgets. It is validated before
+initialization; execution refuses an undeclared or incompatible stream, effect, primitive, profile,
+or budget. Two runs make an identity claim only when their Resolved Runtime profiles and other input
+artifact identities match (bADR-0014).
+_Avoid_: Runtime profile definition, ambient environment, runtime config
 
 **Numeric profile**:
-The named, versioned arithmetic contract selected by a Runtime profile: supported numeric
+The named, versioned arithmetic contract selected by a Runtime profile definition: supported numeric
 representations and operations, rounding, overflow and non-finite behavior, comparison tolerance,
 and portability scope. A portable exact profile may promise cross-platform bit identity; a profile
 admitting native floating operations is scoped to its declared evaluator/runtime/platform and ULP
@@ -518,6 +611,15 @@ Multiple contributors must use an explicit reducer/composition operation; an eve
 on hidden write order (bADR-0014).
 _Avoid_: event handler (implementation term), tick mutation, transaction batch
 
+**Artifact publication transaction**:
+The invocation-level atomic boundary that makes one immutable receipt and every artifact it
+identifies visible together, or none visible. It is distinct from Event-transaction atomicity and
+from any filesystem, object-store, or transport implementation; stdout/stderr delivery is ordered
+after commit and is not a participant. A runtime refusal after dispatch begins must publish a
+separately typed terminal-audit artifact set through this boundary, but never a partial
+Evaluation/Metric/Evidence success set (bADR-0015/0021).
+_Avoid_: atomic file write, output directory, event transaction
+
 **Snapshot boundary**:
 The semantic state boundary before the first event and after every committed Event transaction.
 The full state exists conceptually at each boundary; traces may store a canonical state hash and
@@ -529,14 +631,18 @@ The deterministic terminal result when execution cannot legally continue after s
 validation — for example an event targets a past phase, an event budget is exhausted, or a runtime
 operation violates its declared domain. The current Event transaction is rolled back, its children
 are discarded, prior commits remain in terminal evidence, and the run stops (bADR-0014). It is a
-`runtime`-stage typed refusal: exit 2 on stdout, with an optional receipt for terminal evidence
-(bADR-0015).
+`runtime`-stage typed refusal: exit 2 on stdout. Once runtime dispatch begins, it must carry a
+receipt for one complete, separately typed terminal-audit artifact set that committed atomically
+and is retrievable and verifiable. A Resolved Runtime profile admission refusal before dispatch
+carries no terminal audit. Failure to publish the required set before commit is an `internal`
+command outcome, not a Runtime-refusal envelope with a fake receipt; failure after commit leaves the
+set recoverable by its durable invocation identity (bADR-0015/0021).
 _Avoid_: crash, validation refusal, skipped event
 
 **Named random stream**:
 A stable logical random source derived from the effective root seed and a declared stream identity
-under the Runtime profile's versioned RNG contract. Sampling never consumes an ambient global RNG;
-reordering an unrelated stream cannot perturb this stream (bADR-0014).
+under the selected definition recorded by the Resolved Runtime profile. Sampling never consumes an
+ambient global RNG; reordering an unrelated stream cannot perturb this stream (bADR-0014).
 _Avoid_: global RNG, random state, implicit seed
 
 ### Simulation
@@ -561,11 +667,19 @@ source kinds in this one schema, not separate result formats (bADR-0018).
 _Avoid_: simulation report, telemetry dump, CSV result
 
 **Evaluation run**:
-The immutable evidence artifact binding exact Resolved Model, Experiment Specification, Runtime
-profile, evaluator, external inputs, effective seed/streams, ordered trace, and produced Metric
-dataset. It records what ran and what was observed; it does not itself decide acceptance
+The immutable evidence artifact binding exact Resolved Model, Experiment Specification, Resolved
+Runtime profile, evaluator, external inputs, effective seed/streams, ordered trace, and produced
+Metric dataset. It records what ran and what was observed; it does not itself decide acceptance
 (bADR-0018).
 _Avoid_: simulation result, run log, benchmark
+
+**Replay comparison**:
+An immutable artifact comparing exact reproduction identities and declared observable fields
+across two or more Evaluation runs or evaluators. It binds the compared runs, comparison policy,
+identity checks, observation checks, and any closed mismatch diagnostics. A successful comparison,
+not replay intent or a single successful run, is a prerequisite for a `reproducible` Evidence
+assertion (bADR-0018).
+_Avoid_: replay succeeded, deterministic flag, matching logs
 
 **Observation model**:
 The Experiment-Specification contract mapping latent model metrics to observed playtest data,
@@ -585,7 +699,10 @@ _Avoid_: tuned config, best parameters, optimizer output
 **Evidence assertion**:
 A small immutable, content-addressed claim that a specific artifact set passed one declared gate,
 such as `well_typed`, `resolved`, `evaluable`, `reproducible`, `calibrated`, or
-`holdout_verified`. Each assertion references its prerequisites and policy; progress is an evidence
+`holdout_verified`. Each assertion references exact schema-valid subjects, issuer, policy/tool/
+evaluator identities, successful semantic validators, and satisfied prerequisite assertions;
+artifact presence or command success alone proves none of these claims. In particular,
+`reproducible` requires an identified successful `Replay comparison`. Progress is an evidence
 graph, never a mutable status field (bADR-0018).
 _Avoid_: workflow status, passed flag, maturity level
 

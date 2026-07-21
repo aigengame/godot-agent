@@ -16,11 +16,14 @@ dependencies or alternative specifications.
 
 ## Decision
 
-- **The Language Definition Bundle remains the sole local authority.** Every adopted mechanism is
-  restated as Standard Schema types, operations, lifecycle rules, verifier laws, lowering rules, and
-  normative vectors. A newer external-standard release never changes an existing Schema bundle
-  automatically. Adoption or upgrade requires an explicit bundle/package version and, where the
-  contract changes, a new bADR.
+- **External standards enter only through the local layered authority chain.** An irreducible
+  mechanism belongs to the Schema-major Kernel Specification; language and package content belongs
+  to an exact Language Definition Bundle interpreted under that Kernel Specification. Every adopted
+  mechanism is restated as local types, operations, lifecycle rules, verifier laws, lowering rules,
+  and normative vectors in its owning layer. Host implementations and the external documents are
+  never peer authorities. A newer external-standard release never changes an existing Kernel
+  Specification or bundle automatically; adoption or upgrade requires explicit versioned artifacts
+  and, where the contract changes, a new bADR.
 
 - **UCUM 2.2 is the pinned physical-unit code and semantic substrate.** A physical Quantity uses a
   case-sensitive UCUM 2.2 expression. Full conformance is required for parsing, canonical semantic
@@ -52,7 +55,7 @@ dependencies or alternative specifications.
 
 - **FMI 3.0.2 contributes lifecycle-state discipline, not FMU interoperability.** One execution
   instance follows the local Runtime lifecycle:
-  - `instantiated`: exact RIR, Experiment Specification, Runtime profile, evaluator, inputs, and seed
+  - `instantiated`: exact RIR, Experiment Specification, Resolved Runtime profile, inputs, and seed
     are bound; no mutable state exists;
   - `initializing`: initialization operations create and validate the first Snapshot boundary;
   - `event`: the bADR-0014 scheduler executes atomic events at the current logical time;
@@ -100,7 +103,7 @@ dependencies or alternative specifications.
 ## Considered options
 
 - **Explicit mechanism-by-mechanism mappings** (chosen) — captures mature design lessons while
-  preserving one local authority and testable scope.
+  preserving one local layered authority chain and testable scope.
 - **Treat all standards as informal inspiration** (rejected) — makes references unfalsifiable and
   leaves reviewers unable to distinguish real adoption from terminology.
 - **Adopt each external format/runtime directly** (rejected) — creates incompatible authorities,
@@ -125,6 +128,19 @@ dependencies or alternative specifications.
 - The Equation package remains a named future extension rather than an underspecified runtime
   bridge in the initial 2.0 bundle.
 - External-version updates are deliberate Schema/package evolution, never ambient dependency drift.
+
+## Validation
+
+- Every claimed mapping identifies one exact external version, its local Kernel Specification or LDB
+  owner, excluded surfaces, and executable vectors; an unowned or prose-only mapping fails review.
+- UCUM vectors cover parsing, canonical semantic equality, commensurability, conversion magnitude,
+  special/non-ratio units, and rejection of semantic annotations across independent consumers.
+- MLIR/SBML-derived vectors cover verifier legality, package/capability resolution, deterministic
+  flattening, and cross-evaluator RIR equivalence; FMI-derived vectors cover every legal and illegal
+  lifecycle transition.
+- The initial bundle refuses `math.equation`; ONNX-derived package/opset vectors prove exact version
+  separation without claiming model import or execution. Updating an external dependency without a
+  new local identity must not change any accepted model or result.
 
 ## References
 

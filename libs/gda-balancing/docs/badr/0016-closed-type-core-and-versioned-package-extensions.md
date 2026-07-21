@@ -62,6 +62,24 @@ therefore requires a small closed type language and a constrained package extens
   and resolver contract. Empty, conflicting, or cyclic invalid solutions are `resolution` refusals
   with the bounded conflict set.
 
+- **Package Lock and Capability manifest close the complete graph, not a selected-name list.** The
+  lock records every transitive dependency edge and constraint, exact selected package and
+  operation version, required/optional capability branch, provider selection, exported nominal type,
+  explicit Conversion operation, supported Numeric/Runtime profile definition, and normative
+  resolution-algorithm/profile identity needed by RIR. The generated Capability manifest is a
+  deterministic projection of the exact Package Lock and RIR, including every selected package,
+  operation, type, conversion, Numeric/Runtime profile definition, capability provider, and semantic
+  provenance; it is never independently authored or completed from a broader evaluator registry.
+  Missing closure, multiple providers without a declared deterministic choice, incompatible type or
+  conversion graphs, or an operation/profile mismatch is a `resolution` refusal. Persisting skeleton
+  artifacts with package names does not establish resolution conformance.
+
+- **Resolver implementation provenance is separate.** Package Lock contains the normative
+  resolution algorithm/profile identity and semantic result only. A separately identified
+  Resolution receipt binds the resolver tool/build, exact inputs, resulting lock, diagnostics, and
+  publication facts. Different conforming resolver implementations must therefore emit
+  byte-identical canonical locks for the same inputs while retaining distinct provenance receipts.
+
 - **Optional dependencies are explicit capability branches, not ambient behavior.** Source may use
   an optional package only inside a construct that declares the corresponding capability
   requirement. Resolution either binds that capability and makes the chosen branch explicit in RIR
@@ -75,8 +93,19 @@ therefore requires a small closed type language and a constrained package extens
 - **Operation specifications close the extension's semantic surface.** Every operation declares a
   complete type signature, unit/kind rules, purity, deterministic resource bounds, permitted
   Numeric profiles, and runtime effects: state reads/writes, emitted signals, scheduled/canceled
-  events, and Named random streams. Its formal/reference semantics and diagnostic codes belong to
-  the Language Definition Bundle. Host evaluator code is a conforming implementation only.
+  events, and Named random streams. Reducible domain semantics and diagnostic codes belong to the
+  Language Definition Bundle; an irreducible primitive follows the Schema-major Kernel Specification
+  amendment and conformance path in bADR-0022. Host evaluator code is a conforming implementation
+  only.
+
+- **Expected gameplay branches use closed discriminated outcomes.** An operation whose declared
+  game semantics can complete as `reserved`, `insufficient`, `immune`, `interrupted`, or another
+  expected branch returns a nominal Enum or tagged Record union whose discriminator, payload, and
+  version are closed by its Operation specification. Static analysis requires exhaustive handling
+  before a dependent operation such as resource commit can proceed. A gameplay outcome is neither a
+  Typed refusal nor a Verdict: refusal means the declared semantics could not be executed, while a
+  Verdict is a completed judgment about evidence. Adding/removing a variant is governed by package
+  compatibility rules, and host code cannot invent an unlisted status string.
 
 - **Signal types belong to packages; subscription topology belongs to authored models.** A Domain
   package exports a nominal signal payload and the effects/capabilities a subscriber may declare.
@@ -145,6 +174,24 @@ therefore requires a small closed type language and a constrained package extens
 - bADR-0017 establishes the coverage matrix and splits effect, combat, build, progression, economy,
   generation, and reset behavior across orthogonal packages.
 
+## Validation
+
+- Resolve positive, missing, conflicting, cyclic, ambiguous-provider, incompatible-profile,
+  type/conversion-closure, and operation-version fixtures; canonical Package Lock and Capability
+  manifest bytes must agree across independent resolvers or produce the same bounded refusal set.
+- Assert two resolver tool builds produce one canonical Package Lock identity and distinct
+  Resolution receipts; changing only resolver implementation provenance must not change RIR or
+  Resolved Model identity.
+- Mutate one transitive constraint, capability provider, type, conversion, or operation version and
+  assert the lock/manifest/RIR identity changes or resolution refuses; no hidden evaluator registry
+  may keep the old build working.
+- Exercise every declared gameplay-outcome variant and reject unknown discriminators, missing
+  payloads, and non-exhaustive dependent branches before execution. Resource insufficiency,
+  immunity, and legal interruption remain typed outcomes rather than Runtime refusals.
+- Add an ordinary Quantity-typed attribute and then one versioned package operation using only
+  manifests, language rules, and vectors; the core constructors and unrelated compiler/runtime
+  dispatch must remain unchanged.
+
 ## References
 
 - PRD #534 — Standard Schema 2.0 language, runtime, and evidence architecture.
@@ -154,3 +201,4 @@ therefore requires a small closed type language and a constrained package extens
 - bADR-0012 — language and artifact authority domains.
 - bADR-0013 — compiler stages and RIR semantic boundary.
 - bADR-0014 — deterministic atomic event runtime.
+- bADR-0022 — Kernel Specification and machine-readable language rules.

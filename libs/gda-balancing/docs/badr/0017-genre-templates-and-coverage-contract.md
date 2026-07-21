@@ -37,7 +37,7 @@ distribution contract and a falsifiable definition of genre completeness.
 - **Templates contain no evaluator code and define no alternate language.** Defaults, formulas,
   package requirements, and example experiments are Standard Schema source. Genre-specific
   behavior exists only through Language Definition Bundle operations and Domain packages. The term
-  `profile` remains reserved away from Genre template because Runtime/Numeric profiles have
+  `profile` remains reserved away from Genre template because Runtime/Numeric profile definitions have
   different authority and compatibility semantics.
 
 - **The initial game-domain package boundaries are:**
@@ -66,14 +66,18 @@ distribution contract and a falsifiable definition of genre completeness.
 - **Target selection is its own typed contract.** A Target query operates over a dynamic entity set
   and declares filters, stable ordering, cardinality, tie-breaking, empty-result behavior, and any
   spatial capability required. Action, combat, and effect packages consume the resolved targets;
-  none may hide target selection inside evaluator code.
+  none may hide target selection inside evaluator code. Executable coverage distinguishes a legal
+  empty typed outcome from a source that omitted its empty policy, and includes zero/one/many
+  cardinalities, equal-key ties, stable-order perturbations, and missing/incompatible spatial
+  capability vectors.
 
 - **Effects decompose instead of growing a universal object.** `game.effect` composes distinct
   contracts for application requirements, capture timing (including snapshot/live reads),
   continuous contributions, state transitions, scheduling, stacking identity/reducer/cap,
   reapplication lifetime, removal/expiry/dispel, and immunity. Action owns interruption; combat owns
   damage/healing stages; resource owns current/capacity transfer. Cross-package operations declare
-  their reads, writes, events, and refusal outcomes under bADR-0016.
+  their reads, writes, events, closed gameplay outcomes, and possible typed refusals under
+  bADR-0016.
 
 - **Loot is a composition, not another monolith.** `game.generation` selects a reward under seeded
   weights and constraints; `game.economy` owns item/currency inventory transfer; `game.build` owns
@@ -88,9 +92,12 @@ distribution contract and a falsifiable definition of genre completeness.
 
 - **Every support claim is backed by a Genre coverage matrix.** Each normative row records:
   requirement id and statement; owning capability/operation identities; involved package boundary;
-  positive Golden scenario; at least one negative/refusal vector; and the metric/evidence field that
-  makes the behavior observable. A row is incomplete if any column is absent. Package inventory,
-  prose examples, or unit tests alone do not establish representational adequacy.
+  positive Golden scenario; at least one typed-outcome, refusal, or boundary vector as applicable;
+  and the metric/evidence field that makes the behavior observable. Vector ids ending in
+  `-outcome-v1` denote successfully executed gameplay branches; `-refused-v1` is reserved for
+  inability to accept or execute declared Schema semantics. A row is incomplete if any column is
+  absent. Package inventory, prose examples, or unit tests alone do not establish representational
+  adequacy.
 
 - **The RPG minimum coverage includes:** typed base/parameter/derived-stat composition across
   progression, build, and effect contributions; dynamic target selection; resource
@@ -99,23 +106,27 @@ distribution contract and a falsifiable definition of genre completeness.
   mitigation, resistance, shields, defeat, and revival policy; immunity; snapshot/live capture;
   stacking, reapplication, contribution, transition, expiration, and dispel; model-authored
   passive/reactive Signal subscriptions; build prerequisite/exclusion/synergy; progression and
-  unlock; generated loot plus inventory/economy transfer; and final Metrics/evidence emission.
+  unlock; generated loot plus inventory/economy transfer; typed economy sources, sinks, exchange and
+  pricing; party/enemy encounter composition; and final Metrics/evidence emission.
   CRPG/JRPG/ARPG variants may select `game.turn` and/or `game.spatial` capabilities without changing
   core logical-time or language semantics; those optional capabilities are not inherited by every
   RPG/Roguelike support claim.
 
 - **The Roguelike minimum coverage adds:** seeded constrained reward generation; rarity/guarantee
   behavior; build conflict and synergy; dynamic encounter/wave composition; Run-scope teardown;
-  explicit Meta-scope retention; and replay equality under identical model, experiment, Runtime
-  profile, external input, and seed identities. Metroidvania-like, survivors-like, and deckbuilder-
-  like templates may specialize package selection while satisfying the shared lifecycle rows.
+  explicit Meta-scope retention; and replay equality under identical model, experiment, Resolved
+  Runtime profile, external input, and seed identities. Metroidvania-like, survivors-like, and
+  deckbuilder-like templates may specialize package selection while satisfying the shared
+  lifecycle rows.
 
-- **The first implementation tracer is vertical.** It compiles one RPG starter source to RIR,
-  resolves a dynamic target, commits an action cost, executes hit/critical/staged damage, applies an
-  interruptible stacking effect with immunity behavior, terminates the encounter, and emits the
-  shared Metrics/evidence artifact through the public CLI contract. Supporting Golden scenarios
-  isolate negative and boundary cases; implementation does not build every package horizontally
-  before this path runs.
+- **Validation and implementation proofs remain ordered vertical slices.** The completed disposable
+  layer-connectivity probe on PRD #534 is not a conformance or Genre-closure result. The next probe
+  establishes semantic authority with independent bootstrap interpreters and evaluators; the
+  following probe adds resource outcomes, interruption/refund, and effect lifecycle behavior without
+  RPG-specific core branches. Only then may a production tracer claim the full source-to-RIR,
+  target, cost, check/damage, effect, encounter, Metrics, Evidence, and public-CLI path. Supporting
+  Golden scenarios isolate outcome, refusal, limit, and boundary cases; implementation does not
+  build every package horizontally before a vertical path runs.
 
 - **This decision supersedes conflicting 2.x template/effect portions of bADR-0001, bADR-0002, and
   bADR-0006.** It replaces “template as one Design-document instance”, root reserved genre sections,
@@ -133,7 +144,7 @@ distribution contract and a falsifiable definition of genre completeness.
 - **Package list as the support definition** (rejected) — says where concepts might live but not
   whether their operations compose or cover production cases.
 - **Genre-specific evaluator profiles** (rejected) — forks semantics in runtime code and conflicts
-  with Runtime/Numeric profile terminology.
+  with Runtime/Numeric profile-definition terminology.
 - **Template dependency that updates instantiated games automatically** (rejected) — makes template
   releases hidden model authority and invalidates evidence without an authored change.
 - **Monolithic Effect and Loot objects** (rejected) — combine selection, lifecycle, math, inventory,
@@ -153,6 +164,22 @@ distribution contract and a falsifiable definition of genre completeness.
 - Metrics/evidence semantics must be decided before the tracer can close every required row.
 - The old RPG/Roguelike template implementation issues require re-triage against #534 and this
   coverage contract before work resumes.
+
+## Validation
+
+- For target selection, run empty, singleton, many-candidate, equal-key tie, reordered-source,
+  cardinality-under/overflow, and missing-spatial-capability vectors. Assert canonical target ids
+  and order, and distinguish a declared empty outcome from a missing-policy refusal.
+- For Signals, run payload kind/unit mismatch, undeclared subscriber effect, missing capability,
+  duplicate/ambiguous subscription, bounded and unbounded cycle, multiple-subscriber order,
+  same-snapshot visibility, and subscriber-fault rollback vectors. Source topology must lower to one
+  canonical RIR table; an evaluator registry cannot add or reorder subscribers.
+- For every matrix row, execute its Golden scenario plus each outcome/refusal/boundary vector only
+  through public build/run artifacts. Private evaluator state, helper-only behavior, or prose
+  expected results cannot close a row.
+- Add one ordinary attribute and one reusable package mechanic, then rerun all previously closed
+  rows. The attribute must require only model declarations; the mechanic must require only versioned
+  package/language/vector additions and must not change unrelated core semantics.
 
 ## References
 

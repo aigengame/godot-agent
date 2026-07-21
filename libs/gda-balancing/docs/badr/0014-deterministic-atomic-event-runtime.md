@@ -60,12 +60,23 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   otherwise a Runtime refusal. Sequential event order resolves writes between different events;
   there is no implicit last-writer-wins merge inside one event.
 
+- **Event atomicity and invocation publication atomicity are distinct contracts.** An Event
+  transaction decides whether one runtime transition changes the committed Snapshot, RNG streams,
+  and event queue. It does not by itself decide when a command's RIR, trace, Metric, Evaluation, or
+  Evidence artifacts become visible. bADR-0021 owns that invocation-level multi-artifact commit
+  boundary; neither a successful Event nor an atomic file rename proves an atomically published
+  command result.
+
 - **Runtime refusal rolls back only the current event and terminates the run.** Its buffered writes,
-  child events, and cancellations are discarded. Earlier committed snapshots remain valid and the
-  terminal evidence identifies the last commit, refusing event, diagnostic, and Runtime profile.
-  No package may convert a Runtime refusal into a skipped event or continue under partial state.
-  Domain-level failures intended as gameplay branches must be modeled as typed outcomes, not
-  refusals.
+  RNG draws, child events, and cancellations are discarded. Earlier committed snapshots remain
+  valid. The refusal produces a separately typed **terminal-audit artifact set** identifying the
+  ordered committed trace prefix, last committed Snapshot, refusing event, rollback facts,
+  Diagnostic, Resolved Runtime profile, and exact reproduction identities. The invocation publishes
+  that set
+  and its receipt atomically under bADR-0015/0021; it never publishes a completed Evaluation run,
+  Metric dataset, positive Evidence assertion, or another partial success artifact. No package may
+  convert a Runtime refusal into a skipped event or continue under partial state. Domain-level
+  failures intended as gameplay branches must be modeled as closed typed outcomes, not refusals.
 
 - **Scheduling cannot travel backward.** A transaction may schedule later logical time, a later
   phase at the same time, or a zero-time `transition` child whose complete ordering key is strictly
@@ -98,27 +109,45 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   zero-time and total-event budgets prevent an unbounded chain from silently starving the queue;
   exhaustion is a Runtime refusal with the last committed snapshot preserved.
 
-- **Randomness is stream-scoped.** Stochastic operations read only a Named random stream derived
-  from the effective root seed and stable stream identity under the Runtime profile's versioned RNG
-  algorithm and derivation contract. There is no ambient global RNG. An unrelated stream's
-  insertion or consumption cannot perturb another stream. Exact algorithms and sampling mappings
-  belong to the Language Definition Bundle/runtime-profile specification and normative vectors.
+- **Randomness is stream-scoped and normatively mapped.** Stochastic operations read only a Named
+  random stream derived from the effective root seed and stable stream identity under the selected
+  Runtime profile definition. There is no ambient global RNG. An unrelated stream's insertion
+  or consumption cannot perturb another stream. The Schema-major Kernel Specification fixes the
+  irreducible seed/stream encoding, domain separation, derivation, counter/state, bit extraction,
+  and sampling primitives. The exact Runtime profile definition carried by the Language Definition
+  Bundle selects their admitted parameters and the mapping to each Distribution result, including
+  rejection sampling or an explicitly accepted bias policy. Host-library defaults and modulo
+  mappings not named by that authority chain are non-conforming. Normative first-draw, multi-draw,
+  cross-stream, exhaustion, and distribution-boundary vectors make the law independently
+  implementable.
 
-- **Determinism is Runtime-profile scoped.** The profile identifies the Language Definition Bundle,
-  scheduler contract, evaluator build, platform/runtime scope, Numeric profile, RNG algorithm and
-  derivation version, and deterministic budgets. Together with exact Resolved Model, Experiment
-  Specification, external input, and effective seed identities, it forms the reproduction key.
+- **Profile definition and execution admission are separate artifacts.** The Language Definition
+  Bundle owns each immutable Runtime profile definition: scheduler/phase semantics, budget names and
+  accounting units, Named-stream derivation, Numeric/RNG policy, permitted effects, primitive
+  requirements, overflow, and portability constraints. It contains no owning-bundle identity,
+  evaluator build, host platform, or deployment fact. Before the first event, tooling generates and
+  validates a **Resolved Runtime profile** binding one selected definition to the exact Kernel
+  Specification, Language Definition Bundle, Package Lock/RIR, evaluator/platform scope, and
+  concrete deterministic budgets. A missing, incompatible, or out-of-profile primitive/effect is a
+  stage-appropriate refusal; host code may not execute behavior merely because it implements it.
+  During execution, budget and declared-effect accounting is deterministic and observable.
+
+- **Determinism is scoped by the Resolved Runtime profile.** That artifact plus exact
+  Resolved Model, Experiment Specification, external input, and effective seed identities forms the
+  reproduction key. The LDB-owned definition and generated resolved artifact cannot identify each
+  other recursively.
 
 - **Numeric promises are profile-specific.** A portable exact profile can promise cross-platform
   bit identity only for standardized exact/fixed operations and sampling mappings. A profile that
   admits platform-native floating operations promises replay only within its declared evaluator,
-  runtime, platform, and ULP contract. Standard Schema 2.x makes no unconditional cross-platform
-  byte-equality claim.
+  runtime, platform, and ULP contract recorded by its Resolved Runtime profile. Standard Schema 2.x
+  makes no unconditional cross-platform byte-equality claim.
 
 - **This decision supersedes bADR-0010's 2.x reproduction scope, not its current CLI convention.**
   Explicit stochastic seeds, fresh entropy when omitted, and unconditional effective-seed echo are
   retained. For 2.x, `(seed, input, toolkit version)` is no longer a sufficient reproduction key;
-  the artifact and Runtime-profile identities above are required. bADR-0010's unsigned-32-bit CLI
+  the artifact and Resolved Runtime profile identities above are required. bADR-0010's
+  unsigned-32-bit CLI
   encoding and current envelopes remain binding until the 2.x CLI decision explicitly replaces
   them. Standard Schema 1.x continues under bADR-0010.
 
@@ -140,16 +169,32 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 
 ## Consequences
 
-- The Language Definition Bundle must encode the fixed phase order and scheduling edges, runtime
-  diagnostics, RNG algorithms/derivation, Numeric profiles, and canonical snapshot/hash rules.
+- The Schema-major Kernel Specification fixes irreducible transition, Numeric, and RNG/sampling
+  primitives; the Language Definition Bundle carries the exact scheduler/profile parameters,
+  runtime diagnostics, canonical snapshot/hash rules, and conformance vectors admitted under them.
 - RIR operations and package extensions must declare state read/write sets, emitted event types,
   cancellation behavior, and reducers sufficiently for static and runtime enforcement.
 - The reference evaluator and every optimizing evaluator must emit the same ordered trace under an
-  identical Runtime profile, subject only to the profile's declared numeric tolerance.
+  identical Resolved Runtime profile, subject only to the selected definition's numeric tolerance.
 - Experiment and evidence artifacts must bind external-input identity, effective seed, Runtime
   profile, terminal snapshot, and refusal details.
 - The 2.x invocation-result decision must assign Runtime refusal an envelope, output channel, and
   exit status without overloading validation refusal or balance verdict.
+
+## Validation
+
+- Run the same RIR, Experiment Specification, Resolved Runtime profile, external inputs, and
+  effective seed
+  through independent evaluators; compare ordered events, committed Snapshot hashes, Named-stream
+  draws, Metric observations, terminal status, and terminal-audit artifacts.
+- Cover every scheduler edge and budget with positive and refusal vectors: phase/priority/FIFO
+  order, backward scheduling, cancellation, queue/event/zero-time exhaustion, undeclared streams,
+  and primitive/effect-profile incompatibility.
+- Inject a fault after an event has buffered writes, RNG draws, cancellations, and children; assert
+  all are rolled back, prior commits remain, and exactly one retrievable terminal-audit artifact set
+  becomes visible with no completed success artifact.
+- Supply first-draw, stream-independence, mapping-boundary, bias-policy, counter-exhaustion, and
+  Numeric overflow/rounding vectors whose canonical observations agree across implementations.
 
 ## References
 
@@ -157,3 +202,6 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 - bADR-0010 — Standard Schema 1.x seed surfacing and determinism scope.
 - bADR-0012 — language and artifact authority domains.
 - bADR-0013 — compiler stages and RIR semantic boundary.
+- bADR-0015 — refusal envelopes and terminal-audit receipts.
+- bADR-0021 — invocation-level artifact-set publication.
+- bADR-0022 — Kernel Specification and machine-readable language rules.
