@@ -54,15 +54,16 @@ detail — on any divergence, it wins.
 
 - **CLI interface style follows `gda`** (adjudicated 2026-07-15, recorded on PRD #501):
   the family's interface conventions and `gda`'s accumulated CLI spec experience are the
-  reference. The binding contract (command taxonomy, result/error envelopes, exit-code
-  semantics, self-description) will be designed under issue #518 and recorded as bADRs —
-  once landed, those bADRs are the single authority; read the parent CLI-contract ADRs as
-  *reference input* only.
+  reference. bADR-0007…0011 are the binding transitional 1.x CLI contract; bADR-0015 and
+  bADR-0021 are the binding Standard Schema 2.x outcome and command-taxonomy contract. Read the
+  parent CLI-contract ADRs as *reference input* only.
 - **Engine- and game-agnostic core** — the toolkit names no game identity and imports no
   game or engine code (nor `gda`); agnosticism is enforced by packaging plus an isolation
   gate (landing with #502) at the hardened (recursive, AST-level) standard.
-- **Schema is the single authority** — the Standard Schema is the sole spec and authority
-  source for numeric design; games consume the toolkit's Standard Schema output (PRD #501).
+- **Standard Schema is the sole specification family** — inside 2.x, authority is scoped:
+  the Language Definition Bundle owns machine language semantics, while Model Source Packages,
+  Experiment Specifications, and Approval Records own their authored domains (bADR-0012). Games
+  consume resolved Standard Schema output; no parallel game-config authority is adapted (PRD #501).
 - **Own project, own release train** (ADR-0038) — this package is an independent uv project,
   not a workspace member: it locks separately, so every command run from the repo root needs
   `--project libs/gda-balancing` (see this package's README). Its PRs therefore use
