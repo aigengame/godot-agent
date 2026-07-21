@@ -330,6 +330,19 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {"claim_status": {"const": "corroborated"}},
+            "required": ["claim_status"]
+          },
+          "then": {
+            "properties": {
+              "evidence_refs": {
+                "properties": {"external_game": {"minItems": 2}}
+              }
+            }
+          }
         }
       ]
     },

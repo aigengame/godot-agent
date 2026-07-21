@@ -64,19 +64,25 @@ Every source declares exactly one `authority_domain`:
 - `schema_contract`: the Standard Schema coverage or semantic contract, which says what a mapping
   must express and never proves what the external game does.
 
-Every source also declares one confidence level:
+Every source also declares one descriptive confidence level for the facts recorded by that source:
 
 1. `primary`: versioned shipped data, open-source code/data, official rules, or a reproducible
    runtime observation;
-2. `corroborated`: two independent references or one reference plus a runtime oracle;
+2. `corroborated`: the recorded fact has been compared with independent material during research;
 3. `provisional`: a community reference or inference not yet independently confirmed.
+
+Source confidence is descriptive metadata, not claim authority. In particular, changing one
+source's confidence cannot promote an oracle. Claim status is derived from the oracle's explicit
+evidence graph, where independent evidence remains separately addressable source records.
 
 Each oracle separates those domains in `evidence_refs` and declares both `claim_subject` and
 `claim_status`:
 
 - a `game_mapping` claim is `candidate`, `corroborated`, or `observed`;
 - `candidate` preserves an uncertain mapping without presenting it as observed or corroborated;
-- `corroborated` requires non-provisional `external_game` evidence;
+- `corroborated` requires at least two distinct `external_game` source records. Two independent
+  references qualify, as does one external reference plus one runtime-observation record; a single
+  source never qualifies regardless of its self-reported confidence;
 - `observed` requires a primary shipped-data or reproducible runtime-observation source;
 - a `schema_boundary` claim is always `contractual`, cites `schema_contract`, and describes a
   Standard Schema admission/runtime boundary rather than a refusal observed in the external game.
