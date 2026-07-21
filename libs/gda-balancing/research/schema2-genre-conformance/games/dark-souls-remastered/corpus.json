@@ -1,0 +1,1148 @@
+{
+  "artifact_kind": "schema2-genre-research-corpus",
+  "schema_version": 1,
+  "game": {
+    "id": "dark-souls-remastered",
+    "title": "Dark Souls Remastered",
+    "family": "rpg",
+    "archetype": "real-time action RPG with stamina-gated combat and authored progression"
+  },
+  "version_scope": {
+    "platform": "Steam/PC (Windows), offline single-player mechanics",
+    "version": "App 1.03; Regulation 1.04 (regulation label provisional pending local capture)",
+    "content_scope": "Base game plus bundled Artorias of the Abyss; no mods, online matchmaking, glitches, or New Game Plus scaling",
+    "recorded_at": "2026-07-21"
+  },
+  "sources": [
+    {
+      "id": "community.damage-function",
+      "kind": "research",
+      "locator": "https://darksouls.wikidot.com/damage-calculation and https://tl.net/blogs/396507-dark-souls-stats-i-damage-formula-and-analysis",
+      "version": "Wikidot revision 6, 2022-02-14; TL.net analysis 2012-12-06",
+      "confidence": "corroborated",
+      "notes": "Independent community derivations agree on the nonlinear per-component attack/defense function; runtime promotion remains open."
+    },
+    {
+      "id": "community.endurance-stamina",
+      "kind": "community_reference",
+      "locator": "https://darksouls.wikidot.com/endurance, https://darksouls.wikidot.com/stamina, and https://darksouls.wiki.fextralife.com/file/Dark-Souls/Dark%20Souls%20Stamina%20Regeneration%20Data.pdf",
+      "version": "pages retrieved 2026-07-21",
+      "confidence": "corroborated",
+      "notes": "Reports the Endurance 40 stamina/equip-burden values and default recovery rate; exact runtime timing is not yet captured."
+    },
+    {
+      "id": "community.longsword",
+      "kind": "community_reference",
+      "locator": "https://darksouls.wikidot.com/longsword and https://darksouls.fandom.com/wiki/Longsword",
+      "version": "pages retrieved 2026-07-21",
+      "confidence": "corroborated",
+      "notes": "Independent tables agree on the sampled base weapon, requirements, weight, and purchase price; Remastered shipped-row capture remains open."
+    },
+    {
+      "id": "community.poison",
+      "kind": "community_reference",
+      "locator": "https://darksouls.wikidot.com/poison, https://darksouls.wikidot.com/poison-mist, and https://darksouls.fandom.com/wiki/Poison_(Dark_Souls)",
+      "version": "pages retrieved 2026-07-21",
+      "confidence": "corroborated",
+      "notes": "Two community datasets agree on the sampled Remastered Poison Mist buildup and lifecycle timing."
+    },
+    {
+      "id": "community.regulation-1.04",
+      "kind": "community_reference",
+      "locator": "https://www.reddit.com/r/darksouls/comments/oz56g8/app_ver_103_regulation_ver_104/",
+      "version": "thread retrieved 2026-07-21",
+      "confidence": "provisional",
+      "notes": "Used only to record the Regulation label; never the sole source for an oracle."
+    },
+    {
+      "id": "dsmapstudio.tool",
+      "kind": "open_source",
+      "locator": "https://github.com/soulsmods/DSMapStudio/tree/97bc264cbc3e82a783eb017f57edf651f8ba000b",
+      "version": "commit 97bc264cbc3e82a783eb017f57edf651f8ba000b",
+      "confidence": "primary",
+      "notes": "Documents the parameter-editor and legally owned local extraction path; contains no game row dump used by this corpus."
+    },
+    {
+      "id": "official.patch-1.03",
+      "kind": "official_documentation",
+      "locator": "https://en.bandainamcoent.eu/dark-souls/news/dark-souls-remastered-patch-note-103",
+      "version": "published 2018-07-10 for release 2018-07-11",
+      "confidence": "primary",
+      "notes": "Pins the Steam/PC application patch version."
+    },
+    {
+      "id": "official.steam-product",
+      "kind": "official_documentation",
+      "locator": "https://store.steampowered.com/app/570940/DARK_SOULS_REMASTERED/",
+      "version": "page retrieved 2026-07-21",
+      "confidence": "primary",
+      "notes": "Pins the Windows product and bundled Artorias of the Abyss content scope."
+    },
+    {
+      "id": "official.web-manual-actions",
+      "kind": "official_documentation",
+      "locator": "https://www.fromsoftware.jp/manual/darksoulsremastered/ps4/action1.html",
+      "version": "web manual retrieved 2026-07-21",
+      "confidence": "primary",
+      "notes": "Defines stamina-consuming movement actions and explicit lock-on/target switching behavior."
+    },
+    {
+      "id": "official.web-manual-equipment",
+      "kind": "official_documentation",
+      "locator": "https://www.fromsoftware.jp/manual/darksoulsremastered/ps4/menu2.html",
+      "version": "web manual retrieved 2026-07-21",
+      "confidence": "primary",
+      "notes": "Defines equipment-weight constraints and the consequence of unmet required stats."
+    },
+    {
+      "id": "paramdex.ds1r-defs",
+      "kind": "open_source",
+      "locator": "https://github.com/soulsmods/Paramdex/tree/ff7245e524329bc3eab00036723d2bd53384cedf/DS1R/Defs",
+      "version": "commit ff7245e524329bc3eab00036723d2bd53384cedf",
+      "confidence": "primary",
+      "notes": "Pins DS1R parameter field shapes and domains; PARAMDEF structure alone does not prove concrete shipped-row values."
+    }
+  ],
+  "mechanics": [
+    {
+      "id": "stat.longsword-scaling-upgrade",
+      "title": "Longsword requirements, upgrade contribution, and stat-scaling composition",
+      "families": ["quantity", "build", "progression"],
+      "coverage_rows": ["RPG-STAT-01", "RPG-BUILD-01", "RPG-PROGRESSION-01"],
+      "source_refs": [
+        "community.longsword",
+        "official.web-manual-equipment",
+        "paramdex.ds1r-defs"
+      ],
+      "quantities": [
+        {
+          "id": "longsword.base_physical_attack",
+          "representation": "Int",
+          "kind": "physical_attack",
+          "unit": "damage_point",
+          "role": "derived",
+          "domain": "integer >= 0; selected from the exact upgrade state",
+          "rounding": "exact integer table lookup",
+          "cap": null,
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "longsword.dexterity",
+          "representation": "Int",
+          "kind": "attribute_level",
+          "unit": null,
+          "role": "input",
+          "domain": "integer 0..99",
+          "rounding": null,
+          "cap": "99",
+          "source_refs": [
+            "community.longsword",
+            "official.web-manual-equipment",
+            "paramdex.ds1r-defs"
+          ]
+        },
+        {
+          "id": "longsword.strength",
+          "representation": "Int",
+          "kind": "attribute_level",
+          "unit": null,
+          "role": "input",
+          "domain": "integer 0..99",
+          "rounding": null,
+          "cap": "99",
+          "source_refs": [
+            "community.longsword",
+            "official.web-manual-equipment",
+            "paramdex.ds1r-defs"
+          ]
+        },
+        {
+          "id": "longsword.upgrade_level",
+          "representation": "Int",
+          "kind": "weapon_reinforcement_level",
+          "unit": null,
+          "role": "state",
+          "domain": "integer 0..15 for the sampled normal path",
+          "rounding": null,
+          "cap": "15",
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "longsword.weapon_weight",
+          "representation": "Fixed",
+          "kind": "equipment_weight",
+          "unit": "weight_unit",
+          "role": "constant",
+          "domain": "non-negative fixed decimal; sampled value 3.0",
+          "rounding": "one decimal place in the research record",
+          "cap": null,
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "player.equipped_main_hand",
+          "value_type": "EntityRef<weapon>",
+          "scope": "entity",
+          "initial": null,
+          "source_refs": ["official.web-manual-equipment", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "player.longsword_upgrade_level",
+          "value_type": "Quantity<weapon_reinforcement_level, Int>",
+          "scope": "entity",
+          "initial": 0,
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "research.dsr.derive-longsword-attack",
+          "inputs": ["weapon definition", "upgrade level", "strength", "dexterity"],
+          "outcomes": ["derived", "requirements_not_met"],
+          "reads": [
+            "player.longsword_upgrade_level",
+            "longsword.strength",
+            "longsword.dexterity"
+          ],
+          "writes": [],
+          "signals": ["weapon.attack-rating-derived"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Resolve the exact upgrade-table base contribution, validate nominal stat requirements, then apply declared Strength and Dexterity correction graphs with explicit integer rounding.",
+          "source_refs": [
+            "community.longsword",
+            "official.web-manual-equipment",
+            "paramdex.ds1r-defs"
+          ]
+        },
+        {
+          "id": "research.dsr.select-longsword",
+          "inputs": ["weapon entity", "strength", "dexterity"],
+          "outcomes": ["equipped_effective", "equipped_requirements_not_met"],
+          "reads": ["player.equipped_main_hand"],
+          "writes": ["player.equipped_main_hand"],
+          "signals": ["build.equipment-selected"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Validate ownership and slots, then record the selected weapon and the closed requirement outcome without a host callback.",
+          "source_refs": [
+            "community.longsword",
+            "official.web-manual-equipment",
+            "paramdex.ds1r-defs"
+          ]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "dsr.longsword-base-positive",
+          "kind": "positive",
+          "inputs": {
+            "upgrade_level": 0,
+            "strength": 10,
+            "dexterity": 10,
+            "handedness": "one-handed"
+          },
+          "expected_observations": {
+            "base_physical_attack": 80,
+            "weapon_weight": "3.0",
+            "requirement_outcome": "equipped_effective",
+            "full_scaled_attack_rating": "not asserted until correction-graph rows are captured"
+          },
+          "source_refs": [
+            "community.longsword",
+            "official.web-manual-equipment",
+            "paramdex.ds1r-defs"
+          ]
+        },
+        {
+          "id": "dsr.longsword-requirement-outcome",
+          "kind": "outcome",
+          "inputs": {
+            "upgrade_level": 0,
+            "strength": 9,
+            "dexterity": 10,
+            "handedness": "one-handed"
+          },
+          "expected_observations": {
+            "requirement_outcome": "equipped_requirements_not_met",
+            "base_definition_remains": 80,
+            "effective_attack_rating": "not asserted"
+          },
+          "source_refs": [
+            "community.longsword",
+            "official.web-manual-equipment",
+            "paramdex.ds1r-defs"
+          ]
+        },
+        {
+          "id": "dsr.longsword-upgrade-five-boundary",
+          "kind": "boundary",
+          "inputs": {
+            "from_upgrade_level": 0,
+            "to_upgrade_level": 5,
+            "shard_costs": [1, 1, 2, 2, 3]
+          },
+          "expected_observations": {
+            "final_upgrade_level": 5,
+            "base_physical_attack": 120,
+            "total_titanite_shards_consumed": 9,
+            "upgrade_transitions": 5
+          },
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        }
+      ]
+    },
+    {
+      "id": "resource.stamina-equip-action",
+      "title": "Stamina capacity, regeneration, equipment burden, and atomic action cost",
+      "families": ["quantity", "resource", "action"],
+      "coverage_rows": [
+        "RPG-ACTION-01",
+        "RPG-ACTION-02",
+        "RPG-COST-01",
+        "RPG-RESOURCE-02"
+      ],
+      "source_refs": [
+        "community.endurance-stamina",
+        "official.web-manual-actions",
+        "official.web-manual-equipment",
+        "paramdex.ds1r-defs"
+      ],
+      "quantities": [
+        {
+          "id": "stamina.action_cost",
+          "representation": "Int",
+          "kind": "stamina",
+          "unit": "stamina_point",
+          "role": "input",
+          "domain": "integer >= 0; the value 20 is a scenario probe, not a Longsword historical claim",
+          "rounding": "exact integer",
+          "cap": "current stamina capacity",
+          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "stamina.capacity",
+          "representation": "Int",
+          "kind": "stamina",
+          "unit": "stamina_point",
+          "role": "derived",
+          "domain": "integer >= 0; sampled Endurance 40 value 160",
+          "rounding": "exact integer table value",
+          "cap": "160 from Endurance alone in the sampled no-ring model",
+          "source_refs": ["community.endurance-stamina", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "stamina.current",
+          "representation": "Int",
+          "kind": "stamina",
+          "unit": "stamina_point",
+          "role": "state",
+          "domain": "integer 0..capacity",
+          "rounding": "exact integer",
+          "cap": "stamina.capacity",
+          "source_refs": [
+            "community.endurance-stamina",
+            "official.web-manual-actions",
+            "paramdex.ds1r-defs"
+          ]
+        },
+        {
+          "id": "stamina.endurance",
+          "representation": "Int",
+          "kind": "attribute_level",
+          "unit": null,
+          "role": "input",
+          "domain": "integer 0..99",
+          "rounding": null,
+          "cap": "99",
+          "source_refs": ["community.endurance-stamina", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "stamina.equip_burden_capacity",
+          "representation": "Fixed",
+          "kind": "equipment_weight_capacity",
+          "unit": "weight_unit",
+          "role": "derived",
+          "domain": "non-negative fixed decimal; sampled Endurance 40 value 80.0",
+          "rounding": "one decimal place in the research record",
+          "cap": null,
+          "source_refs": [
+            "community.endurance-stamina",
+            "official.web-manual-equipment",
+            "paramdex.ds1r-defs"
+          ]
+        },
+        {
+          "id": "stamina.regeneration_rate",
+          "representation": "Fixed",
+          "kind": "stamina_rate",
+          "unit": "stamina_point/s",
+          "role": "parameter",
+          "domain": "non-negative; sampled unmodified below-50%-burden value 45",
+          "rounding": "runtime tick integration must be declared",
+          "cap": "stamina.capacity",
+          "source_refs": ["community.endurance-stamina", "paramdex.ds1r-defs"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "player.stamina_current",
+          "value_type": "Quantity<stamina, Int>",
+          "scope": "entity",
+          "initial": 160,
+          "source_refs": ["community.endurance-stamina", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "player.stamina_reservation",
+          "value_type": "Record<action_id, amount, status>",
+          "scope": "action",
+          "initial": null,
+          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "research.dsr.begin-stamina-action",
+          "inputs": ["action id", "declared stamina cost"],
+          "outcomes": ["reserved", "insufficient"],
+          "reads": ["player.stamina_current", "player.stamina_reservation"],
+          "writes": ["player.stamina_reservation"],
+          "signals": ["action.begun"],
+          "schedules": ["action resolution event"],
+          "rng_streams": [],
+          "ordering": "Check available stamina, create one reservation, and schedule one resolution atomically; insufficiency is a gameplay outcome.",
+          "source_refs": [
+            "official.web-manual-actions",
+            "paramdex.ds1r-defs"
+          ]
+        },
+        {
+          "id": "research.dsr.complete-or-interrupt-stamina-action",
+          "inputs": ["action id", "completion or interruption"],
+          "outcomes": ["completed", "interrupted", "already_terminal"],
+          "reads": ["player.stamina_current", "player.stamina_reservation"],
+          "writes": ["player.stamina_current", "player.stamina_reservation"],
+          "signals": ["action.completed", "action.interrupted"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Completion commits the reservation exactly once; interruption cancels resolution and applies the declared release/refund policy as a separate domain transition.",
+          "source_refs": [
+            "official.web-manual-actions",
+            "paramdex.ds1r-defs"
+          ]
+        },
+        {
+          "id": "research.dsr.regenerate-stamina",
+          "inputs": ["elapsed logical time", "effective regeneration modifiers"],
+          "outcomes": ["regenerated", "capacity_reached"],
+          "reads": ["player.stamina_current"],
+          "writes": ["player.stamina_current"],
+          "signals": ["resource.regenerated"],
+          "schedules": ["next admitted regeneration boundary"],
+          "rng_streams": [],
+          "ordering": "Integrate the declared rate under the exact time profile, then clamp once to the typed capacity.",
+          "source_refs": ["community.endurance-stamina", "paramdex.ds1r-defs"]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "dsr.stamina-action-positive",
+          "kind": "positive",
+          "inputs": {
+            "current_stamina": 30,
+            "declared_probe_cost": 20,
+            "action_terminal": "complete"
+          },
+          "expected_observations": {
+            "reservation_count": 1,
+            "commit_count": 1,
+            "final_stamina": 10,
+            "outcome": "completed"
+          },
+          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "dsr.stamina-insufficient-outcome",
+          "kind": "outcome",
+          "inputs": {
+            "current_stamina": 19,
+            "declared_probe_cost": 20
+          },
+          "expected_observations": {
+            "outcome": "insufficient",
+            "reservation_count": 0,
+            "final_stamina": 19,
+            "scheduled_resolution_count": 0
+          },
+          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "dsr.stamina-capacity-boundary",
+          "kind": "boundary",
+          "inputs": {
+            "endurance": 40,
+            "current_stamina": 159,
+            "elapsed_seconds": "1.0",
+            "effective_regeneration_rate": "45.0",
+            "equip_burden_ratio": "0.40"
+          },
+          "expected_observations": {
+            "capacity": 160,
+            "unclamped_candidate": "204.0",
+            "final_stamina": 160,
+            "outcome": "capacity_reached"
+          },
+          "source_refs": ["community.endurance-stamina", "paramdex.ds1r-defs"]
+        }
+      ]
+    },
+    {
+      "id": "combat.split-damage-defense",
+      "title": "Per-kind physical and elemental attack, nonlinear defense, and final sum",
+      "families": ["quantity", "combat"],
+      "coverage_rows": ["RPG-DAMAGE-01", "RPG-DEFENSE-01"],
+      "source_refs": [
+        "community.damage-function",
+        "community.longsword",
+        "paramdex.ds1r-defs"
+      ],
+      "quantities": [
+        {
+          "id": "damage.attack_component",
+          "representation": "Fixed",
+          "kind": "typed_attack",
+          "unit": "damage_point",
+          "role": "input",
+          "domain": "non-negative, paired with exactly one damage kind",
+          "rounding": "calculate in the pinned Numeric profile; round only at the declared stage",
+          "cap": null,
+          "source_refs": ["community.damage-function", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "damage.defense_component",
+          "representation": "Fixed",
+          "kind": "typed_defense",
+          "unit": "defense_point",
+          "role": "input",
+          "domain": "positive, nominally paired to the attack kind",
+          "rounding": "no implicit cross-kind conversion",
+          "cap": null,
+          "source_refs": ["community.damage-function", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "damage.final",
+          "representation": "Int",
+          "kind": "health_damage",
+          "unit": "hp",
+          "role": "output",
+          "domain": "integer >= 0 after declared final rounding",
+          "rounding": "explicit final integer rounding; exact branch-point cases avoid ambiguity here",
+          "cap": "target current health for resource application, not for the damage fact",
+          "source_refs": ["community.damage-function", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "damage.motion_value",
+          "representation": "Fixed",
+          "kind": "attack_multiplier",
+          "unit": "percent",
+          "role": "parameter",
+          "domain": "non-negative; sampled one-handed light attack value 100",
+          "rounding": "divide by 100 before defense",
+          "cap": null,
+          "source_refs": ["community.damage-function", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "damage.post_defense_component",
+          "representation": "Fixed",
+          "kind": "typed_damage",
+          "unit": "damage_point",
+          "role": "derived",
+          "domain": "non-negative and same nominal kind as its attack/defense pair",
+          "rounding": "retain profile precision until component sum",
+          "cap": null,
+          "source_refs": ["community.damage-function", "paramdex.ds1r-defs"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "target.health_current",
+          "value_type": "Quantity<health, Int>",
+          "scope": "entity",
+          "initial": 1000,
+          "source_refs": ["paramdex.ds1r-defs"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "research.dsr.resolve-split-damage",
+          "inputs": [
+            "ordered typed attack components",
+            "motion value",
+            "matching typed defenses"
+          ],
+          "outcomes": ["damage_resolved", "defeated", "kind_mismatch"],
+          "reads": ["target.health_current"],
+          "writes": ["target.health_current"],
+          "signals": ["combat.damage-resolved"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Apply motion value, resolve the nonlinear defense function independently for each nominal damage kind, sum post-defense components, perform declared final rounding, then apply health and defeat transition.",
+          "source_refs": ["community.damage-function", "paramdex.ds1r-defs"]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "dsr.split-damage-positive",
+          "kind": "positive",
+          "inputs": {
+            "weapon": "Lightning Longsword +5",
+            "motion_value_percent": 100,
+            "attack_components": {
+              "physical": 200,
+              "lightning": 200
+            },
+            "defense_components": {
+              "physical": 200,
+              "lightning": 200
+            }
+          },
+          "expected_observations": {
+            "post_defense_components": {
+              "physical": 80,
+              "lightning": 80
+            },
+            "pre_postmodifier_total": 160,
+            "component_order": ["physical", "lightning"]
+          },
+          "source_refs": [
+            "community.damage-function",
+            "community.longsword",
+            "paramdex.ds1r-defs"
+          ]
+        },
+        {
+          "id": "dsr.damage-equal-ratio-boundary",
+          "kind": "boundary",
+          "inputs": {
+            "motion_value_percent": 100,
+            "attack_components": {"physical": 80},
+            "defense_components": {"physical": 80}
+          },
+          "expected_observations": {
+            "selected_defense_branch": "attack_at_most_defense",
+            "post_defense_components": {"physical": 32},
+            "pre_postmodifier_total": 32
+          },
+          "source_refs": ["community.damage-function", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "dsr.damage-kind-mismatch-refusal",
+          "kind": "refusal",
+          "inputs": {
+            "attack_components": {"physical": 80},
+            "defense_components": {"poison_resistance": 80}
+          },
+          "expected_observations": {
+            "stage": "static",
+            "reason": "nominal damage/defense kind mismatch",
+            "health_write_count": 0
+          },
+          "source_refs": ["community.damage-function", "paramdex.ds1r-defs"]
+        }
+      ]
+    },
+    {
+      "id": "effect.poison-buildup-lifecycle",
+      "title": "Poison buildup threshold, scheduled damage lifecycle, immunity, cure, and expiry",
+      "families": ["quantity", "effect"],
+      "coverage_rows": ["RPG-EFFECT-01", "RPG-EFFECT-03", "RPG-EFFECT-04"],
+      "source_refs": ["community.poison", "paramdex.ds1r-defs"],
+      "quantities": [
+        {
+          "id": "poison.buildup",
+          "representation": "Int",
+          "kind": "poison_buildup",
+          "unit": "buildup_point",
+          "role": "state",
+          "domain": "integer >= 0 before activation",
+          "rounding": "exact integer accumulation",
+          "cap": "activation threshold",
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "poison.buildup_per_tick",
+          "representation": "Int",
+          "kind": "poison_buildup",
+          "unit": "buildup_point",
+          "role": "parameter",
+          "domain": "non-negative; sampled Poison Mist value 20",
+          "rounding": "exact integer",
+          "cap": null,
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "poison.damage_interval",
+          "representation": "Fixed",
+          "kind": "effect_interval",
+          "unit": "s",
+          "role": "parameter",
+          "domain": "positive; sampled value 0.8",
+          "rounding": "exact fixed logical time",
+          "cap": "poison.duration",
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "poison.damage_per_tick",
+          "representation": "Int",
+          "kind": "health_damage",
+          "unit": "hp",
+          "role": "parameter",
+          "domain": "non-negative; sampled value 3",
+          "rounding": "exact integer",
+          "cap": null,
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "poison.duration",
+          "representation": "Int",
+          "kind": "effect_duration",
+          "unit": "s",
+          "role": "parameter",
+          "domain": "non-negative; sampled value 180",
+          "rounding": "exact logical seconds",
+          "cap": "180 for the sampled Poison Mist effect",
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "poison.exposure_interval",
+          "representation": "Fixed",
+          "kind": "effect_interval",
+          "unit": "s",
+          "role": "parameter",
+          "domain": "positive; sampled value 0.2",
+          "rounding": "exact fixed logical time",
+          "cap": null,
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "poison.resistance_threshold",
+          "representation": "Int",
+          "kind": "poison_resistance",
+          "unit": "buildup_point",
+          "role": "input",
+          "domain": "positive integer supplied by the target; 100 is a scenario boundary value",
+          "rounding": "exact integer comparison",
+          "cap": null,
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "target.poison_buildup",
+          "value_type": "Quantity<poison_buildup, Int>",
+          "scope": "entity",
+          "initial": 0,
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "target.poison_effect",
+          "value_type": "Record<status, source, started_at, expires_at, damage_schedule>",
+          "scope": "effect",
+          "initial": null,
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "research.dsr.apply-poison-buildup",
+          "inputs": ["effect source", "buildup contribution", "target resistance", "immunity"],
+          "outcomes": ["buildup_added", "poison_activated", "immune"],
+          "reads": ["target.poison_buildup", "target.poison_effect"],
+          "writes": ["target.poison_buildup", "target.poison_effect"],
+          "signals": ["effect.applied", "effect.immune", "effect.activated"],
+          "schedules": ["poison damage ticks", "poison expiry"],
+          "rng_streams": [],
+          "ordering": "Check immunity, add buildup, compare the declared threshold, then atomically create one effect instance and its bounded tick/expiry schedule.",
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "research.dsr.remove-poison",
+          "inputs": ["effect instance", "removal cause"],
+          "outcomes": ["cured", "expired", "already_absent"],
+          "reads": ["target.poison_effect"],
+          "writes": ["target.poison_effect", "target.poison_buildup"],
+          "signals": ["effect.removed"],
+          "schedules": ["cancel remaining poison ticks and expiry"],
+          "rng_streams": [],
+          "ordering": "Validate removal legality, cancel the exact remaining schedule, and clear the effect/buildup in one transition.",
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "dsr.poison-mist-positive",
+          "kind": "positive",
+          "inputs": {
+            "initial_buildup": 0,
+            "resistance_threshold": 100,
+            "exposure_ticks": 5,
+            "buildup_per_tick": 20,
+            "immune": false
+          },
+          "expected_observations": {
+            "activation_tick": 5,
+            "effect_duration_seconds": 180,
+            "damage_tick_count": 225,
+            "damage_per_tick": 3,
+            "total_scheduled_damage": 675,
+            "expiry_cause": "duration_elapsed"
+          },
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "dsr.poison-threshold-boundary",
+          "kind": "boundary",
+          "inputs": {
+            "initial_buildup": 99,
+            "resistance_threshold": 100,
+            "buildup_contribution": 20,
+            "immune": false
+          },
+          "expected_observations": {
+            "outcome": "poison_activated",
+            "activation_comparison": "candidate >= threshold",
+            "effect_instance_count": 1,
+            "scheduled_expiry_count": 1
+          },
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "dsr.poison-immunity-outcome",
+          "kind": "outcome",
+          "inputs": {
+            "initial_buildup": 90,
+            "resistance_threshold": 100,
+            "buildup_contribution": 20,
+            "immune": true
+          },
+          "expected_observations": {
+            "outcome": "immune",
+            "final_buildup": 90,
+            "effect_instance_count": 0,
+            "scheduled_event_count": 0
+          },
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        }
+      ]
+    },
+    {
+      "id": "economy.longsword-purchase-reinforcement",
+      "title": "Soul-denominated purchase, inventory transfer, and deterministic reinforcement costs",
+      "families": ["quantity", "build", "progression", "economy"],
+      "coverage_rows": [
+        "RPG-BUILD-01",
+        "RPG-ECONOMY-01",
+        "RPG-ECONOMY-02",
+        "RPG-PROGRESSION-01"
+      ],
+      "source_refs": [
+        "community.longsword",
+        "official.web-manual-equipment",
+        "paramdex.ds1r-defs"
+      ],
+      "quantities": [
+        {
+          "id": "economy.longsword_price",
+          "representation": "Int",
+          "kind": "soul_currency",
+          "unit": "soul",
+          "role": "constant",
+          "domain": "integer >= 0; sampled Andre quote 1000",
+          "rounding": "exact integer",
+          "cap": null,
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "economy.player_souls",
+          "representation": "Int",
+          "kind": "soul_currency",
+          "unit": "soul",
+          "role": "state",
+          "domain": "integer >= 0",
+          "rounding": "exact integer",
+          "cap": null,
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "economy.titanite_shards",
+          "representation": "Int",
+          "kind": "upgrade_material",
+          "unit": "item_count",
+          "role": "state",
+          "domain": "integer >= 0",
+          "rounding": "exact integer",
+          "cap": null,
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "economy.upgrade_shard_cost",
+          "representation": "Int",
+          "kind": "upgrade_material",
+          "unit": "item_count",
+          "role": "parameter",
+          "domain": "positive integer selected by from/to reinforcement state",
+          "rounding": "exact table lookup",
+          "cap": "inventory count",
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "player.inventory_weapons",
+          "value_type": "List<EntityRef<weapon>>",
+          "scope": "entity",
+          "initial": [],
+          "source_refs": ["official.web-manual-equipment", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "player.soul_balance",
+          "value_type": "Quantity<soul_currency, Int>",
+          "scope": "entity",
+          "initial": 0,
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "player.titanite_shard_count",
+          "value_type": "Quantity<upgrade_material, Int>",
+          "scope": "entity",
+          "initial": 0,
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "research.dsr.purchase-longsword",
+          "inputs": ["merchant offer", "buyer soul balance", "inventory target"],
+          "outcomes": ["purchased", "insufficient", "inventory_rejected"],
+          "reads": ["player.soul_balance", "player.inventory_weapons"],
+          "writes": ["player.soul_balance", "player.inventory_weapons"],
+          "signals": ["economy.debit", "economy.item-transferred"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Bind one quote identity, validate balance and inventory, then atomically debit exactly 1000 souls and transfer one Longsword.",
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "research.dsr.reinforce-longsword",
+          "inputs": ["owned Longsword", "from level", "to level", "material inventory"],
+          "outcomes": ["reinforced", "insufficient_material", "invalid_path"],
+          "reads": ["player.inventory_weapons", "player.titanite_shard_count"],
+          "writes": ["player.inventory_weapons", "player.titanite_shard_count"],
+          "signals": ["progression.weapon-reinforced", "economy.material-retired"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Resolve every adjacent normal-path transition in level order, sum exact material costs, then commit one upgrade and one material retirement atomically.",
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "dsr.longsword-purchase-positive",
+          "kind": "positive",
+          "inputs": {
+            "initial_souls": 1000,
+            "quote_souls": 1000,
+            "inventory_accepts": true
+          },
+          "expected_observations": {
+            "outcome": "purchased",
+            "final_souls": 0,
+            "soul_debit": 1000,
+            "longswords_transferred": 1,
+            "ledger_balanced": true
+          },
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "dsr.longsword-purchase-insufficient",
+          "kind": "outcome",
+          "inputs": {
+            "initial_souls": 999,
+            "quote_souls": 1000,
+            "inventory_accepts": true
+          },
+          "expected_observations": {
+            "outcome": "insufficient",
+            "final_souls": 999,
+            "soul_debit": 0,
+            "longswords_transferred": 0
+          },
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "dsr.longsword-reinforcement-material-boundary",
+          "kind": "boundary",
+          "inputs": {
+            "initial_upgrade_level": 0,
+            "target_upgrade_level": 5,
+            "initial_titanite_shards": 9,
+            "costs": [1, 1, 2, 2, 3]
+          },
+          "expected_observations": {
+            "outcome": "reinforced",
+            "final_upgrade_level": 5,
+            "final_titanite_shards": 0,
+            "material_retired": 9,
+            "base_physical_attack": 120
+          },
+          "source_refs": ["community.longsword", "paramdex.ds1r-defs"]
+        }
+      ]
+    },
+    {
+      "id": "spatial.lock-on-target-query",
+      "title": "Dynamic hostile target filtering, lock range, explicit empty behavior, and switching",
+      "families": ["action", "spatial"],
+      "coverage_rows": ["RPG-TARGET-01", "RPG-TURN-SPATIAL-01"],
+      "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"],
+      "quantities": [
+        {
+          "id": "target.candidate_distance",
+          "representation": "Fixed",
+          "kind": "distance",
+          "unit": "m",
+          "role": "input",
+          "domain": "non-negative finite distance",
+          "rounding": "exact comparison under the selected spatial Numeric profile",
+          "cap": null,
+          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "target.lock_radius",
+          "representation": "Fixed",
+          "kind": "distance",
+          "unit": "m",
+          "role": "parameter",
+          "domain": "non-negative; sampled PARAMDEF default 15",
+          "rounding": "exact comparison under the selected spatial Numeric profile",
+          "cap": "15 in this sampled lock-camera definition",
+          "source_refs": ["paramdex.ds1r-defs"]
+        },
+        {
+          "id": "target.result_count",
+          "representation": "Int",
+          "kind": "entity_count",
+          "unit": "entity",
+          "role": "output",
+          "domain": "integer >= 0",
+          "rounding": "exact count",
+          "cap": "query cardinality",
+          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+        }
+      ],
+      "state_slots": [
+        {
+          "id": "encounter.dynamic_entities",
+          "value_type": "Set<EntityRef<combatant>>",
+          "scope": "encounter",
+          "initial": [],
+          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "player.locked_target",
+          "value_type": "EntityRef<combatant> | null",
+          "scope": "entity",
+          "initial": null,
+          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+        }
+      ],
+      "operations": [
+        {
+          "id": "research.dsr.select-lock-target",
+          "inputs": [
+            "dynamic entity set",
+            "viewer",
+            "hostility/visibility facts",
+            "lock radius",
+            "cardinality and empty policy"
+          ],
+          "outcomes": ["selected", "empty"],
+          "reads": ["encounter.dynamic_entities", "player.locked_target"],
+          "writes": ["player.locked_target"],
+          "signals": ["query.target-selected", "query.target-empty"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Filter the current dynamic set by declared hostility, visibility, and range; apply a model-declared stable order; select at most one; never traverse host objects implicitly.",
+          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "research.dsr.switch-lock-target",
+          "inputs": ["resolved ordered eligible targets", "current target", "switch direction"],
+          "outcomes": ["switched", "no_alternative"],
+          "reads": ["player.locked_target"],
+          "writes": ["player.locked_target"],
+          "signals": ["query.target-switched"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Consume the already resolved canonical target order; switching cannot rediscover or reorder host entities.",
+          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+        }
+      ],
+      "oracle_vectors": [
+        {
+          "id": "dsr.lock-target-singleton-positive",
+          "kind": "positive",
+          "inputs": {
+            "lock_radius_m": "15.0",
+            "candidates": [
+              {
+                "id": "hollow-a",
+                "distance_m": "10.0",
+                "hostile": true,
+                "visible": true
+              },
+              {
+                "id": "ally-a",
+                "distance_m": "5.0",
+                "hostile": false,
+                "visible": true
+              }
+            ],
+            "empty_policy": "return_empty_outcome"
+          },
+          "expected_observations": {
+            "eligible_target_ids": ["hollow-a"],
+            "selected_target_id": "hollow-a",
+            "target_count": 1,
+            "outcome": "selected"
+          },
+          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "dsr.lock-target-out-of-range-outcome",
+          "kind": "outcome",
+          "inputs": {
+            "lock_radius_m": "15.0",
+            "candidates": [
+              {
+                "id": "hollow-a",
+                "distance_m": "16.0",
+                "hostile": true,
+                "visible": true
+              }
+            ],
+            "empty_policy": "return_empty_outcome"
+          },
+          "expected_observations": {
+            "eligible_target_ids": [],
+            "selected_target_id": null,
+            "target_count": 0,
+            "outcome": "empty"
+          },
+          "source_refs": ["official.web-manual-actions", "paramdex.ds1r-defs"]
+        }
+      ]
+    }
+  ]
+}
