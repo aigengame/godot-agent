@@ -1,0 +1,38 @@
+mechanic_id,id,representation,kind,unit,role,domain,rounding,cap,source_refs
+king-bible-duration-cooldown-lifecycle,king-bible-amount,Int,projectile-count,projectile,parameter,"1 at level 1; positive integer",,"20 after admitted modifiers in the cited table",vswiki-king-bible
+king-bible-duration-cooldown-lifecycle,king-bible-area,Fixed,area-scale,ratio,parameter,"1.0000 at level 1; positive",fixed-4 exact,,vswiki-king-bible
+king-bible-duration-cooldown-lifecycle,king-bible-base-damage,Int,damage,damage-point,parameter,"10 on this level-1 slice; nonnegative integer",,,vswiki-king-bible
+king-bible-duration-cooldown-lifecycle,king-bible-base-duration,Fixed,effect-duration,second,parameter,"3.0000 seconds at level 1; 4.0000 at level 8",fixed-4 exact,,vswiki-king-bible
+king-bible-duration-cooldown-lifecycle,king-bible-cooldown-after-duration,Fixed,action-cooldown,second,parameter,3.0000 seconds after the base active duration ends,fixed-4 exact,,vswiki-king-bible
+king-bible-duration-cooldown-lifecycle,king-bible-hitbox-delay,Fixed,per-target-hit-delay,second,parameter,1.7000 seconds,fixed-4 exact,,vswiki-king-bible
+king-bible-duration-cooldown-lifecycle,king-bible-pool-limit,Int,projectile-capacity,projectile,constant,50,,50 active projectiles,vswiki-king-bible
+king-bible-duration-cooldown-lifecycle,king-bible-speed,Fixed,orbital-speed-scale,ratio,parameter,"1.0000 at level 1; positive",fixed-4 exact,,vswiki-king-bible
+mad-forest-bounded-wave-schedule,mad-forest-run-soft-limit,Fixed,encounter-time-limit,second,parameter,1800.0000 seconds for regular Mad Forest,fixed-4 exact,1800.0000 before the terminal Reaper transition in this controlled scenario,vswiki-mad-forest;wikipedia-gameplay
+mad-forest-bounded-wave-schedule,wave-one-enemy-minimum,Int,encounter-entity-minimum,enemy,parameter,30 at minute 1 candidate slice,,,vswiki-mad-forest
+mad-forest-bounded-wave-schedule,wave-one-spawn-interval,Fixed,spawn-interval,second,parameter,1.0000 seconds candidate value,fixed-4 exact,,vswiki-mad-forest
+mad-forest-bounded-wave-schedule,wave-two-enemy-minimum,Int,encounter-entity-minimum,enemy,parameter,50 at minute 2 candidate slice,,,vswiki-mad-forest
+mad-forest-bounded-wave-schedule,wave-two-spawn-interval,Fixed,spawn-interval,second,parameter,0.5000 seconds candidate value,fixed-4 exact,,vswiki-mad-forest
+mad-forest-bounded-wave-schedule,wave-zero-enemy-minimum,Int,encounter-entity-minimum,enemy,parameter,15 at minute 0 candidate slice,,,vswiki-mad-forest
+mad-forest-bounded-wave-schedule,wave-zero-spawn-interval,Fixed,spawn-interval,second,parameter,1.0000 seconds candidate value,fixed-4 exact,,vswiki-mad-forest
+magic-wand-auto-target-cadence,magic-wand-amount,Int,projectile-count,projectile,parameter,"1 on this level-1 slice; positive integer",,"20 after admitted modifiers in the cited table",vswiki-magic-wand
+magic-wand-auto-target-cadence,magic-wand-area,Fixed,area-scale,ratio,parameter,"1.0000 on this level-1 slice; positive",fixed-4 exact,,vswiki-magic-wand
+magic-wand-auto-target-cadence,magic-wand-base-damage,Int,damage,damage-point,parameter,"10 on this level-1 slice; nonnegative integer",,,vswiki-magic-wand
+magic-wand-auto-target-cadence,magic-wand-cooldown,Fixed,action-cooldown,second,parameter,"1.2000 seconds at level 1; nonnegative",fixed-4 exact,,vswiki-magic-wand
+magic-wand-auto-target-cadence,magic-wand-pool-limit,Int,projectile-capacity,projectile,constant,60,,60 active projectiles,vswiki-magic-wand
+magic-wand-auto-target-cadence,magic-wand-projectile-interval,Fixed,projectile-interval,second,parameter,0.1000 seconds between additional projectiles,fixed-4 exact,,vswiki-magic-wand
+magic-wand-auto-target-cadence,magic-wand-speed,Fixed,projectile-speed-scale,ratio,parameter,"1.0000 on this level-1 slice; positive",fixed-4 exact,,vswiki-magic-wand
+magic-wand-evolution-replacement,empty-tome-rank-one-cooldown-change,Fixed,cooldown-rate-change,ratio,parameter,-0.0800 at rank 1,fixed-4 exact,-0.4000 at rank 5,vswiki-passive-items
+magic-wand-evolution-replacement,evolution-chest-minimum-time,Fixed,encounter-time-threshold,second,parameter,600.0000 seconds for the controlled ordinary Mad Forest chest policy,fixed-4 exact,,pcgamer-evolution
+magic-wand-evolution-replacement,holy-wand-base-cooldown,Fixed,action-cooldown,second,parameter,0.5000 seconds after evolution before modifiers,fixed-4 exact,,vswiki-weapons
+magic-wand-evolution-replacement,magic-wand-evolution-required-level,Int,item-level,level,constant,8,,8,research-evolution-triangulation
+run-reset-meta-growth-replay,candidate-run-gold,Int,gold-currency,gold-coin,input,"1000 in the controlled reset scenario; nonnegative integer",,,research-run-reset-triangulation
+run-reset-meta-growth-replay,growth-first-rank-price,Int,gold-price,gold-coin,parameter,900 when no other PowerUp rank is owned in the controlled scenario,exact integer price,,vswiki-powerups
+run-reset-meta-growth-replay,growth-per-rank,Fixed,experience-gain-rate-change,ratio,parameter,0.0300 per rank,fixed-4 exact,0.1500 at rank 5,vswiki-powerups
+run-reset-meta-growth-replay,next-run-growth-multiplier,Fixed,experience-gain-multiplier,ratio,derived,1.0300 after one Growth rank,fixed-4 exact,1.1500 from this PowerUp at rank 5,vswiki-powerups
+weighted-level-up-offerings,empty-tome-offer-weight,Int,reward-weight,weight-point,parameter,"50 in the controlled pool; positive integer",,,vswiki-passive-items
+weighted-level-up-offerings,king-bible-offer-weight,Int,reward-weight,weight-point,parameter,"80 in the controlled pool; positive integer",,,vswiki-king-bible
+weighted-level-up-offerings,level-up-choice-count,Int,offering-cardinality,choice,parameter,"3 in the controlled scenario; game may expose a fourth choice under a separate Luck policy",,4,research-offering-triangulation;vswiki-level-up
+weighted-level-up-offerings,magic-wand-offer-weight,Int,reward-weight,weight-point,parameter,"100 in the controlled pool; positive integer",,,vswiki-weapons
+weighted-level-up-offerings,passive-slot-capacity,Int,build-slot-capacity,passive-slot,constant,6 level-up passive slots,,"6 level-up selections; stage pickups are an explicit separate policy",research-offering-triangulation;vswiki-passive-items
+weighted-level-up-offerings,weapon-slot-capacity,Int,build-slot-capacity,weapon-slot,constant,6 level-up weapon slots,,"6 level-up selections; stage pickups are an explicit separate policy",research-offering-triangulation;vswiki-weapons
+weighted-level-up-offerings,whip-offer-weight,Int,reward-weight,weight-point,parameter,"100 in the controlled pool; positive integer",,,vswiki-weapons
