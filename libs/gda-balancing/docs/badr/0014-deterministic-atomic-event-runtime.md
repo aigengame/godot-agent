@@ -119,7 +119,9 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   rejection sampling or an explicitly accepted bias policy. Host-library defaults and modulo
   mappings not named by that authority chain are non-conforming. Normative first-draw, multi-draw,
   cross-stream, exhaustion, and distribution-boundary vectors make the law independently
-  implementable.
+  implementable. A draw budget counts every generated candidate, including candidates rejected by
+  an unbiased mapping, rather than only accepted samples; the trace records candidate counter,
+  value, and acceptance so resource accounting and replay remain observable.
 
 - **Profile definition and execution admission are separate artifacts.** The Language Definition
   Bundle owns each immutable Runtime profile definition: scheduler/phase semantics, budget names and
@@ -136,6 +138,15 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   Resolved Model, Experiment Specification, external input, and effective seed identities forms the
   reproduction key. The LDB-owned definition and generated resolved artifact cannot identify each
   other recursively.
+
+- **Exact replay and cross-evaluator conformance are different judgments.** A Replay comparison
+  requires one identical Resolved Runtime profile and every other reproduction-key identity to
+  match. Independent evaluators truthfully produce different evaluator/platform-bound Resolved
+  Runtime profiles, so their observations are compared only through a separately typed
+  **Cross-evaluator comparison**. That comparison binds both profiles, the exact common Kernel
+  Specification/LDB/Package Lock/RIR/Runtime-profile-definition/Experiment/input/seed identities,
+  and an LDB-owned portable-observation policy. It may support `cross_evaluator_conformant` Evidence
+  under bADR-0018, but it is not replay and cannot issue `reproducible`.
 
 - **Numeric promises are profile-specific.** A portable exact profile can promise cross-platform
   bit identity only for standardized exact/fixed operations and sampling mappings. A profile that
@@ -174,8 +185,11 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   runtime diagnostics, canonical snapshot/hash rules, and conformance vectors admitted under them.
 - RIR operations and package extensions must declare state read/write sets, emitted event types,
   cancellation behavior, and reducers sufficiently for static and runtime enforcement.
-- The reference evaluator and every optimizing evaluator must emit the same ordered trace under an
+- Repeated execution inside one evaluator/platform scope must emit the same ordered trace under an
   identical Resolved Runtime profile, subject only to the selected definition's numeric tolerance.
+- Independent evaluators run under their own Resolved Runtime profiles and must agree on the
+  portable observations selected by one exact LDB-owned Cross-evaluator-comparison policy; their
+  agreement is conformance evidence, not an exact replay identity claim.
 - Experiment and evidence artifacts must bind external-input identity, effective seed, Runtime
   profile, terminal snapshot, and refusal details.
 - The 2.x invocation-result decision must assign Runtime refusal an envelope, output channel, and
@@ -183,10 +197,13 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 
 ## Validation
 
-- Run the same RIR, Experiment Specification, Resolved Runtime profile, external inputs, and
-  effective seed
-  through independent evaluators; compare ordered events, committed Snapshot hashes, Named-stream
-  draws, Metric observations, terminal status, and terminal-audit artifacts.
+- Repeat one run under the same RIR, Experiment Specification, Resolved Runtime profile, external
+  inputs, and effective seed; compare ordered events, committed Snapshot hashes, Named-stream draws,
+  Metric observations, terminal status, and terminal-audit artifacts through a Replay comparison.
+- Run the same RIR, Experiment Specification, Runtime profile definition, external inputs, and seed
+  through independent evaluators under their distinct Resolved Runtime profiles; require a
+  separately typed Cross-evaluator comparison to bind both profiles and evaluate the exact declared
+  portable observations. It must neither masquerade as Replay nor issue `reproducible`.
 - Cover every scheduler edge and budget with positive and refusal vectors: phase/priority/FIFO
   order, backward scheduling, cancellation, queue/event/zero-time exhaustion, undeclared streams,
   and primitive/effect-profile incompatibility.

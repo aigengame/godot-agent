@@ -84,10 +84,11 @@ append-only evidence graph.
   for a later approval and requires recalibration/reverification under new identities.
 
 - **Progress is an immutable evidence graph, not a mutable state field.** Claims such as
-  `well_typed`, `resolved`, `evaluable`, `reproducible`, `calibrated`, and `holdout_verified` are
-  separate Evidence assertions. Each names the exact subject artifacts, policy, tool/evaluator, and
-  prerequisite assertions. A later assertion can depend on earlier ones but cannot upgrade them in
-  place. `approved` exists only as an Approval Record in its governance authority domain.
+  `well_typed`, `resolved`, `evaluable`, `reproducible`, `cross_evaluator_conformant`, `calibrated`,
+  and `holdout_verified` are separate Evidence assertions. Each names the exact subject artifacts,
+  policy, tool/evaluator, and prerequisite assertions. A later assertion can depend on earlier ones
+  but cannot upgrade them in place. `approved` exists only as an Approval Record in its governance
+  authority domain.
 
 - **Evidence issuance is a validated judgment, never a side effect of successful serialization or
   execution.** Before issuing an assertion, its command validates the closed Experiment, Metric,
@@ -100,13 +101,22 @@ append-only evidence graph.
   assertion.
 
 - **`reproducible` requires a Replay comparison.** The immutable comparison binds at least
-  two exact Evaluation runs or independent-evaluator observations, their complete reproduction
-  identities, the declared comparable fields, canonicalization/tolerance policy, field-level
-  matches/mismatches, and comparison-tool identity. One successful run, a replay request, or
-  byte-equality observed only inside a test cannot issue `reproducible`. The assertion is emitted
-  only when the comparison completed positively and all prerequisite `resolved`/`evaluable`
-  assertions verify; mismatch is a completed negative Verdict, while missing/incompatible inputs are
-  an `evaluation` refusal.
+  two exact Evaluation runs with the same complete reproduction identity, including an identical
+  Resolved Runtime profile. It also binds the declared comparable fields,
+  canonicalization/tolerance policy, field-level matches/mismatches, and comparison-tool identity.
+  One successful run, a replay request, cross-evaluator agreement, or byte-equality observed only
+  inside a test cannot issue `reproducible`. The assertion is emitted only when the comparison
+  completed positively and all prerequisite `resolved`/`evaluable` assertions verify; mismatch is a
+  completed negative Verdict, while missing/incompatible inputs are an `evaluation` refusal.
+
+- **Independent-evaluator agreement is a separate Evidence claim.** A Cross-evaluator comparison
+  binds two or more evaluator/platform-specific Resolved Runtime profiles, their exact common Kernel
+  Specification, Language Definition Bundle, Package Lock/RIR, Runtime profile definition,
+  Experiment Specification, external inputs, effective seed, LDB-owned portable-observation policy,
+  observations, mismatches, and comparison-tool identity. Only a positive, independently validated
+  comparison may issue `cross_evaluator_conformant`. It never satisfies `reproducible`; incompatible
+  authority/profile/policy inputs are an `evaluation` refusal and observed mismatches are a completed
+  negative Verdict.
 
 - **Approval binds exact evidence.** An Approval Record references the precise Resolved Model,
   Experiment Specification, Resolved Runtime profile/evaluator, Metric datasets, Evaluation runs,
@@ -158,12 +168,16 @@ append-only evidence graph.
 ## Validation
 
 - Validate closed Experiment, Metric definition/sample/dataset, Evaluation run, evaluator/tool,
-  policy, Evidence assertion, Replay comparison, and prerequisite-graph fixtures before issuing any
-  assertion; add negative vectors for extra/missing fields, kind/unit/dimension mismatch, bad
-  aggregation, unknown policy, identity mismatch, and absent prerequisite.
-- Run an exact replay and a second independent evaluator, producing a Replay comparison
-  that names every compared field. Assert positive comparison can issue `reproducible`, mismatch
-  returns a Verdict with field diagnostics, and a single run or mere replay intent cannot issue it.
+  policy, Evidence assertion, Replay comparison, Cross-evaluator comparison, and prerequisite-graph
+  fixtures before issuing any assertion; add negative vectors for extra/missing fields,
+  kind/unit/dimension mismatch, bad aggregation, unknown policy, identity mismatch, and absent
+  prerequisite.
+- Run an exact replay under one identical Resolved Runtime profile. Assert its positive Replay
+  comparison can issue `reproducible`, mismatch returns a Verdict with field diagnostics, and a
+  single run or mere replay intent cannot issue it.
+- Run a second independent evaluator under its distinct Resolved Runtime profile. Assert only a
+  positive Cross-evaluator comparison under the exact LDB-owned portable-observation policy can
+  issue `cross_evaluator_conformant`, and that it cannot issue `reproducible`.
 - Inject a runtime refusal after committed events; assert only the terminal-audit artifact set is
   atomically visible and no Evaluation run, Metric dataset, or positive Evidence assertion exists.
 - Mutate an evaluator, Resolved Runtime profile, Experiment, Metric definition, seed/stream, policy, or input

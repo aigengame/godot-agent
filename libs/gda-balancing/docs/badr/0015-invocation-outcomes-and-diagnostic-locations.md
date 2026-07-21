@@ -49,6 +49,11 @@ refusal payload stage-aware and artifact-aware.
   - `migration` owns source/artifact conversion preconditions and loss classification.
   - `approval` owns evidence, attestation, and governance-policy preconditions.
   A refusal envelope names the earliest stage that cannot complete; later stages do not run.
+  “Bundle admission” is a process name, not a ninth stage: byte caps, artifact identity/version,
+  Kernel/LDB binding, and safe format admission are `ingress`; after those pass, malformed rule/fact
+  structure and rule-semantic illegality are `static`. The non-self-hosted Kernel Specification
+  publishes this admission meta-diagnostic-to-stage projection; an LDB can publish only the
+  post-admission projection, so it never authorizes the reason for rejecting itself.
   The set is a closed Schema-major discriminant: a bundle, package, descriptor, or evaluator cannot
   add, omit, rename, or repurpose a stage. An unknown stage is rejected during ingress rather than
   forwarded as an extension value. `usage` and `internal` remain Error-envelope categories, never
@@ -87,6 +92,10 @@ refusal payload stage-aware and artifact-aware.
   with exit 2; stdout is not part of the artifact-store transaction. No completed Evaluation run,
   Metric dataset, success result, Verdict, or positive Evidence assertion is published. A receipt
   must resolve to bytes whose identity verifies; an unpublished digest is not a retrievable receipt.
+  The terminal-audit set has a closed member-kind contract and may include already successful
+  authority/build/profile prerequisites needed to resolve every audit reference, but those members
+  do not convert the set into a command-success outcome and it may never include partial
+  Evaluation/Metric/Replay/Evidence artifacts.
 
 - **Publication/delivery failure has explicit command semantics.** If terminal-audit publication
   fails before commit, no Runtime-refusal envelope can truthfully carry a receipt; the command emits
@@ -102,22 +111,28 @@ refusal payload stage-aware and artifact-aware.
   add a `debug` string. Typed domain conditions must never be caught and relabeled `internal`, and
   unexpected exceptions must never be exposed as typed refusals.
 
-- **The Language Definition Bundle owns typed-refusal diagnostic codes and stage membership.**
-  Core and extension packages declare versioned, namespaced codes through the bundle authority.
-  The CLI usage family and fixed internal code remain command-surface concerns. A code cannot move
-  stages or change meaning within a compatible Schema line. The closed stage vocabulary itself is a
-  Schema-major kernel contract and cannot be extended by bundle content.
+- **Kernel and LDB split Diagnostic authority at the admission boundary.** The non-self-hosted
+  Schema-major Kernel contract owns the closed meta-diagnostic codes, payloads, precedence, and
+  `ingress`/`static` assignments required to admit or reject a Kernel/LDB. Once admitted, the LDB
+  owns language, compiler, runtime, evaluation, migration, and approval typed-refusal codes and
+  stage membership; Core and extension packages declare versioned, namespaced codes only through
+  that bundle. The CLI usage family and fixed internal code remain command-surface concerns. A code
+  cannot move stages or change meaning within a compatible Schema line, and the closed stage
+  vocabulary itself cannot be extended by bundle content. Implementations generate or
+  reverse-enumerate each table against the authority available before that table is used; a
+  host-only code or stage mapping is a conformance failure.
 
 - **The Command descriptor remains the sole per-command surface authority.** Under bADR-0021's
-  shared Command schema profile, it names the command's input and success-result models; optional
-  verdict model; applicable refusal stages and projected refusal schema; handler; argument
-  presentation; execution markings; and fixtures for every applicable outcome. Dispatch,
+  shared Command schema profile, it names one closed input model (empty for a zero-parameter
+  command), each reachable success/verdict model, applicable refusal stages and projected refusal
+  schema, handler, argument presentation, execution markings, and fixtures for every applicable
+  outcome. A gate-only command does not declare an unreachable success model. Dispatch,
   help/schema/manifest projections, and the conformance harness walk that one registration seam.
 
 - **The conformance harness expands without creating a second registry.** It asserts channel,
   exit, closed-envelope shape, diagnostic code/stage membership, stable location encoding,
   truncation/order/deduplication, terminal-audit receipts, reproduction identity, and
-  result/verdict schemas for every registered command.
+  each declared result/verdict schema, plus rejection of any undeclared outcome.
 
 - **This decision supersedes only the conflicting 2.x portions of bADR-0004, bADR-0008, and
   bADR-0011.** It replaces the three-phase-only refusal boundary, JSON-Pointer-only refusal entry,
@@ -159,17 +174,23 @@ refusal payload stage-aware and artifact-aware.
 
 - Enumerate all eight Refusal stages from the authoritative stage contract and reject missing,
   duplicate, misspelled, unknown, or category-valued stages before command dispatch.
-- For every registered command, execute success, optional Verdict, every applicable Refusal stage,
-  usage, and injected internal failure; assert exact exit, channel, closed schema, location kind,
-  diagnostic ordering/deduplication, and truncation behavior.
+- For every registered command, execute each declared reachable success/Verdict, every applicable
+  Refusal stage, usage, and injected internal failure; assert exact exit, channel, closed schema,
+  location kind, diagnostic ordering/deduplication, and truncation behavior. A descriptor with no
+  success model must reject an injected exit-0/completed result as an internal conformance fault.
 - Inject a runtime fault after dispatch and assert that exit 2 carries one resolving
   `terminal_audit` receipt, the separately typed artifact set verifies by content identity, and no
   success artifact set is visible. Faults before dispatch must not claim terminal audit.
+- Validate the terminal-audit artifact itself, not only its set membership: require the committed
+  trace prefix, last Snapshot, refusing event, rollback facts, complete Diagnostic location,
+  Resolved Runtime profile, and exact reproduction identities, with negative vectors for every
+  missing or mismatched reference.
 - Fail terminal-audit publication before commit and assert `internal_error`/exit 4 with no receipt;
   fail or crash after commit but before envelope delivery and assert recovery/retry returns the
   committed refusal without rerunning the model.
-- Mutate a package Diagnostic code or stage assignment and assert bundle admission or conformance
-  fails rather than allowing an evaluator- or descriptor-local override.
+- Mutate a Kernel-owned admission Diagnostic or its stage and assert bootstrap conformance fails;
+  mutate an admitted package Diagnostic or its post-admission stage and assert LDB conformance fails.
+  Neither path may allow an evaluator- or descriptor-local override.
 
 ## References
 

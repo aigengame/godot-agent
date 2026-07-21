@@ -57,14 +57,19 @@ structured-params adapter part of the first vertical tracer.
 
 - **`manifest` ships with the first 2.x tracer.** It emits the Surface manifest by walking the live
   Command-descriptor registry. Each registered entry carries command name/description, input,
-  success, optional verdict, and error schemas; execution markings; and artifact behavior. Help and
-  reserved/undelivered groups are excluded because they have no dispatchable descriptor.
+  reachable success, optional verdict, and error schemas; execution markings; and artifact behavior.
+  A gate-only command with no positive result omits `success` rather than advertising an unreachable
+  outcome. Every command retains one closed `input` schema; a zero-parameter command uses an empty
+  closed object rather than omitting the binding contract. Help and reserved/undelivered groups are
+  excluded because they have no dispatchable descriptor.
 
-- **Every registered command ships `--schema`.** Its closed result contains `input`, `success`,
-  optional `verdict`, and `error`. `verdict` is present only for commands that can return exit 1;
-  `error` includes the applicable bADR-0015 usage/internal and stage-aware refusal variants. The
-  exact same models feed argv/structured binding, defaults, required/unknown-field handling, type
-  decoding, conflict detection, dispatch validation, manifest emission, and the conformance harness.
+- **Every registered command ships `--schema`.** Its closed result contains `input`, optional
+  reachable `success`, optional `verdict`, and `error`. `success`/`verdict` are present only for
+  commands that can return exit 0/1 respectively; `input` is always present, even when it admits
+  only `{}`. `error` includes the applicable bADR-0015 usage/internal and stage-aware refusal
+  variants. The exact same models feed argv/structured binding, defaults, required/unknown-field
+  handling, type decoding, conflict detection, dispatch validation, manifest emission, and the
+  conformance harness.
   A schema with only an object shell while handler code owns its fields, or any parallel parameter
   map, is non-conforming.
 
@@ -89,11 +94,13 @@ structured-params adapter part of the first vertical tracer.
 
 - **The Command descriptor remains the only registration seam.** In addition to bADR-0015 fields,
   it owns artifact input/output-set roles, publication receipts/locators, structured-params
-  eligibility, closed typed models, and fixtures for success, verdict, every applicable refusal
-  stage, usage, internal fault injection, schema, manifest, and stochastic reproduction. Dispatch
+  eligibility, closed typed models, and fixtures for every reachable success/verdict, every
+  applicable refusal stage, usage, internal fault injection, schema, manifest, and stochastic
+  reproduction. Dispatch
   cannot accept an input, default, outcome, refusal stage, or artifact behavior absent from that
-  descriptor. Parallel argument maps, command lists, error schemas, artifact lists, or manifest rows
-  are prohibited.
+  descriptor, and the descriptor cannot advertise an input or outcome the handler cannot reach.
+  Parallel argument maps, command lists, error schemas, artifact lists, or manifest rows are
+  prohibited.
 
 - **Artifact output uses one invocation-level publication transaction.** Results always remain on
   stdout. A descriptor declares the complete success artifact set: primary and companion artifacts,
@@ -102,8 +109,12 @@ structured-params adapter part of the first vertical tracer.
   verifies every member, then makes the set receipt and all locators visible at one commit point. A
   crash, collision, write fault, or verification failure before that point leaves the previous
   visible set unchanged and publishes neither a receipt nor a subset. Storage/transport may vary,
-  but every receipt must resolve and rehash independently. Input artifacts are never mutated, and
-  direct/symlink aliasing of any input/output member is a usage error.
+  but every receipt must resolve and rehash independently. The committed publication index anchors
+  the originally committed receipt identity; lookup revalidates that anchor, receipt, complete member
+  set, and every member so a coherent record/member rewrite cannot silently become a new outcome.
+  Each standardized store adapter must declare and test the durability/trust boundary that makes its
+  index immutable. Input artifacts are never mutated, and direct/symlink aliasing of any input/output
+  member is a usage error.
 
 - **Refusal publication is separate from success publication.** A pre-runtime refusal publishes no
   command success artifacts. After runtime dispatch, bADR-0014/0015 requires one separately typed
@@ -168,8 +179,9 @@ structured-params adapter part of the first vertical tracer.
 
 - The first 2.x tracer must register schema/model/template/experiment/evidence commands only as they
   become executable; the manifest exposes exactly the delivered subset.
-- CLI schema and conformance fixtures cover success, optional Verdict, all applicable Refusal
-  stages, usage/internal failures, structured input, artifacts, and reproduction.
+- CLI schema and conformance fixtures cover each declared reachable success/Verdict, all applicable
+  Refusal stages, usage/internal failures, structured input, artifacts, and reproduction. They also
+  prove undeclared success/Verdict outcomes are rejected.
 - Existing 1.x command implementation/issues must be rewritten around the new descriptors rather
   than aliased indefinitely.
 - Calibration and approval delivery require vertical command decisions but their noun ownership is
@@ -186,12 +198,17 @@ structured-params adapter part of the first vertical tracer.
 - Validate every projection with two independent Draft-2020-12 validators under the closed local
   profile. Reject remote references, unknown profile keywords/formats, open object shapes, `$id`
   drift, and any difference between descriptor-applied defaults and schema annotations.
-- Enumerate success, optional Verdict, all applicable closed Refusal stages, usage, and injected
-  internal failure from each descriptor; assert exact model, channel, exit, and artifact behavior.
+- Enumerate every declared reachable success/Verdict, all applicable closed Refusal stages, usage,
+  and injected internal failure from each descriptor; assert exact model, channel, exit, and
+  artifact behavior. For a gate-only descriptor, inject an exit-0/completed result and require an
+  internal conformance failure because `success` is undeclared.
 - For multi-artifact build and experiment commands, inject faults before staging, between member
   writes, after verification, and immediately before/after the commit point. Assert readers observe
   either the old complete set or the new complete set, never a mixture, and every visible locator
-  rehashes to its receipt identity.
+  rehashes to its receipt identity. Then coherently rewrite the record, member files, and reidentified
+  receipt while leaving the committed publication-index anchor unchanged; lookup must reject the
+  replacement. Run the corresponding index-compromise/durability tests at each adapter's declared
+  trust boundary.
 - Inject runtime refusal after committed events and assert exactly one complete terminal-audit set
   is retrievable while no success artifact member or success-set receipt is visible. Repeat with
   concurrent readers and crash-recovery fixtures under each standardized store adapter.

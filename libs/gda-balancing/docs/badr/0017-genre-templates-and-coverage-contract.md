@@ -119,14 +119,17 @@ distribution contract and a falsifiable definition of genre completeness.
   deckbuilder-like templates may specialize package selection while satisfying the shared
   lifecycle rows.
 
-- **Validation and implementation proofs remain ordered vertical slices.** The completed disposable
-  layer-connectivity probe on PRD #534 is not a conformance or Genre-closure result. The next probe
-  establishes semantic authority with independent bootstrap interpreters and evaluators; the
-  following probe adds resource outcomes, interruption/refund, and effect lifecycle behavior without
-  RPG-specific core branches. Only then may a production tracer claim the full source-to-RIR,
-  target, cost, check/damage, effect, encounter, Metrics, Evidence, and public-CLI path. Supporting
-  Golden scenarios isolate outcome, refusal, limit, and boundary cases; implementation does not
-  build every package horizontally before a vertical path runs.
+- **Validation and implementation proofs remain ordered vertical slices.** The disposable
+  layer-connectivity and semantic-authority probes on PRD #534 are not conformance or Genre-closure
+  results. The semantic probe implementation passed its narrow vectors, but the design gate remains
+  open because Kernel/LDB laws still require independent execution rather than coordinated host
+  interpretation. The next independent probe exercises orthogonality: one ordinary attribute is a
+  Model Source-only edit, while each reusable resource/effect mechanic enters through one package/LDB
+  authority edit without RPG-specific core branches. Only after both design gates pass may a
+  production tracer claim the full source-to-RIR, target, cost, check/damage, effect, encounter,
+  Metrics, Evidence, and public-CLI path. Supporting Golden scenarios isolate outcome, refusal,
+  limit, and boundary cases; implementation does not build every package horizontally before a
+  vertical path runs.
 
 - **This decision supersedes conflicting 2.x template/effect portions of bADR-0001, bADR-0002, and
   bADR-0006.** It replaces “template as one Design-document instance”, root reserved genre sections,

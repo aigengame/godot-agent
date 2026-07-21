@@ -50,6 +50,15 @@ an explicit boundary for lowering equivalence.
   receipt; it cannot change the Resolved Model identity. Independent conforming evaluators accept
   RIR rather than reinterpreting authored source.
 
+- **Runtime-required LDB semantics are embedded as one canonical RIR projection.** RIR carries the
+  normalized operation bodies, signatures, effects, variants, and other admitted semantic fragments
+  reachable from the model; an evaluator does not choose between embedding them and dynamically
+  dereferencing alternate LDB representations. The exact LDB identity and projection law remain the
+  authority, so embedding is duplication for execution, not a peer definition. Runtime admission
+  rehashes Kernel/LDB/Lock/RIR and verifies that every embedded fragment is the canonical projection
+  of the bound LDB/Package Lock before execution. Evaluator-specific projection choices or host
+  fallbacks are non-conforming.
+
 - **HIR-to-RIR lowering must preserve specified observable behavior.** For any well-typed model,
   the RIR preserves its exported typed values and units; initialization; readable state;
   transitions; emitted signals and events; event-ordering inputs; named random-stream identity;
@@ -135,6 +144,9 @@ an explicit boundary for lowering equivalence.
 - Independent compilers processing equivalent source with the same Kernel Specification, bundle,
   and lock must produce one Resolved Model identity even though their Build receipts identify
   different compiler/tool implementations.
+- Mutate, omit, or reorder one embedded LDB semantic fragment; runtime admission must reject any RIR
+  whose embedded projection is not canonical for its exact LDB/Package Lock, even when the artifact
+  has been reidentified consistently.
 - An evaluator that did not build the RIR must execute it using only the RIR and its exact public
   dependencies; deleting the Debug Map cannot change execution, Metrics, trace, or refusal behavior.
 

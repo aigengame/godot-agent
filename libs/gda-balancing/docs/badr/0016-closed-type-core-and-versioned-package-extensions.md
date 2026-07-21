@@ -188,9 +188,11 @@ therefore requires a small closed type language and a constrained package extens
 - Exercise every declared gameplay-outcome variant and reject unknown discriminators, missing
   payloads, and non-exhaustive dependent branches before execution. Resource insufficiency,
   immunity, and legal interruption remain typed outcomes rather than Runtime refusals.
-- Add an ordinary Quantity-typed attribute and then one versioned package operation using only
-  manifests, language rules, and vectors; the core constructors and unrelated compiler/runtime
-  dispatch must remain unchanged.
+- Add an ordinary Quantity-typed attribute by changing only the Model Source declaration; the LDB,
+  package manifests, core constructors, compiler, and evaluator remain unchanged. Separately add one
+  reusable mechanic/operation through one versioned package/LDB authority edit plus its normative
+  vectors; every other projection is generated or reverse-conformance-checked, and unrelated
+  compiler/runtime dispatch remains unchanged.
 
 ## References
 

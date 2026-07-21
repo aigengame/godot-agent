@@ -21,13 +21,14 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
 
 - **Standard Schema 2.x has one layered machine-authority chain.** The non-self-hosted
   **Schema-major Kernel Specification** defines how Language Definition Bundles are admitted and
-  interpreted, including the bundle meta-format and irreducible Semantic-kernel laws. Under one
-  exact Kernel Specification, the immutable, versioned **Language Definition Bundle** is the
-  sole language-content authority and defines:
+  interpreted, including the bundle meta-format, irreducible Semantic-kernel laws, and the
+  meta-diagnostics needed to admit or reject a bundle. Under one exact Kernel Specification, the
+  immutable, versioned **Language Definition Bundle** is the sole post-admission language-content
+  authority and defines:
   - grammar and wire-shape definitions;
   - type constructors, name-resolution and typing rules;
   - versioned operation specifications and their semantic contracts;
-  - stable diagnostic-code definitions;
+  - stable post-admission diagnostic-code definitions;
   - package manifests, capabilities, dependencies, and compatibility rules.
   bADR-0022 fixes the Kernel-Specification boundary, canonical bundle, structured-rule meta-format,
   Semantic kernel, and conformance boundary. A host compiler, evaluator, bootstrap interpreter, or
@@ -65,17 +66,21 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   envelope that binds its artifact kind, wire-schema identity, content identity, and normative
   payload. A Locator identifies a retrieval mechanism; a Receipt proves a publication and may bind
   a Locator, but neither paths nor transport metadata enter content identity. Retrieval revalidates
-  the envelope, schema identity, and content hash. Missing, mismatched, or tampered artifacts are
-  typed refusals rather than implementation fallbacks.
+  the envelope, schema identity, and content hash. A consumer must rehash the exact Kernel
+  Specification, Language Definition Bundle, lock, RIR, profile, and other authority artifacts it
+  consumes; comparing only their claimed identity strings is non-conforming. Missing, mismatched, or
+  tampered artifacts are typed refusals rather than implementation fallbacks.
 
 - **One producing outcome publishes one artifact set.** A success or separately typed terminal-audit
   outcome may stage multiple artifacts, but none is authoritative or discoverable until one
-  immutable publication receipt commits that complete set. A terminal-audit set cannot reuse or
-  partially expose a success set. Failure before the selected outcome's commit point exposes no
-  member. Store layout, retention, transfer, garbage collection, and crash recovery are
-  implementation or deployment policies only where they preserve this visibility, verification,
-  and identity law. A CLI stdout/stderr envelope is emitted after publication and is not part of
-  this cross-transport atomic boundary.
+  immutable publication receipt and publication-index anchor commit that complete set. Retrieval
+  verifies the anchor, original receipt identity, complete member-identity set, and member bytes; a
+  coherently rewritten record/receipt/member set is not the originally committed outcome. A
+  terminal-audit set cannot reuse or partially expose a success set. Failure before the selected
+  outcome's commit point exposes no member. Store layout, retention, transfer, garbage collection,
+  crash recovery, and the concrete index trust boundary are implementation or deployment policies
+  only where they preserve this visibility, verification, and identity law. A CLI stdout/stderr
+  envelope is emitted after publication and is not part of this cross-transport atomic boundary.
 
 - **References cross domains by identity, never by copied mutable data.** Package locks, resolved
   models, experiments, evidence, and approvals carry content identities for every upstream
@@ -141,10 +146,14 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
 
 - Two independently implemented Kernel Specification/LDB consumers must reject the same malformed
   bundle and agree on the same admitted bundle identity, projected inventories, and diagnostics.
+- Mutate every consumed authority artifact while retaining its old claimed identity; bootstrap,
+  compiler, runtime, evidence, and retrieval consumers must reject before using the changed content.
 - Projection conformance enumerates grammar, types, operations, packages, diagnostics, profiles,
   and vectors back to the exact bundle and fails on missing, extra, or changed meaning.
 - A multi-artifact fault-injection vector fails after every staging boundary and proves that no
   partial set is retrievable; successful cross-process retrieval verifies every envelope and hash.
+  Coherently rewriting stored members plus a reidentified receipt while retaining the committed
+  publication-index anchor must also be rejected.
 - Exact-bound Experiments refuse a changed RIR identity. Compatibility-bound Experiments cover
   unique, zero-match, and ambiguous resolution and always record the final exact binding receipt.
 

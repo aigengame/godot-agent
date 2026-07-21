@@ -24,15 +24,25 @@ structured formal judgments, and an honest proof/conformance boundary.
   primitives, exact Numeric laws, RNG derivation/sampling primitives, and atomic transition
   primitives that cannot be defined by rules without regress. It is versioned only with the Schema
   major. Reference implementations and host-language primitives conform to it; they never define or
-  extend it.
+  extend it. For every admitted kernel node or judgment, it supplies a closed machine encoding of
+  input/result shapes, scope and binding, evaluation order, effects, transitions, refusals, resource
+  accounting, and canonical identity consequences. An inventory of node names plus prose-like law
+  strings is not an executable Kernel Specification.
 
 - **The Language Definition Bundle is a canonical, content-addressed language-content artifact.**
   Its manifest binds the exact Schema line, Kernel-Specification identity, bundle format,
   grammar/AST definitions, core type constructors, Language rules, Operation specifications,
-  Domain-package manifests, diagnostics, Runtime/Numeric profile definitions, lowering rules,
-  external-standard mappings, and normative vectors.
+  Domain-package manifests, post-admission diagnostics, Runtime/Numeric profile definitions,
+  lowering rules, external-standard mappings, and normative vectors.
   Canonical emission and hashing cover every normative member; changing normative content produces
   a new bundle identity and compatible or breaking version as applicable.
+
+- **Canonical wire identity is a Kernel contract.** The Kernel Specification binds the exact
+  domain-separated identity algorithm and canonical encoding rules for strings/Unicode, map and list
+  order, integers and any admitted numeric representation, optional/default members, artifact-kind
+  separation, and identity-field exclusion. Positive, ordering, Unicode, numeric-boundary, and
+  malleability vectors apply to Kernel, LDB, RIR, locks, profiles, receipts, and command-input
+  identities. A shared helper-library convention is not a normative identity profile.
 
 - **Language rules use one closed, machine-readable meta-format.** The Kernel Specification defines
   a versioned ontology of fact schemas, term types, premise operators, metavariable binding and
@@ -55,6 +65,10 @@ structured formal judgments, and an honest proof/conformance boundary.
   substitutions, missing required facts, and ambiguous rule selection are bundle-admission
   refusals. Adding a fact kind, term type, premise operator, or judgment construct changes the
   Kernel Specification and Schema major rather than entering as an evaluator special case.
+  “Bundle admission” does not rename the bADR-0015 pipeline stages: identity/version/Kernel-binding
+  and safe format admission are `ingress`, while rule/fact structural or semantic illegality after
+  safe format admission is `static`; the exact admission meta-diagnostic code-to-stage mapping is
+  normative Kernel content, never content of the not-yet-admitted bundle.
 
 - **The Semantic kernel is intentionally small and closed.** Its operation set and observable laws
   are fixed by the Kernel Specification. It contains literals, typed reads,
@@ -125,6 +139,15 @@ structured formal judgments, and an honest proof/conformance boundary.
   the surrounding command-surface schemas. If a target cannot be generated directly, a test
   enumerates it back against the bundle and fails on missing, extra, or changed meaning.
 
+- **Diagnostic semantics have no host-owned peer.** The Kernel Specification exhaustively owns the
+  meta-diagnostic codes, payload shapes, precedence, and bADR-0015 stage membership required before
+  a Kernel/LDB can be admitted; an LDB cannot authorize rejection of itself. The admitted LDB then
+  owns every typed-refusal code, message-template input, and stage membership used by source,
+  compiler, runtime, and evaluation operations. Implementations generate each diagnostic table from
+  the authority that precedes it or reverse-enumerate every emitted code/stage against that
+  authority. A host-coded diagnostic absent from its Kernel/LDB authority is non-conforming even
+  when two implementations use the same string.
+
 - **Resource safety is part of the rules.** Grammar depth/bytes, module/import graph, symbols,
   rule-match steps, type-instantiation depth, aggregate bounds, lowering rewrites, diagnostics, and
   generated artifact sizes have deterministic caps in the bundle, Runtime profile definition, or
@@ -159,9 +182,11 @@ structured formal judgments, and an honest proof/conformance boundary.
 
 ## Consequences
 
-- The Semantic-authority conformance prototype must independently implement the Kernel
-  Specification's bundle bootstrap parser/interpreter, not a parallel set of handwritten registries
-  or host-semantic dispatch tables.
+- The disposable semantic-authority probe demonstrated source-level independent bootstrap/evaluator
+  paths and removal of RPG host dispatch, but its shared handwritten interpretation of kernel nodes
+  does not satisfy this decision. A passing conformance implementation must independently implement
+  the Kernel Specification's complete bundle bootstrap and node/judgment laws, not parallel
+  handwritten registries or coordinated host-semantic dispatch tables.
 - `docs/standard-schema-2.0/` records the open Genre coverage contract and executable-specification
   gates. It deliberately contains no placeholder bundle: #534 remains open until a closed bootstrap
   schema, exhaustive rules, artifact shapes, profiles, and executable vectors are supplied together.
@@ -178,6 +203,10 @@ structured formal judgments, and an honest proof/conformance boundary.
 
 - At least two independently implemented bootstrap interpreters consume the same bundles and agree
   on admission, rule selection, substitutions, conclusions, diagnostics, and canonical identity.
+- Bootstrap interpreters and evaluators independently rehash the exact Kernel Specification and LDB
+  before use. Mutating a Numeric/RNG/node/transition law while retaining its old claimed identity
+  must produce the same pre-execution refusal in every consumer rather than changed behavior under
+  the old identity.
 - Fact/premise ontology vectors cover every fact and term type, premise operator, missing-fact rule,
   binding/substitution edge, priority tie, ambiguous selection, and unknown/ill-typed construct.
 - Removing or mutating every consulted Language rule must either change canonical bundle/RIR
@@ -185,7 +214,13 @@ structured formal judgments, and an honest proof/conformance boundary.
   conditional cannot preserve the old behavior behind the changed rule.
 - At least two evaluators that share no host primitive implementation execute each other's RIR and
   agree on operation, Numeric, RNG, scheduler, effect, trace, Metric, and refusal vectors under the
-  same profile. A named host primitive without a Kernel Specification law fails this gate.
+  same Runtime profile definition and their honestly distinct evaluator-bound Resolved Runtime
+  profiles. A named host primitive without a complete Kernel Specification law fails this gate;
+  cross-evaluator agreement uses bADR-0014/0018's separate comparison and never masquerades as exact
+  Replay.
+- Reverse-enumerate every admission Diagnostic code/stage against the Kernel and every
+  post-admission source/compiler/runtime/evaluation Diagnostic against the admitted LDB; missing,
+  extra, or moved codes fail conformance before the related path can be claimed covered.
 - Semantic-equivalence vectors produce byte-identical RIR across independent lowerers while Debug
   Map changes remain non-semantic; resource-limit vectors terminate with stage-appropriate refusal
   and never partial RIR.

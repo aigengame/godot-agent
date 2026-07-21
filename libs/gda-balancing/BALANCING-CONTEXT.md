@@ -37,9 +37,9 @@ _Avoid_: global source of truth, authority layer
 
 **Language Definition Bundle**:
 The sole immutable language-content authority under one exact `Schema-major Kernel Specification`:
-grammar, type constructors and rules, operation specifications, diagnostic codes, package
-manifests, version/capability compatibility, Runtime/Numeric profile definitions, and normative
-vectors. It
+grammar, type constructors and rules, operation specifications, post-admission diagnostic codes,
+package manifests, version/capability compatibility, Runtime/Numeric profile definitions, and
+normative vectors. It
 must carry structured laws sufficient for two independent conforming implementations to derive the
 same observable operation, Numeric, effect, scheduling, refusal, and RNG behavior. Selecting or
 naming host-language primitives is not sufficient. Structural language schemas, semantic catalogs,
@@ -52,10 +52,10 @@ _Avoid_: schema registry, implementation registry, language manifest (partial)
 **Schema-major Kernel Specification**:
 The versioned, non-self-hosted authority that defines bundle structure and interpretation,
 judgment execution, the irreducible Semantic kernel, exact Numeric and RNG sampling laws,
-event-transition primitives, resource accounting, and their conformance interface. Every Language
-Definition Bundle binds one exact kernel-specification identity. Host implementations conform to
-the kernel and bundle; a Python function, reference evaluator, or implementation table is never
-semantic authority (bADR-0012/0022).
+event-transition primitives, resource accounting, Kernel/LDB-admission meta-diagnostics, and their
+conformance interface. Every Language Definition Bundle binds one exact kernel-specification
+identity. Host implementations conform to the kernel and bundle; a Python function, reference
+evaluator, or implementation table is never semantic authority (bADR-0012/0022).
 _Avoid_: reference implementation as authority, host semantic kernel, implicit bootstrap
 
 **Semantic kernel**:
@@ -446,7 +446,12 @@ One machine-actionable reason inside a 2.x typed-refusal envelope: stable code, 
 tagged primary location, and optional related locations. A location identifies an invocation,
 source span, artifact pointer, symbol, or runtime event/snapshot; it is not forced into a JSON
 Pointer when the failure is not a JSON element. Codes and location identities are normative;
-message prose is explanatory (bADR-0015).
+message prose is explanatory. The Schema-major Kernel Specification owns the closed meta-diagnostic
+family needed to admit or reject a Kernel/LDB; an unadmitted bundle cannot authorize its own
+refusal. After admission, language/compiler/runtime/evaluation implementations may emit only codes
+whose exact meaning and `Refusal stage` membership are present in that bundle. The closed
+command-surface usage/internal families remain descriptor/CLI concerns; a host-coded diagnostic
+list is never semantic authority (bADR-0012/0015/0022).
 _Avoid_: log message, exception, validation warning
 
 **Structural schema**:
@@ -474,9 +479,10 @@ _Avoid_: rules doc, validation spec (as a prose document)
 
 **Command descriptor**:
 The single per-command registration object naming everything the surface needs to run, describe,
-and conformance-test a command: tree position, description, typed input and success-result models,
-applicable verdict and refusal schemas/stages, argument presentation, typed handler, execution
-markings, and conformance fixtures. The only path into the command surface; dispatch, schema and
+and conformance-test a command: tree position, description, one closed typed input model (possibly
+zero-field), every reachable success/verdict/refusal model, argument presentation, typed handler,
+execution markings, and conformance fixtures. A command with no exit-0 result declares no success
+model. The only path into the command surface; dispatch, schema and
 manifest projection, structured-params binding, artifact receipts, and the conformance harness all
 derive from it (bADR-0011/0015/0021).
 _Avoid_: command spec, command config, registry entry
@@ -493,9 +499,11 @@ _Avoid_: artifact schema, validator defaults, implicit JSON Schema dialect
 
 **Surface manifest**:
 The aggregate machine-readable projection of every registered 2.x Command descriptor: command
-identity/description, input, success, optional verdict, error schemas, execution markings, and
-artifact behavior. The ungrouped `manifest` command emits it from the live descriptor registry; it
-is not maintained as another command list (bADR-0021).
+identity/description, one closed input schema, each reachable success/verdict/error schema,
+execution markings, and artifact behavior. A zero-parameter command still publishes an empty closed
+input schema; a gate-only command omits an unreachable success schema. The ungrouped `manifest`
+command emits it from the live descriptor registry; it is not maintained as another command list
+(bADR-0021).
 _Avoid_: command catalog, CLI docs, schema manifest (ambiguous)
 
 **Structured params input**:
@@ -574,9 +582,19 @@ The generated, content-addressed admission artifact that resolves one Runtime pr
 against an exact Schema-major Kernel Specification, Language Definition Bundle, Package Lock/RIR,
 evaluator build, platform/runtime scope, and concrete deterministic budgets. It is validated before
 initialization; execution refuses an undeclared or incompatible stream, effect, primitive, profile,
-or budget. Two runs make an identity claim only when their Resolved Runtime profiles and other input
-artifact identities match (bADR-0014).
+or budget. An exact replay identity claim requires this profile and every other reproduction input
+identity to match. Comparing two different evaluator-bound profiles is a `Cross-evaluator
+comparison`, not a replay (bADR-0014/0018).
 _Avoid_: Runtime profile definition, ambient environment, runtime config
+
+**Cross-evaluator comparison**:
+An immutable conformance artifact comparing observations from independent evaluator realizations
+whose Resolved Runtime profiles intentionally differ. It binds both profiles plus the exact common
+Kernel Specification, Language Definition Bundle, Package Lock/RIR, Runtime profile definition,
+Experiment Specification, external inputs, seed, declared portable-observation policy, and every
+match/mismatch. A positive result may support a `cross_evaluator_conformant` Evidence assertion; it
+is never a `Replay comparison` and cannot satisfy `reproducible` (bADR-0014/0018/0022).
+_Avoid_: replay comparison, same semantic profile (insufficient), evaluator agreement flag
 
 **Numeric profile**:
 The named, versioned arithmetic contract selected by a Runtime profile definition: supported numeric
@@ -674,11 +692,12 @@ Metric dataset. It records what ran and what was observed; it does not itself de
 _Avoid_: simulation result, run log, benchmark
 
 **Replay comparison**:
-An immutable artifact comparing exact reproduction identities and declared observable fields
-across two or more Evaluation runs or evaluators. It binds the compared runs, comparison policy,
-identity checks, observation checks, and any closed mismatch diagnostics. A successful comparison,
-not replay intent or a single successful run, is a prerequisite for a `reproducible` Evidence
-assertion (bADR-0018).
+An immutable artifact comparing declared observable fields across two or more Evaluation runs that
+share the same complete reproduction identity, including one identical Resolved Runtime profile.
+It binds the compared runs, replay policy, identity checks, observation checks, and any closed
+mismatch diagnostics. A successful comparison, not replay intent or a single successful run, is a
+prerequisite for a `reproducible` Evidence assertion. Runs under different evaluator-bound profiles
+require a `Cross-evaluator comparison` instead (bADR-0014/0018).
 _Avoid_: replay succeeded, deterministic flag, matching logs
 
 **Observation model**:
@@ -698,12 +717,15 @@ _Avoid_: tuned config, best parameters, optimizer output
 
 **Evidence assertion**:
 A small immutable, content-addressed claim that a specific artifact set passed one declared gate,
-such as `well_typed`, `resolved`, `evaluable`, `reproducible`, `calibrated`, or
-`holdout_verified`. Each assertion references exact schema-valid subjects, issuer, policy/tool/
-evaluator identities, successful semantic validators, and satisfied prerequisite assertions;
+such as `well_typed`, `resolved`, `evaluable`, `reproducible`, `cross_evaluator_conformant`,
+`calibrated`, or `holdout_verified`. Each assertion references exact schema-valid subjects, issuer,
+policy/tool/evaluator identities, successful semantic validators, and satisfied prerequisite
+assertions;
 artifact presence or command success alone proves none of these claims. In particular,
-`reproducible` requires an identified successful `Replay comparison`. Progress is an evidence
-graph, never a mutable status field (bADR-0018).
+`reproducible` requires an identified successful `Replay comparison`, while
+`cross_evaluator_conformant` requires an independently validated `Cross-evaluator comparison` and
+never upgrades to replay identity. Progress is an evidence graph, never a mutable status field
+(bADR-0018).
 _Avoid_: workflow status, passed flag, maturity level
 
 **Holdout verification**:
