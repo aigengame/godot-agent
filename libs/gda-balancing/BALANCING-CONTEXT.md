@@ -44,7 +44,10 @@ package manifests, version/capability compatibility, Runtime/Numeric profile def
 normative vectors. It
 must carry structured laws sufficient for two independent conforming implementations to derive the
 same observable operation, Numeric, effect, scheduling, refusal, and RNG behavior. Selecting or
-naming host-language primitives is not sufficient. Structural language schemas, semantic catalogs,
+naming host-language primitives is not sufficient: the bundle owns Source-package and collection
+selection plus the ordered parse, resolution, type/effect, Diagnostic, and HIR-to-RIR judgments.
+Its admitted package/profile/Operation/Diagnostic graph is closed before use; missing content cannot
+fall back to host behavior. Structural language schemas, semantic catalogs,
 registries, evaluator tables, documentation projections, and the language-bound members referenced
 by Command descriptors are generated from it or guarded by reverse conformance; command-surface
 shape remains descriptor-owned. No hand-maintained peer language-content authority is allowed
@@ -55,7 +58,9 @@ _Avoid_: schema registry, implementation registry, language manifest (partial)
 The versioned, non-self-hosted authority that defines bundle structure and interpretation,
 judgment execution, the irreducible Semantic kernel, exact Numeric and RNG sampling laws,
 event-transition primitives, resource accounting, Kernel/LDB-admission meta-diagnostics, and their
-conformance interface. Every Language Definition Bundle binds one exact kernel-specification
+conformance interface. Each executable Kernel law closes its parameters, result, transitive effects,
+refusals, resource units, and canonical behavior; adding a primitive changes the Schema major.
+Every Language Definition Bundle binds one exact kernel-specification
 identity. Host implementations conform to the kernel and bundle; a Python function, reference
 evaluator, or implementation table is never semantic authority (bADR-0012/0022).
 _Avoid_: reference implementation as authority, host semantic kernel, implicit bootstrap
@@ -478,7 +483,10 @@ family needed to admit or reject a Kernel/LDB; an unadmitted bundle cannot autho
 refusal. After admission, language/compiler/runtime/evaluation implementations may emit only codes
 whose exact meaning and `Refusal stage` membership are present in that bundle. The closed
 command-surface usage/internal families remain descriptor/CLI concerns; a host-coded diagnostic
-list is never semantic authority (bADR-0012/0015/0022).
+list is never semantic authority. Conformance reverse-enumerates every reachable emission against
+the applicable Kernel/LDB catalog, rejects missing or extra mappings before use, and uses behavior
+vectors to trigger every authoritative code and confirm its stage; forward lookup alone is
+insufficient (bADR-0012/0015/0022).
 _Avoid_: log message, exception, validation warning
 
 **Structural schema**:
@@ -621,8 +629,10 @@ whose Resolved Runtime profiles intentionally differ. It binds both profiles plu
 Kernel Specification, Language Definition Bundle, Package Lock, Resolved Model/RIR semantic
 payload, Runtime profile definition,
 Experiment Specification, external inputs, seed, declared portable-observation policy, and every
-match/mismatch. A positive result may support a `cross_evaluator_conformant` Evidence assertion; it
-is never a `Replay comparison` and cannot satisfy `reproducible` (bADR-0014/0018/0022).
+match/mismatch. It is not an Evidence assertion and carries no embedded
+`cross_evaluator_conformant` claim. A separately validated positive result may support that Evidence
+assertion; it is never a `Replay comparison` and cannot satisfy `reproducible`
+(bADR-0014/0018/0022).
 _Avoid_: replay comparison, same semantic profile (insufficient), evaluator agreement flag
 
 **Numeric profile**:
@@ -666,6 +676,14 @@ after commit and is not a participant. A runtime refusal after dispatch begins m
 separately typed terminal-audit artifact set through this boundary, but never a partial
 Evaluation/Metric/Evidence success set (bADR-0015/0021).
 _Avoid_: atomic file write, output directory, event transaction
+
+**Artifact set manifest**:
+The canonical member map for one producing outcome. It binds each typed logical member name to its
+artifact kind, wire-schema identity, and content identity, and its own identity covers that framed
+map. A list of anonymous digests or a digest over unframed concatenated member bytes does not bind
+member names or boundaries and is non-conforming. Publication receipts and retrieval revalidate the
+complete manifest and every member (bADR-0012/0015/0018).
+_Avoid_: file list, concatenated checksum, output directory manifest
 
 **Snapshot boundary**:
 The semantic state boundary before the first event and after every committed Event transaction.
@@ -726,7 +744,8 @@ An immutable artifact comparing declared observable fields across two or more Ev
 share the same complete reproduction identity, including one identical Resolved Runtime profile.
 It binds the compared runs, replay policy, identity checks, observation checks, and any closed
 mismatch diagnostics. A successful comparison, not replay intent or a single successful run, is a
-prerequisite for a `reproducible` Evidence assertion. Runs under different evaluator-bound profiles
+prerequisite for a separately issued `reproducible` Evidence assertion; the comparison is not that
+assertion and carries no embedded `reproducible` claim. Runs under different evaluator-bound profiles
 require a `Cross-evaluator comparison` instead (bADR-0014/0018).
 _Avoid_: replay succeeded, deterministic flag, matching logs
 

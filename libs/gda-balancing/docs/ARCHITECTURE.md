@@ -11,7 +11,7 @@ it is not a larger JSON template format.
 This document is the human-readable authority for the **macro architecture**: system topology,
 subsystem boundaries, cross-cutting invariants, and the order in which the design becomes an
 implemented and proven Standard Schema 2.0. It synthesizes the accepted design decisions, PRD,
-domain language, genre-coverage contract, and three disposable-prototype dogfooding rounds.
+domain language, genre-coverage contract, and four disposable-prototype dogfooding rounds.
 
 It describes the intended architecture, not a claim that Standard Schema 2.0 has shipped or passed
 conformance. Every implementation and coverage gate called out in this document is open unless its
@@ -432,7 +432,7 @@ An extension failure must be assigned to the authority that can actually fix it:
 
 The attempted Standard Schema 1.x RPG template fell into the third category: adding template fields
 would not have fixed the underlying authority, type, compilation, runtime, and evidence boundaries.
-The three 2.0 probes likewise found mostly Standard Schema foundation gaps, plus narrower package
+The four 2.0 probes likewise found mostly Standard Schema foundation gaps, plus narrower package
 ownership and template-coverage obligations. A failed genre example is therefore not automatically
 a template defect, and a missing convenience field is not automatically a Kernel defect.
 
@@ -604,17 +604,19 @@ coverage from implementation proof.
 | --- | --- | --- |
 | Consistency | Scoped authority, canonical terms, one semantic pipeline, identity rules | Macro decisions are aligned after dogfooding corrections; ongoing anti-drift checks are required |
 | Completeness | Closed language/runtime/artifact contracts plus RPG/Roguelike coverage matrix | Requirement contract is broad and systematic; full Schema and genre coverage are not yet proven |
-| Reliability | Deterministic profiles, atomic events/publication, typed refusals, terminal audits, immutable evidence | Selected mechanisms work in narrow probes; executable semantic authority, portable publication, and Evidence remain open |
-| Orthogonality | Quantity facets, source/package/kernel extension test, separate authored domains, RIR/EIR split | Selected extension mechanisms passed a narrow mutation probe; whole-system and cross-genre proof remain open |
+| Reliability | Deterministic profiles, atomic events/publication, typed refusals, terminal audits, immutable evidence | The bounded executable authority mechanism passed independent mutation/refusal probes; permanent publication, Evidence issuance, and full-system conformance remain open |
+| Orthogonality | Quantity facets, source/package/kernel extension test, separate authored domains, RIR/EIR split | Selected extension and authority mechanisms passed narrow mutation probes without RPG host dispatch; whole-system and cross-genre proof remain open |
 | Extensibility | Complete content-addressed Domain packages with capabilities and vectors | Package seam is credible; general solving, historical uniqueness, and full mechanic breadth remain open |
 | Operability | Descriptor-derived CLI, immutable artifacts, idempotent invocation, receipts | Local descriptor and publication paths were exercised; production adapters and complete public surface remain open |
 
 Therefore the present conclusion is:
 
-- the design is **internally coherent enough to implement the next conformance gate**;
+- the design is **internally coherent enough to replace disposable evidence with the permanent
+  conformance foundation**;
 - the requirement model is **architecturally complete at macro level**, but completeness has not been
   demonstrated over every language judgment, package interaction, or genre coverage row;
-- reliability and orthogonality are **partially validated mechanisms**, not system-level guarantees;
+- semantic-authority reliability and orthogonality are **strongly validated for the selected
+  slices**, not system-level guarantees;
   and
 - selected mechanisms may be described as locally feasible in the slices actually tested, but
   Standard Schema 2.0 must not be described as end-to-end feasible, conformant, RPG-complete, or
@@ -623,7 +625,7 @@ Therefore the present conclusion is:
 
 ## 12. Dogfooding: what changed and what remains open
 
-Three disposable prototypes were used to attack the design. Their code remains evidence only. The
+Four disposable prototypes were used to attack the design. Their code remains evidence only. The
 historical conclusions below explain how dogfooding changed the accepted architecture; live test
 details and evidence status remain owned by the
 [`standard-schema-2.0` evidence record](standard-schema-2.0/README.md) and PRD #534. The following
@@ -690,35 +692,64 @@ Evidence, and all coverage rows remain open.
 **Non-claim:** passing the probe's checks is not a Schema, semantic-authority, genre, Replay, or
 Evidence pass.
 
-### 12.4 Architecture consequence
+### 12.4 Executable Kernel/LDB authority gate
 
-The three rounds validate that the layers can form one RPG vertical path and that selected identity,
-package, operation, Experiment, runtime, and publication mechanisms are implementable. They also
-show that prose-plus-shared-host-code cannot establish semantic authority. The next useful probe is
-therefore narrower and stronger, not another broad feature prototype.
+**Confirmed—narrowly:** two independently implemented bootstrap/lowerer/evaluator stacks admitted
+the same executable Kernel/LDB, derived Source → Typed HIR → RIR through LDB judgments, consumed
+each other's sealed artifacts, produced byte-identical RIR for equivalent Sources, and agreed on
+the selected Numeric/RNG/scheduler/effect/refusal slice. Every consulted Kernel law and selected
+LDB rule survived old-identity tamper, reidentified deletion, and reidentified behavior mutation;
+renaming authority tokens did not require host changes.
+
+**Refined—adopted:** Kernel law contracts must close and enforce parameters, results, transitive
+effects, refusals, and resource accounting. Diagnostic authority needs exact reverse closure plus
+behavior coverage, not only forward lookup. Comparison artifacts are bound inputs to later Evidence
+eligibility, never Evidence assertions themselves. Artifact-set manifests bind typed member names
+and identities; an unframed concatenation digest is insufficient.
+
+**Open gate:** the probe did not author the permanent Kernel/LDB, exhaustive rule ontology,
+canonical integer/Unicode/Fixed wire laws, general package solver, complete Effect/Genre breadth,
+portable publication/crash recovery, independent Evidence issuance, or production CLI/runtime.
+
+**Non-claim:** this is a bounded architecture-authority PASS, not Schema conformance, full
+abstraction proof, RPG/Roguelike completeness, or production readiness. The evidence commits remain
+on closed, unmerged PR #537; prototype code is not part of this authority branch.
+
+### 12.5 Architecture consequence
+
+The four rounds validate one RPG vertical path, selected orthogonality/identity mechanisms, and the
+bounded executable Kernel/LDB authority boundary. They remove the known architecture-level hidden-
+host uncertainty for the tested slice. The remaining gaps require permanent specifications,
+normative vectors, durable adapters, and cross-genre verticals; another disposable prototype would
+not close them.
 
 ## 13. Validation and delivery plan
 
 Work proceeds through gates; later claims depend on earlier authority and conformance.
 
-### Gate 1 — independent Kernel/LDB authority probe
+### Gate 1 — independent Kernel/LDB authority mechanism (bounded PASS)
 
-Build one final architecture-level disposable probe focused only on the remaining root risk:
+The final architecture-level disposable probe established:
 
 - an executable Kernel Specification with complete laws for every admitted bootstrap node and
   judgment in the probe;
 - an LDB that drives Source → HIR → RIR, post-admission diagnostics, Numeric/RNG/scheduler/effect
-  behavior, and normative vectors;
+  behavior, and discriminating prototype vectors;
 - truly independent bootstrap, lowerer, and evaluator implementations with no shared semantic code;
 - mutual artifact consumption, mutation/refusal convergence, byte-identical RIR for equivalent
   source, and honest Cross-evaluator results; and
 - explicit negative cases proving that host-only primitives and incomplete rules are rejected.
 
-Failure returns the design to [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md)
-rather than adding another host convention. Success confirms the authority mechanism only; it does
-not close full Schema or genre coverage.
+The source and evidence commits are retained through closed, unmerged PR #537. This result confirms
+the authority mechanism only; no #534 acceptance criterion or Genre row closes until the same
+contracts exist as permanent Kernel/LDB artifacts and normative conformance vectors.
 
 ### Gate 2 — permanent conformance foundation
+
+Human acceptance of this architecture and its bADRs authorizes Gate 2 and the later vertical-slice
+implementation work. PRD #534 stays open while that work executes: its acceptance criteria and
+Genre rows are delivery/claim gates, not prerequisites that must be closed before implementation
+can start.
 
 Replace disposable evidence with the **smallest permanent conformance foundation needed by the
 production RPG tracer**: versioned Kernel/LDB artifacts, a reusable harness, and authoritative
@@ -745,8 +776,10 @@ progression—by reusing the same Kernel, LDB, package, runtime, artifact, and
 evidence contracts. If Roguelike support requires a second language or host dispatch, the
 orthogonality claim fails and the architecture must be revisited.
 
-No further broad throwaway prototypes are planned. Once Gate 1 resolves semantic-authority risk,
-additional validation belongs in the permanent conformance and production tracer suites.
+No further disposable architecture prototypes are planned. Gate 1 resolved the bounded semantic-
+authority mechanism risk; additional validation belongs in the permanent conformance and production
+tracer suites unless a later decision introduces a new semantic root, open host extension, or
+cross-artifact authority boundary.
 
 ## 14. Migration and compatibility
 
@@ -799,7 +832,7 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 | Clean break and limited source migration | [bADR-0019](badr/0019-schema-2.0-clean-break-and-limited-source-migration.md) | Migration fixtures and reports |
 | External-standard mappings | [bADR-0020](badr/0020-explicit-mappings-to-external-modeling-standards.md) | Mapping-specific conformance vectors |
 | CLI taxonomy and structured surface | [bADR-0021](badr/0021-schema-2.0-cli-taxonomy-and-structured-surface.md) | Command descriptors and Surface manifest |
-| Executable Kernel/LDB semantics | [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md) | Gate 1 and permanent conformance suite |
+| Executable Kernel/LDB semantics | [bADR-0022](badr/0022-machine-readable-language-rules-and-formal-semantics.md) | Completed bounded Gate 1 evidence and permanent conformance suite |
 
 PRD #534 remains the live answer to “is this accepted and complete?” This document answers “what
 system are we building, where does each responsibility belong, and in what order can we prove it?”

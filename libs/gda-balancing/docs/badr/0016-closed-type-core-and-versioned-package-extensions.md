@@ -23,6 +23,12 @@ therefore requires a small closed type language and a constrained package extens
   syntax, host-language objects, or new representation semantics. Adding or changing a constructor
   is a Standard Schema major decision in the Language Definition Bundle.
 
+- **One closed type interpretation serves every boundary.** Kernel-law parameter/result checks,
+  Language-rule terms, Operation arguments/results, package contracts, HIR/RIR fields, and runtime
+  admission must recognize the same admitted constructors and recursively validate the same nested
+  shapes. A host cannot implement a smaller private matcher for one call path or accept a larger
+  host-native value set at another boundary.
+
 - **Quantity separates five orthogonal concerns:**
   1. numeric representation (`Int`, `Fixed`, `Decimal`, or `Float`);
   2. nominal kind — package-defined semantic identity such as health, mana, damage, or currency;
@@ -209,6 +215,9 @@ therefore requires a small closed type language and a constrained package extens
   variants and payloads, kind/unit/Numeric rules, purity, effects, and resource-bound shape/type/
   value. Each malformed release must produce a typed refusal before RIR rather than a host
   exception, and a consistently reidentified RIR projection must still fail runtime admission.
+- Exercise every admitted constructor, including nested Record/List/Map/Quantity/Distribution
+  shapes, at Kernel-law and Operation boundaries. Both must accept or refuse identically; an
+  unknown, partially checked, or host-native value cannot cross either boundary.
 - Exercise every declared gameplay-outcome variant and reject unknown discriminators, missing
   payloads, and non-exhaustive dependent branches before execution. Resource insufficiency,
   immunity, and legal interruption remain typed outcomes rather than Runtime refusals.

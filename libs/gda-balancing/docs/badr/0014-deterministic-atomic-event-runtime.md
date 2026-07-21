@@ -68,9 +68,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   command result.
 
 - **Runtime refusal rolls back only the current event and terminates the run.** Its buffered writes,
-  RNG draws, child events, and cancellations are discarded. Earlier committed snapshots remain
-  valid. The refusal produces a separately typed **terminal-audit artifact set** identifying the
-  ordered committed trace prefix, last committed Snapshot, refusing event, rollback facts,
+  RNG draws, emitted Signals, child events, and cancellations are discarded. Earlier committed
+  snapshots remain valid. The refusal produces a separately typed **terminal-audit artifact set**
+  identifying the ordered committed trace prefix, last committed Snapshot, refusing event,
+  rollback facts,
   Diagnostic, Resolved Runtime profile, and exact reproduction identities. The invocation publishes
   that set
   and its receipt atomically under bADR-0015/0021; it never publishes a completed Evaluation run,
@@ -217,9 +218,9 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 - Cover every scheduler edge and budget with positive and refusal vectors: phase/priority/FIFO
   order, backward scheduling, cancellation, queue/event/zero-time exhaustion, undeclared streams,
   and primitive/effect-profile incompatibility.
-- Inject a fault after an event has buffered writes, RNG draws, cancellations, and children; assert
-  all are rolled back, prior commits remain, and exactly one retrievable terminal-audit artifact set
-  becomes visible with no completed success artifact.
+- Inject a fault after an event has buffered writes, RNG draws, Signals, cancellations, and
+  children; assert all are rolled back, prior commits remain, and exactly one retrievable
+  terminal-audit artifact set becomes visible with no completed success artifact.
 - Commit a resource reservation, then execute a later compensating interruption whose current
   Event exceeds a deterministic budget. Assert the prior reservation Snapshot and trace remain,
   only the current buffers are rolled back, and the terminal audit identifies the first refusing

@@ -123,9 +123,17 @@ append-only evidence graph.
   Runtime profile definition,
   Experiment Specification, external inputs, effective seed, LDB-owned portable-observation policy,
   observations, mismatches, and comparison-tool identity. Only a positive, independently validated
-  comparison may issue `cross_evaluator_conformant`. It never satisfies `reproducible`; incompatible
+  comparison may qualify a separately issued `cross_evaluator_conformant` assertion. It never
+  satisfies `reproducible`; incompatible
   authority/profile/policy inputs are an `evaluation` refusal and observed mismatches are a completed
   negative Verdict.
+
+- **Comparison artifacts are Evidence inputs, never Evidence assertions.** Replay and
+  Cross-evaluator comparisons bind their exact runs, profiles, authorities, model, Experiment,
+  Scenario/external inputs, policy, observations, and typed result. They do not embed
+  `reproducible`, `cross_evaluator_conformant`, or another positive Evidence claim. A separate
+  Evidence-eligibility judgment validates the comparison and every prerequisite before issuing an
+  assertion; serialization success or a matching boolean cannot bypass that judgment.
 
 - **Approval binds exact evidence.** An Approval Record references the precise Resolved Model,
   Experiment Specification, Resolved Runtime profile/evaluator, Metric datasets, Evaluation runs,
@@ -186,11 +194,15 @@ append-only evidence graph.
   selector ordering and empty selection, missing selected Metrics, acceptance type/result changes,
   and every identity mutation before Evaluation issuance.
 - Run an exact replay under one identical Resolved Runtime profile. Assert its positive Replay
-  comparison can issue `reproducible`, mismatch returns a Verdict with field diagnostics, and a
-  single run or mere replay intent cannot issue it.
+  comparison can qualify a separately issued `reproducible` assertion, mismatch returns a Verdict
+  with field diagnostics, and a single run or mere replay intent cannot issue it.
 - Run a second independent evaluator under its distinct Resolved Runtime profile. Assert only a
   positive Cross-evaluator comparison under the exact LDB-owned portable-observation policy can
-  issue `cross_evaluator_conformant`, and that it cannot issue `reproducible`.
+  qualify a separately issued `cross_evaluator_conformant` assertion, and that it cannot issue
+  `reproducible`.
+- Forge or omit a comparison binding, reidentify the artifact, or add an inline Evidence claim.
+  Independent validators must refuse the comparison or Evidence issuance; only a separately issued
+  assertion may carry `reproducible` or `cross_evaluator_conformant`.
 - Inject a runtime refusal after committed events; assert only the terminal-audit artifact set is
   atomically visible and no Evaluation run, Metric dataset, or positive Evidence assertion exists.
 - Mutate an evaluator, Resolved Runtime profile, Experiment, Metric definition, seed/stream, policy, or input

@@ -119,7 +119,10 @@ refusal payload stage-aware and artifact-aware.
   that bundle. The CLI usage family and fixed internal code remain command-surface concerns. A code
   cannot move stages or change meaning within a compatible Schema line, and the closed stage
   vocabulary itself cannot be extended by bundle content. Implementations generate or
-  reverse-enumerate each table against the authority available before that table is used; a
+  reverse-enumerate every reachable rule, Operation, Kernel refusal, and direct host-boundary exit
+  against the authority available before that table is used. The reachable reason map and
+  Diagnostic catalog must be exact—missing, extra, duplicate, or stage-drifting entries fail
+  admission—and conformance vectors must trigger every authoritative code and confirm its stage; a
   host-only code or stage mapping is a conformance failure.
 
 - **The Command descriptor remains the sole per-command surface authority.** Under bADR-0021's
@@ -191,6 +194,10 @@ refusal payload stage-aware and artifact-aware.
 - Mutate a Kernel-owned admission Diagnostic or its stage and assert bootstrap conformance fails;
   mutate an admitted package Diagnostic or its post-admission stage and assert LDB conformance fails.
   Neither path may allow an evaluator- or descriptor-local override.
+- Delete and reidentify each Kernel admission mapping and each post-admission reason/Diagnostic pair
+  one at a time; both independent consumers must refuse before the missing code can be needed. Then
+  trigger every authoritative code and assert its exact stage, proving behavioral coverage rather
+  than catalog membership alone.
 
 ## References
 

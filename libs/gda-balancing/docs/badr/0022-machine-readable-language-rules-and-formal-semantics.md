@@ -26,7 +26,9 @@ structured formal judgments, and an honest proof/conformance boundary.
   major. Reference implementations and host-language primitives conform to it; they never define or
   extend it. For every admitted kernel node or judgment, it supplies a closed machine encoding of
   input/result shapes, scope and binding, evaluation order, effects, transitions, refusals, resource
-  accounting, and canonical identity consequences. An inventory of node names plus prose-like law
+  accounting, and canonical identity consequences. Admission validates those contracts and every
+  invocation enforces them; effects and resource obligations close transitively through nested
+  Kernel-law calls. An inventory of node names plus prose-like law
   strings is not an executable Kernel Specification.
 
 - **The Language Definition Bundle is a canonical, content-addressed language-content artifact.**
@@ -159,7 +161,9 @@ structured formal judgments, and an honest proof/conformance boundary.
   owns every typed-refusal code, message-template input, and stage membership used by source,
   compiler, runtime, and evaluation operations. Implementations generate each diagnostic table from
   the authority that precedes it or reverse-enumerate every emitted code/stage against that
-  authority. A host-coded diagnostic absent from its Kernel/LDB authority is non-conforming even
+  authority. The reachable reason set and Diagnostic catalog are exact, and conformance vectors
+  trigger every authoritative code/stage including direct host-boundary exits. A
+  host-coded diagnostic absent from its Kernel/LDB authority is non-conforming even
   when two implementations use the same string.
 
 - **Resource safety is part of the rules.** Grammar depth/bytes, module/import graph, symbols,
@@ -206,6 +210,12 @@ structured formal judgments, and an honest proof/conformance boundary.
   checker, Diagnostic construction, selector, acceptance, and evaluator remain one handwritten
   Python interpretation; the result refines the required judgments above but does not satisfy this
   decision or close the Semantic-authority gate.
+- The final executable-authority probe on closed, unmerged PR #537 satisfied the bounded mechanism
+  gate with two independent Kernel/LDB bootstrap/lowerer/evaluator stacks, mutual artifact
+  consumption, complete mutation witnesses for every consulted law/rule, and no RPG host dispatch
+  in the selected slice. It confirms this authority shape, but disposable code does not supply the
+  permanent Kernel/LDB, exhaustive ontology/vectors, complete Genre breadth, publication system, or
+  Evidence validator required by #534.
 - `docs/standard-schema-2.0/` records the open Genre coverage contract and executable-specification
   gates. It deliberately contains no placeholder bundle: #534 remains open until a closed bootstrap
   schema, exhaustive rules, artifact shapes, profiles, and executable vectors are supplied together.
@@ -228,9 +238,12 @@ structured formal judgments, and an honest proof/conformance boundary.
   the old identity.
 - Fact/premise ontology vectors cover every fact and term type, premise operator, missing-fact rule,
   binding/substitution edge, priority tie, ambiguous selection, and unknown/ill-typed construct.
-- Removing or mutating every consulted Language rule must either change canonical bundle/RIR
-  identity and specified behavior or produce the same closed refusal in each implementation; a host
-  conditional cannot preserve the old behavior behind the changed rule.
+- For every consulted Kernel law and Language rule: retain the old identity after tamper and require
+  pre-use refusal; delete and reidentify it and require refusal with no fallback; then reidentify a
+  behavior mutation and require corresponding RIR/trace/observation change or the same closed
+  refusal in each implementation. Renaming authority-owned rule, Operation, Diagnostic, and Source
+  tokens must not require host changes. A host conditional cannot preserve old behavior behind the
+  changed authority.
 - Mutate known-node extra fields, Operation signatures/parameters/results/kind-unit-profile rules,
   purity/effects/resource bounds, Quantity support shapes, Experiment selectors, and acceptance.
   Independent consumers must produce the same typed Diagnostic before partial HIR/RIR/Evaluation;
@@ -243,7 +256,9 @@ structured formal judgments, and an honest proof/conformance boundary.
   Replay.
 - Reverse-enumerate every admission Diagnostic code/stage against the Kernel and every
   post-admission source/compiler/runtime/evaluation Diagnostic against the admitted LDB; missing,
-  extra, or moved codes fail conformance before the related path can be claimed covered.
+  extra, duplicate, or moved codes fail conformance before the related path can be claimed covered.
+  Delete/reidentify each mapping and behavior-trigger every authoritative code/stage, including
+  direct host-boundary exits.
 - Semantic-equivalence vectors produce byte-identical RIR across independent lowerers while Debug
   Map changes remain non-semantic; resource-limit vectors terminate with stage-appropriate refusal
   and never partial RIR.

@@ -69,19 +69,39 @@ The probe also leaves historical package id/version uniqueness, executable selec
 Kernel/LDB judgments, general dependency solving, complete Effect breadth, portable publication,
 independent Evidence validation, and every RPG/Roguelike coverage row open.
 
+The fourth disposable
+[executable Kernel/LDB authority gate](https://github.com/aigengame/godot-agent/pull/537)
+was reviewed and then closed without merge because prototype code is evidence, not specification.
+Its immutable source commit is
+[`1f0f3e9`](https://github.com/aigengame/godot-agent/commit/1f0f3e99d83cfa96c94f8672c352cc7a8e81f565),
+with the path-bound evidence index refreshed in
+[`c34d2bb`](https://github.com/aigengame/godot-agent/commit/c34d2bb8bf6681a8ff5028026dd0e07f02c9b6bb).
+
+Two independent Python/JavaScript stacks executed machine-readable Kernel laws and LDB-owned
+Source → Typed HIR → RIR judgments, consumed each other's sealed artifacts, and passed the bounded
+Replay/Cross-evaluator, mutation, Diagnostic, Numeric/RNG, scheduler/effect, and refusal slice. The
+dogfooding tightened five permanent contracts: law parameters/results/transitive effects/refusals/
+resources are enforced; authority mutation needs tamper/deletion/behavior witnesses; Diagnostic
+authority needs exact reverse closure and behavior coverage; Comparison is not Evidence; and
+artifact-set manifests bind typed member names and identities.
+
+This is a **bounded architecture-authority mechanism PASS**. It does not close a #534 acceptance
+criterion or Genre row and does not prove a complete Kernel/LDB, general package solving, full
+Numeric/Effect/Genre breadth, portable publication, independent Evidence issuance, or production
+readiness. No further disposable architecture prototype is planned unless a later permanent
+decision introduces a new semantic root, open host extension, or cross-artifact authority boundary.
+
 ## Next validation gates
 
-1. The completed semantic-authority probe remains an open **design gate** until the Kernel
-   Specification provides executable laws for every admitted node/judgment, the LDB drives the
-   complete Source → HIR → RIR contracts, Kernel-owned admission and LDB-owned post-admission
-   Diagnostic contracts are executable, and independent implementations pass the resulting
-   mutation/refusal/Cross-evaluator vectors. Hand-coordinated evaluator agreement is insufficient.
-2. The completed **Orthogonality/extensibility mechanism probe** supplies the identity, package,
-   Operation, Experiment, audit, descriptor, and publication requirements above. Those requirements
-   still need normative Kernel/LDB judgments and production conformance vectors; disposable code
-   cannot close the acceptance criterion by itself.
-3. After executable Kernel/LDB authority passes independent bootstrap/lowerer/evaluator vectors, a
-   production RPG tracer must close its required vertical coverage rows and public artifact path.
+1. The bounded executable Kernel/LDB authority mechanism gate is complete. Its contracts must now
+   be replaced by permanent versioned Kernel/LDB artifacts and normative conformance vectors;
+   disposable code remains non-authoritative and closes no acceptance criterion.
+2. Build the permanent conformance foundation from the authority gate and the completed
+   Orthogonality/extensibility mechanism probe: versioned Kernel/LDB artifacts, authoritative
+   vectors, and the required identity, package, Operation, Experiment, audit, descriptor, and
+   publication contracts.
+3. A production RPG tracer must then close its required
+   vertical coverage rows and public artifact path.
 4. A Roguelike cross-genre tracer follows only after those gates pass; it must reuse the same kernel,
    package, runtime, artifact, and evidence contracts rather than creating parallel semantics.
 
@@ -100,6 +120,10 @@ PRD #534 remains open until a later implementation/specification PR supplies and
 6. descriptor-derived closed decoding/default/channel contracts and refusal-stage/code membership;
 7. executable fixture inputs with canonical outcomes/refusals for every required vector; and
 8. public-CLI closure of every `Tracer` row before broader RPG/Roguelike support claims.
+
+Acceptance of the architecture PR and its bADRs authorizes that permanent Gate 2/3 work. The open
+#534 criteria are delivery and claim gates evaluated by the resulting artifacts and vectors; they
+are not circular prerequisites that must be complete before implementation starts.
 
 Free-text operation descriptions, lists of node names, or vectors containing only expected prose do
 not satisfy those gates. They must not be presented as an executable or content-addressed bundle.

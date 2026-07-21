@@ -76,8 +76,11 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
 - **One producing outcome publishes one artifact set.** A success or separately typed terminal-audit
   outcome may stage multiple artifacts, but none is authoritative or discoverable until one
   immutable publication receipt and publication-index anchor commit that complete set. Retrieval
-  verifies the anchor, original receipt identity, complete member-identity set, and member bytes; a
-  coherently rewritten record/receipt/member set is not the originally committed outcome. A
+  verifies the anchor, original receipt identity, complete member-identity set, and member bytes.
+  The set manifest canonically binds every typed logical member name to its artifact kind,
+  wire-schema identity, and content identity; hashing anonymous members or unframed concatenated
+  bytes does not bind names/boundaries and is non-conforming. A coherently rewritten
+  record/receipt/member set is not the originally committed outcome. A
   terminal-audit set cannot reuse or partially expose a success set. Failure before the selected
   outcome's commit point exposes no member. Store layout, retention, transfer, garbage collection,
   crash recovery, and the concrete index trust boundary are implementation or deployment policies
@@ -159,6 +162,9 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   partial set is retrievable; successful cross-process retrieval verifies every envelope and hash.
   Coherently rewriting stored members plus a reidentified receipt while retaining the committed
   publication-index anchor must also be rejected.
+- Reframe, rename, add, remove, or reorder an artifact-set member and independently recompute every
+  remaining byte digest. The canonical typed member map and set identity must change or retrieval
+  must refuse; an unframed concatenation checksum cannot satisfy this vector.
 - Exact-bound Experiments refuse a changed Resolved Model identity even when the RIR semantic
   payload remains equal. Compatibility-bound Experiments cover
   unique, zero-match, and ambiguous resolution and always record the final exact binding receipt.

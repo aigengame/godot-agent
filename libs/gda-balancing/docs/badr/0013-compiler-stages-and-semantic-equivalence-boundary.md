@@ -164,6 +164,9 @@ an explicit boundary for lowering equivalence.
 - Mutate, omit, or reorder one embedded LDB semantic fragment; runtime admission must reject any RIR
   whose embedded projection is not canonical for its exact LDB/Package Lock, even when the artifact
   has been reidentified consistently.
+- Reidentify a coherent but wrong Operation table, Runtime-profile definition, Diagnostic catalog,
+  reason mapping, or comparison-policy projection. Runtime admission must reject it against the
+  exact admitted LDB rather than trusting internal consistency or the new identity.
 - An evaluator that did not build the RIR must execute it using only the RIR and its exact public
   dependencies; deleting the Debug Map cannot change execution, Metrics, trace, or refusal behavior.
 
