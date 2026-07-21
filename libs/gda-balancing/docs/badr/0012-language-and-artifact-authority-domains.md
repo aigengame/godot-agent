@@ -94,6 +94,24 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   Downstream artifacts may cache projections for transport, but identity and conflict checks make
   the owning upstream artifact decisive.
 
+- **A claim closes only from verified artifacts, never from a caller assertion.** A coverage,
+  conformance, Evidence, or approval gate consumes the exact artifacts and prerequisite graph its
+  policy names, revalidates their envelopes, content identities, bindings, and applicable
+  Kernel/LDB judgments, and derives its result from those verified facts. A request field, research
+  mapping, expected-output record, status label, fixture name, or caller-supplied boolean cannot
+  declare a row or gate closed. Such data may select a judgment or provide non-authoritative input;
+  it never authorizes the judgment's answer. Rehashing proves byte integrity, not that an artifact
+  was produced by an independent verifier. Any policy that requires independent verification also
+  requires a verifiable **Verifier receipt** whose identity binds the verifier identity, verifier
+  implementation and judgment-policy identities, the exact input artifact identities and
+  prerequisite graph, and the resulting judgment artifact identity. Before aggregation, the
+  consumer must authenticate that receipt, verify every binding, and establish that its verifier
+  satisfies the claim policy's independence and trust requirements. If those prerequisites are
+  absent or unverifiable, aggregation may publish only `candidate`/open state, never `closed`.
+  Concrete signature algorithms, credential systems, and deployment trust topology are left to the
+  later security/deployment contract; they may vary only while preserving this identity, binding,
+  authenticity, and independence law.
+
 - **Experiment binding is explicit and reviewable.** Exact binding names the Resolved Model
   wrapper, not only its RIR semantic-payload identity, and never follows a rebuilt model to a new
   identity. A changed Resolved Model therefore requires a new Experiment-Specification
@@ -168,6 +186,14 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
 - Exact-bound Experiments refuse a changed Resolved Model identity even when the RIR semantic
   payload remains equal. Compatibility-bound Experiments cover
   unique, zero-match, and ambiguous resolution and always record the final exact binding receipt.
+- Attempt to close coverage, conformance, Evidence, and approval gates with caller booleans,
+  research mappings, fixture labels, or expected-output records while omitting or mutating one
+  required exact artifact. Every judgment must remain open or refuse; no asserted status may bypass
+  artifact retrieval, rehashing, exact binding, or prerequisite validation.
+- Rehash a complete claim-input set and attach a self-issued or unauthenticated verifier receipt.
+  The bytes may pass integrity checks, but aggregation must remain `candidate`/open until the
+  receipt's identity and artifact bindings are verified and its authenticity, independence, and
+  policy eligibility are established.
 
 ## References
 

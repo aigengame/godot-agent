@@ -100,8 +100,8 @@
     {
       "id": "sts.turn-energy-zones",
       "title": "Turn Energy and ordered card-zone transitions",
-      "families": ["quantity", "resource", "action", "turn"],
-      "coverage_rows": ["RPG-COST-01", "RPG-ACTION-02"],
+      "families": ["quantity", "resource", "action", "collection", "turn"],
+      "coverage_rows": ["RPG-COST-01", "RPG-ACTION-02", "ROGUE-DECK-ZONE-01"],
       "source_refs": ["sts-turn-zones-crosscheck"],
       "quantities": [
         {
@@ -167,14 +167,50 @@
       "operations": [
         {
           "id": "game.turn.start.v1",
-          "inputs": ["turn_id", "draw_count", "energy_refresh"],
-          "outcomes": ["started", "draw-shortfall"],
-          "reads": ["combat.draw-pile", "combat.discard-pile"],
-          "writes": ["combat.energy.current", "combat.draw-pile", "combat.hand", "combat.discard-pile"],
+          "inputs": ["turn_id"],
+          "outcomes": ["started"],
+          "reads": [],
+          "writes": [],
           "signals": ["turn.started"],
+          "schedules": ["resource energy refresh", "ordered collection draw"],
+          "rng_streams": [],
+          "ordering": "Open the player-turn window and order the declared resource refresh before collection draw operations without owning either package's state.",
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        },
+        {
+          "id": "research.sts.refresh-turn-energy",
+          "inputs": ["energy-refresh"],
+          "outcomes": ["refreshed"],
+          "reads": ["combat.energy.current"],
+          "writes": ["combat.energy.current"],
+          "signals": ["resource.energy-refreshed"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Apply the declared resource refresh once after the turn window opens and before action admission.",
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        },
+        {
+          "id": "game.collection.shuffle@1",
+          "inputs": ["source-zone", "destination-zone", "named-stream"],
+          "outcomes": ["shuffled", "source-empty", "illegal-zone"],
+          "reads": ["combat.discard-pile"],
+          "writes": ["combat.draw-pile", "combat.discard-pile"],
+          "signals": ["collection.zone-shuffled"],
           "schedules": [],
           "rng_streams": ["combat-card-order"],
-          "ordering": "Refresh Energy, then draw from the ordered draw pile; if empty, shuffle the discard pile using the named stream and continue drawing.",
+          "ordering": "When draw needs more instances and draw is empty, transfer discard in stable source order, shuffle exactly once through the named stream, and publish the new ordered draw zone without duplicate or loss.",
+          "source_refs": ["sts-turn-zones-crosscheck"]
+        },
+        {
+          "id": "game.collection.move@1",
+          "inputs": ["instance-refs", "source-zone", "destination-zone", "insertion-policy"],
+          "outcomes": ["moved", "draw-shortfall", "illegal-move", "instance-absent"],
+          "reads": ["combat.draw-pile", "combat.hand", "combat.discard-pile", "combat.exhaust-pile"],
+          "writes": ["combat.draw-pile", "combat.hand", "combat.discard-pile", "combat.exhaust-pile"],
+          "signals": ["collection.instances-moved"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Validate stable instance identity and legal source/destination membership, then remove and insert once while preserving the declared order.",
           "source_refs": ["sts-turn-zones-crosscheck"]
         },
         {
@@ -182,23 +218,23 @@
           "inputs": ["card_ref", "declared_targets"],
           "outcomes": ["played", "insufficient", "unplayable", "target-invalid"],
           "reads": ["combat.energy.current", "combat.hand"],
-          "writes": ["combat.energy.current", "combat.hand", "combat.discard-pile", "combat.exhaust-pile"],
-          "signals": ["card.played", "card.exhausted"],
+          "writes": ["combat.energy.current"],
+          "signals": ["card.played", "card-zone-disposition"],
           "schedules": ["card-effect-actions"],
           "rng_streams": [],
-          "ordering": "Validate play and reserve cost before effects; resolve the card's ordered actions, then move its instance to discard or exhaust exactly once.",
+          "ordering": "Validate action requirements and reserve cost before effects; resolve the card's ordered actions, then emit one typed collection disposition for the exact instance.",
           "source_refs": ["sts-turn-zones-crosscheck"]
         },
         {
           "id": "game.turn.end.v1",
           "inputs": ["turn_id"],
           "outcomes": ["ended"],
-          "reads": ["combat.hand", "combat.energy.current"],
-          "writes": ["combat.hand", "combat.discard-pile", "combat.energy.current"],
+          "reads": [],
+          "writes": [],
           "signals": ["player-turn.ended"],
-          "schedules": ["enemy-turn.actions"],
+          "schedules": ["collection hand cleanup", "resource energy drain", "enemy-turn actions"],
           "rng_streams": [],
-          "ordering": "Resolve end-of-player-turn hooks, move non-retained hand cards in stable hand order, drain Energy, then admit enemy actions.",
+          "ordering": "Close the player-turn window after hooks, then order collection cleanup and resource drain before admitting enemy actions without owning those state writes.",
           "source_refs": ["sts-turn-zones-crosscheck"]
         }
       ],
@@ -664,7 +700,7 @@
     {
       "id": "sts.deck-build-constraints",
       "title": "Run-deck eligibility, distinct reward choices, and explicit skip",
-      "families": ["build", "generation", "run"],
+      "families": ["build", "generation", "collection", "run"],
       "coverage_rows": ["RPG-BUILD-01", "ROGUE-BUILD-01", "ROGUE-REWARD-01"],
       "source_refs": ["sts-reward-crosscheck", "sts-meta-crosscheck"],
       "quantities": [
@@ -717,15 +753,27 @@
           "source_refs": ["sts-reward-crosscheck", "sts-meta-crosscheck"]
         },
         {
-          "id": "game.build.accept-card-reward.v1",
-          "inputs": ["offer_id", "selected_card_or_skip"],
-          "outcomes": ["accepted", "skipped", "not-offered"],
-          "reads": ["run.reward-offer", "run.master-deck"],
-          "writes": ["run.master-deck", "run.reward-offer"],
-          "signals": ["deck.card-added", "reward.skipped"],
+          "id": "research.sts.resolve-card-reward",
+          "inputs": ["offer-id", "selected-definition-or-skip"],
+          "outcomes": ["selected-with-disposition", "skipped", "not-offered"],
+          "reads": ["run.reward-offer"],
+          "writes": ["run.reward-offer"],
+          "signals": ["reward.selected", "reward.skipped"],
           "schedules": [],
           "rng_streams": [],
-          "ordering": "Accept exactly one offered card or the explicit skip outcome; soft player strategy is not evaluator-owned build validation.",
+          "ordering": "Resolve exactly one offered definition into a typed collection disposition or close the offer with explicit skip; soft player strategy is not evaluator-owned build validation.",
+          "source_refs": ["sts-reward-crosscheck"]
+        },
+        {
+          "id": "game.collection.move@1",
+          "inputs": ["selected-definition", "new-instance-ref", "collection-disposition"],
+          "outcomes": ["moved", "instance-exists", "illegal-destination"],
+          "reads": ["run.master-deck"],
+          "writes": ["run.master-deck"],
+          "signals": ["deck.card-added"],
+          "schedules": [],
+          "rng_streams": [],
+          "ordering": "Consume one typed collection disposition and insert the exact new card instance once without changing the closed reward offer or any economy ledger.",
           "source_refs": ["sts-reward-crosscheck"]
         }
       ],
@@ -803,7 +851,7 @@
     {
       "id": "sts.seeded-card-relic-rewards",
       "title": "Stateful seeded card/relic reward policies",
-      "families": ["quantity", "generation", "build", "run"],
+      "families": ["quantity", "generation", "build", "collection", "run"],
       "coverage_rows": ["RPG-LOOT-01", "ROGUE-REWARD-01"],
       "source_refs": ["sts-reward-crosscheck", "sts-seed-order-provisional"],
       "quantities": [
@@ -1050,8 +1098,8 @@
     {
       "id": "sts.encounter-intents",
       "title": "Enemy action plan, visible Intent projection, and execution",
-      "families": ["quantity", "action", "combat", "encounter", "evidence"],
-      "coverage_rows": ["RPG-ACTION-02", "RPG-ENCOUNTER-01"],
+      "families": ["quantity", "action", "combat", "encounter", "decision", "evidence"],
+      "coverage_rows": ["RPG-ACTION-02", "RPG-ENCOUNTER-01", "RPG-DECISION-INTENT-01"],
       "source_refs": ["sts-intent-crosscheck"],
       "quantities": [
         {
@@ -1091,7 +1139,7 @@
       ],
       "operations": [
         {
-          "id": "game.encounter.plan-enemy-action.v1",
+          "id": "game.decision.plan@1",
           "inputs": ["enemy", "encounter_state", "move_policy", "rng_state"],
           "outcomes": ["planned", "no-legal-move"],
           "reads": ["enemy.planned-action"],
@@ -1103,7 +1151,7 @@
           "source_refs": ["sts-intent-crosscheck"]
         },
         {
-          "id": "game.encounter.project-intent.v1",
+          "id": "game.decision.project-intent@1",
           "inputs": ["planned_action", "visibility_policy"],
           "outcomes": ["visible", "masked"],
           "reads": ["enemy.planned-action"],
@@ -1115,7 +1163,7 @@
           "source_refs": ["sts-intent-crosscheck"]
         },
         {
-          "id": "game.action.execute-enemy-plan.v1",
+          "id": "game.action.resolve@1",
           "inputs": ["planned_action", "target"],
           "outcomes": ["completed", "target-defeated", "interrupted"],
           "reads": ["enemy.planned-action", "player.hp.current"],

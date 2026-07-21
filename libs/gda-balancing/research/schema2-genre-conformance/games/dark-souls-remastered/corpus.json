@@ -629,7 +629,7 @@
       ],
       "operations": [
         {
-          "id": "research.dsr.resolve-split-damage",
+          "id": "game.combat.resolve-damage@1",
           "inputs": [
             "ordered typed attack components",
             "motion value",
@@ -826,19 +826,31 @@
       ],
       "operations": [
         {
-          "id": "research.dsr.apply-poison-buildup",
+          "id": "game.effect.accumulate@1",
           "inputs": ["effect source", "buildup contribution", "target resistance", "immunity"],
-          "outcomes": ["buildup_added", "poison_activated", "immune"],
-          "reads": ["target.poison_buildup", "target.poison_effect"],
-          "writes": ["target.poison_buildup", "target.poison_effect"],
-          "signals": ["effect.applied", "effect.immune", "effect.activated"],
-          "schedules": ["poison damage ticks", "poison expiry"],
+          "outcomes": ["buildup_added", "threshold_reached", "immune"],
+          "reads": ["target.poison_buildup"],
+          "writes": ["target.poison_buildup"],
+          "signals": ["effect.immune", "effect.threshold-reached"],
+          "schedules": [],
           "rng_streams": [],
-          "ordering": "Check immunity, add buildup, compare the declared threshold, then atomically create one effect instance and its bounded tick/expiry schedule.",
+          "ordering": "Check immunity, add buildup once, compare the declared threshold, and emit exactly one typed activation disposition that game.effect.activate@1 must consume in the same Event transaction when the threshold is crossed.",
           "source_refs": ["community.poison", "paramdex.ds1r-defs"]
         },
         {
-          "id": "research.dsr.remove-poison",
+          "id": "game.effect.activate@1",
+          "inputs": ["effect source", "buildup state", "activation threshold", "effect definition"],
+          "outcomes": ["activated", "below_threshold", "already_active"],
+          "reads": ["target.poison_buildup", "target.poison_effect"],
+          "writes": ["target.poison_buildup", "target.poison_effect"],
+          "signals": ["effect.activated"],
+          "schedules": ["poison damage ticks", "poison expiry"],
+          "rng_streams": [],
+          "ordering": "Consume one threshold-crossing disposition and atomically create exactly one effect instance with its bounded tick/expiry schedule; refuse duplicate activation.",
+          "source_refs": ["community.poison", "paramdex.ds1r-defs"]
+        },
+        {
+          "id": "game.effect.remove@1",
           "inputs": ["effect instance", "removal cause"],
           "outcomes": ["cured", "expired", "already_absent"],
           "reads": ["target.poison_effect"],

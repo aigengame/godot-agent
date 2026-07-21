@@ -48,14 +48,16 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.resource` | typed current/capacity storage including health/shield-like quantities, cost, regeneration, reservation and transfer | action timing, damage/healing stages, or lifecycle transition policy |
   | `game.query` | typed target filters, ordering, cardinality, tie-break and empty behavior | target-side effects |
   | `game.check` | threshold/opposed checks, hit resolution, dice/pools, advantage and success degree | damage application |
-  | `game.action` | requirements, resource commitment, wind-up/channel, cooldown, completion and interruption | target enumeration or damage math |
-  | `game.effect` | application/capture, contributions, transitions, schedule, stacking/reapply/remove and immunity contracts | action lifecycle or combat pipeline |
-  | `game.combat` | typed damage/healing stages, criticals, mitigation/resistance, shield resolution and defeat/revival transition policy | entity/resource state storage, generic effect lifetime or inventory |
-  | `game.build` | equipment/skill/perk selection, prerequisites, exclusivity, slots and synergy declarations | item ownership or reward sampling |
+  | `game.action` | requirements, resource commitment, wind-up/channel, cooldown, completion and interruption; execution of an already resolved Action plan | target enumeration, plan selection/projection, or damage math |
+  | `game.effect` | application and capture-source/timing policy, buildup/activation, contributions, transitions, schedule, stacking/reapply/remove and immunity contracts | action lifecycle or combat pipeline |
+  | `game.combat` | ordered typed damage-component and healing stages, criticals, per-kind mitigation/resistance, shield resolution, aggregation/rounding, and defeat/revival transition policy | entity/resource state storage, generic effect lifetime or inventory |
+  | `game.build` | equipment/skill/perk selection and atomic replacement, prerequisites, exclusivity, slots and synergy declarations | item ownership, reward sampling, or old-action/effect cancellation semantics |
   | `game.progression` | XP, levels, growth, unlocks and progression gates | currency exchange or run reset |
   | `game.economy` | currency, inventory, sources/sinks, transfer, exchange and pricing | stochastic reward selection |
-  | `game.generation` | seeded weighted/constrained pools, rarity and guarantee rules | inventory transfer or meta retention |
-  | `game.encounter` | party/enemy composition, spawn/wave schedule, objectives and terminal conditions | entity internals or scheduler law |
+  | `game.collection` | typed ordered instance collections, stable order, zone membership, legal moves, shuffle handoff and no-duplicate/no-loss conservation | turn windows, action lifecycle, build admission, economic ledgers, or Run/Meta retention |
+  | `game.generation` | seeded weighted/constrained pools, closed fixed-weight/pity/guarantee/fallback rarity policies, and typed reward disposition results | destination collection/economy/effect mutation or meta retention |
+  | `game.encounter` | party/enemy composition, spawn/wave schedule, objectives and terminal conditions | entity internals, action-plan choice/projection, or scheduler law |
+  | `game.decision` | bounded candidate evaluation, immutable Action-plan selection, and policy-governed observable Intent projection | encounter composition, action execution, or evaluator callbacks |
   | `game.run` | Run/Meta scope declarations, start/end/reset and explicit retained transfers | progression formulas themselves |
   | `game.turn` | optional rounds, initiative, action economy and turn windows | core logical-time scheduler |
   | `game.spatial` | optional positions, ranges, shapes, movement and spatial queries | generic target-query semantics |
@@ -72,17 +74,46 @@ distribution contract and a falsifiable definition of genre completeness.
   capability vectors.
 
 - **Effects decompose instead of growing a universal object.** `game.effect` composes distinct
-  contracts for application requirements, capture timing (including snapshot/live reads),
-  continuous contributions, state transitions, scheduling, stacking identity/reducer/cap,
-  reapplication lifetime, removal/expiry/dispel, and immunity. Action owns interruption; combat owns
+  contracts for application requirements; capture source (`base`/authored or `resolved`/derived)
+  independently of capture timing (snapshot or declared live read); buildup accumulation and
+  threshold activation; continuous contributions; state transitions; scheduling; stacking
+  identity/reducer/cap; reapplication lifetime; typed removal/expiry/dispel causes; and immunity.
+  Threshold activation creates one effect instance with its bounded schedule; removal cancels the
+  exact outstanding events owned by that instance. Action owns interruption; combat owns
   damage/healing stages; resource owns current/capacity transfer. Cross-package operations declare
   their reads, writes, events, closed gameplay outcomes, and possible typed refusals under
-  bADR-0016.
+  bADR-0016. An unqualified value field cannot choose either capture axis in host code.
+
+- **Ordered collections are Domain behavior, not `List` semantics or inventory.**
+  `game.collection` composes core collection values into typed collections whose instance identity,
+  stable order, zone membership, legal moves, named-stream shuffle handoff, and conservation law
+  are observable. `game.turn` owns windows, `game.action` owns card/action lifecycle, `game.build`
+  owns deck/build admission, `game.economy` owns economic inventory and ledgers, and `game.run` owns
+  scope/reset. None may inherit order from a host container or duplicate this transition contract.
+
+- **An Action plan, its Intent projection, and its execution are separate facts.**
+  `game.encounter` supplies the acting entity, context, and decision window; `game.decision`
+  deterministically selects one immutable Action plan under declared bounds and projects it through
+  an explicit visibility policy; `game.action` executes that exact plan. A masked or partial Intent
+  changes only the observable projection, never plan identity or execution. Evaluator-owned AI
+  callbacks, ambient candidate order, and treating a projection as executable authority are
+  prohibited.
+
+- **Build replacement is not an in-place attribute edit.** `game.build` returns a closed atomic
+  replacement outcome binding old/new definition identities, prerequisite disposition, retained
+  selections, slot and cardinality invariants, and the required action/effect cancellation and
+  activation effects. Action/effect packages own the canceled and installed behavior; the Runtime
+  commits their declared cancellation, collection/build writes, and new scheduling in one Event
+  transaction. A replacement cannot expose an intermediate empty or double-filled build.
 
 - **Loot is a composition, not another monolith.** `game.generation` selects a reward under seeded
-  weights and constraints; `game.economy` owns item/currency inventory transfer; `game.build` owns
-  whether the result can be equipped or selected. A Golden scenario spans all three so no package
-  silently owns the handoff.
+  weights, constraints, and one closed rarity-policy variant, then returns a typed Reward
+  disposition. The declared destination package performs the handoff: `game.economy` for
+  item/currency inventory, `game.collection` for a direct ordered-collection insertion,
+  `game.effect` for an effect offering, or `game.build` for eligibility/selection as applicable.
+  Generation never mutates the destination, and economy is not fabricated for a non-economic
+  reward. Golden scenarios exercise both an economic transfer and a direct collection handoff so
+  no package silently owns or skips the disposition.
 
 - **Run and Meta scopes are explicit state lifecycle contracts.** Every relevant state declaration
   names its scope. A run-end transaction clears Run-scoped state and performs only declared
@@ -97,28 +128,39 @@ distribution contract and a falsifiable definition of genre completeness.
   `-outcome-v1` denote successfully executed gameplay branches; `-refused-v1` is reserved for
   inability to accept or execute declared Schema semantics. A row is incomplete if any column is
   absent. Package inventory, prose examples, or unit tests alone do not establish representational
-  adequacy.
+  adequacy. Claim closure consumes only retrievable, rehashed, exactly bound artifacts whose
+  authoritative judgments and prerequisite graph validate. Research mappings, caller assertions,
+  fixture names, expected-output records, or status labels cannot close a row. Rehashing proves
+  integrity, not independent verification; when the row policy requires independence, bADR-0012's
+  authenticated Verifier receipt and trust preconditions also apply or the row remains open.
 
 - **The RPG minimum coverage includes:** typed base/parameter/derived-stat composition across
   progression, build, and effect contributions; dynamic target selection; resource
   reservation/payment/regeneration plus action cooldown; action admission/resolution/completion/
-  interruption; threshold/opposed hit checks; critical and staged typed damage and healing;
+  interruption; threshold/opposed hit checks; critical and staged ordered typed damage components
+  resolved against matching defenses before final aggregation/rounding, plus typed healing;
   mitigation, resistance, shields, defeat, and revival policy; immunity; snapshot/live capture;
-  stacking, reapplication, contribution, transition, expiration, and dispel; model-authored
-  passive/reactive Signal subscriptions; build prerequisite/exclusion/synergy; progression and
-  unlock; generated loot plus inventory/economy transfer; typed economy sources, sinks, exchange and
-  pricing; party/enemy encounter composition; and final Metrics/evidence emission.
+  independent base/resolved capture source; buildup/activation; stacking, reapplication,
+  contribution, transition, expiration, and dispel; model-authored passive/reactive Signal
+  subscriptions; build prerequisite/exclusion/synergy and atomic replacement; progression and
+  unlock; generated rewards plus a typed disposition to their declared destination; typed economy
+  sources, sinks, exchange and pricing; party/enemy encounter composition; and final
+  Metrics/evidence emission.
   CRPG/JRPG/ARPG variants may select `game.turn` and/or `game.spatial` capabilities without changing
   core logical-time or language semantics; those optional capabilities are not inherited by every
   RPG/Roguelike support claim.
 
-- **The Roguelike minimum coverage adds:** seeded constrained reward generation; rarity/guarantee
-  behavior; generated effect pools that compose generation with the ordinary Effect lifecycle;
+- **The Roguelike minimum coverage adds:** seeded constrained reward generation; closed fixed,
+  pity, and guarantee/fallback rarity-policy behavior; generated effect pools that compose
+  generation with the ordinary Effect lifecycle;
   build conflict and synergy; dynamic encounter/wave composition; Run-scope teardown; explicit
   typed transfer into Meta-scope progression and its Model Source-derived projection into a
   subsequent run; and replay equality under identical model, experiment, Resolved Runtime profile,
   external input, and seed identities. Metroidvania-like, survivors-like, and deckbuilder-like
   templates may specialize package selection while satisfying the shared lifecycle rows.
+  Deckbuilder-like releases select the ordered-zone Variant row; releases that expose planned
+  opponent behavior select the decision/Intent Variant row. Those optional rows are not inherited
+  by a release that does not select their capabilities.
 
 - **Validation and implementation proofs remain ordered vertical slices.** The disposable
   layer-connectivity, semantic-authority, and orthogonality probes on PRD #534 are not conformance or
@@ -183,7 +225,11 @@ distribution contract and a falsifiable definition of genre completeness.
   canonical RIR table; an evaluator registry cannot add or reorder subscribers.
 - For every matrix row, execute its Golden scenario plus each outcome/refusal/boundary vector only
   through public build/run artifacts. Private evaluator state, helper-only behavior, or prose
-  expected results cannot close a row.
+  expected results cannot close a row. Delete or mutate one exact prerequisite artifact while
+  retaining a caller-provided `closed` assertion; the row must remain open or refuse.
+- Rehash all row artifacts but omit, forge, or self-issue a policy-required Verifier receipt; the
+  aggregation must remain `candidate`/open until receipt identity/bindings, authenticity,
+  independence, and verifier eligibility are established.
 - Add one ordinary attribute and one reusable package mechanic, then rerun all previously closed
   rows. The attribute must require only model declarations; the mechanic must require only versioned
   package/language/vector additions and must not change unrelated core semantics.
