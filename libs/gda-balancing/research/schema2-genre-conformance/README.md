@@ -27,7 +27,16 @@ games/<game-id>/
 `corpus.json` must validate against `corpus.schema.json`. It records a pinned game/platform/content
 scope, source provenance, selected mechanics, explicit state and Operation boundaries, RNG or
 scheduling behavior, and executable oracle cases. `quantities.csv` is the human-auditable numeric
-projection; it must not become a parallel source of facts that disagree with `corpus.json`.
+projection; it must use this exact header and must not become a parallel source of facts that
+disagree with `corpus.json`:
+
+```csv
+mechanic_id,id,representation,kind,unit,role,domain,rounding,cap,source_refs
+```
+
+Rows are sorted by `(mechanic_id, id)`. Nullable values are empty strings; `source_refs` is the
+sorted semicolon-joined source-id set. The JSON remains the research authority and the CSV is a
+checked projection.
 
 `findings.json` must validate against `findings.schema.json`. A finding records the actual edit
 surface required to express a mechanic:
