@@ -447,7 +447,13 @@ identity and envelope rehash establish integrity, not independent-verifier prove
 claim policy requires independent verification, closure additionally requires an authenticated
 Verifier receipt that binds the eligible verifier and judgment policy to the exact prerequisite and
 result artifact identities. Without a verifiable receipt and applicable independence/trust
-contract, aggregation remains `candidate`/open. All rows in the current matrix remain open.
+contract, aggregation remains `candidate`/open. Exact consumption means retrieving and rehashing
+the complete prerequisite envelopes, artifact-set manifests and resolving receipts, and validating
+every graph edge; repeating digest-shaped strings is insufficient. A refusal vector additionally
+requires the complete bADR-0015 terminal-audit set, whose stage, typed Diagnostic, committed trace,
+last Snapshot, refusing Event, rollback facts, Runtime profile, and reproduction bindings agree
+with the exact vector result. A kind/header/fixture label/JSON pointer cannot substitute for that
+set. All rows in the current matrix remain open.
 
 ### 7.4 Attributing a design failure
 
@@ -797,6 +803,23 @@ that slice. This is not a horizontal implementation of every rule or package. Ga
 suite source-to-evidence; later gates add general resolver, historical package, broader publication,
 and Evidence cases as their vertical scenarios require them.
 
+Gate 2 is implemented in this dependency order:
+
+1. publish the permanent Kernel/LDB and their canonical-encoding, identity-domain/algorithm, and
+   applicable wire/artifact-schema authorities;
+2. build bounded, report-all validators for exact envelopes, prerequisite graphs, artifact-set
+   manifests/receipts, and bADR-0015 terminal-audit sets;
+3. authenticate an independent Verifier receipt that binds an eligible verifier and judgment policy
+   to those verified inputs and the resulting judgment artifact; and
+4. aggregate those exact receipt-backed judgments into claim candidates and, only when the policy
+   permits, closure.
+
+A host or candidate utility may not mint Schema 2.x canonical encoding, identity domains,
+algorithms, or wire-schema identities. It consumes the permanent authorities from step 1 or is
+reverse-conformance checked against them. Until steps 1–3 are permanent and validated, any
+aggregator remains a research utility rather than a permanent Gate 2 sub-slice, regardless of
+whether its local envelopes and copied identities are internally consistent.
+
 Every Gate 2 claim evaluator must consume the exact immutable artifacts named by its prerequisite
 graph, verify their envelopes, hashes, Kernel/LDB identities, package and experiment bindings, and
 public observations, and refuse absent or mutated prerequisites. Caller-supplied booleans,
@@ -807,6 +830,13 @@ authenticate an eligible independent verifier under the applicable trust contrac
 can produce only `candidate`/open state. Gate 2 remains open until those permanent artifacts,
 validators, receipt contract, and verification path exist. The receipt law does not preselect a
 signature algorithm, credential system, or deployment trust topology.
+
+For a Runtime-refusal prerequisite, step 2 validates the complete terminal-audit artifact set and
+resolving receipt, not only an artifact header or observable pointer. The set's Refusal stage,
+typed Diagnostic and locations, committed trace prefix, last Snapshot, refusing Event, rollback
+facts, Resolved Runtime profile, reproduction identities, and absence of partial success artifacts
+must bind to and agree with the exact vector result. All validators preserve deterministic caps,
+report-all ordering/deduplication, and explicit truncation before aggregation runs.
 
 ### Gate 3 — production RPG tracer
 

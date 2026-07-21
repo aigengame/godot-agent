@@ -133,6 +133,12 @@ distribution contract and a falsifiable definition of genre completeness.
   fixture names, expected-output records, or status labels cannot close a row. Rehashing proves
   integrity, not independent verification; when the row policy requires independence, bADR-0012's
   authenticated Verifier receipt and trust preconditions also apply or the row remains open.
+  Digest strings do not replace complete envelopes, set manifests/receipts, or graph validation.
+  A refusal vector closes only from a complete bADR-0015 terminal-audit set whose stage, typed
+  Diagnostic, committed trace, last Snapshot, refusing Event, rollback, Resolved Runtime profile,
+  and reproduction bindings agree with its exact vector result. Gate 2's Kernel/LDB/schema
+  authorities and bounded validators precede verifier receipts and aggregation; an earlier
+  aggregator is research-only.
 
 - **The RPG minimum coverage includes:** typed base/parameter/derived-stat composition across
   progression, build, and effect contributions; dynamic target selection; resource
@@ -230,6 +236,11 @@ distribution contract and a falsifiable definition of genre completeness.
 - Rehash all row artifacts but omit, forge, or self-issue a policy-required Verifier receipt; the
   aggregation must remain `candidate`/open until receipt identity/bindings, authenticity,
   independence, and verifier eligibility are established.
+- Present a refusal artifact with the expected kind, fixture label, and observable pointer but omit
+  or mismatch its terminal-audit set manifest/receipt, stage, Diagnostic, committed trace, last
+  Snapshot, refusing Event, rollback, Resolved Runtime profile, reproduction, or vector-result
+  binding. The row remains open and every independently observable defect is reported within the
+  deterministic cap.
 - Add one ordinary attribute and one reusable package mechanic, then rerun all previously closed
   rows. The attribute must require only model declarations; the mechanic must require only versioned
   package/language/vector additions and must not change unrelated core semantics.
