@@ -1,0 +1,1 @@
+{"allowed_effects":["event.schedule","metric.emit","random.sample","signal.emit","state.read","state.write"],"budgets":{"max_draws":16,"max_events":64,"max_queue":64},"numeric":"checked-int64","phase_order":{"input":0,"observation":2,"transition":1},"rng_mapping":"explicit-modulo-bias-accepted"}

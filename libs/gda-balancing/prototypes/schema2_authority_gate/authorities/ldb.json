@@ -1,0 +1,266 @@
+{
+  "artifact_kind": "language-definition-bundle",
+  "schema_major": 2,
+  "kernel_identity": "__BOUND_AT_MATERIALIZATION__",
+  "required_kernel_laws": ["budget.within", "comparison.replay_compatible", "effect.event_schedule", "effect.metric_emit", "effect.random_sample", "effect.signal_emit", "effect.state_read", "effect.state_write", "numeric.checked_add", "rng.bounded", "rng.next", "rng.seed_stream", "rule.applicable", "rule.choose", "rule.priority", "scheduler.child_allowed", "scheduler.key", "transaction.accept_write", "transition.apply"],
+  "source_package_phase": "package",
+  "source_collection_phase": "collect",
+  "compiler_pipeline": ["parse", "resolve", "type", "effect", "lower"],
+  "compiler_artifacts": {"ast": "parse", "typed_hir": "effect", "rir": "lower"},
+  "default_runtime_profile": "portable-exact-v1",
+  "diagnostics": {
+    "source.rule-none": {"stage": "static", "location_kind": "source"},
+    "source.rule-ambiguous": {"stage": "static", "location_kind": "source"},
+    "source.parse-invalid": {"stage": "parse", "location_kind": "source"},
+    "source.package-unknown": {"stage": "resolution", "location_kind": "symbol"},
+    "source.operation-unknown": {"stage": "static", "location_kind": "symbol"},
+    "source.type-mismatch": {"stage": "static", "location_kind": "source"},
+    "source.resource-exhausted": {"stage": "static", "location_kind": "source"},
+    "source.effect-mismatch": {"stage": "static", "location_kind": "symbol"},
+    "runtime.numeric-overflow": {"stage": "runtime", "location_kind": "event"},
+    "runtime.rng-invalid-bound": {"stage": "runtime", "location_kind": "event"},
+    "runtime.rng-draw-budget": {"stage": "runtime", "location_kind": "event"},
+    "runtime.duplicate-write": {"stage": "runtime", "location_kind": "event"},
+    "runtime.effect-not-allowed": {"stage": "runtime", "location_kind": "event"},
+    "runtime.schedule-backward": {"stage": "runtime", "location_kind": "event"},
+    "runtime.resource-exhausted": {"stage": "runtime", "location_kind": "event"},
+    "runtime.operation-projection-mismatch": {"stage": "runtime", "location_kind": "artifact"},
+    "runtime.profile-projection-mismatch": {"stage": "runtime", "location_kind": "artifact"},
+    "runtime.profile-mismatch": {"stage": "runtime", "location_kind": "artifact"},
+    "evaluation.replay-profile-mismatch": {"stage": "evaluation", "location_kind": "artifact"},
+    "evaluation.cross-authority-mismatch": {"stage": "evaluation", "location_kind": "artifact"}
+  },
+  "reason_diagnostics": {
+    "rule_none": "source.rule-none",
+    "rule_ambiguous": "source.rule-ambiguous",
+    "parse_invalid": "source.parse-invalid",
+    "unknown_package": "source.package-unknown",
+    "unknown_operation": "source.operation-unknown",
+    "type_mismatch": "source.type-mismatch",
+    "compile_resource_exhausted": "source.resource-exhausted",
+    "effect_mismatch": "source.effect-mismatch",
+    "numeric_overflow": "runtime.numeric-overflow",
+    "rng_invalid_bound": "runtime.rng-invalid-bound",
+    "rng_draw_budget": "runtime.rng-draw-budget",
+    "duplicate_write": "runtime.duplicate-write",
+    "effect_not_allowed": "runtime.effect-not-allowed",
+    "schedule_backward": "runtime.schedule-backward",
+    "runtime_resource_exhausted": "runtime.resource-exhausted",
+    "operation_projection_mismatch": "runtime.operation-projection-mismatch",
+    "runtime_profile_projection_mismatch": "runtime.profile-projection-mismatch",
+    "profile_mismatch": "runtime.profile-mismatch",
+    "replay_profile_mismatch": "evaluation.replay-profile-mismatch",
+    "cross_authority_mismatch": "evaluation.cross-authority-mismatch"
+  },
+  "rules": [
+    {
+      "id": "resolve.source-package.v1",
+      "phase": "package",
+      "priority": 100,
+      "when": {"op": "eq", "left": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["artifact_kind"]}, "right": {"op": "literal", "value": "model-source-package"}},
+      "body": {"op": "sequence", "items": [
+        {"op": "require", "condition": {"op": "has_key", "map": {"op": "get", "value": {"op": "var", "name": "authority"}, "path": ["packages"]}, "key": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["package"]}}, "reason": "unknown_package", "arguments": {"package": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["package"]}}},
+        {"op": "object", "fields": {
+          "package": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["package"]},
+          "release": {"op": "lookup", "map": {"op": "get", "value": {"op": "var", "name": "authority"}, "path": ["packages"]}, "key": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["package"]}}
+        }}
+      ]}
+    },
+    {
+      "id": "collect.source-events.v1",
+      "phase": "collect",
+      "priority": 100,
+      "when": {"op": "eq", "left": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["artifact_kind"]}, "right": {"op": "literal", "value": "model-source-package"}},
+      "body": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["events"]}
+    },
+    {
+      "id": "parse.event.v1",
+      "phase": "parse",
+      "priority": 100,
+      "when": {"op": "eq", "left": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["kind"]}, "right": {"op": "literal", "value": "event"}},
+      "body": {"op": "object", "fields": {
+        "arguments": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["arguments"]},
+        "artifact_stage": {"op": "literal", "value": "ast-event"},
+        "id": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["id"]},
+        "operation": {"op": "if", "condition": {"op": "has_key", "map": {"op": "get", "value": {"op": "var", "name": "source"}, "path": ["aliases"]}, "key": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation"]}}, "then": {"op": "lookup", "map": {"op": "get", "value": {"op": "var", "name": "source"}, "path": ["aliases"]}, "key": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation"]}}, "else": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation"]}},
+        "phase": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["phase"]},
+        "priority": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["priority"]},
+        "sequence": {"op": "var", "name": "sequence"},
+        "time": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["time"]}
+      }}
+    },
+    {
+      "id": "parse.event.fallback-refusal.v1",
+      "phase": "parse",
+      "priority": 0,
+      "when": {"op": "eq", "left": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["kind"]}, "right": {"op": "literal", "value": "event"}},
+      "body": {"op": "sequence", "items": [
+        {"op": "require", "condition": {"op": "literal", "value": false}, "reason": "parse_invalid", "arguments": {}},
+        {"op": "literal", "value": null}
+      ]}
+    },
+    {
+      "id": "resolve.event.v1",
+      "phase": "resolve",
+      "priority": 100,
+      "when": {"op": "eq", "left": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["artifact_stage"]}, "right": {"op": "literal", "value": "ast-event"}},
+      "body": {"op": "sequence", "items": [
+        {"op": "require", "condition": {"op": "has_key", "map": {"op": "get", "value": {"op": "var", "name": "authority"}, "path": ["operations"]}, "key": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation"]}}, "reason": "unknown_operation", "arguments": {"operation": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation"]}}},
+        {"op": "require", "condition": {"op": "has_key", "map": {"op": "get", "value": {"op": "lookup", "map": {"op": "get", "value": {"op": "var", "name": "authority"}, "path": ["packages"]}, "key": {"op": "get", "value": {"op": "var", "name": "source"}, "path": ["package"]}}, "path": ["operations"]}, "key": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation"]}}, "reason": "unknown_operation", "arguments": {"operation": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation"]}}},
+        {"op": "object", "fields": {
+          "arguments": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["arguments"]},
+          "artifact_stage": {"op": "literal", "value": "resolved-event"},
+          "id": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["id"]},
+          "operation": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation"]},
+          "operation_definition": {"op": "lookup", "map": {"op": "get", "value": {"op": "var", "name": "authority"}, "path": ["operations"]}, "key": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation"]}},
+          "phase": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["phase"]},
+          "priority": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["priority"]},
+          "time": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["time"]}
+        }}
+      ]}
+    },
+    {
+      "id": "type.event.v1",
+      "phase": "type",
+      "priority": 100,
+      "when": {"op": "eq", "left": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["artifact_stage"]}, "right": {"op": "literal", "value": "resolved-event"}},
+      "body": {"op": "sequence", "items": [
+        {"op": "require", "condition": {"op": "type_map_matches", "values": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["arguments"]}, "signature": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation_definition", "signature"]}}, "reason": "type_mismatch", "arguments": {"event": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["id"]}}},
+        {"op": "object", "fields": {
+          "arguments": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["arguments"]},
+          "artifact_stage": {"op": "literal", "value": "typed-event"},
+          "id": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["id"]},
+          "operation": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation"]},
+          "operation_definition": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation_definition"]},
+          "phase": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["phase"]},
+          "priority": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["priority"]},
+          "time": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["time"]},
+          "type": {"op": "literal", "value": "Event"}
+        }}
+      ]}
+    },
+    {
+      "id": "effect.event.v1",
+      "phase": "effect",
+      "priority": 100,
+      "when": {"op": "eq", "left": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["artifact_stage"]}, "right": {"op": "literal", "value": "typed-event"}},
+      "body": {"op": "sequence", "items": [
+        {"op": "require", "condition": {"op": "set_equal", "left": {"op": "program_effects", "program": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation_definition", "body"]}}, "right": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation_definition", "effects"]}}, "reason": "effect_mismatch", "arguments": {"event": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["id"]}}},
+        {"op": "object", "fields": {
+          "arguments": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["arguments"]},
+          "artifact_stage": {"op": "literal", "value": "effect-event"},
+          "effects": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation_definition", "effects"]},
+          "id": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["id"]},
+          "operation": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation"]},
+          "operation_definition": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation_definition"]},
+          "phase": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["phase"]},
+          "priority": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["priority"]},
+          "time": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["time"]},
+          "type": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["type"]}
+        }}
+      ]}
+    },
+    {
+      "id": "lower.event.v1",
+      "phase": "lower",
+      "priority": 100,
+      "when": {"op": "eq", "left": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["artifact_stage"]}, "right": {"op": "literal", "value": "effect-event"}},
+      "body": {"op": "object", "fields": {
+        "arguments": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["arguments"]},
+        "effects": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["effects"]},
+        "id": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["id"]},
+        "operation": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["operation"]},
+        "phase": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["phase"]},
+        "priority": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["priority"]},
+        "sequence": {"op": "var", "name": "sequence"},
+        "time": {"op": "get", "value": {"op": "var", "name": "subject"}, "path": ["time"]}
+      }}
+    }
+  ],
+  "operations": {
+    "probe.noop@1": {
+      "signature": {},
+      "effects": [],
+      "body": {"op": "literal", "value": null}
+    },
+    "probe.add-random@1": {
+      "signature": {"bound": "Int", "delta": "Int", "metric": "Str", "signal": "Str", "stream": "Str", "target": "Str"},
+      "effects": ["metric.emit", "random.sample", "signal.emit", "state.read", "state.write"],
+      "body": {"op": "let", "name": "current", "value": {"op": "effect", "kind": "state.read", "arguments": {"path": {"op": "var", "name": "target"}}}, "then":
+        {"op": "let", "name": "draw", "value": {"op": "effect", "kind": "random.sample", "arguments": {"bound": {"op": "var", "name": "bound"}, "stream": {"op": "var", "name": "stream"}}}, "then":
+          {"op": "let", "name": "with_delta", "value": {"op": "call_kernel", "law": "numeric.checked_add", "arguments": {"left": {"op": "var", "name": "current"}, "right": {"op": "var", "name": "delta"}}}, "then":
+            {"op": "let", "name": "next", "value": {"op": "call_kernel", "law": "numeric.checked_add", "arguments": {"left": {"op": "var", "name": "with_delta"}, "right": {"op": "var", "name": "draw"}}}, "then":
+              {"op": "sequence", "items": [
+                {"op": "effect", "kind": "state.write", "arguments": {"path": {"op": "var", "name": "target"}, "value": {"op": "var", "name": "next"}}},
+                {"op": "effect", "kind": "metric.emit", "arguments": {"metric": {"op": "var", "name": "metric"}, "value": {"op": "var", "name": "next"}}},
+                {"op": "effect", "kind": "signal.emit", "arguments": {"signal": {"op": "var", "name": "signal"}, "value": {"op": "var", "name": "next"}}},
+                {"op": "var", "name": "next"}
+              ]}
+            }
+          }
+        }
+      }
+    },
+    "probe.observe@1": {
+      "signature": {"metric": "Str", "target": "Str"},
+      "effects": ["metric.emit", "state.read"],
+      "body": {"op": "let", "name": "observed", "value": {"op": "effect", "kind": "state.read", "arguments": {"path": {"op": "var", "name": "target"}}}, "then": {"op": "sequence", "items": [
+        {"op": "effect", "kind": "metric.emit", "arguments": {"metric": {"op": "var", "name": "metric"}, "value": {"op": "var", "name": "observed"}}},
+        {"op": "var", "name": "observed"}
+      ]}}
+    },
+    "probe.write-read@1": {
+      "signature": {"metric": "Str", "target": "Str", "value": "Int"},
+      "effects": ["metric.emit", "state.read", "state.write"],
+      "body": {"op": "sequence", "items": [
+        {"op": "effect", "kind": "state.write", "arguments": {"path": {"op": "var", "name": "target"}, "value": {"op": "var", "name": "value"}}},
+        {"op": "let", "name": "observed", "value": {"op": "effect", "kind": "state.read", "arguments": {"path": {"op": "var", "name": "target"}}}, "then": {"op": "sequence", "items": [
+          {"op": "effect", "kind": "metric.emit", "arguments": {"metric": {"op": "var", "name": "metric"}, "value": {"op": "var", "name": "observed"}}},
+          {"op": "var", "name": "observed"}
+        ]}}
+      ]}
+    },
+    "probe.schedule@1": {
+      "signature": {"arguments": "Record", "child_operation": "Str", "child_phase": "Str", "child_priority": "Int", "child_time": "Int", "event_id": "Str"},
+      "effects": ["event.schedule"],
+      "body": {"op": "effect", "kind": "event.schedule", "arguments": {"event": {"op": "object", "fields": {
+        "arguments": {"op": "var", "name": "arguments"},
+        "id": {"op": "var", "name": "event_id"},
+        "operation": {"op": "var", "name": "child_operation"},
+        "phase": {"op": "var", "name": "child_phase"},
+        "priority": {"op": "var", "name": "child_priority"},
+        "time": {"op": "var", "name": "child_time"}
+      }}}}
+    },
+    "probe.fail-atomic@1": {
+      "signature": {"arguments": "Record", "bound": "Int", "child_operation": "Str", "child_phase": "Str", "child_priority": "Int", "child_time": "Int", "event_id": "Str", "signal": "Str", "stream": "Str", "target": "Str"},
+      "effects": ["event.schedule", "random.sample", "signal.emit", "state.write"],
+      "body": {"op": "let", "name": "draw", "value": {"op": "effect", "kind": "random.sample", "arguments": {"bound": {"op": "var", "name": "bound"}, "stream": {"op": "var", "name": "stream"}}}, "then": {"op": "sequence", "items": [
+        {"op": "effect", "kind": "state.write", "arguments": {"path": {"op": "var", "name": "target"}, "value": {"op": "var", "name": "draw"}}},
+        {"op": "effect", "kind": "signal.emit", "arguments": {"signal": {"op": "var", "name": "signal"}, "value": {"op": "var", "name": "draw"}}},
+        {"op": "effect", "kind": "event.schedule", "arguments": {"event": {"op": "object", "fields": {"arguments": {"op": "var", "name": "arguments"}, "id": {"op": "var", "name": "event_id"}, "operation": {"op": "var", "name": "child_operation"}, "phase": {"op": "var", "name": "child_phase"}, "priority": {"op": "var", "name": "child_priority"}, "time": {"op": "var", "name": "child_time"}}}}},
+        {"op": "effect", "kind": "state.write", "arguments": {"path": {"op": "var", "name": "target"}, "value": {"op": "literal", "value": 999}}}
+      ]}}
+    }
+  },
+  "packages": {
+    "probe.core@1": {
+      "operations": {"probe.add-random@1": true, "probe.fail-atomic@1": true, "probe.noop@1": true, "probe.observe@1": true, "probe.schedule@1": true, "probe.write-read@1": true},
+      "version": "1.0.0"
+    }
+  },
+  "runtime_profiles": {
+    "portable-exact-v1": {
+      "allowed_effects": ["event.schedule", "metric.emit", "random.sample", "signal.emit", "state.read", "state.write"],
+      "budgets": {"max_draws": 16, "max_events": 64, "max_queue": 64},
+      "phase_order": {"input": 0, "transition": 1, "observation": 2},
+      "rng_mapping": "explicit-modulo-bias-accepted",
+      "numeric": "checked-int64"
+    }
+  },
+  "comparison_policy": {
+    "replay_artifact_kind": "ReplayComparison",
+    "cross_artifact_kind": "CrossEvaluatorComparison",
+    "portable_fields": ["diagnostic", "final_state", "metrics", "rng_trace", "status", "trace"]
+  }
+}

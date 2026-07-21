@@ -1,0 +1,14 @@
+{
+  "events": [
+    {"arguments": {}, "operation": "n", "priority": 0, "phase": "input", "time": 0, "id": "input-0", "kind": "event"},
+    {"arguments": {"target": "score", "stream": "combat", "signal": "score.changed", "metric": "score.after", "delta": 2, "bound": 5}, "operation": "a", "priority": 10, "phase": "transition", "time": 0, "id": "high", "kind": "event"},
+    {"arguments": {"event_id": "child", "child_time": 0, "child_priority": 5, "child_phase": "transition", "child_operation": "probe.add-random@1", "arguments": {"target": "score", "stream": "child", "signal": "score.changed", "metric": "score.child", "delta": 1, "bound": 3}}, "operation": "s", "priority": 5, "phase": "transition", "time": 0, "id": "scheduler", "kind": "event"},
+    {"arguments": {"target": "score", "stream": "fifo-a", "signal": "score.changed", "metric": "score.fifo-a", "delta": 1, "bound": 2}, "operation": "a", "priority": 0, "phase": "transition", "time": 0, "id": "fifo-a", "kind": "event"},
+    {"arguments": {"target": "score", "stream": "fifo-b", "signal": "score.changed", "metric": "score.fifo-b", "delta": 1, "bound": 2}, "operation": "a", "priority": 0, "phase": "transition", "time": 0, "id": "fifo-b", "kind": "event"},
+    {"arguments": {"target": "score", "metric": "score.final"}, "operation": "o", "priority": 0, "phase": "observation", "time": 0, "id": "observe", "kind": "event"}
+  ],
+  "aliases": {"s": "probe.schedule@1", "o": "probe.observe@1", "n": "probe.noop@1", "a": "probe.add-random@1"},
+  "package": "probe.core@1",
+  "artifact_kind": "model-source-package",
+  "comment": "different source order and aliases; same semantics"
+}

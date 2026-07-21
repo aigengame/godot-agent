@@ -1,0 +1,1 @@
+{"artifact_kind":"experiment-specification","id":"authority-gate-v1","portable_observations":["diagnostic","final_state","metrics","rng_trace","status","trace"],"runtime_profile_definition":"portable-exact-v1","seed":20260721}

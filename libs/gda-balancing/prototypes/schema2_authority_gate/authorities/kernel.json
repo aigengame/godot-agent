@@ -1,0 +1,248 @@
+{
+  "artifact_kind": "kernel-specification",
+  "schema_major": 2,
+  "meta_format": "closed-expression-vm-v1",
+  "limits": {
+    "max_program_nodes": 4096,
+    "max_rule_steps": 512,
+    "max_vm_steps": 8192
+  },
+  "wire_types": ["Any", "Bool", "Int", "List", "Record", "Str", "Unit", "Value"],
+  "meta_opcodes": {
+    "literal": {"fields": ["op", "value"]},
+    "var": {"fields": ["op", "name"]},
+    "get": {"fields": ["op", "value", "path"]},
+    "object": {"fields": ["op", "fields"]},
+    "list": {"fields": ["op", "items"]},
+    "sequence": {"fields": ["op", "items"]},
+    "let": {"fields": ["op", "name", "value", "then"]},
+    "if": {"fields": ["op", "condition", "then", "else"]},
+    "require": {"fields": ["op", "condition", "reason", "arguments"]},
+    "eq": {"fields": ["op", "left", "right"]},
+    "not": {"fields": ["op", "value"]},
+    "and": {"fields": ["op", "items"]},
+    "or": {"fields": ["op", "items"]},
+    "lt": {"fields": ["op", "left", "right"]},
+    "le": {"fields": ["op", "left", "right"]},
+    "ge": {"fields": ["op", "left", "right"]},
+    "add": {"fields": ["op", "left", "right"]},
+    "sub": {"fields": ["op", "left", "right"]},
+    "mod": {"fields": ["op", "left", "right"]},
+    "bit_xor": {"fields": ["op", "left", "right"]},
+    "bit_and": {"fields": ["op", "left", "right"]},
+    "shift_left": {"fields": ["op", "left", "right"]},
+    "shift_right": {"fields": ["op", "left", "right"]},
+    "concat": {"fields": ["op", "items"]},
+    "to_string": {"fields": ["op", "value"]},
+    "sha256_u32": {"fields": ["op", "value"]},
+    "has_key": {"fields": ["op", "map", "key"]},
+    "lookup": {"fields": ["op", "map", "key"]},
+    "keys_equal": {"fields": ["op", "left", "right"]},
+    "type_map_matches": {"fields": ["op", "values", "signature"]},
+    "set_equal": {"fields": ["op", "left", "right"]},
+    "program_effects": {"fields": ["op", "program"]},
+    "evaluate_program": {"fields": ["op", "program", "environment"]},
+    "select_unique": {"fields": ["op", "candidates", "direction"]},
+    "lex_gt": {"fields": ["op", "left", "right"]},
+    "assoc_path": {"fields": ["op", "map", "path", "value"]},
+    "call_kernel": {"fields": ["op", "law", "arguments"]},
+    "effect": {"fields": ["op", "kind", "arguments"]}
+  },
+  "effect_kinds": {
+    "state.read": {"law": "effect.state_read"},
+    "state.write": {"law": "effect.state_write"},
+    "random.sample": {"law": "effect.random_sample"},
+    "metric.emit": {"law": "effect.metric_emit"},
+    "signal.emit": {"law": "effect.signal_emit"},
+    "event.schedule": {"law": "effect.event_schedule"}
+  },
+  "admission_diagnostics": {
+    "identity_mismatch": {"code": "kernel.identity-mismatch", "stage": "ingress"},
+    "kernel_binding_mismatch": {"code": "kernel.ldb-binding-mismatch", "stage": "ingress"},
+    "malformed_artifact": {"code": "kernel.malformed-artifact", "stage": "ingress"},
+    "unknown_opcode": {"code": "kernel.unknown-opcode", "stage": "static"},
+    "node_shape_invalid": {"code": "kernel.node-shape-invalid", "stage": "static"},
+    "law_missing": {"code": "kernel.law-missing", "stage": "static"},
+    "law_contract": {"code": "kernel.law-contract-violation", "stage": "static"},
+    "resource_exhausted": {"code": "kernel.resource-exhausted", "stage": "static"}
+  },
+  "laws": {
+    "effect.state_read": {
+      "parameters": {"path": "Str"}, "result": "Record", "effects": [], "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 8},
+      "body": {"op": "object", "fields": {"disposition": {"op": "literal", "value": "read_snapshot"}, "path": {"op": "var", "name": "path"}}}
+    },
+    "effect.state_write": {
+      "parameters": {"path": "Str", "value": "Value"}, "result": "Record", "effects": [], "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 8},
+      "body": {"op": "object", "fields": {"disposition": {"op": "literal", "value": "buffer_write"}, "path": {"op": "var", "name": "path"}, "value": {"op": "var", "name": "value"}}}
+    },
+    "effect.random_sample": {
+      "parameters": {"bound": "Int", "stream": "Str"}, "result": "Record", "effects": [], "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 10},
+      "body": {"op": "object", "fields": {"bound": {"op": "var", "name": "bound"}, "disposition": {"op": "literal", "value": "sample"}, "stream": {"op": "var", "name": "stream"}}}
+    },
+    "effect.metric_emit": {
+      "parameters": {"metric": "Str", "value": "Value"}, "result": "Record", "effects": [], "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 8},
+      "body": {"op": "object", "fields": {"disposition": {"op": "literal", "value": "buffer_metric"}, "metric": {"op": "var", "name": "metric"}, "value": {"op": "var", "name": "value"}}}
+    },
+    "effect.signal_emit": {
+      "parameters": {"signal": "Str", "value": "Value"}, "result": "Record", "effects": [], "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 8},
+      "body": {"op": "object", "fields": {"disposition": {"op": "literal", "value": "buffer_signal"}, "signal": {"op": "var", "name": "signal"}, "value": {"op": "var", "name": "value"}}}
+    },
+    "effect.event_schedule": {
+      "parameters": {"event": "Record"}, "result": "Record", "effects": [], "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 8},
+      "body": {"op": "object", "fields": {"disposition": {"op": "literal", "value": "buffer_child"}, "event": {"op": "var", "name": "event"}}}
+    },
+    "transaction.accept_write": {
+      "parameters": {"path": "Str", "value": "Value", "writes": "Record"}, "result": "Record", "effects": [], "refusals": ["duplicate_write"],
+      "resource_accounting": {"unit": "vm_step", "maximum": 24},
+      "body": {"op": "sequence", "items": [
+        {"op": "require", "condition": {"op": "not", "value": {"op": "has_key", "map": {"op": "var", "name": "writes"}, "key": {"op": "var", "name": "path"}}}, "reason": "duplicate_write", "arguments": {"path": {"op": "var", "name": "path"}}},
+        {"op": "assoc_path", "map": {"op": "var", "name": "writes"}, "path": {"op": "var", "name": "path"}, "value": {"op": "var", "name": "value"}}
+      ]}
+    },
+    "scheduler.child_allowed": {
+      "parameters": {"active_key": "List", "child_key": "List"}, "result": "Bool", "effects": [], "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 8},
+      "body": {"op": "lex_gt", "left": {"op": "var", "name": "child_key"}, "right": {"op": "var", "name": "active_key"}}
+    },
+    "budget.within": {
+      "parameters": {"limit": "Int", "used": "Int"}, "result": "Bool", "effects": [], "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 8},
+      "body": {"op": "le", "left": {"op": "var", "name": "used"}, "right": {"op": "var", "name": "limit"}}
+    },
+    "rule.applicable": {
+      "parameters": {"environment": "Record", "phase": "Str", "rule": "Record"},
+      "result": "Bool",
+      "effects": [],
+      "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 32},
+      "body": {"op": "and", "items": [
+        {"op": "eq", "left": {"op": "get", "value": {"op": "var", "name": "rule"}, "path": ["phase"]}, "right": {"op": "var", "name": "phase"}},
+        {"op": "evaluate_program", "program": {"op": "get", "value": {"op": "var", "name": "rule"}, "path": ["when"]}, "environment": {"op": "var", "name": "environment"}}
+      ]}
+    },
+    "rule.priority": {
+      "parameters": {"rule": "Record"},
+      "result": "Int",
+      "effects": [],
+      "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 8},
+      "body": {"op": "get", "value": {"op": "var", "name": "rule"}, "path": ["priority"]}
+    },
+    "rule.choose": {
+      "parameters": {"candidates": "List"},
+      "result": "Record",
+      "effects": [],
+      "refusals": ["rule_none", "rule_ambiguous"],
+      "resource_accounting": {"unit": "vm_step", "maximum": 16},
+      "body": {"op": "select_unique", "candidates": {"op": "var", "name": "candidates"}, "direction": {"op": "literal", "value": "max"}}
+    },
+    "numeric.checked_add": {
+      "parameters": {"left": "Int", "right": "Int"},
+      "result": "Int",
+      "effects": [],
+      "refusals": ["numeric_overflow"],
+      "resource_accounting": {"unit": "vm_step", "maximum": 32},
+      "body": {
+        "op": "let",
+        "name": "sum",
+        "value": {"op": "add", "left": {"op": "var", "name": "left"}, "right": {"op": "var", "name": "right"}},
+        "then": {
+          "op": "sequence",
+          "items": [
+            {"op": "require", "condition": {"op": "ge", "left": {"op": "var", "name": "sum"}, "right": {"op": "literal", "value": "-9223372036854775808"}}, "reason": "numeric_overflow", "arguments": {"side": {"op": "literal", "value": "lower"}}},
+            {"op": "require", "condition": {"op": "le", "left": {"op": "var", "name": "sum"}, "right": {"op": "literal", "value": "9223372036854775807"}}, "reason": "numeric_overflow", "arguments": {"side": {"op": "literal", "value": "upper"}}},
+            {"op": "var", "name": "sum"}
+          ]
+        }
+      }
+    },
+    "rng.seed_stream": {
+      "parameters": {"seed": "Int", "stream": "Str"},
+      "result": "Int",
+      "effects": [],
+      "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 16},
+      "body": {
+        "op": "sha256_u32",
+        "value": {"op": "concat", "items": [
+          {"op": "literal", "value": "schema2-authority-gate:rng:v1:"},
+          {"op": "to_string", "value": {"op": "var", "name": "seed"}},
+          {"op": "literal", "value": ":"},
+          {"op": "var", "name": "stream"}
+        ]}
+      }
+    },
+    "rng.next": {
+      "parameters": {"state": "Int"},
+      "result": "Int",
+      "effects": [],
+      "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 32},
+      "body": {
+        "op": "let",
+        "name": "x1",
+        "value": {"op": "bit_and", "left": {"op": "bit_xor", "left": {"op": "var", "name": "state"}, "right": {"op": "shift_left", "left": {"op": "var", "name": "state"}, "right": {"op": "literal", "value": 13}}}, "right": {"op": "literal", "value": 4294967295}},
+        "then": {
+          "op": "let",
+          "name": "x2",
+          "value": {"op": "bit_xor", "left": {"op": "var", "name": "x1"}, "right": {"op": "shift_right", "left": {"op": "var", "name": "x1"}, "right": {"op": "literal", "value": 17}}},
+          "then": {"op": "bit_and", "left": {"op": "bit_xor", "left": {"op": "var", "name": "x2"}, "right": {"op": "shift_left", "left": {"op": "var", "name": "x2"}, "right": {"op": "literal", "value": 5}}}, "right": {"op": "literal", "value": 4294967295}}
+        }
+      }
+    },
+    "rng.bounded": {
+      "parameters": {"state": "Int", "bound": "Int"},
+      "result": "Record",
+      "effects": [],
+      "refusals": ["rng_invalid_bound"],
+      "resource_accounting": {"unit": "vm_step", "maximum": 64},
+      "body": {
+        "op": "sequence",
+        "items": [
+          {"op": "require", "condition": {"op": "ge", "left": {"op": "var", "name": "bound"}, "right": {"op": "literal", "value": 1}}, "reason": "rng_invalid_bound", "arguments": {}},
+          {"op": "let", "name": "next", "value": {"op": "call_kernel", "law": "rng.next", "arguments": {"state": {"op": "var", "name": "state"}}}, "then": {"op": "object", "fields": {
+            "accepted": {"op": "literal", "value": true},
+            "candidate": {"op": "var", "name": "next"},
+            "state": {"op": "var", "name": "next"},
+            "value": {"op": "mod", "left": {"op": "var", "name": "next"}, "right": {"op": "var", "name": "bound"}}
+          }}}
+        ]
+      }
+    },
+    "scheduler.key": {
+      "parameters": {"event": "Record", "phase_order": "Record"},
+      "result": "List",
+      "effects": [],
+      "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 24},
+      "body": {"op": "list", "items": [
+        {"op": "get", "value": {"op": "var", "name": "event"}, "path": ["time"]},
+        {"op": "lookup", "map": {"op": "var", "name": "phase_order"}, "key": {"op": "get", "value": {"op": "var", "name": "event"}, "path": ["phase"]}},
+        {"op": "sub", "left": {"op": "literal", "value": 0}, "right": {"op": "get", "value": {"op": "var", "name": "event"}, "path": ["priority"]}},
+        {"op": "get", "value": {"op": "var", "name": "event"}, "path": ["sequence"]}
+      ]}
+    },
+    "transition.apply": {
+      "parameters": {"snapshot": "Record", "path": "Str", "value": "Value"},
+      "result": "Record",
+      "effects": [],
+      "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 16},
+      "body": {"op": "assoc_path", "map": {"op": "var", "name": "snapshot"}, "path": {"op": "var", "name": "path"}, "value": {"op": "var", "name": "value"}}
+    },
+    "comparison.replay_compatible": {
+      "parameters": {"left_profile": "Str", "right_profile": "Str"},
+      "result": "Bool",
+      "effects": [],
+      "refusals": [],
+      "resource_accounting": {"unit": "vm_step", "maximum": 4},
+      "body": {"op": "eq", "left": {"op": "var", "name": "left_profile"}, "right": {"op": "var", "name": "right_profile"}}
+    }
+  }
+}

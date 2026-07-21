@@ -1,0 +1,5 @@
+{
+  "artifact_kind": "scenario",
+  "id": "overflow",
+  "initial_state": {"score": "9223372036854775807"}
+}

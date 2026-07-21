@@ -1,0 +1,1 @@
+{"identity":"sha256:16f3abfc4e02459aadc1bdcdb58db8037ce8c2e7c8da50a0491b4b7e12f484ea","payload":{"artifact_kind":"package-lock","package":"probe.core@1","release":{"operations":{"probe.add-random@1":true,"probe.fail-atomic@1":true,"probe.noop@1":true,"probe.observe@1":true,"probe.schedule@1":true,"probe.write-read@1":true},"version":"1.0.0"}}}

@@ -1,0 +1,13 @@
+{
+  "artifact_kind": "model-source-package",
+  "package": "probe.core@1",
+  "aliases": {},
+  "events": [
+    {"kind": "event", "id": "input-0", "time": 0, "phase": "input", "priority": 0, "operation": "probe.noop@1", "arguments": {}},
+    {"kind": "event", "id": "high", "time": 0, "phase": "transition", "priority": 10, "operation": "probe.add-random@1", "arguments": {"bound": 5, "delta": 2, "metric": "score.after", "signal": "score.changed", "stream": "combat", "target": "score"}},
+    {"kind": "event", "id": "scheduler", "time": 0, "phase": "transition", "priority": 5, "operation": "probe.schedule@1", "arguments": {"arguments": {"bound": 3, "delta": 1, "metric": "score.child", "signal": "score.changed", "stream": "child", "target": "score"}, "child_operation": "probe.add-random@1", "child_phase": "transition", "child_priority": 5, "child_time": 0, "event_id": "child"}},
+    {"kind": "event", "id": "fifo-a", "time": 0, "phase": "transition", "priority": 0, "operation": "probe.add-random@1", "arguments": {"bound": 2, "delta": 1, "metric": "score.fifo-a", "signal": "score.changed", "stream": "fifo-a", "target": "score"}},
+    {"kind": "event", "id": "fifo-b", "time": 0, "phase": "transition", "priority": 0, "operation": "probe.add-random@1", "arguments": {"bound": 2, "delta": 1, "metric": "score.fifo-b", "signal": "score.changed", "stream": "fifo-b", "target": "score"}},
+    {"kind": "event", "id": "observe", "time": 0, "phase": "observation", "priority": 0, "operation": "probe.observe@1", "arguments": {"metric": "score.final", "target": "score"}}
+  ]
+}

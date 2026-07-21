@@ -1,0 +1,9 @@
+{
+  "artifact_kind": "model-source-package",
+  "package": "probe.core@1",
+  "aliases": {},
+  "events": [
+    {"kind": "event", "id": "commit-first", "time": 0, "phase": "transition", "priority": 10, "operation": "probe.add-random@1", "arguments": {"bound": 1, "delta": 4, "metric": "score.committed", "signal": "score.changed", "stream": "committed", "target": "score"}},
+    {"kind": "event", "id": "refuse-second", "time": 0, "phase": "transition", "priority": 0, "operation": "probe.fail-atomic@1", "arguments": {"arguments": {}, "bound": 5, "child_operation": "probe.noop@1", "child_phase": "transition", "child_priority": 0, "child_time": 0, "event_id": "discarded-child", "signal": "discarded.signal", "stream": "discarded", "target": "score"}}
+  ]
+}

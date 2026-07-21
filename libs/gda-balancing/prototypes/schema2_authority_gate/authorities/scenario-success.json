@@ -1,0 +1,5 @@
+{
+  "artifact_kind": "scenario",
+  "id": "success",
+  "initial_state": {"score": 10}
+}
