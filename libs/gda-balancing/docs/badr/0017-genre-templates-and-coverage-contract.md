@@ -113,11 +113,12 @@ distribution contract and a falsifiable definition of genre completeness.
   RPG/Roguelike support claim.
 
 - **The Roguelike minimum coverage adds:** seeded constrained reward generation; rarity/guarantee
-  behavior; build conflict and synergy; dynamic encounter/wave composition; Run-scope teardown;
-  explicit Meta-scope retention; and replay equality under identical model, experiment, Resolved
-  Runtime profile, external input, and seed identities. Metroidvania-like, survivors-like, and
-  deckbuilder-like templates may specialize package selection while satisfying the shared
-  lifecycle rows.
+  behavior; generated effect pools that compose generation with the ordinary Effect lifecycle;
+  build conflict and synergy; dynamic encounter/wave composition; Run-scope teardown; explicit
+  typed transfer into Meta-scope progression and its Model Source-derived projection into a
+  subsequent run; and replay equality under identical model, experiment, Resolved Runtime profile,
+  external input, and seed identities. Metroidvania-like, survivors-like, and deckbuilder-like
+  templates may specialize package selection while satisfying the shared lifecycle rows.
 
 - **Validation and implementation proofs remain ordered vertical slices.** The disposable
   layer-connectivity, semantic-authority, and orthogonality probes on PRD #534 are not conformance or

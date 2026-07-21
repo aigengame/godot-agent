@@ -1,8 +1,10 @@
 # Standard Schema 2.0 specification work
 
 This directory holds acceptance artifacts for the Standard Schema 2.0 specification tracked by
-PRD #534. The architecture and authority decisions are bADR-0012…0022. They do not make the 2.0
-language, runtime, CLI, or genre templates implemented.
+PRD #534. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) is the human-readable macro architecture
+authority; bADR-0012…0022 own the binding detailed decisions; and PRD #534 owns requirements,
+acceptance criteria, and live completion status. These documents do not make the 2.0 language,
+runtime, CLI, or genre templates implemented.
 
 The current artifact is [`genre-coverage.md`](genre-coverage.md): the open RPG/Roguelike
 requirements-to-operations matrix used to judge the future Language Definition Bundle and vertical

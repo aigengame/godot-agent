@@ -31,6 +31,11 @@ Local layout (analogue of the parent's):
 | `CONTEXT.md` | `BALANCING-CONTEXT.md` | the toolkit's shared language / glossary |
 | `docs/adr/NNNN-*.md` | `docs/badr/NNNN-*.md` | balancing decision records (bADR), same numbering |
 
+For Standard Schema 2.x architecture work, also read `docs/ARCHITECTURE.md`: it is the
+human-readable macro architecture authority for topology, subsystem boundaries, cross-cutting
+invariants, and validation order. It does not replace the glossary, detailed bADRs, PRD acceptance
+status, or Kernel/LDB machine authority.
+
 **Skill remap.** The domain skills hardcode `CONTEXT.md` / `docs/adr/` as literals. When you
 run one **inside this package**, restate and apply this remap before acting:
 

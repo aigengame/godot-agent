@@ -22,9 +22,11 @@ The versioned language, runtime, artifact, and evidence specification for game n
 authority is deliberately scoped: the `Schema-major Kernel Specification` defines how a
 `Language Definition Bundle` is interpreted, the bundle is the sole language-content authority
 under that kernel, and authored model, experiment, and approval facts belong to separate
-`Authority domains` (bADR-0012/0022). The pipeline designs and configures numbers before game
-development; a game is then developed consuming its resolved output. Non-standard game configs
-are not adapted or imported.
+`Authority domains` (bADR-0012/0022). [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the
+human-readable macro architecture authority; it consolidates topology and subsystem boundaries
+without replacing the machine authority or detailed bADRs. The pipeline designs and configures
+numbers before game development; a game is then developed consuming its resolved output.
+Non-standard game configs are not adapted or imported.
 _Avoid_: config format, data model, descriptor
 
 **Authority domain**:
@@ -675,8 +677,9 @@ _Avoid_: save point, frame snapshot, periodic dump
 The deterministic terminal result when execution cannot legally continue after successful static
 validation — for example an event targets a past phase, an event budget is exhausted, or a runtime
 operation violates its declared domain. The current Event transaction is rolled back, its children
-are discarded, prior commits remain in terminal evidence, and the run stops (bADR-0014). It is a
-`runtime`-stage typed refusal: exit 2 on stdout. Once runtime dispatch begins, it must carry a
+are discarded, prior commits remain represented by the terminal audit, and the run stops
+(bADR-0014). It is a `runtime`-stage typed refusal: exit 2 on stdout. Once runtime dispatch begins,
+it must carry a
 receipt for one complete, separately typed terminal-audit artifact set that committed atomically
 and is retrievable and verifiable. A Resolved Runtime profile admission refusal before dispatch
 carries no terminal audit. Failure to publish the required set before commit is an `internal`
