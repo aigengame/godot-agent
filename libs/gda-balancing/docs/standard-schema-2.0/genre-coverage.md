@@ -117,11 +117,17 @@ artifacts and validates their authoritative prerequisite graph; a caller-provide
 mapping, fixture name, or expected-output record cannot make the row closed. Rehashing establishes
 integrity, not independent-verifier provenance; when a row policy requires independence, the
 aggregator also authenticates a Verifier receipt bound to the exact prerequisites and judgment, or
-publishes only `candidate`/open. A typed gameplay outcome may satisfy a negative vector when the
-model explicitly declares that branch; invalid language/runtime conditions must use the bADR-0015
-refusal path. Vector ids ending in `-refused-v1` are reserved for Schema typed refusals; expected
-gameplay branches use `-outcome-v1`. A test that reaches private evaluator state or uses an
-unregistered helper does not close the row.
+publishes only `candidate`/open. Digest-shaped strings do not substitute for retrieving and
+rehashing the complete envelopes, artifact-set manifests/receipts, and graph. A refusal vector also
+requires the full bADR-0015 terminal-audit set and resolving receipt: its stage, typed Diagnostic,
+committed trace, last Snapshot, refusing Event, rollback, Resolved Runtime profile, and reproduction
+bindings must agree with the exact vector result. A kind, label, or JSON pointer alone proves none
+of those facts. Gate 2's Kernel/LDB/schema authorities and bounded validators precede verifier
+receipts and aggregation; an aggregator built earlier is research-only. A typed gameplay outcome
+may satisfy a negative vector when the model explicitly declares that branch; invalid language or
+runtime conditions must use the bADR-0015 refusal path. Vector ids ending in `-refused-v1` are
+reserved for Schema typed refusals; expected gameplay branches use `-outcome-v1`. A test that
+reaches private evaluator state or uses an unregistered helper does not close the row.
 
 Guarantee exhaustion is an outcome only when the authored reward policy declares an exhaustive
 fallback such as no reward, currency, or a relaxed pool. A guarantee whose admitted constraints

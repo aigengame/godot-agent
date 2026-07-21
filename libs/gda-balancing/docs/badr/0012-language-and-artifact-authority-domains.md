@@ -71,7 +71,12 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   the envelope, schema identity, and content hash. A consumer must rehash the exact Kernel
   Specification, Language Definition Bundle, lock, RIR, profile, and other authority artifacts it
   consumes; comparing only their claimed identity strings is non-conforming. Missing, mismatched, or
-  tampered artifacts are typed refusals rather than implementation fallbacks.
+  tampered artifacts are typed refusals rather than implementation fallbacks. A host implementation,
+  candidate utility, or conformance harness cannot define its own Standard Schema 2.x canonical
+  encoding, identity domain/algorithm, or wire-schema identity. Those facts come from the permanent
+  Kernel/LDB and applicable artifact-schema authorities, or the implementation is exhaustively
+  reverse-conformance checked against those exact artifacts. Before those authorities exist, a
+  locally hashed envelope is research data, not a permanent Schema artifact.
 
 - **One producing outcome publishes one artifact set.** A success or separately typed terminal-audit
   outcome may stage multiple artifacts, but none is authoritative or discoverable until one
@@ -111,6 +116,27 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   Concrete signature algorithms, credential systems, and deployment trust topology are left to the
   later security/deployment contract; they may vary only while preserving this identity, binding,
   authenticity, and independence law.
+
+  “Consumes the exact artifacts” requires retrieval and byte rehash of each complete envelope, the
+  canonical artifact-set manifest, the resolving publication/retrieval receipt, and every edge in
+  the policy's prerequisite graph. Digest-shaped strings copied into multiple payloads are not
+  artifact consumption or binding proof. For a Runtime-refusal prerequisite, the consumer also
+  validates bADR-0015's complete terminal-audit artifact set and binds its Refusal stage, typed
+  Diagnostic, committed trace prefix, last Snapshot, refusing Event, rollback facts, Resolved
+  Runtime profile, and reproduction identities to the exact vector-result artifact. An artifact
+  kind, fixture/vector label, or JSON pointer alone cannot establish that relationship.
+
+- **Gate 2 claim work is dependency-ordered.** The permanent path is:
+  1. publish the exact Kernel/LDB plus their canonical-encoding, identity, and applicable
+     wire/artifact-schema authorities;
+  2. implement bounded, report-all validators for individual envelopes, artifact-set manifests and
+     receipts, prerequisite graphs, and complete terminal-audit sets;
+  3. authenticate an independent Verifier receipt over those verified inputs and its judgment; and
+  4. aggregate the resulting exact, receipt-backed judgments into a claim candidate or closure.
+  Each layer consumes only artifacts admitted by the preceding layers and retains the deterministic
+  caps, ordering, deduplication, and truncation laws of bADR-0015/bADR-0022. An aggregator built
+  before steps 1–3 are permanent is a research utility. It may report `candidate`/open, but it is not
+  a permanent Gate 2 sub-slice and cannot confer Schema, coverage, conformance, or Evidence status.
 
 - **Experiment binding is explicit and reviewable.** Exact binding names the Resolved Model
   wrapper, not only its RIR semantic-payload identity, and never follows a rebuilt model to a new
@@ -194,6 +220,17 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   The bytes may pass integrity checks, but aggregation must remain `candidate`/open until the
   receipt's identity and artifact bindings are verified and its authenticity, independence, and
   policy eligibility are established.
+- Give a host utility locally invented canonicalization, identity-domain, or wire-schema constants
+  and make every copied digest internally agree. Permanent validation must refuse or classify the
+  result as research-only until the exact Kernel/LDB/schema authorities are consumed or reverse
+  conformance proves the projection.
+- Supply only digest-shaped prerequisite strings, or a Runtime-refusal payload with the expected
+  artifact kind/fixture label/JSON pointer but without the resolving set manifest and receipt.
+  Validation must report the missing exact artifacts/graph edges; for Runtime refusal it must also
+  report every absent or mismatched bADR-0015 terminal-audit binding.
+- Exercise the Gate 2 layers out of order. No claim aggregator is admitted as a permanent sub-slice
+  until canonical/schema authorities, artifact/set/terminal-audit validators, and the independent
+  Verifier-receipt path exist and pass their bounded report-all vectors.
 
 ## References
 
