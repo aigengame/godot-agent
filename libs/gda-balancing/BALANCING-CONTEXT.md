@@ -479,7 +479,7 @@ cancels that instance's exact outstanding events. Requests follow Event order. E
 forms one canonical request envelope from its declared Operation and resolved Signal-subscriber
 request buffer, then partitions that envelope by canonical effect lifecycle key into exactly one
 `EffectRequestSet` per key; child-Event requests are excluded and resolve later. Typed removal
-dominates same-key tick/transition/reapplication, followed by
+dominates same-key tick/transition/contribution/reapplication, followed by
 application/immunity, buildup/activation, stack/cap/reapplication, capture/contribution/transition,
 and the final schedule delta under one complete versioned policy. Within each stage, canonical
 request origin keys plus the policy's total variant order and multiplicity reducer select one

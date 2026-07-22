@@ -428,7 +428,7 @@ Two cross-contract protocols close previously implicit ordering:
 - Runtime Events follow the total order. Within one Event, declared Operations/Signal subscribers
   contribute typed requests to one canonical request envelope, which is partitioned by canonical
   effect lifecycle key into exactly one `EffectRequestSet` per key; typed removal then dominates
-  same-key transition/tick/reapplication before application/immunity,
+  same-key tick/transition/contribution/reapplication before application/immunity,
   buildup/activation, stack/cap/reapplication, capture/contribution/transition, and final schedule
   delta. Child-Event requests resolve later against the post-commit Snapshot. bADR-0017 owns the
   exact payload boundary, origin key, same-stage reducers, order, and cross-product vectors.
