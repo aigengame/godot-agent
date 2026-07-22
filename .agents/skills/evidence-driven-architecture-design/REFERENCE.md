@@ -1,0 +1,216 @@
+# Evidence-Driven Architecture Design Reference
+
+Use this file for detailed templates and proof obligations. `SKILL.md` owns the workflow; this file
+does not redefine its sequence.
+
+## 1. Authority and artifact model
+
+Choose repository-native names, but preserve these ownership roles:
+
+| Role | Owns | Must not become |
+| --- | --- | --- |
+| Requirements/PRD | user outcomes, scope, acceptance criteria, live completion | detailed architecture or evidence by assertion |
+| Architecture narrative | macro topology, responsibilities, cross-cutting invariants, delivery order | duplicate detailed decisions or machine semantics |
+| Decision records | one binding decision, alternatives, consequences, validation | status dashboard or broad narrative |
+| Glossary/context | canonical terms and distinctions | a second architecture specification |
+| Executable specification | closed schemas/rules, scenarios, vectors, observable contracts | prose examples or expected strings only |
+| Evidence record | prototype/research inputs, outputs, provenance, bounded conclusions | semantic authority or acceptance state |
+| Acceptance tracker | current gates and their state | proof without required artifacts |
+| Prototype | one disposable risk probe | production implementation or permanent authority |
+| PR body/comments | reviewable summary and chronological coordination | sole home of requirements, dogfooding, or decisions |
+
+Build a reference graph such as:
+
+`requirement → decision → term → specification/vector → implementation owner → evidence → gate`
+
+For each fact, mark exactly one authoritative source and every derived copy. Prefer a one-way
+reference over restating a list, algorithm, count, precedence rule, or state machine. Reconcile the
+exact current commit and live tracker state after each design iteration.
+
+## 2. Claim and evidence ladder
+
+Use exact, bounded language:
+
+| State | Meaning | Sufficient evidence |
+| --- | --- | --- |
+| `proposed` | a candidate mechanism | rationale only |
+| `theory-supported` | established theory explains why the mechanism should work | explicit theory-to-invariant mapping and proof boundary |
+| `confirmed-narrowly` | a selected executable slice behaved as predicted | reproducible prototype with discriminating cases |
+| `conformance-proven` | independent implementations satisfy permanent authority | normative artifacts, vectors, mutation/refusal tests, mutual consumption where applicable |
+| `production-proven` | deployed behavior meets operational requirements | production telemetry, failure recovery, rollout and SLO evidence |
+| `open` | required evidence is absent or contradictory | an owner and next discriminating gate |
+| `non-claim` | a tempting broader inference is explicitly prohibited | stated scope boundary |
+
+Never promote a claim merely because a prototype passed, a third-party framework uses a similar
+term, or tests unrelated to the property are green.
+
+`refined-adopted` and `open-gate` classify dogfooding feedback, not claim maturity. After
+reconciliation, set the affected claim to the applicable state in the table above.
+
+## 3. Theory-support matrix
+
+Create one row per load-bearing abstraction:
+
+| Design question | Mature theory/model | Adopted mechanism | Invariant | Representation boundary | Proof boundary | Disconfirming case |
+| --- | --- | --- | --- | --- | --- | --- |
+| What meaning is public? | e.g. compiler semantics | canonical semantic representation | equivalent inputs preserve specified observations | source/typed/public/private execution | specified subset only | two conforming lowerers disagree |
+
+Common sources include compiler construction, type/effect systems, state machines, distributed
+systems, control theory, information theory, statistics, capability security, database theory, and
+formal methods. Use only what explains a real constraint.
+
+An AST/IR-style separation is useful when authoring fidelity, validated meaning, portable semantics,
+and optimized execution have different owners. A typical shape is:
+
+`wire/source → authoring form → typed/validated form → canonical public semantics → private execution`
+
+Each arrow needs a preservation or refusal contract. Keep diagnostics/provenance separate when they
+may vary without changing meaning. Do not make a serialization format or optimizer the semantic
+authority accidentally.
+
+## 4. External-system research matrix
+
+Use current primary specifications and pin the consulted version or edition.
+
+| System/version | Relevant problem | Adopted mechanism | Local owner | Rejected surface | Runtime dependency? | Required evidence | Upgrade effect |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+
+Rules:
+
+1. Research mechanisms, failure modes, and lifecycle/identity choices—not names to borrow.
+2. Restate every adopted mechanism in the local authority chain.
+3. Record exclusions so a partial mapping cannot become an accidental compatibility promise.
+4. Require executable vectors for every claimed adoption.
+5. Treat an external version change as a deliberate local design decision, never ambient drift.
+6. Compare with non-adoption: importing a standard can cost more authority and surface than it saves.
+
+## 5. Prototype portfolio
+
+Choose form by uncertainty:
+
+| Uncertainty | Useful probe |
+| --- | --- |
+| layer connectivity/integration | smallest end-to-end vertical tracer |
+| semantic authority/portability | two independent interpreters or compilers consuming each other's artifacts |
+| state/lifecycle/order | executable state-machine or scheduler harness with boundary permutations |
+| orthogonality | add one independent axis, then exercise cross-products and mutation cases |
+| extensibility | add an out-of-family capability through public contracts with unchanged core/builds |
+| requirement breadth | research corpus mapped to the coverage matrix, explicitly non-conforming |
+| human interaction/usability | visual or interactive prototype |
+
+### Prototype charter
+
+```md
+Question:
+Architecture claim under pressure:
+Hypothesis and falsifier:
+Smallest executable slice:
+Independent implementations or consumers:
+Positive / negative / boundary / mutation cases:
+Public observations:
+Time box and deletion plan:
+Evidence location and immutable reference:
+Explicit non-claims:
+```
+
+Use a PR only when collaborative review or integration is needed. Disposable code may live on a
+fixed branch/commit with an evidence index. Do not merge it merely to make it visible.
+
+### Dogfooding ledger
+
+| Observation | Classification | Root layer | Design effect | Owning artifact updated | Permanent proof promoted | Remaining gate |
+| --- | --- | --- | --- | --- | --- | --- |
+
+Keep chronological experiment details in the evidence record. Put only synthesized implications in
+the architecture, decisions, requirements, glossary, and executable specification.
+
+### Stop rule
+
+Run another disposable prototype only when a new semantic root, extension mechanism, cross-artifact
+authority boundary, or comparably high-risk uncertainty appears. Otherwise move to permanent
+conformance vectors and production slices.
+
+## 6. Four-axis quality gates
+
+| Axis | Required questions | Strong evidence | Failure signal |
+| --- | --- | --- | --- |
+| Abstraction | What theory supports the model? Which semantics are public? Which implementation details may vary? | explicit semantic boundaries; preservation/refusal contracts; independent implementations | host behavior, serialization, framework, or optimizer becomes hidden authority |
+| Completeness | Do all known stories, failures, variants, interactions, operations, and production concerns map to observable contracts? | requirements-to-mechanism-to-scenario-to-vector-to-observable matrix | vocabulary/package inventory presented as coverage; important paths only appear in prose |
+| Orthogonality | Does each concern have one owner and independent representation? Are cross-products and precedence closed? | mutation tests; pairwise/cross-product scenarios; canonical ordering/reducers | independent axes share hidden state or leave interaction order to the host |
+| Extensibility | What is configuration, extension, framework evolution, or irreducible core? Can an out-of-family case use unchanged core and dispatch? | explicit extension invariance; fixed-build witness; negative capability/refusal cases | each new domain adds core fields, phases, switches, callbacks, or parallel semantics |
+
+Also audit consistency, reliability, and operability:
+
+- **Consistency:** one owner per fact; terminology, issue, decision, specification, and live state agree.
+- **Reliability:** deterministic scope, atomic boundaries, typed failure, recovery, audit, resource caps.
+- **Operability:** public surface, versioning, diagnostics, observability, deployment and rollback.
+
+For broad claims, ask: “Can two implementations follow every written rule yet produce different
+observable results?” Construct the difference. If the answer is yes, add authority or narrow the
+claim explicitly.
+
+## 7. Defect-attribution ladder
+
+When dogfooding fails, classify before changing the architecture:
+
+1. **Instance/configuration:** a particular model or input is wrong.
+2. **Template/profile:** defaults or composition for a product family are incomplete.
+3. **Extension module/package:** a reusable domain contract or interaction is missing.
+4. **Framework/schema:** extension, identity, lifecycle, or evidence semantics are inadequate.
+5. **Irreducible kernel/core:** the bootstrap or universal execution model cannot express the need.
+
+Fix the narrowest honest owner. Do not patch a template to hide a framework defect, or expand the
+kernel because one instance used the wrong contract. If a required extensibility promise fails,
+reopen the architecture rather than granting a special-case escape hatch.
+
+## 8. Iteration protocol
+
+Use short evidence-bearing loops:
+
+1. Select the highest-risk open claim.
+2. Update its requirement, owner, falsifier, and acceptance evidence.
+3. Research theory/external mechanisms only as needed for that claim.
+4. Compare alternatives and choose a bounded design.
+5. Run the smallest discriminating prototype or permanent vector.
+6. Classify dogfooding; update owners and remove stale duplicates.
+7. Re-run the four-axis gate and cross-artifact reconciliation.
+8. Choose the next risk or advance to the next delivery gate.
+
+This is iterative architecture design, not a waterfall specification. Requirements may refine when
+evidence arrives, but every refinement must be explicit, traced, and synchronized.
+
+## 9. Delivery gates and production planning
+
+A useful default sequence is:
+
+1. **Bounded architecture feasibility:** resolve the highest-risk mechanism with disposable evidence.
+2. **Permanent conformance foundation:** replace prototype-local authority with versioned rules,
+   schemas, fixtures, negative/mutation vectors, and reusable harnesses.
+3. **Production vertical slice:** exercise the public API/artifact path end to end.
+4. **Known-domain breadth:** close the full requirements coverage matrix without parallel semantics.
+5. **Out-of-family witness:** prove the extension promise against a structurally different consumer.
+6. **Production rollout:** validate security, performance, capacity, observability, recovery,
+   compatibility/migration, deployment, rollback, and operational ownership.
+
+Compatibility effort must match real history. With no released artifacts, prefer a clean forward
+baseline: migrate safely where semantics are known and deprecate/refuse what cannot be migrated.
+Do not build speculative compatibility machinery.
+
+## 10. Completion audit
+
+Before declaring the design ready for implementation or production, prove each item:
+
+- [ ] Every requirement, non-goal, invariant, and production constraint has one owner.
+- [ ] Every binding decision records alternatives, consequences, and a verification path.
+- [ ] Every load-bearing abstraction has a theory mapping and honest proof boundary.
+- [ ] Every external influence has a pinned version, adopted/rejected mapping, local owner, and evidence.
+- [ ] Every prototype has a charter, immutable evidence, bounded conclusion, non-claims, and disposition.
+- [ ] Every adopted dogfooding result was propagated to all affected authoritative artifacts.
+- [ ] The coverage matrix includes positive, negative, boundary, interaction, and observable paths.
+- [ ] Abstraction, completeness, orthogonality, and extensibility each have scoped evidence.
+- [ ] Independent implementations cannot disagree within the claimed contract, or the gap is open.
+- [ ] Normative details are not duplicated across architecture, decisions, glossary, issue, and PR.
+- [ ] Live counts, links, statuses, versions, and commit references were refreshed after the final edit.
+- [ ] Remaining risks and non-claims are explicit; prototype evidence is not mislabeled as conformance.
+- [ ] The delivery plan names permanent assets, vertical slices, migration policy, operational gates,
+      and the condition that reopens the architecture.
