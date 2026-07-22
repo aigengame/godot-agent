@@ -413,9 +413,10 @@ The genre-research reconciliation made five further boundaries explicit:
 - `generation` returns a typed offer or selected definition plus a reward disposition. The owning
   destination package—`economy`, `collection`, `effect`, or `build`—performs the mutation, so a
   direct card or effect reward does not fabricate an economic transfer;
-- `decision` owns bounded candidate evaluation, immutable Action-plan construction, and intent
-  projection. `encounter` supplies actor, context, and decision window; `action` executes the
-  already resolved plan; and
+- `action` owns the closed immutable Action-plan schema, admission, identity, and exact execution.
+  A declared external input may submit a plan for admission directly; optional `decision` owns bounded
+  candidate evaluation, selection, and Intent projection, while `encounter` supplies actor, context,
+  and decision window; and
 - `build` replacement is one atomic transition that removes the exact old admission and installs
   the exact new one. It is not an observable remove-then-add sequence.
 
@@ -462,21 +463,11 @@ template may make a good model easy to start; it may not make otherwise invalid 
 
 Coverage claims are evidence-backed and granular. A `Tracer` row requires a public vertical path;
 broader RPG or Roguelike support requires its own Golden scenarios, vectors, and acceptance evidence.
-A row closes only when the claim evaluator consumes and verifies the exact prerequisite artifacts,
-identities, bindings, and public observations required by that row. A caller assertion, expected
-fixture output, status label, or research mapping cannot authorize closure. Research mappings may
-refine requirements and package boundaries, but they are not conformance evidence. Content
-identity and envelope rehash establish integrity, not independent-verifier provenance. Where the
-claim policy requires independent verification, closure additionally requires an authenticated
-Verifier receipt that binds the eligible verifier and judgment policy to the exact prerequisite and
-result artifact identities. Without a verifiable receipt and applicable independence/trust
-contract, aggregation remains `candidate`/open. Exact consumption means retrieving and rehashing
-the complete prerequisite envelopes, artifact-set manifests and resolving receipts, and validating
-every graph edge; repeating digest-shaped strings is insufficient. A refusal vector additionally
-requires the complete bADR-0015 terminal-audit set, whose stage, typed Diagnostic, committed trace,
-last Snapshot, refusing Event, rollback facts, Runtime profile, and reproduction bindings agree
-with the exact vector result. A kind/header/fixture label/JSON pointer cannot substitute for that
-set. All rows in the current matrix remain open.
+bADR-0012 exclusively owns the generic Claim closure law; bADR-0015 exclusively owns the
+terminal-audit member/binding contract for Runtime-refusal prerequisites; and bADR-0017 plus the
+coverage matrix add only each row's admitted operations, scenarios, vectors, and observations.
+Research mappings may refine those row inputs but remain non-conformance context. All rows in the
+current matrix remain open.
 
 ### 7.4 Attributing a design failure
 
@@ -569,10 +560,10 @@ The architecture keeps three ideas separate:
 - a **Verdict** is an Experiment-level judgment under declared acceptance intent.
 
 If a refusal occurs after runtime dispatch, the invocation atomically publishes a separate,
-retrievable, and verifiable **terminal-audit artifact set**. It records the committed prefix, last
-committed snapshot, refusing event, rollback facts, Diagnostic, Resolved Runtime profile, and exact
-reproduction identities. It must not publish fabricated or half-complete Evaluation, Metric,
-Replay, or Evidence success artifacts. Admission failures before dispatch have no terminal audit.
+retrievable, and verifiable **terminal-audit artifact set**. bADR-0015 exclusively owns that set's
+closed member and binding contract. At the architecture level, it is a refusal-only publication: it
+must not publish fabricated or half-complete Evaluation, Metric, Replay, or Evidence success
+artifacts, and admission failures before dispatch have no terminal audit.
 
 Event-transaction atomicity and artifact-publication atomicity are distinct invariants. Both must be
 fault-injected and verified independently.
@@ -849,16 +840,10 @@ that slice. This is not a horizontal implementation of every rule or package. Ga
 suite source-to-evidence; later gates add general resolver, cross-LDB identity, broader publication,
 and Evidence cases as their vertical scenarios require them.
 
-Gate 2 is implemented in this dependency order:
-
-1. publish the permanent Kernel/LDB and their canonical-encoding, identity-domain/algorithm, and
-   applicable wire/artifact-schema authorities;
-2. build bounded, report-all validators for exact envelopes, prerequisite graphs, artifact-set
-   manifests/receipts, and bADR-0015 terminal-audit sets;
-3. authenticate an independent Verifier receipt that binds an eligible verifier and judgment policy
-   to those verified inputs and the resulting judgment artifact; and
-4. aggregate those exact receipt-backed judgments into claim candidates and, only when the policy
-   permits, closure.
+Gate 2 follows bADR-0012's dependency order: permanent Kernel/LDB and encoding/identity/schema
+authorities → bounded artifact/graph/terminal-audit validation → authenticated eligible independent
+Verifier receipt → aggregation. This architecture fixes the stage order; bADR-0012 exclusively owns
+the detailed Claim closure contract, while bADR-0015 owns terminal-audit members and bindings.
 
 Gate 2 also publishes and validates the closed Evaluator Capability Manifest, Portable Observation
 Policy, and Resolved Portable Observation Plan schemas required by the first independent-evaluator
@@ -870,23 +855,12 @@ reverse-conformance checked against them. Until steps 1–3 are permanent and va
 aggregator remains a research utility rather than a permanent Gate 2 sub-slice, regardless of
 whether its local envelopes and copied identities are internally consistent.
 
-Every Gate 2 claim evaluator must consume the exact immutable artifacts named by its prerequisite
-graph, verify their envelopes, hashes, Kernel/LDB identities, package and experiment bindings, and
-public observations, and refuse absent or mutated prerequisites. Caller-supplied booleans,
-research-corpus mappings, fixture names, expected outputs, or workflow labels are never substitute
-authority. Rehashing those artifacts alone does not prove that an independent verifier produced a
-judgment. A closing aggregation must also verify a Verifier receipt's identity and bindings and
-authenticate an eligible independent verifier under the applicable trust contract; otherwise it
-can produce only `candidate`/open state. Gate 2 remains open until those permanent artifacts,
-validators, receipt contract, and verification path exist. The receipt law does not preselect a
-signature algorithm, credential system, or deployment trust topology.
-
-For a Runtime-refusal prerequisite, step 2 validates the complete terminal-audit artifact set and
-resolving receipt, not only an artifact header or observable pointer. The set's Refusal stage,
-typed Diagnostic and locations, committed trace prefix, last Snapshot, refusing Event, rollback
-facts, Resolved Runtime profile, reproduction identities, and absence of partial success artifacts
-must bind to and agree with the exact vector result. All validators preserve deterministic caps,
-report-all ordering/deduplication, and explicit truncation before aggregation runs.
+Every Gate 2 claim evaluator implements bADR-0012's Claim closure contract. Gate 2 remains open
+until its permanent authorities, validators, receipt contract, and verification path exist; the
+receipt law does not preselect a signature algorithm, credential system, or deployment trust
+topology. Runtime-refusal prerequisites additionally implement bADR-0015's complete terminal-audit
+contract and exact vector-result binding. All validators preserve deterministic caps, report-all
+ordering/deduplication, and explicit truncation before aggregation runs.
 
 ### Gate 3 — production RPG tracer
 

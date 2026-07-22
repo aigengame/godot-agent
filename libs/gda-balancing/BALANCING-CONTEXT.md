@@ -221,19 +221,12 @@ scenarios test package composition and public artifacts, not private evaluator f
 _Avoid_: unit fixture, demo battle, snapshot test (too narrow)
 
 **Claim closure**:
-The transition from an open requirement, coverage row, or evidence assertion to a justified claim.
-Its evaluator consumes the exact immutable prerequisite artifacts and verifies their envelopes,
-hashes, Kernel/LDB identities, bindings, artifact-set manifests/receipts, prerequisite graph, and
-required public observations. Digest-shaped strings, caller booleans, status labels, fixture names,
-expected outputs, and research mappings are never closure authority. A Runtime-refusal
-prerequisite includes the complete bADR-0015 terminal-audit set and its stage, typed Diagnostic,
-committed trace, last Snapshot, refusing Event, rollback, Resolved Runtime profile, and reproduction
-bindings—not merely a kind, header, or JSON pointer. Gate 2 orders permanent
-Kernel/LDB/canonical/schema authorities before bounded artifact/set/terminal-audit validators,
-those validators before an authenticated `Verifier receipt`, and that receipt before aggregation.
-An aggregator built before the preceding layers is a research utility, not a permanent Gate 2
-sub-slice. Content rehashing proves integrity, not independent verification; without every
-preceding layer the claim remains `candidate`/open (bADR-0012/0015/0017/0022).
+The bADR-0012-owned transition from an open requirement, coverage row, or evidence assertion to a
+justified claim. bADR-0012 exclusively defines its artifact, graph, Verifier-receipt, independence,
+and Gate 2 dependency law; other documents may add only domain-specific prerequisite inputs. A
+Runtime-refusal prerequisite additionally applies bADR-0015's exclusively owned terminal-audit
+member and binding contract. This glossary names the concept but does not redefine either law
+(bADR-0012/0015).
 _Avoid_: self-attestation, passed flag, expected-result closure, digest checklist
 
 **Verifier receipt**:
@@ -520,9 +513,10 @@ exhaustion, and refusal laws; a pity bound does not silently imply a guarantee
 _Avoid_: luck curve, implicit pity, rarity callback
 
 **Action plan**:
-An immutable, fully bound decision result containing the selected action and execution inputs.
-`game.decision` constructs it through bounded candidate evaluation; `game.action` executes it and
-does not repeat selection policy (bADR-0017).
+An immutable, fully bound `game.action` input containing the selected action and execution inputs.
+`game.action` owns its closed schema, admission, identity, and exact execution. It may enter through
+a declared external input or be selected from admitted candidates by optional `game.decision`,
+which owns only bounded selection and Intent projection policy (bADR-0017).
 _Avoid_: AI callback, mutable command, projected intent
 
 **Intent projection**:

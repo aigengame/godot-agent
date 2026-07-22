@@ -48,7 +48,7 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.resource` | typed current/capacity storage including health/shield-like quantities, cost, regeneration, reservation and transfer | action timing, damage/healing stages, or lifecycle transition policy |
   | `game.query` | typed target filters, ordering, cardinality, tie-break and empty behavior | target-side effects |
   | `game.check` | threshold/opposed checks, hit resolution, dice/pools, advantage and success degree | damage application |
-  | `game.action` | requirements, resource commitment, pending proposal identity, wind-up/channel, cooldown, completion and interruption; execution/cancellation/replacement of an already resolved Action plan | target enumeration, plan selection/projection, response-window priority, or damage math |
+  | `game.action` | closed immutable Action-plan schema, admission and identity; requirements, resource commitment, pending proposal identity, wind-up/channel, cooldown, completion, interruption, execution, cancellation and replacement | target enumeration, candidate/plan selection, Intent projection, response-window priority, or damage math |
   | `game.effect` | application and capture-source/timing policy, buildup/activation, contributions, transitions, schedule, stacking/reapply/remove and immunity contracts | action lifecycle or combat pipeline |
   | `game.combat` | ordered typed damage-component and healing stages, criticals, per-kind mitigation/resistance, shield resolution, aggregation/rounding, and defeat/revival transition policy | entity/resource state storage, generic effect lifetime or inventory |
   | `game.build` | equipment/skill/perk selection and atomic replacement, prerequisites, exclusivity, slots and synergy declarations | item ownership, reward sampling, or old-action/effect cancellation semantics |
@@ -57,7 +57,7 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.collection` | typed ordered instance collections, stable order, zone membership, legal moves, shuffle handoff and no-duplicate/no-loss conservation | turn windows, action lifecycle, build admission, economic ledgers, or Run/Meta retention |
   | `game.generation` | seeded weighted/constrained pools, closed fixed-weight/pity/guarantee/fallback rarity policies, and typed reward disposition results | destination collection/economy/effect mutation or meta retention |
   | `game.encounter` | party/enemy composition, spawn/wave schedule, objectives and terminal conditions | entity internals, action-plan choice/projection, or scheduler law |
-  | `game.decision` | bounded candidate evaluation, immutable Action-plan selection, and policy-governed observable Intent projection | encounter composition, action execution, or evaluator callbacks |
+  | `game.decision` | optional bounded candidate evaluation, selection of one admitted immutable Action plan, and policy-governed observable Intent projection | Action-plan schema/admission/identity, encounter composition, action execution, or evaluator callbacks |
   | `game.run` | Run/Meta scope declarations, start/end/reset and explicit retained transfers | progression formulas themselves |
   | `game.turn` | optional rounds, initiative, action economy, reaction/priority windows, responder order, pass/close policy and bounded nesting | action-plan semantics or core logical-time scheduler |
   | `game.spatial` | optional positions, ranges, shapes, movement and spatial queries | generic target-query semantics |
@@ -150,12 +150,14 @@ distribution contract and a falsifiable definition of genre completeness.
   scope/reset. None may inherit order from a host container or duplicate this transition contract.
 
 - **An Action plan, its Intent projection, and its execution are separate facts.**
-  `game.encounter` supplies the acting entity, context, and decision window; `game.decision`
-  deterministically selects one immutable Action plan under declared bounds and projects it through
-  an explicit visibility policy; `game.action` executes that exact plan. A masked or partial Intent
-  changes only the observable projection, never plan identity or execution. Evaluator-owned AI
-  callbacks, ambient candidate order, and treating a projection as executable authority are
-  prohibited.
+  `game.action` owns the closed immutable plan schema, admission, identity, and exact execution. A
+  declared external input may submit a plan for admission directly. When the optional `game.decision`
+  capability is selected, `game.encounter` supplies the acting entity, context, and decision window;
+  `game.decision` deterministically selects one admitted plan under declared bounds and projects it
+  through an explicit visibility policy. `game.action` executes that exact identity in either path.
+  A masked or partial Intent changes only the observable projection, never plan identity or
+  execution. Evaluator-owned AI callbacks, ambient candidate order, post-admission plan mutation,
+  and treating a projection as executable authority are prohibited.
 
 - **Build replacement is not an in-place attribute edit.** `game.build` returns a closed atomic
   replacement outcome binding old/new definition identities, prerequisite disposition, retained
@@ -186,17 +188,13 @@ distribution contract and a falsifiable definition of genre completeness.
   `-outcome-v1` denote successfully executed gameplay branches; `-refused-v1` is reserved for
   inability to accept or execute declared Schema semantics. A row is incomplete if any column is
   absent. Package inventory, prose examples, or unit tests alone do not establish representational
-  adequacy. Claim closure consumes only retrievable, rehashed, exactly bound artifacts whose
-  authoritative judgments and prerequisite graph validate. Research mappings, caller assertions,
-  fixture names, expected-output records, or status labels cannot close a row. Rehashing proves
-  integrity, not independent verification; when the row policy requires independence, bADR-0012's
-  authenticated Verifier receipt and trust preconditions also apply or the row remains open.
-  Digest strings do not replace complete envelopes, set manifests/receipts, or graph validation.
-  A refusal vector closes only from a complete bADR-0015 terminal-audit set whose stage, typed
-  Diagnostic, committed trace, last Snapshot, refusing Event, rollback, Resolved Runtime profile,
-  and reproduction bindings agree with its exact vector result. Gate 2's Kernel/LDB/schema
-  authorities and bounded validators precede verifier receipts and aggregation; an earlier
-  aggregator is research-only.
+  adequacy. Row closure applies bADR-0012's Claim closure law to the exact admitted operations,
+  Golden scenario, vectors, and public observations named by the row. bADR-0012 exclusively owns
+  the generic artifact, graph, Verifier-receipt, independence, and Gate 2 dependency requirements;
+  this bADR adds only row-specific inputs. Research mappings, caller assertions, fixture names,
+  expected-output records, and status labels remain non-authoritative inputs. A refusal vector also
+  applies bADR-0015's complete terminal-audit contract and exact vector-result binding; bADR-0015
+  exclusively owns that set's members and bindings.
 
 - **The RPG minimum coverage includes:** typed base/parameter/derived-stat composition across
   progression, build, and effect contributions; dynamic target selection; resource
@@ -334,14 +332,12 @@ distribution contract and a falsifiable definition of genre completeness.
   through public build/run artifacts. Private evaluator state, helper-only behavior, or prose
   expected results cannot close a row. Delete or mutate one exact prerequisite artifact while
   retaining a caller-provided `closed` assertion; the row must remain open or refuse.
-- Rehash all row artifacts but omit, forge, or self-issue a policy-required Verifier receipt; the
-  aggregation must remain `candidate`/open until receipt identity/bindings, authenticity,
-  independence, and verifier eligibility are established.
+- Apply bADR-0012's Verifier-receipt mutations to a row closure judgment; every omitted, forged, or
+  ineligible required receipt keeps the aggregation `candidate`/open.
 - Present a refusal artifact with the expected kind, fixture label, and observable pointer but omit
-  or mismatch its terminal-audit set manifest/receipt, stage, Diagnostic, committed trace, last
-  Snapshot, refusing Event, rollback, Resolved Runtime profile, reproduction, or vector-result
-  binding. The row remains open and every independently observable defect is reported within the
-  deterministic cap.
+  or mismatch any terminal-audit member or binding required by bADR-0015, including its exact
+  vector-result binding. The row remains open and every independently observable defect is reported
+  within the deterministic cap.
 - Add one ordinary attribute and one reusable package mechanic, then rerun all previously closed
   rows. The attribute must require only model declarations; the mechanic must require only versioned
   package/language/vector additions and must not change unrelated core semantics.

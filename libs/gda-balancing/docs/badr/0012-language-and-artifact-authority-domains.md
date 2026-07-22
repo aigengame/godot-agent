@@ -99,7 +99,8 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   Downstream artifacts may cache projections for transport, but identity and conflict checks make
   the owning upstream artifact decisive.
 
-- **A claim closes only from verified artifacts, never from a caller assertion.** A coverage,
+- **This bADR owns Claim closure: a claim closes only from verified artifacts, never from a caller
+  assertion.** A coverage,
   conformance, Evidence, or approval gate consumes the exact artifacts and prerequisite graph its
   policy names, revalidates their envelopes, content identities, bindings, and applicable
   Kernel/LDB judgments, and derives its result from those verified facts. A request field, research
@@ -120,11 +121,10 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   “Consumes the exact artifacts” requires retrieval and byte rehash of each complete envelope, the
   canonical artifact-set manifest, the resolving publication/retrieval receipt, and every edge in
   the policy's prerequisite graph. Digest-shaped strings copied into multiple payloads are not
-  artifact consumption or binding proof. For a Runtime-refusal prerequisite, the consumer also
-  validates bADR-0015's complete terminal-audit artifact set and binds its Refusal stage, typed
-  Diagnostic, committed trace prefix, last Snapshot, refusing Event, rollback facts, Resolved
-  Runtime profile, and reproduction identities to the exact vector-result artifact. An artifact
-  kind, fixture/vector label, or JSON pointer alone cannot establish that relationship.
+  artifact consumption or binding proof. bADR-0015 exclusively owns the closed member and binding
+  contract for a terminal-audit artifact set. For a Runtime-refusal prerequisite, the consumer
+  validates that complete contract and binds the validated set to the exact vector-result artifact;
+  an artifact kind, fixture/vector label, or JSON pointer alone cannot establish that relationship.
 
 - **Gate 2 claim work is dependency-ordered.** The permanent path is:
   1. publish the exact Kernel/LDB plus their canonical-encoding, identity, and applicable
