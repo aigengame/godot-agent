@@ -9,7 +9,7 @@ stdout / exit 2 (#504 lands the first producer); usage error → one `usage`
 envelope on stderr / exit 3 with stdout empty; an unexpected exception → one
 sanitized `internal` envelope on stderr / exit 4 (the sole internal path). A
 bare traceback is never any invocation's output; ``--debug`` routes it into
-``diagnostics``.
+the versioned internal-envelope debug member.
 """
 
 import json
@@ -56,8 +56,7 @@ _OUT_FLAG = "--out"
 class _UsageError(Exception):
     """Dispatch-internal control flow for the invocation surface.
 
-    Raised only before the handler runs (handlers never see usage errors);
-    the dispatch tail maps it to the `usage` envelope / exit 3.
+    The dispatch tail maps it to the `usage` envelope / exit 3.
     """
 
     def __init__(self, code: str, message: str) -> None:
@@ -93,8 +92,37 @@ def dispatch(
     except Exception as exc:
         diagnostics = traceback.format_exc() if _DEBUG_FLAG in argv else None
         message = f"the toolkit failed unexpectedly ({type(exc).__name__})"
-        stderr.write(canonical_json(internal_envelope(message, diagnostics)))
+        envelope = internal_envelope(message, diagnostics)
+        descriptor = _descriptor_for_invocation(argv, registry)
+        if descriptor is not None and descriptor.schema_major == 2 and diagnostics:
+            envelope["error"]["debug"] = envelope["error"].pop("diagnostics")
+        stderr.write(canonical_json(envelope))
         return EXIT_INTERNAL
+
+
+def _descriptor_for_invocation(
+    argv: Sequence[str], registry: tuple[CommandDescriptor, ...]
+) -> CommandDescriptor | None:
+    """Resolve only descriptor identity for versioned internal serialization."""
+    if not argv:
+        return None
+    head = argv[0]
+    groups = {item.group for item in registry if item.group is not None}
+    if head in groups:
+        if len(argv) < 2:
+            return None
+        return next(
+            (
+                item
+                for item in registry
+                if item.group == head and item.command == argv[1]
+            ),
+            None,
+        )
+    return next(
+        (item for item in registry if item.group is None and item.command == head),
+        None,
+    )
 
 
 def _dispatch(
@@ -147,8 +175,34 @@ def _dispatch(
         stdout.write(_render_command_help(descriptor))
         return EXIT_SUCCESS
 
-    values, out = _bind(descriptor, tail, stdin)
     try:
+        return _invoke_descriptor(descriptor, tail, stdout, stdin)
+    except _UsageError as err:
+        if descriptor.schema_major == 2 and err.code not in descriptor.usage_codes:
+            raise TypeError(
+                "dispatch produced a Schema 2.x usage outcome absent from its descriptor"
+            ) from err
+        raise
+    except UnreadableInputError as err:
+        if (
+            descriptor.schema_major == 2
+            and "unreadable_input" not in descriptor.usage_codes
+        ):
+            raise TypeError(
+                "dispatch produced a Schema 2.x usage outcome absent from its descriptor"
+            ) from err
+        raise
+
+
+def _invoke_descriptor(
+    descriptor: CommandDescriptor,
+    tail: list[str],
+    stdout: TextIO,
+    stdin: TextIO | None,
+) -> int:
+    """Invoke a resolved descriptor inside its declared usage boundary."""
+    try:
+        values, out = _bind(descriptor, tail, stdin)
         input_obj = descriptor.input_model(**values)
     except ValidationError as err:
         raise _UsageError("invalid_argument", _summarize(err)) from err
@@ -158,6 +212,11 @@ def _dispatch(
         stdout.write(canonical_json(refusal_envelope(outcome)))
         return EXIT_REFUSAL
     if isinstance(outcome, Schema2RefusalReport):
+        observed = {(item.code, outcome.stage) for item in outcome.diagnostics}
+        if not observed <= set(descriptor.refusal_catalog):
+            raise TypeError(
+                "handler returned a Schema 2.x refusal absent from its descriptor"
+            )
         stdout.write(canonical_json(schema2_refusal_envelope(outcome)))
         return EXIT_REFUSAL
     if type(outcome) is not descriptor.output_model:
@@ -329,7 +388,7 @@ def _reject_input_aliasing(out: str, input_path: str | None) -> None:
     The guard treats the positional as an *input path* only when it names an
     existing filesystem entry: a command whose positional is a read document
     (``design format``) always has one, while a command whose positional is an
-    enum name (``schema get``'s ``structural``/``catalog``) has no input file to
+    enum name (such as ``schema get``'s artifact selector) has no input file to
     alias, so it is exempt. ``realpath`` resolves symlinks on both sides, so the
     check catches an aliased sink as well as a directly-named one.
     """

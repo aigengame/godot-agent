@@ -1,33 +1,58 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:8b1cfdaf4f3604d18a43c7967258ee23f7e5ad3dc113a58c7e9347e534622cab",
+  "content_identity": "sha256:9198ebaac2bbcd208d61e7dbff79f8f0f388eae2522edf91b2a718011f7eae30",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
-    {"code": "language.duplicate_symbol", "stage": "resolution"},
+    {"code": "language.duplicate_symbol", "stage": "static"},
     {"code": "language.resource_exhausted", "stage": "static"}
   ],
-  "kernel_identity": "sha256:67ca30bf675611a8cf68f4fc0cdaf2f0a7a16e5aa4fd5be270e9ddc1ecb066a5",
+  "kernel_identity": "sha256:cdac2365950e7d7f42c5c763055861e61eb6e9628852f7428ca879e569fc270e",
   "language": {
+    "capabilities": [
+      {"id": "quantity.declare", "rule": "quantity.declare"},
+      {"id": "quantity.lower", "rule": "quantity.lower"}
+    ],
+    "components": [],
     "constructors": [
       {"id": "core.quantity", "parameters": ["kind", "unit", "domain", "representation", "numeric_policy", "role"]}
     ],
+    "conversions": [],
+    "model_source_schema_versions": ["2.0.0"],
+    "operations": [],
     "packages": [
-      {"capabilities": ["quantity.declare", "quantity.lower"], "id": "core.quantity", "operations": [], "types": ["Quantity"], "version": "2.0.0"}
+      {
+        "artifact_kind": "domain-package-release",
+        "capabilities": {"provided": ["quantity.declare", "quantity.lower"], "required": []},
+        "content_identity": "sha256:2f50589e4a148753b569bda88d256fbb0a5283513e9b474fe4651a0038f79182",
+        "dependencies": {"optional": [], "required": []},
+        "exports": {
+          "components": [],
+          "conversions": [],
+          "diagnostics": ["language.duplicate_symbol", "language.resource_exhausted", "language.unknown_kind", "language.unknown_unit"],
+          "language_rules": ["quantity.declare", "quantity.lower"],
+          "operations": [],
+          "types": [{"constructor": "core.quantity", "id": "Quantity"}]
+        },
+        "id": "core.quantity",
+        "profiles": {"numeric": ["exact-int64"], "runtime": []},
+        "vectors": ["quantity.accept.kind", "quantity.accept.resources-boundary", "quantity.accept.unique", "quantity.accept.unit", "quantity.declare.valid", "quantity.lower.valid", "quantity.refuse.duplicate", "quantity.refuse.kind", "quantity.refuse.resources", "quantity.refuse.unit"],
+        "version": "2.0.0"
+      }
     ],
     "quantity": {
       "domains": ["closed-interval"],
       "kinds": ["scalar"],
       "numeric_policies": [{"id": "exact-int64", "overflow": "refuse", "rounding": "none"}],
-      "representations": ["signed-int64"],
-      "symbol_roles": ["constant", "parameter", "input", "state", "derived", "output", "random-variable"],
+      "representations": ["Int"],
+      "symbol_roles": ["constant", "parameter", "input", "state", "derived", "output", "random"],
       "units": [{"dimension": "dimensionless", "id": "1"}]
     },
     "reasons": [
       {"diagnostic": "language.unknown_kind", "id": "quantity.reason.unknown-kind", "predicate": {"inventory_path": "language.quantity.kinds", "operation": "not-member"}, "stage": "static"},
       {"diagnostic": "language.unknown_unit", "id": "quantity.reason.unknown-unit", "predicate": {"inventory_path": "language.quantity.units", "member_field": "id", "operation": "not-member"}, "stage": "static"},
-      {"diagnostic": "language.duplicate_symbol", "id": "quantity.reason.duplicate-symbol", "predicate": {"operation": "has-duplicate"}, "stage": "resolution"},
+      {"diagnostic": "language.duplicate_symbol", "id": "quantity.reason.duplicate-symbol", "predicate": {"operation": "has-duplicate"}, "stage": "static"},
       {"diagnostic": "language.resource_exhausted", "id": "quantity.reason.resource-exhausted", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "static"}
     ],
     "rules": [
@@ -46,6 +71,7 @@
         },
         "id": "quantity.declare",
         "judgment": "declare-quantity",
+        "phase": "type",
         "premises": [{
           "bind": {
             "domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy",
@@ -69,6 +95,7 @@
         },
         "id": "quantity.lower",
         "judgment": "lower-quantity",
+        "phase": "lower",
         "premises": [{
           "bind": {
             "domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy",
@@ -78,6 +105,7 @@
         }]
       }
     ],
+    "runtime_profiles": [],
     "wire_schemas": [{
       "artifact_kind": "model-source-package",
       "schema": {
@@ -91,8 +119,8 @@
               "type": "object",
               "properties": {
                 "symbol": {"type": "string", "minLength": 1},
-                "role": {"enum": ["constant", "parameter", "input", "state", "derived", "output", "random-variable"]},
-                "representation": {"const": "signed-int64"},
+                "role": {"enum": ["constant", "parameter", "input", "state", "derived", "output", "random"]},
+                "representation": {"const": "Int"},
                 "kind": {"const": "scalar"},
                 "unit": {"const": "1"},
                 "domain": {
@@ -117,20 +145,24 @@
   "schema_major": 2,
   "vectors": [
     {
-      "expect": {"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "signed-int64", "role": "state", "symbol": "health", "unit": "1"}},
+      "expect": {"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "health", "unit": "1"}},
       "id": "quantity.declare.valid",
-      "input": {"facts": [{"kind": "quantity-source", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "signed-int64", "role": "state", "symbol": "health", "unit": "1"}}], "judgment": "declare-quantity"},
+      "input": {"facts": [{"kind": "quantity-source", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "health", "unit": "1"}}], "judgment": "declare-quantity", "phase": "type"},
       "rule": "quantity.declare"
     },
     {
-      "expect": {"kind": "rir-quantity-declaration", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "signed-int64", "role": "state", "symbol": "health", "unit": "1"}},
+      "expect": {"kind": "rir-quantity-declaration", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "health", "unit": "1"}},
       "id": "quantity.lower.valid",
-      "input": {"facts": [{"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "signed-int64", "role": "state", "symbol": "health", "unit": "1"}}], "judgment": "lower-quantity"},
+      "input": {"facts": [{"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "health", "unit": "1"}}], "judgment": "lower-quantity", "phase": "lower"},
       "rule": "quantity.lower"
     },
-    {"diagnostic": "language.unknown_kind", "id": "quantity.refuse.kind", "input": {"value": "missing-kind"}, "reason": "quantity.reason.unknown-kind", "stage": "static"},
-    {"diagnostic": "language.unknown_unit", "id": "quantity.refuse.unit", "input": {"value": "missing-unit"}, "reason": "quantity.reason.unknown-unit", "stage": "static"},
-    {"diagnostic": "language.duplicate_symbol", "id": "quantity.refuse.duplicate", "input": {"values": ["health", "health"]}, "reason": "quantity.reason.duplicate-symbol", "stage": "resolution"},
-    {"diagnostic": "language.resource_exhausted", "id": "quantity.refuse.resources", "input": {"value": 4097}, "reason": "quantity.reason.resource-exhausted", "stage": "static"}
+    {"diagnostic": "language.unknown_kind", "id": "quantity.refuse.kind", "input": {"value": "missing-kind"}, "matched": true, "reason": "quantity.reason.unknown-kind", "stage": "static"},
+    {"diagnostic": "language.unknown_kind", "id": "quantity.accept.kind", "input": {"value": "scalar"}, "matched": false, "reason": "quantity.reason.unknown-kind", "stage": "static"},
+    {"diagnostic": "language.unknown_unit", "id": "quantity.refuse.unit", "input": {"value": "missing-unit"}, "matched": true, "reason": "quantity.reason.unknown-unit", "stage": "static"},
+    {"diagnostic": "language.unknown_unit", "id": "quantity.accept.unit", "input": {"value": "1"}, "matched": false, "reason": "quantity.reason.unknown-unit", "stage": "static"},
+    {"diagnostic": "language.duplicate_symbol", "id": "quantity.refuse.duplicate", "input": {"values": ["health", "health"]}, "matched": true, "reason": "quantity.reason.duplicate-symbol", "stage": "static"},
+    {"diagnostic": "language.duplicate_symbol", "id": "quantity.accept.unique", "input": {"values": ["health", "mana"]}, "matched": false, "reason": "quantity.reason.duplicate-symbol", "stage": "static"},
+    {"diagnostic": "language.resource_exhausted", "id": "quantity.refuse.resources", "input": {"value": 4097}, "matched": true, "reason": "quantity.reason.resource-exhausted", "stage": "static"},
+    {"diagnostic": "language.resource_exhausted", "id": "quantity.accept.resources-boundary", "input": {"value": 4096}, "matched": false, "reason": "quantity.reason.resource-exhausted", "stage": "static"}
   ]
 }

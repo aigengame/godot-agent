@@ -61,8 +61,8 @@ def command_schema_profile() -> dict[str, JsonValue]:
     }
 
 
-def schema2_error_envelope_schema() -> dict[str, Any]:
-    """Return the shared closed 2.x usage/internal/refusal Error contract."""
+def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, Any]:
+    """Return the descriptor's exact closed 2.x Error contract."""
     location = {
         "type": "object",
         "properties": {
@@ -84,38 +84,70 @@ def schema2_error_envelope_schema() -> dict[str, Any]:
         "required": ["code", "message", "primary", "related"],
         "unevaluatedProperties": False,
     }
-    refusal = {
-        "type": "object",
-        "properties": {
-            "category": {"const": "refusal"},
-            "stage": {
-                "enum": [
-                    "ingress",
-                    "parse",
-                    "static",
-                    "resolution",
-                    "runtime",
-                    "evaluation",
-                    "migration",
-                    "approval",
-                ]
-            },
-            "diagnostics": {
-                "type": "array",
-                "minItems": 1,
-                "items": diagnostic,
-            },
-            "truncated": {"type": "boolean"},
-        },
-        "required": ["category", "stage", "diagnostics", "truncated"],
-        "unevaluatedProperties": False,
-    }
     legacy_variants = deepcopy(ERROR_ENVELOPE_SCHEMA["properties"]["error"]["oneOf"])
+    usage = legacy_variants[1]
+    usage["properties"]["code"] = {"enum": sorted(descriptor.usage_codes)}
+    variants: list[dict[str, Any]] = []
+    for stage in descriptor.refusal_stages:
+        codes = sorted(
+            code
+            for code, declared_stage in descriptor.refusal_catalog
+            if declared_stage == stage
+        )
+        stage_diagnostic = deepcopy(diagnostic)
+        stage_diagnostic["properties"]["code"] = {"enum": codes}
+        variants.append(
+            {
+                "type": "object",
+                "properties": {
+                    "category": {"const": "refusal"},
+                    "stage": {"const": stage},
+                    "diagnostics": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": stage_diagnostic,
+                    },
+                    "truncated": {"type": "boolean"},
+                },
+                "required": ["category", "stage", "diagnostics", "truncated"],
+                "unevaluatedProperties": False,
+            }
+        )
+    if descriptor.usage_codes:
+        variants.append(usage)
+    internal_properties: dict[str, Any] = {
+        "category": {"const": "internal"},
+        "code": {"const": "internal_error"},
+        "message": {"type": "string"},
+        "debug": {"type": "string"},
+    }
+    if descriptor.stochastic:
+        internal_properties["reproduction"] = {
+            "type": "object",
+            "properties": {
+                "seed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "exclusiveMaximum": 2**32,
+                },
+                "toolkit_version": {"type": "string"},
+            },
+            "required": ["seed", "toolkit_version"],
+            "unevaluatedProperties": False,
+        }
+    variants.append(
+        {
+            "type": "object",
+            "properties": internal_properties,
+            "required": ["category", "code", "message"],
+            "unevaluatedProperties": False,
+        }
+    )
     return _close_schema_objects(
         {
             "$schema": _DRAFT_2020_12,
             "type": "object",
-            "properties": {"error": {"oneOf": [refusal, *legacy_variants[1:]]}},
+            "properties": {"error": {"oneOf": variants}},
             "required": ["error"],
             "unevaluatedProperties": False,
         }
@@ -123,12 +155,27 @@ def schema2_error_envelope_schema() -> dict[str, Any]:
 
 
 def _close_schema_objects(value: Any) -> Any:
-    """Apply the profile's one object-closure form recursively."""
-    if isinstance(value, list):
-        return [_close_schema_objects(item) for item in value]
+    """Apply object closure only at JSON Schema positions.
+
+    Literal data carried by ``const``, ``enum``, or ``default`` may itself
+    contain mappings that look like schemas.  Those values are data and must
+    remain byte-for-byte exact.
+    """
     if not isinstance(value, dict):
-        return value
-    closed = {key: _close_schema_objects(item) for key, item in value.items()}
+        return deepcopy(value)
+    closed = deepcopy(value)
+    for keyword in ("$defs", "properties"):
+        children = value.get(keyword)
+        if isinstance(children, dict):
+            closed[keyword] = {
+                name: _close_schema_objects(schema) for name, schema in children.items()
+            }
+    for keyword in ("anyOf", "oneOf"):
+        children = value.get(keyword)
+        if isinstance(children, list):
+            closed[keyword] = [_close_schema_objects(schema) for schema in children]
+    if isinstance(value.get("items"), dict):
+        closed["items"] = _close_schema_objects(value["items"])
     if closed.get("type") == "object":
         additional = closed.pop("additionalProperties", None)
         if additional not in (None, False):
@@ -172,6 +219,11 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             "stochastic": descriptor.stochastic,
             "structured_params": descriptor.structured_params,
             "refusal_stages": list(descriptor.refusal_stages),
+            "refusal_catalog": [
+                {"code": code, "stage": stage}
+                for code, stage in descriptor.refusal_catalog
+            ],
+            "usage_codes": list(descriptor.usage_codes),
         },
         "artifact_behavior": "atomic-artifact-set"
         if descriptor.artifact_sink
@@ -195,7 +247,7 @@ def command_schema_projection(descriptor: CommandDescriptor) -> dict[str, JsonVa
         "descriptor_identity": identity,
         "input": body["input"],
         "success": body["success"],
-        "error": cast(JsonValue, schema2_error_envelope_schema()),
+        "error": cast(JsonValue, schema2_error_envelope_schema(descriptor)),
     }
     return {
         **schema_body,
@@ -241,8 +293,27 @@ def surface_manifest_success_schema() -> dict[str, object]:
             "stochastic": {"type": "boolean"},
             "structured_params": {"type": "boolean"},
             "refusal_stages": {"type": "array", "items": {"type": "string"}},
+            "refusal_catalog": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string"},
+                        "stage": {"type": "string"},
+                    },
+                    "required": ["code", "stage"],
+                    "unevaluatedProperties": False,
+                },
+            },
+            "usage_codes": {"type": "array", "items": {"type": "string"}},
         },
-        "required": ["stochastic", "structured_params", "refusal_stages"],
+        "required": [
+            "stochastic",
+            "structured_params",
+            "refusal_stages",
+            "refusal_catalog",
+            "usage_codes",
+        ],
         "unevaluatedProperties": False,
     }
     row = {
@@ -306,6 +377,11 @@ def surface_manifest(
                     "stochastic": descriptor.stochastic,
                     "structured_params": descriptor.structured_params,
                     "refusal_stages": list(descriptor.refusal_stages),
+                    "refusal_catalog": [
+                        {"code": code, "stage": stage}
+                        for code, stage in descriptor.refusal_catalog
+                    ],
+                    "usage_codes": list(descriptor.usage_codes),
                 },
                 "artifact_behavior": (
                     "atomic-artifact-set" if descriptor.artifact_sink else "stdout-only"

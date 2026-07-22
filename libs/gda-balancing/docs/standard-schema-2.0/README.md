@@ -23,13 +23,17 @@ Quantity slice:
   fact/term/rule/reason formats, unique rule selection, binding/substitution, Diagnostic closure,
   and deterministic resource bounds.
 - `src/gda_balancing/schema2/authorities/language-bundle.json` binds that exact Kernel and owns the
-  seven Quantity symbol roles, selected representation/kind/unit/domain/Numeric policy, one complete
-  package release, two executable Quantity rules, post-admission Diagnostic reasons, one Model
-  Source wire schema, and their normative vectors.
+  seven Quantity symbol roles, selected representation/kind/unit/domain/Numeric policy, one closed
+  content-addressed `core.quantity` package release, two executable Quantity rules,
+  post-admission Diagnostic reasons, the admitted Model Source schema-version inventory, one Model
+  Source wire schema bound to that inventory, and their normative vectors.
 - The production bootstrap consumer and a separately implemented conformance consumer agree on
   exact identities, law/rule/reason inventories, generated projection identities, positive vectors,
   and old-identity/reidentified deletion/behavior/token mutations. Neither contains a Quantity host
   dispatch fallback.
+- This bounded authority admits the closed Quantity constructor and Model Source wire-schema
+  envelope. Components, Conversions, Operations, and Runtime Profiles remain explicitly empty;
+  admission refuses those definitions until their declarative Kernel contracts are delivered.
 - `schema get language-bundle|wire-schema|diagnostic-catalog`, `manifest`, per-command `--schema`,
   and `--params-json <json|->` expose the admitted slice through the descriptor-owned 2.x surface.
   Admission failures use bounded, ordered, deduplicated, stage-aware Diagnostics.

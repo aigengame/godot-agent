@@ -2,29 +2,98 @@
   "admission": {
     "closed": true,
     "laws": [
-      {"id": "kernel.identity.verify", "identity_member": "content_identity", "operation": "verify-content-identity"},
-      {"id": "kernel.binding.exact", "left": "language_bundle.kernel_identity", "operation": "require-equal", "right": "kernel.content_identity"},
-      {"id": "kernel.members.closed", "members_from": "admission.required_ldb_members", "operation": "require-exact-members"},
-      {"id": "kernel.identifiers.unique", "operation": "require-unique-identifiers"},
-      {"id": "kernel.operations.closed", "operation": "require-known-operations"},
-      {"id": "kernel.vectors.closed", "operation": "require-vector-closure"},
-      {"id": "kernel.diagnostics.closed", "operation": "require-diagnostic-closure"},
-      {"id": "kernel.resources.bound", "operation": "enforce-resource-limits"}
+      {
+        "arguments": {"targets": [{"artifact": "kernel", "domain": "schema-major-kernel-v2", "identity_member": "content_identity"}, {"artifact": "language-bundle", "domain": "language-definition-bundle-v2", "identity_member": "content_identity"}, {"collection": "language_bundle.language.packages", "domain": "domain-package-release-v2", "identity_member": "content_identity"}]},
+        "effects": [], "id": "kernel.identity.verify", "input": {"fact_kind": "authority-pair"},
+        "operation": "verify-content-identity", "refusals": ["kernel.identity_mismatch"],
+        "resources": ["max_authority_bytes", "max_nesting_depth"], "result": {"fact_kind": "admission-verdict"}
+      },
+      {
+        "arguments": {"left": "language_bundle.kernel_identity", "right": "kernel.content_identity"},
+        "effects": [], "id": "kernel.binding.exact", "input": {"fact_kind": "authority-pair"},
+        "operation": "require-equal", "refusals": ["kernel.binding_mismatch"], "resources": [],
+        "result": {"fact_kind": "admission-verdict"}
+      },
+      {
+        "arguments": {"artifact": "language_bundle", "expected_members": "kernel.admission.required_ldb_members"},
+        "effects": [], "id": "kernel.members.closed", "input": {"fact_kind": "authority-pair"},
+        "operation": "require-exact-members", "refusals": ["kernel.member_set_mismatch"],
+        "resources": ["max_members"], "result": {"fact_kind": "admission-verdict"}
+      },
+      {
+        "arguments": {"collections": [{"keys": ["id"], "path": "kernel.admission.laws", "subject": "kernel.admission.laws"}, {"keys": ["code"], "path": "kernel.diagnostics", "subject": "kernel.diagnostics"}, {"keys": ["id"], "path": "kernel.vectors", "subject": "kernel.vectors"}, {"keys": ["id"], "path": "language_bundle.language.capabilities", "subject": "language.capabilities"}, {"keys": ["id"], "path": "language_bundle.language.components", "subject": "language.components"}, {"keys": ["id"], "path": "language_bundle.language.constructors", "subject": "language.constructors"}, {"keys": ["id"], "path": "language_bundle.language.conversions", "subject": "language.conversions"}, {"keys": ["id"], "path": "language_bundle.language.operations", "subject": "language.operations"}, {"keys": ["id", "version"], "path": "language_bundle.language.packages", "subject": "language.packages"}, {"keys": ["id"], "path": "language_bundle.language.quantity.numeric_policies", "subject": "language.quantity.numeric_policies"}, {"keys": ["id"], "path": "language_bundle.language.reasons", "subject": "language.reasons"}, {"keys": ["id"], "path": "language_bundle.language.rules", "subject": "language.rules"}, {"keys": ["id"], "path": "language_bundle.language.runtime_profiles", "subject": "language.runtime_profiles"}, {"keys": ["artifact_kind"], "path": "language_bundle.language.wire_schemas", "subject": "language.wire_schemas"}, {"keys": ["code"], "path": "language_bundle.diagnostics", "subject": "language-bundle.diagnostics"}, {"keys": ["id"], "path": "language_bundle.vectors", "subject": "language-bundle.vectors"}]},
+        "effects": [], "id": "kernel.identifiers.unique", "input": {"fact_kind": "authority-pair"},
+        "operation": "require-unique-identifiers", "refusals": ["kernel.duplicate_identifier"],
+        "resources": ["max_members"], "result": {"fact_kind": "admission-verdict"}
+      },
+      {
+        "arguments": {"admission_operations": ["verify-content-identity", "require-equal", "require-exact-members", "require-unique-identifiers", "require-known-operations", "require-vector-closure", "require-diagnostic-closure", "enforce-resource-limits"], "reason_operations": ["not-member", "has-duplicate", "greater-than"]},
+        "effects": [], "id": "kernel.operations.closed", "input": {"fact_kind": "authority-pair"},
+        "operation": "require-known-operations", "refusals": ["kernel.unknown_operation"],
+        "resources": ["max_members"], "result": {"fact_kind": "admission-verdict"}
+      },
+      {
+        "arguments": {"closures": [{"inventory": "kernel.admission.laws", "reference": "law", "vectors": "kernel.vectors"}, {"inventory": "language_bundle.language.rules", "reference": "rule", "vectors": "language_bundle.vectors"}, {"inventory": "language_bundle.language.reasons", "reference": "reason", "vectors": "language_bundle.vectors"}], "equalities": [{"left": "language_bundle.language.model_source_schema_versions", "mode": "set", "right": "language_bundle.language.wire_schemas.schema.properties.schema_version.const"}, {"left": "language_bundle.language.quantity.kinds", "mode": "set", "right": "language_bundle.language.wire_schemas.schema.properties.symbols.items.properties.kind.const"}, {"left": "language_bundle.language.quantity.numeric_policies.id", "mode": "set", "right": "language_bundle.language.wire_schemas.schema.properties.symbols.items.properties.numeric_policy.const"}, {"left": "language_bundle.language.quantity.representations", "mode": "set", "right": "language_bundle.language.wire_schemas.schema.properties.symbols.items.properties.representation.const"}, {"left": "language_bundle.language.quantity.symbol_roles", "mode": "set", "right": "language_bundle.language.wire_schemas.schema.properties.symbols.items.properties.role.enum"}, {"left": "language_bundle.language.quantity.units.id", "mode": "set", "right": "language_bundle.language.wire_schemas.schema.properties.symbols.items.properties.unit.const"}], "references": [{"owners": "language_bundle.language.capabilities", "targets": {"rule": "language_bundle.language.rules.id"}}, {"owners": "language_bundle.language.packages", "targets": {"capabilities.provided": "language_bundle.language.capabilities.id", "capabilities.required": "language_bundle.language.capabilities.id", "dependencies.optional": "language_bundle.language.packages.id", "dependencies.required": "language_bundle.language.packages.id", "exports.components": "language_bundle.language.components.id", "exports.conversions": "language_bundle.language.conversions.id", "exports.diagnostics": "language_bundle.diagnostics.code", "exports.language_rules": "language_bundle.language.rules.id", "exports.operations": "language_bundle.language.operations.id", "exports.types.constructor": "language_bundle.language.constructors.id", "profiles.numeric": "language_bundle.language.quantity.numeric_policies.id", "profiles.runtime": "language_bundle.language.runtime_profiles.id", "vectors": "language_bundle.vectors.id"}}]},
+        "effects": [], "id": "kernel.vectors.closed", "input": {"fact_kind": "authority-pair"},
+        "operation": "require-vector-closure", "refusals": ["kernel.vector_mismatch"],
+        "resources": ["max_members"], "result": {"fact_kind": "admission-verdict"}
+      },
+      {
+        "arguments": {"catalogs": [{"diagnostics": "kernel.diagnostics", "vectors": "kernel.vectors"}, {"diagnostics": "language_bundle.diagnostics", "vectors": "language_bundle.vectors"}]},
+        "effects": [], "id": "kernel.diagnostics.closed", "input": {"fact_kind": "authority-pair"},
+        "operation": "require-diagnostic-closure", "refusals": ["kernel.diagnostic_closure"],
+        "resources": ["max_diagnostics", "max_members"], "result": {"fact_kind": "admission-verdict"}
+      },
+      {
+        "arguments": {"limits": "kernel.resources", "targets": ["kernel", "language_bundle"]},
+        "effects": [], "id": "kernel.resources.bound", "input": {"fact_kind": "authority-pair"},
+        "operation": "enforce-resource-limits", "refusals": ["kernel.resource_exhausted"],
+        "resources": ["max_authority_bytes", "max_diagnostics", "max_members", "max_nesting_depth"],
+        "result": {"fact_kind": "admission-verdict"}
+      }
     ],
-    "required_ldb_members": ["artifact_kind", "artifact_version", "schema_major", "kernel_identity", "content_identity", "language", "diagnostics", "resources", "vectors"]
+    "refusal_stages": ["ingress", "parse", "static", "resolution", "runtime", "evaluation", "migration", "approval"],
+    "required_ldb_members": ["artifact_kind", "artifact_version", "schema_major", "kernel_identity", "content_identity", "language", "diagnostics", "resources", "vectors"],
+    "required_language_members": ["capabilities", "components", "constructors", "conversions", "model_source_schema_versions", "operations", "packages", "quantity", "reasons", "rules", "runtime_profiles", "wire_schemas"]
   },
   "artifact_kind": "schema-major-kernel",
   "artifact_version": "2.0.0",
   "canonical_encoding": {
+    "array_order": "preserve",
     "character_encoding": "UTF-8",
-    "identity_algorithm": "domain-separated-sha256",
+    "digest_hex_case": "lowercase",
+    "document_terminator": "LF",
+    "duplicate_object_keys": "refuse-at-decoding",
+    "escape_solidus": false,
+    "identity_algorithm": "sha256",
+    "identity_domain_prefix": "gda-balancing:",
+    "identity_domain_suffix": ":",
+    "identity_excluded_members": ["content_identity"],
+    "identity_output_prefix": "sha256:",
     "integer_domain": "signed-int64",
+    "item_separator": ",",
+    "key_separator": ":",
+    "lone_surrogate": "refuse",
+    "non_ascii_strings": "literal-utf8",
+    "number_kinds": ["signed-int64"],
     "object_order": "UTF-8-key-byte-order",
     "optional_members": "omit",
+    "printable_ascii_escaping": "only-quotation-mark-and-reverse-solidus",
     "profile": "gda-canonical-json-v1",
-    "unicode_normalization": "preserve"
+    "control_character_escaping": {"backspace": "\\b", "form-feed": "\\f", "line-feed": "\\n", "other-u0000-u001f": "lowercase-u00xx", "carriage-return": "\\r", "tab": "\\t"},
+    "delete_character_escaping": "literal-byte-7f",
+    "unicode_normalization": "preserve",
+    "vectors": [
+      {"canonical_utf8_hex": "5b2d393232333337323033363835343737353830382c393232333337323033363835343737353830375d0a", "domain": "canonical-vector-v1", "id": "canonical.boundary-integers", "identity": "sha256:730e16b6945138a4f955c95bd573942514ee746350e9dd99547593cba77d7f56", "value": [-9223372036854775808, 9223372036854775807]},
+      {"canonical_utf8_hex": "5b225c7530303030222c225c7530303031222c225c7530303032222c225c7530303033222c225c7530303034222c225c7530303035222c225c7530303036222c225c7530303037222c225c62222c225c74222c225c6e222c225c7530303062222c225c66222c225c72222c225c7530303065222c225c7530303066222c225c7530303130222c225c7530303131222c225c7530303132222c225c7530303133222c225c7530303134222c225c7530303135222c225c7530303136222c225c7530303137222c225c7530303138222c225c7530303139222c225c7530303161222c225c7530303162222c225c7530303163222c225c7530303164222c225c7530303165222c225c7530303166222c227f225d0a", "domain": "canonical-vector-v1", "id": "canonical.control-character-escaping", "identity": "sha256:712d2750b3feeb2cd91f0b0e4819c8c1e1e8aa9d7af0d5073743e0bf4e0b64c9", "value": ["\u0000", "\u0001", "\u0002", "\u0003", "\u0004", "\u0005", "\u0006", "\u0007", "\b", "\t", "\n", "\u000b", "\f", "\r", "\u000e", "\u000f", "\u0010", "\u0011", "\u0012", "\u0013", "\u0014", "\u0015", "\u0016", "\u0017", "\u0018", "\u0019", "\u001a", "\u001b", "\u001c", "\u001d", "\u001e", "\u001f", "\u007f"]},
+      {"canonical_utf8_hex": "7b2261223a5b332c322c315d2c2271756f7465223a225c225c6e5c5c222c22c3a9223a22e99baa227d0a", "domain": "canonical-vector-v1", "id": "canonical.order-array-unicode-escaping", "identity": "sha256:72118703be25b8eddcc7341c974f732f4dffa1c8ab04ae050718737fb7f89b62", "value": {"a": [3, 2, 1], "quote": "\"\n\\", "é": "雪"}},
+      {"id": "canonical.reject-duplicate-key", "input_lexeme": "{\"a\":1,\"a\":2}", "refusal": "duplicate-object-key"},
+      {"id": "canonical.reject-float", "input_lexeme": "1.5", "refusal": "unsupported-number-kind"},
+      {"id": "canonical.reject-lone-surrogate", "input_lexeme": "\"\\ud800\"", "refusal": "non-unicode-scalar"}
+    ],
+    "whitespace": "none"
   },
-  "content_identity": "sha256:67ca30bf675611a8cf68f4fc0cdaf2f0a7a16e5aa4fd5be270e9ddc1ecb066a5",
+  "content_identity": "sha256:cdac2365950e7d7f42c5c763055861e61eb6e9628852f7428ca879e569fc270e",
   "diagnostics": [
     {"code": "kernel.identity_mismatch", "stage": "ingress"},
     {"code": "kernel.binding_mismatch", "stage": "ingress"},
@@ -36,29 +105,65 @@
     {"code": "kernel.resource_exhausted", "stage": "ingress"}
   ],
   "meta_format": {
-    "fact": {"closed": true, "field_names": "non-empty-strings", "required_members": ["kind", "fields"]},
+    "fact": {"closed": true, "field_contracts": {"quantity-symbol": {"domain": {"type": "closed-int64-interval"}, "kind": {"path": "language.quantity.kinds", "type": "inventory-member"}, "numeric_policy": {"path": "language.quantity.numeric_policies.id", "type": "inventory-member"}, "representation": {"path": "language.quantity.representations", "type": "inventory-member"}, "role": {"path": "language.quantity.symbol_roles", "type": "inventory-member"}, "symbol": {"type": "non-empty-string"}, "unit": {"path": "language.quantity.units.id", "type": "inventory-member"}}}, "field_names": "non-empty-strings", "required_members": ["kind", "fields"], "schemas": [{"field_contract": "quantity-symbol", "kind": "quantity-source"}, {"field_contract": "quantity-symbol", "kind": "typed-quantity-symbol"}, {"field_contract": "quantity-symbol", "kind": "rir-quantity-declaration"}]},
     "term": {
       "closed": true,
       "constructors": [
-        {"required_members": ["tag", "value"], "tag": "literal"},
-        {"required_members": ["tag", "name"], "tag": "variable"}
+        {"member_types": {"tag": {"const": "literal"}, "value": {"type": "canonical-value"}}, "required_members": ["tag", "value"], "tag": "literal"},
+        {"member_types": {"name": {"type": "non-empty-string"}, "tag": {"const": "variable"}}, "required_members": ["tag", "name"], "tag": "variable"}
       ]
     },
-    "rule": {"closed": true, "required_members": ["id", "judgment", "premises", "conclusion"]},
+    "rule": {"closed": true, "conclusion_required_members": ["fact_kind", "fields"], "phases": ["type", "lower"], "premise_required_members": ["bind", "fact_kind"], "required_members": ["id", "phase", "judgment", "premises", "conclusion"]},
     "rule_selection": {
       "candidate_order": "rule-id-utf8-byte-order",
       "cardinality": "exactly-one",
-      "match": ["judgment-equality", "premise-fact-kind-equality"]
+      "match": ["phase-equality", "judgment-equality", "premise-fact-kind-equality"]
     },
     "binding_substitution": {
       "binding": "premise-bind maps variable names to source fact field names",
+      "conflicting_duplicate_binding": "kernel.vector_mismatch",
+      "duplicate_binding": "require-equal",
       "substitution": "evaluate every conclusion field term in the complete binding",
       "unbound_variable": "kernel.vector_mismatch"
     },
     "diagnostic_reason": {
       "closed": true,
+      "member_types": {"diagnostic": {"type": "non-empty-string"}, "id": {"type": "non-empty-string"}, "stage": {"enum": ["static"]}},
       "predicate_operations": ["not-member", "has-duplicate", "greater-than"],
-      "required_members": ["id", "diagnostic", "stage", "predicate"]
+      "predicate_schemas": [{"input_member_types": {"value": {"type": "canonical-scalar"}}, "input_members": ["value"], "member_types": {"inventory_path": {"type": "inventory-list-path"}, "member_field": {"type": "non-empty-string"}, "operation": {"const": "not-member"}}, "operation": "not-member", "optional_members": ["member_field"], "required_members": ["operation", "inventory_path"]}, {"input_member_types": {"values": {"type": "scalar-list"}}, "input_members": ["values"], "member_types": {"operation": {"const": "has-duplicate"}}, "operation": "has-duplicate", "optional_members": [], "required_members": ["operation"]}, {"input_member_types": {"value": {"type": "signed-int64"}}, "input_members": ["value"], "member_types": {"limit_path": {"type": "signed-int64-path"}, "operation": {"const": "greater-than"}}, "operation": "greater-than", "optional_members": [], "required_members": ["operation", "limit_path"]}],
+      "required_members": ["id", "diagnostic", "stage", "predicate"],
+      "scalar_equality": "type-and-canonical-value",
+      "vector_coverage": {"greater-than": "limit-and-successor", "has-duplicate": "both-outcomes", "not-member": "every-inventory-member-and-one-non-member"},
+      "vector_member_types": {"diagnostic": {"type": "non-empty-string"}, "id": {"type": "non-empty-string"}, "matched": {"type": "boolean"}, "reason": {"type": "non-empty-string"}, "stage": {"enum": ["static"]}},
+      "vector_required_members": ["id", "reason", "diagnostic", "stage", "input", "matched"]
+    },
+    "language_bundle": {
+      "closed": true,
+      "diagnostic": {"field_types": {"code": {"type": "non-empty-string"}, "stage": {"type": "refusal-stage"}}, "required_members": ["code", "stage"]},
+      "member_types": {"artifact_kind": {"const": "language-definition-bundle"}, "artifact_version": {"const": "2.0.0"}, "content_identity": {"type": "non-empty-string"}, "diagnostics": {"type": "list"}, "kernel_identity": {"type": "non-empty-string"}, "language": {"type": "object"}, "resources": {"type": "object"}, "schema_major": {"const": 2}, "vectors": {"type": "list"}},
+      "required_members": ["artifact_kind", "artifact_version", "schema_major", "kernel_identity", "content_identity", "language", "diagnostics", "resources", "vectors"],
+      "resources": {"field_types": {"max_diagnostics": {"type": "positive-signed-int64"}, "max_rule_match_steps": {"type": "positive-signed-int64"}, "max_source_bytes": {"type": "positive-signed-int64"}, "max_symbols": {"type": "positive-signed-int64"}}, "required_members": ["max_diagnostics", "max_rule_match_steps", "max_source_bytes", "max_symbols"]}
+    },
+    "language_definitions": {
+      "collections": {
+        "capabilities": {"field_types": {"id": {"type": "non-empty-string"}, "rule": {"type": "non-empty-string"}}, "required_members": ["id", "rule"]},
+        "components": {"max_items": 0},
+        "constructors": {"field_types": {"id": {"type": "non-empty-string"}, "parameters": {"type": "string-list"}}, "required_members": ["id", "parameters"]},
+        "conversions": {"max_items": 0},
+        "model_source_schema_versions": {"item_type": "non-empty-string"},
+        "operations": {"max_items": 0},
+        "runtime_profiles": {"max_items": 0},
+        "wire_schemas": {"field_types": {"artifact_kind": {"const": "model-source-package"}, "schema": {"allowed_keywords": ["$schema", "const", "enum", "items", "minLength", "properties", "required", "type", "unevaluatedProperties"], "dialect": "https://json-schema.org/draft/2020-12/schema", "keyword_type_requirements": {"items": ["array"], "minLength": ["string"], "properties": ["object"], "required": ["object"], "unevaluatedProperties": ["object"]}, "object_closure_keyword": "unevaluatedProperties", "object_closure_value": false, "references": "forbidden", "type": "closed-json-schema", "type_form": "single-string"}}, "required_members": ["artifact_kind", "schema"]}
+      },
+      "quantity": {"collections": {"domains": {"item_type": "non-empty-string"}, "kinds": {"item_type": "non-empty-string"}, "numeric_policies": {"field_types": {"id": {"type": "non-empty-string"}, "overflow": {"const": "refuse"}, "rounding": {"const": "none"}}, "required_members": ["id", "overflow", "rounding"]}, "representations": {"item_type": "non-empty-string"}, "symbol_roles": {"item_type": "non-empty-string"}, "units": {"field_types": {"dimension": {"type": "non-empty-string"}, "id": {"type": "non-empty-string"}}, "required_members": ["dimension", "id"]}}, "required_members": ["domains", "kinds", "numeric_policies", "representations", "symbol_roles", "units"]}
+    },
+    "package_release": {
+      "closed": true,
+      "field_types": {"artifact_kind": {"const": "domain-package-release"}, "content_identity": {"type": "non-empty-string"}, "id": {"type": "non-empty-string"}, "vectors": {"type": "string-list"}, "version": {"type": "non-empty-string"}},
+      "nested_field_types": {"capabilities": {"provided": {"type": "string-list"}, "required": {"type": "string-list"}}, "dependencies": {"optional": {"type": "string-list"}, "required": {"type": "string-list"}}, "exports": {"components": {"type": "string-list"}, "conversions": {"type": "string-list"}, "diagnostics": {"type": "string-list"}, "language_rules": {"type": "string-list"}, "operations": {"type": "string-list"}, "types": {"type": "list"}}, "profiles": {"numeric": {"type": "string-list"}, "runtime": {"type": "string-list"}}},
+      "nested_members": {"capabilities": ["provided", "required"], "dependencies": ["optional", "required"], "exports": ["components", "conversions", "diagnostics", "language_rules", "operations", "types"], "profiles": ["numeric", "runtime"]},
+      "required_members": ["artifact_kind", "capabilities", "content_identity", "dependencies", "exports", "id", "profiles", "vectors", "version"],
+      "type_export": {"field_types": {"constructor": {"type": "non-empty-string"}, "id": {"type": "non-empty-string"}}, "required_members": ["constructor", "id"]}
     }
   },
   "resources": {"max_authority_bytes": 262144, "max_diagnostics": 128, "max_members": 256, "max_nesting_depth": 32},

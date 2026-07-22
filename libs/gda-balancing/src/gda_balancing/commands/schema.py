@@ -13,10 +13,18 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, ConfigDict, RootModel
 
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
-from gda_balancing.schema2.authority import load_authorities
-from gda_balancing.schema2.bootstrap import admit_authorities
+from gda_balancing.schema2.authority import AuthorityLoadError, load_authorities
+from gda_balancing.schema2.bootstrap import (
+    BOOTSTRAP_REFUSAL_CATALOG,
+    SCHEMA2_REFUSAL_STAGES,
+    admit_authorities,
+)
 from gda_balancing.schema2.canonical import JsonValue
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport, bootstrap_refusal
+from gda_balancing.schema2.diagnostics import (
+    Schema2RefusalReport,
+    bootstrap_refusal,
+    ingress_refusal,
+)
 from gda_balancing.schema2.projections import (
     diagnostic_catalog_projection,
     wire_schema_projection,
@@ -52,7 +60,10 @@ def schema_get_handler(
     """
 
     def _run(inp: SchemaGetInput) -> SchemaArtifact | Schema2RefusalReport:
-        kernel, ldb = provider()
+        try:
+            kernel, ldb = provider()
+        except AuthorityLoadError as err:
+            return ingress_refusal(err.code, err.subject, err.message)
         admission = admit_authorities(kernel, ldb)
         if not admission.admitted:
             return bootstrap_refusal(admission)
@@ -77,28 +88,99 @@ def schema_get_handler(
 run_schema_get = schema_get_handler(load_authorities)
 
 
+def schema_get_refusal_catalog() -> tuple[tuple[str, str], ...]:
+    """Return the non-self-hosted Kernel bootstrap refusal vocabulary."""
+    return BOOTSTRAP_REFUSAL_CATALOG
+
+
 def schema_get_success_schema() -> dict[str, object]:
-    """Exact closed success union for the three immutable retrieval results."""
-    kernel, ldb = load_authorities()
-    admission = admit_authorities(kernel, ldb)
-    if not admission.admitted:
-        raise RuntimeError("cannot project success schemas from refused authorities")
-    authorities: dict[str, JsonValue] = {
-        "kernel": cast(JsonValue, kernel),
-        "language_bundle": cast(JsonValue, ldb),
-        "admission": {
-            "admitted": True,
-            "kernel_identity": admission.kernel_identity,
-            "language_bundle_identity": admission.language_bundle_identity,
+    """Static closed result shapes; introspection never reads authority bytes."""
+    identity = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+    admission = {
+        "type": "object",
+        "properties": {
+            "admitted": {"const": True},
+            "kernel_identity": identity,
+            "language_bundle_identity": identity,
         },
+        "required": [
+            "admitted",
+            "kernel_identity",
+            "language_bundle_identity",
+        ],
+        "unevaluatedProperties": False,
     }
-    return {
-        "oneOf": [
-            {"const": authorities},
-            {"const": wire_schema_projection(authorities)},
-            {"const": diagnostic_catalog_projection(authorities)},
-        ]
+    authority_result = {
+        "type": "object",
+        "properties": {
+            "kernel": {},
+            "language_bundle": {},
+            "admission": admission,
+        },
+        "required": ["kernel", "language_bundle", "admission"],
+        "unevaluatedProperties": False,
     }
+    projection_base = {
+        "kernel_identity": identity,
+        "language_bundle_identity": identity,
+        "content_identity": identity,
+    }
+    wire_projection = {
+        "type": "object",
+        "properties": {
+            "artifact_kind": {"const": "wire-schema-projection"},
+            **projection_base,
+            "schemas": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "artifact_kind": {"type": "string", "minLength": 1},
+                        "schema": {},
+                    },
+                    "required": ["artifact_kind", "schema"],
+                    "unevaluatedProperties": False,
+                },
+            },
+        },
+        "required": [
+            "artifact_kind",
+            "kernel_identity",
+            "language_bundle_identity",
+            "schemas",
+            "content_identity",
+        ],
+        "unevaluatedProperties": False,
+    }
+    diagnostic_projection = {
+        "type": "object",
+        "properties": {
+            "artifact_kind": {"const": "diagnostic-catalog-projection"},
+            **projection_base,
+            "entries": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "authority": {"enum": ["kernel", "language-bundle"]},
+                        "code": {"type": "string", "minLength": 1},
+                        "stage": {"enum": list(SCHEMA2_REFUSAL_STAGES)},
+                    },
+                    "required": ["authority", "code", "stage"],
+                    "unevaluatedProperties": False,
+                },
+            },
+        },
+        "required": [
+            "artifact_kind",
+            "kernel_identity",
+            "language_bundle_identity",
+            "entries",
+            "content_identity",
+        ],
+        "unevaluatedProperties": False,
+    }
+    return {"oneOf": [authority_result, wire_projection, diagnostic_projection]}
 
 
 SCHEMA_GET = CommandDescriptor(
@@ -113,6 +195,7 @@ SCHEMA_GET = CommandDescriptor(
     fixtures=ConformanceFixtures(valid_args=("language-bundle",)),
     schema_major=2,
     structured_params=True,
-    refusal_stages=("ingress", "static"),
+    refusal_catalog=schema_get_refusal_catalog(),
+    usage_codes=("argument_conflict", "invalid_argument", "unknown_argument"),
     success_schema=schema_get_success_schema,
 )

@@ -10,27 +10,31 @@ A standalone, engine- and game-agnostic sibling product of `gda` — it neither 
 extends `gda`; its CLI follows the family's interface conventions.
 
 - Requirements: [PRD #501](https://github.com/aigengame/godot-agent/issues/501)
-- Milestones: [Phase 1 — numeric design & config templates](https://github.com/aigengame/godot-agent/milestone/8) ·
-  [Phase 2 — balance simulation](https://github.com/aigengame/godot-agent/milestone/9)
-- Status: Phase 1 in progress. The Standard Schema core ships — a Design document validates
-  through the boundary funnel, round-trips as canonical JSON, and the schema describes
-  itself. Genre templates, evaluation, and tuning are still ahead; the package is **not
-  published to PyPI yet**.
+- Milestones: [Phase 1 — Schema 2.0 language & model foundation](https://github.com/aigengame/godot-agent/milestone/8) ·
+  [Phase 2 — runtime, evidence & genre closure](https://github.com/aigengame/godot-agent/milestone/9)
+- Status: Phase 1 in progress. The first permanent Schema 2.0 Kernel/LDB authority and command
+  discovery slice ships alongside the transitional 1.x Design commands. Model compilation,
+  runtime, evidence, and Genre/template closure are still ahead; the package is **not published
+  to PyPI yet**.
 
 ## Commands
 
 ```bash
 gda-balancing design validate <document>   # validate through the boundary funnel
 gda-balancing design format <document>     # emit the validated document, canonically
-gda-balancing schema get structural        # the JSON Schema 2020-12 artifact
-gda-balancing schema get catalog           # the semantic rule catalog
+gda-balancing schema get language-bundle   # admitted Kernel/LDB authority pair
+gda-balancing schema get wire-schema       # exact generated wire-schema projection
+gda-balancing schema get diagnostic-catalog # exact generated Diagnostic projection
+gda-balancing manifest                     # delivered Schema 2.0 command surface
 gda-balancing version                      # package version + supported Schema line
 ```
 
 Every command emits one JSON document: the typed result on stdout at exit 0, or an error
 envelope — `refusal` (exit 2, on stdout), `usage` (exit 3) or `internal` (exit 4). Add
-`--schema` to any command for its input/output/error contract, or `--out <path>` to an
-artifact-emitting command to write the artifact to a file and get a receipt on stdout.
+`--schema` to any command for its closed input/result/error contract, or `--out <path>` to an
+artifact-emitting command to write the artifact to a file and get a receipt on stdout. Every
+Schema 2.0 command also accepts `--params-json <json | ->`; `-` reads the same descriptor-owned
+input object from stdin, and structured input is mutually exclusive with individual argv fields.
 
 ## Development
 

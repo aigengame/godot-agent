@@ -82,6 +82,24 @@ def bootstrap_refusal(admission: BootstrapAdmission) -> Schema2RefusalReport:
     )
 
 
+def ingress_refusal(code: str, subject: str, message: str) -> Schema2RefusalReport:
+    """Represent a raw authority preflight/decode failure before admission."""
+    return Schema2RefusalReport(
+        stage="ingress",
+        diagnostics=(
+            Schema2Diagnostic(
+                code=code,
+                message=message,
+                primary=ArtifactLocation(
+                    content_identity="unidentified",
+                    pointer="/" + subject.replace(".", "/"),
+                ),
+            ),
+        ),
+        truncated=False,
+    )
+
+
 def refusal_envelope(report: Schema2RefusalReport) -> dict[str, object]:
     """Build the closed Schema 2.0 refusal Error envelope."""
     return {

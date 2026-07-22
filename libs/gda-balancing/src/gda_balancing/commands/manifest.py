@@ -37,5 +37,6 @@ MANIFEST = CommandDescriptor(
     fixtures=ConformanceFixtures(),
     schema_major=2,
     structured_params=True,
+    usage_codes=("argument_conflict", "invalid_argument", "unknown_argument"),
     success_schema=surface_manifest_success_schema,
 )
