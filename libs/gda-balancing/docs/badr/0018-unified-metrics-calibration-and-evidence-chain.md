@@ -98,6 +98,14 @@ append-only evidence graph.
   but cannot upgrade them in place. `approved` exists only as an Approval Record in its governance
   authority domain.
 
+- **Evidence claim kinds form a closed LDB-owned registry.** The Evidence assertion schema names an
+  admitted claim-kind identity whose LDB entry fixes subject types, required prerequisite graph,
+  eligibility judgment, permitted issuer/verifier class, and positive/negative vectors. Domain
+  packages may provide subject artifacts and package-specific policies, but they cannot mint new
+  claim labels or weaken a registered prerequisite. Adding or changing a claim kind is a versioned
+  LDB change; unknown strings and package-local aliases are `evaluation` refusals. `approved` remains
+  excluded because governance belongs only to Approval Record authority.
+
 - **Evidence issuance is a validated judgment, never a side effect of successful serialization or
   execution.** Before issuing an assertion, its command validates the closed Experiment, Metric,
   dataset, Evaluation-run, evaluator/tool, policy, and prerequisite-assertion schemas plus their
@@ -121,12 +129,25 @@ append-only evidence graph.
   binds two or more evaluator/platform-specific Resolved Runtime profiles, their exact common Kernel
   Specification, Language Definition Bundle, Package Lock, Resolved Model/RIR semantic payload,
   Runtime profile definition,
-  Experiment Specification, external inputs, effective seed, LDB-owned portable-observation policy,
+  Experiment Specification, external inputs, effective seed, exact LDB-owned Portable Observation
+  Policy, generated Resolved Portable Observation Plan,
   observations, mismatches, and comparison-tool identity. Only a positive, independently validated
   comparison may qualify a separately issued `cross_evaluator_conformant` assertion. It never
   satisfies `reproducible`; incompatible
   authority/profile/policy inputs are an `evaluation` refusal and observed mismatches are a completed
   negative Verdict.
+
+- **Portable observation has one policy and one resolved plan.** The exact LDB-owned Portable
+  Observation Policy defined by bADR-0014 owns the selector grammar, mandatory classes,
+  projection/comparator mapping, and deterministic closure/order algorithm. That algorithm derives
+  a Resolved Portable Observation Plan from the common profile, selected Lock/RIR, exact Experiment,
+  and selected vectors; the plan enumerates every required semantic selector without copying or
+  replacing Experiment authority. The comparison binds both identities plus both complete
+  observation sets and emits ordered field-level match, mismatch, missing, and unexpected results.
+  Empty or under-covering policies/plans, widened tolerances, unknown selectors, and caller-selected
+  subsets are refusals; actual value disagreement is a negative Verdict. A positive comparison is
+  therefore impossible when a required outcome, state, ordering, RNG, Effect, Metric, refusal, or
+  terminal-audit observation was omitted.
 
 - **Comparison artifacts are Evidence inputs, never Evidence assertions.** Replay and
   Cross-evaluator comparisons bind their exact runs, profiles, authorities, model, Experiment,
@@ -185,7 +206,8 @@ append-only evidence graph.
 ## Validation
 
 - Validate closed Experiment, Metric definition/sample/dataset, Evaluation run, evaluator/tool,
-  policy, Evidence assertion, Replay comparison, Cross-evaluator comparison, and prerequisite-graph
+  Evaluator Capability Manifest, policy, Evidence assertion, Replay comparison,
+  Cross-evaluator comparison, and prerequisite-graph
   fixtures before issuing any assertion; add negative vectors for extra/missing fields,
   kind/unit/dimension mismatch, bad aggregation, unknown policy, identity mismatch, and absent
   prerequisite.
@@ -197,9 +219,17 @@ append-only evidence graph.
   comparison can qualify a separately issued `reproducible` assertion, mismatch returns a Verdict
   with field diagnostics, and a single run or mere replay intent cannot issue it.
 - Run a second independent evaluator under its distinct Resolved Runtime profile. Assert only a
-  positive Cross-evaluator comparison under the exact LDB-owned portable-observation policy can
+  positive Cross-evaluator comparison under the exact LDB-owned Portable Observation Policy and its
+  Resolved Portable Observation Plan can
   qualify a separately issued `cross_evaluator_conformant` assertion, and that it cannot issue
   `reproducible`.
+- Attempt `cross_evaluator_conformant` with an empty policy/plan, an omitted required observation,
+  an unknown/duplicate selector, a widened Float tolerance, a caller-filtered observation set, or
+  an Evaluator Capability Manifest that lacks one required law. Evidence issuance must refuse;
+  observed semantic mismatch must remain a negative Verdict with no positive assertion.
+- Attempt to issue an unknown, package-invented, or incompletely registered Evidence claim kind.
+  Require a typed `evaluation` refusal; adding a claim kind must change the owning LDB identity and
+  supply its complete eligibility and vector contract.
 - Forge or omit a comparison binding, reidentify the artifact, or add an inline Evidence claim.
   Independent validators must refuse the comparison or Evidence issuance; only a separately issued
   assertion may carry `reproducible` or `cross_evaluator_conformant`.

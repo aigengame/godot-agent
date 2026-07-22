@@ -65,9 +65,11 @@ before acceptance:
 | Resolved Runtime profile | changes |
 | old exact Experiment binding | becomes ineligible; a new Experiment identity or declared compatibility resolution must select the new wrapper |
 
-The probe also leaves historical package id/version uniqueness, executable selector/acceptance and
+The probe did not establish a global package-release history. The accepted specification now avoids
+that unowned subsystem: duplicate id/version content is refused within one LDB, while different LDB
+identities define distinct non-interchangeable release worlds. Executable selector/acceptance and
 Kernel/LDB judgments, general dependency solving, complete Effect breadth, portable publication,
-independent Evidence validation, and every RPG/Roguelike coverage row open.
+independent Evidence validation, and every coverage row remain open.
 
 The fourth disposable
 [executable Kernel/LDB authority gate](https://github.com/aigengame/godot-agent/pull/537)

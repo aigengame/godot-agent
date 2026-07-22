@@ -175,9 +175,10 @@ One immutable, content-addressed, namespaced package artifact admitted by a Lang
 Bundle. It closes metadata and semantic version, dependencies/capabilities, exported Quantity
 kinds/units/profiles/types, complete Operation contracts and bodies, Diagnostics, and normative
 vectors under one release identity; Package Lock binds that exact identity. Reusing one package
-id/version for different content is refused within an admitted bundle. Historical uniqueness
-across independently published bundles requires an explicit release-index/transparency authority
-and is not established by a content hash or semantic-version string alone (bADR-0016).
+id/version for different content is refused within an admitted bundle. Across different LDB
+identities, that logical coordinate may bind different release content; the package-release content
+identity plus owning LDB identity distinguishes those non-interchangeable language worlds. Standard
+Schema 2.0 claims no global release-history registry (bADR-0016).
 _Avoid_: package registry entry, evaluator plugin, split operation registry
 
 **Resolution receipt**:
@@ -249,11 +250,20 @@ _Avoid_: checksum, self-signed passed flag, verifier log, validator substitute
 
 **Core type constructor**:
 One of the closed Standard Schema 2.x language-level constructors: `Bool`, `Int`, `Fixed`,
-`Decimal`, `Float`, `Enum`, `Record`, `Vector`, `List`, `Set`, `Map`, `EntityRef`, `Quantity`, or
+`Decimal`, `Float`, `Enum`, `Record`, `Vector`, `List`, `Set`, `Map`, `Ref<T>`, `Quantity`, or
 `Distribution`. Domain packages instantiate and compose these constructors but cannot add grammar
 or primitive representation semantics; changing this set requires a Schema major decision
 (bADR-0016).
 _Avoid_: package type, attribute type, custom primitive
+
+**Nominal reference**:
+A core `Ref<T>` value that identifies one stable target under a nominal target contract without
+granting traversal, lifecycle, or object semantics. Its canonical identity pairs the statically
+known target identity with a package-defined canonical reference key; the exporting package owns
+existence, lifetime, and missing-target outcomes. `game.entity` defines `EntityRef` as its
+`Ref<game.entity.Entity>` specialization; other packages may specialize references for their own
+nominal artifacts without pretending they are game entities (bADR-0016).
+_Avoid_: untyped id, host object reference, EntityRef as core primitive
 
 **Quantity**:
 A typed numeric value whose concerns are explicit and orthogonal: numeric representation, nominal
@@ -266,8 +276,39 @@ _Avoid_: number with metadata, stat value, unit scalar
 The declared use of a typed symbol or component field — including `constant`, `parameter`, `input`,
 `state`, `derived`, `output`, and `random`, with domain roles such as `current`, `capacity`, `cost`,
 or `rate` composed separately. A role constrains ownership and lifecycle; it never creates another
-numeric type (bADR-0016).
+numeric type. Domain roles are versioned package terms and never infer representation, nominal kind,
+unit/dimension, support, or Numeric policy; `rate` does not define its own denominator (bADR-0016).
 _Avoid_: attribute type, variable kind (ambiguous), numeric subtype
+
+**Core Extension Invariance**:
+The Standard Schema 2.0 promise that a later game genre can add Model Source, complete Domain
+package releases, templates, Experiments, coverage rows, and vectors without changing Kernel
+primitives, core constructors, runtime phases, compiler dispatch, or evaluator dispatch. A bounded
+deterministic mechanic that cannot pass this test falsifies and reopens the 2.0 architecture; it is
+not handled through a genre exception or host plugin. The invariant does not claim every genre's
+support artifacts already ship (bADR-0016/0017).
+_Avoid_: universal genre coverage, genre-specific core, best-effort extensibility
+
+**Extension Invariance Receipt**:
+The immutable conformance artifact proving one Core Extension Invariance witness ran through the
+same fixed independent compiler/evaluator builds before and after an LDB/package addition. It binds
+identical Kernel, core-constructor, runtime-phase, and implementation-build identities; base/extended
+LDBs; added packages; exact Source/Experiment/vectors; mutually produced artifacts/results; and a
+complete post-build Non-Kernel Authority Token Inventory plus its exhaustive rename bijection.
+Rebuilds, host capability additions, omitted renames, private helpers, or changed core projections
+make it ineligible. It is independently validated evidence, never semantic authority
+(bADR-0016/0017).
+_Avoid_: unchanged-code assertion, source diff, extension passed flag
+
+**Non-Kernel Authority Token Inventory**:
+The closed, generated traversal of the complete reachable witness artifact graph used by an
+Extension Invariance Receipt. It contains every non-Kernel identity that can affect resolution,
+dispatch, result decoding, or trace, including package/capability, type/kind/unit/role,
+Operation/parameter/result variant, Diagnostic, Signal/Event, effect/resource, profile/policy,
+Experiment/Metric/selector, and vector identities. Its independent rename mapping is an exhaustive
+bijection: an omitted, duplicate, reserved-Kernel, or extra member refuses the witness
+(bADR-0016/0017).
+_Avoid_: representative token sample, package-name-only rename, implementation symbol list
 
 **Domain package**:
 A versioned, namespaced Standard Schema extension that composes core types into nominal types,
@@ -434,10 +475,28 @@ A composition of independently typed contracts for application requirements, val
 contributions, buildup and threshold activation, state transitions, scheduling, stacking
 identity/reducer, reapplication, removal/expiry/dispel, and immunity. Source and capture timing are
 orthogonal. Buildup activation creates one effect instance with a bounded schedule; typed removal
-cancels that instance's exact outstanding events. Action, combat, resource, and runtime packages
+cancels that instance's exact outstanding events. Requests follow Event order. Each active Event
+forms one canonical request envelope from its declared Operation and resolved Signal-subscriber
+request buffer, then partitions that envelope by canonical effect lifecycle key into exactly one
+`EffectRequestSet` per key; child-Event requests are excluded and resolve later. Typed removal
+dominates same-key tick/transition/reapplication, followed by
+application/immunity, buildup/activation, stack/cap/reapplication, capture/contribution/transition,
+and the final schedule delta under one complete versioned policy. Within each stage, canonical
+request origin keys plus the policy's total variant order and multiplicity reducer select one
+deterministic result and typed removal cause; every losing/coalesced request is traced. Action,
+combat, resource, and runtime packages
 consume these contracts through declared operations; no single Effect object owns every mechanic
 (bADR-0016/0017).
 _Avoid_: modifier list, buff object, monolithic status schema
+
+**Reaction window**:
+A bounded `game.turn` Domain protocol over a stable pending `game.action` proposal. It owns eligible
+responder order, priority holder, pass/close policy, and nesting bound. Counter, replacement,
+cancellation, and pass choices enter at declared Runtime input boundaries and advance through
+ordinary transition Events; only a closed window schedules final Action resolution. It never adds a
+runtime phase, pauses an active Event for a host callback, or uses a Signal as interactive delivery
+(bADR-0014/0017).
+_Avoid_: interrupt callback, hidden reaction phase, Signal response
 
 **Ordered collection**:
 A `game.collection`-owned typed sequence of stable instance identities with explicit zone
@@ -692,13 +751,41 @@ identity to match. Comparing two different evaluator-bound profiles is a `Cross-
 comparison`, not a replay (bADR-0014/0018).
 _Avoid_: Runtime profile definition, ambient environment, runtime config
 
+**Evaluator Capability Manifest**:
+An immutable implementation-provenance artifact published by one evaluator build. It declares the
+exact Kernel law versions, constructors, Numeric/RNG policies, scheduler/effect features, artifact
+schemas, and resource-accounting contracts that build implements. Runtime admission validates and
+binds it into the Resolved Runtime profile; it cannot admit LDB-absent behavior or weaken semantic
+law. It is distinct from the generated model/package Capability manifest (bADR-0014).
+_Avoid_: evaluator plugin registry, semantic authority manifest, Package Capability manifest
+
+**Portable Observation Policy**:
+The closed, versioned LDB artifact that makes Cross-evaluator comparison non-vacuous. It binds an
+applicable Runtime/Numeric profile scope, closed selector grammar, mandatory observation classes,
+canonical projection/comparator mapping, and deterministic closure/order algorithm. It derives a
+`Resolved Portable Observation Plan`; it does not own or copy Experiment intent.
+Exact semantic values use exact comparison; inexact Numeric values may use only the common
+profile's fixed tolerance. Empty or under-covering policies, caller-filtered subsets, unknown
+selectors, evaluator-specific fields, and widened tolerances are refusals (bADR-0014/0018).
+_Avoid_: comparison field list, best-effort diff, caller-selected observations
+
+**Resolved Portable Observation Plan**:
+The generated, validated projection of one Portable Observation Policy for an exact common Runtime
+profile definition, selected Package Lock/RIR, Experiment Specification, and selected vectors. It
+enumerates the complete ordered semantic selectors, observation kinds, projections, and comparators
+required by that comparison and has its own bound identity. It is neither authored intent nor LDB
+authority; empty, incomplete, duplicated, unknown, evaluator-specific, or tolerance-widened plans
+are refusals (bADR-0014/0018).
+_Avoid_: authored comparison plan, Experiment copy, caller field selection
+
 **Cross-evaluator comparison**:
 An immutable conformance artifact comparing observations from independent evaluator realizations
 whose Resolved Runtime profiles intentionally differ. It binds both profiles plus the exact common
 Kernel Specification, Language Definition Bundle, Package Lock, Resolved Model/RIR semantic
 payload, Runtime profile definition,
-Experiment Specification, external inputs, seed, declared portable-observation policy, and every
-match/mismatch. It is not an Evidence assertion and carries no embedded
+Experiment Specification, external inputs, seed, exact Portable Observation Policy, generated
+Resolved Portable Observation Plan, and every match/mismatch. It is not an Evidence assertion and
+carries no embedded
 `cross_evaluator_conformant` claim. A separately validated positive result may support that Evidence
 assertion; it is never a `Replay comparison` and cannot satisfy `reproducible`
 (bADR-0014/0018/0022).
@@ -845,6 +932,14 @@ artifact presence or command success alone proves none of these claims. In parti
 never upgrades to replay identity. Progress is an evidence graph, never a mutable status field
 (bADR-0018).
 _Avoid_: workflow status, passed flag, maturity level
+
+**Evidence claim kind**:
+A closed, versioned LDB registry entry defining one Evidence assertion label's subject types,
+required prerequisite graph, eligibility judgment, issuer/verifier class, and vectors. Domain
+packages may provide subjects and policies but cannot mint claim labels; an unknown or incomplete
+claim kind is an `evaluation` refusal. `approved` is deliberately excluded because it belongs only
+to Approval Record authority (bADR-0018).
+_Avoid_: free-form evidence label, package claim alias, approved assertion
 
 **Holdout verification**:
 Evaluation of a calibrated candidate against an immutable partition frozen before calibration and

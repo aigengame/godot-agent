@@ -4,6 +4,13 @@ status: accepted
 
 # Formulas as data: named forms first, a closed-operator expression tree as fallback
 
+> **Standard Schema 2.x outcome (2026-07-22):** this record remains accepted for 1.x. For 2.x,
+> [bADR-0013](0013-compiler-stages-and-semantic-equivalence-boundary.md) supersedes direct execution
+> of the authored tree, [bADR-0016](0016-closed-type-core-and-versioned-package-extensions.md)
+> generalizes typed parameters and operations, and
+> [bADR-0022](0022-machine-readable-language-rules-and-formal-semantics.md) supersedes reference-host
+> evaluator authority. Closed data, explicit parameters, and bounded pure expressions are retained.
+
 Attribute bases, effect magnitudes, and growth curves need formulas that are
 inspectable, mechanically validatable, and mutable by agents (PRD #501 US3, US8) — and
 tunable by Phase-2 search methods. PRD #501's problem statement records the inversion

@@ -62,6 +62,8 @@ Standard Schema 2.0 must:
   operation core;
 - add ordinary game attributes through Model Source alone and reusable mechanics through complete,
   versioned Domain packages rather than host-code changes;
+- admit later game genres through those same source/package contracts without changing Kernel
+  primitives, core constructors, runtime phases, compiler dispatch, or evaluator dispatch;
 - compile source into a public semantic representation whose identity and meaning are independent of
   implementation-private execution plans;
 - execute deterministic, atomic event transactions under an explicit, reproducible runtime profile;
@@ -229,7 +231,7 @@ The major subsystems are:
 The initial language uses a closed constructor set:
 
 `Bool`, `Int`, `Fixed`, `Decimal`, `Float`, `Enum`, `Record`, `Vector`, `List`, `Set`, `Map`,
-`EntityRef`, `Quantity`, and `Distribution`.
+`Ref<T>`, `Quantity`, and `Distribution`.
 
 The list is closed for one Schema major. New convenience names do not become primitive types.
 `Quantity` carries orthogonal facets instead:
@@ -245,6 +247,10 @@ Likewise, `constant`, `parameter`, `input`, `state`, `derived`, `output`, and `r
 value participates in evaluation rather than creating parallel type families. This separation is
 the main orthogonality mechanism: representation, domain meaning, unit, bounds, and evaluation role
 can evolve without a combinatorial type hierarchy.
+
+Core lifecycle roles are closed by the language. Domain roles are versioned nominal terms exported
+by packages; they never infer kind, unit, support, or Numeric policy. `rate`, for example, names a
+use while the Quantity unit still owns its denominator and dimensional legality.
 
 Parameters additionally declare legal domains and whether their variability is discrete or
 continuous. Search and calibration may choose only admitted candidates; they cannot turn an invalid
@@ -287,6 +293,8 @@ Entities compose stable identity with explicitly typed components; Model Source 
 composition, while Domain packages own reusable component and operation semantics. Adding an
 admitted component field does not add a compiler branch. Dynamic membership and target selection
 remain declared operations over `EntityRef`, never evaluator-owned object traversal.
+`EntityRef` itself is the `game.entity` specialization of the generic nominal `Ref<T>` constructor,
+not a game-specific core primitive.
 
 Effects are a composition of separate contracts for apply requirements, value source
 (`base`/authored or `resolved`/derived), capture timing (`snapshot` or `live`), continuous or
@@ -338,27 +346,21 @@ Identity follows semantic responsibility rather than file location:
 - artifact-envelope identity covers the immutable published artifact; and
 - Locator and Receipt record transport and retrieval facts without redefining artifact identity.
 
-An orthogonality probe exposed a previously ambiguous identity blast radius. The accepted rule is:
-
-| Change: add an unused package while ambiguity and selected closure remain unchanged | Required identity result |
-| --- | --- |
-| Exact whole LDB | Changes |
-| Selected Package Lock | Remains byte-identical |
-| RIR semantic payload | Remains byte-identical |
-| Exact-build Resolved Model wrapper | Changes because it binds the whole LDB |
-| Resolved Runtime profile | Changes because it binds the exact Resolved Model |
-| Old exact Experiment binding | Becomes ineligible; a new Experiment identity or an explicit compatibility-binding receipt must select the new wrapper |
-
-This is not exact Replay: the complete reproduction identity changed. The rule requires a normative
-metamorphic conformance vector before acceptance.
+The detailed identity law and unused-package metamorphic obligation belong to
+[bADR-0013](badr/0013-compiler-stages-and-semantic-equivalence-boundary.md). At macro level, selected
+semantic-payload identity is narrower than exact-build identity: changing unused LDB inventory may
+leave Lock/RIR bytes unchanged while rebinding the Resolved Model, downstream Runtime profile, and
+exact Experiment eligibility. Such executions are not Replay.
 
 ### 6.3 Package resolution
 
 Model Source declares requirements; it does not select ambient installed packages. The resolver
 uses the exact LDB inventory and deterministic compatibility rules to produce one canonical Package
 Lock. Ambiguity, unavailable capabilities, cycles, version conflicts, and unsatisfied requirements
-are typed refusals. A complete resolver must handle the general dependency graph and historical
-package identity rules; the prototype's selected cases are not a substitute.
+are typed refusals. A complete resolver must handle the general dependency graph. Package-release
+identity is exact within one LDB; the same logical id/version in another LDB is a distinct,
+non-interchangeable release world rather than a globally unique publication claim. The prototype's
+selected cases are not a substitute.
 
 ## 7. Extension and genre architecture
 
@@ -379,6 +381,13 @@ syntax, host callbacks, incomplete semantic stubs, or an escape hatch around the
 
 This three-level test—Model Source, Domain package, or Kernel change—is the architecture's main
 extensibility control. It permits new game concepts while keeping semantics closed and reviewable.
+
+It is also a hard **Core Extension Invariance** promise. A later genre may grow Model Source,
+packages, templates, Experiments, coverage rows, and vectors, but not Kernel primitives, core
+constructors, runtime phases, or host dispatch. A bounded deterministic mechanic that cannot pass
+that test falsifies Standard Schema 2.0's architecture and reopens its design gate; it is never
+papered over with a genre exception. Shipping support artifacts for every genre is out of scope,
+but preserving this extension route for every later genre is not.
 
 ### 7.2 Package ownership and boundaries
 
@@ -413,6 +422,20 @@ The genre-research reconciliation made five further boundaries explicit:
 These boundaries compose with the independent Effect source/timing axes and buildup/activation
 contract in section 5.3. Progression, economy, spatial/topology, time/scheduling, and randomness
 still require their own permanent conformance vectors at the relevant coverage gates.
+
+Two cross-contract protocols close previously implicit ordering:
+
+- Runtime Events follow the total order. Within one Event, declared Operations/Signal subscribers
+  contribute typed requests to one canonical request envelope, which is partitioned by canonical
+  effect lifecycle key into exactly one `EffectRequestSet` per key; typed removal then dominates
+  same-key transition/tick/reapplication before application/immunity,
+  buildup/activation, stack/cap/reapplication, capture/contribution/transition, and final schedule
+  delta. Child-Event requests resolve later against the post-commit Snapshot. bADR-0017 owns the
+  exact payload boundary, origin key, same-stage reducers, order, and cross-product vectors.
+- Interactive priority/reaction windows are bounded Domain state machines. `game.action` owns the
+  pending proposal; `game.turn` owns responder order, pass/close policy, and bounded nesting;
+  external responses enter at declared input boundaries. Counter, replace, cancel, and final
+  resolution remain ordinary Events, never a fourth phase or host callback.
 
 ### 7.3 Genre templates are distributions
 
@@ -481,6 +504,12 @@ runtime admission produces a **Resolved Runtime profile** binding that definitio
 Kernel, whole LDB, selected Package Lock, Resolved Model/RIR payload, evaluator build, platform,
 Numeric profile, RNG algorithm and streams, scheduler/effect policy, and resource budgets.
 
+The evaluator build also publishes an immutable **Evaluator Capability Manifest**. Admission checks
+its implemented Kernel laws, constructors, Numeric/RNG policies, scheduler/effect features,
+artifact schemas, and resource accounting against the exact requested authority and binds the
+manifest/validation receipt into the Resolved Runtime profile. It advertises implementation support;
+it cannot add or weaken semantics.
+
 Determinism is promised only inside that exact profile and complete reproduction key. A seed alone
 cannot establish reproducibility. Resource exhaustion is a typed refusal, not permission to publish
 partial success.
@@ -520,6 +549,11 @@ writes follow explicit snapshot boundaries; iteration order and tie-breaking are
 from a host container. RNG uses named streams so unrelated features cannot perturb each other's
 draw sequences. Numeric behavior—including overflow, rounding, non-finite values, comparison, and
 sampling—is fixed by the selected profile.
+
+Priority/reaction packages may advance bounded proposal/response/pass state across later input
+boundaries and ordinary transition Events. They cannot pause a running Event, schedule backward to
+input, or use Signals as interactive callbacks. Final Action resolution is scheduled only after the
+declared Domain window closes.
 
 On refusal, only the current event rolls back. Earlier committed snapshots remain part of the
 terminal audit. A refund, compensation, resurrection, or later correction is a new domain
@@ -593,6 +627,16 @@ their agreement is a **Cross-evaluator comparison**, not Replay. It may support 
 validated `cross_evaluator_conformant` claim but can never issue `reproducible` for a different
 profile.
 
+Cross-evaluator comparison uses one exact LDB-owned **Portable Observation Policy**. That closed,
+versioned artifact owns the selector grammar, mandatory classes, projection/comparator mapping,
+applicable Runtime/Numeric profile scope, and deterministic closure/order algorithm. The algorithm
+derives a **Resolved Portable Observation Plan** for the common profile, selected Lock/RIR, exact
+Experiment, and vectors. The comparison binds that plan and both complete observation sets;
+empty/under-covering policies or plans, caller-filtered subsets, unknown selectors, and widened
+tolerances refuse. Missing, unexpected, and mismatched observations are reported explicitly, so
+agreement cannot be manufactured by comparing only convenient fields or by copying Experiment
+intent into the LDB.
+
 ## 10. CLI and artifact publication
 
 ### 10.1 Public command taxonomy
@@ -642,7 +686,7 @@ coverage from implementation proof.
 | Completeness | Closed language/runtime/artifact contracts plus RPG/Roguelike coverage matrix | Research broadened the requirement contract and exposed new Variant rows; all rows remain open, so full Schema and genre coverage are not yet proven |
 | Reliability | Deterministic profiles, atomic events/publication, typed refusals, terminal audits, immutable evidence | The bounded executable authority mechanism passed independent mutation/refusal probes; permanent publication, Evidence issuance, and full-system conformance remain open |
 | Orthogonality | Quantity facets, source/package/kernel extension test, separate authored domains, RIR/EIR split | Selected extension and authority mechanisms passed narrow mutation probes without RPG host dispatch; whole-system and cross-genre proof remain open |
-| Extensibility | Complete content-addressed Domain packages with capabilities and vectors | Package seam is credible; general solving, historical uniqueness, and full mechanic breadth remain open |
+| Extensibility | Complete content-addressed Domain packages, Core Extension Invariance, and permanent cross-genre witnesses | Package seam is credible; reaction/priority and full mechanic breadth remain open until their permanent vectors pass |
 | Operability | Descriptor-derived CLI, immutable artifacts, idempotent invocation, receipts | Local descriptor and publication paths were exercised; production adapters and complete public surface remain open |
 
 Therefore the present conclusion is:
@@ -721,8 +765,8 @@ The selected mechanism passed its declared narrow checks; the evidence record ow
 blast-radius ambiguity. Compensation/refund is a later domain transition, not rollback. Entity,
 resource, and combat ownership was separated as stated in section 7.2.
 
-**Open gate:** executable selector/acceptance and Kernel/LDB judgments, general solving, historical
-package uniqueness, complete Effect and genre breadth, portable stores, exact Replay, independent
+**Open gate:** executable selector/acceptance and Kernel/LDB judgments, general solving, complete
+Effect and genre breadth, portable stores, exact Replay, independent
 Evidence, and all coverage rows remain open.
 
 **Non-claim:** passing the probe's checks is not a Schema, semantic-authority, genre, Replay, or
@@ -802,7 +846,7 @@ production RPG tracer**: versioned Kernel/LDB artifacts, a reusable harness, and
 vectors for the bootstrap, grammar, types/effects, lowering, diagnostics, Numeric/RNG, selected
 package resolution, identity, audit/publication, CLI, comparison, and Evidence paths exercised by
 that slice. This is not a horizontal implementation of every rule or package. Gate 3 grows the same
-suite source-to-evidence; later gates add general resolver, historical package, broader publication,
+suite source-to-evidence; later gates add general resolver, cross-LDB identity, broader publication,
 and Evidence cases as their vertical scenarios require them.
 
 Gate 2 is implemented in this dependency order:
@@ -815,6 +859,10 @@ Gate 2 is implemented in this dependency order:
    to those verified inputs and the resulting judgment artifact; and
 4. aggregate those exact receipt-backed judgments into claim candidates and, only when the policy
    permits, closure.
+
+Gate 2 also publishes and validates the closed Evaluator Capability Manifest, Portable Observation
+Policy, and Resolved Portable Observation Plan schemas required by the first independent-evaluator
+comparison. A comparison cannot close through an empty or caller-selected observation subset.
 
 A host or candidate utility may not mint Schema 2.x canonical encoding, identity domains,
 algorithms, or wire-schema identities. It consumes the permanent authorities from step 1 or is
@@ -847,7 +895,7 @@ close all 12 `Tracer` rows in the genre coverage matrix with Golden scenarios an
 
 ### Gate 4 — full RPG coverage
 
-Close the remaining 10 RPG rows without adding parallel compiler/runtime semantics. Validate package
+Close the remaining 11 RPG rows without adding parallel compiler/runtime semantics. Validate package
 composition, state ownership, effect breadth, encounters, progression, economy, and evidence paths.
 
 ### Gate 5 — Roguelike cross-genre tracer
@@ -856,6 +904,22 @@ Close the seven Roguelike-specific rows—including generated effect pools and c
 progression—by reusing the same Kernel, LDB, package, runtime, artifact, and
 evidence contracts. If Roguelike support requires a second language or host dispatch, the
 orthogonality claim fails and the architecture must be revisited.
+
+### Gate 6 — adversarial non-RPG extension witness
+
+Add a permanent nested priority/reaction-window scenario that exercises proposal, response,
+counter-to-counter, pass, cancellation/replacement, and final resolution across declared input
+boundaries. It is a focused scheduler-abstraction witness, not a promise that a complete card or
+tactics template ships. The witness may add only Model Source, package/LDB content, Experiments,
+rows, and vectors. Any Kernel, constructor, phase, compiler-dispatch, or evaluator-dispatch change
+fails Core Extension Invariance and reopens the architecture.
+Closure publishes an independently validated Extension Invariance Receipt: implementation builds
+are fixed before the complete reachable witness graph is traversed into a closed Non-Kernel
+Authority Token Inventory. The inventory covers every non-Kernel identity that can affect
+resolution, dispatch, result decoding, or trace; an independently validated exhaustive bijection
+renames every member. Both implementations mutually consume the artifacts without rebuild, and the
+receipt binds identical core projections/build identities plus the inventory, rename map, and public
+results. Any omitted token class or representative-only rename fails the gate.
 
 No further disposable architecture prototypes are planned. Gate 1 resolved the bounded semantic-
 authority mechanism risk; additional validation belongs in the permanent conformance and production
@@ -883,19 +947,11 @@ remains design history and conversion input, not a constraint that can weaken 2.
 
 ## 15. External design provenance
 
-External standards contribute selected mechanisms, not authority or compatibility claims:
-
-| Source | Adopted mechanism | Explicitly not adopted |
-| --- | --- | --- |
-| UCUM 2.2 | Pinned physical-unit codes and full parsing, canonical semantic equality, commensurability, dimension, and conversion-magnitude semantics | Treating game-only nominal kinds or units as UCUM concepts |
-| MLIR | Operation/dialect/interface/conversion architecture | MLIR libraries, TableGen, textual syntax, bytecode, or runtime |
-| SBML modular packages/composition | Explicit optional packages, capabilities, and composition discipline | SBML documents, simulation semantics, or compatibility |
-| FMI 3.0.2 | Lifecycle and instantiated-execution discipline | FMU packaging, C API, or FMI runtime |
-| Modelica 3.6 | Reserved equation-oriented modeling pattern | Initial continuous/algebraic execution; `math.equation` is refused |
-| ONNX | Separation of format version, operator domain/opset, evaluator, and model identity | ONNX graphs, operators, runtime, or compatibility |
-
-Each adopted mapping must name an exact source version, identify its local Kernel/LDB owner, and
-have conformance vectors. The local Kernel Specification and LDB remain the only machine authority.
+External standards contribute selected mechanisms, never peer authority or an ambient compatibility
+claim. [bADR-0020](badr/0020-explicit-mappings-to-external-modeling-standards.md) is the sole detailed
+mapping authority for the pinned editions, adopted mechanisms, excluded surfaces, local owners, and
+required vectors. The local Kernel Specification and LDB remain the only machine authority; this
+architecture document deliberately does not duplicate the mapping table.
 
 ## 16. Decision and acceptance map
 

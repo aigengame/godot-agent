@@ -4,6 +4,12 @@ status: accepted
 
 # Effects are first-class: the numeric core of buffs, debuffs, and over-time influence
 
+> **Standard Schema 2.x outcome (2026-07-22):** this record remains accepted for 1.x. For 2.x,
+> [bADR-0017](0017-genre-templates-and-coverage-contract.md) supersedes the monolithic Effect/Modifier
+> shape with separate application, capture, buildup, contribution, transition, scheduling,
+> stacking/reapplication, removal, and immunity contracts plus an explicit interaction order.
+> First-class duration, stacking, reapplication, and data-owned numeric behavior are retained.
+
 A modifier is not a bounded correction coefficient — it is the numerical core of a
 buff/debuff, status effect, or over-time effect: a feature with magnitude, duration,
 periodic ticks, and cross-effect interplay (maintainer review on PR #521). Builds offer

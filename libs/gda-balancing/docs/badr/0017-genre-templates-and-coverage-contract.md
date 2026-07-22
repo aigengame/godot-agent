@@ -48,7 +48,7 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.resource` | typed current/capacity storage including health/shield-like quantities, cost, regeneration, reservation and transfer | action timing, damage/healing stages, or lifecycle transition policy |
   | `game.query` | typed target filters, ordering, cardinality, tie-break and empty behavior | target-side effects |
   | `game.check` | threshold/opposed checks, hit resolution, dice/pools, advantage and success degree | damage application |
-  | `game.action` | requirements, resource commitment, wind-up/channel, cooldown, completion and interruption; execution of an already resolved Action plan | target enumeration, plan selection/projection, or damage math |
+  | `game.action` | requirements, resource commitment, pending proposal identity, wind-up/channel, cooldown, completion and interruption; execution/cancellation/replacement of an already resolved Action plan | target enumeration, plan selection/projection, response-window priority, or damage math |
   | `game.effect` | application and capture-source/timing policy, buildup/activation, contributions, transitions, schedule, stacking/reapply/remove and immunity contracts | action lifecycle or combat pipeline |
   | `game.combat` | ordered typed damage-component and healing stages, criticals, per-kind mitigation/resistance, shield resolution, aggregation/rounding, and defeat/revival transition policy | entity/resource state storage, generic effect lifetime or inventory |
   | `game.build` | equipment/skill/perk selection and atomic replacement, prerequisites, exclusivity, slots and synergy declarations | item ownership, reward sampling, or old-action/effect cancellation semantics |
@@ -59,7 +59,7 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.encounter` | party/enemy composition, spawn/wave schedule, objectives and terminal conditions | entity internals, action-plan choice/projection, or scheduler law |
   | `game.decision` | bounded candidate evaluation, immutable Action-plan selection, and policy-governed observable Intent projection | encounter composition, action execution, or evaluator callbacks |
   | `game.run` | Run/Meta scope declarations, start/end/reset and explicit retained transfers | progression formulas themselves |
-  | `game.turn` | optional rounds, initiative, action economy and turn windows | core logical-time scheduler |
+  | `game.turn` | optional rounds, initiative, action economy, reaction/priority windows, responder order, pass/close policy and bounded nesting | action-plan semantics or core logical-time scheduler |
   | `game.spatial` | optional positions, ranges, shapes, movement and spatial queries | generic target-query semantics |
 
   Package names are stable conceptual namespaces; final operation/type inventories live only in the
@@ -83,6 +83,64 @@ distribution contract and a falsifiable definition of genre completeness.
   damage/healing stages; resource owns current/capacity transfer. Cross-package operations declare
   their reads, writes, events, closed gameplay outcomes, and possible typed refusals under
   bADR-0016. An unqualified value field cannot choose either capture axis in host code.
+
+- **The initial Effect lifecycle has one observable interaction order.** Runtime Events resolve
+  sequentially by bADR-0014's total order; a later Event observes the earlier Event's commit, and an
+  active Event is never interrupted “mid-transition.” Inside one Event, the primary Operation and
+  its statically resolved Signal subscribers may emit typed `EffectRequest` facts into the declared
+  transaction reducer buffer. Each request carries a canonical **Effect lifecycle key**:
+  `(effect-definition identity, resolved subject/target identity, stack-partition key)`. The selected
+  effect definition owns a closed, pre-instance partition projection over typed request inputs—for
+  example source identity, slot, or channel—so new application and buildup requests derive the same
+  key before an instance exists. An existing-instance request also carries its instance identity,
+  whose recorded lifecycle key must match. A multi-target operation expands into one request per
+  resolved target using canonical target order; no request spans keys.
+
+  After all handlers finish, `game.effect.resolve-requests@1` closes one Event-wide canonical
+  **Effect request envelope**, sorts it by lifecycle key and origin key, partitions it into exactly
+  one `EffectRequestSet` per lifecycle key, and reduces those sets in lifecycle-key order against
+  the same pre-event Snapshot before final writes/schedules commit. A request scheduled as a child
+  Event is not in that envelope and resolves later against the post-commit Snapshot; no host
+  callback or late buffer append may cross this boundary. Missing/ambiguous partition input,
+  instance-key mismatch, duplicate membership, or inconsistent grouping is a typed refusal. Each
+  canonical request set is reduced in this order:
+  1. validate instance/definition identities and declared request variants;
+  2. apply typed removal/expiry/dispel requests, which dominate same-instance tick, transition,
+     contribution, and reapplication requests and cancel the exact outstanding schedule;
+  3. for surviving/new candidates, evaluate application requirements and immunity;
+  4. accumulate buildup and perform at most one threshold activation;
+  5. resolve stack identity/cap and the closed reapplication policy;
+  6. capture declared values, then compute contributions and state transitions; and
+  7. derive the final bounded schedule/cancellation delta for the single atomic commit.
+  Every request also carries a canonical origin key derived from the emitting Operation identity,
+  Resolved source-symbol identity, and declared emission ordinal or canonical bounded-iteration
+  index. The selected lifecycle policy closes each stage with a total request-variant order and a
+  complete multiplicity reducer. For example, coincident expiry and dispel select exactly one typed
+  removal cause by the policy's declared cause order; multiple buildup requests use the declared
+  Quantity reducer; and multiple reapplications fold in canonical origin-key order. Duplicate origin
+  keys, an unordered request variant, or a missing reducer are static/Runtime refusals as applicable.
+  Every losing/coalesced request and the winning reduction enter the trace; host arrival, map, or
+  subscriber iteration order is never consulted. The Event envelope, lifecycle-key derivation and
+  partition, per-set payload, origin provenance, reduction order, and boundary between same-Event
+  requests and later child Events are public trace observations.
+  At cap, reapplication must return one declared outcome such as unchanged, refresh, replace, or
+  reduce-into-existing; it cannot silently exceed the cap. Atomic replacement is an explicit
+  operation that removes and creates under its own closed outcome, never an inference from
+  coincident requests. The trace records every suppressed request and precedence decision. A later
+  package version may select a different complete precedence policy only by giving it a new
+  operation/policy identity and vectors; host iteration order and partial policy overrides are
+  forbidden.
+
+- **Interactive reactions use explicit windows over the ordinary Event scheduler.** `game.action`
+  creates a stable pending proposal/plan identity. `game.turn` owns the eligible-responder order,
+  priority holder, pass state, close rule, and bounded nesting for the reaction window. Choices such
+  as counter, replace, cancel, or pass arrive through declared `input` boundaries and advance the
+  window through ordinary `transition` Events; only a closed window schedules final Action
+  resolution. Advancing scheduler logical time for another input boundary does not advance
+  package-owned turn or game-world time. A readied action is the same protocol with a declared
+  trigger that opens or advances
+  a window. No action package may pause an active Event for a host callback, deliver a reaction as a
+  Signal, or introduce a hidden resolve-before-transition phase.
 
 - **Ordered collections are Domain behavior, not `List` semantics or inventory.**
   `game.collection` composes core collection values into typed collections whose instance identity,
@@ -164,6 +222,25 @@ distribution contract and a falsifiable definition of genre completeness.
   subsequent run; and replay equality under identical model, experiment, Resolved Runtime profile,
   external input, and seed identities. Metroidvania-like, survivors-like, and deckbuilder-like
   templates may specialize package selection while satisfying the shared lifecycle rows.
+
+- **Every later Genre template must preserve Core Extension Invariance.** The release may add
+  Model Source, Domain package releases, template members, Experiments, rows, and vectors, but its
+  complete support path must run under the unchanged Kernel primitives, core constructors,
+  three-phase scheduler, compiler dispatch, and evaluator dispatch. The permanent conformance suite
+  includes a non-RPG nested priority/response witness specifically because it pressures scheduler
+  abstraction differently from the RPG/Roguelike tracers. Passing that witness does not claim every
+  genre is already covered; it makes the architectural promise falsifiable. If any later bounded,
+  deterministic genre requirement needs a core semantic exception, Schema 2.0 fails this invariant
+  and the architecture gate reopens rather than weakening the promise.
+  Closure requires bADR-0016's public Extension Invariance Receipt: independent builds are frozen
+  before the witness graph and its closed Non-Kernel Authority Token Inventory are derived. That
+  inventory traverses every reachable artifact and includes every package/capability,
+  type/kind/unit/role, Operation/parameter/result variant, Diagnostic, Signal/Event,
+  effect/resource, profile/policy, Experiment/Metric/selector, vector, and other non-Kernel identity
+  that can affect resolution, dispatch, result decoding, or trace. An independently validated
+  bijection renames every member consistently; both implementations consume each other's artifacts
+  without rebuild, and the exact core projections remain identical. Source-diff assertions,
+  representative rename samples, or private helper inspection cannot close the invariant.
   Deckbuilder-like releases select the ordered-zone Variant row; releases that expose planned
   opponent behavior select the decision/Intent Variant row. Those optional rows are not inherited
   by a release that does not select their capabilities.
@@ -176,7 +253,7 @@ distribution contract and a falsifiable definition of genre completeness.
   slice: one admitted generic Quantity attribute used a Model Source-only edit, while selected
   resource/interruption/effect mechanics entered through complete package-release authorities and
   generic core paths. It did not cover complete Effect semantics, executable language authority,
-  historical package identity, general solving, normative Evidence, or any Genre row. Only after
+  general solving, normative Evidence, or any Genre row. Only after
   the remaining design gates pass may a
   production tracer claim the full source-to-RIR, target, cost, check/damage, effect, encounter,
   Metrics, Evidence, and public-CLI path. Supporting Golden scenarios isolate outcome, refusal,
@@ -229,6 +306,30 @@ distribution contract and a falsifiable definition of genre completeness.
   duplicate/ambiguous subscription, bounded and unbounded cycle, multiple-subscriber order,
   same-snapshot visibility, and subscriber-fault rollback vectors. Source topology must lower to one
   canonical RIR table; an evaluator registry cannot add or reorder subscribers.
+- For Effect interactions, cross reapplication-at-cap with immunity, buildup-threshold activation,
+  scheduled tick/transition, expiry, and dispel. Cross removal with transition/contribution in one
+  transaction and in adjacent equal-time Events. Assert the declared precedence outcome, suppressed
+  requests, exact cancellations, final stack/instance identity, contribution state, and schedule;
+  no host order or partially declared policy may affect the result. Permute source declaration and
+  host-container order while preserving canonical request keys and require byte-identical outcomes;
+  refuse duplicate keys, an unordered removal cause, a missing same-stage reducer, or a late append
+  after request-set closure. Move the same request from the current Event buffer to a declared child
+  Event and assert that it observes the prior commit rather than joining the original Snapshot/reducer.
+  Mutate a new-application partition input, existing-instance lifecycle key, multi-target expansion,
+  envelope order, or request-to-set membership and require identical canonical grouping or a typed
+  refusal; no implementation may use instance existence or host grouping order to choose a bucket.
+- Run a non-RPG nested priority-window scenario with proposal, counter, counter-to-counter, pass,
+  cancellation/replacement, and final resolution across declared input boundaries. The scenario may
+  add only package/LDB content and Model Source; changing a Kernel law, constructor, runtime phase,
+  compiler branch, or evaluator branch fails Core Extension Invariance.
+- Freeze independent compiler/evaluator builds before deriving the witness graph and its complete
+  Non-Kernel Authority Token Inventory, then rename every inventory member through an independently
+  validated bijection and repeat mutual artifact consumption. The inventory must include
+  Capability, Diagnostic, profile/policy, result-variant, Signal, Event, and every other reachable
+  non-Kernel identity, not only package/type/operation tokens. Validate a public Extension
+  Invariance Receipt binding the unchanged core projections/build identities, inventory, complete
+  rename mapping, exact inputs, and public outputs; an incomplete inventory, omitted or invalid
+  rename, rebuild, host capability addition, or private helper path refuses closure.
 - For every matrix row, execute its Golden scenario plus each outcome/refusal/boundary vector only
   through public build/run artifacts. Private evaluator state, helper-only behavior, or prose
   expected results cannot close a row. Delete or mutate one exact prerequisite artifact while

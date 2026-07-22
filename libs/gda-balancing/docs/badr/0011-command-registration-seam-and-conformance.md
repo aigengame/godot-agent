@@ -4,6 +4,12 @@ status: accepted
 
 # One command descriptor seam: registration, projections, and the conformance harness
 
+> **Standard Schema 2.x outcome (2026-07-22):** this record remains accepted for the 1.x surface.
+> [bADR-0015](0015-invocation-outcomes-and-diagnostic-locations.md) supersedes the 1.x-only outcome
+> assumptions, and [bADR-0021](0021-schema-2.0-cli-taxonomy-and-structured-surface.md) supersedes and
+> generalizes the descriptor/harness for the 2.x artifact surface. One registration seam,
+> projection-derived help/schema/dispatch, and exhaustive conformance remain retained.
+
 #518 requires the CLI contract to be structurally self-enforcing: a single seam every
 command plugs into, plus a conformance test that walks the registered surface asserting
 envelope and exit-code behavior — enforcement by architecture and tests, never by

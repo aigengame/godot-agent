@@ -4,6 +4,12 @@ status: accepted
 
 # Determinism and seed surfacing: explicit seeds, echoed effective seed, version-scoped reproducibility
 
+> **Standard Schema 2.x outcome (2026-07-22):** this record remains accepted for 1.x and for its
+> current CLI seed convention until the 2.x surface replaces it.
+> [bADR-0014](0014-deterministic-atomic-event-runtime.md) supersedes its 2.x reproduction scope with
+> exact model/Experiment/input/Resolved-Runtime-profile identities, Named streams, Replay, and
+> Cross-evaluator comparison. Explicit seeds and unconditional effective-seed surfacing are retained.
+
 No randomness exists in the v1 surface — Monte-Carlo estimation is Phase-2 territory
 (#509/#510) — but the convention cannot wait for Phase 2: #518 places "how seeds
 surface on the CLI" in this gate, and #504's acceptance phrase "seeded and

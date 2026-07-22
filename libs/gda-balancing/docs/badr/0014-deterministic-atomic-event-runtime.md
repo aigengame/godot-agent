@@ -94,6 +94,20 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   Undo is represented by an explicit compensating event or a higher-level rollback model, not by
   scheduler time travel.
 
+- **Reaction and priority windows are bounded Domain protocols, not hidden scheduler phases.** A
+  package may represent a proposed action, eligible responders, pass state, nested responses, and a
+  pending resolution stack as ordinary nominal state. External choices enter only through declared
+  later `input` boundaries; advancing scheduler logical time to such a boundary does not by itself
+  advance a package-owned round, turn, cooldown, or game-world clock. `transition` Events open,
+  advance, or close the window and schedule final resolution only after the package's closed
+  pass/priority rule completes. Counter, replacement, or
+  cancellation targets stable pending-action/event identities and remains prospective. The package
+  declares maximum response depth, pass count, candidate count, and event budget. It cannot enqueue
+  a backward `input`, create a fourth phase, suspend an active Event while calling host code, or
+  reinterpret Signal delivery as an interactive callback. This protocol lets card-style priority,
+  counterspells, and readied actions compose over the fixed scheduler without changing core
+  semantics.
+
 - **Gameplay compensation is not Event rollback.** Package outcomes such as refund, release,
   reversal, or compensation are ordinary committed domain transitions and may occur in a later
   Event. `rollback` is reserved for discarding the currently refusing Event's uncommitted buffers;
@@ -142,6 +156,17 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   stage-appropriate refusal; host code may not execute behavior merely because it implements it.
   During execution, budget and declared-effect accounting is deterministic and observable.
 
+- **Evaluator capability is explicit implementation provenance, not semantic authority.** Each
+  evaluator build publishes an immutable **Evaluator Capability Manifest** naming the exact Kernel
+  law versions, closed constructors, Numeric/RNG policies, scheduler/effect features, artifact
+  schemas, and resource-accounting contracts it implements. Runtime admission validates that
+  manifest against the exact Kernel/LDB, selected Package Lock/RIR projection, Runtime profile
+  definition, and requested comparison policy, then binds its identity and validation receipt into
+  the Resolved Runtime profile. The manifest cannot admit an operation absent from the LDB, weaken a
+  law, or authorize host behavior; it only makes unsupported implementation surface fail before
+  dispatch. It is distinct from bADR-0016's generated Capability manifest, which describes the
+  selected model/package graph rather than evaluator support.
+
 - **Determinism is scoped by the Resolved Runtime profile.** That artifact plus exact
   Resolved Model, Experiment Specification, external input, and effective seed identities forms the
   reproduction key. The LDB-owned definition and generated resolved artifact cannot identify each
@@ -154,8 +179,35 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   **Cross-evaluator comparison**. That comparison binds both profiles, the exact common Kernel
   Specification/LDB/Package Lock/Resolved-Model/RIR-semantic-payload/Runtime-profile-definition/
   Experiment/input/seed identities,
-  and an LDB-owned portable-observation policy. It may support `cross_evaluator_conformant` Evidence
-  under bADR-0018, but it is not replay and cannot issue `reproducible`.
+  an exact LDB-owned Portable Observation Policy, and its generated Resolved Portable Observation
+  Plan. It may support `cross_evaluator_conformant` Evidence under bADR-0018, but it is not replay
+  and cannot issue `reproducible`.
+
+- **Portable observations are derived by one closed, non-vacuous LDB policy.** A
+  **Portable Observation Policy** has its own stable id, version, content identity, applicable
+  Runtime/Numeric profile definitions, closed selector grammar, mandatory observation classes,
+  canonical projection/comparator mapping, and deterministic closure/order algorithm. Before
+  comparison, that algorithm produces a generated **Resolved Portable Observation Plan** binding
+  the exact policy, common Runtime profile definition, selected Package Lock/RIR, Experiment
+  Specification, and selected vectors. The plan enumerates every required observation contract;
+  each names a semantic selector, observation kind, canonical projection, and comparator. It is a
+  validated projection, never an authored authority or a copy of Experiment intent.
+
+  The closure includes every observation required by the common profile, reachable selected
+  package-release contracts, exact Experiment, and selected vectors: applicable operation outcomes,
+  state/Snapshot projections, Event and Signal order, logical Named-stream samples, Effect lifecycle
+  transitions, Metrics, typed refusals, and terminal-audit facts. Exact values, nominal identities,
+  kinds, units, discriminators, order, and Diagnostic codes use exact comparison; admitted inexact
+  Numeric values use only the tolerance law fixed by the common Runtime/Numeric profile definition.
+  Evaluator build ids, platform-specific receipt fields, Locators, and EIR are bound provenance but
+  are not portable semantic observations.
+
+  A comparison binds the exact plan, retrieves both complete observation sets, and reports every
+  missing, unexpected, or mismatched contract in plan order. Empty policies/plans; optional omission
+  of a required observation; unknown or duplicate selectors; evaluator-specific selectors; and
+  tolerance widening beyond the common profile are typed `evaluation` refusals. An observed value
+  mismatch is a completed negative Verdict. Policy and plan identities enter the prerequisite graph,
+  so neither the caller nor the comparison tool can select only fields that happened to agree.
 
 - **Numeric promises are profile-specific.** A portable exact profile can promise cross-platform
   bit identity only for standardized exact/fixed operations and sampling mappings. A profile that
@@ -197,7 +249,8 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 - Repeated execution inside one evaluator/platform scope must emit the same ordered trace under an
   identical Resolved Runtime profile, subject only to the selected definition's numeric tolerance.
 - Independent evaluators run under their own Resolved Runtime profiles and must agree on the
-  portable observations selected by one exact LDB-owned Cross-evaluator-comparison policy; their
+  complete required portable observations selected by one exact LDB-owned Portable Observation
+  Policy and its Resolved Portable Observation Plan; their
   agreement is conformance evidence, not an exact replay identity claim.
 - Experiment and evidence artifacts must bind external-input identity, effective seed, Runtime
   profile, terminal snapshot, and refusal details.
@@ -214,7 +267,21 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   profile definition, external inputs, and seed
   through independent evaluators under their distinct Resolved Runtime profiles; require a
   separately typed Cross-evaluator comparison to bind both profiles and evaluate the exact declared
-  portable observations. It must neither masquerade as Replay nor issue `reproducible`.
+  portable observations under the exact Portable Observation Policy and Resolved Portable
+  Observation Plan. It must neither masquerade as Replay nor issue `reproducible`.
+- Reject empty, under-covering, duplicate-selector, unknown-selector, evaluator-specific, and
+  tolerance-widening Portable Observation Policies or Resolved Portable Observation Plans. Mutate
+  or omit one required outcome,
+  Snapshot field, event/signal order item, RNG sample, Effect transition, Metric, refusal, or
+  terminal-audit fact and require a deterministic refusal or negative comparison rather than a
+  vacuous positive claim.
+- Exercise proposal, response, nested counter, pass, cancellation/replacement, and final-resolution
+  windows across declared input boundaries. Assert bounded Domain state and ordinary transition
+  Events preserve the fixed three phases and prospective cancellation; hidden phases, backward
+  inputs, host callbacks, and unbounded response depth must refuse.
+- Remove one required entry from an Evaluator Capability Manifest or add an unsupported host-only
+  feature. Runtime admission must refuse before dispatch; changing only the manifest/build
+  provenance must rebind the Resolved Runtime profile without changing Kernel/LDB semantics.
 - Cover every scheduler edge and budget with positive and refusal vectors: phase/priority/FIFO
   order, backward scheduling, cancellation, queue/event/zero-time exhaustion, undeclared streams,
   and primitive/effect-profile incompatibility.

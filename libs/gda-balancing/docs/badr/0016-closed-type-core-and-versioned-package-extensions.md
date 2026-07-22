@@ -18,7 +18,7 @@ therefore requires a small closed type language and a constrained package extens
 ## Decision
 
 - **The core type-constructor set is closed:** `Bool`, `Int`, `Fixed`, `Decimal`, `Float`, `Enum`,
-  `Record`, `Vector`, `List`, `Set`, `Map`, `EntityRef`, `Quantity`, and `Distribution`.
+  `Record`, `Vector`, `List`, `Set`, `Map`, `Ref<T>`, `Quantity`, and `Distribution`.
   Domain packages compose and instantiate these constructors. They cannot add primitive wire
   syntax, host-language objects, or new representation semantics. Adding or changing a constructor
   is a Standard Schema major decision in the Language Definition Bundle.
@@ -42,18 +42,29 @@ therefore requires a small closed type language and a constrained package extens
   `constant`, `parameter`, `input`, `state`, `derived`, `output`, and `random`. Domain roles such as
   `current`, `capacity`, `cost`, and `rate` compose separately on typed symbols or component fields.
   Roles constrain who may initialize, tune, read, write, sample, or export a value; they do not
-  create `CurrentNumber`, `CostNumber`, or other redundant type constructors.
+  create `CurrentNumber`, `CostNumber`, or other redundant type constructors. Domain roles are
+  versioned nominal terms owned by their exporting package and may be added without changing the
+  core role set. They never infer or override representation, nominal kind, unit/dimension,
+  support, or Numeric policy. In particular, `rate` describes a domain use; its denominator and
+  dimensional legality still come only from the Quantity unit and operation contract.
 
 - **`attribute` is not a 2.x language primitive.** A domain package may call a Quantity-typed symbol
   or component field an attribute in its own vocabulary, but the compiler sees the same typed
   declaration machinery used by resources, cooldowns, currencies, positions, counters, and rates.
   New attributes therefore require data declarations, not changes to the root schema or evaluator.
 
-- **Entities compose through typed records/components and EntityRef.** A package defines nominal
-  component contracts using core constructors. Entity references state the required nominal entity
-  or capability contract; they are not untyped ids. A package cannot reopen another package's
-  record or attach undeclared fields. Additional behavior composes as a separate component and
-  explicit operations over imported contracts.
+- **References are generic and nominal; entities are a package specialization.** `Ref<T>` denotes a
+  stable reference to a nominal target contract and carries no traversal, lifecycle, or game-object
+  semantics. Its canonical value is the pair of the statically known nominal target identity `T`
+  and one canonical package-defined reference key; equality requires both to match. Referential
+  existence, creation, lifetime, and missing-target outcomes belong to the exporting package's
+  declared operations, so the core never dereferences a host object or assumes compile-time
+  existence. `game.entity` defines `EntityRef` as its admitted `Ref<game.entity.Entity>` alias and
+  owns the referenced entity/component contract. Entity references are therefore not untyped ids,
+  while non-game packages may reference their own nominal artifacts without pretending they are
+  entities. A package cannot reopen another package's record or attach undeclared fields.
+  Additional behavior composes as a separate component and explicit operations over imported
+  contracts.
 
 - **Every Domain package release is one complete, immutable artifact in the Language Definition
   Bundle.** Its content identity covers the namespaced package id; semantic version; required and
@@ -63,8 +74,11 @@ therefore requires a small closed type language and a constrained package extens
   normative vectors. Splitting those facts across peer registries is prohibited. Package contents
   cannot exist in an evaluator registry without appearing under this exact release identity.
   Duplicate `(package id, version)` entries with different content are refused within one admitted
-  bundle. Historical uniqueness across independently published bundles needs an explicit release-
-  index/transparency authority; a semantic-version string alone does not prove it.
+  bundle. Across different LDB identities, `(package id, version)` is only a logical coordinate:
+  package-release content identity plus the owning LDB identity determines the exact release.
+  Two bundles that bind that coordinate to different content are distinct, non-interchangeable
+  language worlds; neither claims global historical uniqueness, and no release-index or
+  transparency service is part of Standard Schema 2.0.
 
 - **Dependency resolution is deterministic and single-version per package id.** A Resolved Model
   binds one exact version for every package identity. Incompatible majors coexist only under
@@ -154,6 +168,39 @@ therefore requires a small closed type language and a constrained package extens
   Structural similarity does not make records or Quantity kinds interchangeable. Adapter packages
   and Conversion operations make interoperability reviewable.
 
+- **Future genres are an extension invariant, not a request for new core semantics.** A candidate
+  genre may add Model Source declarations, complete Domain package releases, template releases,
+  Experiment Specifications, coverage rows, and vectors. It may not require a new Kernel primitive,
+  core constructor, runtime phase, host dispatch branch, ambient callback, or evaluator-owned
+  fallback. Package operations may encode domain protocols and state machines over the existing
+  closed types, atomic Events, explicit inputs, and bounded resources. If a bounded deterministic
+  mechanic cannot be represented that way, the Standard Schema 2.0 architecture—not the candidate
+  template—has failed its extensibility requirement and the relevant design gate must reopen. This
+  invariant does not claim that every genre template ships in 2.0; it requires every later genre
+  addition to preserve the same core semantics.
+
+- **Core Extension Invariance produces a public proof artifact.** An independently validated
+  **Extension Invariance Receipt** binds the identical pre/post Kernel identity, core-constructor and
+  runtime-phase projections, compiler/evaluator build identities, base and extended LDB identities,
+  exact added package releases, Model/Experiment/vector identities, mutually produced RIR/results,
+  and a complete authority-token rename mapping. A Kernel/LDB-owned traversal law derives a closed
+  **Non-Kernel Authority Token Inventory** from the complete reachable witness artifact graph. It
+  includes every package/capability, type/kind/unit/role, Operation/parameter/result variant,
+  Diagnostic, Signal/Event, effect/resource, profile/policy, Experiment/Metric/selector, vector, and
+  other non-Kernel identity that can affect resolution, dispatch, result decoding, or trace. An
+  independently validated bijection must rename every inventory member consistently; omitted,
+  duplicate, reserved-Kernel, or extra mappings refuse.
+
+  The witness graph and its complete rename inventory are derived after the implementation builds
+  are fixed; the same unmodified builds must admit,
+  lower, mutually consume, and execute both the original and consistently renamed forms through
+  generic Kernel/LDB paths. Comparison inverse-maps renamed semantic observations only for the
+  declared equivalence judgment while preserving the distinct exact artifact identities. Rebuilding
+  either implementation, declaring any inventory member as a host capability, omitting a rename, or
+  changing a core projection makes the receipt ineligible. The
+  receipt is conformance evidence, not a new semantic authority; its exact inputs and independent
+  verifier are checked through the ordinary claim-closure path.
+
 - **Every package ships executable conformance evidence.** Positive, negative, boundary,
   compatibility, deterministic replay, and declared-effect vectors are required before a package
   enters the Language Definition Bundle. The resolver and reference evaluator discover vectors
@@ -226,6 +273,23 @@ therefore requires a small closed type language and a constrained package extens
   reusable mechanic/operation through one versioned package/LDB authority edit plus its normative
   vectors; every other projection is generated or reverse-conformance-checked, and unrelated
   compiler/runtime dispatch remains unchanged.
+- Admit a non-RPG priority/reaction-window package suite that represents proposal, response, pass,
+  nested response, cancellation/replacement, and final resolution as bounded Domain state and
+  ordinary Events. The suite may add packages and vectors but must leave the Kernel, constructor
+  set, three runtime phases, compiler dispatch, and evaluator dispatch unchanged. Any required core
+  edit fails the genre-extension invariant rather than being waived as a special case.
+- Freeze two independent compiler/evaluator build identities, then derive the complete reachable
+  Non-Kernel Authority Token Inventory and consistently rename every member after those builds are
+  fixed. Require both
+  builds to admit, lower, mutually consume, and execute the renamed suite without rebuild or host
+  capability changes, and publish one Extension Invariance Receipt binding identical core
+  projections plus the inventory and complete bijection. Mutate or omit each token class—including
+  Capability, Diagnostic, profile/policy, result variant, Signal, and Event—and require refusal. A
+  missing token, private helper, or changed build identity cannot close the witness.
+- Admit two LDBs that bind the same logical `(package id, version)` coordinate to different release
+  content. Assert that each resolves only inside its own exact LDB, produces distinct package-release
+  and Resolved Model identities, and cannot reuse the other bundle's Lock, RIR projection, Runtime
+  profile, Experiment binding, or Evidence. Within one LDB, the duplicate remains a refusal.
 
 ## References
 
