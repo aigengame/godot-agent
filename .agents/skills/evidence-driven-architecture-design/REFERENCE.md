@@ -13,7 +13,8 @@ Choose repository-native names, but preserve these ownership roles:
 | Architecture narrative | macro topology, responsibilities, cross-cutting invariants, delivery order | duplicate detailed decisions or machine semantics |
 | Decision records | one binding decision, alternatives, consequences, validation | status dashboard or broad narrative |
 | Glossary/context | canonical terms and distinctions | a second architecture specification |
-| Executable specification | closed schemas/rules, scenarios, vectors, observable contracts | prose examples or expected strings only |
+| Specification/standard | normative semantics, public contracts, conformance requirements, versioning, and designation of normative machine-readable artifacts | architecture rationale, implementation details, evidence, or acceptance state |
+| Executable conformance assets | machine-checkable schemas, scenarios, vectors, validators, and observable oracles that realize or test the specification | an independent semantic authority or proof merely because tests pass |
 | Evidence record | prototype/research inputs, outputs, provenance, bounded conclusions | semantic authority or acceptance state |
 | Acceptance tracker | current gates and their state | proof without required artifacts |
 | Prototype | one disposable risk probe | production implementation or permanent authority |
@@ -21,7 +22,11 @@ Choose repository-native names, but preserve these ownership roles:
 
 Build a reference graph such as:
 
-`requirement → decision → term → specification/vector → implementation owner → evidence → gate`
+`requirement → decision → term → specification/standard → executable conformance asset → implementation owner → evidence → gate`
+
+The specification/standard declares which machine-readable assets are normative. Other executable
+assets are derived conformance mechanisms; passing them becomes evidence only after their binding
+to the exact specification is verified.
 
 For each fact, mark exactly one authoritative source and every derived copy. Prefer a one-way
 reference over restating a list, algorithm, count, precedence rule, or state machine. Reconcile the
