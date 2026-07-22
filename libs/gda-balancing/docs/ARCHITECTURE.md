@@ -760,12 +760,14 @@ normative vectors, durable adapters, and cross-genre verticals; another disposab
 not close them.
 
 Subsequent research instances mapped representative mechanics from three game families into the
-coverage matrix. That exercise did not identify a Kernel- or host-owned stop signal in those
-instances, but it refined eight Domain-package and coverage contracts: split typed damage,
-base/resolved plus snapshot/live Effect axes, buildup/activation, ordered collection zones, closed
-rarity-policy variants, typed reward disposition, decision/intent separation, and atomic build
-replacement. Those mappings are requirement discovery, not executable conformance. They do not
-prove abstraction completeness, close a coverage row, or advance Gate 2.
+coverage matrix. The complete, non-authoritative research record is preserved on the dedicated
+research branch at commit [`9664c80`](https://github.com/aigengame/godot-agent/tree/9664c80ea57c7dece4f7e7cd7b9fe746cfa3049f/libs/gda-balancing/research/schema2-genre-conformance),
+not in this specification branch. That exercise did not identify a Kernel- or host-owned stop
+signal in those instances, but it refined eight Domain-package and coverage contracts: split typed
+damage, base/resolved plus snapshot/live Effect axes, buildup/activation, ordered collection zones,
+closed rarity-policy variants, typed reward disposition, decision/intent separation, and atomic
+build replacement. Those mappings are requirement discovery, not executable conformance. They do
+not prove abstraction completeness, close a coverage row, or advance Gate 2.
 
 ## 13. Validation and delivery plan
 
