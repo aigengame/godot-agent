@@ -10,8 +10,8 @@ phase and then crash model construction (exit 4) instead of being refused (exit
 2). These tests pin that the guards hold — a near-miss id in either position, and
 unknown/miscased keys, all land in ``{0, 2}``, never the internal path.
 
-They also pin the published artifact itself: ``schema get structural`` must
-reproduce the committed golden byte-for-byte, and the golden must stay portable
+They also pin the historical 1.x structural projection itself against the
+committed golden byte-for-byte, and the golden must stay portable
 (ECMA-262 patterns only) and hardened (every ``patternProperties`` node closed).
 """
 
@@ -23,6 +23,8 @@ import pytest
 from pydantic import ValidationError
 
 from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
+from gda_balancing.emit import canonical_json
+from gda_balancing.schema.bundle import current_bundle
 from gda_balancing.schema.funnel.structural import structural
 from gda_balancing.schema.model.document import DesignDocument
 
@@ -206,13 +208,12 @@ def test_reshaped_schema_verdict_matches_model_construction(formula):
 # --- The published artifact: golden snapshot + portability/hardening ---------
 
 
-def test_schema_get_structural_matches_golden(run_cli):
+def test_historical_structural_projection_matches_golden():
     # Byte-for-byte against the committed golden. To regenerate after a reviewed
     # model change, overwrite it deliberately and review the diff:
-    #   uv run gda-balancing schema get structural \
-    #     > libs/gda-balancing/tests/goldens/structural_schema.json
-    exit_code, stdout, stderr = run_cli(["schema", "get", "structural"])
-    assert (exit_code, stderr) == (0, "")
+    # This remains an internal 1.x regression fixture after the 2.0 public
+    # `schema get` surface replaces the historical structural/catalog tokens.
+    stdout = canonical_json(current_bundle().structural_schema())
     assert stdout.encode("utf-8") == _GOLDEN.read_bytes()
 
 

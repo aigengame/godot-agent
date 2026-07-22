@@ -17,12 +17,15 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel, ConfigDict
 
-from gda_balancing.envelope import RefusalReport
+from gda_balancing.envelope import USAGE_CODES, RefusalReport
+from gda_balancing.schema2.bootstrap import SCHEMA2_REFUSAL_STAGES
+from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 
 # Reserved by bADR-0007 for Phase 2; the conformance harness asserts no
 # registered command occupies them, and dispatch resolves them as unknown.
 RESERVED_GROUPS = frozenset({"evaluation", "tuning"})
-RESERVED_META = frozenset({"manifest"})
+RESERVED_META: frozenset[str] = frozenset()
+_SCHEMA2_REFUSAL_STAGES = frozenset(SCHEMA2_REFUSAL_STAGES)
 
 
 class ArtifactSpec(BaseModel):
@@ -87,7 +90,7 @@ class CommandDescriptor:
     # exits, never sees a usage error. An unexpected exception here is the
     # sole path to `internal` / exit 4. Typed `...` because each command's
     # handler takes its own concrete input model (contravariance).
-    handler: Callable[..., BaseModel | RefusalReport]
+    handler: Callable[..., BaseModel | RefusalReport | Schema2RefusalReport]
     fixtures: ConformanceFixtures
     positional_field: str | None = None
     # Execution markings (bADR-0010/0011); the harness's per-marking rows key
@@ -101,12 +104,43 @@ class CommandDescriptor:
     # `RootModel[<Body> | ArtifactReceipt]`, so the dispatch tail can construct
     # the receipt as the declared output type.
     artifact_sink: bool = field(default=False)
+    # The current registry temporarily contains historical 1.x commands while
+    # Schema 2.0 lands in vertical slices.  Only descriptors marked ``2`` are
+    # projected into the 2.x Surface manifest.
+    schema_major: int = field(default=1)
+    structured_params: bool = field(default=False)
+    # Exact per-command error authority for Schema 2.x.  The catalog is a
+    # reverse-conformance projection of Kernel/LDB Diagnostics; dispatch and
+    # --schema both consume it, so an undeclared stage/code cannot leak.
+    refusal_catalog: tuple[tuple[str, str], ...] = field(default=())
+    usage_codes: tuple[str, ...] = field(default=())
+    # A 2.x descriptor may own a closed schema that is more precise than a
+    # dynamic RootModel. Dispatch validates its result against this same
+    # callable used by --schema and manifest.
+    success_schema: Callable[[], dict[str, object]] | None = field(default=None)
 
     def __post_init__(self) -> None:
         if self.group in RESERVED_GROUPS or (
             self.group is None and self.command in RESERVED_GROUPS | RESERVED_META
         ):
             raise ValueError(f"reserved name: {self.group or self.command!r}")
+        if self.schema_major not in (1, 2):
+            raise ValueError(
+                f"unsupported descriptor schema major: {self.schema_major}"
+            )
+        if self.structured_params and self.schema_major != 2:
+            raise ValueError("structured params are a Schema 2.x descriptor contract")
+        if self.schema_major != 2 and (self.refusal_catalog or self.usage_codes):
+            raise ValueError("Schema 2.x error contracts require schema_major=2")
+        if len(self.refusal_catalog) != len(set(self.refusal_catalog)):
+            raise ValueError("duplicate Schema 2.x refusal catalog entry")
+        if any(
+            not code or stage not in _SCHEMA2_REFUSAL_STAGES
+            for code, stage in self.refusal_catalog
+        ):
+            raise ValueError("invalid Schema 2.x refusal catalog entry")
+        if not set(self.usage_codes) <= USAGE_CODES:
+            raise ValueError("unknown Schema 2.x usage code")
         if (
             self.positional_field is not None
             and self.positional_field not in self.input_model.model_fields
@@ -115,6 +149,10 @@ class CommandDescriptor:
                 f"positional designation {self.positional_field!r} names no "
                 f"{self.input_model.__name__} field"
             )
+
+    @property
+    def refusal_stages(self) -> tuple[str, ...]:
+        return tuple(sorted({stage for _, stage in self.refusal_catalog}))
 
 
 def build_registry(*descriptors: CommandDescriptor) -> tuple[CommandDescriptor, ...]:

@@ -27,8 +27,10 @@ from gda_balancing.envelope import (
     USAGE_CODES,
     Refusal,
     RefusalReport,
+    UnreadableInputError,
 )
 from gda_balancing.schema.funnel import refusal_code_namespace
+from gda_balancing.schema2.surface import schema2_error_envelope_schema
 
 
 def _command_path(descriptor: CommandDescriptor) -> list[str]:
@@ -71,6 +73,11 @@ class TestPerDescriptorRows:
         error = _assert_envelope(stderr, "internal")
         assert error["code"] == "internal_error"
         assert "diagnostics" not in error  # only under --debug
+        assert "debug" not in error
+        if descriptor.schema_major == 2:
+            jsonschema.validate(
+                json.loads(stderr), schema2_error_envelope_schema(descriptor)
+            )
         assert "Traceback" not in stderr  # sanitized by default
 
     def test_internal_row_debug_diagnostics(
@@ -79,8 +86,16 @@ class TestPerDescriptorRows:
         argv = [*invocation(descriptor), "--debug"]
         exit_code, stdout, stderr = run_cli(argv, fault_registry)
         assert (exit_code, stdout) == (4, "")
-        error = _assert_envelope(stderr, "internal")
-        assert "injected fault" in error["diagnostics"]
+        if descriptor.schema_major == 2:
+            payload = json.loads(stderr)
+            jsonschema.validate(payload, schema2_error_envelope_schema(descriptor))
+            error = payload["error"]
+            assert error["category"] == "internal"
+            assert "diagnostics" not in error
+            assert "injected fault" in error["debug"]
+        else:
+            error = _assert_envelope(stderr, "internal")
+            assert "injected fault" in error["diagnostics"]
 
     def test_wrong_success_model_row(self, descriptor, run_cli, invocation):
         # The declared output model is authoritative at runtime: a handler
@@ -153,7 +168,18 @@ class TestPerDescriptorRows:
         exit_code, stdout, stderr = run_cli(argv)
         assert (exit_code, stderr) == (0, "")
         payload = json.loads(stdout)
-        assert sorted(payload) == ["error", "input", "output"]
+        if descriptor.schema_major == 2:
+            assert sorted(payload) == [
+                "artifact_kind",
+                "content_identity",
+                "descriptor_identity",
+                "error",
+                "input",
+                "profile_identity",
+                "success",
+            ]
+        else:
+            assert sorted(payload) == ["error", "input", "output"]
 
     def test_schema_wins_over_any_other_argument(self, descriptor, run_cli):
         argv = [*_command_path(descriptor), "--no-such-argument", "--schema"]
@@ -235,13 +261,71 @@ class TestPerDescriptorRows:
 
 
 class TestSurfaceLaws:
-    def test_error_schema_byte_identical_across_the_walk(self, run_cli):
-        renderings = set()
+    def test_error_schema_is_line_or_descriptor_owned(self, run_cli):
+        legacy_renderings: set[str] = set()
         for descriptor in REGISTRY:
             _, stdout, _ = run_cli([*_command_path(descriptor), "--schema"])
-            renderings.add(canonical_json(json.loads(stdout)["error"]))
-        assert len(renderings) == 1
-        assert renderings == {canonical_json(ERROR_ENVELOPE_SCHEMA)}
+            actual = canonical_json(json.loads(stdout)["error"])
+            if descriptor.schema_major == 1:
+                legacy_renderings.add(actual)
+            else:
+                assert actual == canonical_json(
+                    schema2_error_envelope_schema(descriptor)
+                )
+        assert legacy_renderings == {canonical_json(ERROR_ENVELOPE_SCHEMA)}
+
+    def test_schema2_runtime_rejects_usage_outside_descriptor_catalog(self, run_cli):
+        descriptor = next(item for item in REGISTRY if item.schema_major == 2)
+        registry = tuple(
+            dataclasses.replace(item, usage_codes=()) if item is descriptor else item
+            for item in REGISTRY
+        )
+
+        exit_code, stdout, stderr = run_cli(
+            [*_command_path(descriptor), "--no-such-argument"], registry
+        )
+
+        assert (exit_code, stdout) == (4, "")
+        assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
+
+    def test_schema2_runtime_rejects_handler_usage_outside_descriptor_catalog(
+        self, run_cli, invocation
+    ):
+        descriptor = next(item for item in REGISTRY if item.schema_major == 2)
+
+        def unreadable(_input):
+            raise UnreadableInputError("injected unreadable input")
+
+        registry = tuple(
+            dataclasses.replace(item, usage_codes=(), handler=unreadable)
+            if item is descriptor
+            else item
+            for item in REGISTRY
+        )
+
+        exit_code, stdout, stderr = run_cli(invocation(descriptor), registry)
+
+        assert (exit_code, stdout) == (4, "")
+        assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
+
+    def test_schema2_runtime_rejects_sink_usage_outside_descriptor_catalog(
+        self, run_cli, invocation
+    ):
+        descriptor = next(item for item in REGISTRY if item.schema_major == 2)
+        registry = tuple(
+            dataclasses.replace(item, usage_codes=(), artifact_sink=True)
+            if item is descriptor
+            else item
+            for item in REGISTRY
+        )
+
+        exit_code, stdout, stderr = run_cli(
+            [*invocation(descriptor), "--out", "/nonexistent-dir/result.json"],
+            registry,
+        )
+
+        assert (exit_code, stdout) == (4, "")
+        assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
 
     def test_reserved_names_unoccupied(self):
         for descriptor in REGISTRY:

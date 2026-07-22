@@ -123,9 +123,17 @@ def test_toolkit_speaks_no_game_identity_vocabulary() -> None:
 
 
 def test_toolkit_carries_no_per_game_config() -> None:
+    # Schema-major Kernel/LDB resources are product-wide language authority,
+    # not per-game configuration. Keep the allowlist exact so a third JSON
+    # file cannot enter src unnoticed.
+    machine_authorities = {
+        "src/gda_balancing/schema2/authorities/kernel.json",
+        "src/gda_balancing/schema2/authorities/language-bundle.json",
+    }
     stray = [
         str(path.relative_to(_PACKAGE_ROOT))
         for path in sorted(_SRC_DIR.rglob("*.json"))
+        if str(path.relative_to(_PACKAGE_ROOT)) not in machine_authorities
     ]
     assert not stray, "per-game config files inside the toolkit:\n" + "\n".join(stray)
 

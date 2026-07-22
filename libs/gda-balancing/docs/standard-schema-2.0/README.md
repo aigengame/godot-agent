@@ -3,13 +3,45 @@
 This directory holds acceptance artifacts for the Standard Schema 2.0 specification tracked by
 PRD #534. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) is the human-readable macro architecture
 authority; bADR-0012…0022 own the binding detailed decisions; and PRD #534 owns requirements,
-acceptance criteria, and live completion status. These documents do not make the 2.0 language,
-runtime, CLI, or genre templates implemented.
+acceptance criteria, and live completion status. These documents do not by themselves make the 2.0
+language, runtime, CLI, or genre templates implemented. Issue #538 now supplies the first permanent
+machine authority and public discovery slice described below; all broader delivery claims remain
+bounded by PRD #534 and the coverage matrix.
 
 The current artifact is [`genre-coverage.md`](genre-coverage.md): the open RPG/Roguelike
 requirements-to-operations matrix used to judge the future Language Definition Bundle and vertical
 tracer. Every row is open. It is a completeness contract, not evidence that the package operations,
 Golden scenarios, or vectors already exist.
+
+## Permanent authority foundation (#538)
+
+The first production foundation replaces the disposable authority mechanism for one admitted
+Quantity slice:
+
+- `src/gda_balancing/schema2/authorities/kernel.json` is the versioned, content-addressed,
+  non-self-hosted Kernel Specification for canonical encoding, identity, admission, closed
+  fact/term/rule/reason formats, unique rule selection, binding/substitution, Diagnostic closure,
+  and deterministic resource bounds.
+- `src/gda_balancing/schema2/authorities/language-bundle.json` binds that exact Kernel and owns the
+  seven Quantity symbol roles, selected representation/kind/unit/domain/Numeric policy, one closed
+  content-addressed `core.quantity` package release, two executable Quantity rules,
+  post-admission Diagnostic reasons, the admitted Model Source schema-version inventory, one Model
+  Source wire schema bound to that inventory, and their normative vectors.
+- The production bootstrap consumer and a separately implemented conformance consumer agree on
+  exact identities, law/rule/reason inventories, generated projection identities, positive vectors,
+  and old-identity/reidentified deletion/behavior/token mutations. Neither contains a Quantity host
+  dispatch fallback.
+- This bounded authority admits the closed Quantity constructor and Model Source wire-schema
+  envelope. Components, Conversions, Operations, and Runtime Profiles remain explicitly empty;
+  admission refuses those definitions until their declarative Kernel contracts are delivered.
+- `schema get language-bundle|wire-schema|diagnostic-catalog`, `manifest`, per-command `--schema`,
+  and `--params-json <json|->` expose the admitted slice through the descriptor-owned 2.x surface.
+  Admission failures use bounded, ordered, deduplicated, stage-aware Diagnostics.
+
+This foundation proves only its admitted authority and command loop. It publishes no Model, Package
+Lock, RIR, Resolved Model, Runtime profile, Experiment, Metric, Replay, Evidence, template, or Genre
+success artifact, and it closes no Genre row. Issue #539 is the first consumer that may extend the
+same permanent authority into a Model-build vertical slice.
 
 ## Prototype evidence
 
@@ -95,13 +127,13 @@ decision introduces a new semantic root, open host extension, or cross-artifact 
 
 ## Next validation gates
 
-1. The bounded executable Kernel/LDB authority mechanism gate is complete. Its contracts must now
-   be replaced by permanent versioned Kernel/LDB artifacts and normative conformance vectors;
-   disposable code remains non-authoritative and closes no acceptance criterion.
-2. Build the permanent conformance foundation from the authority gate and the completed
-   Orthogonality/extensibility mechanism probe: versioned Kernel/LDB artifacts, authoritative
-   vectors, and the required identity, package, Operation, Experiment, audit, descriptor, and
-   publication contracts.
+1. The bounded disposable authority mechanism has been replaced for #538's admitted Quantity
+   foundation by permanent versioned Kernel/LDB artifacts and normative bootstrap/rule/reason
+   vectors. Disposable code remains non-authoritative and closes no acceptance criterion.
+2. Issue #539 must consume that exact foundation to build one Model Source through selected Lock,
+   canonical RIR, Resolved Model, independent lowerers, and atomic public artifact publication.
+   Later tracers extend the same authorities with Operation, Experiment, audit, comparison, and
+   Evidence contracts only when their vertical paths exercise them.
 3. A production RPG tracer must then close its required
    vertical coverage rows and public artifact path.
 4. A Roguelike cross-genre tracer follows only after those gates pass; it must reuse the same kernel,

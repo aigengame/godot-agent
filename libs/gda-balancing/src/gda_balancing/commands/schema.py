@@ -1,70 +1,201 @@
-"""The `schema` command group — Standard Schema self-description (bADR-0005).
+"""Standard Schema 2.0 authority retrieval (bADR-0012/0021/0022).
 
-``schema get <artifact>`` emits one of the two published self-description
-artifacts verbatim, each generated from a single authority so it can never drift
-from the validator (:mod:`gda_balancing.schema.artifacts`):
-
-* ``structural`` — the JSON Schema 2020-12 document whose instances are Design
-  documents (generated from the pydantic model);
-* ``catalog`` — the semantic rule catalog, an index of the semantic phase's
-  rules projected from the one rule registry (bADR-0005).
-
-Each artifact document *is* the bare result — there is no wrapper (bADR-0008's
-no-wrapper law) — so the output model is a ``RootModel`` that dumps the raw
-object. An unknown artifact value binds into the input model and fails
-validation → the usage `invalid_argument` boundary / exit 3, automatically
-(bADR-0008).
+``schema get`` exposes the admitted Kernel/LDB pair and the exact wire-schema
+and Diagnostic-catalog projections generated from it. The packaged JSON
+resources are language authority; this command admits them before emitting
+anything and returns a stage-aware refusal if their identity, binding, closed
+shape, executable vectors, or resource contract fails.
 """
 
-from typing import Any, Literal
+from collections.abc import Callable
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, RootModel
 
-from gda_balancing.descriptors import (
-    ArtifactReceipt,
-    CommandDescriptor,
-    ConformanceFixtures,
+from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
+from gda_balancing.schema2.authority import AuthorityLoadError, load_authorities
+from gda_balancing.schema2.bootstrap import (
+    BOOTSTRAP_REFUSAL_CATALOG,
+    SCHEMA2_REFUSAL_STAGES,
+    admit_authorities,
 )
-from gda_balancing.schema.bundle import current_bundle
+from gda_balancing.schema2.canonical import JsonValue
+from gda_balancing.schema2.diagnostics import (
+    Schema2RefusalReport,
+    bootstrap_refusal,
+    ingress_refusal,
+)
+from gda_balancing.schema2.projections import (
+    diagnostic_catalog_projection,
+    wire_schema_projection,
+)
 
 
 class SchemaGetInput(BaseModel):
-    """`schema get` takes exactly the artifact name (``structural``/``catalog``)."""
+    """Select one delivered Standard Schema 2.0 authority projection."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    artifact: Literal["structural", "catalog"]
+    artifact: Literal[
+        "language-bundle",
+        "wire-schema",
+        "diagnostic-catalog",
+    ]
 
 
-class SchemaArtifact(RootModel[dict[str, Any] | ArtifactReceipt]):
-    """A self-description artifact — the bare schema object, no wrapper
-    (bADR-0008) — or, when ``--out`` was given, the :class:`ArtifactReceipt` the
-    dispatch tail substitutes (bADR-0009). The union is the artifact-sink
-    output-model contract; the body arm is the raw JSON object the ``RootModel``
-    root dumps directly."""
+class SchemaArtifact(RootModel[dict[str, Any]]):
+    """One stdout-only authority/projection result; descriptor schema is exact."""
 
 
-def run_schema_get(inp: SchemaGetInput) -> SchemaArtifact:
-    """Emit the requested artifact for the current (newest) schema line. Never
-    refuses — a self-description artifact is always available for a bound (hence
-    valid) artifact name. Self-description is line-agnostic, so it reads the
-    newest bundle (:func:`~gda_balancing.schema.bundle.current_bundle`)."""
-    bundle = current_bundle()
-    if inp.artifact == "catalog":
-        return SchemaArtifact(root=bundle.catalog())
-    return SchemaArtifact(root=bundle.structural_schema())
+AuthorityProvider = Callable[[], tuple[dict[str, Any], dict[str, Any]]]
+
+
+def schema_get_handler(
+    provider: AuthorityProvider,
+) -> Callable[[SchemaGetInput], SchemaArtifact | Schema2RefusalReport]:
+    """Build the retrieval handler around an injectable authority source.
+
+    Production uses packaged resources; the conformance harness injects
+    mutations through the same dispatch/descriptor boundary.
+    """
+
+    def _run(inp: SchemaGetInput) -> SchemaArtifact | Schema2RefusalReport:
+        try:
+            kernel, ldb = provider()
+        except AuthorityLoadError as err:
+            return ingress_refusal(err.code, err.subject, err.message)
+        admission = admit_authorities(kernel, ldb)
+        if not admission.admitted:
+            return bootstrap_refusal(admission)
+        authorities: dict[str, JsonValue] = {
+            "kernel": cast(JsonValue, kernel),
+            "language_bundle": cast(JsonValue, ldb),
+            "admission": {
+                "admitted": True,
+                "kernel_identity": admission.kernel_identity,
+                "language_bundle_identity": admission.language_bundle_identity,
+            },
+        }
+        if inp.artifact == "language-bundle":
+            return SchemaArtifact(root=cast(dict[str, Any], authorities))
+        if inp.artifact == "wire-schema":
+            return SchemaArtifact(root=wire_schema_projection(authorities))
+        return SchemaArtifact(root=diagnostic_catalog_projection(authorities))
+
+    return _run
+
+
+run_schema_get = schema_get_handler(load_authorities)
+
+
+def schema_get_refusal_catalog() -> tuple[tuple[str, str], ...]:
+    """Return the non-self-hosted Kernel bootstrap refusal vocabulary."""
+    return BOOTSTRAP_REFUSAL_CATALOG
+
+
+def schema_get_success_schema() -> dict[str, object]:
+    """Static closed result shapes; introspection never reads authority bytes."""
+    identity = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+    admission = {
+        "type": "object",
+        "properties": {
+            "admitted": {"const": True},
+            "kernel_identity": identity,
+            "language_bundle_identity": identity,
+        },
+        "required": [
+            "admitted",
+            "kernel_identity",
+            "language_bundle_identity",
+        ],
+        "unevaluatedProperties": False,
+    }
+    authority_result = {
+        "type": "object",
+        "properties": {
+            "kernel": {},
+            "language_bundle": {},
+            "admission": admission,
+        },
+        "required": ["kernel", "language_bundle", "admission"],
+        "unevaluatedProperties": False,
+    }
+    projection_base = {
+        "kernel_identity": identity,
+        "language_bundle_identity": identity,
+        "content_identity": identity,
+    }
+    wire_projection = {
+        "type": "object",
+        "properties": {
+            "artifact_kind": {"const": "wire-schema-projection"},
+            **projection_base,
+            "schemas": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "artifact_kind": {"type": "string", "minLength": 1},
+                        "schema": {},
+                    },
+                    "required": ["artifact_kind", "schema"],
+                    "unevaluatedProperties": False,
+                },
+            },
+        },
+        "required": [
+            "artifact_kind",
+            "kernel_identity",
+            "language_bundle_identity",
+            "schemas",
+            "content_identity",
+        ],
+        "unevaluatedProperties": False,
+    }
+    diagnostic_projection = {
+        "type": "object",
+        "properties": {
+            "artifact_kind": {"const": "diagnostic-catalog-projection"},
+            **projection_base,
+            "entries": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "authority": {"enum": ["kernel", "language-bundle"]},
+                        "code": {"type": "string", "minLength": 1},
+                        "stage": {"enum": list(SCHEMA2_REFUSAL_STAGES)},
+                    },
+                    "required": ["authority", "code", "stage"],
+                    "unevaluatedProperties": False,
+                },
+            },
+        },
+        "required": [
+            "artifact_kind",
+            "kernel_identity",
+            "language_bundle_identity",
+            "entries",
+            "content_identity",
+        ],
+        "unevaluatedProperties": False,
+    }
+    return {"oneOf": [authority_result, wire_projection, diagnostic_projection]}
 
 
 SCHEMA_GET = CommandDescriptor(
     group="schema",
     command="get",
-    description="Emit a Standard Schema self-description artifact (bADR-0005).",
+    description="Emit a Standard Schema 2.0 language authority or projection.",
     input_model=SchemaGetInput,
     output_model=SchemaArtifact,
     handler=run_schema_get,
     positional_field="artifact",
-    # The self-description artifacts are artifacts too (bADR-0009): `--out`
-    # redirects the emitted schema to the sink under the same artifact law.
-    artifact_sink=True,
-    fixtures=ConformanceFixtures(valid_args=("structural",)),
+    artifact_sink=False,
+    fixtures=ConformanceFixtures(valid_args=("language-bundle",)),
+    schema_major=2,
+    structured_params=True,
+    refusal_catalog=schema_get_refusal_catalog(),
+    usage_codes=("argument_conflict", "invalid_argument", "unknown_argument"),
+    success_schema=schema_get_success_schema,
 )
