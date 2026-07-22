@@ -1,5 +1,11 @@
 # Normative vectors — Standard Schema v1 design (#503)
 
+> **Standard Schema 2.x outcome (2026-07-22):** this file remains the non-standalone vector appendix
+> to bADR-0004 for 1.x. Its 2.x scope is accounted for through bADR-0004's forward outcome note;
+> [bADR-0015](0015-invocation-outcomes-and-diagnostic-locations.md) generalizes refusal/Diagnostic
+> vectors and [bADR-0022](0022-machine-readable-language-rules-and-formal-semantics.md) makes the
+> exact Kernel/LDB vector inventory authoritative.
+
 > **Not a standalone bADR.** This file is an **appendix to
 > `0004-boundary-funnel-validation-semantics.md` (bADR-0004)** — a referenced, living
 > data annex (the vector set grows as sections land), not an independent decision

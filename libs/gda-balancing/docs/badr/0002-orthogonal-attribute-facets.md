@@ -4,6 +4,12 @@ status: accepted
 
 # Orthogonal attribute facets; tiers are template compositions, not schema law
 
+> **Standard Schema 2.x outcome (2026-07-22):** this record remains accepted for 1.x. For 2.x,
+> [bADR-0016](0016-closed-type-core-and-versioned-package-extensions.md) generalizes attribute facets
+> into typed symbols, orthogonal Quantity concerns, and versioned package roles; attributes are no
+> longer a core primitive. [bADR-0017](0017-genre-templates-and-coverage-contract.md) retains
+> template-owned composition while superseding the 1.x template/effect shape.
+
 The Standard Schema needs an attribute model that serves both long-progression RPGs
 (which layer attributes two or three deep to control growth) and Roguelikes (which
 flatten to one or two layers) without forcing dead structure on either. A fixed tier

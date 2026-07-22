@@ -4,6 +4,13 @@ status: accepted
 
 # One root Design document per game, semver-versioned, with a closed section envelope
 
+> **Standard Schema 2.x outcome (2026-07-22):** this record remains accepted for 1.x. For 2.x,
+> [bADR-0012](0012-language-and-artifact-authority-domains.md) supersedes the one-root authored
+> authority, [bADR-0016](0016-closed-type-core-and-versioned-package-extensions.md) supersedes the
+> fixed root/reserved-section extension model, and
+> [bADR-0017](0017-genre-templates-and-coverage-contract.md) supersedes a template as one Design
+> instance. The independent Schema/product versioning principle is retained.
+
 A game's numeric design needs a durable, machine-readable home. PRD #501's problem
 statement records the failure mode this bADR reverses: per-game numbers scattered across
 ad-hoc config files, glued together by adapters, with no version field and schema

@@ -4,6 +4,14 @@ status: accepted
 
 # Validation at one boundary funnel: phased, element-level typed refusals, report-all
 
+> **Standard Schema 2.x outcome (2026-07-22):** this record and its non-standalone
+> [normative-vector appendix](0004a-normative-vectors.md) remain accepted for 1.x. For 2.x,
+> [bADR-0015](0015-invocation-outcomes-and-diagnostic-locations.md) supersedes the three-phase-only
+> refusal boundary and JSON-Pointer-only location model, while retaining preflight caps, typed
+> report-all refusal, deterministic ordering/deduplication, and bounded truncation. Executable
+> Kernel/LDB vector authority is generalized by
+> [bADR-0022](0022-machine-readable-language-rules-and-formal-semantics.md).
+
 Agents drive this toolkit (PRD #501 US8, US19); what they need from validation is a
 mechanical answer to "is this Design document valid, and if not, exactly what and where".
 PRD #501's testing decisions require element-level typed refusals at a boundary funnel,

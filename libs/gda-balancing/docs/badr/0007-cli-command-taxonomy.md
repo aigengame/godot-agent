@@ -4,6 +4,11 @@ status: accepted
 
 # CLI command taxonomy: domain-object groups under one agent-facing binary
 
+> **Standard Schema 2.x outcome (2026-07-22):** this record remains accepted for the 1.x surface.
+> [bADR-0021](0021-schema-2.0-cli-taxonomy-and-structured-surface.md) supersedes its 2.x command tree,
+> replacing the Design-document-centered taxonomy while retaining one binary, noun groups, explicit
+> help, and structured channel discipline.
+
 PRD #501 US19 requires a CLI agents can drive in automation, and the PRD addendum
 (2026-07-15) adjudicates that the CLI's interface style follows `gda`. This bADR fixes
 the command taxonomy — the tree shape and its naming law — for design gate #518. The

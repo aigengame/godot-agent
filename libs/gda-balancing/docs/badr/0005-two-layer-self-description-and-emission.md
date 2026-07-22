@@ -4,6 +4,12 @@ status: accepted
 
 # Two-layer self-description: JSON Schema artifact plus semantic rule catalog
 
+> **Standard Schema 2.x outcome (2026-07-22):** this record remains accepted for 1.x. For 2.x,
+> [bADR-0012](0012-language-and-artifact-authority-domains.md) supersedes validator-centered
+> semantic authority and [bADR-0022](0022-machine-readable-language-rules-and-formal-semantics.md)
+> supersedes the rejection of executable semantic-rule representation. Anti-drift, honest
+> structural/semantic separation, stable rule identities, and canonical projections are retained.
+
 US8 requires the Standard Schema to be self-describing and mechanically validatable, so
 agents can generate, check, and mutate Design documents programmatically. Structural
 validity alone does not make a document valid (bADR-0004's semantic layer), so a

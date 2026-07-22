@@ -4,6 +4,13 @@ status: accepted
 
 # Invocation result contract: one JSON result, refusal-carrying error envelope, layered exit codes
 
+> **Standard Schema 2.x outcome (2026-07-22):** this record remains accepted for the 1.x surface.
+> [bADR-0015](0015-invocation-outcomes-and-diagnostic-locations.md) supersedes its closed 1.x envelope
+> for new refusal stages and locations, and
+> [bADR-0021](0021-schema-2.0-cli-taxonomy-and-structured-surface.md) owns 2.x artifact publication.
+> The five-way outcome algebra, exit/channel meanings, one structured payload, and sanitized
+> internal failure remain retained constraints.
+
 PRD #501 US19 requires structured JSON output and typed machine-readable refusals
 distinct from pass/fail verdicts; bADR-0004 fixes the refusal semantics and hands their
 CLI surface — envelope shape and exit codes — to this gate (#518). This bADR fixes what

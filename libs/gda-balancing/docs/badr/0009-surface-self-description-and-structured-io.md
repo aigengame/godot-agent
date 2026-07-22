@@ -4,6 +4,11 @@ status: accepted
 
 # Surface self-description, structured input, and config/logic separation
 
+> **Standard Schema 2.x outcome (2026-07-22):** this record remains accepted for the 1.x surface.
+> [bADR-0021](0021-schema-2.0-cli-taxonomy-and-structured-surface.md) supersedes its deferred 2.x
+> manifest/structured-parameter scope and generalizes the descriptor-derived surface. Emit-only
+> discovery, structured input, channel discipline, and config/logic separation are retained.
+
 bADR-0005 defined the Standard Schema's two self-description artifacts and left their
 delivery channel to this gate; gda's surface conventions (`--schema`, structured params
 input) are the family reference. This bADR fixes how the *toolkit's command surface*
