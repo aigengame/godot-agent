@@ -12,12 +12,14 @@ bare traceback is never any invocation's output; ``--debug`` routes it into
 ``diagnostics``.
 """
 
+import json
 import os
 import tempfile
 import traceback
 from collections.abc import Sequence
 from typing import Any, TextIO
 
+import jsonschema
 from pydantic import BaseModel, ValidationError
 
 from gda_balancing.commands import REGISTRY
@@ -39,6 +41,10 @@ from gda_balancing.envelope import (
     internal_envelope,
     refusal_envelope,
     usage_envelope,
+)
+from gda_balancing.schema2.diagnostics import (
+    Schema2RefusalReport,
+    refusal_envelope as schema2_refusal_envelope,
 )
 
 _SCHEMA_FLAG = "--schema"
@@ -66,6 +72,7 @@ def dispatch(
     stderr: TextIO,
     *,
     registry: tuple[CommandDescriptor, ...] = REGISTRY,
+    stdin: TextIO | None = None,
 ) -> int:
     """Run one invocation; returns the exit code, never raises or exits.
 
@@ -74,7 +81,7 @@ def dispatch(
     (bADR-0011's fault-injection seam — production has no fault path).
     """
     try:
-        return _dispatch(list(argv), stdout, registry)
+        return _dispatch(list(argv), stdout, registry, stdin)
     except _UsageError as err:
         stderr.write(canonical_json(usage_envelope(err.code, err.message)))
         return EXIT_USAGE
@@ -91,7 +98,10 @@ def dispatch(
 
 
 def _dispatch(
-    argv: list[str], stdout: TextIO, registry: tuple[CommandDescriptor, ...]
+    argv: list[str],
+    stdout: TextIO,
+    registry: tuple[CommandDescriptor, ...],
+    stdin: TextIO | None,
 ) -> int:
     if not argv:
         raise _UsageError(
@@ -126,13 +136,18 @@ def _dispatch(
 
     # Bare `--schema` wins over any other argument (bADR-0009).
     if _SCHEMA_FLAG in tail:
-        stdout.write(canonical_json(_schema_projection(descriptor)))
+        if descriptor.schema_major == 2:
+            from gda_balancing.schema2.surface import command_schema_projection
+
+            stdout.write(canonical_json(command_schema_projection(descriptor)))
+        else:
+            stdout.write(canonical_json(_schema_projection(descriptor)))
         return EXIT_SUCCESS
     if _HELP_FLAG in tail:
         stdout.write(_render_command_help(descriptor))
         return EXIT_SUCCESS
 
-    values, out = _bind(descriptor, tail)
+    values, out = _bind(descriptor, tail, stdin)
     try:
         input_obj = descriptor.input_model(**values)
     except ValidationError as err:
@@ -141,6 +156,9 @@ def _dispatch(
     outcome = descriptor.handler(input_obj)
     if isinstance(outcome, RefusalReport):
         stdout.write(canonical_json(refusal_envelope(outcome)))
+        return EXIT_REFUSAL
+    if isinstance(outcome, Schema2RefusalReport):
+        stdout.write(canonical_json(schema2_refusal_envelope(outcome)))
         return EXIT_REFUSAL
     if type(outcome) is not descriptor.output_model:
         # The declared output model is authoritative at runtime, not merely
@@ -154,7 +172,10 @@ def _dispatch(
             f"handler returned {type(outcome).__name__}, not the declared "
             f"output model {descriptor.output_model.__name__}"
         )
-    body = canonical_json(model_payload(outcome))
+    payload = model_payload(outcome)
+    if descriptor.schema_major == 2 and descriptor.success_schema is not None:
+        jsonschema.validate(payload, descriptor.success_schema())
+    body = canonical_json(payload)
     if descriptor.artifact_sink and out is not None:
         # The BODY arm goes to the sink; stdout carries the receipt (bADR-0009).
         # The sink is written BEFORE stdout, and an unwritable sink raises
@@ -168,8 +189,8 @@ def _dispatch(
 
 
 def _bind(
-    descriptor: CommandDescriptor, tail: list[str]
-) -> tuple[dict[str, str], str | None]:
+    descriptor: CommandDescriptor, tail: list[str], stdin: TextIO | None
+) -> tuple[dict[str, Any], str | None]:
     """Apply the binding law to the command tail (bADR-0011); return the bound
     model values and the ``--out`` sink path (``None`` when absent).
 
@@ -179,8 +200,12 @@ def _bind(
     here, never bound as model fields. ``--out`` is accepted only for an
     ``artifact_sink`` command; anywhere else it is an unknown argument.
     """
+    structured = _structured_params(descriptor, tail, stdin)
+    if structured is not None:
+        return structured, None
+
     options = option_bindings(descriptor)
-    values: dict[str, str] = {}
+    values: dict[str, Any] = {}
     positionals: list[str] = []
     out: str | None = None
     i = 0
@@ -237,6 +262,63 @@ def _bind(
     if out is not None and descriptor.positional_field is not None:
         _reject_input_aliasing(out, values.get(descriptor.positional_field))
     return values, out
+
+
+def _structured_params(
+    descriptor: CommandDescriptor, tail: list[str], stdin: TextIO | None
+) -> dict[str, Any] | None:
+    """Decode the descriptor input object from ``--params-json`` when used.
+
+    The flag is one alternate presentation of the same input model, never a
+    second parameter authority.  It is therefore mutually exclusive with
+    positional and individual options; ``--schema`` has already returned
+    before this function can read stdin.
+    """
+    flag = "--params-json"
+    indices = [
+        index
+        for index, token in enumerate(tail)
+        if token == flag or token.startswith(flag + "=")
+    ]
+    if not indices:
+        return None
+    if not descriptor.structured_params:
+        raise _UsageError("unknown_argument", f"unknown argument: {flag}")
+    if len(indices) > 1:
+        raise _UsageError("argument_conflict", f"argument named more than once: {flag}")
+
+    index = indices[0]
+    token = tail[index]
+    consumed = 1
+    if token.startswith(flag + "="):
+        source = token.partition("=")[2]
+    else:
+        if index + 1 >= len(tail):
+            raise _UsageError("invalid_argument", f"missing value for {flag}")
+        source = tail[index + 1]
+        consumed = 2
+    remaining = [
+        item
+        for offset, item in enumerate(tail)
+        if not index <= offset < index + consumed and item != _DEBUG_FLAG
+    ]
+    if remaining:
+        raise _UsageError(
+            "argument_conflict",
+            "--params-json is mutually exclusive with individual arguments",
+        )
+    text = stdin.read() if source == "-" and stdin is not None else source
+    if source == "-" and stdin is None:
+        text = ""
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as err:
+        raise _UsageError(
+            "invalid_argument", "--params-json is not valid JSON"
+        ) from err
+    if not isinstance(value, dict):
+        raise _UsageError("invalid_argument", "--params-json must contain an object")
+    return value
 
 
 def _reject_input_aliasing(out: str, input_path: str | None) -> None:

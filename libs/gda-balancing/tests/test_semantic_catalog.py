@@ -21,15 +21,16 @@ Two conformance surfaces:
   structural validation is linear, a depth-33 tree clears preflight and the
   structural phase and is refused by ``expression_tree_too_deep`` itself (see
   ``test_deep_expression_tree_is_refused`` in test_validate_vectors.py).
-* **Catalog↔registry identity** — the published ``schema get catalog`` artifact's
-  rule ids equal the sorted registry codes, each entry carries the full metadata,
-  and the bytes match a committed golden.
+* **Catalog↔registry identity** — the historical 1.x catalog projection's rule
+  ids equal the sorted registry codes, each entry carries the full metadata, and
+  the bytes match a committed golden.
 """
 
 import json
 from pathlib import Path
 
 from gda_balancing.emit import canonical_json
+from gda_balancing.schema.bundle import current_bundle
 from gda_balancing.schema.funnel import semantic
 from gda_balancing.schema.funnel.semantic import SEMANTIC_RULES
 from gda_balancing.schema.model.document import DesignDocument
@@ -111,23 +112,21 @@ def test_registry_codes_are_unique() -> None:
     assert len(codes) == len(set(codes))
 
 
-# --- Catalog artifact ↔ registry identity (via the CLI) --------------------
+# --- Historical 1.x catalog projection ↔ registry identity ----------------
 
 
-def _catalog(run_cli) -> dict:
-    exit_code, stdout, stderr = run_cli(["schema", "get", "catalog"])
-    assert (exit_code, stderr) == (0, "")
-    return json.loads(stdout)
+def _catalog() -> dict:
+    return current_bundle().catalog()
 
 
-def test_catalog_ids_match_the_registry(run_cli) -> None:
-    catalog = _catalog(run_cli)
+def test_catalog_ids_match_the_registry() -> None:
+    catalog = _catalog()
     ids = [entry["id"] for entry in catalog["rules"]]
     assert ids == sorted(rule.code for rule in SEMANTIC_RULES)
 
 
-def test_catalog_entries_carry_full_metadata(run_cli) -> None:
-    catalog = _catalog(run_cli)
+def test_catalog_entries_carry_full_metadata() -> None:
+    catalog = _catalog()
     by_id = {entry["id"]: entry for entry in catalog["rules"]}
     for rule in SEMANTIC_RULES:
         entry = by_id[rule.code]
@@ -142,19 +141,16 @@ def test_catalog_entries_carry_full_metadata(run_cli) -> None:
         assert sorted(entry) == ["description", "id", "scope", "since_version"]
 
 
-def test_catalog_declares_the_schema_version(run_cli) -> None:
+def test_catalog_declares_the_schema_version() -> None:
     from gda_balancing.schema.version import SCHEMA_VERSION
 
-    assert _catalog(run_cli)["schema_version"] == SCHEMA_VERSION
+    assert _catalog()["schema_version"] == SCHEMA_VERSION
 
 
-def test_schema_get_catalog_matches_golden(run_cli) -> None:
+def test_historical_catalog_projection_matches_golden() -> None:
     # Byte-for-byte against the committed golden. To regenerate after a reviewed
     # rule change, overwrite it deliberately and review the diff:
-    #   uv run gda-balancing schema get catalog \
-    #     > libs/gda-balancing/tests/goldens/semantic_catalog.json
-    exit_code, stdout, stderr = run_cli(["schema", "get", "catalog"])
-    assert (exit_code, stderr) == (0, "")
+    stdout = canonical_json(_catalog())
     assert stdout.encode("utf-8") == _GOLDEN.read_bytes()
     # The golden is canonical (sorted keys, single trailing LF).
     assert stdout == canonical_json(json.loads(stdout))

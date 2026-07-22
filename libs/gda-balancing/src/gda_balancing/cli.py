@@ -11,4 +11,4 @@ from gda_balancing.dispatch import dispatch
 
 
 def main() -> None:
-    sys.exit(dispatch(sys.argv[1:], sys.stdout, sys.stderr))
+    sys.exit(dispatch(sys.argv[1:], sys.stdout, sys.stderr, stdin=sys.stdin))

@@ -100,7 +100,11 @@ class TestKeyUserPath:
         assert receipt["bytes"] == sink.stat().st_size
 
     def test_schema_get_key_path(self):
-        result = _run("schema", "get", "structural")
+        result = _run("schema", "get", "language-bundle")
         assert (result.returncode, result.stderr) == (0, "")
         artifact = json.loads(result.stdout)
-        assert artifact["$id"].endswith("1.0.0")
+        assert artifact["admission"]["admitted"] is True
+        assert (
+            artifact["language_bundle"]["kernel_identity"]
+            == artifact["kernel"]["content_identity"]
+        )

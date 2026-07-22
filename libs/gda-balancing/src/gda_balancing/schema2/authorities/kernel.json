@@ -1,0 +1,77 @@
+{
+  "admission": {
+    "closed": true,
+    "laws": [
+      {"id": "kernel.identity.verify", "identity_member": "content_identity", "operation": "verify-content-identity"},
+      {"id": "kernel.binding.exact", "left": "language_bundle.kernel_identity", "operation": "require-equal", "right": "kernel.content_identity"},
+      {"id": "kernel.members.closed", "members_from": "admission.required_ldb_members", "operation": "require-exact-members"},
+      {"id": "kernel.identifiers.unique", "operation": "require-unique-identifiers"},
+      {"id": "kernel.operations.closed", "operation": "require-known-operations"},
+      {"id": "kernel.vectors.closed", "operation": "require-vector-closure"},
+      {"id": "kernel.diagnostics.closed", "operation": "require-diagnostic-closure"},
+      {"id": "kernel.resources.bound", "operation": "enforce-resource-limits"}
+    ],
+    "required_ldb_members": ["artifact_kind", "artifact_version", "schema_major", "kernel_identity", "content_identity", "language", "diagnostics", "resources", "vectors"]
+  },
+  "artifact_kind": "schema-major-kernel",
+  "artifact_version": "2.0.0",
+  "canonical_encoding": {
+    "character_encoding": "UTF-8",
+    "identity_algorithm": "domain-separated-sha256",
+    "integer_domain": "signed-int64",
+    "object_order": "UTF-8-key-byte-order",
+    "optional_members": "omit",
+    "profile": "gda-canonical-json-v1",
+    "unicode_normalization": "preserve"
+  },
+  "content_identity": "sha256:67ca30bf675611a8cf68f4fc0cdaf2f0a7a16e5aa4fd5be270e9ddc1ecb066a5",
+  "diagnostics": [
+    {"code": "kernel.identity_mismatch", "stage": "ingress"},
+    {"code": "kernel.binding_mismatch", "stage": "ingress"},
+    {"code": "kernel.member_set_mismatch", "stage": "ingress"},
+    {"code": "kernel.duplicate_identifier", "stage": "static"},
+    {"code": "kernel.unknown_operation", "stage": "static"},
+    {"code": "kernel.vector_mismatch", "stage": "static"},
+    {"code": "kernel.diagnostic_closure", "stage": "static"},
+    {"code": "kernel.resource_exhausted", "stage": "ingress"}
+  ],
+  "meta_format": {
+    "fact": {"closed": true, "field_names": "non-empty-strings", "required_members": ["kind", "fields"]},
+    "term": {
+      "closed": true,
+      "constructors": [
+        {"required_members": ["tag", "value"], "tag": "literal"},
+        {"required_members": ["tag", "name"], "tag": "variable"}
+      ]
+    },
+    "rule": {"closed": true, "required_members": ["id", "judgment", "premises", "conclusion"]},
+    "rule_selection": {
+      "candidate_order": "rule-id-utf8-byte-order",
+      "cardinality": "exactly-one",
+      "match": ["judgment-equality", "premise-fact-kind-equality"]
+    },
+    "binding_substitution": {
+      "binding": "premise-bind maps variable names to source fact field names",
+      "substitution": "evaluate every conclusion field term in the complete binding",
+      "unbound_variable": "kernel.vector_mismatch"
+    },
+    "diagnostic_reason": {
+      "closed": true,
+      "predicate_operations": ["not-member", "has-duplicate", "greater-than"],
+      "required_members": ["id", "diagnostic", "stage", "predicate"]
+    }
+  },
+  "resources": {"max_authority_bytes": 262144, "max_diagnostics": 128, "max_members": 256, "max_nesting_depth": 32},
+  "schema_major": 2,
+  "vectors": [
+    {"expect": "admitted", "id": "kernel.accept.identity", "law": "kernel.identity.verify"},
+    {"diagnostic": "kernel.identity_mismatch", "id": "kernel.refuse.identity", "law": "kernel.identity.verify", "stage": "ingress"},
+    {"diagnostic": "kernel.binding_mismatch", "id": "kernel.refuse.binding", "law": "kernel.binding.exact", "stage": "ingress"},
+    {"diagnostic": "kernel.member_set_mismatch", "id": "kernel.refuse.members", "law": "kernel.members.closed", "stage": "ingress"},
+    {"diagnostic": "kernel.duplicate_identifier", "id": "kernel.refuse.duplicate", "law": "kernel.identifiers.unique", "stage": "static"},
+    {"diagnostic": "kernel.unknown_operation", "id": "kernel.refuse.operation", "law": "kernel.operations.closed", "stage": "static"},
+    {"diagnostic": "kernel.vector_mismatch", "id": "kernel.refuse.vector", "law": "kernel.vectors.closed", "stage": "static"},
+    {"diagnostic": "kernel.diagnostic_closure", "id": "kernel.refuse.diagnostic-closure", "law": "kernel.diagnostics.closed", "stage": "static"},
+    {"diagnostic": "kernel.resource_exhausted", "id": "kernel.refuse.resources", "law": "kernel.resources.bound", "stage": "ingress"}
+  ]
+}

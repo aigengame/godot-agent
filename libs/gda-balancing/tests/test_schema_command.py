@@ -7,8 +7,6 @@ validation at the usage boundary, so `schema get bogus` is a usage
 """
 
 import json
-import os
-
 import jsonschema
 
 from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
@@ -23,16 +21,11 @@ def test_unknown_artifact_is_a_usage_error(run_cli):
     assert payload["error"]["code"] == "invalid_argument"
 
 
-def test_schema_get_is_an_artifact_sink(run_cli, tmp_path):
-    # The self-description artifacts are artifacts too (bADR-0009): `--out`
-    # redirects the schema to the sink and stdout carries the receipt.
-    _, body, _ = run_cli(["schema", "get", "structural"])
-    sink = tmp_path / "structural.json"
+def test_schema_get_is_stdout_only(run_cli):
+    # bADR-0021: retrieval commands can remain stdout-only and therefore do
+    # not advertise or accept an artifact publication sink.
     exit_code, stdout, stderr = run_cli(
-        ["schema", "get", "structural", "--out", str(sink)]
+        ["schema", "get", "language-bundle", "--out", "authority.json"]
     )
-    assert (exit_code, stderr) == (0, "")
-    assert sink.read_bytes() == body.encode("utf-8")
-    assert json.loads(stdout) == {
-        "artifact": {"path": os.path.realpath(str(sink)), "bytes": sink.stat().st_size}
-    }
+    assert (exit_code, stdout) == (3, "")
+    assert json.loads(stderr)["error"]["code"] == "unknown_argument"

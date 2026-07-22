@@ -29,6 +29,7 @@ from gda_balancing.envelope import (
     RefusalReport,
 )
 from gda_balancing.schema.funnel import refusal_code_namespace
+from gda_balancing.schema2.surface import schema2_error_envelope_schema
 
 
 def _command_path(descriptor: CommandDescriptor) -> list[str]:
@@ -153,7 +154,18 @@ class TestPerDescriptorRows:
         exit_code, stdout, stderr = run_cli(argv)
         assert (exit_code, stderr) == (0, "")
         payload = json.loads(stdout)
-        assert sorted(payload) == ["error", "input", "output"]
+        if descriptor.schema_major == 2:
+            assert sorted(payload) == [
+                "artifact_kind",
+                "content_identity",
+                "descriptor_identity",
+                "error",
+                "input",
+                "profile_identity",
+                "success",
+            ]
+        else:
+            assert sorted(payload) == ["error", "input", "output"]
 
     def test_schema_wins_over_any_other_argument(self, descriptor, run_cli):
         argv = [*_command_path(descriptor), "--no-such-argument", "--schema"]
@@ -235,13 +247,17 @@ class TestPerDescriptorRows:
 
 
 class TestSurfaceLaws:
-    def test_error_schema_byte_identical_across_the_walk(self, run_cli):
-        renderings = set()
+    def test_error_schema_byte_identical_within_each_schema_line(self, run_cli):
+        renderings: dict[int, set[str]] = {}
         for descriptor in REGISTRY:
             _, stdout, _ = run_cli([*_command_path(descriptor), "--schema"])
-            renderings.add(canonical_json(json.loads(stdout)["error"]))
-        assert len(renderings) == 1
-        assert renderings == {canonical_json(ERROR_ENVELOPE_SCHEMA)}
+            renderings.setdefault(descriptor.schema_major, set()).add(
+                canonical_json(json.loads(stdout)["error"])
+            )
+        assert renderings == {
+            1: {canonical_json(ERROR_ENVELOPE_SCHEMA)},
+            2: {canonical_json(schema2_error_envelope_schema())},
+        }
 
     def test_reserved_names_unoccupied(self):
         for descriptor in REGISTRY:

@@ -35,9 +35,12 @@ module, or prototype may become an accidental second specification.
 | Conformance vectors | Executable proof obligations derived from Kernel and LDB authority | New semantic decisions |
 | Prototype code | Disposable evidence used to challenge the design | Architecture, language, or product authority |
 
-The Kernel Specification and LDB are future machine-readable artifacts. Until they exist and pass
-independent conformance, this document and the accepted bADRs state the design but cannot prove that
-two implementations will interpret it identically.
+The first permanent, machine-readable Kernel Specification and LDB are published under
+`src/gda_balancing/schema2/authorities/` and independently admitted for #538's bounded Quantity
+foundation. They prove the bootstrap, identity, closed meta-format, two selected rules, Diagnostic
+reason closure, generated projections, and command discovery of that admitted slice only. They do
+not yet prove the complete language, Model build, Runtime, Experiment, Evidence, or Genre contracts;
+the remaining gates below grow the same authorities vertically.
 
 When this document and an accepted bADR appear to conflict, neither silently overrides the other.
 The conflict must be reconciled in the same change: the bADR records the detailed decision and this
@@ -839,6 +842,13 @@ package resolution, identity, audit/publication, CLI, comparison, and Evidence p
 that slice. This is not a horizontal implementation of every rule or package. Gate 3 grows the same
 suite source-to-evidence; later gates add general resolver, cross-LDB identity, broader publication,
 and Evidence cases as their vertical scenarios require them.
+
+Issue #538 delivers the first bounded sub-slice of this gate: packaged content-addressed Kernel/LDB
+authority, independent bootstrap/rule/reason conformance, one typed-Quantity source schema, exact
+wire/Diagnostic projections, and descriptor-derived `schema get`/`manifest` discovery. Numeric/RNG,
+selected package resolution, publication, comparison, and Evidence obligations named above remain
+open until the vertical tracer that first exercises each contract lands; #538 makes no success claim
+for those absent artifact domains.
 
 Gate 2 follows bADR-0012's dependency order: permanent Kernel/LDB and encoding/identity/schema
 authorities → bounded artifact/graph/terminal-audit validation → authenticated eligible independent

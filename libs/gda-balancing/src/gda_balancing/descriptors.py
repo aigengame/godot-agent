@@ -18,11 +18,12 @@ from dataclasses import dataclass, field
 from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.envelope import RefusalReport
+from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 
 # Reserved by bADR-0007 for Phase 2; the conformance harness asserts no
 # registered command occupies them, and dispatch resolves them as unknown.
 RESERVED_GROUPS = frozenset({"evaluation", "tuning"})
-RESERVED_META = frozenset({"manifest"})
+RESERVED_META: frozenset[str] = frozenset()
 
 
 class ArtifactSpec(BaseModel):
@@ -87,7 +88,7 @@ class CommandDescriptor:
     # exits, never sees a usage error. An unexpected exception here is the
     # sole path to `internal` / exit 4. Typed `...` because each command's
     # handler takes its own concrete input model (contravariance).
-    handler: Callable[..., BaseModel | RefusalReport]
+    handler: Callable[..., BaseModel | RefusalReport | Schema2RefusalReport]
     fixtures: ConformanceFixtures
     positional_field: str | None = None
     # Execution markings (bADR-0010/0011); the harness's per-marking rows key
@@ -101,12 +102,28 @@ class CommandDescriptor:
     # `RootModel[<Body> | ArtifactReceipt]`, so the dispatch tail can construct
     # the receipt as the declared output type.
     artifact_sink: bool = field(default=False)
+    # The current registry temporarily contains historical 1.x commands while
+    # Schema 2.0 lands in vertical slices.  Only descriptors marked ``2`` are
+    # projected into the 2.x Surface manifest.
+    schema_major: int = field(default=1)
+    structured_params: bool = field(default=False)
+    refusal_stages: tuple[str, ...] = field(default=())
+    # A 2.x descriptor may own a closed schema that is more precise than a
+    # dynamic RootModel. Dispatch validates its result against this same
+    # callable used by --schema and manifest.
+    success_schema: Callable[[], dict[str, object]] | None = field(default=None)
 
     def __post_init__(self) -> None:
         if self.group in RESERVED_GROUPS or (
             self.group is None and self.command in RESERVED_GROUPS | RESERVED_META
         ):
             raise ValueError(f"reserved name: {self.group or self.command!r}")
+        if self.schema_major not in (1, 2):
+            raise ValueError(
+                f"unsupported descriptor schema major: {self.schema_major}"
+            )
+        if self.structured_params and self.schema_major != 2:
+            raise ValueError("structured params are a Schema 2.x descriptor contract")
         if (
             self.positional_field is not None
             and self.positional_field not in self.input_model.model_fields

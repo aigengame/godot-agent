@@ -45,13 +45,18 @@ def minimal_design_path() -> Path:
 
 
 def _run(
-    argv: list[str], registry: tuple[CommandDescriptor, ...] | None = None
+    argv: list[str],
+    registry: tuple[CommandDescriptor, ...] | None = None,
+    *,
+    stdin: str = "",
 ) -> RunResult:
-    stdout, stderr = io.StringIO(), io.StringIO()
+    stdout, stderr, input_stream = io.StringIO(), io.StringIO(), io.StringIO(stdin)
     if registry is None:
-        exit_code = dispatch(argv, stdout, stderr)
+        exit_code = dispatch(argv, stdout, stderr, stdin=input_stream)
     else:
-        exit_code = dispatch(argv, stdout, stderr, registry=registry)
+        exit_code = dispatch(
+            argv, stdout, stderr, registry=registry, stdin=input_stream
+        )
     return exit_code, stdout.getvalue(), stderr.getvalue()
 
 

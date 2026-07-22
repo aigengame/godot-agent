@@ -1,0 +1,136 @@
+{
+  "artifact_kind": "language-definition-bundle",
+  "artifact_version": "2.0.0",
+  "content_identity": "sha256:8b1cfdaf4f3604d18a43c7967258ee23f7e5ad3dc113a58c7e9347e534622cab",
+  "diagnostics": [
+    {"code": "language.unknown_kind", "stage": "static"},
+    {"code": "language.unknown_unit", "stage": "static"},
+    {"code": "language.duplicate_symbol", "stage": "resolution"},
+    {"code": "language.resource_exhausted", "stage": "static"}
+  ],
+  "kernel_identity": "sha256:67ca30bf675611a8cf68f4fc0cdaf2f0a7a16e5aa4fd5be270e9ddc1ecb066a5",
+  "language": {
+    "constructors": [
+      {"id": "core.quantity", "parameters": ["kind", "unit", "domain", "representation", "numeric_policy", "role"]}
+    ],
+    "packages": [
+      {"capabilities": ["quantity.declare", "quantity.lower"], "id": "core.quantity", "operations": [], "types": ["Quantity"], "version": "2.0.0"}
+    ],
+    "quantity": {
+      "domains": ["closed-interval"],
+      "kinds": ["scalar"],
+      "numeric_policies": [{"id": "exact-int64", "overflow": "refuse", "rounding": "none"}],
+      "representations": ["signed-int64"],
+      "symbol_roles": ["constant", "parameter", "input", "state", "derived", "output", "random-variable"],
+      "units": [{"dimension": "dimensionless", "id": "1"}]
+    },
+    "reasons": [
+      {"diagnostic": "language.unknown_kind", "id": "quantity.reason.unknown-kind", "predicate": {"inventory_path": "language.quantity.kinds", "operation": "not-member"}, "stage": "static"},
+      {"diagnostic": "language.unknown_unit", "id": "quantity.reason.unknown-unit", "predicate": {"inventory_path": "language.quantity.units", "member_field": "id", "operation": "not-member"}, "stage": "static"},
+      {"diagnostic": "language.duplicate_symbol", "id": "quantity.reason.duplicate-symbol", "predicate": {"operation": "has-duplicate"}, "stage": "resolution"},
+      {"diagnostic": "language.resource_exhausted", "id": "quantity.reason.resource-exhausted", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "static"}
+    ],
+    "rules": [
+      {
+        "conclusion": {
+          "fact_kind": "typed-quantity-symbol",
+          "fields": {
+            "domain": {"name": "domain", "tag": "variable"},
+            "kind": {"name": "kind", "tag": "variable"},
+            "numeric_policy": {"name": "numeric_policy", "tag": "variable"},
+            "representation": {"name": "representation", "tag": "variable"},
+            "role": {"name": "role", "tag": "variable"},
+            "symbol": {"name": "symbol", "tag": "variable"},
+            "unit": {"name": "unit", "tag": "variable"}
+          }
+        },
+        "id": "quantity.declare",
+        "judgment": "declare-quantity",
+        "premises": [{
+          "bind": {
+            "domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy",
+            "representation": "representation", "role": "role", "symbol": "symbol", "unit": "unit"
+          },
+          "fact_kind": "quantity-source"
+        }]
+      },
+      {
+        "conclusion": {
+          "fact_kind": "rir-quantity-declaration",
+          "fields": {
+            "domain": {"name": "domain", "tag": "variable"},
+            "kind": {"name": "kind", "tag": "variable"},
+            "numeric_policy": {"name": "numeric_policy", "tag": "variable"},
+            "representation": {"name": "representation", "tag": "variable"},
+            "role": {"name": "role", "tag": "variable"},
+            "symbol": {"name": "symbol", "tag": "variable"},
+            "unit": {"name": "unit", "tag": "variable"}
+          }
+        },
+        "id": "quantity.lower",
+        "judgment": "lower-quantity",
+        "premises": [{
+          "bind": {
+            "domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy",
+            "representation": "representation", "role": "role", "symbol": "symbol", "unit": "unit"
+          },
+          "fact_kind": "typed-quantity-symbol"
+        }]
+      }
+    ],
+    "wire_schemas": [{
+      "artifact_kind": "model-source-package",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schema_version": {"const": "2.0.0"},
+          "symbols": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "symbol": {"type": "string", "minLength": 1},
+                "role": {"enum": ["constant", "parameter", "input", "state", "derived", "output", "random-variable"]},
+                "representation": {"const": "signed-int64"},
+                "kind": {"const": "scalar"},
+                "unit": {"const": "1"},
+                "domain": {
+                  "type": "object",
+                  "properties": {"minimum": {"type": "integer"}, "maximum": {"type": "integer"}},
+                  "required": ["minimum", "maximum"],
+                  "unevaluatedProperties": false
+                },
+                "numeric_policy": {"const": "exact-int64"}
+              },
+              "required": ["symbol", "role", "representation", "kind", "unit", "domain", "numeric_policy"],
+              "unevaluatedProperties": false
+            }
+          }
+        },
+        "required": ["schema_version", "symbols"],
+        "unevaluatedProperties": false
+      }
+    }]
+  },
+  "resources": {"max_diagnostics": 1000, "max_rule_match_steps": 65536, "max_source_bytes": 1048576, "max_symbols": 4096},
+  "schema_major": 2,
+  "vectors": [
+    {
+      "expect": {"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "signed-int64", "role": "state", "symbol": "health", "unit": "1"}},
+      "id": "quantity.declare.valid",
+      "input": {"facts": [{"kind": "quantity-source", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "signed-int64", "role": "state", "symbol": "health", "unit": "1"}}], "judgment": "declare-quantity"},
+      "rule": "quantity.declare"
+    },
+    {
+      "expect": {"kind": "rir-quantity-declaration", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "signed-int64", "role": "state", "symbol": "health", "unit": "1"}},
+      "id": "quantity.lower.valid",
+      "input": {"facts": [{"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "signed-int64", "role": "state", "symbol": "health", "unit": "1"}}], "judgment": "lower-quantity"},
+      "rule": "quantity.lower"
+    },
+    {"diagnostic": "language.unknown_kind", "id": "quantity.refuse.kind", "input": {"value": "missing-kind"}, "reason": "quantity.reason.unknown-kind", "stage": "static"},
+    {"diagnostic": "language.unknown_unit", "id": "quantity.refuse.unit", "input": {"value": "missing-unit"}, "reason": "quantity.reason.unknown-unit", "stage": "static"},
+    {"diagnostic": "language.duplicate_symbol", "id": "quantity.refuse.duplicate", "input": {"values": ["health", "health"]}, "reason": "quantity.reason.duplicate-symbol", "stage": "resolution"},
+    {"diagnostic": "language.resource_exhausted", "id": "quantity.refuse.resources", "input": {"value": 4097}, "reason": "quantity.reason.resource-exhausted", "stage": "static"}
+  ]
+}
