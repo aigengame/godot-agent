@@ -1,9 +1,32 @@
 # Evidence-Driven Architecture Design Reference
 
-Use this file for detailed templates and proof obligations. `SKILL.md` owns the workflow; this file
-does not redefine its sequence.
+Use this file for detailed templates, proof obligations, and delivery gates. `SKILL.md` exclusively
+owns the design workflow; this file does not restate it.
 
-## 1. Authority and artifact model
+Contents: [modes and authority](#1-engagement-modes-and-authority-model) ·
+[claims](#2-claim-and-evidence-ladder) · [theory](#3-theory-support-matrix) ·
+[external research](#4-external-system-research-matrix) · [validation](#5-validation-portfolio) ·
+[quality gates](#6-four-design-axes-and-cross-cutting-qualities) ·
+[defect attribution](#7-defect-attribution-ladder) · [delivery](#8-delivery-gates-and-production-planning) ·
+[completion](#9-completion-audit)
+
+## 1. Engagement modes and authority model
+
+Choose mode before building the authority map:
+
+| Mode | Use when | Required minimum |
+| --- | --- | --- |
+| Lightweight design | a bounded, reversible decision adds no semantic root, authority domain, or extension boundary | owner, requirement/decision, falsifier, affected axes, one discriminating check, non-claims, and human gate |
+| Full design | a framework/language/runtime or broad, hard-to-reverse claim changes authority, semantics, extension, or production boundaries | the complete workflow, matrices, proof obligations, and delivery gates |
+| Audit-only | fixed existing artifacts and claims must be evaluated without redesign | fixed baseline/scope, authority and claim audit, design-axis and cross-cutting-quality findings, completion gaps, and human disposition; no edits unless requested |
+
+Every mode keeps explicit authority, falsifier, non-claims, and human decision ownership. Scale the
+remaining evidence work to claim breadth, reversibility, novelty, and operational risk.
+
+`Lightweight design` is a ceiling as well as a minimum: start with one compact decision record and
+one discriminating check. Do not create theory/research matrices, a prototype portfolio, the full
+delivery sequence, or a full completion audit unless the falsifier exposes a specific need; state
+why before expanding. `Audit-only` similarly reports only findings inside the pinned claimed scope.
 
 Choose repository-native names, but preserve these ownership roles:
 
@@ -17,6 +40,7 @@ Choose repository-native names, but preserve these ownership roles:
 | Executable conformance assets | machine-checkable schemas, scenarios, vectors, validators, and observable oracles that realize or test the specification | an independent semantic authority or proof merely because tests pass |
 | Evidence record | prototype/research inputs, outputs, provenance, bounded conclusions | semantic authority or acceptance state |
 | Acceptance tracker | current gates and their state | proof without required artifacts |
+| Human decision owner | accept, reject, or condition the architecture and authorize the next gate | an evidence generator, automated check, or self-approving agent |
 | Prototype | one disposable risk probe | production implementation or permanent authority |
 | PR body/comments | reviewable summary and chronological coordination | sole home of requirements, dogfooding, or decisions |
 
@@ -49,8 +73,17 @@ Use exact, bounded language:
 Never promote a claim merely because a prototype passed, a third-party framework uses a similar
 term, or tests unrelated to the property are green.
 
-`refined-adopted` and `open-gate` classify dogfooding feedback, not claim maturity. After
-reconciliation, set the affected claim to the applicable state in the table above.
+Dogfooding uses a separate disposition namespace:
+
+| Disposition | Meaning |
+| --- | --- |
+| `confirmed-no-change` | bounded evidence supports the existing decision without changing authority |
+| `refined-adopted` | the observation caused an accepted, reconciled design or requirement change |
+| `gap-opened` | the observation exposed an unresolved defect, ambiguity, or evidence gate |
+| `no-design-effect` | the observation was instance-local, out of claim scope, or required no normative change |
+
+After recording the disposition, set the affected claim to the applicable maturity state above.
+Never reuse a claim-state label as a dogfooding disposition.
 
 ## 3. Theory-support matrix
 
@@ -89,11 +122,11 @@ Rules:
 5. Treat an external version change as a deliberate local design decision, never ambient drift.
 6. Compare with non-adoption: importing a standard can cost more authority and surface than it saves.
 
-## 5. Prototype portfolio
+## 5. Validation portfolio
 
-Choose form by uncertainty:
+Choose validation form by uncertainty:
 
-| Uncertainty | Useful probe |
+| Uncertainty | Validation form |
 | --- | --- |
 | layer connectivity/integration | smallest end-to-end vertical tracer |
 | semantic authority/portability | two independent interpreters or compilers consuming each other's artifacts |
@@ -102,6 +135,7 @@ Choose form by uncertainty:
 | extensibility | add an out-of-family capability through public contracts with unchanged core/builds |
 | requirement breadth | research corpus mapped to the coverage matrix, explicitly non-conforming |
 | human interaction/usability | visual or interactive prototype |
+| authority ambiguity/contract completeness | independent adversarial review of fixed raw artifacts and claimed scope |
 
 ### Prototype charter
 
@@ -123,11 +157,20 @@ fixed branch/commit with an evidence index. Do not merge it merely to make it vi
 
 ### Dogfooding ledger
 
-| Observation | Classification | Root layer | Design effect | Owning artifact updated | Permanent proof promoted | Remaining gate |
+| Observation | Disposition | Root layer | Design effect | Owning artifact updated | Permanent proof promoted | Remaining gate |
 | --- | --- | --- | --- | --- | --- | --- |
 
 Keep chronological experiment details in the evidence record. Put only synthesized implications in
-the architecture, decisions, requirements, glossary, and executable specification.
+the architecture, decisions, requirements, glossary, specification, and executable conformance assets.
+
+### Independent adversarial review
+
+Use independent review to expose ambiguous prose, hidden authority, contradictions, and omitted
+cases. Give the reviewer fixed raw requirements, artifacts, and claimed scope—not the desired
+conclusion. Record the baseline, independence boundary, findings, and disposition. Review is design
+evidence, never conformance proof or human acceptance.
+Require it for full design, broad or hard-to-reverse claims, and load-bearing authority ambiguity;
+otherwise scale it to risk.
 
 ### Stop rule
 
@@ -135,7 +178,10 @@ Run another disposable prototype only when a new semantic root, extension mechan
 authority boundary, or comparably high-risk uncertainty appears. Otherwise move to permanent
 conformance vectors and production slices.
 
-## 6. Four-axis quality gates
+## 6. Four design axes and cross-cutting qualities
+
+The four axes assess design structure. Consistency, reliability, and operability apply across every
+axis; they are not additional peers in the design-axis taxonomy.
 
 | Axis | Required questions | Strong evidence | Failure signal |
 | --- | --- | --- | --- |
@@ -168,25 +214,9 @@ Fix the narrowest honest owner. Do not patch a template to hide a framework defe
 kernel because one instance used the wrong contract. If a required extensibility promise fails,
 reopen the architecture rather than granting a special-case escape hatch.
 
-## 8. Iteration protocol
+## 8. Delivery gates and production planning
 
-Use short evidence-bearing loops:
-
-1. Select the highest-risk open claim.
-2. Update its requirement, owner, falsifier, and acceptance evidence.
-3. Research theory/external mechanisms only as needed for that claim.
-4. Compare alternatives and choose a bounded design.
-5. Run the smallest discriminating prototype or permanent vector.
-6. Classify dogfooding; update owners and remove stale duplicates.
-7. Re-run the four-axis gate and cross-artifact reconciliation.
-8. Choose the next risk or advance to the next delivery gate.
-
-This is iterative architecture design, not a waterfall specification. Requirements may refine when
-evidence arrives, but every refinement must be explicit, traced, and synchronized.
-
-## 9. Delivery gates and production planning
-
-A useful default sequence is:
+This section exclusively owns the detailed default delivery sequence:
 
 1. **Bounded architecture feasibility:** resolve the highest-risk mechanism with disposable evidence.
 2. **Permanent conformance foundation:** replace prototype-local authority with versioned rules,
@@ -201,21 +231,28 @@ Compatibility effort must match real history. With no released artifacts, prefer
 baseline: migrate safely where semantics are known and deprecate/refuse what cannot be migrated.
 Do not build speculative compatibility machinery.
 
-## 10. Completion audit
+## 9. Completion audit
 
-Before declaring the design ready for implementation or production, prove each item:
+For full design, prove every item before declaring the design ready for implementation or
+production. For lightweight or audit-only work, apply only the selected mode's minimum and the
+checklist items affected by its explicit claims; list the rest as out of scope rather than producing
+ceremonial artifacts.
 
 - [ ] Every requirement, non-goal, invariant, and production constraint has one owner.
 - [ ] Every binding decision records alternatives, consequences, and a verification path.
 - [ ] Every load-bearing abstraction has a theory mapping and honest proof boundary.
 - [ ] Every external influence has a pinned version, adopted/rejected mapping, local owner, and evidence.
 - [ ] Every prototype has a charter, immutable evidence, bounded conclusion, non-claims, and disposition.
+- [ ] The selected engagement mode is justified and satisfies its required minimum.
+- [ ] Required independent-review findings are dispositioned without being mislabeled as conformance.
 - [ ] Every adopted dogfooding result was propagated to all affected authoritative artifacts.
 - [ ] The coverage matrix includes positive, negative, boundary, interaction, and observable paths.
-- [ ] Abstraction, completeness, orthogonality, and extensibility each have scoped evidence.
+- [ ] The four design axes and consistency, reliability, and operability each have scoped evidence.
 - [ ] Independent implementations cannot disagree within the claimed contract, or the gap is open.
 - [ ] Normative details are not duplicated across architecture, decisions, glossary, issue, and PR.
 - [ ] Live counts, links, statuses, versions, and commit references were refreshed after the final edit.
 - [ ] Remaining risks and non-claims are explicit; prototype evidence is not mislabeled as conformance.
+- [ ] The human decision owner accepted, rejected, or conditioned the architecture and explicitly
+      authorized or withheld the next gate; no evidence or agent self-approved it.
 - [ ] The delivery plan names permanent assets, vertical slices, migration policy, operational gates,
       and the condition that reopens the architecture.

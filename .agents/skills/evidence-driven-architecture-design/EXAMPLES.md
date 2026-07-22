@@ -37,16 +37,16 @@ and vectors. None becomes a peer authority merely because its terminology is reu
 
 ### 4. Dogfooding synthesis
 
-| Observation | Classification | Owner update | Non-claim |
+| Observation | Disposition | Owner update | Non-claim |
 | --- | --- | --- | --- |
-| one end-to-end run succeeds | confirmed-narrowly | architecture topology and tracer scenario | not framework completeness |
+| one end-to-end run succeeds | confirmed-no-change | architecture topology and tracer scenario | not framework completeness |
 | runtimes disagree on a host-coded rule | refined-adopted | language decision and conformance vector | not fixed by documenting one runtime |
-| extension interaction order is absent | open then refined | extension specification and boundary vector | packages are not yet orthogonal |
+| extension interaction order is absent | gap-opened | open specification owner and boundary-vector work | packages are not yet orthogonal |
 
 Prototype code stays on fixed evidence commits. Only the corrected decisions, terms, scenarios, and
 vectors enter the authority branch.
 
-### 5. Four-axis conclusion
+### 5. Design-axis conclusion
 
 - **Abstraction:** supported for the canonical semantic boundary; optimizer freedom remains private.
 - **Completeness:** the known policy stories map to scenarios, but production recovery remains open.
@@ -54,6 +54,34 @@ vectors enter the authority branch.
 - **Extensibility:** two domains pass; the out-of-family witness is still required before a general
   claim.
 
-The next step is a permanent conformance foundation, not another connectivity prototype. Production
-readiness waits for durable storage, recovery, authentication, capacity, observability, rollout,
-and rollback evidence.
+The next step is a permanent conformance foundation, not another connectivity prototype.
+Cross-cutting reliability and operability remain open until durable storage, recovery,
+authentication, capacity, observability, rollout, and rollback have evidence.
+
+## Example: make a lightweight internal persistence decision
+
+A service proposes bounded in-memory batching while retaining its existing database as the sole
+persistence authority. The author selects `lightweight`: one owner, one decision record, one
+falsifier (an acknowledged item is absent after recovery), one crash-boundary check, reliability as
+the affected quality, explicit non-claims about exactly-once delivery and performance, and a human
+decision gate.
+
+The author does not create theory or external-system matrices, a prototype portfolio, or the full
+delivery plan. If the crash check exposes ambiguous commit state, the owner either opens one focused
+idempotency decision or rejects the design; that evidence need does not silently promote the entire
+engagement to full mode.
+
+## Example: audit an existing event-delivery architecture
+
+The team claims that a fixed document set completely specifies retry order, deduplication, and
+failure recovery. The auditor selects `audit-only`, pins the artifact commit and claimed scope, and
+makes no edits.
+
+- The authority audit finds retry precedence restated differently in the standard and deployment guide.
+- Two independent readers derive different behavior for equal-time retries, so the finding is
+  `gap-opened`; passing integration tests do not turn it into conformance proof.
+- Orthogonality and reliability remain open, while unrelated extensibility claims are not re-evaluated.
+
+The report proposes one normative owner and a discriminating boundary vector, then stops. The human
+decision owner conditionally accepts the audit, authorizes specification repair, and leaves the
+conformance claim open.
