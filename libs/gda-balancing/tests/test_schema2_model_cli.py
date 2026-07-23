@@ -82,6 +82,16 @@ def _invocation_directory(_parent, invocation_key: str):
     return matches[0]
 
 
+def _anchor_path(invocation_key: str) -> Path:
+    matches = list(
+        (Path(os.environ["GDA_BALANCING_STORE_DIR"]) / "anchors").glob(
+            f"*/{invocation_key}.json"
+        )
+    )
+    assert len(matches) == 1
+    return matches[0]
+
+
 def test_model_check_accepts_all_quantity_roles_without_publishing(tmp_path, run_cli):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
@@ -232,9 +242,20 @@ def test_model_check_refuses_a_source_without_a_selected_domain_package(
     exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
 
     assert (exit_code, stderr) == (2, "")
-    assert json.loads(stdout)["error"]["diagnostics"][0]["code"] == (
-        "language.source_contract_mismatch"
-    )
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert {
+        (item["primary"]["pointer"], item["code"]) for item in error["diagnostics"]
+    } == {
+        (
+            "/package_requirements",
+            "language.source_contract_mismatch",
+        ),
+        (
+            "/modules/0/imports/0/package",
+            "language.unresolved_name",
+        ),
+    }
 
 
 def test_model_check_classifies_an_unavailable_exact_package_as_resolution(
@@ -260,6 +281,68 @@ def test_model_check_classifies_an_unavailable_exact_package_as_resolution(
         )
     ]
     assert error["truncated"] is False
+
+
+def test_model_check_classifies_name_legality_as_static(tmp_path, run_cli):
+    duplicate_alias = _model_source()
+    duplicate_alias["modules"][0]["imports"].append(
+        deepcopy(duplicate_alias["modules"][0]["imports"][0])
+    )
+    duplicate_path = tmp_path / "duplicate-alias.json"
+    duplicate_path.write_text(json.dumps(duplicate_alias), encoding="utf-8")
+
+    unresolved_name = _model_source()
+    unresolved_name["modules"][0]["symbols"][0]["type"] = "missing"
+    unresolved_path = tmp_path / "unresolved-name.json"
+    unresolved_path.write_text(json.dumps(unresolved_name), encoding="utf-8")
+
+    duplicate = run_cli(["model", "check", str(duplicate_path)])
+    unresolved = run_cli(["model", "check", str(unresolved_path)])
+
+    assert duplicate[0] == unresolved[0] == 2
+    duplicate_error = json.loads(duplicate[1])["error"]
+    unresolved_error = json.loads(unresolved[1])["error"]
+    assert duplicate_error["stage"] == "static"
+    assert duplicate_error["diagnostics"][0]["code"] == "language.name_ambiguity"
+    assert duplicate_error["diagnostics"][0]["primary"]["pointer"] == (
+        "/modules/0/imports/1/alias"
+    )
+    assert unresolved_error["stage"] == "static"
+    assert unresolved_error["diagnostics"][0]["code"] == "language.unresolved_name"
+    assert unresolved_error["diagnostics"][0]["primary"]["pointer"] == (
+        "/modules/0/symbols/0/type"
+    )
+
+
+def test_model_check_reports_structural_members_at_the_exact_artifact_pointer(
+    tmp_path, run_cli
+):
+    source_document = _model_source()
+    del source_document["modules"][0]["symbols"][0]["unit"]
+    source_document["modules"][0]["symbols"][1]["unexpected"] = True
+    source = tmp_path / "structural-errors.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [
+        (item["primary"]["kind"], item["primary"]["pointer"], item["code"])
+        for item in error["diagnostics"]
+    ] == [
+        (
+            "artifact",
+            "/modules/0/symbols/0/unit",
+            "language.source_contract_mismatch",
+        ),
+        (
+            "artifact",
+            "/modules/0/symbols/1/unexpected",
+            "language.source_contract_mismatch",
+        ),
+    ]
 
 
 def test_model_check_reports_source_size_at_ingress(tmp_path, run_cli):
@@ -333,7 +416,16 @@ def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
     assert json.loads(out.read_text())["artifact_kind"] == "resolved-model"
     assert receipt["content_identity"] == content_identity(
         "artifact-set-receipt-v2",
-        {key: value for key, value in receipt.items() if key != "content_identity"},
+        {
+            key: value
+            for key, value in receipt.items()
+            if key
+            not in {
+                "content_identity",
+                "manifest_locator",
+                "member_locators",
+            }
+        },
     )
 
     manifest = json.loads((artifact_dir / "artifact-set-manifest.json").read_text())
@@ -950,7 +1042,9 @@ def test_publication_index_anchor_rejects_a_coherently_reidentified_rewrite(
     first = run_cli(argv)
     assert first[0] == 0
     artifact_dir = _artifact_directory(json.loads(first[1]))
-    index_before = (artifact_dir / "publication-index.json").read_bytes()
+    anchor = _anchor_path("9" * 64)
+    anchor_before = anchor.read_bytes()
+    assert anchor.stat().st_mode & 0o222 == 0
 
     rir = json.loads((artifact_dir / "rir-semantic-payload.json").read_text())
     rir["declarations"][0]["domain"]["maximum"] = 99
@@ -984,12 +1078,49 @@ def test_publication_index_anchor_rejects_a_coherently_reidentified_rewrite(
     receipt["manifest_identity"] = manifest["content_identity"]
     _reidentify(receipt, "artifact-set-receipt-v2")
     (artifact_dir / "artifact-set-receipt.json").write_bytes(canonical_bytes(receipt))
-    assert (artifact_dir / "publication-index.json").read_bytes() == index_before
+    index = json.loads((artifact_dir / "publication-index.json").read_text())
+    index["receipt_identity"] = receipt["content_identity"]
+    _reidentify(index, "publication-index-v2")
+    (artifact_dir / "publication-index.json").write_bytes(canonical_bytes(index))
+    assert anchor.read_bytes() == anchor_before
 
     exit_code, stdout, stderr = run_cli(argv)
 
     assert (exit_code, stdout) == (4, "")
     assert json.loads(stderr)["error"]["code"] == "internal_error"
+
+
+def test_receipt_content_identity_excludes_transport_locators():
+    _, language_bundle = model_module.load_authorities()
+    common = {
+        "descriptor_identity": "sha256:" + "1" * 64,
+        "invocation_key": "2" * 64,
+        "manifest_identity": "sha256:" + "3" * 64,
+    }
+    first = model_module._identified_artifact(
+        language_bundle,
+        "artifact-set-receipt",
+        {
+            **common,
+            "manifest_locator": "/store-a/manifest.json",
+            "member_locators": [
+                {"logical_name": "resolved-model", "locator": "/store-a/member.json"}
+            ],
+        },
+    )
+    second = model_module._identified_artifact(
+        language_bundle,
+        "artifact-set-receipt",
+        {
+            **common,
+            "manifest_locator": "/store-b/manifest.json",
+            "member_locators": [
+                {"logical_name": "resolved-model", "locator": "/store-b/member.json"}
+            ],
+        },
+    )
+
+    assert first["content_identity"] == second["content_identity"]
 
 
 def test_recovery_rejects_a_symlinked_committed_member(tmp_path, run_cli):
@@ -1158,9 +1289,18 @@ def _published_semantic_artifacts(out) -> dict[str, dict]:
 
 
 def _reidentify(artifact: dict, domain: str) -> None:
+    excluded = (
+        {"manifest_locator", "member_locators"}
+        if domain == "artifact-set-receipt-v2"
+        else set()
+    )
     artifact["content_identity"] = content_identity(
         domain,
-        {key: value for key, value in artifact.items() if key != "content_identity"},
+        {
+            key: value
+            for key, value in artifact.items()
+            if key != "content_identity" and key not in excluded
+        },
     )
 
 
@@ -1172,6 +1312,16 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
         return value
 
     for package in language_bundle["language"]["packages"]:
+        package["vector_definitions"] = [
+            deepcopy(
+                next(
+                    vector
+                    for vector in language_bundle["vectors"]
+                    if vector["id"] == vector_id
+                )
+            )
+            for vector_id in package["vectors"]
+        ]
         for entry in package["semantic_closure"]:
             entry["definitions"] = deepcopy(exact_path(entry["authority_path"]))
         package["semantic_identity"] = content_identity(
@@ -1207,9 +1357,9 @@ def test_resolved_model_admission_rejects_coherently_reidentified_authority_drif
         artifacts["package-lock"]["operations"][0]["definition"]["id"] = (
             "quantity.reidentified"
         )
-        artifacts["rir-semantic-payload"]["operation_projections"][0]["definition"][
-            "id"
-        ] = "quantity.reidentified"
+        artifacts["rir-semantic-payload"]["selected_semantics"]["operations"][0][
+            "definition"
+        ]["id"] = "quantity.reidentified"
         _reidentify(artifacts["rir-semantic-payload"], "rir-semantic-payload-v2")
 
     def mutate_diagnostic(artifacts):
@@ -1358,6 +1508,28 @@ def test_rir_identity_binds_the_full_selected_package_semantics(tmp_path):
     mutated_lock = mutated["package-lock"]
     original_rir = original["rir-semantic-payload"]
     mutated_rir = mutated["rir-semantic-payload"]
+    assert original_rir["selected_semantics"] == original_lock["selected_semantics"]
+    assert mutated_rir["selected_semantics"] == mutated_lock["selected_semantics"]
+    original_selected = cast(dict[str, Any], original_rir["selected_semantics"])
+    mutated_selected = cast(dict[str, Any], mutated_rir["selected_semantics"])
+    original_closures = cast(
+        list[dict[str, Any]], original_selected["package_semantic_closures"]
+    )
+    mutated_closures = cast(
+        list[dict[str, Any]], mutated_selected["package_semantic_closures"]
+    )
+    original_units = next(
+        entry["definitions"]
+        for entry in cast(list[dict[str, Any]], original_closures[0]["definitions"])
+        if entry["authority_path"] == "language.quantity.units"
+    )
+    mutated_units = next(
+        entry["definitions"]
+        for entry in cast(list[dict[str, Any]], mutated_closures[0]["definitions"])
+        if entry["authority_path"] == "language.quantity.units"
+    )
+    assert original_units[0]["dimension"] == "dimensionless"
+    assert mutated_units[0]["dimension"] == "reidentified-dimension"
     assert original_lock["content_identity"] != mutated_lock["content_identity"]
     assert original_rir["content_identity"] != mutated_rir["content_identity"]
     assert (

@@ -414,6 +414,20 @@ def _model_check_diagnostics(
 def _schema_error_code(
     error: jsonschema.ValidationError, language_bundle: dict[str, Any]
 ) -> str:
+    if error.validator in {
+        "additionalProperties",
+        "required",
+        "type",
+        "unevaluatedProperties",
+    }:
+        profile = _resolution_profile(language_bundle)
+        return cast(
+            str,
+            _reason_by_id(
+                language_bundle,
+                cast(str, profile["structural_reason"]),
+            )["diagnostic"],
+        )
     path = tuple(str(part) for part in error.absolute_path)
     language = _language(language_bundle)
     reasons = {
@@ -433,18 +447,58 @@ def _schema_error_code(
             return cast(str, reasons[check["reason"]]["diagnostic"])
     return cast(
         str,
-        _unique_reason(
+        _reason_by_id(
             language_bundle,
-            stage="static",
-            operation="not-equal",
+            cast(str, _resolution_profile(language_bundle)["structural_reason"]),
         )["diagnostic"],
     )
+
+
+def _schema_error_diagnostics(
+    error: jsonschema.ValidationError,
+    source_identity: str,
+    language_bundle: dict[str, Any],
+) -> list[Schema2Diagnostic]:
+    code = _schema_error_code(error, language_bundle)
+    base = tuple(error.absolute_path)
+    pointers: list[tuple[object, ...]] = []
+    if error.validator == "required" and isinstance(error.instance, dict):
+        required = error.validator_value
+        if isinstance(required, list):
+            pointers = [
+                (*base, member)
+                for member in sorted(set(required) - set(error.instance))
+            ]
+    elif error.validator in {
+        "additionalProperties",
+        "unevaluatedProperties",
+    } and isinstance(error.instance, dict):
+        schema = error.schema
+        properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        if isinstance(properties, dict):
+            pointers = [
+                (*base, member)
+                for member in sorted(set(error.instance) - set(properties))
+            ]
+    if not pointers:
+        pointers = [base]
+    return [
+        Schema2Diagnostic(
+            code=code,
+            message=error.message,
+            primary=_location(source_identity, _pointer(pointer)),
+        )
+        for pointer in pointers
+    ]
 
 
 def _resolution_diagnostics(
     source: dict[str, Any],
     source_identity: str,
+    kernel: dict[str, Any],
     language_bundle: dict[str, Any],
+    *,
+    stage: str,
 ) -> list[Schema2Diagnostic]:
     language = _language(language_bundle)
     lowering = _model_lowering(language_bundle)
@@ -479,6 +533,14 @@ def _resolution_diagnostics(
     ]
     selected_packages = [available[key] for key in requirement_keys if key in available]
     diagnostics: list[Schema2Diagnostic] = []
+    resolution_contract = cast(
+        dict[str, Any],
+        cast(dict[str, Any], kernel["meta_format"])["resolution_judgment"],
+    )
+    operation_specs = {
+        item["id"]: item
+        for item in cast(list[dict[str, Any]], resolution_contract["operations"])
+    }
 
     def report(
         judgment: dict[str, Any],
@@ -497,7 +559,10 @@ def _resolution_diagnostics(
         )
 
     for judgment in cast(list[dict[str, Any]], profile["judgment_chain"]):
-        operation = judgment["operation"]
+        operation_spec = operation_specs[judgment["operation"]]
+        if operation_spec["stage"] != stage:
+            continue
+        operation = operation_spec["operator"]
         if operation == "select-exact-packages":
             for index, key in enumerate(requirement_keys):
                 if key not in available:
@@ -812,29 +877,41 @@ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
         key=lambda item: tuple(str(part) for part in item.absolute_path),
     )
     static_diagnostics = [
-        Schema2Diagnostic(
-            code=_schema_error_code(error, ldb),
-            message=error.message,
-            primary=_location(source_identity, _pointer(error.absolute_path)),
-        )
+        diagnostic
         for error in errors
+        for diagnostic in _schema_error_diagnostics(error, source_identity, ldb)
     ]
     static_diagnostics.extend(_model_check_diagnostics(source, source_identity, ldb))
+    static_diagnostics.extend(
+        _resolution_diagnostics(
+            source,
+            source_identity,
+            kernel,
+            ldb,
+            stage="static",
+        )
+    )
     refusal = _bounded_refusal(static_diagnostics, ldb)
     if refusal is not None:
         return refusal
     refusal = _bounded_refusal(
-        _resolution_diagnostics(source, source_identity, ldb), ldb
+        _resolution_diagnostics(
+            source,
+            source_identity,
+            kernel,
+            ldb,
+            stage="resolution",
+        ),
+        ldb,
     )
     if refusal is not None:
         return refusal
     try:
         _resolved_source_symbols(source, ldb)
     except (KeyError, TypeError, ValueError) as err:
-        source_contract_reason = _unique_reason(
+        source_contract_reason = _reason_by_id(
             ldb,
-            stage="static",
-            operation="not-equal",
+            cast(str, profile["structural_reason"]),
         )
         return _refusal(
             cast(str, source_contract_reason["diagnostic"]),
@@ -907,10 +984,12 @@ def _identified_artifact(
         ),
         **payload,
     }
+    excluded = set(cast(list[str], contract["identity_excluded_members"]))
+    identity_body = {key: value for key, value in body.items() if key not in excluded}
     artifact = {
         **body,
         "content_identity": content_identity(
-            cast(str, contract["identity_domain"]), cast(JsonValue, body)
+            cast(str, contract["identity_domain"]), cast(JsonValue, identity_body)
         ),
     }
     jsonschema.Draft202012Validator(
@@ -933,7 +1012,12 @@ def _verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> 
         language_bundle, artifact_kind
     ):
         return False
-    body = {key: item for key, item in value.items() if key != "content_identity"}
+    excluded = set(cast(list[str], contract["identity_excluded_members"]))
+    body = {
+        key: item
+        for key, item in value.items()
+        if key != "content_identity" and key not in excluded
+    }
     return value.get("content_identity") == content_identity(
         cast(str, contract["identity_domain"]), cast(JsonValue, body)
     )
@@ -1243,6 +1327,14 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
             }
             for package in selected_packages
         ],
+        "package_semantic_closures": [
+            {
+                "package": package["id"],
+                "semantic_identity": package["semantic_identity"],
+                "definitions": package["semantic_closure"],
+            }
+            for package in selected_packages
+        ],
         "dependency_edges": cast(JsonValue, dependency_edges),
         "capability_bindings": [
             {"capability": capability, "provider_package": providers[capability]}
@@ -1279,6 +1371,7 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
             for package in selected_packages
         ],
     }
+    body["selected_semantics"] = cast(JsonValue, semantic_projection)
     body["semantic_identity"] = content_identity(
         "package-lock-selected-semantics-v2",
         cast(JsonValue, semantic_projection),
@@ -1501,7 +1594,7 @@ def admit_resolved_model(
         return ResolvedModelAdmission(False, diagnostic)
     if (
         lock != expected_lock
-        or rir.get("operation_projections") != lock.get("operations")
+        or rir.get("selected_semantics") != lock.get("selected_semantics")
         or rir.get("package_lock_semantic_identity") != lock.get("semantic_identity")
     ):
         return ResolvedModelAdmission(False, diagnostic)
@@ -1593,7 +1686,7 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         "rir-semantic-payload",
         {
             output_member: cast(JsonValue, declarations),
-            "operation_projections": cast(JsonValue, lock["operations"]),
+            "selected_semantics": cast(JsonValue, lock["selected_semantics"]),
             "package_lock_semantic_identity": cast(str, lock["semantic_identity"]),
         },
     )
@@ -1814,6 +1907,37 @@ def _store_invocation_path(descriptor_identity: str, invocation_key: str) -> Pat
     return _store_root() / "invocations" / descriptor_key / invocation_key
 
 
+def _store_anchor_path(descriptor_identity: str, invocation_key: str) -> Path:
+    if not descriptor_identity.startswith("sha256:"):
+        raise ValueError("descriptor identity is not content addressed")
+    descriptor_key = descriptor_identity.removeprefix("sha256:")
+    return _store_root() / "anchors" / descriptor_key / f"{invocation_key}.json"
+
+
+def _write_anchor_exclusive(path: Path, artifact: dict[str, JsonValue]) -> None:
+    data = canonical_bytes(cast(JsonValue, artifact))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    try:
+        descriptor = os.open(path, flags, 0o444)
+    except OSError as err:
+        raise RuntimeError(
+            "publication anchor already exists or is unwritable"
+        ) from err
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except Exception:
+        try:
+            path.unlink()
+        finally:
+            _fsync_directory(path.parent)
+        raise
+    else:
+        _fsync_directory(path.parent)
+
+
 def _primary_artifact_name(
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
 ) -> str:
@@ -1914,8 +2038,22 @@ def _recover_publication(
         member.logical_name: member.artifact_kind for member in artifact_set
     }
     _assert_directory_without_symlink(invocation_path)
+    anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
+    _assert_ancestor_chain_without_symlink(anchor_path)
+    try:
+        anchor_metadata = anchor_path.lstat()
+    except OSError as err:
+        raise RuntimeError("committed publication anchor is unavailable") from err
+    if (
+        not stat.S_ISREG(anchor_metadata.st_mode)
+        or stat.S_IMODE(anchor_metadata.st_mode) & 0o222
+    ):
+        raise RuntimeError("committed publication anchor trust boundary is invalid")
+    anchor = _read_canonical_artifact(anchor_path)
+    if not _verify_artifact(anchor, language_bundle):
+        raise RuntimeError("committed publication anchor identity is invalid")
     index = _read_canonical_artifact(invocation_path / "publication-index.json")
-    if not _verify_artifact(index, language_bundle):
+    if not _verify_artifact(index, language_bundle) or index != anchor:
         raise RuntimeError("committed publication index identity is invalid")
     if index.get("descriptor_identity") != descriptor_identity:
         raise RuntimeError("publication index belongs to another command")
@@ -2059,6 +2197,7 @@ def publish_model_artifacts(
             "argument_conflict", "--out must not resolve to the input path"
         )
     invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
+    anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
     if (
         out_path == invocation_path
         or invocation_path in out_path.parents
@@ -2089,6 +2228,10 @@ def publish_model_artifacts(
         raise UsageError(
             "argument_conflict", "Invocation-key publication must not be a symlink"
         )
+    if invocation_path.exists() and not anchor_path.exists():
+        _assert_directory_without_symlink(invocation_path)
+        shutil.rmtree(invocation_path)
+        _fsync_directory(invocation_path.parent)
     if invocation_path.exists():
         return _recover_publication(
             invocation_path,
@@ -2129,8 +2272,16 @@ def publish_model_artifacts(
     descriptor_parent = invocation_path.parent
     store_root = _store_root()
     store_invocations = store_root / "invocations"
+    store_anchors = store_root / "anchors"
+    anchor_parent = anchor_path.parent
     created_directories: list[Path] = []
-    for directory in (store_root, store_invocations, descriptor_parent):
+    for directory in (
+        store_root,
+        store_invocations,
+        descriptor_parent,
+        store_anchors,
+        anchor_parent,
+    ):
         existed = directory.exists()
         _ensure_directory_chain(directory)
         if not existed:
@@ -2191,6 +2342,7 @@ def publish_model_artifacts(
     )
 
     stage = Path(tempfile.mkdtemp(prefix=f".{invocation_key}.", dir=descriptor_parent))
+    anchored = False
     try:
         for member_index, member in enumerate(artifact_set):
             name = member.logical_name
@@ -2218,12 +2370,17 @@ def publish_model_artifacts(
             raise RuntimeError("Invocation-key publication appeared before commit")
         os.replace(stage, invocation_path)
         _fsync_directory(descriptor_parent)
+        _write_anchor_exclusive(anchor_path, index)
+        anchored = True
         if publication_fault == "after-commit":
             raise RuntimeError("injected publication fault after commit")
         _materialize_primary(out_path, artifacts[_primary_artifact_name(artifact_set)])
     except Exception:
         if stage.exists():
             shutil.rmtree(stage)
+        if not anchored and invocation_path.exists() and not anchor_path.exists():
+            shutil.rmtree(invocation_path)
+            _fsync_directory(invocation_path.parent)
         for directory in reversed(created_directories):
             try:
                 directory.rmdir()

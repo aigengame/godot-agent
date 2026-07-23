@@ -36,7 +36,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:c046befa77f0167f90db691ed69dedeeb38769bb3facb0f206f1fb3dc2dd583b"
+    "sha256:079167bf2a7da3d2c68f4f692d4875147ac74a41a8a59ab1d53fa9f16aaddb0c"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1234,8 +1234,54 @@ def _language_definitions_are_closed(
         for profile in profiles
         if isinstance(profile, dict) and isinstance(profile.get("id"), str)
     }
-    if len(profiles_by_id) != len(profiles):
+    resolution_contract = meta_format.get("resolution_judgment")
+    operation_specs = (
+        resolution_contract.get("operations")
+        if isinstance(resolution_contract, dict)
+        else None
+    )
+    operation_order = (
+        resolution_contract.get("required_operation_order")
+        if isinstance(resolution_contract, dict)
+        else None
+    )
+    operations_by_id = {
+        item["id"]: item
+        for item in operation_specs or []
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    reason_stages = {
+        item["id"]: item["stage"]
+        for item in cast(list[dict[str, Any]], language.get("reasons", []))
+        if isinstance(item, dict)
+        and isinstance(item.get("id"), str)
+        and isinstance(item.get("stage"), str)
+    }
+    if (
+        len(profiles_by_id) != len(profiles)
+        or not isinstance(operation_specs, list)
+        or not operation_specs
+        or len(operations_by_id) != len(operation_specs)
+        or not isinstance(operation_order, list)
+        or operation_order != [item["id"] for item in operation_specs]
+        or len([profile for profile in profiles if profile.get("default") is True]) != 1
+    ):
         return False
+    for profile in profiles:
+        chain = profile.get("judgment_chain")
+        if (
+            not isinstance(chain, list)
+            or [item.get("operation") for item in chain if isinstance(item, dict)]
+            != operation_order
+            or any(
+                not isinstance(item, dict)
+                or item.get("operation") not in operations_by_id
+                or reason_stages.get(item.get("reason"))
+                != operations_by_id[item["operation"]].get("stage")
+                for item in chain
+            )
+        ):
+            return False
     for lowering in lowerings:
         if not isinstance(lowering, dict):
             return False
@@ -2066,6 +2112,7 @@ def admit_authorities(
         if len(package_coordinates) != len(set(package_coordinates)):
             refuse("kernel.duplicate_identifier", "static", "language.packages")
         vector_ids = {str(item.get("id", "")) for item in ldb_vectors}
+        vectors_by_id = {str(item.get("id", "")): item for item in ldb_vectors}
         constructor_ids = {
             str(item.get("id", ""))
             for item in cast(list[dict[str, Any]], language.get("constructors", []))
@@ -2084,6 +2131,12 @@ def admit_authorities(
             profiles = cast(dict[str, Any], package.get("profiles", {}))
             references_close = (
                 set(map(str, package.get("vectors", []))) <= vector_ids
+                and package.get("vector_definitions")
+                == [
+                    vectors_by_id[vector_id]
+                    for vector_id in package.get("vectors", [])
+                    if vector_id in vectors_by_id
+                ]
                 and set(map(str, exports.get("language_rules", []))) <= set(rule_ids)
                 and set(map(str, exports.get("diagnostics", []))) <= set(ldb_codes)
                 and set(map(str, profiles.get("numeric", []))) <= numeric_profiles

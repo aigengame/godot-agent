@@ -1,7 +1,7 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:082b28e778ee2df16dfe6d7f3674b2213080d753431658f07f1ce911bbc2025e",
+  "content_identity": "sha256:fe034c6d9a106f90bb69eeedefde158692713ffc7e229705c1fc9af79835ee7d",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
@@ -12,24 +12,26 @@
     {"code": "language.resolution_ambiguity", "stage": "resolution"},
     {"code": "language.resolution_binding_mismatch", "stage": "resolution"},
     {"code": "language.resolved_authority_mismatch", "stage": "resolution"},
+    {"code": "language.unresolved_name", "stage": "static"},
+    {"code": "language.name_ambiguity", "stage": "static"},
     {"code": "language.source_contract_mismatch", "stage": "static"},
     {"code": "language.source_parse_failure", "stage": "parse"},
     {"code": "language.source_too_large", "stage": "ingress"}
   ],
-  "kernel_identity": "sha256:c046befa77f0167f90db691ed69dedeeb38769bb3facb0f206f1fb3dc2dd583b",
+  "kernel_identity": "sha256:079167bf2a7da3d2c68f4f692d4875147ac74a41a8a59ab1d53fa9f16aaddb0c",
   "language": {
     "artifact_contracts": [
-      {"artifact_kind": "artifact-set-manifest", "identity_domain": "artifact-set-manifest-v2", "schema_kind": "artifact-set-manifest", "wire_schema_identity_domain": "artifact-set-manifest-wire-schema-v2"},
-      {"artifact_kind": "artifact-set-receipt", "identity_domain": "artifact-set-receipt-v2", "schema_kind": "artifact-set-receipt", "wire_schema_identity_domain": "artifact-set-receipt-wire-schema-v2"},
-      {"artifact_kind": "build-receipt", "identity_domain": "build-receipt-v2", "schema_kind": "build-receipt", "wire_schema_identity_domain": "build-receipt-wire-schema-v2"},
-      {"artifact_kind": "capability-manifest", "identity_domain": "capability-manifest-v2", "schema_kind": "capability-manifest", "wire_schema_identity_domain": "capability-manifest-wire-schema-v2"},
-      {"artifact_kind": "debug-map", "identity_domain": "debug-map-v2", "schema_kind": "debug-map", "wire_schema_identity_domain": "debug-map-wire-schema-v2"},
-      {"artifact_kind": "model-build-command-input", "identity_domain": "model-build-command-input-v2", "schema_kind": "model-build-command-input", "wire_schema_identity_domain": "model-build-command-input-wire-schema-v2"},
-      {"artifact_kind": "package-lock", "identity_domain": "package-lock-v2", "schema_kind": "package-lock", "wire_schema_identity_domain": "package-lock-wire-schema-v2"},
-      {"artifact_kind": "publication-index", "identity_domain": "publication-index-v2", "schema_kind": "publication-index", "wire_schema_identity_domain": "publication-index-wire-schema-v2"},
-      {"artifact_kind": "resolution-receipt", "identity_domain": "resolution-receipt-v2", "schema_kind": "resolution-receipt", "wire_schema_identity_domain": "resolution-receipt-wire-schema-v2"},
-      {"artifact_kind": "resolved-model", "identity_domain": "resolved-model-v2", "schema_kind": "resolved-model", "wire_schema_identity_domain": "resolved-model-wire-schema-v2"},
-      {"artifact_kind": "rir-semantic-payload", "identity_domain": "rir-semantic-payload-v2", "schema_kind": "rir-semantic-payload", "wire_schema_identity_domain": "rir-semantic-payload-wire-schema-v2"}
+      {"artifact_kind": "artifact-set-manifest", "identity_domain": "artifact-set-manifest-v2", "schema_kind": "artifact-set-manifest", "wire_schema_identity_domain": "artifact-set-manifest-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "artifact-set-receipt", "identity_domain": "artifact-set-receipt-v2", "schema_kind": "artifact-set-receipt", "wire_schema_identity_domain": "artifact-set-receipt-wire-schema-v2", "identity_excluded_members": ["manifest_locator", "member_locators"]},
+      {"artifact_kind": "build-receipt", "identity_domain": "build-receipt-v2", "schema_kind": "build-receipt", "wire_schema_identity_domain": "build-receipt-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "capability-manifest", "identity_domain": "capability-manifest-v2", "schema_kind": "capability-manifest", "wire_schema_identity_domain": "capability-manifest-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "debug-map", "identity_domain": "debug-map-v2", "schema_kind": "debug-map", "wire_schema_identity_domain": "debug-map-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "model-build-command-input", "identity_domain": "model-build-command-input-v2", "schema_kind": "model-build-command-input", "wire_schema_identity_domain": "model-build-command-input-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "package-lock", "identity_domain": "package-lock-v2", "schema_kind": "package-lock", "wire_schema_identity_domain": "package-lock-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "publication-index", "identity_domain": "publication-index-v2", "schema_kind": "publication-index", "wire_schema_identity_domain": "publication-index-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "resolution-receipt", "identity_domain": "resolution-receipt-v2", "schema_kind": "resolution-receipt", "wire_schema_identity_domain": "resolution-receipt-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "resolved-model", "identity_domain": "resolved-model-v2", "schema_kind": "resolved-model", "wire_schema_identity_domain": "resolved-model-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "rir-semantic-payload", "identity_domain": "rir-semantic-payload-v2", "schema_kind": "rir-semantic-payload", "wire_schema_identity_domain": "rir-semantic-payload-wire-schema-v2", "identity_excluded_members": []}
     ],
     "artifact_wire_schemas": [
       {
@@ -58,7 +60,7 @@
       },
       {
         "artifact_kind": "package-lock",
-        "schema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"artifact_kind": {"const": "package-lock"}, "artifact_version": {"const": "2.0.0"}, "wire_schema_identity": {"type": "string", "minLength": 1}, "resolution_profile": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "source_identity_domain": {"type": "string", "minLength": 1}, "manifest_id_path": {"type": "string", "minLength": 1}, "manifest_entry_module_path": {"type": "string", "minLength": 1}, "requirements_member": {"type": "string", "minLength": 1}, "requirement_package_member": {"type": "string", "minLength": 1}, "requirement_version_member": {"type": "string", "minLength": 1}, "modules_member": {"type": "string", "minLength": 1}, "model_lowering": {"type": "string", "minLength": 1}, "module_id_member": {"type": "string", "minLength": 1}, "imports_member": {"type": "string", "minLength": 1}, "judgment_chain": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "operation": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}}, "required": ["id", "operation", "reason"], "unevaluatedProperties": false}}, "import_alias_member": {"type": "string", "minLength": 1}, "import_package_member": {"type": "string", "minLength": 1}, "import_version_member": {"type": "string", "minLength": 1}, "import_symbol_member": {"type": "string", "minLength": 1}, "symbols_member": {"type": "string", "minLength": 1}, "symbol_name_member": {"type": "string", "minLength": 1}, "symbol_fact_member": {"type": "string", "minLength": 1}, "symbol_type_member": {"type": "string", "minLength": 1}, "dependency_selection": {"type": "string", "minLength": 1}, "dependency_closure": {"type": "string", "minLength": 1}, "package_conflict": {"type": "string", "minLength": 1}, "capability_selection": {"type": "string", "minLength": 1}, "default": {"type": "boolean"}}, "required": ["id", "source_identity_domain", "manifest_id_path", "manifest_entry_module_path", "requirements_member", "requirement_package_member", "requirement_version_member", "modules_member", "module_id_member", "imports_member", "judgment_chain", "import_alias_member", "import_package_member", "import_version_member", "import_symbol_member", "symbols_member", "symbol_name_member", "symbol_fact_member", "symbol_type_member", "dependency_selection", "dependency_closure", "package_conflict", "capability_selection", "default", "model_lowering"], "unevaluatedProperties": false}, "root_requirements": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}}, "required": ["id", "version"], "unevaluatedProperties": false}}, "packages": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "content_identity": {"type": "string", "minLength": 1}, "semantic_identity": {"type": "string", "minLength": 1}}, "required": ["id", "version", "content_identity", "semantic_identity"], "unevaluatedProperties": false}}, "dependency_edges": {"type": "array", "items": {"type": "object", "properties": {"from_package": {"type": "string", "minLength": 1}, "kind": {"type": "string", "minLength": 1}, "to_package": {"type": "string", "minLength": 1}}, "required": ["from_package", "kind", "to_package"], "unevaluatedProperties": false}}, "capability_bindings": {"type": "array", "items": {"type": "object", "properties": {"capability": {"type": "string", "minLength": 1}, "provider_package": {"type": "string", "minLength": 1}}, "required": ["capability", "provider_package"], "unevaluatedProperties": false}}, "types": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "constructor": {"type": "string", "minLength": 1}, "package": {"type": "string", "minLength": 1}}, "required": ["id", "constructor", "package"], "unevaluatedProperties": false}}, "components": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "constructor": {"type": "string", "minLength": 1}, "fields": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "required": ["id", "version", "constructor", "fields"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "conversions": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "from_type": {"type": "string", "minLength": 1}, "to_type": {"type": "string", "minLength": 1}, "operation": {"type": "string", "minLength": 1}, "exact": {"type": "boolean"}}, "required": ["id", "version", "from_type", "to_type", "operation", "exact"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "operations": {"type":"array","items":{"type":"object","properties":{"package":{"type":"string","minLength":1},"definition":{"type":"object","properties":{"id":{"type":"string","minLength":1},"version":{"type":"string","minLength":1},"inputs":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string","minLength":1},"type":{"type":"string","minLength":1}},"required":["name","type"],"unevaluatedProperties":false}},"result":{"type":"string","minLength":1},"kind_rules":{"type":"object","properties":{"inputs":{"type":"string","minLength":1},"result":{"type":"string","minLength":1}},"required":["inputs","result"],"unevaluatedProperties":false},"unit_rules":{"type":"object","properties":{"inputs":{"type":"string","minLength":1},"result":{"type":"string","minLength":1}},"required":["inputs","result"],"unevaluatedProperties":false},"numeric_policy":{"type":"string","minLength":1},"runtime_profile":{"type":"string","minLength":1},"purity":{"type":"string","minLength":1},"effects":{"type":"array","items":{"type":"string","minLength":1}},"refusals":{"type":"array","items":{"type":"string","minLength":1}},"resource_bounds":{"type":"object","properties":{"max_steps":{"type":"integer"}},"required":["max_steps"],"unevaluatedProperties":false},"body":{"type":"object","properties":{"node":{"type":"string","minLength":1},"name":{"type":"string","minLength":1}},"required":["node","name"],"unevaluatedProperties":false},"rule":{"type":"string","minLength":1},"vectors":{"type":"array","items":{"type":"string","minLength":1}}},"required":["id","version","inputs","result","kind_rules","unit_rules","numeric_policy","runtime_profile","purity","effects","refusals","resource_bounds","body","rule","vectors"],"unevaluatedProperties":false}},"required":["package","definition"],"unevaluatedProperties":false}}, "numeric_profiles": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "overflow": {"type": "string", "minLength": 1}, "rounding": {"type": "string", "minLength": 1}}, "required": ["id", "overflow", "rounding"], "unevaluatedProperties": false}}, "runtime_profiles": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "numeric_policy": {"type": "string", "minLength": 1}, "evaluation": {"type": "string", "minLength": 1}, "effects": {"type": "array", "items": {"type": "string", "minLength": 1}}, "resource_bounds": {"type": "object", "properties": {"max_steps": {"type": "integer"}}, "required": ["max_steps"], "unevaluatedProperties": false}}, "required": ["id", "version", "numeric_policy", "evaluation", "effects", "resource_bounds"], "unevaluatedProperties": false}}, "diagnostics": {"type": "array", "items": {"type": "string", "minLength": 1}}, "diagnostic_reasons": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "diagnostic": {"type": "string", "minLength": 1}, "stage": {"type": "string", "minLength": 1}, "predicate": {"type": "object", "properties": {"operation": {"type": "string", "minLength": 1}, "inventory_path": {"type": "string", "minLength": 1}, "member_field": {"type": "string", "minLength": 1}, "limit_path": {"type": "string", "minLength": 1}}, "required": ["operation"], "unevaluatedProperties": false}}, "required": ["id", "diagnostic", "stage", "predicate"], "unevaluatedProperties": false}}, "language_rules": {"type": "array", "items": {"type": "string", "minLength": 1}}, "semantic_identity": {"type": "string", "minLength": 1}, "content_identity": {"type": "string", "minLength": 1}}, "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "resolution_profile", "root_requirements", "packages", "dependency_edges", "capability_bindings", "types", "components", "conversions", "operations", "numeric_profiles", "runtime_profiles", "diagnostics", "diagnostic_reasons", "language_rules", "semantic_identity", "content_identity"], "unevaluatedProperties": false}
+        "schema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"artifact_kind": {"const": "package-lock"}, "artifact_version": {"const": "2.0.0"}, "wire_schema_identity": {"type": "string", "minLength": 1}, "resolution_profile": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "source_identity_domain": {"type": "string", "minLength": 1}, "manifest_id_path": {"type": "string", "minLength": 1}, "manifest_entry_module_path": {"type": "string", "minLength": 1}, "requirements_member": {"type": "string", "minLength": 1}, "requirement_package_member": {"type": "string", "minLength": 1}, "requirement_version_member": {"type": "string", "minLength": 1}, "modules_member": {"type": "string", "minLength": 1}, "model_lowering": {"type": "string", "minLength": 1}, "module_id_member": {"type": "string", "minLength": 1}, "imports_member": {"type": "string", "minLength": 1}, "judgment_chain": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "operation": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}}, "required": ["id", "operation", "reason"], "unevaluatedProperties": false}}, "import_alias_member": {"type": "string", "minLength": 1}, "import_package_member": {"type": "string", "minLength": 1}, "import_version_member": {"type": "string", "minLength": 1}, "import_symbol_member": {"type": "string", "minLength": 1}, "symbols_member": {"type": "string", "minLength": 1}, "symbol_name_member": {"type": "string", "minLength": 1}, "symbol_fact_member": {"type": "string", "minLength": 1}, "symbol_type_member": {"type": "string", "minLength": 1}, "dependency_selection": {"type": "string", "minLength": 1}, "dependency_closure": {"type": "string", "minLength": 1}, "package_conflict": {"type": "string", "minLength": 1}, "capability_selection": {"type": "string", "minLength": 1}, "default": {"type": "boolean"}, "structural_reason": {"type": "string", "minLength": 1}}, "required": ["id", "source_identity_domain", "manifest_id_path", "manifest_entry_module_path", "requirements_member", "requirement_package_member", "requirement_version_member", "modules_member", "module_id_member", "imports_member", "judgment_chain", "import_alias_member", "import_package_member", "import_version_member", "import_symbol_member", "symbols_member", "symbol_name_member", "structural_reason", "symbol_fact_member", "symbol_type_member", "dependency_selection", "dependency_closure", "package_conflict", "capability_selection", "default", "model_lowering"], "unevaluatedProperties": false}, "root_requirements": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}}, "required": ["id", "version"], "unevaluatedProperties": false}}, "packages": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "content_identity": {"type": "string", "minLength": 1}, "semantic_identity": {"type": "string", "minLength": 1}}, "required": ["id", "version", "content_identity", "semantic_identity"], "unevaluatedProperties": false}}, "dependency_edges": {"type": "array", "items": {"type": "object", "properties": {"from_package": {"type": "string", "minLength": 1}, "kind": {"type": "string", "minLength": 1}, "to_package": {"type": "string", "minLength": 1}}, "required": ["from_package", "kind", "to_package"], "unevaluatedProperties": false}}, "capability_bindings": {"type": "array", "items": {"type": "object", "properties": {"capability": {"type": "string", "minLength": 1}, "provider_package": {"type": "string", "minLength": 1}}, "required": ["capability", "provider_package"], "unevaluatedProperties": false}}, "types": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "constructor": {"type": "string", "minLength": 1}, "package": {"type": "string", "minLength": 1}}, "required": ["id", "constructor", "package"], "unevaluatedProperties": false}}, "components": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "constructor": {"type": "string", "minLength": 1}, "fields": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "required": ["id", "version", "constructor", "fields"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "conversions": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "from_type": {"type": "string", "minLength": 1}, "to_type": {"type": "string", "minLength": 1}, "operation": {"type": "string", "minLength": 1}, "exact": {"type": "boolean"}}, "required": ["id", "version", "from_type", "to_type", "operation", "exact"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "operations": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "inputs": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "type": {"type": "string", "minLength": 1}}, "required": ["name", "type"], "unevaluatedProperties": false}}, "result": {"type": "string", "minLength": 1}, "kind_rules": {"type": "object", "properties": {"inputs": {"type": "string", "minLength": 1}, "result": {"type": "string", "minLength": 1}}, "required": ["inputs", "result"], "unevaluatedProperties": false}, "unit_rules": {"type": "object", "properties": {"inputs": {"type": "string", "minLength": 1}, "result": {"type": "string", "minLength": 1}}, "required": ["inputs", "result"], "unevaluatedProperties": false}, "numeric_policy": {"type": "string", "minLength": 1}, "runtime_profile": {"type": "string", "minLength": 1}, "purity": {"type": "string", "minLength": 1}, "effects": {"type": "array", "items": {"type": "string", "minLength": 1}}, "refusals": {"type": "array", "items": {"type": "string", "minLength": 1}}, "resource_bounds": {"type": "object", "properties": {"max_steps": {"type": "integer"}}, "required": ["max_steps"], "unevaluatedProperties": false}, "body": {"type": "object", "properties": {"node": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}, "required": ["node", "name"], "unevaluatedProperties": false}, "rule": {"type": "string", "minLength": 1}, "vectors": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "required": ["id", "version", "inputs", "result", "kind_rules", "unit_rules", "numeric_policy", "runtime_profile", "purity", "effects", "refusals", "resource_bounds", "body", "rule", "vectors"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "numeric_profiles": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "overflow": {"type": "string", "minLength": 1}, "rounding": {"type": "string", "minLength": 1}}, "required": ["id", "overflow", "rounding"], "unevaluatedProperties": false}}, "runtime_profiles": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "numeric_policy": {"type": "string", "minLength": 1}, "evaluation": {"type": "string", "minLength": 1}, "effects": {"type": "array", "items": {"type": "string", "minLength": 1}}, "resource_bounds": {"type": "object", "properties": {"max_steps": {"type": "integer"}}, "required": ["max_steps"], "unevaluatedProperties": false}}, "required": ["id", "version", "numeric_policy", "evaluation", "effects", "resource_bounds"], "unevaluatedProperties": false}}, "diagnostics": {"type": "array", "items": {"type": "string", "minLength": 1}}, "diagnostic_reasons": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "diagnostic": {"type": "string", "minLength": 1}, "stage": {"type": "string", "minLength": 1}, "predicate": {"type": "object", "properties": {"operation": {"type": "string", "minLength": 1}, "inventory_path": {"type": "string", "minLength": 1}, "member_field": {"type": "string", "minLength": 1}, "limit_path": {"type": "string", "minLength": 1}}, "required": ["operation"], "unevaluatedProperties": false}}, "required": ["id", "diagnostic", "stage", "predicate"], "unevaluatedProperties": false}}, "language_rules": {"type": "array", "items": {"type": "string", "minLength": 1}}, "semantic_identity": {"type": "string", "minLength": 1}, "content_identity": {"type": "string", "minLength": 1}, "selected_semantics": {"type": "object", "properties": {"resolution_profile": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "source_identity_domain": {"type": "string", "minLength": 1}, "manifest_id_path": {"type": "string", "minLength": 1}, "manifest_entry_module_path": {"type": "string", "minLength": 1}, "requirements_member": {"type": "string", "minLength": 1}, "requirement_package_member": {"type": "string", "minLength": 1}, "requirement_version_member": {"type": "string", "minLength": 1}, "modules_member": {"type": "string", "minLength": 1}, "model_lowering": {"type": "string", "minLength": 1}, "module_id_member": {"type": "string", "minLength": 1}, "imports_member": {"type": "string", "minLength": 1}, "judgment_chain": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "operation": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}}, "required": ["id", "operation", "reason"], "unevaluatedProperties": false}}, "import_alias_member": {"type": "string", "minLength": 1}, "import_package_member": {"type": "string", "minLength": 1}, "import_version_member": {"type": "string", "minLength": 1}, "import_symbol_member": {"type": "string", "minLength": 1}, "symbols_member": {"type": "string", "minLength": 1}, "symbol_name_member": {"type": "string", "minLength": 1}, "symbol_fact_member": {"type": "string", "minLength": 1}, "symbol_type_member": {"type": "string", "minLength": 1}, "dependency_selection": {"type": "string", "minLength": 1}, "dependency_closure": {"type": "string", "minLength": 1}, "package_conflict": {"type": "string", "minLength": 1}, "capability_selection": {"type": "string", "minLength": 1}, "default": {"type": "boolean"}, "structural_reason": {"type": "string", "minLength": 1}}, "required": ["id", "source_identity_domain", "manifest_id_path", "manifest_entry_module_path", "requirements_member", "requirement_package_member", "requirement_version_member", "modules_member", "module_id_member", "imports_member", "judgment_chain", "import_alias_member", "import_package_member", "import_version_member", "import_symbol_member", "symbols_member", "symbol_name_member", "structural_reason", "symbol_fact_member", "symbol_type_member", "dependency_selection", "dependency_closure", "package_conflict", "capability_selection", "default", "model_lowering"], "unevaluatedProperties": false}, "root_requirements": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}}, "required": ["id", "version"], "unevaluatedProperties": false}}, "packages": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "semantic_identity": {"type": "string", "minLength": 1}}, "required": ["id", "version", "semantic_identity"], "unevaluatedProperties": false}}, "dependency_edges": {"type": "array", "items": {"type": "object", "properties": {"from_package": {"type": "string", "minLength": 1}, "kind": {"type": "string", "minLength": 1}, "to_package": {"type": "string", "minLength": 1}}, "required": ["from_package", "kind", "to_package"], "unevaluatedProperties": false}}, "capability_bindings": {"type": "array", "items": {"type": "object", "properties": {"capability": {"type": "string", "minLength": 1}, "provider_package": {"type": "string", "minLength": 1}}, "required": ["capability", "provider_package"], "unevaluatedProperties": false}}, "types": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "constructor": {"type": "string", "minLength": 1}, "package": {"type": "string", "minLength": 1}}, "required": ["id", "constructor", "package"], "unevaluatedProperties": false}}, "components": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "constructor": {"type": "string", "minLength": 1}, "fields": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "required": ["id", "version", "constructor", "fields"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "conversions": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "from_type": {"type": "string", "minLength": 1}, "to_type": {"type": "string", "minLength": 1}, "operation": {"type": "string", "minLength": 1}, "exact": {"type": "boolean"}}, "required": ["id", "version", "from_type", "to_type", "operation", "exact"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "operations": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "inputs": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "type": {"type": "string", "minLength": 1}}, "required": ["name", "type"], "unevaluatedProperties": false}}, "result": {"type": "string", "minLength": 1}, "kind_rules": {"type": "object", "properties": {"inputs": {"type": "string", "minLength": 1}, "result": {"type": "string", "minLength": 1}}, "required": ["inputs", "result"], "unevaluatedProperties": false}, "unit_rules": {"type": "object", "properties": {"inputs": {"type": "string", "minLength": 1}, "result": {"type": "string", "minLength": 1}}, "required": ["inputs", "result"], "unevaluatedProperties": false}, "numeric_policy": {"type": "string", "minLength": 1}, "runtime_profile": {"type": "string", "minLength": 1}, "purity": {"type": "string", "minLength": 1}, "effects": {"type": "array", "items": {"type": "string", "minLength": 1}}, "refusals": {"type": "array", "items": {"type": "string", "minLength": 1}}, "resource_bounds": {"type": "object", "properties": {"max_steps": {"type": "integer"}}, "required": ["max_steps"], "unevaluatedProperties": false}, "body": {"type": "object", "properties": {"node": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}, "required": ["node", "name"], "unevaluatedProperties": false}, "rule": {"type": "string", "minLength": 1}, "vectors": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "required": ["id", "version", "inputs", "result", "kind_rules", "unit_rules", "numeric_policy", "runtime_profile", "purity", "effects", "refusals", "resource_bounds", "body", "rule", "vectors"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "numeric_profiles": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "overflow": {"type": "string", "minLength": 1}, "rounding": {"type": "string", "minLength": 1}}, "required": ["id", "overflow", "rounding"], "unevaluatedProperties": false}}, "runtime_profiles": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "numeric_policy": {"type": "string", "minLength": 1}, "evaluation": {"type": "string", "minLength": 1}, "effects": {"type": "array", "items": {"type": "string", "minLength": 1}}, "resource_bounds": {"type": "object", "properties": {"max_steps": {"type": "integer"}}, "required": ["max_steps"], "unevaluatedProperties": false}}, "required": ["id", "version", "numeric_policy", "evaluation", "effects", "resource_bounds"], "unevaluatedProperties": false}}, "diagnostics": {"type": "array", "items": {"type": "string", "minLength": 1}}, "diagnostic_reasons": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "diagnostic": {"type": "string", "minLength": 1}, "stage": {"type": "string", "minLength": 1}, "predicate": {"type": "object", "properties": {"operation": {"type": "string", "minLength": 1}, "inventory_path": {"type": "string", "minLength": 1}, "member_field": {"type": "string", "minLength": 1}, "limit_path": {"type": "string", "minLength": 1}}, "required": ["operation"], "unevaluatedProperties": false}}, "required": ["id", "diagnostic", "stage", "predicate"], "unevaluatedProperties": false}}, "language_rules": {"type": "array", "items": {"type": "string", "minLength": 1}}, "package_semantic_closures": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "semantic_identity": {"type": "string", "minLength": 1}, "definitions": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"authority_path": {"type": "string", "minLength": 1}, "definitions": {"type": "array"}}, "required": ["authority_path", "definitions"], "unevaluatedProperties": false}}}, "required": ["package", "semantic_identity", "definitions"], "unevaluatedProperties": false}}}, "required": ["resolution_profile", "root_requirements", "packages", "package_semantic_closures", "dependency_edges", "capability_bindings", "types", "components", "conversions", "operations", "numeric_profiles", "runtime_profiles", "diagnostics", "diagnostic_reasons", "language_rules"], "unevaluatedProperties": false}, "package_semantic_closures": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "semantic_identity": {"type": "string", "minLength": 1}, "definitions": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"authority_path": {"type": "string", "minLength": 1}, "definitions": {"type": "array"}}, "required": ["authority_path", "definitions"], "unevaluatedProperties": false}}}, "required": ["package", "semantic_identity", "definitions"], "unevaluatedProperties": false}}}, "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "resolution_profile", "root_requirements", "packages", "package_semantic_closures", "dependency_edges", "capability_bindings", "types", "components", "conversions", "operations", "numeric_profiles", "runtime_profiles", "diagnostics", "diagnostic_reasons", "language_rules", "selected_semantics", "semantic_identity", "content_identity"], "unevaluatedProperties": false}
       },
       {
         "artifact_kind": "publication-index",
@@ -74,17 +76,12 @@
       },
       {
         "artifact_kind": "rir-semantic-payload",
-        "schema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"artifact_kind": {"const": "rir-semantic-payload"}, "artifact_version": {"const": "2.0.0"}, "wire_schema_identity": {"type": "string", "minLength": 1}, "declarations": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"symbol": {"type": "string", "minLength": 1}, "resolved_symbol": {"type": "object", "properties": {"model": {"type": "string", "minLength": 1}, "module": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}, "required": ["model", "module", "name"], "unevaluatedProperties": false}, "type_identity": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "symbol": {"type": "string", "minLength": 1}}, "required": ["package", "version", "symbol"], "unevaluatedProperties": false}, "role": {"type": "string", "minLength": 1}, "representation": {"type": "string", "minLength": 1}, "kind": {"type": "string", "minLength": 1}, "unit": {"type": "string", "minLength": 1}, "domain": {"type": "object", "properties": {"minimum": {"type": "integer"}, "maximum": {"type": "integer"}}, "required": ["minimum", "maximum"], "unevaluatedProperties": false}, "numeric_policy": {"type": "string", "minLength": 1}}, "required": ["symbol", "resolved_symbol", "type_identity", "role", "representation", "kind", "unit", "domain", "numeric_policy"], "unevaluatedProperties": false}}, "operation_projections": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "inputs": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "type": {"type": "string", "minLength": 1}}, "required": ["name", "type"], "unevaluatedProperties": false}}, "result": {"type": "string", "minLength": 1}, "kind_rules": {"type": "object", "properties": {"inputs": {"type": "string", "minLength": 1}, "result": {"type": "string", "minLength": 1}}, "required": ["inputs", "result"], "unevaluatedProperties": false}, "unit_rules": {"type": "object", "properties": {"inputs": {"type": "string", "minLength": 1}, "result": {"type": "string", "minLength": 1}}, "required": ["inputs", "result"], "unevaluatedProperties": false}, "numeric_policy": {"type": "string", "minLength": 1}, "runtime_profile": {"type": "string", "minLength": 1}, "purity": {"type": "string", "minLength": 1}, "effects": {"type": "array", "items": {"type": "string", "minLength": 1}}, "refusals": {"type": "array", "items": {"type": "string", "minLength": 1}}, "resource_bounds": {"type": "object", "properties": {"max_steps": {"type": "integer"}}, "required": ["max_steps"], "unevaluatedProperties": false}, "body": {"type": "object", "properties": {"node": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}, "required": ["node", "name"], "unevaluatedProperties": false}, "rule": {"type": "string", "minLength": 1}, "vectors": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "required": ["id", "version", "inputs", "result", "kind_rules", "unit_rules", "numeric_policy", "runtime_profile", "purity", "effects", "refusals", "resource_bounds", "body", "rule", "vectors"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "package_lock_semantic_identity": {"type": "string", "minLength": 1}, "content_identity": {"type": "string", "minLength": 1}}, "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "declarations", "operation_projections", "package_lock_semantic_identity", "content_identity"], "unevaluatedProperties": false}
+        "schema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"artifact_kind": {"const": "rir-semantic-payload"}, "artifact_version": {"const": "2.0.0"}, "wire_schema_identity": {"type": "string", "minLength": 1}, "declarations": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"symbol": {"type": "string", "minLength": 1}, "resolved_symbol": {"type": "object", "properties": {"model": {"type": "string", "minLength": 1}, "module": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}, "required": ["model", "module", "name"], "unevaluatedProperties": false}, "type_identity": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "symbol": {"type": "string", "minLength": 1}}, "required": ["package", "version", "symbol"], "unevaluatedProperties": false}, "role": {"type": "string", "minLength": 1}, "representation": {"type": "string", "minLength": 1}, "kind": {"type": "string", "minLength": 1}, "unit": {"type": "string", "minLength": 1}, "domain": {"type": "object", "properties": {"minimum": {"type": "integer"}, "maximum": {"type": "integer"}}, "required": ["minimum", "maximum"], "unevaluatedProperties": false}, "numeric_policy": {"type": "string", "minLength": 1}}, "required": ["symbol", "resolved_symbol", "type_identity", "role", "representation", "kind", "unit", "domain", "numeric_policy"], "unevaluatedProperties": false}}, "package_lock_semantic_identity": {"type": "string", "minLength": 1}, "content_identity": {"type": "string", "minLength": 1}, "selected_semantics": {"type": "object", "properties": {"resolution_profile": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "source_identity_domain": {"type": "string", "minLength": 1}, "manifest_id_path": {"type": "string", "minLength": 1}, "manifest_entry_module_path": {"type": "string", "minLength": 1}, "requirements_member": {"type": "string", "minLength": 1}, "requirement_package_member": {"type": "string", "minLength": 1}, "requirement_version_member": {"type": "string", "minLength": 1}, "modules_member": {"type": "string", "minLength": 1}, "model_lowering": {"type": "string", "minLength": 1}, "module_id_member": {"type": "string", "minLength": 1}, "imports_member": {"type": "string", "minLength": 1}, "judgment_chain": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "operation": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}}, "required": ["id", "operation", "reason"], "unevaluatedProperties": false}}, "import_alias_member": {"type": "string", "minLength": 1}, "import_package_member": {"type": "string", "minLength": 1}, "import_version_member": {"type": "string", "minLength": 1}, "import_symbol_member": {"type": "string", "minLength": 1}, "symbols_member": {"type": "string", "minLength": 1}, "symbol_name_member": {"type": "string", "minLength": 1}, "symbol_fact_member": {"type": "string", "minLength": 1}, "symbol_type_member": {"type": "string", "minLength": 1}, "dependency_selection": {"type": "string", "minLength": 1}, "dependency_closure": {"type": "string", "minLength": 1}, "package_conflict": {"type": "string", "minLength": 1}, "capability_selection": {"type": "string", "minLength": 1}, "default": {"type": "boolean"}, "structural_reason": {"type": "string", "minLength": 1}}, "required": ["id", "source_identity_domain", "manifest_id_path", "manifest_entry_module_path", "requirements_member", "requirement_package_member", "requirement_version_member", "modules_member", "module_id_member", "imports_member", "judgment_chain", "import_alias_member", "import_package_member", "import_version_member", "import_symbol_member", "symbols_member", "symbol_name_member", "structural_reason", "symbol_fact_member", "symbol_type_member", "dependency_selection", "dependency_closure", "package_conflict", "capability_selection", "default", "model_lowering"], "unevaluatedProperties": false}, "root_requirements": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}}, "required": ["id", "version"], "unevaluatedProperties": false}}, "packages": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "semantic_identity": {"type": "string", "minLength": 1}}, "required": ["id", "version", "semantic_identity"], "unevaluatedProperties": false}}, "dependency_edges": {"type": "array", "items": {"type": "object", "properties": {"from_package": {"type": "string", "minLength": 1}, "kind": {"type": "string", "minLength": 1}, "to_package": {"type": "string", "minLength": 1}}, "required": ["from_package", "kind", "to_package"], "unevaluatedProperties": false}}, "capability_bindings": {"type": "array", "items": {"type": "object", "properties": {"capability": {"type": "string", "minLength": 1}, "provider_package": {"type": "string", "minLength": 1}}, "required": ["capability", "provider_package"], "unevaluatedProperties": false}}, "types": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "constructor": {"type": "string", "minLength": 1}, "package": {"type": "string", "minLength": 1}}, "required": ["id", "constructor", "package"], "unevaluatedProperties": false}}, "components": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "constructor": {"type": "string", "minLength": 1}, "fields": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "required": ["id", "version", "constructor", "fields"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "conversions": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "from_type": {"type": "string", "minLength": 1}, "to_type": {"type": "string", "minLength": 1}, "operation": {"type": "string", "minLength": 1}, "exact": {"type": "boolean"}}, "required": ["id", "version", "from_type", "to_type", "operation", "exact"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "operations": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "inputs": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "type": {"type": "string", "minLength": 1}}, "required": ["name", "type"], "unevaluatedProperties": false}}, "result": {"type": "string", "minLength": 1}, "kind_rules": {"type": "object", "properties": {"inputs": {"type": "string", "minLength": 1}, "result": {"type": "string", "minLength": 1}}, "required": ["inputs", "result"], "unevaluatedProperties": false}, "unit_rules": {"type": "object", "properties": {"inputs": {"type": "string", "minLength": 1}, "result": {"type": "string", "minLength": 1}}, "required": ["inputs", "result"], "unevaluatedProperties": false}, "numeric_policy": {"type": "string", "minLength": 1}, "runtime_profile": {"type": "string", "minLength": 1}, "purity": {"type": "string", "minLength": 1}, "effects": {"type": "array", "items": {"type": "string", "minLength": 1}}, "refusals": {"type": "array", "items": {"type": "string", "minLength": 1}}, "resource_bounds": {"type": "object", "properties": {"max_steps": {"type": "integer"}}, "required": ["max_steps"], "unevaluatedProperties": false}, "body": {"type": "object", "properties": {"node": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}, "required": ["node", "name"], "unevaluatedProperties": false}, "rule": {"type": "string", "minLength": 1}, "vectors": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "required": ["id", "version", "inputs", "result", "kind_rules", "unit_rules", "numeric_policy", "runtime_profile", "purity", "effects", "refusals", "resource_bounds", "body", "rule", "vectors"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "numeric_profiles": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "overflow": {"type": "string", "minLength": 1}, "rounding": {"type": "string", "minLength": 1}}, "required": ["id", "overflow", "rounding"], "unevaluatedProperties": false}}, "runtime_profiles": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "numeric_policy": {"type": "string", "minLength": 1}, "evaluation": {"type": "string", "minLength": 1}, "effects": {"type": "array", "items": {"type": "string", "minLength": 1}}, "resource_bounds": {"type": "object", "properties": {"max_steps": {"type": "integer"}}, "required": ["max_steps"], "unevaluatedProperties": false}}, "required": ["id", "version", "numeric_policy", "evaluation", "effects", "resource_bounds"], "unevaluatedProperties": false}}, "diagnostics": {"type": "array", "items": {"type": "string", "minLength": 1}}, "diagnostic_reasons": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "diagnostic": {"type": "string", "minLength": 1}, "stage": {"type": "string", "minLength": 1}, "predicate": {"type": "object", "properties": {"operation": {"type": "string", "minLength": 1}, "inventory_path": {"type": "string", "minLength": 1}, "member_field": {"type": "string", "minLength": 1}, "limit_path": {"type": "string", "minLength": 1}}, "required": ["operation"], "unevaluatedProperties": false}}, "required": ["id", "diagnostic", "stage", "predicate"], "unevaluatedProperties": false}}, "language_rules": {"type": "array", "items": {"type": "string", "minLength": 1}}, "package_semantic_closures": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "semantic_identity": {"type": "string", "minLength": 1}, "definitions": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"authority_path": {"type": "string", "minLength": 1}, "definitions": {"type": "array"}}, "required": ["authority_path", "definitions"], "unevaluatedProperties": false}}}, "required": ["package", "semantic_identity", "definitions"], "unevaluatedProperties": false}}}, "required": ["resolution_profile", "root_requirements", "packages", "package_semantic_closures", "dependency_edges", "capability_bindings", "types", "components", "conversions", "operations", "numeric_profiles", "runtime_profiles", "diagnostics", "diagnostic_reasons", "language_rules"], "unevaluatedProperties": false}}, "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "declarations", "selected_semantics", "package_lock_semantic_identity", "content_identity"], "unevaluatedProperties": false}
       }
     ],
-    "capabilities": [
-      {"id": "quantity.declare", "rule": "quantity.declare"},
-      {"id": "quantity.lower", "rule": "quantity.lower"}
-    ],
+    "capabilities": [{"id": "quantity.declare", "rule": "quantity.declare"}, {"id": "quantity.lower", "rule": "quantity.lower"}],
     "components": [{"constructor": "core.quantity", "fields": ["domain", "kind", "numeric_policy", "representation", "role", "unit"], "id": "quantity.symbol", "version": "2.0.0"}],
-    "constructors": [
-      {"id": "core.quantity", "parameters": ["kind", "unit", "domain", "representation", "numeric_policy", "role"]}
-    ],
+    "constructors": [{"id": "core.quantity", "parameters": ["kind", "unit", "domain", "representation", "numeric_policy", "role"]}],
     "conversions": [{"exact": true, "from_type": "Quantity", "id": "quantity.identity", "operation": "quantity.identity", "to_type": "Quantity", "version": "2.0.0"}],
     "model_checks": [
       {"id": "quantity.check-domain", "mode": "each", "reason": "quantity.reason.invalid-domain", "selector": ["modules", "*", "symbols", "*", "domain"]},
@@ -94,43 +91,69 @@
       {"id": "quantity.check-unit", "mode": "each", "reason": "quantity.reason.unknown-unit", "selector": ["modules", "*", "symbols", "*", "unit"]}
     ],
     "model_lowerings": [
-      {"admission_reason": "model.reason.resolved-authority-mismatch", "id": "quantity.model-lowering", "initial_fact_kind": "quantity-source", "output_equalities": [{"left": ["symbol"], "right": ["resolved_symbol", "name"]}], "output_member": "declarations", "resolution_profile": "exact-import-resolution-v1", "rule_chain": [{"judgment": "declare-quantity", "phase": "type", "rule": "quantity.declare"}, {"judgment": "lower-quantity", "phase": "lower", "rule": "quantity.lower"}], "source_selector": ["modules", "*", "symbols", "*"]}
+      {
+        "admission_reason": "model.reason.resolved-authority-mismatch",
+        "id": "quantity.model-lowering",
+        "initial_fact_kind": "quantity-source",
+        "output_equalities": [{"left": ["symbol"], "right": ["resolved_symbol", "name"]}],
+        "output_member": "declarations",
+        "resolution_profile": "exact-import-resolution-v1",
+        "rule_chain": [{"judgment": "declare-quantity", "phase": "type", "rule": "quantity.declare"}, {"judgment": "lower-quantity", "phase": "lower", "rule": "quantity.lower"}],
+        "source_selector": ["modules", "*", "symbols", "*"]
+      }
     ],
     "model_source_schema_versions": ["2.0.0"],
-    "operations": [{
-      "body": {"name": "value", "node": "argument"},
-      "effects": [],
-      "id": "quantity.identity",
-      "inputs": [{"name": "value", "type": "Quantity"}],
-      "kind_rules": {"inputs": "preserve", "result": "preserve"},
-      "numeric_policy": "exact-int64",
-      "purity": "pure",
-      "refusals": [],
-      "resource_bounds": {"max_steps": 1},
-      "result": "Quantity",
-      "rule": "quantity.lower",
-      "runtime_profile": "compile.exact-int64",
-      "unit_rules": {"inputs": "preserve", "result": "preserve"},
-      "vectors": ["quantity.lower.valid"],
-      "version": "2.0.0"
-    }],
+    "operations": [
+      {
+        "body": {"name": "value", "node": "argument"},
+        "effects": [],
+        "id": "quantity.identity",
+        "inputs": [{"name": "value", "type": "Quantity"}],
+        "kind_rules": {"inputs": "preserve", "result": "preserve"},
+        "numeric_policy": "exact-int64",
+        "purity": "pure",
+        "refusals": [],
+        "resource_bounds": {"max_steps": 1},
+        "result": "Quantity",
+        "rule": "quantity.lower",
+        "runtime_profile": "compile.exact-int64",
+        "unit_rules": {"inputs": "preserve", "result": "preserve"},
+        "vectors": ["quantity.lower.valid"],
+        "version": "2.0.0"
+      }
+    ],
     "packages": [
       {
         "artifact_kind": "domain-package-release",
         "capabilities": {"provided": ["quantity.declare", "quantity.lower"], "required": []},
-        "content_identity": "sha256:e9d267a565d31d8c1cc365ec6119facd532fd1413ad23447ee880a3e0284139e",
+        "content_identity": "sha256:58baf20268b9ee7a4c1dbd3ffe88c96bdc1b2c9e0b458e5d3d15b3dd3d893cdd",
         "dependencies": {"optional": [], "required": []},
         "exports": {
           "components": ["quantity.symbol"],
           "conversions": ["quantity.identity"],
-          "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit"],
+          "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.name_ambiguity", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit", "language.unresolved_name"],
           "domains": ["closed-interval"],
           "kinds": ["scalar"],
           "language_rules": ["quantity.declare", "quantity.lower"],
           "model_checks": ["quantity.check-domain", "quantity.check-kind", "quantity.check-symbol-bound", "quantity.check-symbol-unique", "quantity.check-unit"],
           "model_lowerings": ["quantity.model-lowering"],
           "operations": ["quantity.identity"],
-          "reasons": ["quantity.reason.unknown-kind", "quantity.reason.unknown-unit", "quantity.reason.duplicate-symbol", "quantity.reason.resource-exhausted", "quantity.reason.invalid-domain", "model.reason.package-version-unavailable", "model.reason.resolution-ambiguity", "model.reason.resolution-binding-mismatch", "model.reason.resolved-authority-mismatch", "model.reason.source-contract-mismatch", "model.reason.source-parse-failure", "model.reason.source-too-large"],
+          "reasons": [
+            "model.reason.name-ambiguity",
+            "model.reason.package-version-unavailable",
+            "model.reason.resolution-ambiguity",
+            "model.reason.resolution-binding-mismatch",
+            "model.reason.resolved-authority-mismatch",
+            "model.reason.source-contract-mismatch",
+            "model.reason.source-parse-failure",
+            "model.reason.source-too-large",
+            "model.reason.unresolved-name",
+            "quantity.reason.duplicate-symbol",
+            "quantity.reason.invalid-domain",
+            "quantity.reason.resource-exhausted",
+            "quantity.reason.unknown-kind",
+            "quantity.reason.unknown-unit"
+          ],
           "representations": ["Int"],
           "symbol_roles": ["constant", "parameter", "input", "state", "derived", "output", "random"],
           "types": [{"constructor": "core.quantity", "id": "Quantity"}],
@@ -139,38 +162,567 @@
         "id": "core.quantity",
         "profiles": {"numeric": ["exact-int64"], "resolution": ["exact-import-resolution-v1"], "runtime": ["compile.exact-int64"]},
         "semantic_closure": [
-          {"authority_path":"language.capabilities","definitions":[{"id":"quantity.declare","rule":"quantity.declare"},{"id":"quantity.lower","rule":"quantity.lower"}]},
-          {"authority_path":"language.components","definitions":[{"constructor":"core.quantity","fields":["domain","kind","numeric_policy","representation","role","unit"],"id":"quantity.symbol","version":"2.0.0"}]},
-          {"authority_path":"language.constructors","definitions":[{"id":"core.quantity","parameters":["kind","unit","domain","representation","numeric_policy","role"]}]},
-          {"authority_path":"language.conversions","definitions":[{"exact":true,"from_type":"Quantity","id":"quantity.identity","operation":"quantity.identity","to_type":"Quantity","version":"2.0.0"}]},
-          {"authority_path":"language.model_checks","definitions":[{"id":"quantity.check-domain","mode":"each","reason":"quantity.reason.invalid-domain","selector":["modules","*","symbols","*","domain"]},{"id":"quantity.check-kind","mode":"each","reason":"quantity.reason.unknown-kind","selector":["modules","*","symbols","*","kind"]},{"id":"quantity.check-symbol-bound","mode":"count","reason":"quantity.reason.resource-exhausted","selector":["modules","*","symbols","*"]},{"id":"quantity.check-symbol-unique","mode":"all","reason":"quantity.reason.duplicate-symbol","scope_selector":["modules","*"],"selector":["symbols","*","symbol"]},{"id":"quantity.check-unit","mode":"each","reason":"quantity.reason.unknown-unit","selector":["modules","*","symbols","*","unit"]}]},
-          {"authority_path":"language.model_lowerings","definitions":[{"admission_reason":"model.reason.resolved-authority-mismatch","id":"quantity.model-lowering","initial_fact_kind":"quantity-source","output_equalities":[{"left":["symbol"],"right":["resolved_symbol","name"]}],"output_member":"declarations","resolution_profile":"exact-import-resolution-v1","rule_chain":[{"judgment":"declare-quantity","phase":"type","rule":"quantity.declare"},{"judgment":"lower-quantity","phase":"lower","rule":"quantity.lower"}],"source_selector":["modules","*","symbols","*"]}]},
-          {"authority_path":"language.operations","definitions":[{"body":{"name":"value","node":"argument"},"effects":[],"id":"quantity.identity","inputs":[{"name":"value","type":"Quantity"}],"kind_rules":{"inputs":"preserve","result":"preserve"},"numeric_policy":"exact-int64","purity":"pure","refusals":[],"resource_bounds":{"max_steps":1},"result":"Quantity","rule":"quantity.lower","runtime_profile":"compile.exact-int64","unit_rules":{"inputs":"preserve","result":"preserve"},"vectors":["quantity.lower.valid"],"version":"2.0.0"}]},
-          {"authority_path":"language.quantity.domains","definitions":["closed-interval"]},
-          {"authority_path":"language.quantity.kinds","definitions":["scalar"]},
-          {"authority_path":"language.quantity.numeric_policies","definitions":[{"id":"exact-int64","overflow":"refuse","rounding":"none"}]},
-          {"authority_path":"language.quantity.representations","definitions":["Int"]},
-          {"authority_path":"language.quantity.symbol_roles","definitions":["constant","parameter","input","state","derived","output","random"]},
-          {"authority_path":"language.quantity.units","definitions":[{"dimension":"dimensionless","id":"1"}]},
-          {"authority_path":"language.reasons","definitions":[{"diagnostic":"language.unknown_kind","id":"quantity.reason.unknown-kind","predicate":{"inventory_path":"language.quantity.kinds","operation":"not-member"},"stage":"static"},{"diagnostic":"language.unknown_unit","id":"quantity.reason.unknown-unit","predicate":{"inventory_path":"language.quantity.units","member_field":"id","operation":"not-member"},"stage":"static"},{"diagnostic":"language.duplicate_symbol","id":"quantity.reason.duplicate-symbol","predicate":{"operation":"has-duplicate"},"stage":"static"},{"diagnostic":"language.resource_exhausted","id":"quantity.reason.resource-exhausted","predicate":{"limit_path":"resources.max_symbols","operation":"greater-than"},"stage":"static"},{"diagnostic":"language.invalid_domain","id":"quantity.reason.invalid-domain","predicate":{"operation":"invalid-interval"},"stage":"static"},{"diagnostic":"language.package_version_unavailable","id":"model.reason.package-version-unavailable","predicate":{"operation":"not-equal"},"stage":"resolution"},{"diagnostic":"language.resolution_ambiguity","id":"model.reason.resolution-ambiguity","predicate":{"operation":"not-equal"},"stage":"resolution"},{"diagnostic":"language.resolution_binding_mismatch","id":"model.reason.resolution-binding-mismatch","predicate":{"operation":"not-equal"},"stage":"resolution"},{"diagnostic":"language.resolved_authority_mismatch","id":"model.reason.resolved-authority-mismatch","predicate":{"operation":"not-equal"},"stage":"resolution"},{"diagnostic":"language.source_contract_mismatch","id":"model.reason.source-contract-mismatch","predicate":{"operation":"not-equal"},"stage":"static"},{"diagnostic":"language.source_parse_failure","id":"model.reason.source-parse-failure","predicate":{"operation":"not-equal"},"stage":"parse"},{"diagnostic":"language.source_too_large","id":"model.reason.source-too-large","predicate":{"operation":"greater-than","limit_path":"resources.max_source_bytes"},"stage":"ingress"}]},
-          {"authority_path":"language.resolution_profiles","definitions":[{"capability_selection":"single-provider","default":true,"dependency_closure":"required-transitive","dependency_selection":"exact-version","id":"exact-import-resolution-v1","import_alias_member":"alias","import_package_member":"package","import_symbol_member":"symbol","import_version_member":"version","imports_member":"imports","judgment_chain":[{"id":"resolution.select-exact-packages","operation":"select-exact-packages","reason":"model.reason.package-version-unavailable"},{"id":"resolution.close-required-dependencies","operation":"close-required-dependencies","reason":"model.reason.package-version-unavailable"},{"id":"resolution.require-single-package-version","operation":"require-single-package-version","reason":"model.reason.resolution-ambiguity"},{"id":"resolution.require-unique-module-ids","operation":"require-unique-module-ids","reason":"model.reason.resolution-ambiguity"},{"id":"resolution.require-unique-import-aliases","operation":"require-unique-import-aliases","reason":"model.reason.resolution-ambiguity"},{"id":"resolution.bind-import-requirements","operation":"bind-import-requirements","reason":"model.reason.resolution-binding-mismatch"},{"id":"resolution.bind-exported-types","operation":"bind-exported-types","reason":"model.reason.resolution-binding-mismatch"},{"id":"resolution.bind-symbol-aliases","operation":"bind-symbol-aliases","reason":"model.reason.resolution-binding-mismatch"},{"id":"resolution.require-unique-symbol-identities","operation":"require-unique-symbol-identities","reason":"model.reason.resolution-ambiguity"},{"id":"resolution.require-entry-module","operation":"require-entry-module","reason":"model.reason.resolution-binding-mismatch"},{"id":"resolution.bind-capability-providers","operation":"bind-capability-providers","reason":"model.reason.resolution-ambiguity"}],"manifest_entry_module_path":"manifest.entry_module","manifest_id_path":"manifest.id","model_lowering":"quantity.model-lowering","module_id_member":"id","modules_member":"modules","package_conflict":"single-version-per-id","requirement_package_member":"id","requirement_version_member":"version","requirements_member":"package_requirements","source_identity_domain":"model-source-package-v2","symbol_fact_member":"symbol","symbol_name_member":"symbol","symbol_type_member":"type","symbols_member":"symbols"}]},
-          {"authority_path":"language.rules","definitions":[{"conclusion":{"fact_kind":"typed-quantity-symbol","fields":{"domain":{"name":"domain","tag":"variable"},"kind":{"name":"kind","tag":"variable"},"numeric_policy":{"name":"numeric_policy","tag":"variable"},"representation":{"name":"representation","tag":"variable"},"resolved_symbol":{"name":"resolved_symbol","tag":"variable"},"role":{"name":"role","tag":"variable"},"symbol":{"name":"symbol","tag":"variable"},"type_identity":{"name":"type_identity","tag":"variable"},"unit":{"name":"unit","tag":"variable"}}},"id":"quantity.declare","judgment":"declare-quantity","phase":"type","premises":[{"bind":{"domain":"domain","kind":"kind","numeric_policy":"numeric_policy","representation":"representation","resolved_symbol":"resolved_symbol","role":"role","symbol":"symbol","type_identity":"type_identity","unit":"unit"},"fact_kind":"quantity-source"}]},{"conclusion":{"fact_kind":"rir-quantity-declaration","fields":{"domain":{"name":"domain","tag":"variable"},"kind":{"name":"kind","tag":"variable"},"numeric_policy":{"name":"numeric_policy","tag":"variable"},"representation":{"name":"representation","tag":"variable"},"resolved_symbol":{"name":"resolved_symbol","tag":"variable"},"role":{"name":"role","tag":"variable"},"symbol":{"name":"symbol","tag":"variable"},"type_identity":{"name":"type_identity","tag":"variable"},"unit":{"name":"unit","tag":"variable"}}},"id":"quantity.lower","judgment":"lower-quantity","phase":"lower","premises":[{"bind":{"domain":"domain","kind":"kind","numeric_policy":"numeric_policy","representation":"representation","resolved_symbol":"resolved_symbol","role":"role","symbol":"symbol","type_identity":"type_identity","unit":"unit"},"fact_kind":"typed-quantity-symbol"}]}]},
-          {"authority_path":"language.runtime_profiles","definitions":[{"effects":[],"evaluation":"declaration-only","id":"compile.exact-int64","numeric_policy":"exact-int64","resource_bounds":{"max_steps":4096},"version":"2.0.0"}]},
-          {"authority_path":"diagnostics","definitions":[{"code":"language.unknown_kind","stage":"static"},{"code":"language.unknown_unit","stage":"static"},{"code":"language.duplicate_symbol","stage":"static"},{"code":"language.resource_exhausted","stage":"static"},{"code":"language.invalid_domain","stage":"static"},{"code":"language.package_version_unavailable","stage":"resolution"},{"code":"language.resolution_ambiguity","stage":"resolution"},{"code":"language.resolution_binding_mismatch","stage":"resolution"},{"code":"language.resolved_authority_mismatch","stage":"resolution"},{"code":"language.source_contract_mismatch","stage":"static"},{"code":"language.source_parse_failure","stage":"parse"},{"code":"language.source_too_large","stage":"ingress"}]}
+          {"authority_path": "language.capabilities", "definitions": [{"id": "quantity.declare", "rule": "quantity.declare"}, {"id": "quantity.lower", "rule": "quantity.lower"}]},
+          {"authority_path": "language.components", "definitions": [{"constructor": "core.quantity", "fields": ["domain", "kind", "numeric_policy", "representation", "role", "unit"], "id": "quantity.symbol", "version": "2.0.0"}]},
+          {"authority_path": "language.constructors", "definitions": [{"id": "core.quantity", "parameters": ["kind", "unit", "domain", "representation", "numeric_policy", "role"]}]},
+          {"authority_path": "language.conversions", "definitions": [{"exact": true, "from_type": "Quantity", "id": "quantity.identity", "operation": "quantity.identity", "to_type": "Quantity", "version": "2.0.0"}]},
+          {
+            "authority_path": "language.model_checks",
+            "definitions": [
+              {"id": "quantity.check-domain", "mode": "each", "reason": "quantity.reason.invalid-domain", "selector": ["modules", "*", "symbols", "*", "domain"]},
+              {"id": "quantity.check-kind", "mode": "each", "reason": "quantity.reason.unknown-kind", "selector": ["modules", "*", "symbols", "*", "kind"]},
+              {"id": "quantity.check-symbol-bound", "mode": "count", "reason": "quantity.reason.resource-exhausted", "selector": ["modules", "*", "symbols", "*"]},
+              {"id": "quantity.check-symbol-unique", "mode": "all", "reason": "quantity.reason.duplicate-symbol", "scope_selector": ["modules", "*"], "selector": ["symbols", "*", "symbol"]},
+              {"id": "quantity.check-unit", "mode": "each", "reason": "quantity.reason.unknown-unit", "selector": ["modules", "*", "symbols", "*", "unit"]}
+            ]
+          },
+          {
+            "authority_path": "language.model_lowerings",
+            "definitions": [
+              {
+                "admission_reason": "model.reason.resolved-authority-mismatch",
+                "id": "quantity.model-lowering",
+                "initial_fact_kind": "quantity-source",
+                "output_equalities": [{"left": ["symbol"], "right": ["resolved_symbol", "name"]}],
+                "output_member": "declarations",
+                "resolution_profile": "exact-import-resolution-v1",
+                "rule_chain": [{"judgment": "declare-quantity", "phase": "type", "rule": "quantity.declare"}, {"judgment": "lower-quantity", "phase": "lower", "rule": "quantity.lower"}],
+                "source_selector": ["modules", "*", "symbols", "*"]
+              }
+            ]
+          },
+          {
+            "authority_path": "language.operations",
+            "definitions": [
+              {
+                "body": {"name": "value", "node": "argument"},
+                "effects": [],
+                "id": "quantity.identity",
+                "inputs": [{"name": "value", "type": "Quantity"}],
+                "kind_rules": {"inputs": "preserve", "result": "preserve"},
+                "numeric_policy": "exact-int64",
+                "purity": "pure",
+                "refusals": [],
+                "resource_bounds": {"max_steps": 1},
+                "result": "Quantity",
+                "rule": "quantity.lower",
+                "runtime_profile": "compile.exact-int64",
+                "unit_rules": {"inputs": "preserve", "result": "preserve"},
+                "vectors": ["quantity.lower.valid"],
+                "version": "2.0.0"
+              }
+            ]
+          },
+          {"authority_path": "language.quantity.domains", "definitions": ["closed-interval"]},
+          {"authority_path": "language.quantity.kinds", "definitions": ["scalar"]},
+          {"authority_path": "language.quantity.numeric_policies", "definitions": [{"id": "exact-int64", "overflow": "refuse", "rounding": "none"}]},
+          {"authority_path": "language.quantity.representations", "definitions": ["Int"]},
+          {"authority_path": "language.quantity.symbol_roles", "definitions": ["constant", "parameter", "input", "state", "derived", "output", "random"]},
+          {"authority_path": "language.quantity.units", "definitions": [{"dimension": "dimensionless", "id": "1"}]},
+          {
+            "authority_path": "language.reasons",
+            "definitions": [
+              {"diagnostic": "language.unknown_kind", "id": "quantity.reason.unknown-kind", "predicate": {"inventory_path": "language.quantity.kinds", "operation": "not-member"}, "stage": "static"},
+              {"diagnostic": "language.unknown_unit", "id": "quantity.reason.unknown-unit", "predicate": {"inventory_path": "language.quantity.units", "member_field": "id", "operation": "not-member"}, "stage": "static"},
+              {"diagnostic": "language.duplicate_symbol", "id": "quantity.reason.duplicate-symbol", "predicate": {"operation": "has-duplicate"}, "stage": "static"},
+              {"diagnostic": "language.resource_exhausted", "id": "quantity.reason.resource-exhausted", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "static"},
+              {"diagnostic": "language.invalid_domain", "id": "quantity.reason.invalid-domain", "predicate": {"operation": "invalid-interval"}, "stage": "static"},
+              {"diagnostic": "language.package_version_unavailable", "id": "model.reason.package-version-unavailable", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
+              {"diagnostic": "language.resolution_ambiguity", "id": "model.reason.resolution-ambiguity", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
+              {"diagnostic": "language.resolution_binding_mismatch", "id": "model.reason.resolution-binding-mismatch", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
+              {"diagnostic": "language.resolved_authority_mismatch", "id": "model.reason.resolved-authority-mismatch", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
+              {"diagnostic": "language.unresolved_name", "id": "model.reason.unresolved-name", "predicate": {"operation": "not-equal"}, "stage": "static"},
+              {"diagnostic": "language.name_ambiguity", "id": "model.reason.name-ambiguity", "predicate": {"operation": "not-equal"}, "stage": "static"},
+              {"diagnostic": "language.source_contract_mismatch", "id": "model.reason.source-contract-mismatch", "predicate": {"operation": "not-equal"}, "stage": "static"},
+              {"diagnostic": "language.source_parse_failure", "id": "model.reason.source-parse-failure", "predicate": {"operation": "not-equal"}, "stage": "parse"},
+              {"diagnostic": "language.source_too_large", "id": "model.reason.source-too-large", "predicate": {"operation": "greater-than", "limit_path": "resources.max_source_bytes"}, "stage": "ingress"}
+            ]
+          },
+          {
+            "authority_path": "language.resolution_profiles",
+            "definitions": [
+              {
+                "capability_selection": "single-provider",
+                "default": true,
+                "dependency_closure": "required-transitive",
+                "dependency_selection": "exact-version",
+                "id": "exact-import-resolution-v1",
+                "import_alias_member": "alias",
+                "import_package_member": "package",
+                "import_symbol_member": "symbol",
+                "import_version_member": "version",
+                "imports_member": "imports",
+                "judgment_chain": [
+                  {"id": "resolution.select-exact-packages", "operation": "select-exact-packages", "reason": "model.reason.package-version-unavailable"},
+                  {"id": "resolution.close-required-dependencies", "operation": "close-required-dependencies", "reason": "model.reason.package-version-unavailable"},
+                  {"id": "resolution.require-single-package-version", "operation": "require-single-package-version", "reason": "model.reason.resolution-ambiguity"},
+                  {"id": "resolution.require-unique-module-ids", "operation": "require-unique-module-ids", "reason": "model.reason.name-ambiguity"},
+                  {"id": "resolution.require-unique-import-aliases", "operation": "require-unique-import-aliases", "reason": "model.reason.name-ambiguity"},
+                  {"id": "resolution.bind-import-requirements", "operation": "bind-import-requirements", "reason": "model.reason.unresolved-name"},
+                  {"id": "resolution.bind-exported-types", "operation": "bind-exported-types", "reason": "model.reason.unresolved-name"},
+                  {"id": "resolution.bind-symbol-aliases", "operation": "bind-symbol-aliases", "reason": "model.reason.unresolved-name"},
+                  {"id": "resolution.require-unique-symbol-identities", "operation": "require-unique-symbol-identities", "reason": "quantity.reason.duplicate-symbol"},
+                  {"id": "resolution.require-entry-module", "operation": "require-entry-module", "reason": "model.reason.unresolved-name"},
+                  {"id": "resolution.bind-capability-providers", "operation": "bind-capability-providers", "reason": "model.reason.resolution-ambiguity"}
+                ],
+                "manifest_entry_module_path": "manifest.entry_module",
+                "manifest_id_path": "manifest.id",
+                "model_lowering": "quantity.model-lowering",
+                "module_id_member": "id",
+                "modules_member": "modules",
+                "package_conflict": "single-version-per-id",
+                "requirement_package_member": "id",
+                "requirement_version_member": "version",
+                "requirements_member": "package_requirements",
+                "source_identity_domain": "model-source-package-v2",
+                "symbol_fact_member": "symbol",
+                "symbol_name_member": "symbol",
+                "symbol_type_member": "type",
+                "symbols_member": "symbols",
+                "structural_reason": "model.reason.source-contract-mismatch"
+              }
+            ]
+          },
+          {
+            "authority_path": "language.rules",
+            "definitions": [
+              {
+                "conclusion": {
+                  "fact_kind": "typed-quantity-symbol",
+                  "fields": {"domain": {"name": "domain", "tag": "variable"}, "kind": {"name": "kind", "tag": "variable"}, "numeric_policy": {"name": "numeric_policy", "tag": "variable"}, "representation": {"name": "representation", "tag": "variable"}, "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"}, "role": {"name": "role", "tag": "variable"}, "symbol": {"name": "symbol", "tag": "variable"}, "type_identity": {"name": "type_identity", "tag": "variable"}, "unit": {"name": "unit", "tag": "variable"}}
+                },
+                "id": "quantity.declare",
+                "judgment": "declare-quantity",
+                "phase": "type",
+                "premises": [{"bind": {"domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy", "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role", "symbol": "symbol", "type_identity": "type_identity", "unit": "unit"}, "fact_kind": "quantity-source"}]
+              },
+              {
+                "conclusion": {
+                  "fact_kind": "rir-quantity-declaration",
+                  "fields": {"domain": {"name": "domain", "tag": "variable"}, "kind": {"name": "kind", "tag": "variable"}, "numeric_policy": {"name": "numeric_policy", "tag": "variable"}, "representation": {"name": "representation", "tag": "variable"}, "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"}, "role": {"name": "role", "tag": "variable"}, "symbol": {"name": "symbol", "tag": "variable"}, "type_identity": {"name": "type_identity", "tag": "variable"}, "unit": {"name": "unit", "tag": "variable"}}
+                },
+                "id": "quantity.lower",
+                "judgment": "lower-quantity",
+                "phase": "lower",
+                "premises": [{"bind": {"domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy", "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role", "symbol": "symbol", "type_identity": "type_identity", "unit": "unit"}, "fact_kind": "typed-quantity-symbol"}]
+              }
+            ]
+          },
+          {"authority_path": "language.runtime_profiles", "definitions": [{"effects": [], "evaluation": "declaration-only", "id": "compile.exact-int64", "numeric_policy": "exact-int64", "resource_bounds": {"max_steps": 4096}, "version": "2.0.0"}]},
+          {
+            "authority_path": "diagnostics",
+            "definitions": [
+              {"code": "language.unknown_kind", "stage": "static"},
+              {"code": "language.unknown_unit", "stage": "static"},
+              {"code": "language.duplicate_symbol", "stage": "static"},
+              {"code": "language.resource_exhausted", "stage": "static"},
+              {"code": "language.invalid_domain", "stage": "static"},
+              {"code": "language.package_version_unavailable", "stage": "resolution"},
+              {"code": "language.resolution_ambiguity", "stage": "resolution"},
+              {"code": "language.resolution_binding_mismatch", "stage": "resolution"},
+              {"code": "language.resolved_authority_mismatch", "stage": "resolution"},
+              {"code": "language.unresolved_name", "stage": "static"},
+              {"code": "language.name_ambiguity", "stage": "static"},
+              {"code": "language.source_contract_mismatch", "stage": "static"},
+              {"code": "language.source_parse_failure", "stage": "parse"},
+              {"code": "language.source_too_large", "stage": "ingress"}
+            ]
+          }
         ],
-        "semantic_identity": "sha256:e55e3d85043cd1fedf7f1386bd77ccc60ad03847d6f8186fbab70573fce4b851",
-        "vectors": ["model.accept.package-version", "model.accept.resolution-ambiguity", "model.accept.resolution-binding", "model.accept.resolved-authority", "model.accept.source-contract", "model.accept.source-parse", "model.accept.source-size", "model.compile.boundary-max-symbols", "model.compile.boundary-max-symbols-plus-one", "model.compile.mutation-role-change", "model.compile.negative-duplicate", "model.compile.negative-unavailable-package", "model.compile.positive", "model.compile.semantic-equivalent-order", "model.refuse.package-version", "model.refuse.resolution-ambiguity", "model.refuse.resolution-binding", "model.refuse.resolved-authority", "model.refuse.source-contract", "model.refuse.source-parse", "model.refuse.source-size", "quantity.accept.domain", "quantity.accept.kind", "quantity.accept.resources-boundary", "quantity.accept.unique", "quantity.accept.unit", "quantity.declare.valid", "quantity.lower.valid", "quantity.refuse.domain", "quantity.refuse.duplicate", "quantity.refuse.kind", "quantity.refuse.resources", "quantity.refuse.unit"],
-        "version": "2.0.0"
+        "semantic_identity": "sha256:28145f8e971666e320e20d1d4a4f8896c0d798e69afcb066ae5585a0c4e8ea52",
+        "vectors": [
+          "model.accept.name-ambiguity",
+          "model.accept.package-version",
+          "model.accept.resolution-ambiguity",
+          "model.accept.resolution-binding",
+          "model.accept.resolved-authority",
+          "model.accept.source-contract",
+          "model.accept.source-parse",
+          "model.accept.source-size",
+          "model.accept.unresolved-name",
+          "model.compile.boundary-max-symbols",
+          "model.compile.boundary-max-symbols-plus-one",
+          "model.compile.mutation-role-change",
+          "model.compile.negative-duplicate",
+          "model.compile.negative-unavailable-package",
+          "model.compile.positive",
+          "model.compile.semantic-equivalent-order",
+          "model.refuse.name-ambiguity",
+          "model.refuse.package-version",
+          "model.refuse.resolution-ambiguity",
+          "model.refuse.resolution-binding",
+          "model.refuse.resolved-authority",
+          "model.refuse.source-contract",
+          "model.refuse.source-parse",
+          "model.refuse.source-size",
+          "model.refuse.unresolved-name",
+          "quantity.accept.domain",
+          "quantity.accept.kind",
+          "quantity.accept.resources-boundary",
+          "quantity.accept.unique",
+          "quantity.accept.unit",
+          "quantity.declare.valid",
+          "quantity.lower.valid",
+          "quantity.refuse.domain",
+          "quantity.refuse.duplicate",
+          "quantity.refuse.kind",
+          "quantity.refuse.resources",
+          "quantity.refuse.unit"
+        ],
+        "version": "2.0.0",
+        "vector_definitions": [
+          {"diagnostic": "language.name_ambiguity", "id": "model.accept.name-ambiguity", "input": {"actual": "one", "expected": "one"}, "matched": false, "reason": "model.reason.name-ambiguity", "stage": "static"},
+          {"diagnostic": "language.package_version_unavailable", "id": "model.accept.package-version", "input": {"actual": "available", "expected": "available"}, "matched": false, "reason": "model.reason.package-version-unavailable", "stage": "resolution"},
+          {"diagnostic": "language.resolution_ambiguity", "id": "model.accept.resolution-ambiguity", "input": {"actual": "one", "expected": "one"}, "matched": false, "reason": "model.reason.resolution-ambiguity", "stage": "resolution"},
+          {"diagnostic": "language.resolution_binding_mismatch", "id": "model.accept.resolution-binding", "input": {"actual": "bound", "expected": "bound"}, "matched": false, "reason": "model.reason.resolution-binding-mismatch", "stage": "resolution"},
+          {"diagnostic": "language.resolved_authority_mismatch", "id": "model.accept.resolved-authority", "input": {"actual": "admitted", "expected": "admitted"}, "matched": false, "reason": "model.reason.resolved-authority-mismatch", "stage": "resolution"},
+          {"diagnostic": "language.source_contract_mismatch", "id": "model.accept.source-contract", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "model.reason.source-contract-mismatch", "stage": "static"},
+          {"diagnostic": "language.source_parse_failure", "id": "model.accept.source-parse", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "model.reason.source-parse-failure", "stage": "parse"},
+          {"diagnostic": "language.source_too_large", "id": "model.accept.source-size", "input": {"value": 1048576}, "matched": false, "reason": "model.reason.source-too-large", "stage": "ingress"},
+          {"diagnostic": "language.unresolved_name", "id": "model.accept.unresolved-name", "input": {"actual": "bound", "expected": "bound"}, "matched": false, "reason": "model.reason.unresolved-name", "stage": "static"},
+          {
+            "category": "boundary",
+            "expect": {
+              "debug_map_identity": "sha256:ba0c5916db113e9b9191d221f7569ab6c6ac1b641815d7e6cc3b2162fb68fe2e",
+              "declaration_count": 4096,
+              "diagnostics": [],
+              "lock_oracle": {
+                "resolution_profile": "exact-import-resolution-v1",
+                "root_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+                "packages": [{"id": "core.quantity", "version": "2.0.0"}],
+                "dependency_edges": [],
+                "capability_bindings": [{"capability": "quantity.declare", "provider_package": "core.quantity"}, {"capability": "quantity.lower", "provider_package": "core.quantity"}],
+                "types": [{"constructor": "core.quantity", "id": "Quantity", "package": "core.quantity"}],
+                "components": ["quantity.symbol"],
+                "conversions": ["quantity.identity"],
+                "operations": ["quantity.identity"],
+                "numeric_profiles": ["exact-int64"],
+                "runtime_profiles": ["compile.exact-int64"],
+                "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.name_ambiguity", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit", "language.unresolved_name"],
+                "diagnostic_reasons": [
+                  "model.reason.name-ambiguity",
+                  "model.reason.package-version-unavailable",
+                  "model.reason.resolution-ambiguity",
+                  "model.reason.resolution-binding-mismatch",
+                  "model.reason.resolved-authority-mismatch",
+                  "model.reason.source-contract-mismatch",
+                  "model.reason.source-parse-failure",
+                  "model.reason.source-too-large",
+                  "model.reason.unresolved-name",
+                  "quantity.reason.duplicate-symbol",
+                  "quantity.reason.invalid-domain",
+                  "quantity.reason.resource-exhausted",
+                  "quantity.reason.unknown-kind",
+                  "quantity.reason.unknown-unit"
+                ],
+                "language_rules": ["quantity.declare", "quantity.lower"]
+              },
+              "outcome": "admitted",
+              "relation": {"kind": "independent", "reference": null},
+              "rir_identity": "sha256:1678bb0a3b47cd5afae17be515cd0c92d6a9647f4f48e6a929cba52f4b8662a8",
+              "semantic_artifacts": true
+            },
+            "id": "model.compile.boundary-max-symbols",
+            "source_fixture": {
+              "collection_path": ["modules", "0", "symbols"],
+              "count_offset": 0,
+              "count_resource_path": "resources.max_symbols",
+              "index_encoding": "zero-padded-decimal",
+              "index_member": "symbol",
+              "index_prefix": "s",
+              "index_width": 4,
+              "mode": "indexed-repeat",
+              "source": {"manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"}, "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}], "symbols": []}], "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "schema_version": "2.0.0"},
+              "template": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "template", "type": "quantity", "unit": "1"}
+            }
+          },
+          {
+            "category": "boundary",
+            "expect": {"debug_map_identity": null, "declaration_count": 0, "diagnostics": [{"code": "language.resource_exhausted", "stage": "static"}], "lock_oracle": null, "outcome": "refused", "relation": {"kind": "independent", "reference": null}, "rir_identity": null, "semantic_artifacts": false},
+            "id": "model.compile.boundary-max-symbols-plus-one",
+            "source_fixture": {
+              "collection_path": ["modules", "0", "symbols"],
+              "count_offset": 1,
+              "count_resource_path": "resources.max_symbols",
+              "index_encoding": "zero-padded-decimal",
+              "index_member": "symbol",
+              "index_prefix": "s",
+              "index_width": 4,
+              "mode": "indexed-repeat",
+              "source": {"manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"}, "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}], "symbols": []}], "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "schema_version": "2.0.0"},
+              "template": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "template", "type": "quantity", "unit": "1"}
+            }
+          },
+          {
+            "category": "mutation",
+            "expect": {
+              "debug_map_identity": "sha256:9d4133f2b34d01a55981faa68f90d01255577f7442f8fb47bfbab98d514fcbfc",
+              "declaration_count": 7,
+              "diagnostics": [],
+              "lock_oracle": {
+                "resolution_profile": "exact-import-resolution-v1",
+                "root_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+                "packages": [{"id": "core.quantity", "version": "2.0.0"}],
+                "dependency_edges": [],
+                "capability_bindings": [{"capability": "quantity.declare", "provider_package": "core.quantity"}, {"capability": "quantity.lower", "provider_package": "core.quantity"}],
+                "types": [{"constructor": "core.quantity", "id": "Quantity", "package": "core.quantity"}],
+                "components": ["quantity.symbol"],
+                "conversions": ["quantity.identity"],
+                "operations": ["quantity.identity"],
+                "numeric_profiles": ["exact-int64"],
+                "runtime_profiles": ["compile.exact-int64"],
+                "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.name_ambiguity", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit", "language.unresolved_name"],
+                "diagnostic_reasons": [
+                  "model.reason.name-ambiguity",
+                  "model.reason.package-version-unavailable",
+                  "model.reason.resolution-ambiguity",
+                  "model.reason.resolution-binding-mismatch",
+                  "model.reason.resolved-authority-mismatch",
+                  "model.reason.source-contract-mismatch",
+                  "model.reason.source-parse-failure",
+                  "model.reason.source-too-large",
+                  "model.reason.unresolved-name",
+                  "quantity.reason.duplicate-symbol",
+                  "quantity.reason.invalid-domain",
+                  "quantity.reason.resource-exhausted",
+                  "quantity.reason.unknown-kind",
+                  "quantity.reason.unknown-unit"
+                ],
+                "language_rules": ["quantity.declare", "quantity.lower"]
+              },
+              "outcome": "admitted",
+              "relation": {"kind": "semantic-change", "reference": "model.compile.positive"},
+              "rir_identity": "sha256:0b7835190694361abf0e0028755c497ec782c26e11e9e062f2f68affbd2a57ab",
+              "semantic_artifacts": true
+            },
+            "id": "model.compile.mutation-role-change",
+            "source_fixture": {
+              "mode": "literal",
+              "source": {
+                "manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"},
+                "modules": [
+                  {
+                    "id": "main",
+                    "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
+                    "symbols": [
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "state_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"}
+                    ]
+                  }
+                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+                "schema_version": "2.0.0"
+              }
+            }
+          },
+          {
+            "category": "negative",
+            "expect": {"debug_map_identity": null, "declaration_count": 0, "diagnostics": [{"code": "language.duplicate_symbol", "stage": "static"}], "lock_oracle": null, "outcome": "refused", "relation": {"kind": "independent", "reference": null}, "rir_identity": null, "semantic_artifacts": false},
+            "id": "model.compile.negative-duplicate",
+            "source_fixture": {
+              "mode": "literal",
+              "source": {
+                "manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"},
+                "modules": [
+                  {
+                    "id": "main",
+                    "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
+                    "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "same", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "same", "type": "quantity", "unit": "1"}]
+                  }
+                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+                "schema_version": "2.0.0"
+              }
+            }
+          },
+          {
+            "category": "negative",
+            "expect": {"debug_map_identity": null, "declaration_count": 0, "diagnostics": [{"code": "language.package_version_unavailable", "stage": "resolution"}], "lock_oracle": null, "outcome": "refused", "relation": {"kind": "independent", "reference": null}, "rir_identity": null, "semantic_artifacts": false},
+            "id": "model.compile.negative-unavailable-package",
+            "source_fixture": {
+              "mode": "literal",
+              "source": {
+                "manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"},
+                "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "9.0.0"}], "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "health", "type": "quantity", "unit": "1"}]}],
+                "package_requirements": [{"id": "core.quantity", "version": "9.0.0"}],
+                "schema_version": "2.0.0"
+              }
+            }
+          },
+          {
+            "category": "positive",
+            "expect": {
+              "debug_map_identity": "sha256:03f2154898b87b938d4bb80c5848861ecd663c39ab5df2fbfe511824f6d225d5",
+              "declaration_count": 7,
+              "diagnostics": [],
+              "lock_oracle": {
+                "resolution_profile": "exact-import-resolution-v1",
+                "root_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+                "packages": [{"id": "core.quantity", "version": "2.0.0"}],
+                "dependency_edges": [],
+                "capability_bindings": [{"capability": "quantity.declare", "provider_package": "core.quantity"}, {"capability": "quantity.lower", "provider_package": "core.quantity"}],
+                "types": [{"constructor": "core.quantity", "id": "Quantity", "package": "core.quantity"}],
+                "components": ["quantity.symbol"],
+                "conversions": ["quantity.identity"],
+                "operations": ["quantity.identity"],
+                "numeric_profiles": ["exact-int64"],
+                "runtime_profiles": ["compile.exact-int64"],
+                "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.name_ambiguity", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit", "language.unresolved_name"],
+                "diagnostic_reasons": [
+                  "model.reason.name-ambiguity",
+                  "model.reason.package-version-unavailable",
+                  "model.reason.resolution-ambiguity",
+                  "model.reason.resolution-binding-mismatch",
+                  "model.reason.resolved-authority-mismatch",
+                  "model.reason.source-contract-mismatch",
+                  "model.reason.source-parse-failure",
+                  "model.reason.source-too-large",
+                  "model.reason.unresolved-name",
+                  "quantity.reason.duplicate-symbol",
+                  "quantity.reason.invalid-domain",
+                  "quantity.reason.resource-exhausted",
+                  "quantity.reason.unknown-kind",
+                  "quantity.reason.unknown-unit"
+                ],
+                "language_rules": ["quantity.declare", "quantity.lower"]
+              },
+              "outcome": "admitted",
+              "relation": {"kind": "independent", "reference": null},
+              "rir_identity": "sha256:966ea334dbb468ce53f6ccf697f19962236bd18a571511ae993c6666506534b2",
+              "semantic_artifacts": true
+            },
+            "id": "model.compile.positive",
+            "source_fixture": {
+              "mode": "literal",
+              "source": {
+                "manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"},
+                "modules": [
+                  {
+                    "id": "main",
+                    "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
+                    "symbols": [
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"}
+                    ]
+                  }
+                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+                "schema_version": "2.0.0"
+              }
+            }
+          },
+          {
+            "category": "semantic-equivalence",
+            "expect": {
+              "debug_map_identity": "sha256:462d994b7ff2163cdf8195c935c2503c4b197694347423df4fb8469b019798cb",
+              "declaration_count": 7,
+              "diagnostics": [],
+              "lock_oracle": {
+                "resolution_profile": "exact-import-resolution-v1",
+                "root_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+                "packages": [{"id": "core.quantity", "version": "2.0.0"}],
+                "dependency_edges": [],
+                "capability_bindings": [{"capability": "quantity.declare", "provider_package": "core.quantity"}, {"capability": "quantity.lower", "provider_package": "core.quantity"}],
+                "types": [{"constructor": "core.quantity", "id": "Quantity", "package": "core.quantity"}],
+                "components": ["quantity.symbol"],
+                "conversions": ["quantity.identity"],
+                "operations": ["quantity.identity"],
+                "numeric_profiles": ["exact-int64"],
+                "runtime_profiles": ["compile.exact-int64"],
+                "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.name_ambiguity", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit", "language.unresolved_name"],
+                "diagnostic_reasons": [
+                  "model.reason.name-ambiguity",
+                  "model.reason.package-version-unavailable",
+                  "model.reason.resolution-ambiguity",
+                  "model.reason.resolution-binding-mismatch",
+                  "model.reason.resolved-authority-mismatch",
+                  "model.reason.source-contract-mismatch",
+                  "model.reason.source-parse-failure",
+                  "model.reason.source-too-large",
+                  "model.reason.unresolved-name",
+                  "quantity.reason.duplicate-symbol",
+                  "quantity.reason.invalid-domain",
+                  "quantity.reason.resource-exhausted",
+                  "quantity.reason.unknown-kind",
+                  "quantity.reason.unknown-unit"
+                ],
+                "language_rules": ["quantity.declare", "quantity.lower"]
+              },
+              "outcome": "admitted",
+              "relation": {"kind": "semantic-equivalent", "reference": "model.compile.positive"},
+              "rir_identity": "sha256:966ea334dbb468ce53f6ccf697f19962236bd18a571511ae993c6666506534b2",
+              "semantic_artifacts": true
+            },
+            "id": "model.compile.semantic-equivalent-order",
+            "source_fixture": {
+              "mode": "literal",
+              "source": {
+                "manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"},
+                "modules": [
+                  {
+                    "id": "main",
+                    "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
+                    "symbols": [
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"}
+                    ]
+                  }
+                ],
+                "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+                "schema_version": "2.0.0"
+              }
+            }
+          },
+          {"diagnostic": "language.name_ambiguity", "id": "model.refuse.name-ambiguity", "input": {"actual": "many", "expected": "one"}, "matched": true, "reason": "model.reason.name-ambiguity", "stage": "static"},
+          {"diagnostic": "language.package_version_unavailable", "id": "model.refuse.package-version", "input": {"actual": "missing", "expected": "available"}, "matched": true, "reason": "model.reason.package-version-unavailable", "stage": "resolution"},
+          {"diagnostic": "language.resolution_ambiguity", "id": "model.refuse.resolution-ambiguity", "input": {"actual": "many", "expected": "one"}, "matched": true, "reason": "model.reason.resolution-ambiguity", "stage": "resolution"},
+          {"diagnostic": "language.resolution_binding_mismatch", "id": "model.refuse.resolution-binding", "input": {"actual": "unbound", "expected": "bound"}, "matched": true, "reason": "model.reason.resolution-binding-mismatch", "stage": "resolution"},
+          {"diagnostic": "language.resolved_authority_mismatch", "id": "model.refuse.resolved-authority", "input": {"actual": "mutated", "expected": "admitted"}, "matched": true, "reason": "model.reason.resolved-authority-mismatch", "stage": "resolution"},
+          {"diagnostic": "language.source_contract_mismatch", "id": "model.refuse.source-contract", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "model.reason.source-contract-mismatch", "stage": "static"},
+          {"diagnostic": "language.source_parse_failure", "id": "model.refuse.source-parse", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "model.reason.source-parse-failure", "stage": "parse"},
+          {"diagnostic": "language.source_too_large", "id": "model.refuse.source-size", "input": {"value": 1048577}, "matched": true, "reason": "model.reason.source-too-large", "stage": "ingress"},
+          {"diagnostic": "language.unresolved_name", "id": "model.refuse.unresolved-name", "input": {"actual": "unbound", "expected": "bound"}, "matched": true, "reason": "model.reason.unresolved-name", "stage": "static"},
+          {"diagnostic": "language.invalid_domain", "id": "quantity.accept.domain", "input": {"maximum": 1, "minimum": 1}, "matched": false, "reason": "quantity.reason.invalid-domain", "stage": "static"},
+          {"diagnostic": "language.unknown_kind", "id": "quantity.accept.kind", "input": {"value": "scalar"}, "matched": false, "reason": "quantity.reason.unknown-kind", "stage": "static"},
+          {"diagnostic": "language.resource_exhausted", "id": "quantity.accept.resources-boundary", "input": {"value": 4096}, "matched": false, "reason": "quantity.reason.resource-exhausted", "stage": "static"},
+          {"diagnostic": "language.duplicate_symbol", "id": "quantity.accept.unique", "input": {"values": ["health", "mana"]}, "matched": false, "reason": "quantity.reason.duplicate-symbol", "stage": "static"},
+          {"diagnostic": "language.unknown_unit", "id": "quantity.accept.unit", "input": {"value": "1"}, "matched": false, "reason": "quantity.reason.unknown-unit", "stage": "static"},
+          {
+            "expect": {"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1"}},
+            "id": "quantity.declare.valid",
+            "input": {"facts": [{"kind": "quantity-source", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1"}}], "judgment": "declare-quantity", "phase": "type"},
+            "rule": "quantity.declare"
+          },
+          {
+            "expect": {"kind": "rir-quantity-declaration", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1"}},
+            "id": "quantity.lower.valid",
+            "input": {"facts": [{"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1"}}], "judgment": "lower-quantity", "phase": "lower"},
+            "rule": "quantity.lower"
+          },
+          {"diagnostic": "language.invalid_domain", "id": "quantity.refuse.domain", "input": {"maximum": 1, "minimum": 2}, "matched": true, "reason": "quantity.reason.invalid-domain", "stage": "static"},
+          {"diagnostic": "language.duplicate_symbol", "id": "quantity.refuse.duplicate", "input": {"values": ["health", "health"]}, "matched": true, "reason": "quantity.reason.duplicate-symbol", "stage": "static"},
+          {"diagnostic": "language.unknown_kind", "id": "quantity.refuse.kind", "input": {"value": "missing-kind"}, "matched": true, "reason": "quantity.reason.unknown-kind", "stage": "static"},
+          {"diagnostic": "language.resource_exhausted", "id": "quantity.refuse.resources", "input": {"value": 4097}, "matched": true, "reason": "quantity.reason.resource-exhausted", "stage": "static"},
+          {"diagnostic": "language.unknown_unit", "id": "quantity.refuse.unit", "input": {"value": "missing-unit"}, "matched": true, "reason": "quantity.reason.unknown-unit", "stage": "static"}
+        ]
       }
     ],
-    "quantity": {
-      "domains": ["closed-interval"],
-      "kinds": ["scalar"],
-      "numeric_policies": [{"id": "exact-int64", "overflow": "refuse", "rounding": "none"}],
-      "representations": ["Int"],
-      "symbol_roles": ["constant", "parameter", "input", "state", "derived", "output", "random"],
-      "units": [{"dimension": "dimensionless", "id": "1"}]
-    },
+    "quantity": {"domains": ["closed-interval"], "kinds": ["scalar"], "numeric_policies": [{"id": "exact-int64", "overflow": "refuse", "rounding": "none"}], "representations": ["Int"], "symbol_roles": ["constant", "parameter", "input", "state", "derived", "output", "random"], "units": [{"dimension": "dimensionless", "id": "1"}]},
     "reasons": [
       {"diagnostic": "language.unknown_kind", "id": "quantity.reason.unknown-kind", "predicate": {"inventory_path": "language.quantity.kinds", "operation": "not-member"}, "stage": "static"},
       {"diagnostic": "language.unknown_unit", "id": "quantity.reason.unknown-unit", "predicate": {"inventory_path": "language.quantity.units", "member_field": "id", "operation": "not-member"}, "stage": "static"},
@@ -181,192 +733,116 @@
       {"diagnostic": "language.resolution_ambiguity", "id": "model.reason.resolution-ambiguity", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
       {"diagnostic": "language.resolution_binding_mismatch", "id": "model.reason.resolution-binding-mismatch", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
       {"diagnostic": "language.resolved_authority_mismatch", "id": "model.reason.resolved-authority-mismatch", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
+      {"diagnostic": "language.unresolved_name", "id": "model.reason.unresolved-name", "predicate": {"operation": "not-equal"}, "stage": "static"},
+      {"diagnostic": "language.name_ambiguity", "id": "model.reason.name-ambiguity", "predicate": {"operation": "not-equal"}, "stage": "static"},
       {"diagnostic": "language.source_contract_mismatch", "id": "model.reason.source-contract-mismatch", "predicate": {"operation": "not-equal"}, "stage": "static"},
       {"diagnostic": "language.source_parse_failure", "id": "model.reason.source-parse-failure", "predicate": {"operation": "not-equal"}, "stage": "parse"},
       {"diagnostic": "language.source_too_large", "id": "model.reason.source-too-large", "predicate": {"operation": "greater-than", "limit_path": "resources.max_source_bytes"}, "stage": "ingress"}
     ],
-    "resolution_profiles": [{
-      "capability_selection": "single-provider",
-      "default": true,
-      "dependency_closure": "required-transitive",
-      "dependency_selection": "exact-version",
-      "id": "exact-import-resolution-v1",
-      "import_alias_member": "alias",
-      "import_package_member": "package",
-      "import_symbol_member": "symbol",
-      "import_version_member": "version",
-      "imports_member": "imports",
-      "judgment_chain": [
-        {"id": "resolution.select-exact-packages", "operation": "select-exact-packages", "reason": "model.reason.package-version-unavailable"},
-        {"id": "resolution.close-required-dependencies", "operation": "close-required-dependencies", "reason": "model.reason.package-version-unavailable"},
-        {"id": "resolution.require-single-package-version", "operation": "require-single-package-version", "reason": "model.reason.resolution-ambiguity"},
-        {"id": "resolution.require-unique-module-ids", "operation": "require-unique-module-ids", "reason": "model.reason.resolution-ambiguity"},
-        {"id": "resolution.require-unique-import-aliases", "operation": "require-unique-import-aliases", "reason": "model.reason.resolution-ambiguity"},
-        {"id": "resolution.bind-import-requirements", "operation": "bind-import-requirements", "reason": "model.reason.resolution-binding-mismatch"},
-        {"id": "resolution.bind-exported-types", "operation": "bind-exported-types", "reason": "model.reason.resolution-binding-mismatch"},
-        {"id": "resolution.bind-symbol-aliases", "operation": "bind-symbol-aliases", "reason": "model.reason.resolution-binding-mismatch"},
-        {"id": "resolution.require-unique-symbol-identities", "operation": "require-unique-symbol-identities", "reason": "model.reason.resolution-ambiguity"},
-        {"id": "resolution.require-entry-module", "operation": "require-entry-module", "reason": "model.reason.resolution-binding-mismatch"},
-        {"id": "resolution.bind-capability-providers", "operation": "bind-capability-providers", "reason": "model.reason.resolution-ambiguity"}
-      ],
-      "manifest_entry_module_path": "manifest.entry_module",
-      "manifest_id_path": "manifest.id",
-      "model_lowering": "quantity.model-lowering",
-      "module_id_member": "id",
-      "modules_member": "modules",
-      "package_conflict": "single-version-per-id",
-      "requirement_package_member": "id",
-      "requirement_version_member": "version",
-      "requirements_member": "package_requirements",
-      "source_identity_domain": "model-source-package-v2",
-      "symbol_fact_member": "symbol",
-      "symbol_name_member": "symbol",
-      "symbol_type_member": "type",
-      "symbols_member": "symbols"
-    }],
+    "resolution_profiles": [
+      {
+        "capability_selection": "single-provider",
+        "default": true,
+        "dependency_closure": "required-transitive",
+        "dependency_selection": "exact-version",
+        "id": "exact-import-resolution-v1",
+        "import_alias_member": "alias",
+        "import_package_member": "package",
+        "import_symbol_member": "symbol",
+        "import_version_member": "version",
+        "imports_member": "imports",
+        "judgment_chain": [
+          {"id": "resolution.select-exact-packages", "operation": "select-exact-packages", "reason": "model.reason.package-version-unavailable"},
+          {"id": "resolution.close-required-dependencies", "operation": "close-required-dependencies", "reason": "model.reason.package-version-unavailable"},
+          {"id": "resolution.require-single-package-version", "operation": "require-single-package-version", "reason": "model.reason.resolution-ambiguity"},
+          {"id": "resolution.require-unique-module-ids", "operation": "require-unique-module-ids", "reason": "model.reason.name-ambiguity"},
+          {"id": "resolution.require-unique-import-aliases", "operation": "require-unique-import-aliases", "reason": "model.reason.name-ambiguity"},
+          {"id": "resolution.bind-import-requirements", "operation": "bind-import-requirements", "reason": "model.reason.unresolved-name"},
+          {"id": "resolution.bind-exported-types", "operation": "bind-exported-types", "reason": "model.reason.unresolved-name"},
+          {"id": "resolution.bind-symbol-aliases", "operation": "bind-symbol-aliases", "reason": "model.reason.unresolved-name"},
+          {"id": "resolution.require-unique-symbol-identities", "operation": "require-unique-symbol-identities", "reason": "quantity.reason.duplicate-symbol"},
+          {"id": "resolution.require-entry-module", "operation": "require-entry-module", "reason": "model.reason.unresolved-name"},
+          {"id": "resolution.bind-capability-providers", "operation": "bind-capability-providers", "reason": "model.reason.resolution-ambiguity"}
+        ],
+        "manifest_entry_module_path": "manifest.entry_module",
+        "manifest_id_path": "manifest.id",
+        "model_lowering": "quantity.model-lowering",
+        "module_id_member": "id",
+        "modules_member": "modules",
+        "package_conflict": "single-version-per-id",
+        "requirement_package_member": "id",
+        "requirement_version_member": "version",
+        "requirements_member": "package_requirements",
+        "source_identity_domain": "model-source-package-v2",
+        "symbol_fact_member": "symbol",
+        "symbol_name_member": "symbol",
+        "symbol_type_member": "type",
+        "symbols_member": "symbols",
+        "structural_reason": "model.reason.source-contract-mismatch"
+      }
+    ],
     "rules": [
       {
         "conclusion": {
           "fact_kind": "typed-quantity-symbol",
-          "fields": {
-            "domain": {"name": "domain", "tag": "variable"},
-            "kind": {"name": "kind", "tag": "variable"},
-            "numeric_policy": {"name": "numeric_policy", "tag": "variable"},
-            "representation": {"name": "representation", "tag": "variable"},
-            "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"},
-            "role": {"name": "role", "tag": "variable"},
-            "symbol": {"name": "symbol", "tag": "variable"},
-            "type_identity": {"name": "type_identity", "tag": "variable"},
-            "unit": {"name": "unit", "tag": "variable"}
-          }
+          "fields": {"domain": {"name": "domain", "tag": "variable"}, "kind": {"name": "kind", "tag": "variable"}, "numeric_policy": {"name": "numeric_policy", "tag": "variable"}, "representation": {"name": "representation", "tag": "variable"}, "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"}, "role": {"name": "role", "tag": "variable"}, "symbol": {"name": "symbol", "tag": "variable"}, "type_identity": {"name": "type_identity", "tag": "variable"}, "unit": {"name": "unit", "tag": "variable"}}
         },
         "id": "quantity.declare",
         "judgment": "declare-quantity",
         "phase": "type",
-        "premises": [{
-          "bind": {
-            "domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy",
-            "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role",
-            "symbol": "symbol", "type_identity": "type_identity", "unit": "unit"
-          },
-          "fact_kind": "quantity-source"
-        }]
+        "premises": [{"bind": {"domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy", "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role", "symbol": "symbol", "type_identity": "type_identity", "unit": "unit"}, "fact_kind": "quantity-source"}]
       },
       {
         "conclusion": {
           "fact_kind": "rir-quantity-declaration",
-          "fields": {
-            "domain": {"name": "domain", "tag": "variable"},
-            "kind": {"name": "kind", "tag": "variable"},
-            "numeric_policy": {"name": "numeric_policy", "tag": "variable"},
-            "representation": {"name": "representation", "tag": "variable"},
-            "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"},
-            "role": {"name": "role", "tag": "variable"},
-            "symbol": {"name": "symbol", "tag": "variable"},
-            "type_identity": {"name": "type_identity", "tag": "variable"},
-            "unit": {"name": "unit", "tag": "variable"}
-          }
+          "fields": {"domain": {"name": "domain", "tag": "variable"}, "kind": {"name": "kind", "tag": "variable"}, "numeric_policy": {"name": "numeric_policy", "tag": "variable"}, "representation": {"name": "representation", "tag": "variable"}, "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"}, "role": {"name": "role", "tag": "variable"}, "symbol": {"name": "symbol", "tag": "variable"}, "type_identity": {"name": "type_identity", "tag": "variable"}, "unit": {"name": "unit", "tag": "variable"}}
         },
         "id": "quantity.lower",
         "judgment": "lower-quantity",
         "phase": "lower",
-        "premises": [{
-          "bind": {
-            "domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy",
-            "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role",
-            "symbol": "symbol", "type_identity": "type_identity", "unit": "unit"
-          },
-          "fact_kind": "typed-quantity-symbol"
-        }]
+        "premises": [{"bind": {"domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy", "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role", "symbol": "symbol", "type_identity": "type_identity", "unit": "unit"}, "fact_kind": "typed-quantity-symbol"}]
       }
     ],
     "runtime_profiles": [{"effects": [], "evaluation": "declaration-only", "id": "compile.exact-int64", "numeric_policy": "exact-int64", "resource_bounds": {"max_steps": 4096}, "version": "2.0.0"}],
-    "wire_schemas": [{
-      "artifact_kind": "model-source-package",
-      "schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "schema_version": {"const": "2.0.0"},
-          "manifest": {
-            "type": "object",
-            "properties": {
-              "id": {"type": "string", "minLength": 1},
-              "version": {"type": "string", "minLength": 1},
-              "entry_module": {"type": "string", "minLength": 1}
-            },
-            "required": ["id", "version", "entry_module"],
-            "unevaluatedProperties": false
-          },
-          "package_requirements": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {"type": "string", "minLength": 1},
-                "version": {"type": "string", "minLength": 1}
-              },
-              "required": ["id", "version"],
-              "unevaluatedProperties": false
-            }
-          },
-          "modules": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {"type": "string", "minLength": 1},
-                "imports": {
-                  "type": "array",
-                  "minItems": 1,
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "alias": {"type": "string", "minLength": 1},
-                      "package": {"type": "string", "minLength": 1},
-                      "version": {"type": "string", "minLength": 1},
-                      "symbol": {"type": "string", "minLength": 1}
-                    },
-                    "required": ["alias", "package", "version", "symbol"],
-                    "unevaluatedProperties": false
+    "wire_schemas": [
+      {
+        "artifact_kind": "model-source-package",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "schema_version": {"const": "2.0.0"},
+            "manifest": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "entry_module": {"type": "string", "minLength": 1}}, "required": ["id", "version", "entry_module"], "unevaluatedProperties": false},
+            "package_requirements": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}}, "required": ["id", "version"], "unevaluatedProperties": false}},
+            "modules": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string", "minLength": 1},
+                  "imports": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"alias": {"type": "string", "minLength": 1}, "package": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "symbol": {"type": "string", "minLength": 1}}, "required": ["alias", "package", "version", "symbol"], "unevaluatedProperties": false}},
+                  "symbols": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "properties": {"symbol": {"type": "string", "minLength": 1}, "type": {"type": "string", "minLength": 1}, "role": {"enum": ["constant", "parameter", "input", "state", "derived", "output", "random"]}, "representation": {"const": "Int"}, "kind": {"const": "scalar"}, "unit": {"const": "1"}, "domain": {"type": "object", "properties": {"minimum": {"type": "integer"}, "maximum": {"type": "integer"}}, "required": ["minimum", "maximum"], "unevaluatedProperties": false}, "numeric_policy": {"const": "exact-int64"}},
+                      "required": ["symbol", "type", "role", "representation", "kind", "unit", "domain", "numeric_policy"],
+                      "unevaluatedProperties": false
+                    }
                   }
                 },
-                "symbols": {
-                  "type": "array",
-                  "minItems": 1,
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "symbol": {"type": "string", "minLength": 1},
-                      "type": {"type": "string", "minLength": 1},
-                      "role": {"enum": ["constant", "parameter", "input", "state", "derived", "output", "random"]},
-                      "representation": {"const": "Int"},
-                      "kind": {"const": "scalar"},
-                      "unit": {"const": "1"},
-                      "domain": {
-                        "type": "object",
-                        "properties": {"minimum": {"type": "integer"}, "maximum": {"type": "integer"}},
-                        "required": ["minimum", "maximum"],
-                        "unevaluatedProperties": false
-                      },
-                      "numeric_policy": {"const": "exact-int64"}
-                    },
-                    "required": ["symbol", "type", "role", "representation", "kind", "unit", "domain", "numeric_policy"],
-                    "unevaluatedProperties": false
-                  }
-                }
-              },
-              "required": ["id", "imports", "symbols"],
-              "unevaluatedProperties": false
+                "required": ["id", "imports", "symbols"],
+                "unevaluatedProperties": false
+              }
             }
-          }
-        },
-        "required": ["schema_version", "manifest", "package_requirements", "modules"],
-        "unevaluatedProperties": false
+          },
+          "required": ["schema_version", "manifest", "package_requirements", "modules"],
+          "unevaluatedProperties": false
+        }
       }
-    }]
+    ]
   },
   "resources": {"max_diagnostics": 1000, "max_rule_match_steps": 65536, "max_source_bytes": 1048576, "max_symbols": 4096},
   "schema_major": 2,
@@ -407,22 +883,75 @@
     {"diagnostic": "language.source_parse_failure", "id": "model.accept.source-parse", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "model.reason.source-parse-failure", "stage": "parse"},
     {"diagnostic": "language.source_too_large", "id": "model.refuse.source-size", "input": {"value": 1048577}, "matched": true, "reason": "model.reason.source-too-large", "stage": "ingress"},
     {"diagnostic": "language.source_too_large", "id": "model.accept.source-size", "input": {"value": 1048576}, "matched": false, "reason": "model.reason.source-too-large", "stage": "ingress"},
+    {"diagnostic": "language.name_ambiguity", "id": "model.refuse.name-ambiguity", "input": {"actual": "many", "expected": "one"}, "matched": true, "reason": "model.reason.name-ambiguity", "stage": "static"},
+    {"diagnostic": "language.name_ambiguity", "id": "model.accept.name-ambiguity", "input": {"actual": "one", "expected": "one"}, "matched": false, "reason": "model.reason.name-ambiguity", "stage": "static"},
+    {"diagnostic": "language.unresolved_name", "id": "model.refuse.unresolved-name", "input": {"actual": "unbound", "expected": "bound"}, "matched": true, "reason": "model.reason.unresolved-name", "stage": "static"},
+    {"diagnostic": "language.unresolved_name", "id": "model.accept.unresolved-name", "input": {"actual": "bound", "expected": "bound"}, "matched": false, "reason": "model.reason.unresolved-name", "stage": "static"},
     {
       "category": "positive",
       "expect": {
-        "debug_map_identity": "sha256:9c05e5cae604408bdc3c0e42c7b9c0aa8f4315bf22266f52647872ba68405c28",
+        "debug_map_identity": "sha256:03f2154898b87b938d4bb80c5848861ecd663c39ab5df2fbfe511824f6d225d5",
         "declaration_count": 7,
         "diagnostics": [],
-        "lock_oracle": {"capability_bindings": [{"capability": "quantity.declare", "provider_package": "core.quantity"}, {"capability": "quantity.lower", "provider_package": "core.quantity"}], "components": ["quantity.symbol"], "conversions": ["quantity.identity"], "dependency_edges": [], "diagnostic_reasons": ["model.reason.package-version-unavailable", "model.reason.resolution-ambiguity", "model.reason.resolution-binding-mismatch", "model.reason.resolved-authority-mismatch", "model.reason.source-contract-mismatch", "model.reason.source-parse-failure", "model.reason.source-too-large", "quantity.reason.duplicate-symbol", "quantity.reason.invalid-domain", "quantity.reason.resource-exhausted", "quantity.reason.unknown-kind", "quantity.reason.unknown-unit"], "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit"], "language_rules": ["quantity.declare", "quantity.lower"], "numeric_profiles": ["exact-int64"], "operations": ["quantity.identity"], "packages": [{"id": "core.quantity", "version": "2.0.0"}], "resolution_profile": "exact-import-resolution-v1", "root_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "runtime_profiles": ["compile.exact-int64"], "types": [{"constructor": "core.quantity", "id": "Quantity", "package": "core.quantity"}]},
+        "lock_oracle": {
+          "resolution_profile": "exact-import-resolution-v1",
+          "root_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+          "packages": [{"id": "core.quantity", "version": "2.0.0"}],
+          "dependency_edges": [],
+          "capability_bindings": [{"capability": "quantity.declare", "provider_package": "core.quantity"}, {"capability": "quantity.lower", "provider_package": "core.quantity"}],
+          "types": [{"constructor": "core.quantity", "id": "Quantity", "package": "core.quantity"}],
+          "components": ["quantity.symbol"],
+          "conversions": ["quantity.identity"],
+          "operations": ["quantity.identity"],
+          "numeric_profiles": ["exact-int64"],
+          "runtime_profiles": ["compile.exact-int64"],
+          "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.name_ambiguity", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit", "language.unresolved_name"],
+          "diagnostic_reasons": [
+            "model.reason.name-ambiguity",
+            "model.reason.package-version-unavailable",
+            "model.reason.resolution-ambiguity",
+            "model.reason.resolution-binding-mismatch",
+            "model.reason.resolved-authority-mismatch",
+            "model.reason.source-contract-mismatch",
+            "model.reason.source-parse-failure",
+            "model.reason.source-too-large",
+            "model.reason.unresolved-name",
+            "quantity.reason.duplicate-symbol",
+            "quantity.reason.invalid-domain",
+            "quantity.reason.resource-exhausted",
+            "quantity.reason.unknown-kind",
+            "quantity.reason.unknown-unit"
+          ],
+          "language_rules": ["quantity.declare", "quantity.lower"]
+        },
         "outcome": "admitted",
         "relation": {"kind": "independent", "reference": null},
-        "rir_identity": "sha256:31bc6ee16712f42780b046ea2afa650274012a0ffd2ffa5be43c229c75657722",
+        "rir_identity": "sha256:966ea334dbb468ce53f6ccf697f19962236bd18a571511ae993c6666506534b2",
         "semantic_artifacts": true
       },
       "id": "model.compile.positive",
       "source_fixture": {
         "mode": "literal",
-        "source": {"manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"}, "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}], "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"}]}], "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "schema_version": "2.0.0"}
+        "source": {
+          "manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"},
+          "modules": [
+            {
+              "id": "main",
+              "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
+              "symbols": [
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"}
+              ]
+            }
+          ],
+          "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+          "schema_version": "2.0.0"
+        }
       }
     },
     {
@@ -431,7 +960,18 @@
       "id": "model.compile.negative-duplicate",
       "source_fixture": {
         "mode": "literal",
-        "source": {"manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"}, "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}], "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "same", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "same", "type": "quantity", "unit": "1"}]}], "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "schema_version": "2.0.0"}
+        "source": {
+          "manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"},
+          "modules": [
+            {
+              "id": "main",
+              "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
+              "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "same", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "same", "type": "quantity", "unit": "1"}]
+            }
+          ],
+          "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+          "schema_version": "2.0.0"
+        }
       }
     },
     {
@@ -440,19 +980,54 @@
       "id": "model.compile.negative-unavailable-package",
       "source_fixture": {
         "mode": "literal",
-        "source": {"manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"}, "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "9.0.0"}], "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "health", "type": "quantity", "unit": "1"}]}], "package_requirements": [{"id": "core.quantity", "version": "9.0.0"}], "schema_version": "2.0.0"}
+        "source": {
+          "manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"},
+          "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "9.0.0"}], "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "health", "type": "quantity", "unit": "1"}]}],
+          "package_requirements": [{"id": "core.quantity", "version": "9.0.0"}],
+          "schema_version": "2.0.0"
+        }
       }
     },
     {
       "category": "boundary",
       "expect": {
-        "debug_map_identity": "sha256:da94820aefffcdbbd73d94837ef13219c8868611ab33c71f56126d63b9aeb35a",
+        "debug_map_identity": "sha256:ba0c5916db113e9b9191d221f7569ab6c6ac1b641815d7e6cc3b2162fb68fe2e",
         "declaration_count": 4096,
         "diagnostics": [],
-        "lock_oracle": {"capability_bindings": [{"capability": "quantity.declare", "provider_package": "core.quantity"}, {"capability": "quantity.lower", "provider_package": "core.quantity"}], "components": ["quantity.symbol"], "conversions": ["quantity.identity"], "dependency_edges": [], "diagnostic_reasons": ["model.reason.package-version-unavailable", "model.reason.resolution-ambiguity", "model.reason.resolution-binding-mismatch", "model.reason.resolved-authority-mismatch", "model.reason.source-contract-mismatch", "model.reason.source-parse-failure", "model.reason.source-too-large", "quantity.reason.duplicate-symbol", "quantity.reason.invalid-domain", "quantity.reason.resource-exhausted", "quantity.reason.unknown-kind", "quantity.reason.unknown-unit"], "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit"], "language_rules": ["quantity.declare", "quantity.lower"], "numeric_profiles": ["exact-int64"], "operations": ["quantity.identity"], "packages": [{"id": "core.quantity", "version": "2.0.0"}], "resolution_profile": "exact-import-resolution-v1", "root_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "runtime_profiles": ["compile.exact-int64"], "types": [{"constructor": "core.quantity", "id": "Quantity", "package": "core.quantity"}]},
+        "lock_oracle": {
+          "resolution_profile": "exact-import-resolution-v1",
+          "root_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+          "packages": [{"id": "core.quantity", "version": "2.0.0"}],
+          "dependency_edges": [],
+          "capability_bindings": [{"capability": "quantity.declare", "provider_package": "core.quantity"}, {"capability": "quantity.lower", "provider_package": "core.quantity"}],
+          "types": [{"constructor": "core.quantity", "id": "Quantity", "package": "core.quantity"}],
+          "components": ["quantity.symbol"],
+          "conversions": ["quantity.identity"],
+          "operations": ["quantity.identity"],
+          "numeric_profiles": ["exact-int64"],
+          "runtime_profiles": ["compile.exact-int64"],
+          "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.name_ambiguity", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit", "language.unresolved_name"],
+          "diagnostic_reasons": [
+            "model.reason.name-ambiguity",
+            "model.reason.package-version-unavailable",
+            "model.reason.resolution-ambiguity",
+            "model.reason.resolution-binding-mismatch",
+            "model.reason.resolved-authority-mismatch",
+            "model.reason.source-contract-mismatch",
+            "model.reason.source-parse-failure",
+            "model.reason.source-too-large",
+            "model.reason.unresolved-name",
+            "quantity.reason.duplicate-symbol",
+            "quantity.reason.invalid-domain",
+            "quantity.reason.resource-exhausted",
+            "quantity.reason.unknown-kind",
+            "quantity.reason.unknown-unit"
+          ],
+          "language_rules": ["quantity.declare", "quantity.lower"]
+        },
         "outcome": "admitted",
         "relation": {"kind": "independent", "reference": null},
-        "rir_identity": "sha256:d3321d9c4cfe99b86fb3437829dea692ebe795ce9d9345ae829a7f0e284376d8",
+        "rir_identity": "sha256:1678bb0a3b47cd5afae17be515cd0c92d6a9647f4f48e6a929cba52f4b8662a8",
         "semantic_artifacts": true
       },
       "id": "model.compile.boundary-max-symbols",
@@ -489,37 +1064,135 @@
     {
       "category": "mutation",
       "expect": {
-        "debug_map_identity": "sha256:269d67b0f2133dcafab9dbd6c4cdfaff9b05a16a903e46452bd2fc61f4950d14",
+        "debug_map_identity": "sha256:9d4133f2b34d01a55981faa68f90d01255577f7442f8fb47bfbab98d514fcbfc",
         "declaration_count": 7,
         "diagnostics": [],
-        "lock_oracle": {"capability_bindings": [{"capability": "quantity.declare", "provider_package": "core.quantity"}, {"capability": "quantity.lower", "provider_package": "core.quantity"}], "components": ["quantity.symbol"], "conversions": ["quantity.identity"], "dependency_edges": [], "diagnostic_reasons": ["model.reason.package-version-unavailable", "model.reason.resolution-ambiguity", "model.reason.resolution-binding-mismatch", "model.reason.resolved-authority-mismatch", "model.reason.source-contract-mismatch", "model.reason.source-parse-failure", "model.reason.source-too-large", "quantity.reason.duplicate-symbol", "quantity.reason.invalid-domain", "quantity.reason.resource-exhausted", "quantity.reason.unknown-kind", "quantity.reason.unknown-unit"], "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit"], "language_rules": ["quantity.declare", "quantity.lower"], "numeric_profiles": ["exact-int64"], "operations": ["quantity.identity"], "packages": [{"id": "core.quantity", "version": "2.0.0"}], "resolution_profile": "exact-import-resolution-v1", "root_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "runtime_profiles": ["compile.exact-int64"], "types": [{"constructor": "core.quantity", "id": "Quantity", "package": "core.quantity"}]},
+        "lock_oracle": {
+          "resolution_profile": "exact-import-resolution-v1",
+          "root_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+          "packages": [{"id": "core.quantity", "version": "2.0.0"}],
+          "dependency_edges": [],
+          "capability_bindings": [{"capability": "quantity.declare", "provider_package": "core.quantity"}, {"capability": "quantity.lower", "provider_package": "core.quantity"}],
+          "types": [{"constructor": "core.quantity", "id": "Quantity", "package": "core.quantity"}],
+          "components": ["quantity.symbol"],
+          "conversions": ["quantity.identity"],
+          "operations": ["quantity.identity"],
+          "numeric_profiles": ["exact-int64"],
+          "runtime_profiles": ["compile.exact-int64"],
+          "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.name_ambiguity", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit", "language.unresolved_name"],
+          "diagnostic_reasons": [
+            "model.reason.name-ambiguity",
+            "model.reason.package-version-unavailable",
+            "model.reason.resolution-ambiguity",
+            "model.reason.resolution-binding-mismatch",
+            "model.reason.resolved-authority-mismatch",
+            "model.reason.source-contract-mismatch",
+            "model.reason.source-parse-failure",
+            "model.reason.source-too-large",
+            "model.reason.unresolved-name",
+            "quantity.reason.duplicate-symbol",
+            "quantity.reason.invalid-domain",
+            "quantity.reason.resource-exhausted",
+            "quantity.reason.unknown-kind",
+            "quantity.reason.unknown-unit"
+          ],
+          "language_rules": ["quantity.declare", "quantity.lower"]
+        },
         "outcome": "admitted",
         "relation": {"kind": "semantic-change", "reference": "model.compile.positive"},
-        "rir_identity": "sha256:18478c5697d16154c61cd0b56af6dbe37cef948bb1640a2931ad1324a6d7aaa5",
+        "rir_identity": "sha256:0b7835190694361abf0e0028755c497ec782c26e11e9e062f2f68affbd2a57ab",
         "semantic_artifacts": true
       },
       "id": "model.compile.mutation-role-change",
       "source_fixture": {
         "mode": "literal",
-        "source": {"manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"}, "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}], "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "state_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"}]}], "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "schema_version": "2.0.0"}
+        "source": {
+          "manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"},
+          "modules": [
+            {
+              "id": "main",
+              "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
+              "symbols": [
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "state_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"}
+              ]
+            }
+          ],
+          "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+          "schema_version": "2.0.0"
+        }
       }
     },
     {
       "category": "semantic-equivalence",
       "expect": {
-        "debug_map_identity": "sha256:4ee01e6126d6e062ecffb2d7860c1600ba630e97222c3420d252fe64758f527c",
+        "debug_map_identity": "sha256:462d994b7ff2163cdf8195c935c2503c4b197694347423df4fb8469b019798cb",
         "declaration_count": 7,
         "diagnostics": [],
-        "lock_oracle": {"capability_bindings": [{"capability": "quantity.declare", "provider_package": "core.quantity"}, {"capability": "quantity.lower", "provider_package": "core.quantity"}], "components": ["quantity.symbol"], "conversions": ["quantity.identity"], "dependency_edges": [], "diagnostic_reasons": ["model.reason.package-version-unavailable", "model.reason.resolution-ambiguity", "model.reason.resolution-binding-mismatch", "model.reason.resolved-authority-mismatch", "model.reason.source-contract-mismatch", "model.reason.source-parse-failure", "model.reason.source-too-large", "quantity.reason.duplicate-symbol", "quantity.reason.invalid-domain", "quantity.reason.resource-exhausted", "quantity.reason.unknown-kind", "quantity.reason.unknown-unit"], "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit"], "language_rules": ["quantity.declare", "quantity.lower"], "numeric_profiles": ["exact-int64"], "operations": ["quantity.identity"], "packages": [{"id": "core.quantity", "version": "2.0.0"}], "resolution_profile": "exact-import-resolution-v1", "root_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "runtime_profiles": ["compile.exact-int64"], "types": [{"constructor": "core.quantity", "id": "Quantity", "package": "core.quantity"}]},
+        "lock_oracle": {
+          "resolution_profile": "exact-import-resolution-v1",
+          "root_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+          "packages": [{"id": "core.quantity", "version": "2.0.0"}],
+          "dependency_edges": [],
+          "capability_bindings": [{"capability": "quantity.declare", "provider_package": "core.quantity"}, {"capability": "quantity.lower", "provider_package": "core.quantity"}],
+          "types": [{"constructor": "core.quantity", "id": "Quantity", "package": "core.quantity"}],
+          "components": ["quantity.symbol"],
+          "conversions": ["quantity.identity"],
+          "operations": ["quantity.identity"],
+          "numeric_profiles": ["exact-int64"],
+          "runtime_profiles": ["compile.exact-int64"],
+          "diagnostics": ["language.duplicate_symbol", "language.invalid_domain", "language.name_ambiguity", "language.package_version_unavailable", "language.resolution_ambiguity", "language.resolution_binding_mismatch", "language.resolved_authority_mismatch", "language.resource_exhausted", "language.source_contract_mismatch", "language.source_parse_failure", "language.source_too_large", "language.unknown_kind", "language.unknown_unit", "language.unresolved_name"],
+          "diagnostic_reasons": [
+            "model.reason.name-ambiguity",
+            "model.reason.package-version-unavailable",
+            "model.reason.resolution-ambiguity",
+            "model.reason.resolution-binding-mismatch",
+            "model.reason.resolved-authority-mismatch",
+            "model.reason.source-contract-mismatch",
+            "model.reason.source-parse-failure",
+            "model.reason.source-too-large",
+            "model.reason.unresolved-name",
+            "quantity.reason.duplicate-symbol",
+            "quantity.reason.invalid-domain",
+            "quantity.reason.resource-exhausted",
+            "quantity.reason.unknown-kind",
+            "quantity.reason.unknown-unit"
+          ],
+          "language_rules": ["quantity.declare", "quantity.lower"]
+        },
         "outcome": "admitted",
         "relation": {"kind": "semantic-equivalent", "reference": "model.compile.positive"},
-        "rir_identity": "sha256:31bc6ee16712f42780b046ea2afa650274012a0ffd2ffa5be43c229c75657722",
+        "rir_identity": "sha256:966ea334dbb468ce53f6ccf697f19962236bd18a571511ae993c6666506534b2",
         "semantic_artifacts": true
       },
       "id": "model.compile.semantic-equivalent-order",
       "source_fixture": {
         "mode": "literal",
-        "source": {"manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"}, "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}], "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"}]}], "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "schema_version": "2.0.0"}
+        "source": {
+          "manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"},
+          "modules": [
+            {
+              "id": "main",
+              "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
+              "symbols": [
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"}
+              ]
+            }
+          ],
+          "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+          "schema_version": "2.0.0"
+        }
       }
     }
   ]

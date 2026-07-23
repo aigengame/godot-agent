@@ -155,6 +155,16 @@ def _exact_path(root: Any, dotted: str) -> Any:
 
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     for package in language_bundle["language"]["packages"]:
+        package["vector_definitions"] = [
+            deepcopy(
+                next(
+                    vector
+                    for vector in language_bundle["vectors"]
+                    if vector["id"] == vector_id
+                )
+            )
+            for vector_id in package["vectors"]
+        ]
         for entry in package["semantic_closure"]:
             entry["definitions"] = deepcopy(
                 _exact_path(language_bundle, entry["authority_path"])
@@ -417,6 +427,8 @@ def _renamed_reason_authorities(
         if check["reason"] == reason_id:
             check["reason"] = renamed_reason
     for profile in language["resolution_profiles"]:
+        if profile["structural_reason"] == reason_id:
+            profile["structural_reason"] = renamed_reason
         for judgment in profile["judgment_chain"]:
             if judgment["reason"] == reason_id:
                 judgment["reason"] = renamed_reason
@@ -583,7 +595,12 @@ def _reference_artifact(
     artifact = {
         **body,
         "content_identity": _reference_content_identity(
-            contract["identity_domain"], body
+            contract["identity_domain"],
+            {
+                key: value
+                for key, value in body.items()
+                if key not in set(contract["identity_excluded_members"])
+            },
         ),
     }
     jsonschema.Draft202012Validator(schema).validate(artifact)
@@ -735,6 +752,14 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
             }
             for package in selected_packages
         ],
+        "package_semantic_closures": [
+            {
+                "package": package["id"],
+                "semantic_identity": package["semantic_identity"],
+                "definitions": package["semantic_closure"],
+            }
+            for package in selected_packages
+        ],
         "dependency_edges": dependency_edges,
         "capability_bindings": [
             {
@@ -770,6 +795,7 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
             for package in selected_packages
         ],
     }
+    payload["selected_semantics"] = semantic_projection
     payload["semantic_identity"] = _reference_content_identity(
         "package-lock-selected-semantics-v2",
         semantic_projection,
@@ -795,7 +821,7 @@ def _reference_rir(
         "rir-semantic-payload",
         {
             lowering["output_member"]: declarations,
-            "operation_projections": lock["operations"],
+            "selected_semantics": lock["selected_semantics"],
             "package_lock_semantic_identity": lock["semantic_identity"],
         },
     )
@@ -1116,6 +1142,47 @@ def test_independent_lowerers_mutually_consume_byte_identical_rir(tmp_path):
             )
         }
     ).admitted
+
+
+def test_resolved_admission_refuses_reidentified_rir_semantic_closure_drift(tmp_path):
+    path = tmp_path / "source.json"
+    _write_source(path, _source([_symbol("health", "state")]))
+    checked = check_model_source(str(path))
+    assert isinstance(checked, CheckedModel)
+    artifacts = lower_checked_model(checked)
+    semantic_artifacts: dict[str, dict[str, Any]] = {
+        name: deepcopy(artifacts[name])
+        for name in (
+            "package-lock",
+            "rir-semantic-payload",
+            "resolved-model",
+        )
+    }
+    rir = semantic_artifacts["rir-semantic-payload"]
+    closures = cast(
+        list[dict[str, Any]],
+        cast(dict[str, Any], rir["selected_semantics"])["package_semantic_closures"],
+    )
+    unit_definitions = next(
+        entry["definitions"]
+        for entry in closures[0]["definitions"]
+        if entry["authority_path"] == "language.quantity.units"
+    )
+    unit_definitions[0]["dimension"] = "reidentified-dimension"
+    rir["content_identity"] = _reference_content_identity(
+        "rir-semantic-payload-v2",
+        {key: value for key, value in rir.items() if key != "content_identity"},
+    )
+    resolved = semantic_artifacts["resolved-model"]
+    resolved["rir_identity"] = rir["content_identity"]
+    resolved["content_identity"] = _reference_content_identity(
+        "resolved-model-v2",
+        {key: value for key, value in resolved.items() if key != "content_identity"},
+    )
+
+    result = admit_resolved_model(semantic_artifacts)
+
+    assert result.admitted is False
 
 
 def test_model_source_routing_follows_the_selected_ldb_profile_without_host_tokens(
@@ -1450,9 +1517,8 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
     reference = _reference_rir(candidate)
 
     assert production == reference
-    operation_projections = cast(
-        list[dict[str, Any]], production["operation_projections"]
-    )
+    selected_semantics = cast(dict[str, Any], production["selected_semantics"])
+    operation_projections = cast(list[dict[str, Any]], selected_semantics["operations"])
     assert {item["definition"]["rule"] for item in operation_projections} == {
         "quantity.lower.renamed"
     }

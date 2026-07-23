@@ -17,7 +17,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:c046befa77f0167f90db691ed69dedeeb38769bb3facb0f206f1fb3dc2dd583b"
+    "sha256:079167bf2a7da3d2c68f4f692d4875147ac74a41a8a59ab1d53fa9f16aaddb0c"
 )
 
 
@@ -950,8 +950,54 @@ def _consumer_b_language_definitions_are_closed(
         for profile in profiles
         if isinstance(profile, dict) and isinstance(profile.get("id"), str)
     }
-    if len(profiles_by_id) != len(profiles):
+    resolution_contract = meta.get("resolution_judgment")
+    operation_specs = (
+        resolution_contract.get("operations")
+        if isinstance(resolution_contract, dict)
+        else None
+    )
+    operation_order = (
+        resolution_contract.get("required_operation_order")
+        if isinstance(resolution_contract, dict)
+        else None
+    )
+    operations_by_id = {
+        item["id"]: item
+        for item in operation_specs or []
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    reason_stages = {
+        item["id"]: item["stage"]
+        for item in language.get("reasons", [])
+        if isinstance(item, dict)
+        and isinstance(item.get("id"), str)
+        and isinstance(item.get("stage"), str)
+    }
+    if (
+        len(profiles_by_id) != len(profiles)
+        or not isinstance(operation_specs, list)
+        or not operation_specs
+        or len(operations_by_id) != len(operation_specs)
+        or not isinstance(operation_order, list)
+        or operation_order != [item["id"] for item in operation_specs]
+        or len([profile for profile in profiles if profile.get("default") is True]) != 1
+    ):
         return False
+    for profile in profiles:
+        chain = profile.get("judgment_chain")
+        if (
+            not isinstance(chain, list)
+            or [item.get("operation") for item in chain if isinstance(item, dict)]
+            != operation_order
+            or any(
+                not isinstance(item, dict)
+                or item.get("operation") not in operations_by_id
+                or reason_stages.get(item.get("reason"))
+                != operations_by_id[item["operation"]].get("stage")
+                for item in chain
+            )
+        ):
+            return False
     for lowering in lowerings:
         if not isinstance(lowering, dict):
             return False
@@ -2095,6 +2141,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     if len(package_coordinates) != len(set(package_coordinates)):
         refuse("kernel.duplicate_identifier", "static", "language.packages")
     vector_ids = {item["id"] for item in valid_vectors}
+    vectors_by_id = {item["id"]: item for item in valid_vectors}
     constructor_ids = {item["id"] for item in ldb["language"]["constructors"]}
     numeric_profiles = {
         item["id"] for item in ldb["language"]["quantity"]["numeric_policies"]
@@ -2104,6 +2151,8 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         profiles = package["profiles"]
         references_close = (
             set(package["vectors"]) <= vector_ids
+            and package["vector_definitions"]
+            == [vectors_by_id[vector_id] for vector_id in package["vectors"]]
             and set(exports["language_rules"]) <= set(rule_ids)
             and set(exports["diagnostics"]) <= set(ldb_codes)
             and set(profiles["numeric"]) <= numeric_profiles
@@ -2297,7 +2346,31 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         "language_definitions",
         "model_program_vector",
         "package_release",
+        "resolution_judgment",
     }
+    resolution = meta_format["resolution_judgment"]
+    assert resolution["closed"] is True
+    assert resolution["evaluation_order"] == (
+        "profile-chain-with-static-before-resolution"
+    )
+    assert resolution["required_operation_order"] == [
+        item["id"] for item in resolution["operations"]
+    ]
+    assert all(
+        set(item)
+        == {
+            "arguments",
+            "effects",
+            "id",
+            "input",
+            "operator",
+            "refusals",
+            "resources",
+            "result",
+            "stage",
+        }
+        for item in resolution["operations"]
+    )
     assert {item["tag"] for item in meta_format["term"]["constructors"]} == {
         "literal",
         "variable",
@@ -2444,6 +2517,7 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
         "profiles",
         "semantic_closure",
         "semantic_identity",
+        "vector_definitions",
         "vectors",
         "version",
     }
@@ -2466,6 +2540,7 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     assert package["profiles"]["runtime"] == ["compile.exact-int64"]
     assert package["exports"]["types"]
     assert package["vectors"]
+    assert [item["id"] for item in package["vector_definitions"]] == package["vectors"]
     assert ldb["language"]["quantity"]["representations"] == ["Int"]
     assert "random" in ldb["language"]["quantity"]["symbol_roles"]
     assert "random-variable" not in ldb["language"]["quantity"]["symbol_roles"]
@@ -2492,6 +2567,69 @@ def test_reidentified_ldb_cannot_hide_a_tampered_package_release():
     assert first["admitted"] is False
     assert any(
         code == "kernel.identity_mismatch" for _, code, _ in first["diagnostics"]
+    )
+
+
+def test_package_release_identity_binds_normative_vector_definitions():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    package = ldb["language"]["packages"][0]
+    old_release_identity = package["content_identity"]
+    vector = next(
+        item for item in ldb["vectors"] if item["id"] == "model.compile.positive"
+    )
+    vector["expect"]["debug_map_identity"] = "sha256:" + "f" * 64
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(
+        code == "kernel.vector_mismatch"
+        and subject == "language.packages.core.quantity"
+        for _, code, subject in first["diagnostics"]
+    )
+
+    package["vector_definitions"] = [
+        deepcopy(next(item for item in ldb["vectors"] if item["id"] == vector_id))
+        for vector_id in package["vectors"]
+    ]
+    package["content_identity"] = _identity("domain-package-release-v2", package)
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    assert package["content_identity"] != old_release_identity
+    assert _consumer_a(authority["kernel"], ldb)["admitted"] is True
+
+
+def test_authority_admission_requires_one_default_resolution_profile():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    profile = ldb["language"]["resolution_profiles"][0]
+    profile["default"] = False
+    package = ldb["language"]["packages"][0]
+    for entry in package["semantic_closure"]:
+        if entry["authority_path"] == "language.resolution_profiles":
+            entry["definitions"] = deepcopy(ldb["language"]["resolution_profiles"])
+    semantic_encoded = _encoded(package["semantic_closure"])
+    package["semantic_identity"] = (
+        "sha256:"
+        + hashlib.sha256(
+            b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
+        ).hexdigest()
+    )
+    package["content_identity"] = _identity("domain-package-release-v2", package)
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(
+        code == "kernel.vector_mismatch" and subject == "language.definitions"
+        for _, code, subject in first["diagnostics"]
     )
 
 
