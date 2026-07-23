@@ -81,10 +81,13 @@ class ArtifactSetMemberSpec:
 
     logical_name: str
     artifact_kind: str
+    role: str = "companion"
 
     def __post_init__(self) -> None:
         if not self.logical_name or not self.artifact_kind:
             raise ValueError("artifact-set member names and kinds must be non-empty")
+        if self.role not in {"primary", "companion"}:
+            raise ValueError("artifact-set member role must be primary or companion")
 
 
 @dataclass(frozen=True)
@@ -154,9 +157,12 @@ class CommandDescriptor:
             )
         if self.artifact_set:
             names = [member.logical_name for member in self.artifact_set]
-            kinds = [member.artifact_kind for member in self.artifact_set]
-            if len(names) != len(set(names)) or len(kinds) != len(set(kinds)):
-                raise ValueError("artifact-set logical names and kinds must be unique")
+            if len(names) != len(set(names)):
+                raise ValueError("artifact-set logical names must be unique")
+            if sum(member.role == "primary" for member in self.artifact_set) != 1:
+                raise ValueError(
+                    "an artifact-producing descriptor must declare exactly one primary member"
+                )
         if self.schema_major != 2 and (self.refusal_catalog or self.usage_codes):
             raise ValueError("Schema 2.x error contracts require schema_major=2")
         if len(self.refusal_catalog) != len(set(self.refusal_catalog)):

@@ -232,6 +232,7 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             {
                 "logical_name": member.logical_name,
                 "artifact_kind": member.artifact_kind,
+                "role": member.role,
             }
             for member in descriptor.artifact_set
         ],
@@ -340,8 +341,9 @@ def surface_manifest_success_schema() -> dict[str, object]:
                     "properties": {
                         "logical_name": {"type": "string", "minLength": 1},
                         "artifact_kind": {"type": "string", "minLength": 1},
+                        "role": {"enum": ["primary", "companion"]},
                     },
-                    "required": ["logical_name", "artifact_kind"],
+                    "required": ["logical_name", "artifact_kind", "role"],
                     "unevaluatedProperties": False,
                 },
             },
@@ -412,6 +414,7 @@ def surface_manifest(
                     {
                         "logical_name": member.logical_name,
                         "artifact_kind": member.artifact_kind,
+                        "role": member.role,
                     }
                     for member in descriptor.artifact_set
                 ],

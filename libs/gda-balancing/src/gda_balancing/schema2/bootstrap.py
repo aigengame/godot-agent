@@ -36,7 +36,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:da13ade766111cc43cc2710e173af927b73678983e842cd41de8ccb31d2225f0"
+    "sha256:c046befa77f0167f90db691ed69dedeeb38769bb3facb0f206f1fb3dc2dd583b"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1114,15 +1114,19 @@ def _definition_is_closed(
     if not isinstance(value, dict) or not isinstance(contract, dict):
         return False
     required = contract.get("required_members")
+    optional = contract.get("optional_members", [])
     field_types = contract.get("field_types")
     return (
         isinstance(required, list)
+        and isinstance(optional, list)
         and isinstance(field_types, dict)
-        and set(value) == set(required)
-        and set(field_types) == set(required)
+        and not set(required) & set(optional)
+        and set(required) <= set(value)
+        and set(value) <= set(required) | set(optional)
+        and set(field_types) == set(required) | set(optional)
         and all(
             _value_matches_contract(value[name], field_types[name], language_bundle)
-            for name in required
+            for name in value
         )
     )
 

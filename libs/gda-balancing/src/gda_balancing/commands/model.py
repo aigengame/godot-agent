@@ -70,6 +70,13 @@ class ModelBuildInput(BaseModel):
     invocation_key: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class ArtifactSetMemberLocator(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    logical_name: str
+    locator: str
+
+
 class ModelBuildResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -80,6 +87,7 @@ class ModelBuildResult(BaseModel):
     invocation_key: str
     manifest_identity: str
     manifest_locator: str
+    member_locators: list[ArtifactSetMemberLocator]
     content_identity: str
 
 
@@ -173,7 +181,7 @@ MODEL_BUILD = CommandDescriptor(
         ArtifactSetMemberSpec("debug-map", "debug-map"),
         ArtifactSetMemberSpec("package-lock", "package-lock"),
         ArtifactSetMemberSpec("resolution-receipt", "resolution-receipt"),
-        ArtifactSetMemberSpec("resolved-model", "resolved-model"),
+        ArtifactSetMemberSpec("resolved-model", "resolved-model", role="primary"),
         ArtifactSetMemberSpec("rir-semantic-payload", "rir-semantic-payload"),
     ),
     schema_major=2,

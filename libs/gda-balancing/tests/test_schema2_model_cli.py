@@ -10,8 +10,10 @@ from typing import Any, cast
 import gda_balancing.commands.model as model_command_module
 import gda_balancing.schema2.model as model_module
 import jsonschema
+import pytest
 from gda_balancing.schema2.bootstrap import admit_authorities
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.schema2.surface import descriptor_identity
 
 
 def _quantity_symbol(name: str, role: str) -> dict[str, Any]:
@@ -135,6 +137,90 @@ def test_model_check_refuses_an_inverted_quantity_support_interval(tmp_path, run
     ]
 
 
+def test_model_check_reports_all_static_diagnostics_in_canonical_location_order(
+    tmp_path, run_cli
+):
+    source_document = _model_source()
+    _symbols(source_document)[0]["kind"] = "unknown-kind"
+    _symbols(source_document)[1]["unit"] = "unknown-unit"
+    _symbols(source_document)[2]["domain"] = {"minimum": 2, "maximum": 1}
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [
+        (item["primary"]["pointer"], item["code"]) for item in error["diagnostics"]
+    ] == [
+        ("/modules/0/symbols/0/kind", "language.unknown_kind"),
+        ("/modules/0/symbols/1/unit", "language.unknown_unit"),
+        ("/modules/0/symbols/2/domain", "language.invalid_domain"),
+    ]
+    assert error["truncated"] is False
+
+
+def test_model_check_applies_the_ldb_diagnostic_cap_and_marks_truncation(
+    tmp_path, run_cli, monkeypatch
+):
+    source_document = _model_source()
+    for symbol in _symbols(source_document)[:3]:
+        symbol["kind"] = "unknown-kind"
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+    kernel, language_bundle = model_module.load_authorities()
+    candidate_ldb = deepcopy(language_bundle)
+    candidate_ldb["resources"]["max_diagnostics"] = 2
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted is True
+    monkeypatch.setattr(
+        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
+    )
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert [item["primary"]["pointer"] for item in error["diagnostics"]] == [
+        "/modules/0/symbols/0/kind",
+        "/modules/0/symbols/1/kind",
+    ]
+    assert error["truncated"] is True
+
+
+def test_symbol_uniqueness_is_scoped_to_each_module_and_locates_the_duplicate(
+    tmp_path, run_cli
+):
+    across_modules = _model_source()
+    second_module = deepcopy(across_modules["modules"][0])
+    second_module["id"] = "secondary"
+    across_modules["modules"].append(second_module)
+    accepted = tmp_path / "accepted.json"
+    accepted.write_text(json.dumps(across_modules), encoding="utf-8")
+
+    assert run_cli(["model", "check", str(accepted)])[0] == 0
+
+    within_module = _model_source()
+    _symbols(within_module).append(deepcopy(_symbols(within_module)[0]))
+    refused = tmp_path / "refused.json"
+    refused.write_text(json.dumps(within_module), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(refused)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert len(error["diagnostics"]) == 1
+    diagnostic = error["diagnostics"][0]
+    assert diagnostic["code"] == "language.duplicate_symbol"
+    assert diagnostic["primary"]["pointer"] == "/modules/0/symbols/7/symbol"
+    assert [item["pointer"] for item in diagnostic["related"]] == [
+        "/modules/0/symbols/0/symbol"
+    ]
+
+
 def test_model_check_refuses_a_source_without_a_selected_domain_package(
     tmp_path, run_cli
 ):
@@ -149,6 +235,31 @@ def test_model_check_refuses_a_source_without_a_selected_domain_package(
     assert json.loads(stdout)["error"]["diagnostics"][0]["code"] == (
         "language.source_contract_mismatch"
     )
+
+
+def test_model_check_classifies_an_unavailable_exact_package_as_resolution(
+    tmp_path, run_cli
+):
+    source_document = _model_source()
+    source_document["package_requirements"][0]["version"] = "9.0.0"
+    source_document["modules"][0]["imports"][0]["version"] = "9.0.0"
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "resolution"
+    assert [
+        (item["primary"]["pointer"], item["code"]) for item in error["diagnostics"]
+    ] == [
+        (
+            "/package_requirements/0/version",
+            "language.package_version_unavailable",
+        )
+    ]
+    assert error["truncated"] is False
 
 
 def test_model_check_reports_source_size_at_ingress(tmp_path, run_cli):
@@ -203,6 +314,21 @@ def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
     assert receipt["manifest_locator"] == str(
         artifact_dir / "artifact-set-manifest.json"
     )
+    assert receipt["member_locators"] == [
+        {
+            "logical_name": name,
+            "locator": str(artifact_dir / f"{name}.json"),
+        }
+        for name in (
+            "build-receipt",
+            "capability-manifest",
+            "debug-map",
+            "package-lock",
+            "resolution-receipt",
+            "resolved-model",
+            "rir-semantic-payload",
+        )
+    ]
     assert out.is_file()
     assert json.loads(out.read_text())["artifact_kind"] == "resolved-model"
     assert receipt["content_identity"] == content_identity(
@@ -227,7 +353,7 @@ def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
         path = artifact_dir / f"{member['logical_name']}.json"
         artifact = json.loads(path.read_text())
         assert artifact["content_identity"] == member["content_identity"]
-        assert member["locator"] == str(path)
+        assert "locator" not in member
 
     assert (
         json.loads((artifact_dir / "artifact-set-receipt.json").read_text()) == receipt
@@ -272,9 +398,104 @@ def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
         {
             "logical_name": item["logical_name"],
             "artifact_kind": item["artifact_kind"],
+            "role": (
+                "primary" if item["logical_name"] == "resolved-model" else "companion"
+            ),
         }
         for item in manifest["members"]
     ]
+
+
+def test_model_build_descriptor_declares_exactly_one_primary_artifact():
+    members = model_command_module.MODEL_BUILD.artifact_set
+    assert [member.logical_name for member in members if member.role == "primary"] == [
+        "resolved-model"
+    ]
+
+    without_primary = tuple(replace(member, role="companion") for member in members)
+    with pytest.raises(ValueError, match="exactly one primary"):
+        replace(model_command_module.MODEL_BUILD, artifact_set=without_primary)
+
+    multiple_primary = tuple(
+        replace(
+            member,
+            role=(
+                "primary"
+                if member.logical_name in {"package-lock", "resolved-model"}
+                else "companion"
+            ),
+        )
+        for member in members
+    )
+    with pytest.raises(ValueError, match="exactly one primary"):
+        replace(model_command_module.MODEL_BUILD, artifact_set=multiple_primary)
+
+
+def test_model_publisher_materializes_the_descriptor_declared_primary_member(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / "store"))
+    artifact_set = tuple(
+        replace(
+            member,
+            role=("primary" if member.logical_name == "package-lock" else "companion"),
+        )
+        for member in model_command_module.MODEL_BUILD.artifact_set
+    )
+    out = tmp_path / "primary.json"
+
+    model_module.publish_model_artifacts(
+        checked,
+        str(source),
+        str(out),
+        "b" * 64,
+        "sha256:" + "b" * 64,
+        artifact_set,
+    )
+
+    assert json.loads(out.read_text())["artifact_kind"] == "package-lock"
+
+
+def test_artifact_set_manifest_identity_is_independent_of_store_and_invocation(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    manifests = []
+    receipts = []
+
+    for index in (1, 2):
+        monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(tmp_path / f"store-{index}"))
+        built = run_cli(
+            [
+                "model",
+                "build",
+                str(source),
+                "--out",
+                str(tmp_path / f"published-{index}.json"),
+                "--invocation-key",
+                str(index) * 64,
+            ]
+        )
+        assert built[0] == 0
+        receipt = json.loads(built[1])
+        receipts.append(receipt)
+        manifests.append(
+            json.loads(
+                (
+                    _artifact_directory(receipt) / "artifact-set-manifest.json"
+                ).read_text()
+            )
+        )
+
+    assert manifests[0]["members"] == manifests[1]["members"]
+    assert manifests[0]["content_identity"] == manifests[1]["content_identity"]
+    assert canonical_bytes(manifests[0]) == canonical_bytes(manifests[1])
+    assert receipts[0]["member_locators"] != receipts[1]["member_locators"]
 
 
 def test_model_build_retry_recovers_without_running_the_lowerer(
@@ -344,6 +565,55 @@ def test_model_build_retry_can_select_a_new_presentation_without_reexecution(
     assert second == first
     assert first_out.read_bytes() == second_out.read_bytes()
     assert json.loads(second_out.read_text())["artifact_kind"] == "resolved-model"
+
+
+def test_model_build_retry_rejects_output_aliases_to_every_committed_publication_file(
+    tmp_path, run_cli
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    key = "9" * 64
+    first = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "published-model.json"),
+            "--invocation-key",
+            key,
+        ]
+    )
+    assert first[0] == 0
+    artifact_dir = _artifact_directory(json.loads(first[1]))
+    committed = sorted(artifact_dir.iterdir())
+    before = {path.name: path.read_bytes() for path in committed}
+
+    for member in committed:
+        for alias_kind, out in (
+            ("direct", member),
+            ("symlink", tmp_path / f"{member.stem}-alias.json"),
+        ):
+            if alias_kind == "symlink":
+                out.symlink_to(member)
+
+            exit_code, stdout, stderr = run_cli(
+                [
+                    "model",
+                    "build",
+                    str(source),
+                    "--out",
+                    str(out),
+                    "--invocation-key",
+                    key,
+                ]
+            )
+
+            assert (exit_code, stdout) == (3, "")
+            assert json.loads(stderr)["error"]["code"] == "argument_conflict"
+            assert {path.name: path.read_bytes() for path in committed} == before
+            if alias_kind == "symlink":
+                out.unlink()
 
 
 def test_model_commands_share_the_descriptor_owned_structured_input(tmp_path, run_cli):
@@ -451,6 +721,54 @@ def test_model_build_rejects_changed_input_for_the_same_store_invocation_key_eve
     assert json.loads(stderr)["error"]["code"] == "invocation_key_conflict"
 
 
+def test_model_build_rejects_invocation_key_reuse_after_exact_authority_changes(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    key = "a" * 64
+    first = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "first.json"),
+            "--invocation-key",
+            key,
+        ]
+    )
+    assert first[0] == 0
+    artifact_dir = _artifact_directory(json.loads(first[1]))
+    before = {path.name: path.read_bytes() for path in artifact_dir.iterdir()}
+
+    kernel, language_bundle = model_module.load_authorities()
+    candidate_ldb = deepcopy(language_bundle)
+    candidate_ldb["resources"]["max_diagnostics"] -= 1
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted is True
+    monkeypatch.setattr(
+        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "second.json"),
+            "--invocation-key",
+            key,
+        ]
+    )
+
+    assert (exit_code, stdout) == (3, "")
+    assert json.loads(stderr)["error"]["code"] == "invocation_key_conflict"
+    assert {path.name: path.read_bytes() for path in artifact_dir.iterdir()} == before
+    assert not (tmp_path / "second.json").exists()
+
+
 def test_model_build_rejects_direct_and_symlink_input_output_aliases(tmp_path, run_cli):
     for suffix, out_factory in (
         ("direct", lambda source: source),
@@ -505,6 +823,44 @@ def test_model_build_rejects_a_symlinked_store_ancestor(tmp_path, run_cli, monke
     assert (exit_code, stdout) == (3, "")
     assert json.loads(stderr)["error"]["code"] == "argument_conflict"
     assert not out.exists()
+
+
+def test_model_build_rejects_every_output_overlap_with_the_reserved_invocation_path(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    store = tmp_path / "store"
+    monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(store))
+    key = "f" * 64
+    descriptor_key = descriptor_identity(model_command_module.MODEL_BUILD).removeprefix(
+        "sha256:"
+    )
+    invocation_path = store / "invocations" / descriptor_key / key
+    invocation_path.parent.mkdir(parents=True)
+
+    for out in (
+        store,
+        store / "invocations",
+        invocation_path.parent,
+        invocation_path,
+        invocation_path / "resolved-model.json",
+    ):
+        exit_code, stdout, stderr = run_cli(
+            [
+                "model",
+                "build",
+                str(source),
+                "--out",
+                str(out),
+                "--invocation-key",
+                key,
+            ]
+        )
+
+        assert (exit_code, stdout) == (3, "")
+        assert json.loads(stderr)["error"]["code"] == "argument_conflict"
+        assert not invocation_path.exists()
 
 
 def test_model_build_precommit_fault_leaves_no_visible_or_partial_set(
@@ -702,8 +1058,10 @@ def test_package_lock_closes_the_selected_semantic_graph_without_provenance(
             "id": "core.quantity",
             "version": "2.0.0",
             "content_identity": lock["packages"][0]["content_identity"],
+            "semantic_identity": lock["packages"][0]["semantic_identity"],
         }
     ]
+    assert lock["semantic_identity"].startswith("sha256:")
     assert lock["capability_bindings"]
     assert lock["types"]
     assert lock["components"]
@@ -718,6 +1076,19 @@ def test_package_lock_closes_the_selected_semantic_graph_without_provenance(
         (artifact_dir / "resolution-receipt.json").read_text()
     )
     assert resolution_receipt["resolver"]
+    assert resolution_receipt["kernel_identity"].startswith("sha256:")
+    assert resolution_receipt["language_bundle_identity"].startswith("sha256:")
+    assert resolution_receipt["diagnostics"] == []
+    set_receipt = json.loads((artifact_dir / "artifact-set-receipt.json").read_text())
+    assert {item["logical_name"] for item in set_receipt["member_locators"]} == {
+        "build-receipt",
+        "capability-manifest",
+        "debug-map",
+        "package-lock",
+        "resolution-receipt",
+        "resolved-model",
+        "rir-semantic-payload",
+    }
     rir = json.loads((artifact_dir / "rir-semantic-payload.json").read_text())
     assert all(
         declaration["type_identity"]
@@ -965,3 +1336,35 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
         list[dict[str, Any]], artifacts["rir-semantic-payload"]["declarations"]
     )
     assert {item["role"] for item in declarations} == {"lowered-by-ldb"}
+
+
+def test_rir_identity_binds_the_full_selected_package_semantics(tmp_path):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    original = model_module.lower_checked_model(checked)
+    candidate_ldb = deepcopy(checked.language_bundle)
+    candidate_ldb["language"]["quantity"]["units"][0]["dimension"] = (
+        "reidentified-dimension"
+    )
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
+    candidate = replace(checked, language_bundle=candidate_ldb)
+
+    mutated = model_module.lower_checked_model(candidate)
+
+    original_lock = original["package-lock"]
+    mutated_lock = mutated["package-lock"]
+    original_rir = original["rir-semantic-payload"]
+    mutated_rir = mutated["rir-semantic-payload"]
+    assert original_lock["content_identity"] != mutated_lock["content_identity"]
+    assert original_rir["content_identity"] != mutated_rir["content_identity"]
+    assert (
+        original_rir["package_lock_semantic_identity"]
+        == original_lock["semantic_identity"]
+    )
+    assert (
+        mutated_rir["package_lock_semantic_identity"]
+        == mutated_lock["semantic_identity"]
+    )

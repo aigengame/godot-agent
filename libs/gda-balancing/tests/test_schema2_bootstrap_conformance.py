@@ -17,7 +17,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:da13ade766111cc43cc2710e173af927b73678983e842cd41de8ccb31d2225f0"
+    "sha256:c046befa77f0167f90db691ed69dedeeb38769bb3facb0f206f1fb3dc2dd583b"
 )
 
 
@@ -832,15 +832,19 @@ def _consumer_b_definition_is_closed(
     if not isinstance(value, dict) or not isinstance(contract, dict):
         return False
     required = contract.get("required_members")
+    optional = contract.get("optional_members", [])
     field_types = contract.get("field_types")
     return (
         isinstance(required, list)
+        and isinstance(optional, list)
         and isinstance(field_types, dict)
-        and set(value) == set(required)
-        and set(field_types) == set(required)
+        and not set(required) & set(optional)
+        and set(required) <= set(value)
+        and set(value) <= set(required) | set(optional)
+        and set(field_types) == set(required) | set(optional)
         and all(
             _consumer_b_value_matches(value[name], field_types[name], ldb)
-            for name in required
+            for name in value
         )
     )
 
@@ -2353,21 +2357,6 @@ def test_reidentified_model_program_vector_contract_mutations_are_refused(
         )
         vector["expect"]["relation"]["reference"] = "host.missing"
 
-    package = ldb["language"]["packages"][0]
-    vector_entry = next(
-        entry
-        for entry in package["semantic_closure"]
-        if entry["authority_path"] == "vectors"
-    )
-    vector_entry["definitions"] = deepcopy(vectors)
-    semantic_encoded = _encoded(package["semantic_closure"])
-    package["semantic_identity"] = (
-        "sha256:"
-        + hashlib.sha256(
-            b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
-        ).hexdigest()
-    )
-    package["content_identity"] = _identity("domain-package-release-v2", package)
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -2588,7 +2577,7 @@ def test_semantic_closure_cannot_move_a_definition_to_a_non_owner_package():
     other_package["capabilities"] = {"provided": [], "required": []}
     other_package["dependencies"] = {"optional": [], "required": []}
     other_package["exports"] = {member: [] for member in quantity_package["exports"]}
-    other_package["profiles"] = {"numeric": [], "runtime": []}
+    other_package["profiles"] = {"numeric": [], "resolution": [], "runtime": []}
     other_package["vectors"] = []
     for entry in other_package["semantic_closure"]:
         entry["definitions"] = []
@@ -2720,7 +2709,7 @@ def test_reidentified_package_cannot_reference_an_unowned_vector():
     assert first == second
     assert first["admitted"] is False
     assert any(
-        code == "kernel.identity_mismatch" and subject.endswith(".semantic_identity")
+        code == "kernel.vector_mismatch" and subject == "language.packages"
         for _, code, subject in first["diagnostics"]
     )
 

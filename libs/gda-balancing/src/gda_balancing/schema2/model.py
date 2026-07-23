@@ -121,6 +121,45 @@ def _refusal(
     )
 
 
+def _bounded_refusal(
+    diagnostics: Iterable[Schema2Diagnostic],
+    language_bundle: dict[str, Any],
+) -> Schema2RefusalReport | None:
+    catalog = BOOTSTRAP_REFUSAL_CATALOG + tuple(
+        (cast(str, item["code"]), cast(str, item["stage"]))
+        for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
+    )
+    stages = dict(catalog)
+    unique: dict[
+        tuple[str, ArtifactLocation, tuple[ArtifactLocation, ...]], Schema2Diagnostic
+    ] = {}
+    for diagnostic in diagnostics:
+        key = (diagnostic.code, diagnostic.primary, diagnostic.related)
+        unique.setdefault(key, diagnostic)
+    ordered = sorted(
+        unique.values(),
+        key=lambda item: (
+            item.primary.pointer,
+            item.code,
+            item.primary.content_identity,
+            tuple(
+                (related.pointer, related.content_identity) for related in item.related
+            ),
+        ),
+    )
+    if not ordered:
+        return None
+    stage = stages[ordered[0].code]
+    if any(stages[item.code] != stage for item in ordered):
+        raise ValueError("one refusal report cannot cross refusal stages")
+    limit = cast(int, language_bundle["resources"]["max_diagnostics"])
+    return Schema2RefusalReport(
+        stage=cast(Any, stage),
+        diagnostics=tuple(ordered[:limit]),
+        truncated=len(ordered) > limit,
+    )
+
+
 def _pointer(parts: Iterable[object]) -> str:
     return "".join(
         "/" + str(part).replace("~", "~0").replace("/", "~1") for part in parts
@@ -141,20 +180,36 @@ def _resolution_profile(
     matches = [
         profile
         for profile in profiles
-        if profile_id is None or profile.get("id") == profile_id
+        if (
+            profile.get("id") == profile_id
+            if profile_id is not None
+            else profile.get("default") is True
+        )
     ]
     if len(matches) != 1:
         raise ValueError("the admitted tracer requires one selected resolution profile")
     return matches[0]
 
 
-def _model_lowering(language_bundle: dict[str, Any]) -> dict[str, Any]:
+def _model_lowering(
+    language_bundle: dict[str, Any],
+    profile_id: str | None = None,
+) -> dict[str, Any]:
+    profile = _resolution_profile(language_bundle, profile_id)
     lowerings = cast(
         list[dict[str, Any]], _language(language_bundle)["model_lowerings"]
     )
-    if len(lowerings) != 1:
-        raise ValueError("the admitted tracer requires one model lowering")
-    return lowerings[0]
+    matches = [
+        lowering
+        for lowering in lowerings
+        if lowering.get("id") == profile["model_lowering"]
+        and lowering.get("resolution_profile") == profile["id"]
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            "the admitted resolution profile requires one selected model lowering"
+        )
+    return matches[0]
 
 
 def _path_value(root: Any, dotted: str) -> Any:
@@ -260,30 +315,100 @@ def _unique_reason(
     return matches[0]
 
 
-def _model_check_refusal(
+def _reason_by_id(language_bundle: dict[str, Any], reason_id: str) -> dict[str, Any]:
+    matches = [
+        reason
+        for reason in cast(list[dict[str, Any]], _language(language_bundle)["reasons"])
+        if reason["id"] == reason_id
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"admitted reason is not unique: {reason_id}")
+    return matches[0]
+
+
+def _model_check_diagnostics(
     source: dict[str, Any],
     source_identity: str,
     language_bundle: dict[str, Any],
-) -> Schema2RefusalReport | None:
+) -> list[Schema2Diagnostic]:
     language = _language(language_bundle)
     reasons = {
         item["id"]: item for item in cast(list[dict[str, Any]], language["reasons"])
     }
+    diagnostics: list[Schema2Diagnostic] = []
     for check in cast(list[dict[str, Any]], language["model_checks"]):
-        selected = _selected_values(source, cast(list[str], check["selector"]))
-        values = [value for value, _ in selected]
         reason = reasons[check["reason"]]
-        if not _reason_matches(reason, values, language_bundle):
-            continue
-        location = selected[0][1] if selected else tuple(check["selector"])
-        return _refusal(
-            cast(str, reason["diagnostic"]),
-            source_identity,
-            _pointer(location),
-            f"Model Source failed admitted check {check['id']}",
-            language_bundle,
+        scopes = (
+            _selected_values(
+                source,
+                cast(list[str], check["scope_selector"]),
+            )
+            if "scope_selector" in check
+            else [(source, ())]
         )
-    return None
+        for scope, scope_path in scopes:
+            selected = _selected_values(
+                scope,
+                cast(list[str], check["selector"]),
+                scope_path,
+            )
+            values = [value for value, _ in selected]
+            diagnostic_code = cast(str, reason["diagnostic"])
+            message = f"Model Source failed admitted check {check['id']}"
+            mode = check["mode"]
+            if mode == "each":
+                diagnostics.extend(
+                    Schema2Diagnostic(
+                        code=diagnostic_code,
+                        message=message,
+                        primary=_location(source_identity, _pointer(path)),
+                    )
+                    for value, path in selected
+                    if _reason_matches(reason, [value], language_bundle)
+                )
+                continue
+            if not _reason_matches(reason, values, language_bundle):
+                continue
+            operation = reason["predicate"]["operation"]
+            if mode == "all" and operation == "has-duplicate":
+                first_paths: dict[bytes, tuple[object, ...]] = {}
+                for value, path in selected:
+                    encoded = canonical_bytes(cast(JsonValue, value))
+                    if encoded not in first_paths:
+                        first_paths[encoded] = path
+                        continue
+                    diagnostics.append(
+                        Schema2Diagnostic(
+                            code=diagnostic_code,
+                            message=message,
+                            primary=_location(source_identity, _pointer(path)),
+                            related=(
+                                _location(
+                                    source_identity,
+                                    _pointer(first_paths[encoded]),
+                                ),
+                            ),
+                        )
+                    )
+                continue
+            if mode == "count":
+                limit_path = cast(str, reason["predicate"]["limit_path"])
+                limit = cast(int, _path_value(language_bundle, limit_path))
+                location = (
+                    selected[limit][1]
+                    if len(selected) > limit
+                    else tuple(check["selector"])
+                )
+            else:
+                location = selected[0][1] if selected else tuple(check["selector"])
+            diagnostics.append(
+                Schema2Diagnostic(
+                    code=diagnostic_code,
+                    message=message,
+                    primary=_location(source_identity, _pointer(location)),
+                )
+            )
+    return diagnostics
 
 
 def _schema_error_code(
@@ -295,7 +420,12 @@ def _schema_error_code(
         item["id"]: item for item in cast(list[dict[str, Any]], language["reasons"])
     }
     for check in cast(list[dict[str, Any]], language["model_checks"]):
-        selector = tuple(cast(list[str], check["selector"]))
+        selector = tuple(
+            [
+                *cast(list[str], check.get("scope_selector", [])),
+                *cast(list[str], check["selector"]),
+            ]
+        )
         if len(selector) == len(path) and all(
             expected == "*" or expected == actual
             for expected, actual in zip(selector, path, strict=True)
@@ -309,6 +439,317 @@ def _schema_error_code(
             operation="not-equal",
         )["diagnostic"],
     )
+
+
+def _resolution_diagnostics(
+    source: dict[str, Any],
+    source_identity: str,
+    language_bundle: dict[str, Any],
+) -> list[Schema2Diagnostic]:
+    language = _language(language_bundle)
+    lowering = _model_lowering(language_bundle)
+    profile = _resolution_profile(
+        language_bundle, cast(str, lowering["resolution_profile"])
+    )
+    reasons = {
+        item["id"]: item for item in cast(list[dict[str, Any]], language["reasons"])
+    }
+    modules_member = cast(str, profile["modules_member"])
+    module_id_member = cast(str, profile["module_id_member"])
+    imports_member = cast(str, profile["imports_member"])
+    symbols_member = cast(str, profile["symbols_member"])
+    alias_member = cast(str, profile["import_alias_member"])
+    package_member = cast(str, profile["import_package_member"])
+    version_member = cast(str, profile["import_version_member"])
+    import_symbol_member = cast(str, profile["import_symbol_member"])
+    source_type_member = cast(str, profile["symbol_type_member"])
+    source_symbol_member = cast(str, profile["symbol_name_member"])
+    requirements_member = cast(str, profile["requirements_member"])
+    requirement_package_member = cast(str, profile["requirement_package_member"])
+    requirement_version_member = cast(str, profile["requirement_version_member"])
+    modules = cast(list[dict[str, Any]], source[modules_member])
+    requirements = cast(list[dict[str, str]], source[requirements_member])
+    packages = cast(list[dict[str, Any]], language["packages"])
+    available = {
+        (cast(str, item["id"]), cast(str, item["version"])): item for item in packages
+    }
+    requirement_keys = [
+        (item[requirement_package_member], item[requirement_version_member])
+        for item in requirements
+    ]
+    selected_packages = [available[key] for key in requirement_keys if key in available]
+    diagnostics: list[Schema2Diagnostic] = []
+
+    def report(
+        judgment: dict[str, Any],
+        pointer: str,
+        *,
+        related: tuple[ArtifactLocation, ...] = (),
+    ) -> None:
+        reason = reasons[judgment["reason"]]
+        diagnostics.append(
+            Schema2Diagnostic(
+                code=cast(str, reason["diagnostic"]),
+                message=f"Model Source failed resolution judgment {judgment['id']}",
+                primary=_location(source_identity, pointer),
+                related=related,
+            )
+        )
+
+    for judgment in cast(list[dict[str, Any]], profile["judgment_chain"]):
+        operation = judgment["operation"]
+        if operation == "select-exact-packages":
+            for index, key in enumerate(requirement_keys):
+                if key not in available:
+                    report(
+                        judgment,
+                        _pointer(
+                            (
+                                requirements_member,
+                                index,
+                                requirement_version_member,
+                            )
+                        ),
+                    )
+            continue
+        if operation == "close-required-dependencies":
+            for package in selected_packages:
+                for dependency in package["dependencies"]["required"]:
+                    candidates = [item for item in packages if item["id"] == dependency]
+                    if len(candidates) != 1:
+                        report(judgment, "")
+            continue
+        if operation == "require-single-package-version":
+            first: dict[str, tuple[str, int]] = {}
+            for index, (package_id, version) in enumerate(requirement_keys):
+                previous = first.get(package_id)
+                if previous is None:
+                    first[package_id] = (version, index)
+                elif previous[0] != version:
+                    report(
+                        judgment,
+                        _pointer(
+                            (
+                                requirements_member,
+                                index,
+                                requirement_version_member,
+                            )
+                        ),
+                        related=(
+                            _location(
+                                source_identity,
+                                _pointer(
+                                    (
+                                        requirements_member,
+                                        previous[1],
+                                        requirement_version_member,
+                                    )
+                                ),
+                            ),
+                        ),
+                    )
+            continue
+        if operation == "require-unique-module-ids":
+            first_modules: dict[str, int] = {}
+            for module_index, module in enumerate(modules):
+                module_id = cast(str, module[module_id_member])
+                if module_id in first_modules:
+                    report(
+                        judgment,
+                        _pointer((modules_member, module_index, module_id_member)),
+                        related=(
+                            _location(
+                                source_identity,
+                                _pointer(
+                                    (
+                                        modules_member,
+                                        first_modules[module_id],
+                                        module_id_member,
+                                    )
+                                ),
+                            ),
+                        ),
+                    )
+                else:
+                    first_modules[module_id] = module_index
+            continue
+        if operation == "require-unique-import-aliases":
+            for module_index, module in enumerate(modules):
+                first_aliases: dict[str, int] = {}
+                for import_index, item in enumerate(
+                    cast(list[dict[str, str]], module[imports_member])
+                ):
+                    alias = item[alias_member]
+                    if alias in first_aliases:
+                        report(
+                            judgment,
+                            _pointer(
+                                (
+                                    modules_member,
+                                    module_index,
+                                    imports_member,
+                                    import_index,
+                                    alias_member,
+                                )
+                            ),
+                            related=(
+                                _location(
+                                    source_identity,
+                                    _pointer(
+                                        (
+                                            modules_member,
+                                            module_index,
+                                            imports_member,
+                                            first_aliases[alias],
+                                            alias_member,
+                                        )
+                                    ),
+                                ),
+                            ),
+                        )
+                    else:
+                        first_aliases[alias] = import_index
+            continue
+        if operation == "bind-import-requirements":
+            required = set(requirement_keys)
+            for module_index, module in enumerate(modules):
+                for import_index, item in enumerate(
+                    cast(list[dict[str, str]], module[imports_member])
+                ):
+                    if (item[package_member], item[version_member]) not in required:
+                        report(
+                            judgment,
+                            _pointer(
+                                (
+                                    modules_member,
+                                    module_index,
+                                    imports_member,
+                                    import_index,
+                                    package_member,
+                                )
+                            ),
+                        )
+            continue
+        if operation == "bind-exported-types":
+            for module_index, module in enumerate(modules):
+                for import_index, item in enumerate(
+                    cast(list[dict[str, str]], module[imports_member])
+                ):
+                    package = available.get(
+                        (item[package_member], item[version_member])
+                    )
+                    if package is None:
+                        continue
+                    exported_types = {
+                        exported["id"] for exported in package["exports"]["types"]
+                    }
+                    if item[import_symbol_member] not in exported_types:
+                        report(
+                            judgment,
+                            _pointer(
+                                (
+                                    modules_member,
+                                    module_index,
+                                    imports_member,
+                                    import_index,
+                                    import_symbol_member,
+                                )
+                            ),
+                        )
+            continue
+        if operation == "bind-symbol-aliases":
+            for module_index, module in enumerate(modules):
+                aliases = {
+                    item[alias_member]
+                    for item in cast(list[dict[str, str]], module[imports_member])
+                }
+                for symbol_index, symbol in enumerate(
+                    cast(list[dict[str, Any]], module[symbols_member])
+                ):
+                    if symbol[source_type_member] not in aliases:
+                        report(
+                            judgment,
+                            _pointer(
+                                (
+                                    modules_member,
+                                    module_index,
+                                    symbols_member,
+                                    symbol_index,
+                                    source_type_member,
+                                )
+                            ),
+                        )
+            continue
+        if operation == "require-unique-symbol-identities":
+            model_id = cast(
+                str, _path_value(source, cast(str, profile["manifest_id_path"]))
+            )
+            first_symbols: dict[tuple[str, str, str], tuple[int, int]] = {}
+            for module_index, module in enumerate(modules):
+                module_id = cast(str, module[module_id_member])
+                for symbol_index, symbol in enumerate(
+                    cast(list[dict[str, Any]], module[symbols_member])
+                ):
+                    key = (model_id, module_id, symbol[source_symbol_member])
+                    previous = first_symbols.get(key)
+                    if previous is not None:
+                        report(
+                            judgment,
+                            _pointer(
+                                (
+                                    modules_member,
+                                    module_index,
+                                    symbols_member,
+                                    symbol_index,
+                                    source_symbol_member,
+                                )
+                            ),
+                            related=(
+                                _location(
+                                    source_identity,
+                                    _pointer(
+                                        (
+                                            modules_member,
+                                            previous[0],
+                                            symbols_member,
+                                            previous[1],
+                                            source_symbol_member,
+                                        )
+                                    ),
+                                ),
+                            ),
+                        )
+                    else:
+                        first_symbols[key] = (module_index, symbol_index)
+            continue
+        if operation == "require-entry-module":
+            entry_module = _path_value(
+                source, cast(str, profile["manifest_entry_module_path"])
+            )
+            if entry_module not in {module[module_id_member] for module in modules}:
+                report(
+                    judgment,
+                    "/"
+                    + cast(str, profile["manifest_entry_module_path"]).replace(
+                        ".", "/"
+                    ),
+                )
+            continue
+        if operation == "bind-capability-providers":
+            providers: dict[str, str] = {}
+            for package in selected_packages:
+                for capability in package["capabilities"]["provided"]:
+                    if capability in providers:
+                        report(judgment, "")
+                    else:
+                        providers[capability] = package["id"]
+            for package in selected_packages:
+                for capability in package["capabilities"]["required"]:
+                    if capability not in providers:
+                        report(judgment, "")
+            continue
+        raise ValueError(f"unknown admitted resolution operation: {operation}")
+    return diagnostics
 
 
 def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
@@ -370,12 +811,21 @@ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
         jsonschema.Draft202012Validator(source_schema).iter_errors(source),
         key=lambda item: tuple(str(part) for part in item.absolute_path),
     )
-    if errors:
-        error = errors[0]
-        pointer = _pointer(error.absolute_path)
-        code = _schema_error_code(error, ldb)
-        return _refusal(code, source_identity, pointer, error.message, ldb)
-    refusal = _model_check_refusal(source, source_identity, ldb)
+    static_diagnostics = [
+        Schema2Diagnostic(
+            code=_schema_error_code(error, ldb),
+            message=error.message,
+            primary=_location(source_identity, _pointer(error.absolute_path)),
+        )
+        for error in errors
+    ]
+    static_diagnostics.extend(_model_check_diagnostics(source, source_identity, ldb))
+    refusal = _bounded_refusal(static_diagnostics, ldb)
+    if refusal is not None:
+        return refusal
+    refusal = _bounded_refusal(
+        _resolution_diagnostics(source, source_identity, ldb), ldb
+    )
     if refusal is not None:
         return refusal
     try:
@@ -654,7 +1104,7 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
             raise ValueError("an admitted source requirement has no exact package")
         previous = selected.get(package["id"])
         if previous is not None:
-            if previous["content_identity"] != package["content_identity"]:
+            if previous["semantic_identity"] != package["semantic_identity"]:
                 raise ValueError("one package id resolved to conflicting releases")
             continue
         selected[package["id"]] = package
@@ -789,6 +1239,7 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
                 "id": package["id"],
                 "version": package["version"],
                 "content_identity": package["content_identity"],
+                "semantic_identity": package["semantic_identity"],
             }
             for package in selected_packages
         ],
@@ -817,6 +1268,21 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
             }
         ),
     }
+    semantic_projection = {
+        **body,
+        "packages": [
+            {
+                "id": package["id"],
+                "version": package["version"],
+                "semantic_identity": package["semantic_identity"],
+            }
+            for package in selected_packages
+        ],
+    }
+    body["semantic_identity"] = content_identity(
+        "package-lock-selected-semantics-v2",
+        cast(JsonValue, semantic_projection),
+    )
     return _identified_artifact(checked.language_bundle, "package-lock", body)
 
 
@@ -985,13 +1451,13 @@ def admit_resolved_model(
             False,
             tuple(item.code for item in authority_admission.diagnostics),
         )
+    lowering = _model_lowering(ldb)
     diagnostic = (
         cast(
             str,
-            _unique_reason(
+            _reason_by_id(
                 ldb,
-                stage="resolution",
-                operation="not-equal",
+                cast(str, lowering["admission_reason"]),
             )["diagnostic"],
         ),
     )
@@ -1007,7 +1473,6 @@ def admit_resolved_model(
     if not all(_verify_artifact(item, ldb) for item in (lock, rir, resolved)):
         return ResolvedModelAdmission(False, diagnostic)
     root_requirements = lock.get("root_requirements")
-    lowering = _model_lowering(ldb)
     output_member = cast(str, lowering["output_member"])
     declarations = rir.get(output_member)
     if not isinstance(root_requirements, list) or not isinstance(declarations, list):
@@ -1034,8 +1499,10 @@ def admit_resolved_model(
         expected_lock = _package_lock(synthetic)
     except (KeyError, TypeError, ValueError, jsonschema.ValidationError):
         return ResolvedModelAdmission(False, diagnostic)
-    if lock != expected_lock or rir.get("operation_projections") != lock.get(
-        "operations"
+    if (
+        lock != expected_lock
+        or rir.get("operation_projections") != lock.get("operations")
+        or rir.get("package_lock_semantic_identity") != lock.get("semantic_identity")
     ):
         return ResolvedModelAdmission(False, diagnostic)
     language = _language(ldb)
@@ -1127,6 +1594,7 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         {
             output_member: cast(JsonValue, declarations),
             "operation_projections": cast(JsonValue, lock["operations"]),
+            "package_lock_semantic_identity": cast(str, lock["semantic_identity"]),
         },
     )
     resolved = _identified_artifact(
@@ -1161,8 +1629,10 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
             "resolver": _RESOLVER_IMPLEMENTATION_IDENTITY,
             "resolution_profile": cast(str, profile["id"]),
             "source_identity": checked.source_identity,
+            "kernel_identity": checked.kernel["content_identity"],
             "language_bundle_identity": checked.language_bundle["content_identity"],
             "package_lock_identity": lock["content_identity"],
+            "diagnostics": [],
         },
     )
     capability_manifest = _identified_artifact(
@@ -1172,7 +1642,14 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
             "resolved_model_identity": resolved["content_identity"],
             "package_lock_identity": lock["content_identity"],
             "rir_identity": rir["content_identity"],
-            "packages": cast(JsonValue, lock["packages"]),
+            "packages": [
+                {
+                    "id": item["id"],
+                    "version": item["version"],
+                    "content_identity": item["content_identity"],
+                }
+                for item in cast(list[dict[str, str]], lock["packages"])
+            ],
             "capability_bindings": cast(JsonValue, lock["capability_bindings"]),
             "types": cast(JsonValue, lock["types"]),
             "components": cast(JsonValue, lock["components"]),
@@ -1297,7 +1774,14 @@ def _expected_capability_manifest(
             "resolved_model_identity": cast(str, resolved["content_identity"]),
             "package_lock_identity": cast(str, lock["content_identity"]),
             "rir_identity": cast(str, rir["content_identity"]),
-            "packages": cast(JsonValue, lock["packages"]),
+            "packages": [
+                {
+                    "id": item["id"],
+                    "version": item["version"],
+                    "content_identity": item["content_identity"],
+                }
+                for item in cast(list[dict[str, str]], lock["packages"])
+            ],
             "capability_bindings": cast(JsonValue, lock["capability_bindings"]),
             "types": cast(JsonValue, lock["types"]),
             "components": cast(JsonValue, lock["components"]),
@@ -1328,6 +1812,17 @@ def _store_invocation_path(descriptor_identity: str, invocation_key: str) -> Pat
         raise ValueError("descriptor identity is not content addressed")
     descriptor_key = descriptor_identity.removeprefix("sha256:")
     return _store_root() / "invocations" / descriptor_key / invocation_key
+
+
+def _primary_artifact_name(
+    artifact_set: tuple[ArtifactSetMemberSpec, ...],
+) -> str:
+    primary = [
+        member.logical_name for member in artifact_set if member.role == "primary"
+    ]
+    if len(primary) != 1:
+        raise ValueError("artifact set must declare exactly one primary member")
+    return primary[0]
 
 
 def _assert_ancestor_chain_without_symlink(path: Path) -> None:
@@ -1414,6 +1909,7 @@ def _recover_publication(
     member_files = {
         member.logical_name: f"{member.logical_name}.json" for member in artifact_set
     }
+    expected_names = [member.logical_name for member in artifact_set]
     member_kinds = {
         member.logical_name: member.artifact_kind for member in artifact_set
     }
@@ -1443,6 +1939,16 @@ def _recover_publication(
         or receipt.get("invocation_key") != invocation_key
         or receipt.get("manifest_locator")
         != str((invocation_path / "artifact-set-manifest.json").absolute())
+        or receipt.get("member_locators")
+        != [
+            {
+                "logical_name": logical_name,
+                "locator": str(
+                    (invocation_path / member_files[logical_name]).absolute()
+                ),
+            }
+            for logical_name in expected_names
+        ]
     ):
         raise RuntimeError("committed artifact-set receipt has invalid bindings")
     manifest = _read_canonical_artifact(invocation_path / "artifact-set-manifest.json")
@@ -1451,7 +1957,6 @@ def _recover_publication(
     ) != receipt.get("manifest_identity"):
         raise RuntimeError("committed artifact-set manifest does not match its receipt")
     members = manifest.get("members")
-    expected_names = [member.logical_name for member in artifact_set]
     if (
         not isinstance(members, list)
         or [item.get("logical_name") for item in members if isinstance(item, dict)]
@@ -1466,8 +1971,6 @@ def _recover_publication(
         if not isinstance(logical_name, str) or logical_name not in member_files:
             raise RuntimeError("committed artifact-set manifest member is unknown")
         expected_path = invocation_path / member_files[logical_name]
-        if member.get("locator") != str(expected_path.absolute()):
-            raise RuntimeError("committed artifact-set member locator is invalid")
         artifact = _read_canonical_artifact(expected_path)
         if (
             not _verify_artifact(artifact, language_bundle)
@@ -1528,12 +2031,15 @@ def _recover_publication(
         or resolution_receipt.get("resolver") != _RESOLVER_IMPLEMENTATION_IDENTITY
         or resolution_receipt.get("resolution_profile") != profile["id"]
         or resolution_receipt.get("source_identity") != source_identity
+        or resolution_receipt.get("kernel_identity")
+        != load_authorities()[0]["content_identity"]
         or resolution_receipt.get("language_bundle_identity")
         != language_bundle["content_identity"]
         or resolution_receipt.get("package_lock_identity") != lock["content_identity"]
+        or resolution_receipt.get("diagnostics") != []
     ):
         raise RuntimeError("committed provenance artifacts have invalid bindings")
-    _materialize_primary(out_path, resolved)
+    _materialize_primary(out_path, artifacts[_primary_artifact_name(artifact_set)])
     return cast(dict[str, JsonValue], receipt)
 
 
@@ -1552,6 +2058,16 @@ def publish_model_artifacts(
         raise UsageError(
             "argument_conflict", "--out must not resolve to the input path"
         )
+    invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
+    if (
+        out_path == invocation_path
+        or invocation_path in out_path.parents
+        or out_path in invocation_path.parents
+    ):
+        raise UsageError(
+            "argument_conflict",
+            "--out must not overlap the Invocation-key publication path",
+        )
     parent = out_path.parent
     _assert_ancestor_chain_without_symlink(parent)
     if parent.is_symlink() or not parent.is_dir():
@@ -1561,10 +2077,13 @@ def publish_model_artifacts(
     command_input = _identified_artifact(
         checked.language_bundle,
         "model-build-command-input",
-        {"source_identity": checked.source_identity},
+        {
+            "source_identity": checked.source_identity,
+            "kernel_identity": checked.kernel["content_identity"],
+            "language_bundle_identity": checked.language_bundle["content_identity"],
+        },
     )
     command_input_identity = cast(str, command_input["content_identity"])
-    invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
     _assert_ancestor_chain_without_symlink(invocation_path)
     if invocation_path.is_symlink():
         raise UsageError(
@@ -1627,6 +2146,12 @@ def publish_model_artifacts(
             "content_identity": cast(
                 str, artifacts[member.logical_name]["content_identity"]
             ),
+        }
+        for member in artifact_set
+    ]
+    member_locators = [
+        {
+            "logical_name": member.logical_name,
             "locator": str(
                 (invocation_path / f"{member.logical_name}.json").absolute()
             ),
@@ -1650,6 +2175,7 @@ def publish_model_artifacts(
             "invocation_key": invocation_key,
             "manifest_identity": manifest["content_identity"],
             "manifest_locator": manifest_locator,
+            "member_locators": cast(JsonValue, member_locators),
         },
     )
     index = _identified_artifact(
@@ -1694,7 +2220,7 @@ def publish_model_artifacts(
         _fsync_directory(descriptor_parent)
         if publication_fault == "after-commit":
             raise RuntimeError("injected publication fault after commit")
-        _materialize_primary(out_path, artifacts["resolved-model"])
+        _materialize_primary(out_path, artifacts[_primary_artifact_name(artifact_set)])
     except Exception:
         if stage.exists():
             shutil.rmtree(stage)

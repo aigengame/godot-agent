@@ -129,6 +129,23 @@ def _reference_path(root: Any, dotted: str) -> list[Any]:
     return values
 
 
+def _reference_lowering(language: dict[str, Any]) -> dict[str, Any]:
+    profiles = [
+        profile
+        for profile in language["resolution_profiles"]
+        if profile["default"] is True
+    ]
+    assert len(profiles) == 1
+    matches = [
+        lowering
+        for lowering in language["model_lowerings"]
+        if lowering["id"] == profiles[0]["model_lowering"]
+        and lowering["resolution_profile"] == profiles[0]["id"]
+    ]
+    assert len(matches) == 1
+    return matches[0]
+
+
 def _exact_path(root: Any, dotted: str) -> Any:
     value = root
     for segment in dotted.split("."):
@@ -221,7 +238,7 @@ def _reference_check_source(
     if schema_errors:
         path = tuple(str(part) for part in schema_errors[0].absolute_path)
         for check in language["model_checks"]:
-            selector = tuple(check["selector"])
+            selector = tuple([*check.get("scope_selector", []), *check["selector"]])
             if len(selector) == len(path) and all(
                 expected == "*" or expected == actual
                 for expected, actual in zip(selector, path, strict=True)
@@ -238,19 +255,144 @@ def _reference_check_source(
 
     diagnostics = []
     for check in language["model_checks"]:
-        values = _reference_select(source, check["selector"])
         reason = reasons[check["reason"]]
-        if _reference_reason_matches(language_bundle, reason, values):
-            diagnostics.append(reason["diagnostic"])
+        scopes = (
+            _reference_select(source, check["scope_selector"])
+            if "scope_selector" in check
+            else [source]
+        )
+        for scope in scopes:
+            values = _reference_select(scope, check["selector"])
+            if _reference_reason_matches(language_bundle, reason, values):
+                diagnostics.append(reason["diagnostic"])
     if diagnostics:
         return tuple(dict.fromkeys(diagnostics))
 
-    lowering = language["model_lowerings"][0]
+    lowering = _reference_lowering(language)
     profile = next(
         item
         for item in language["resolution_profiles"]
         if item["id"] == lowering["resolution_profile"]
     )
+    requirements = source[profile["requirements_member"]]
+    requirement_keys = [
+        (
+            item[profile["requirement_package_member"]],
+            item[profile["requirement_version_member"]],
+        )
+        for item in requirements
+    ]
+    available = {(item["id"], item["version"]): item for item in language["packages"]}
+    selected = [available[key] for key in requirement_keys if key in available]
+    modules = source[profile["modules_member"]]
+    resolution_diagnostics: list[str] = []
+    for judgment in profile["judgment_chain"]:
+        reason = reasons[judgment["reason"]]
+        operation = judgment["operation"]
+        failed = False
+        if operation == "select-exact-packages":
+            failed = any(key not in available for key in requirement_keys)
+        elif operation == "close-required-dependencies":
+            failed = any(
+                len([item for item in language["packages"] if item["id"] == dependency])
+                != 1
+                for package in selected
+                for dependency in package["dependencies"]["required"]
+            )
+        elif operation == "require-single-package-version":
+            versions: dict[str, set[str]] = {}
+            for package_id, version in requirement_keys:
+                versions.setdefault(package_id, set()).add(version)
+            failed = any(len(items) != 1 for items in versions.values())
+        elif operation == "require-unique-module-ids":
+            ids = [item[profile["module_id_member"]] for item in modules]
+            failed = len(ids) != len(set(ids))
+        elif operation == "require-unique-import-aliases":
+            failed = any(
+                len(aliases) != len(set(aliases))
+                for aliases in (
+                    [
+                        item[profile["import_alias_member"]]
+                        for item in module[profile["imports_member"]]
+                    ]
+                    for module in modules
+                )
+            )
+        elif operation == "bind-import-requirements":
+            required = set(requirement_keys)
+            failed = any(
+                (
+                    item[profile["import_package_member"]],
+                    item[profile["import_version_member"]],
+                )
+                not in required
+                for module in modules
+                for item in module[profile["imports_member"]]
+            )
+        elif operation == "bind-exported-types":
+            failed = any(
+                key in available
+                and item[profile["import_symbol_member"]]
+                not in {value["id"] for value in available[key]["exports"]["types"]}
+                for module in modules
+                for item in module[profile["imports_member"]]
+                for key in [
+                    (
+                        item[profile["import_package_member"]],
+                        item[profile["import_version_member"]],
+                    )
+                ]
+            )
+        elif operation == "bind-symbol-aliases":
+            failed = any(
+                symbol[profile["symbol_type_member"]]
+                not in {
+                    item[profile["import_alias_member"]]
+                    for item in module[profile["imports_member"]]
+                }
+                for module in modules
+                for symbol in module[profile["symbols_member"]]
+            )
+        elif operation == "require-unique-symbol-identities":
+            model_id = source
+            for part in profile["manifest_id_path"].split("."):
+                model_id = model_id[part]
+            identities = [
+                (
+                    model_id,
+                    module[profile["module_id_member"]],
+                    symbol[profile["symbol_name_member"]],
+                )
+                for module in modules
+                for symbol in module[profile["symbols_member"]]
+            ]
+            failed = len(identities) != len(set(identities))
+        elif operation == "require-entry-module":
+            entry_module = source
+            for part in profile["manifest_entry_module_path"].split("."):
+                entry_module = entry_module[part]
+            failed = entry_module not in {
+                module[profile["module_id_member"]] for module in modules
+            }
+        elif operation == "bind-capability-providers":
+            provided = [
+                capability
+                for package in selected
+                for capability in package["capabilities"]["provided"]
+            ]
+            failed = len(provided) != len(set(provided)) or any(
+                capability not in set(provided)
+                for package in selected
+                for capability in package["capabilities"]["required"]
+            )
+        else:
+            raise AssertionError(
+                f"reference consumer observed unknown resolution operation: {operation}"
+            )
+        if failed:
+            resolution_diagnostics.append(reason["diagnostic"])
+    if resolution_diagnostics:
+        return tuple(dict.fromkeys(resolution_diagnostics))
     return CheckedModel(
         source=source,
         source_identity=_reference_content_identity(
@@ -274,6 +416,13 @@ def _renamed_reason_authorities(
     for check in language["model_checks"]:
         if check["reason"] == reason_id:
             check["reason"] = renamed_reason
+    for profile in language["resolution_profiles"]:
+        for judgment in profile["judgment_chain"]:
+            if judgment["reason"] == reason_id:
+                judgment["reason"] = renamed_reason
+    for lowering in language["model_lowerings"]:
+        if lowering["admission_reason"] == reason_id:
+            lowering["admission_reason"] = renamed_reason
     next(item for item in candidate_ldb["diagnostics"] if item["code"] == diagnostic)[
         "code"
     ] = renamed_diagnostic
@@ -333,7 +482,7 @@ def _reference_apply(
 
 def _reference_resolved_symbols(checked: CheckedModel) -> list[dict[str, Any]]:
     language = checked.language_bundle["language"]
-    lowering = language["model_lowerings"][0]
+    lowering = _reference_lowering(language)
     profile = next(
         item
         for item in language["resolution_profiles"]
@@ -443,7 +592,7 @@ def _reference_artifact(
 
 def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
     language = checked.language_bundle["language"]
-    lowering = language["model_lowerings"][0]
+    lowering = _reference_lowering(language)
     profile = next(
         item
         for item in language["resolution_profiles"]
@@ -468,7 +617,7 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
         package = available[(requirement["id"], requirement["version"])]
         previous = selected.get(package["id"])
         if previous is not None:
-            assert previous["content_identity"] == package["content_identity"]
+            assert previous["semantic_identity"] == package["semantic_identity"]
             continue
         selected[package["id"]] = package
         for dependency_id in sorted(package["dependencies"]["required"]):
@@ -574,56 +723,65 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
         ],
         key=lambda item: item["id"],
     )
-    return _reference_artifact(
-        checked,
-        "package-lock",
-        {
-            "resolution_profile": profile,
-            "root_requirements": requirements,
-            "packages": [
-                {
-                    "id": package["id"],
-                    "version": package["version"],
-                    "content_identity": package["content_identity"],
-                }
+    payload = {
+        "resolution_profile": profile,
+        "root_requirements": requirements,
+        "packages": [
+            {
+                "id": package["id"],
+                "version": package["version"],
+                "content_identity": package["content_identity"],
+                "semantic_identity": package["semantic_identity"],
+            }
+            for package in selected_packages
+        ],
+        "dependency_edges": dependency_edges,
+        "capability_bindings": [
+            {
+                "capability": capability,
+                "provider_package": providers[capability],
+            }
+            for capability in sorted(providers)
+        ],
+        "types": types,
+        "components": exported("components"),
+        "conversions": exported("conversions"),
+        "operations": exported("operations"),
+        "numeric_profiles": [numeric_definitions[name] for name in numeric_profiles],
+        "runtime_profiles": [runtime_definitions[name] for name in runtime_profiles],
+        "diagnostics": diagnostics,
+        "diagnostic_reasons": diagnostic_reasons,
+        "language_rules": sorted(
+            {
+                rule
                 for package in selected_packages
-            ],
-            "dependency_edges": dependency_edges,
-            "capability_bindings": [
-                {
-                    "capability": capability,
-                    "provider_package": providers[capability],
-                }
-                for capability in sorted(providers)
-            ],
-            "types": types,
-            "components": exported("components"),
-            "conversions": exported("conversions"),
-            "operations": exported("operations"),
-            "numeric_profiles": [
-                numeric_definitions[name] for name in numeric_profiles
-            ],
-            "runtime_profiles": [
-                runtime_definitions[name] for name in runtime_profiles
-            ],
-            "diagnostics": diagnostics,
-            "diagnostic_reasons": diagnostic_reasons,
-            "language_rules": sorted(
-                {
-                    rule
-                    for package in selected_packages
-                    for rule in package["exports"]["language_rules"]
-                }
-            ),
-        },
+                for rule in package["exports"]["language_rules"]
+            }
+        ),
+    }
+    semantic_projection = {
+        **payload,
+        "packages": [
+            {
+                "id": package["id"],
+                "version": package["version"],
+                "semantic_identity": package["semantic_identity"],
+            }
+            for package in selected_packages
+        ],
+    }
+    payload["semantic_identity"] = _reference_content_identity(
+        "package-lock-selected-semantics-v2",
+        semantic_projection,
     )
+    return _reference_artifact(checked, "package-lock", payload)
 
 
 def _reference_rir(
     checked: CheckedModel, lock: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     language = checked.language_bundle["language"]
-    lowering = language["model_lowerings"][0]
+    lowering = _reference_lowering(language)
     if lock is None:
         lock = _reference_package_lock(checked)
     declarations = []
@@ -638,6 +796,7 @@ def _reference_rir(
         {
             lowering["output_member"]: declarations,
             "operation_projections": lock["operations"],
+            "package_lock_semantic_identity": lock["semantic_identity"],
         },
     )
 
@@ -650,7 +809,7 @@ def _reference_pointer(parts: list[object]) -> str:
 
 def _reference_debug_map(checked: CheckedModel, rir: dict[str, Any]) -> dict[str, Any]:
     language = checked.language_bundle["language"]
-    lowering = language["model_lowerings"][0]
+    lowering = _reference_lowering(language)
     profile = next(
         item
         for item in language["resolution_profiles"]
@@ -812,11 +971,6 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
     kernel, language_bundle = load_authorities()
     vectors = [item for item in language_bundle["vectors"] if "category" in item]
     package = language_bundle["language"]["packages"][0]
-    closure_vectors = next(
-        entry["definitions"]
-        for entry in package["semantic_closure"]
-        if entry["authority_path"] == "vectors"
-    )
     assert {item["category"] for item in vectors} == {
         "positive",
         "negative",
@@ -825,13 +979,15 @@ def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path)
         "semantic-equivalence",
     }
     assert {item["id"] for item in vectors} <= set(package["vectors"])
-    assert vectors == [item for item in closure_vectors if "category" in item]
+    assert all(
+        entry["authority_path"] != "vectors" for entry in package["semantic_closure"]
+    )
 
     results: dict[str, dict[str, Any] | None] = {}
     diagnostic_stages = {
         item["code"]: item["stage"] for item in language_bundle["diagnostics"]
     }
-    output_member = language_bundle["language"]["model_lowerings"][0]["output_member"]
+    output_member = _reference_lowering(language_bundle["language"])["output_member"]
     for index, vector in enumerate(vectors):
         source = _materialize_vector_source(vector, language_bundle)
         reference_source = _reference_materialize_vector_source(vector, language_bundle)
@@ -1004,6 +1160,7 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
     profile = language["resolution_profiles"][0]
     old_profile_id = profile["id"]
     profile["id"] = "renamed-exact-import-resolution-v1"
+    language["packages"][0]["profiles"]["resolution"] = [profile["id"]]
     profile["manifest_id_path"] = "header.model_key"
     profile["manifest_entry_module_path"] = "header.start_module"
     profile["requirements_member"] = "dependencies"
@@ -1020,7 +1177,11 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
     profile["symbol_name_member"] = "name"
     profile["symbol_type_member"] = "type_ref"
     profile["symbol_fact_member"] = "symbol"
-    lowering = language["model_lowerings"][0]
+    lowering = next(
+        item
+        for item in language["model_lowerings"]
+        if item["id"] == profile["model_lowering"]
+    )
     lowering["resolution_profile"] = profile["id"]
     lowering["source_selector"] = ["sections", "*", "declarations", "*"]
     selector_renames = {
@@ -1032,6 +1193,10 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
         check["selector"] = [
             selector_renames.get(item, item) for item in check["selector"]
         ]
+        if "scope_selector" in check:
+            check["scope_selector"] = [
+                selector_renames.get(item, item) for item in check["scope_selector"]
+            ]
     source_schema = next(
         item["schema"]
         for item in language["wire_schemas"]
@@ -1164,7 +1329,7 @@ def test_rir_output_member_follows_the_ldb_lowering_and_wire_schema(tmp_path):
     _write_source(path, source)
     kernel, candidate_ldb = deepcopy(load_authorities())
     language = candidate_ldb["language"]
-    lowering = language["model_lowerings"][0]
+    lowering = _reference_lowering(language)
     lowering["output_member"] = "items"
     rir_schema = next(
         item["schema"]
@@ -1303,6 +1468,34 @@ def test_independent_frontends_follow_a_renamed_model_check_reason_without_host_
     old_diagnostic = "language.duplicate_symbol"
     kernel, candidate_ldb, new_diagnostic = _renamed_reason_authorities(
         old_reason, old_diagnostic
+    )
+    monkeypatch.setattr(
+        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
+    )
+
+    production = check_model_source(str(path))
+    reference = _reference_check_source(source, kernel, candidate_ldb)
+
+    assert isinstance(production, Schema2RefusalReport)
+    assert isinstance(reference, tuple)
+    assert (
+        tuple(item.code for item in production.diagnostics)
+        == reference
+        == (new_diagnostic,)
+    )
+
+
+def test_independent_frontends_follow_a_renamed_resolution_reason_without_host_changes(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "renamed-resolution-reason.json"
+    source = _source([_symbol("health", "state")])
+    source["package_requirements"][0]["version"] = "9.0.0"
+    source["modules"][0]["imports"][0]["version"] = "9.0.0"
+    _write_source(path, source)
+    kernel, candidate_ldb, new_diagnostic = _renamed_reason_authorities(
+        "model.reason.package-version-unavailable",
+        "language.package_version_unavailable",
     )
     monkeypatch.setattr(
         model_module, "load_authorities", lambda: (kernel, candidate_ldb)
