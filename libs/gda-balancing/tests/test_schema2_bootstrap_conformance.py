@@ -17,7 +17,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:cdac2365950e7d7f42c5c763055861e61eb6e9628852f7428ca879e569fc270e"
+    "sha256:da13ade766111cc43cc2710e173af927b73678983e842cd41de8ccb31d2225f0"
 )
 
 
@@ -272,6 +272,157 @@ def _consumer_b_package_is_closed(
     )
 
 
+def _consumer_b_package_semantic_closure_is_closed(
+    package: dict[str, Any], contract: Any
+) -> bool:
+    if not isinstance(contract, dict):
+        return False
+    closure_contract = contract.get("semantic_closure")
+    closure = package.get("semantic_closure")
+    if not isinstance(closure_contract, dict) or not isinstance(closure, list):
+        return False
+    domain = closure_contract.get("domain")
+    entry_members = closure_contract.get("entry_members")
+    projections = closure_contract.get("projections")
+    if (
+        not isinstance(domain, str)
+        or not domain
+        or not isinstance(entry_members, list)
+        or entry_members != ["authority_path", "definitions"]
+        or not isinstance(projections, list)
+        or len(closure) != len(projections)
+    ):
+        return False
+    for entry, projection in zip(closure, projections, strict=True):
+        key_member = (
+            projection.get("key_member") if isinstance(projection, dict) else None
+        )
+        owners_path = (
+            projection.get("owners_path") if isinstance(projection, dict) else None
+        )
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != set(entry_members)
+            or not isinstance(projection, dict)
+            or set(projection) != {"authority_path", "key_member", "owners_path"}
+            or entry.get("authority_path") != projection.get("authority_path")
+            or not isinstance(entry.get("definitions"), list)
+            or not isinstance(projection.get("authority_path"), str)
+            or (key_member is not None and not isinstance(key_member, str))
+            or not isinstance(owners_path, str)
+            or not owners_path
+            or not _consumer_b_path_is_declared(package, owners_path)
+        ):
+            return False
+        definitions = entry["definitions"]
+        owned_values = _project(package, owners_path)
+
+        def definition_key(value: Any) -> bytes | None:
+            selected = value
+            if key_member is not None:
+                if not isinstance(value, dict) or key_member not in value:
+                    return None
+                selected = value[key_member]
+            try:
+                return _encoded(selected)
+            except (TypeError, ValueError, UnicodeEncodeError):
+                return None
+
+        def owner_key(value: Any) -> bytes | None:
+            try:
+                return _encoded(value)
+            except (TypeError, ValueError, UnicodeEncodeError):
+                return None
+
+        definition_keys = [definition_key(value) for value in definitions]
+        owner_keys = [owner_key(value) for value in owned_values]
+        if (
+            any(key is None for key in definition_keys)
+            or any(key is None for key in owner_keys)
+            or len(set(definition_keys)) != len(definition_keys)
+            or len(set(owner_keys)) != len(owner_keys)
+            or set(definition_keys) != set(owner_keys)
+        ):
+            return False
+    try:
+        encoded = _encoded(closure)
+    except (TypeError, ValueError, UnicodeEncodeError):
+        return False
+    expected = (
+        "sha256:"
+        + hashlib.sha256(f"gda-balancing:{domain}:".encode() + encoded).hexdigest()
+    )
+    return package.get("semantic_identity") == expected
+
+
+def _consumer_b_package_semantic_projections_are_exact(
+    packages: list[dict[str, Any]], contract: Any, ldb: dict[str, Any]
+) -> bool:
+    if not isinstance(contract, dict):
+        return False
+    closure_contract = contract.get("semantic_closure")
+    projections = (
+        closure_contract.get("projections")
+        if isinstance(closure_contract, dict)
+        else None
+    )
+    if not isinstance(projections, list):
+        return False
+    for index, projection in enumerate(projections):
+        if not isinstance(projection, dict):
+            return False
+        authority_path = projection.get("authority_path")
+        key_member = projection.get("key_member")
+        declared, authority_definitions = _consumer_b_exact_path(ldb, authority_path)
+        if not declared or not isinstance(authority_definitions, list):
+            return False
+        embedded: list[Any] = []
+        for package in packages:
+            closure = package.get("semantic_closure")
+            if not isinstance(closure, list) or index >= len(closure):
+                return False
+            entry = closure[index]
+            if (
+                not isinstance(entry, dict)
+                or entry.get("authority_path") != authority_path
+                or not isinstance(entry.get("definitions"), list)
+            ):
+                return False
+            embedded.extend(entry["definitions"])
+
+        def definition_key(value: Any) -> tuple[str, bytes] | None:
+            if key_member is None:
+                try:
+                    return ("value", _encoded(value))
+                except (TypeError, ValueError, UnicodeEncodeError):
+                    return None
+            if (
+                not isinstance(key_member, str)
+                or not isinstance(value, dict)
+                or key_member not in value
+            ):
+                return None
+            try:
+                return ("member", _encoded(value[key_member]))
+            except (TypeError, ValueError, UnicodeEncodeError):
+                return None
+
+        embedded_keys = [definition_key(value) for value in embedded]
+        authority_keys = [definition_key(value) for value in authority_definitions]
+        if (
+            any(key is None for key in embedded_keys)
+            or any(key is None for key in authority_keys)
+            or len(set(embedded_keys)) != len(embedded_keys)
+            or len(set(authority_keys)) != len(authority_keys)
+        ):
+            return False
+        if dict(zip(embedded_keys, embedded, strict=True)) != dict(
+            zip(authority_keys, authority_definitions, strict=True)
+        ):
+            return False
+    return True
+
+
 def _consumer_b_ldb_is_closed(
     ldb: dict[str, Any], contract: Any, refusal_stages: Any
 ) -> bool:
@@ -373,6 +524,89 @@ def _consumer_b_path_is_declared(root: Any, dotted: Any) -> bool:
         return walk(child, parts[1:])
 
     return walk(root, dotted.split("."))
+
+
+def _consumer_b_profiled_equality_values(
+    authorities: dict[str, Any], contract: dict[str, Any]
+) -> list[Any] | None:
+    profile_contract = contract.get("profile")
+    template = contract.get("right_template")
+    expected_profile_members = {
+        "owner_profile_member",
+        "owners",
+        "profile_key_member",
+        "profiles",
+    }
+    if (
+        not isinstance(profile_contract, dict)
+        or set(profile_contract) != expected_profile_members
+        or not isinstance(template, list)
+        or not template
+    ):
+        return None
+    owners_path = profile_contract.get("owners")
+    profiles_path = profile_contract.get("profiles")
+    owner_member = profile_contract.get("owner_profile_member")
+    key_member = profile_contract.get("profile_key_member")
+    if (
+        not _consumer_b_path_is_declared(authorities, owners_path)
+        or not _consumer_b_path_is_declared(authorities, profiles_path)
+        or not isinstance(owner_member, str)
+        or not owner_member
+        or not isinstance(key_member, str)
+        or not key_member
+    ):
+        return None
+    owners = _project(authorities, owners_path)
+    profiles = _project(authorities, profiles_path)
+    profile_index: dict[Any, dict[str, Any]] = {}
+    for profile in profiles:
+        if (
+            not isinstance(profile, dict)
+            or key_member not in profile
+            or profile[key_member] in profile_index
+        ):
+            return None
+        profile_index[profile[key_member]] = profile
+    selected: list[dict[str, Any]] = []
+    for owner in owners:
+        if not isinstance(owner, dict) or owner.get(owner_member) not in profile_index:
+            return None
+        profile = profile_index[owner[owner_member]]
+        if profile not in selected:
+            selected.append(profile)
+    if not selected:
+        return None
+
+    projected: list[Any] = []
+    for profile in selected:
+        values: list[Any] = [authorities]
+        for raw_segment in template:
+            if isinstance(raw_segment, str) and raw_segment:
+                segment = raw_segment
+            elif (
+                isinstance(raw_segment, dict)
+                and set(raw_segment) == {"profile_member"}
+                and isinstance(raw_segment["profile_member"], str)
+                and isinstance(profile.get(raw_segment["profile_member"]), str)
+                and profile[raw_segment["profile_member"]]
+            ):
+                segment = profile[raw_segment["profile_member"]]
+            else:
+                return None
+            next_values: list[Any] = []
+            for value in values:
+                for candidate in value if isinstance(value, list) else [value]:
+                    if isinstance(candidate, dict) and segment in candidate:
+                        child = candidate[segment]
+                        next_values.extend(
+                            child if isinstance(child, list) else [child]
+                        )
+            if not next_values:
+                return None
+            values = next_values
+        projected.extend(values)
+    return projected
 
 
 def _consumer_b_exact_path(root: Any, dotted: Any) -> tuple[bool, Any]:
@@ -529,12 +763,41 @@ def _consumer_b_value_matches(value: Any, contract: Any, ldb: dict[str, Any]) ->
             and all(isinstance(item, str) and item for item in value)
             and len(value) == len(set(value))
         )
+    if kind == "path-segments":
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and all(isinstance(item, str) and item for item in value)
+        )
     if kind == "canonical-value":
         try:
             _encoded(value)
         except (TypeError, ValueError, UnicodeEncodeError):
             return False
         return True
+    if kind == "closed-object":
+        required = contract.get("required_members")
+        field_types = contract.get("field_types")
+        return (
+            isinstance(value, dict)
+            and isinstance(required, list)
+            and isinstance(field_types, dict)
+            and set(value) == set(required)
+            and set(field_types) == set(required)
+            and all(
+                _consumer_b_value_matches(value[name], field_types[name], ldb)
+                for name in required
+            )
+        )
+    if kind == "list-of":
+        item_contract = contract.get("items")
+        return (
+            isinstance(value, list)
+            and isinstance(item_contract, dict)
+            and all(
+                _consumer_b_value_matches(item, item_contract, ldb) for item in value
+            )
+        )
     if kind == "inventory-member":
         path = contract.get("path")
         return _consumer_b_path_is_declared(ldb, path) and value in _project(ldb, path)
@@ -580,6 +843,29 @@ def _consumer_b_definition_is_closed(
             for name in required
         )
     )
+
+
+def _consumer_b_fact_contract_path_is_declared(
+    fields: dict[str, Any], path: Any
+) -> bool:
+    if (
+        not isinstance(path, list)
+        or not path
+        or not all(isinstance(segment, str) and segment for segment in path)
+        or path[0] not in fields
+    ):
+        return False
+    contract = fields[path[0]]
+    for segment in path[1:]:
+        if (
+            not isinstance(contract, dict)
+            or contract.get("type") != "closed-object"
+            or not isinstance(contract.get("field_types"), dict)
+            or segment not in contract["field_types"]
+        ):
+            return False
+        contract = contract["field_types"][segment]
+    return True
 
 
 def _consumer_b_language_definitions_are_closed(
@@ -638,6 +924,76 @@ def _consumer_b_language_definitions_are_closed(
         elif not all(
             _consumer_b_definition_is_closed(value, contract, ldb) for value in values
         ):
+            return False
+    fact_schemas = _consumer_b_fact_schemas(meta)
+    rules = language.get("rules")
+    lowerings = language.get("model_lowerings")
+    profiles = language.get("resolution_profiles")
+    if (
+        not fact_schemas
+        or not isinstance(rules, list)
+        or not isinstance(lowerings, list)
+        or not isinstance(profiles, list)
+    ):
+        return False
+    rules_by_id = {
+        rule["id"]: rule
+        for rule in rules
+        if isinstance(rule, dict) and isinstance(rule.get("id"), str)
+    }
+    profiles_by_id = {
+        profile["id"]: profile
+        for profile in profiles
+        if isinstance(profile, dict) and isinstance(profile.get("id"), str)
+    }
+    if len(profiles_by_id) != len(profiles):
+        return False
+    for lowering in lowerings:
+        if not isinstance(lowering, dict):
+            return False
+        chain = lowering.get("rule_chain")
+        equalities = lowering.get("output_equalities")
+        profile_id = lowering.get("resolution_profile")
+        initial_kind = lowering.get("initial_fact_kind")
+        if not isinstance(profile_id, str) or not isinstance(initial_kind, str):
+            return False
+        profile = profiles_by_id.get(profile_id)
+        initial_fields = fact_schemas.get(initial_kind)
+        if (
+            not isinstance(chain, list)
+            or not chain
+            or not isinstance(equalities, list)
+            or not all(isinstance(item, dict) for item in equalities)
+            or not isinstance(profile, dict)
+            or not isinstance(initial_fields, dict)
+            or profile.get("symbol_fact_member") not in initial_fields
+        ):
+            return False
+        terminal = chain[-1]
+        rule = (
+            rules_by_id.get(terminal.get("rule"))
+            if isinstance(terminal, dict)
+            else None
+        )
+        conclusion = rule.get("conclusion") if isinstance(rule, dict) else None
+        kind = conclusion.get("fact_kind") if isinstance(conclusion, dict) else None
+        fields = fact_schemas.get(kind) if isinstance(kind, str) else None
+        pairs: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+        if not isinstance(fields, dict):
+            return False
+        for equality in equalities:
+            left = equality.get("left")
+            right = equality.get("right")
+            if (
+                not _consumer_b_fact_contract_path_is_declared(fields, left)
+                or not _consumer_b_fact_contract_path_is_declared(fields, right)
+                or left == right
+            ):
+                return False
+            pairs.append((tuple(left), tuple(right)))
+        if len(pairs) != len(set(pairs)):
+            return False
+        if not any(left == (profile["symbol_fact_member"],) for left, _ in pairs):
             return False
     return True
 
@@ -780,7 +1136,7 @@ def _consumer_b_reason_operands_close(
         return declared and _consumer_b_value_matches(
             limit, {"type": "signed-int64"}, ldb
         )
-    return operation == "has-duplicate"
+    return operation in {"has-duplicate", "invalid-interval", "not-equal"}
 
 
 def _consumer_b_scalar_key(value: Any) -> tuple[str, Any]:
@@ -889,6 +1245,22 @@ def _consumer_b_reason_vectors_cover(
             if isinstance(vector.get("input"), dict)
         }
         return {(limit, False), (limit + 1, True)} <= witnesses
+    if operation == "invalid-interval":
+        return coverage.get(operation) == "both-outcomes" and all(
+            _consumer_b_value_matches(
+                vector["input"].get(name), {"type": "signed-int64"}, ldb
+            )
+            for vector in vectors
+            for name in ("minimum", "maximum")
+        )
+    if operation == "not-equal":
+        return coverage.get(operation) == "both-outcomes" and all(
+            _consumer_b_value_matches(
+                vector["input"].get(name), {"type": "canonical-value"}, ldb
+            )
+            for vector in vectors
+            for name in ("actual", "expected")
+        )
     return False
 
 
@@ -1007,6 +1379,170 @@ def _consumer_b_duplicate_subjects(
     return duplicates
 
 
+def _consumer_b_model_program_vector_is_closed(
+    vector: dict[str, Any],
+    meta: dict[str, Any],
+    ldb: dict[str, Any],
+) -> bool:
+    contract = meta.get("model_program_vector")
+    if not isinstance(contract, dict):
+        return False
+    required = contract.get("required_members")
+    categories = contract.get("categories")
+    category_outcomes = contract.get("category_outcomes")
+    category_relations = contract.get("category_relations")
+    fixture_modes = contract.get("fixture_modes")
+    expect_members = contract.get("expect_members")
+    lock_members = contract.get("lock_oracle_members")
+    relation_kinds = contract.get("relation_kinds")
+    category = vector.get("category")
+    fixture = vector.get("source_fixture")
+    expect = vector.get("expect")
+    if (
+        not isinstance(required, list)
+        or set(vector) != set(required)
+        or not isinstance(vector.get("id"), str)
+        or not vector["id"]
+        or not isinstance(categories, list)
+        or category not in categories
+        or not isinstance(category_outcomes, dict)
+        or not isinstance(category_relations, dict)
+        or not isinstance(fixture_modes, dict)
+        or not isinstance(expect_members, list)
+        or not isinstance(lock_members, list)
+        or not isinstance(relation_kinds, list)
+        or not isinstance(fixture, dict)
+        or not isinstance(expect, dict)
+        or set(expect) != set(expect_members)
+    ):
+        return False
+    mode = fixture.get("mode")
+    mode_contract = fixture_modes.get(mode) if isinstance(mode, str) else None
+    if (
+        not isinstance(mode_contract, dict)
+        or not isinstance(mode_contract.get("required_members"), list)
+        or set(fixture) != set(mode_contract["required_members"])
+        or not isinstance(fixture.get("source"), dict)
+    ):
+        return False
+    if mode == "indexed-repeat":
+        collection_path = fixture.get("collection_path")
+        count_path = fixture.get("count_resource_path")
+        count_offset = fixture.get("count_offset")
+        template = fixture.get("template")
+        index_member = fixture.get("index_member")
+        index_prefix = fixture.get("index_prefix")
+        index_width = fixture.get("index_width")
+        if (
+            not isinstance(collection_path, list)
+            or not collection_path
+            or not all(isinstance(item, str) and item for item in collection_path)
+            or not isinstance(count_path, str)
+            or not count_path
+            or count_offset not in (0, 1)
+            or not isinstance(template, dict)
+            or not isinstance(index_member, str)
+            or not index_member
+            or index_member not in template
+            or not isinstance(index_prefix, str)
+            or not index_prefix
+            or not isinstance(index_width, int)
+            or isinstance(index_width, bool)
+            or not 1 <= index_width <= 18
+            or fixture.get("index_encoding") != mode_contract.get("index_encoding")
+        ):
+            return False
+        current: Any = fixture["source"]
+        for segment in collection_path:
+            if isinstance(current, dict) and segment in current:
+                current = current[segment]
+            elif (
+                isinstance(current, list)
+                and segment.isdecimal()
+                and int(segment) < len(current)
+            ):
+                current = current[int(segment)]
+            else:
+                return False
+        declared, count = _consumer_b_exact_path(ldb, count_path)
+        if (
+            not isinstance(current, list)
+            or current
+            or not declared
+            or not isinstance(count, int)
+            or isinstance(count, bool)
+            or count < 1
+        ):
+            return False
+    elif mode != "literal":
+        return False
+    outcome = expect.get("outcome")
+    allowed_outcomes = category_outcomes.get(category)
+    diagnostics = expect.get("diagnostics")
+    semantic_artifacts = expect.get("semantic_artifacts")
+    declaration_count = expect.get("declaration_count")
+    relation = expect.get("relation")
+    if (
+        not isinstance(allowed_outcomes, list)
+        or outcome not in allowed_outcomes
+        or not isinstance(diagnostics, list)
+        or not all(
+            isinstance(item, dict)
+            and set(item) == {"code", "stage"}
+            and isinstance(item["code"], str)
+            and item["code"]
+            and isinstance(item["stage"], str)
+            and item["stage"]
+            for item in diagnostics
+        )
+        or not isinstance(semantic_artifacts, bool)
+        or not isinstance(declaration_count, int)
+        or isinstance(declaration_count, bool)
+        or declaration_count < 0
+        or not isinstance(relation, dict)
+        or set(relation) != {"kind", "reference"}
+        or relation.get("kind") not in relation_kinds
+        or relation.get("kind") not in category_relations.get(category, [])
+    ):
+        return False
+    catalog = {
+        (item.get("code"), item.get("stage"))
+        for item in ldb.get("diagnostics", [])
+        if isinstance(item, dict)
+    }
+    if any((item["code"], item["stage"]) not in catalog for item in diagnostics):
+        return False
+    reference = relation.get("reference")
+    if relation["kind"] == "independent":
+        if reference is not None:
+            return False
+    elif not isinstance(reference, str) or not reference:
+        return False
+    lock_oracle = expect.get("lock_oracle")
+    rir_identity = expect.get("rir_identity")
+    debug_map_identity = expect.get("debug_map_identity")
+    if outcome == "admitted":
+        return (
+            semantic_artifacts is True
+            and not diagnostics
+            and declaration_count > 0
+            and isinstance(rir_identity, str)
+            and bool(rir_identity)
+            and isinstance(debug_map_identity, str)
+            and bool(debug_map_identity)
+            and isinstance(lock_oracle, dict)
+            and set(lock_oracle) == set(lock_members)
+        )
+    return (
+        semantic_artifacts is False
+        and bool(diagnostics)
+        and declaration_count == 0
+        and rir_identity is None
+        and debug_map_identity is None
+        and lock_oracle is None
+    )
+
+
 def _consumer_b_vector_header_is_closed(
     vector: Any, meta: dict[str, Any], ldb: dict[str, Any]
 ) -> bool:
@@ -1049,6 +1585,8 @@ def _consumer_b_vector_header_is_closed(
             )
             and isinstance(vector.get("input"), dict)
         )
+    if "category" in vector:
+        return _consumer_b_model_program_vector_is_closed(vector, meta, ldb)
     return False
 
 
@@ -1144,6 +1682,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         raw_language.get("packages") if isinstance(raw_language, dict) else None
     )
     packages: list[dict[str, Any]] = []
+    semantic_projection_mismatch = False
     package_contract = meta.get("package_release") if isinstance(meta, dict) else None
     if not isinstance(raw_packages, list):
         refuse(
@@ -1164,6 +1703,19 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 kernel, "domain-package-release-v2", package
             ):
                 refuse("kernel.identity_mismatch", "ingress", subject)
+            if not _consumer_b_package_semantic_closure_is_closed(
+                package, package_contract
+            ):
+                refuse(
+                    "kernel.identity_mismatch",
+                    "ingress",
+                    f"{subject}.semantic_identity",
+                )
+        semantic_projection_mismatch = len(packages) == len(
+            raw_packages
+        ) and not _consumer_b_package_semantic_projections_are_exact(
+            packages, package_contract, ldb
+        )
 
     if diagnostics:
         ordered = sorted(diagnostics, key=lambda item: (item[0], item[2], item[1]))
@@ -1268,6 +1820,68 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             "kernel.duplicate_identifier",
             "static",
             "language-bundle.vectors",
+        )
+    program_vectors = [item for item in valid_vectors if "category" in item]
+    program_contract = meta.get("model_program_vector")
+    expected_categories = (
+        program_contract.get("categories")
+        if isinstance(program_contract, dict)
+        else None
+    )
+    category_outcomes = (
+        program_contract.get("category_outcomes")
+        if isinstance(program_contract, dict)
+        else None
+    )
+    program_by_id = {item["id"]: item for item in program_vectors}
+    program_vectors_close = (
+        isinstance(expected_categories, list)
+        and isinstance(category_outcomes, dict)
+        and set(expected_categories)
+        == {item.get("category") for item in program_vectors}
+        and all(
+            {
+                item.get("expect", {}).get("outcome")
+                for item in program_vectors
+                if item.get("category") == category
+            }
+            == set(category_outcomes.get(category, []))
+            for category in expected_categories
+        )
+    )
+    if program_vectors_close:
+        for vector in program_vectors:
+            relation = vector["expect"]["relation"]
+            if relation["kind"] == "independent":
+                continue
+            reference = program_by_id.get(relation["reference"])
+            if reference is None:
+                program_vectors_close = False
+                break
+            expected = vector["expect"]
+            reference_expected = reference["expect"]
+            if (
+                expected["lock_oracle"] != reference_expected["lock_oracle"]
+                or (
+                    relation["kind"] == "semantic-equivalent"
+                    and (
+                        expected["rir_identity"] != reference_expected["rir_identity"]
+                        or expected["debug_map_identity"]
+                        == reference_expected["debug_map_identity"]
+                    )
+                )
+                or (
+                    relation["kind"] == "semantic-change"
+                    and expected["rir_identity"] == reference_expected["rir_identity"]
+                )
+            ):
+                program_vectors_close = False
+                break
+    if not program_vectors_close:
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "language-bundle.model-program-vectors",
         )
     rule_vectors = [item for item in valid_vectors if "rule" in item]
     if set(rule_ids) != {item["rule"] for item in rule_vectors}:
@@ -1435,6 +2049,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 matched = len(keys) != len(set(keys))
             elif operation == "greater-than":
                 matched = vector["input"]["value"] > resolve(predicate["limit_path"])
+            elif operation == "invalid-interval":
+                matched = vector["input"]["minimum"] > vector["input"]["maximum"]
+            elif operation == "not-equal":
+                matched = _encoded(vector["input"]["actual"]) != _encoded(
+                    vector["input"]["expected"]
+                )
         output = (
             {
                 "code": reason["diagnostic"],
@@ -1495,19 +2115,77 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     vector_law = next(law for law in laws if law["id"] == "kernel.vectors.closed")
     authorities = {"kernel": kernel, "language_bundle": ldb}
     reference_contracts_close = True
+    for contract in vector_law["arguments"]["correlations"]:
+        owners = _project(authorities, contract["owners"])
+        targets = _project(authorities, contract["targets"])
+        if set(contract) == {
+            "equal_members",
+            "owner_key_member",
+            "owners",
+            "target_key_member",
+            "targets",
+        }:
+            target_rows = {
+                target[contract["target_key_member"]]: target
+                for target in targets
+                if isinstance(target, dict) and contract["target_key_member"] in target
+            }
+            if len(target_rows) != len(targets) or any(
+                not isinstance(owner, dict)
+                or owner.get(contract["owner_key_member"]) not in target_rows
+                or any(
+                    owner.get(member)
+                    != target_rows[owner[contract["owner_key_member"]]].get(member)
+                    for member in contract["equal_members"]
+                )
+                for owner in owners
+            ):
+                reference_contracts_close = False
+                break
+            continue
+        target_values = {
+            target[contract["target_key_member"]]: target.get(
+                contract["target_value_member"]
+            )
+            for target in targets
+            if isinstance(target, dict) and contract["target_key_member"] in target
+        }
+        for owner in owners:
+            if not isinstance(owner, dict) or any(
+                target_values.get(reference)
+                != owner.get(contract["owner_value_member"])
+                for reference in owner.get(contract["references_member"], [])
+            ):
+                reference_contracts_close = False
+                break
     for contract in vector_law["arguments"]["equalities"]:
         if (
-            set(contract) != {"left", "mode", "right"}
-            or contract["mode"] != "set"
-            or not _consumer_b_path_is_declared(authorities, contract["left"])
-            or not _consumer_b_path_is_declared(authorities, contract["right"])
+            not isinstance(contract, dict)
+            or contract.get("mode") != "set"
+            or not _consumer_b_path_is_declared(authorities, contract.get("left"))
         ):
             reference_contracts_close = False
             break
+        if set(contract) == {"left", "mode", "right"}:
+            if not _consumer_b_path_is_declared(authorities, contract["right"]):
+                reference_contracts_close = False
+                break
+            right_values = _project(authorities, contract["right"])
+        elif set(contract) == {
+            "left",
+            "mode",
+            "profile",
+            "right_template",
+        }:
+            right_values = _consumer_b_profiled_equality_values(authorities, contract)
+            if right_values is None:
+                reference_contracts_close = False
+                break
+        else:
+            reference_contracts_close = False
+            break
         try:
-            if set(_project(authorities, contract["left"])) != set(
-                _project(authorities, contract["right"])
-            ):
+            if set(_project(authorities, contract["left"])) != set(right_values):
                 reference_contracts_close = False
                 break
         except TypeError:
@@ -1537,6 +2215,13 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     break
     if not reference_contracts_close:
         refuse("kernel.vector_mismatch", "static", "language.packages")
+    if semantic_projection_mismatch and not diagnostics:
+        for index in range(len(packages)):
+            refuse(
+                "kernel.identity_mismatch",
+                "ingress",
+                f"language-bundle.language.packages.{index}.semantic_identity",
+            )
 
     ordered = sorted(diagnostics, key=lambda item: (item[0], item[2], item[1]))
     truncated = len(ordered) > cap
@@ -1606,6 +2291,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         "diagnostic_reason",
         "language_bundle",
         "language_definitions",
+        "model_program_vector",
         "package_release",
     }
     assert {item["tag"] for item in meta_format["term"]["constructors"]} == {
@@ -1617,6 +2303,79 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         assert rule["phase"] in meta_format["rule"]["phases"]
         assert rule["premises"]
         assert set(rule["conclusion"]) == {"fact_kind", "fields"}
+
+
+def test_resolution_profile_symbol_mapping_must_name_the_declared_semantic_fact():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    ldb["language"]["resolution_profiles"][0]["symbol_fact_member"] = "role"
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.definitions",
+    ) in first["diagnostics"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("unknown-diagnostic", "invalid-resource-recipe", "missing-relation"),
+)
+def test_reidentified_model_program_vector_contract_mutations_are_refused(
+    mutation,
+):
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    vectors = ldb["vectors"]
+    if mutation == "unknown-diagnostic":
+        vector = next(
+            item for item in vectors if item["id"] == "model.compile.negative-duplicate"
+        )
+        vector["expect"]["diagnostics"][0]["code"] = "host.unknown"
+    elif mutation == "invalid-resource-recipe":
+        vector = next(
+            item
+            for item in vectors
+            if item["id"] == "model.compile.boundary-max-symbols-plus-one"
+        )
+        vector["source_fixture"]["count_offset"] = 2
+    else:
+        vector = next(
+            item
+            for item in vectors
+            if item["id"] == "model.compile.mutation-role-change"
+        )
+        vector["expect"]["relation"]["reference"] = "host.missing"
+
+    package = ldb["language"]["packages"][0]
+    vector_entry = next(
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "vectors"
+    )
+    vector_entry["definitions"] = deepcopy(vectors)
+    semantic_encoded = _encoded(package["semantic_closure"])
+    package["semantic_identity"] = (
+        "sha256:"
+        + hashlib.sha256(
+            b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
+        ).hexdigest()
+    )
+    package["content_identity"] = _identity("domain-package-release-v2", package)
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"])
 
 
 def test_kernel_publishes_the_complete_canonical_identity_recipe():
@@ -1694,6 +2453,8 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
         "exports",
         "id",
         "profiles",
+        "semantic_closure",
+        "semantic_identity",
         "vectors",
         "version",
     }
@@ -1701,9 +2462,19 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     assert package["content_identity"] == _identity(
         "domain-package-release-v2", package
     )
+    semantic_encoded = _encoded(package["semantic_closure"])
+    assert package["semantic_identity"] == (
+        "sha256:"
+        + hashlib.sha256(
+            b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
+        ).hexdigest()
+    )
     assert package["dependencies"] == {"optional": [], "required": []}
     assert package["capabilities"]["required"] == []
-    assert package["exports"]["operations"] == []
+    assert package["exports"]["components"] == ["quantity.symbol"]
+    assert package["exports"]["conversions"] == ["quantity.identity"]
+    assert package["exports"]["operations"] == ["quantity.identity"]
+    assert package["profiles"]["runtime"] == ["compile.exact-int64"]
     assert package["exports"]["types"]
     assert package["vectors"]
     assert ldb["language"]["quantity"]["representations"] == ["Int"]
@@ -1733,6 +2504,165 @@ def test_reidentified_ldb_cannot_hide_a_tampered_package_release():
     assert any(
         code == "kernel.identity_mismatch" for _, code, _ in first["diagnostics"]
     )
+
+
+def test_package_identity_binds_the_complete_exported_definition_closure():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    ldb["language"]["operations"][0]["resource_bounds"]["max_steps"] = 2
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(
+        code == "kernel.identity_mismatch"
+        and subject == "language-bundle.language.packages.0.semantic_identity"
+        for _, code, subject in first["diagnostics"]
+    )
+
+
+def test_reidentified_package_cannot_hide_a_tampered_embedded_definition():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    package = ldb["language"]["packages"][0]
+    operation_entry = next(
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
+    )
+    operation_entry["definitions"][0]["resource_bounds"]["max_steps"] = 2
+    package["content_identity"] = _identity("domain-package-release-v2", package)
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(
+        code == "kernel.identity_mismatch"
+        and subject == "language-bundle.language.packages.0.semantic_identity"
+        for _, code, subject in first["diagnostics"]
+    )
+
+
+def test_coherent_package_semantic_change_changes_the_release_identity():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    package = ldb["language"]["packages"][0]
+    old_release_identity = package["content_identity"]
+    ldb["language"]["operations"][0]["resource_bounds"]["max_steps"] = 2
+    operation_entry = next(
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
+    )
+    operation_entry["definitions"][0]["resource_bounds"]["max_steps"] = 2
+    semantic_encoded = _encoded(package["semantic_closure"])
+    package["semantic_identity"] = (
+        "sha256:"
+        + hashlib.sha256(
+            b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
+        ).hexdigest()
+    )
+    package["content_identity"] = _identity("domain-package-release-v2", package)
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is True
+    assert package["content_identity"] != old_release_identity
+
+
+def test_semantic_closure_cannot_move_a_definition_to_a_non_owner_package():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    quantity_package = ldb["language"]["packages"][0]
+    other_package = deepcopy(quantity_package)
+    other_package["id"] = "core.other"
+    other_package["capabilities"] = {"provided": [], "required": []}
+    other_package["dependencies"] = {"optional": [], "required": []}
+    other_package["exports"] = {member: [] for member in quantity_package["exports"]}
+    other_package["profiles"] = {"numeric": [], "runtime": []}
+    other_package["vectors"] = []
+    for entry in other_package["semantic_closure"]:
+        entry["definitions"] = []
+
+    quantity_components = next(
+        entry
+        for entry in quantity_package["semantic_closure"]
+        if entry["authority_path"] == "language.components"
+    )
+    other_components = next(
+        entry
+        for entry in other_package["semantic_closure"]
+        if entry["authority_path"] == "language.components"
+    )
+    other_components["definitions"] = quantity_components["definitions"]
+    quantity_components["definitions"] = []
+
+    for package in (quantity_package, other_package):
+        semantic_encoded = _encoded(package["semantic_closure"])
+        package["semantic_identity"] = (
+            "sha256:"
+            + hashlib.sha256(
+                b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
+            ).hexdigest()
+        )
+        package["content_identity"] = _identity("domain-package-release-v2", package)
+    ldb["language"]["packages"].append(other_package)
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(
+        code == "kernel.identity_mismatch" and subject.endswith(".semantic_identity")
+        for _, code, subject in first["diagnostics"]
+    )
+
+
+def test_model_lowering_invocation_must_match_the_referenced_rule_contract():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    language = ldb["language"]
+    language["model_lowerings"][0]["rule_chain"][0]["judgment"] = (
+        "host-invented-judgment"
+    )
+    package = language["packages"][0]
+    lowering_entry = next(
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.model_lowerings"
+    )
+    lowering_entry["definitions"] = deepcopy(language["model_lowerings"])
+    semantic_encoded = _encoded(package["semantic_closure"])
+    package["semantic_identity"] = (
+        "sha256:"
+        + hashlib.sha256(
+            b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
+        ).hexdigest()
+    )
+    package["content_identity"] = _identity("domain-package-release-v2", package)
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.packages",
+    ) in first["diagnostics"]
 
 
 @pytest.mark.parametrize(
@@ -1789,7 +2719,10 @@ def test_reidentified_package_cannot_reference_an_unowned_vector():
 
     assert first == second
     assert first["admitted"] is False
-    assert any(code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"])
+    assert any(
+        code == "kernel.identity_mismatch" and subject.endswith(".semantic_identity")
+        for _, code, subject in first["diagnostics"]
+    )
 
 
 def test_bootstrap_executes_every_rule_vector_into_a_stable_projection():
@@ -1970,7 +2903,19 @@ def test_reidentified_package_cannot_hide_an_unowned_reference(path, replacement
 
     assert first == second
     assert first["admitted"] is False
-    assert any(code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"])
+    semantic_owner_paths = {
+        ("exports", "operations"),
+        ("exports", "components"),
+        ("exports", "conversions"),
+        ("profiles", "runtime"),
+        ("capabilities", "provided"),
+    }
+    expected_code = (
+        "kernel.identity_mismatch"
+        if path in semantic_owner_paths
+        else "kernel.vector_mismatch"
+    )
+    assert any(code == expected_code for _, code, _ in first["diagnostics"])
 
 
 def test_reidentified_rule_phase_mutation_is_refused_by_both_consumers():
@@ -2005,18 +2950,29 @@ def test_reidentified_capability_definition_cannot_omit_its_rule_reference():
 
 def test_reidentified_package_cannot_export_an_open_host_operation_definition():
     authority = authority_set()
-    authority["language_bundle"]["language"]["operations"].append(
-        {"host_semantics": "invented", "id": "host.op"}
-    )
-    package = authority["language_bundle"]["language"]["packages"][0]
+    ldb = authority["language_bundle"]
+    language = ldb["language"]
+    language["operations"].append({"host_semantics": "invented", "id": "host.op"})
+    package = language["packages"][0]
     package["exports"]["operations"].append("host.op")
-    package["content_identity"] = _identity("domain-package-release-v2", package)
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
+    operation_entry = next(
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
     )
+    operation_entry["definitions"] = deepcopy(language["operations"])
+    semantic_encoded = _encoded(package["semantic_closure"])
+    package["semantic_identity"] = (
+        "sha256:"
+        + hashlib.sha256(
+            b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
+        ).hexdigest()
+    )
+    package["content_identity"] = _identity("domain-package-release-v2", package)
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["admitted"] is False
@@ -2349,7 +3305,7 @@ def test_reidentified_wire_schema_must_be_valid_under_its_declared_dialect():
     authority = authority_set()
     symbol_schema = authority["language_bundle"]["language"]["wire_schemas"][0][
         "schema"
-    ]["properties"]["symbols"]["items"]
+    ]["properties"]["modules"]["items"]["properties"]["symbols"]["items"]
     symbol_schema["type"] = 42
     authority["language_bundle"]["content_identity"] = _identity(
         "language-definition-bundle-v2", authority["language_bundle"]
@@ -2366,7 +3322,9 @@ def test_reidentified_wire_schema_cannot_bypass_object_closure_with_type_array()
     authority = authority_set()
     domain_schema = authority["language_bundle"]["language"]["wire_schemas"][0][
         "schema"
-    ]["properties"]["symbols"]["items"]["properties"]["domain"]
+    ]["properties"]["modules"]["items"]["properties"]["symbols"]["items"]["properties"][
+        "domain"
+    ]
     domain_schema["type"] = ["object"]
     del domain_schema["unevaluatedProperties"]
     authority["language_bundle"]["content_identity"] = _identity(
@@ -2384,7 +3342,9 @@ def test_reidentified_wire_schema_object_keywords_require_explicit_closed_type()
     authority = authority_set()
     domain_schema = authority["language_bundle"]["language"]["wire_schemas"][0][
         "schema"
-    ]["properties"]["symbols"]["items"]["properties"]["domain"]
+    ]["properties"]["modules"]["items"]["properties"]["symbols"]["items"]["properties"][
+        "domain"
+    ]
     del domain_schema["type"]
     del domain_schema["unevaluatedProperties"]
     authority["language_bundle"]["content_identity"] = _identity(
@@ -2402,11 +3362,13 @@ def test_reidentified_wire_schema_cannot_add_an_open_combinator_branch():
     authority = authority_set()
     domain_schema = authority["language_bundle"]["language"]["wire_schemas"][0][
         "schema"
-    ]["properties"]["symbols"]["items"]["properties"]["domain"]
+    ]["properties"]["modules"]["items"]["properties"]["symbols"]["items"]["properties"][
+        "domain"
+    ]
     replacement = {"anyOf": [deepcopy(domain_schema), {}]}
     authority["language_bundle"]["language"]["wire_schemas"][0]["schema"]["properties"][
-        "symbols"
-    ]["items"]["properties"]["domain"] = replacement
+        "modules"
+    ]["items"]["properties"]["symbols"]["items"]["properties"]["domain"] = replacement
     authority["language_bundle"]["content_identity"] = _identity(
         "language-definition-bundle-v2", authority["language_bundle"]
     )
@@ -2493,6 +3455,22 @@ def test_current_slice_refuses_not_yet_delivered_operation_definitions():
 
     assert first == second
     assert first["admitted"] is False
+
+
+def test_operation_rule_must_match_every_declared_operation_vector():
+    authority = authority_set()
+    operation = authority["language_bundle"]["language"]["operations"][0]
+    operation["rule"] = "quantity.declare"
+    authority["language_bundle"]["content_identity"] = _identity(
+        "language-definition-bundle-v2", authority["language_bundle"]
+    )
+
+    first = _consumer_a(authority["kernel"], authority["language_bundle"])
+    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"])
 
 
 def test_reidentified_conflicting_duplicate_binding_refuses_in_both_consumers():

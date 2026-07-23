@@ -36,7 +36,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:cdac2365950e7d7f42c5c763055861e61eb6e9628852f7428ca879e569fc270e"
+    "sha256:da13ade766111cc43cc2710e173af927b73678983e842cd41de8ccb31d2225f0"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -301,6 +301,159 @@ def _package_is_closed(
     )
 
 
+def _package_semantic_closure_is_closed(
+    package: dict[str, Any],
+    contract: Any,
+) -> bool:
+    if not isinstance(contract, dict):
+        return False
+    closure_contract = contract.get("semantic_closure")
+    closure = package.get("semantic_closure")
+    if not isinstance(closure_contract, dict) or not isinstance(closure, list):
+        return False
+    domain = closure_contract.get("domain")
+    entry_members = closure_contract.get("entry_members")
+    projections = closure_contract.get("projections")
+    if (
+        not isinstance(domain, str)
+        or not domain
+        or not isinstance(entry_members, list)
+        or entry_members != ["authority_path", "definitions"]
+        or not isinstance(projections, list)
+        or len(closure) != len(projections)
+    ):
+        return False
+    for entry, projection in zip(closure, projections, strict=True):
+        key_member = (
+            projection.get("key_member") if isinstance(projection, dict) else None
+        )
+        owners_path = (
+            projection.get("owners_path") if isinstance(projection, dict) else None
+        )
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != set(entry_members)
+            or not isinstance(projection, dict)
+            or set(projection) != {"authority_path", "key_member", "owners_path"}
+            or entry.get("authority_path") != projection.get("authority_path")
+            or not isinstance(entry.get("definitions"), list)
+            or not isinstance(projection.get("authority_path"), str)
+            or (key_member is not None and not isinstance(key_member, str))
+            or not isinstance(owners_path, str)
+            or not owners_path
+            or not _path_is_declared(package, owners_path)
+        ):
+            return False
+        definitions = entry["definitions"]
+        owned_values = _path_values(package, owners_path)
+
+        def definition_key(value: Any) -> bytes | None:
+            selected = value
+            if key_member is not None:
+                if not isinstance(value, dict) or key_member not in value:
+                    return None
+                selected = value[key_member]
+            try:
+                return canonical_bytes(cast(JsonValue, selected))
+            except (TypeError, ValueError):
+                return None
+
+        def owner_key(value: Any) -> bytes | None:
+            try:
+                return canonical_bytes(cast(JsonValue, value))
+            except (TypeError, ValueError):
+                return None
+
+        definition_keys = [definition_key(value) for value in definitions]
+        owner_keys = [owner_key(value) for value in owned_values]
+        if (
+            any(key is None for key in definition_keys)
+            or any(key is None for key in owner_keys)
+            or len(set(definition_keys)) != len(definition_keys)
+            or len(set(owner_keys)) != len(owner_keys)
+            or set(definition_keys) != set(owner_keys)
+        ):
+            return False
+    try:
+        expected = content_identity(domain, cast(JsonValue, closure))
+    except (TypeError, ValueError):
+        return False
+    return package.get("semantic_identity") == expected
+
+
+def _package_semantic_projections_are_exact(
+    packages: list[dict[str, Any]],
+    contract: Any,
+    language_bundle: dict[str, Any],
+) -> bool:
+    if not isinstance(contract, dict):
+        return False
+    closure_contract = contract.get("semantic_closure")
+    if not isinstance(closure_contract, dict):
+        return False
+    projections = closure_contract.get("projections")
+    if not isinstance(projections, list):
+        return False
+    for index, projection in enumerate(projections):
+        if not isinstance(projection, dict):
+            return False
+        authority_path = projection.get("authority_path")
+        key_member = projection.get("key_member")
+        declared, authority_definitions = _exact_path_value(
+            language_bundle, authority_path
+        )
+        if not declared or not isinstance(authority_definitions, list):
+            return False
+        embedded: list[Any] = []
+        for package in packages:
+            closure = package.get("semantic_closure")
+            if not isinstance(closure, list) or index >= len(closure):
+                return False
+            entry = closure[index]
+            if (
+                not isinstance(entry, dict)
+                or entry.get("authority_path") != authority_path
+                or not isinstance(entry.get("definitions"), list)
+            ):
+                return False
+            embedded.extend(entry["definitions"])
+
+        def definition_key(value: Any) -> tuple[str, bytes] | None:
+            if key_member is None:
+                try:
+                    return ("value", canonical_bytes(cast(JsonValue, value)))
+                except (TypeError, ValueError):
+                    return None
+            if (
+                not isinstance(key_member, str)
+                or not isinstance(value, dict)
+                or key_member not in value
+            ):
+                return None
+            try:
+                return (
+                    "member",
+                    canonical_bytes(cast(JsonValue, value[key_member])),
+                )
+            except (TypeError, ValueError):
+                return None
+
+        embedded_keys = [definition_key(value) for value in embedded]
+        authority_keys = [definition_key(value) for value in authority_definitions]
+        if (
+            any(key is None for key in embedded_keys)
+            or any(key is None for key in authority_keys)
+            or len(set(embedded_keys)) != len(embedded_keys)
+            or len(set(authority_keys)) != len(authority_keys)
+        ):
+            return False
+        embedded_by_key = dict(zip(embedded_keys, embedded, strict=True))
+        authority_by_key = dict(zip(authority_keys, authority_definitions, strict=True))
+        if embedded_by_key != authority_by_key:
+            return False
+    return True
+
+
 def _language_bundle_is_closed(
     language_bundle: dict[str, Any], contract: Any, refusal_stages: Any
 ) -> bool:
@@ -512,6 +665,104 @@ def _closed_json_schema(value: Any, contract: dict[str, Any]) -> bool:
     return walk(value)
 
 
+def _profiled_equality_values(
+    authorities: dict[str, Any], contract: dict[str, Any]
+) -> list[Any] | None:
+    profile_contract = contract.get("profile")
+    template = contract.get("right_template")
+    if (
+        not isinstance(profile_contract, dict)
+        or set(profile_contract)
+        != {
+            "owner_profile_member",
+            "owners",
+            "profile_key_member",
+            "profiles",
+        }
+        or not isinstance(template, list)
+        or not template
+        or not all(
+            (isinstance(segment, str) and bool(segment))
+            or (
+                isinstance(segment, dict)
+                and set(segment) == {"profile_member"}
+                and isinstance(segment["profile_member"], str)
+                and bool(segment["profile_member"])
+            )
+            for segment in template
+        )
+    ):
+        return None
+    owners_path = profile_contract.get("owners")
+    profiles_path = profile_contract.get("profiles")
+    owner_profile_member = profile_contract.get("owner_profile_member")
+    profile_key_member = profile_contract.get("profile_key_member")
+    if (
+        not isinstance(owners_path, str)
+        or not _path_is_declared(authorities, owners_path)
+        or not isinstance(profiles_path, str)
+        or not _path_is_declared(authorities, profiles_path)
+        or not isinstance(owner_profile_member, str)
+        or not owner_profile_member
+        or not isinstance(profile_key_member, str)
+        or not profile_key_member
+    ):
+        return None
+    owners = _path_values(authorities, owners_path)
+    profiles = _path_values(authorities, profiles_path)
+    if not owners or not profiles:
+        return None
+    profile_rows = [
+        profile
+        for profile in profiles
+        if isinstance(profile, dict) and profile_key_member in profile
+    ]
+    profile_keys = [profile[profile_key_member] for profile in profile_rows]
+    if len(profile_rows) != len(profiles) or len(profile_keys) != len(
+        set(profile_keys)
+    ):
+        return None
+    profiles_by_key = dict(zip(profile_keys, profile_rows, strict=True))
+    selected_profiles: list[dict[str, Any]] = []
+    for owner in owners:
+        if (
+            not isinstance(owner, dict)
+            or owner_profile_member not in owner
+            or owner[owner_profile_member] not in profiles_by_key
+        ):
+            return None
+        profile = profiles_by_key[owner[owner_profile_member]]
+        if profile not in selected_profiles:
+            selected_profiles.append(profile)
+
+    values: list[Any] = []
+    for profile in selected_profiles:
+        segments: list[str] = []
+        for segment in template:
+            if isinstance(segment, str):
+                segments.append(segment)
+                continue
+            profile_value = profile.get(segment["profile_member"])
+            if not isinstance(profile_value, str) or not profile_value:
+                return None
+            segments.append(profile_value)
+        selected: list[Any] = [authorities]
+        for segment in segments:
+            expanded: list[Any] = []
+            for value in selected:
+                candidates = value if isinstance(value, list) else [value]
+                for candidate in candidates:
+                    if not isinstance(candidate, dict) or segment not in candidate:
+                        continue
+                    child = candidate[segment]
+                    expanded.extend(child if isinstance(child, list) else [child])
+            if not expanded:
+                return None
+            selected = expanded
+        values.extend(selected)
+    return values
+
+
 def _reference_contracts_close(
     kernel: dict[str, Any], language_bundle: dict[str, Any]
 ) -> bool:
@@ -528,22 +779,135 @@ def _reference_contracts_close(
         return False
     references = vector_law.get("arguments", {}).get("references")
     equalities = vector_law.get("arguments", {}).get("equalities")
-    if not isinstance(references, list) or not isinstance(equalities, list):
+    correlations = vector_law.get("arguments", {}).get("correlations")
+    if (
+        not isinstance(references, list)
+        or not isinstance(equalities, list)
+        or not isinstance(correlations, list)
+    ):
         return False
     authorities = {"kernel": kernel, "language_bundle": language_bundle}
-    for contract in equalities:
+    for contract in correlations:
+        if not isinstance(contract, dict):
+            return False
+        collection_contract = {
+            "owners",
+            "owner_value_member",
+            "references_member",
+            "targets",
+            "target_key_member",
+            "target_value_member",
+        }
+        invocation_contract = {
+            "equal_members",
+            "owner_key_member",
+            "owners",
+            "target_key_member",
+            "targets",
+        }
+        if set(contract) == invocation_contract:
+            owners = _path_values(authorities, contract["owners"])
+            targets = _path_values(authorities, contract["targets"])
+            equal_members = contract["equal_members"]
+            owner_key_member = contract["owner_key_member"]
+            target_key_member = contract["target_key_member"]
+            if (
+                not owners
+                or not targets
+                or not isinstance(equal_members, list)
+                or not equal_members
+                or not all(
+                    isinstance(member, str) and member for member in equal_members
+                )
+                or not isinstance(owner_key_member, str)
+                or not isinstance(target_key_member, str)
+            ):
+                return False
+            target_rows = [
+                target
+                for target in targets
+                if isinstance(target, dict) and target_key_member in target
+            ]
+            target_keys = [target[target_key_member] for target in target_rows]
+            if len(target_keys) != len(set(target_keys)):
+                return False
+            targets_by_key = dict(zip(target_keys, target_rows, strict=True))
+            if any(
+                not isinstance(owner, dict)
+                or owner_key_member not in owner
+                or owner[owner_key_member] not in targets_by_key
+                or any(
+                    owner.get(member)
+                    != targets_by_key[owner[owner_key_member]].get(member)
+                    for member in equal_members
+                )
+                for owner in owners
+            ):
+                return False
+            continue
+        if set(contract) != collection_contract:
+            return False
+        owners = _path_values(authorities, contract["owners"])
+        targets = _path_values(authorities, contract["targets"])
+        owner_value_member = contract["owner_value_member"]
+        references_member = contract["references_member"]
+        target_key_member = contract["target_key_member"]
+        target_value_member = contract["target_value_member"]
         if (
-            not isinstance(contract, dict)
-            or set(contract) != {"left", "mode", "right"}
-            or contract.get("mode") != "set"
-            or not _path_is_declared(authorities, contract.get("left"))
-            or not _path_is_declared(authorities, contract.get("right"))
+            not owners
+            or not targets
+            or not all(
+                isinstance(name, str) and name
+                for name in (
+                    owner_value_member,
+                    references_member,
+                    target_key_member,
+                    target_value_member,
+                )
+            )
         ):
             return False
-        try:
-            if set(_path_values(authorities, contract["left"])) != set(
-                _path_values(authorities, contract["right"])
+        target_values = {
+            target[target_key_member]: target.get(target_value_member)
+            for target in targets
+            if isinstance(target, dict) and target_key_member in target
+        }
+        for owner in owners:
+            if (
+                not isinstance(owner, dict)
+                or owner_value_member not in owner
+                or not isinstance(owner.get(references_member), list)
+                or any(
+                    reference not in target_values
+                    or target_values[reference] != owner[owner_value_member]
+                    for reference in owner[references_member]
+                )
             ):
+                return False
+    for contract in equalities:
+        if not isinstance(contract, dict) or contract.get("mode") != "set":
+            return False
+        if set(contract) == {"left", "mode", "right"}:
+            if not _path_is_declared(
+                authorities, contract.get("left")
+            ) or not _path_is_declared(authorities, contract.get("right")):
+                return False
+            right_values = _path_values(authorities, contract["right"])
+        elif set(contract) == {
+            "left",
+            "mode",
+            "profile",
+            "right_template",
+        }:
+            if not _path_is_declared(authorities, contract.get("left")):
+                return False
+            right_values = _profiled_equality_values(authorities, contract)
+            if right_values is None:
+                return False
+        else:
+            return False
+        try:
+            if set(_path_values(authorities, contract["left"])) != set(right_values):
                 return False
         except TypeError:
             return False
@@ -676,12 +1040,42 @@ def _value_matches_contract(
             and all(isinstance(item, str) and item for item in value)
             and len(value) == len(set(value))
         )
+    if value_type == "path-segments":
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and all(isinstance(item, str) and item for item in value)
+        )
     if value_type == "canonical-value":
         try:
             canonical_bytes(cast(JsonValue, value))
         except (TypeError, ValueError):
             return False
         return True
+    if value_type == "closed-object":
+        required = contract.get("required_members")
+        field_types = contract.get("field_types")
+        return (
+            isinstance(value, dict)
+            and isinstance(required, list)
+            and isinstance(field_types, dict)
+            and set(value) == set(required)
+            and set(field_types) == set(required)
+            and all(
+                _value_matches_contract(value[name], field_types[name], language_bundle)
+                for name in required
+            )
+        )
+    if value_type == "list-of":
+        item_contract = contract.get("items")
+        return (
+            isinstance(value, list)
+            and isinstance(item_contract, dict)
+            and all(
+                _value_matches_contract(item, item_contract, language_bundle)
+                for item in value
+            )
+        )
     if value_type == "inventory-member":
         path = contract.get("path")
         return _path_is_declared(language_bundle, path) and value in _path_values(
@@ -731,6 +1125,27 @@ def _definition_is_closed(
             for name in required
         )
     )
+
+
+def _fact_contract_path_is_declared(fields: dict[str, Any], path: Any) -> bool:
+    if (
+        not isinstance(path, list)
+        or not path
+        or not all(isinstance(segment, str) and segment for segment in path)
+        or path[0] not in fields
+    ):
+        return False
+    contract = fields[path[0]]
+    for segment in path[1:]:
+        if (
+            not isinstance(contract, dict)
+            or contract.get("type") != "closed-object"
+            or not isinstance(contract.get("field_types"), dict)
+            or segment not in contract["field_types"]
+        ):
+            return False
+        contract = contract["field_types"][segment]
+    return True
 
 
 def _language_definitions_are_closed(
@@ -793,6 +1208,76 @@ def _language_definitions_are_closed(
         elif not all(
             _definition_is_closed(value, contract, language_bundle) for value in values
         ):
+            return False
+    fact_schemas = _fact_schemas(meta_format)
+    rules = language.get("rules")
+    lowerings = language.get("model_lowerings")
+    profiles = language.get("resolution_profiles")
+    if (
+        not fact_schemas
+        or not isinstance(rules, list)
+        or not isinstance(lowerings, list)
+        or not isinstance(profiles, list)
+    ):
+        return False
+    rules_by_id = {
+        rule["id"]: rule
+        for rule in rules
+        if isinstance(rule, dict) and isinstance(rule.get("id"), str)
+    }
+    profiles_by_id = {
+        profile["id"]: profile
+        for profile in profiles
+        if isinstance(profile, dict) and isinstance(profile.get("id"), str)
+    }
+    if len(profiles_by_id) != len(profiles):
+        return False
+    for lowering in lowerings:
+        if not isinstance(lowering, dict):
+            return False
+        chain = lowering.get("rule_chain")
+        equalities = lowering.get("output_equalities")
+        profile_id = lowering.get("resolution_profile")
+        initial_kind = lowering.get("initial_fact_kind")
+        if not isinstance(profile_id, str) or not isinstance(initial_kind, str):
+            return False
+        profile = profiles_by_id.get(profile_id)
+        initial_fields = fact_schemas.get(initial_kind)
+        if (
+            not isinstance(chain, list)
+            or not chain
+            or not isinstance(equalities, list)
+            or not all(isinstance(item, dict) for item in equalities)
+            or not isinstance(profile, dict)
+            or not isinstance(initial_fields, dict)
+            or profile.get("symbol_fact_member") not in initial_fields
+        ):
+            return False
+        terminal = chain[-1]
+        rule = (
+            rules_by_id.get(terminal.get("rule"))
+            if isinstance(terminal, dict)
+            else None
+        )
+        conclusion = rule.get("conclusion") if isinstance(rule, dict) else None
+        kind = conclusion.get("fact_kind") if isinstance(conclusion, dict) else None
+        fields = fact_schemas.get(kind) if isinstance(kind, str) else None
+        pairs: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+        if not isinstance(fields, dict):
+            return False
+        for equality in equalities:
+            left = equality.get("left")
+            right = equality.get("right")
+            if (
+                not _fact_contract_path_is_declared(fields, left)
+                or not _fact_contract_path_is_declared(fields, right)
+                or left == right
+            ):
+                return False
+            pairs.append((tuple(left), tuple(right)))
+        if len(pairs) != len(set(pairs)):
+            return False
+        if not any(left == (profile["symbol_fact_member"],) for left, _ in pairs):
             return False
     return True
 
@@ -952,7 +1437,171 @@ def _reason_operands_are_closed(
         return declared and _value_matches_contract(
             limit, {"type": "signed-int64"}, language_bundle
         )
-    return operation == "has-duplicate"
+    return operation in {"has-duplicate", "invalid-interval", "not-equal"}
+
+
+def _model_program_vector_is_closed(
+    vector: dict[str, Any],
+    meta_format: dict[str, Any],
+    language_bundle: dict[str, Any],
+) -> bool:
+    contract = meta_format.get("model_program_vector")
+    if not isinstance(contract, dict):
+        return False
+    required = contract.get("required_members")
+    categories = contract.get("categories")
+    category_outcomes = contract.get("category_outcomes")
+    category_relations = contract.get("category_relations")
+    fixture_modes = contract.get("fixture_modes")
+    expect_members = contract.get("expect_members")
+    lock_members = contract.get("lock_oracle_members")
+    relation_kinds = contract.get("relation_kinds")
+    category = vector.get("category")
+    fixture = vector.get("source_fixture")
+    expect = vector.get("expect")
+    if (
+        not isinstance(required, list)
+        or set(vector) != set(required)
+        or not isinstance(vector.get("id"), str)
+        or not vector["id"]
+        or not isinstance(categories, list)
+        or category not in categories
+        or not isinstance(category_outcomes, dict)
+        or not isinstance(category_relations, dict)
+        or not isinstance(fixture_modes, dict)
+        or not isinstance(expect_members, list)
+        or not isinstance(lock_members, list)
+        or not isinstance(relation_kinds, list)
+        or not isinstance(fixture, dict)
+        or not isinstance(expect, dict)
+        or set(expect) != set(expect_members)
+    ):
+        return False
+    mode = fixture.get("mode")
+    mode_contract = fixture_modes.get(mode) if isinstance(mode, str) else None
+    if (
+        not isinstance(mode_contract, dict)
+        or not isinstance(mode_contract.get("required_members"), list)
+        or set(fixture) != set(mode_contract["required_members"])
+        or not isinstance(fixture.get("source"), dict)
+    ):
+        return False
+    if mode == "indexed-repeat":
+        collection_path = fixture.get("collection_path")
+        count_path = fixture.get("count_resource_path")
+        count_offset = fixture.get("count_offset")
+        template = fixture.get("template")
+        index_member = fixture.get("index_member")
+        index_prefix = fixture.get("index_prefix")
+        index_width = fixture.get("index_width")
+        if (
+            not isinstance(collection_path, list)
+            or not collection_path
+            or not all(isinstance(item, str) and item for item in collection_path)
+            or not isinstance(count_path, str)
+            or not count_path
+            or count_offset not in (0, 1)
+            or not isinstance(template, dict)
+            or not isinstance(index_member, str)
+            or not index_member
+            or index_member not in template
+            or not isinstance(index_prefix, str)
+            or not index_prefix
+            or not isinstance(index_width, int)
+            or isinstance(index_width, bool)
+            or not 1 <= index_width <= 18
+            or fixture.get("index_encoding") != mode_contract.get("index_encoding")
+        ):
+            return False
+        current: Any = fixture["source"]
+        for segment in collection_path:
+            if isinstance(current, dict) and segment in current:
+                current = current[segment]
+            elif (
+                isinstance(current, list)
+                and segment.isdecimal()
+                and int(segment) < len(current)
+            ):
+                current = current[int(segment)]
+            else:
+                return False
+        declared, count = _exact_path_value(language_bundle, count_path)
+        if (
+            not isinstance(current, list)
+            or current
+            or not declared
+            or not isinstance(count, int)
+            or isinstance(count, bool)
+            or count < 1
+        ):
+            return False
+    elif mode != "literal":
+        return False
+    outcome = expect.get("outcome")
+    allowed_outcomes = category_outcomes.get(category)
+    diagnostics = expect.get("diagnostics")
+    semantic_artifacts = expect.get("semantic_artifacts")
+    declaration_count = expect.get("declaration_count")
+    relation = expect.get("relation")
+    if (
+        not isinstance(allowed_outcomes, list)
+        or outcome not in allowed_outcomes
+        or not isinstance(diagnostics, list)
+        or not all(
+            isinstance(item, dict)
+            and set(item) == {"code", "stage"}
+            and isinstance(item["code"], str)
+            and item["code"]
+            and isinstance(item["stage"], str)
+            and item["stage"]
+            for item in diagnostics
+        )
+        or not isinstance(semantic_artifacts, bool)
+        or not isinstance(declaration_count, int)
+        or isinstance(declaration_count, bool)
+        or declaration_count < 0
+        or not isinstance(relation, dict)
+        or set(relation) != {"kind", "reference"}
+        or relation.get("kind") not in relation_kinds
+        or relation.get("kind") not in category_relations.get(category, [])
+    ):
+        return False
+    catalog = {
+        (item.get("code"), item.get("stage"))
+        for item in cast(list[dict[str, Any]], language_bundle.get("diagnostics", []))
+        if isinstance(item, dict)
+    }
+    if any((item["code"], item["stage"]) not in catalog for item in diagnostics):
+        return False
+    reference = relation.get("reference")
+    if relation["kind"] == "independent":
+        if reference is not None:
+            return False
+    elif not isinstance(reference, str) or not reference:
+        return False
+    lock_oracle = expect.get("lock_oracle")
+    rir_identity = expect.get("rir_identity")
+    debug_map_identity = expect.get("debug_map_identity")
+    if outcome == "admitted":
+        return (
+            semantic_artifacts is True
+            and not diagnostics
+            and declaration_count > 0
+            and isinstance(rir_identity, str)
+            and bool(rir_identity)
+            and isinstance(debug_map_identity, str)
+            and bool(debug_map_identity)
+            and isinstance(lock_oracle, dict)
+            and set(lock_oracle) == set(lock_members)
+        )
+    return (
+        semantic_artifacts is False
+        and bool(diagnostics)
+        and declaration_count == 0
+        and rir_identity is None
+        and debug_map_identity is None
+        and lock_oracle is None
+    )
 
 
 def _vector_header_is_closed(
@@ -1006,6 +1655,8 @@ def _vector_header_is_closed(
             )
             and isinstance(vector.get("input"), dict)
         )
+    if "category" in vector:
+        return _model_program_vector_is_closed(vector, meta_format, language_bundle)
     return False
 
 
@@ -1115,6 +1766,8 @@ def admit_authorities(
         if isinstance(raw_meta_format, dict)
         else None
     )
+    admitted_packages: list[dict[str, Any]] = []
+    semantic_projection_mismatch = False
     if not isinstance(packages, list):
         refuse(
             "kernel.member_set_mismatch", "ingress", "language-bundle.language.packages"
@@ -1127,10 +1780,22 @@ def admit_authorities(
             ):
                 refuse("kernel.member_set_mismatch", "ingress", subject)
                 continue
+            admitted_packages.append(package)
             if package.get("content_identity") != _safe_artifact_identity(
                 "domain-package-release-v2", package, canonical_encoding
             ):
                 refuse("kernel.identity_mismatch", "ingress", subject)
+            if not _package_semantic_closure_is_closed(package, package_contract):
+                refuse(
+                    "kernel.identity_mismatch",
+                    "ingress",
+                    f"{subject}.semantic_identity",
+                )
+        semantic_projection_mismatch = len(admitted_packages) == len(
+            packages
+        ) and not _package_semantic_projections_are_exact(
+            admitted_packages, package_contract, language_bundle
+        )
 
     cap = resources.get("max_diagnostics", 128)
     if not isinstance(cap, int) or cap < 1:
@@ -1257,6 +1922,68 @@ def admit_authorities(
             "static",
             "language-bundle.vectors",
         )
+    program_vectors = [item for item in ldb_vectors if "category" in item]
+    program_contract = meta_format.get("model_program_vector")
+    expected_categories = (
+        program_contract.get("categories")
+        if isinstance(program_contract, dict)
+        else None
+    )
+    category_outcomes = (
+        program_contract.get("category_outcomes")
+        if isinstance(program_contract, dict)
+        else None
+    )
+    program_by_id = {str(item.get("id", "")): item for item in program_vectors}
+    program_vectors_close = (
+        isinstance(expected_categories, list)
+        and isinstance(category_outcomes, dict)
+        and set(expected_categories)
+        == {str(item.get("category", "")) for item in program_vectors}
+        and all(
+            {
+                str(item.get("expect", {}).get("outcome", ""))
+                for item in program_vectors
+                if item.get("category") == category
+            }
+            == set(category_outcomes.get(category, []))
+            for category in expected_categories
+        )
+    )
+    if program_vectors_close:
+        for vector in program_vectors:
+            relation = cast(dict[str, Any], vector["expect"]["relation"])
+            if relation["kind"] == "independent":
+                continue
+            reference = program_by_id.get(str(relation["reference"]))
+            if reference is None:
+                program_vectors_close = False
+                break
+            expected = cast(dict[str, Any], vector["expect"])
+            reference_expected = cast(dict[str, Any], reference["expect"])
+            if (
+                expected["lock_oracle"] != reference_expected["lock_oracle"]
+                or (
+                    relation["kind"] == "semantic-equivalent"
+                    and (
+                        expected["rir_identity"] != reference_expected["rir_identity"]
+                        or expected["debug_map_identity"]
+                        == reference_expected["debug_map_identity"]
+                    )
+                )
+                or (
+                    relation["kind"] == "semantic-change"
+                    and expected["rir_identity"] == reference_expected["rir_identity"]
+                )
+            ):
+                program_vectors_close = False
+                break
+    if not program_vectors_close:
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "language-bundle.model-program-vectors",
+        )
     rule_vectors = [item for item in ldb_vectors if "rule" in item]
     if set(rule_ids) != {str(item["rule"]) for item in rule_vectors}:
         refuse("kernel.vector_mismatch", "static", "language-bundle.vectors")
@@ -1370,6 +2097,14 @@ def admit_authorities(
                 )
         if not _reference_contracts_close(kernel, language_bundle):
             refuse("kernel.vector_mismatch", "static", "language.packages")
+
+    if semantic_projection_mismatch and not found:
+        for index in range(len(admitted_packages)):
+            refuse(
+                "kernel.identity_mismatch",
+                "ingress",
+                f"language-bundle.language.packages.{index}.semantic_identity",
+            )
 
     return _result(
         found,
@@ -1653,6 +2388,24 @@ def _execute_reason_vector(
         if not isinstance(limit, int) or not isinstance(value, int):
             return None
         matched = value > limit
+    elif operation == "invalid-interval":
+        minimum = inp.get("minimum")
+        maximum = inp.get("maximum")
+        if (
+            not isinstance(minimum, int)
+            or isinstance(minimum, bool)
+            or not isinstance(maximum, int)
+            or isinstance(maximum, bool)
+        ):
+            return None
+        matched = minimum > maximum
+    elif operation == "not-equal":
+        try:
+            matched = canonical_bytes(
+                cast(JsonValue, inp.get("actual"))
+            ) != canonical_bytes(cast(JsonValue, inp.get("expected")))
+        except (TypeError, ValueError):
+            return None
     return {
         "code": reason.get("diagnostic"),
         "matched": matched,
@@ -1768,6 +2521,30 @@ def _reason_vectors_cover_operands(
             if isinstance(vector.get("input"), dict)
         }
         return {(limit, False), (limit + 1, True)} <= witnesses
+    if operation == "invalid-interval":
+        if coverage.get(operation) != "both-outcomes":
+            return False
+        return outcomes == {False, True} and all(
+            _value_matches_contract(
+                cast(dict[str, Any], vector["input"]).get(name),
+                {"type": "signed-int64"},
+                language_bundle,
+            )
+            for vector in vectors
+            for name in ("minimum", "maximum")
+        )
+    if operation == "not-equal":
+        if coverage.get(operation) != "both-outcomes":
+            return False
+        return outcomes == {False, True} and all(
+            _value_matches_contract(
+                cast(dict[str, Any], vector["input"]).get(name),
+                {"type": "canonical-value"},
+                language_bundle,
+            )
+            for vector in vectors
+            for name in ("actual", "expected")
+        )
     return False
 
 

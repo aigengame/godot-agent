@@ -226,8 +226,15 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             "usage_codes": list(descriptor.usage_codes),
         },
         "artifact_behavior": "atomic-artifact-set"
-        if descriptor.artifact_sink
+        if descriptor.artifact_sink or descriptor.artifact_set
         else "stdout-only",
+        "artifact_set": [
+            {
+                "logical_name": member.logical_name,
+                "artifact_kind": member.artifact_kind,
+            }
+            for member in descriptor.artifact_set
+        ],
     }
 
 
@@ -326,6 +333,18 @@ def surface_manifest_success_schema() -> dict[str, object]:
             "schema": command_schema,
             "execution": execution,
             "artifact_behavior": {"enum": ["stdout-only", "atomic-artifact-set"]},
+            "artifact_set": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "logical_name": {"type": "string", "minLength": 1},
+                        "artifact_kind": {"type": "string", "minLength": 1},
+                    },
+                    "required": ["logical_name", "artifact_kind"],
+                    "unevaluatedProperties": False,
+                },
+            },
         },
         "required": [
             "group",
@@ -335,6 +354,7 @@ def surface_manifest_success_schema() -> dict[str, object]:
             "schema",
             "execution",
             "artifact_behavior",
+            "artifact_set",
         ],
         "unevaluatedProperties": False,
     }
@@ -384,8 +404,17 @@ def surface_manifest(
                     "usage_codes": list(descriptor.usage_codes),
                 },
                 "artifact_behavior": (
-                    "atomic-artifact-set" if descriptor.artifact_sink else "stdout-only"
+                    "atomic-artifact-set"
+                    if descriptor.artifact_sink or descriptor.artifact_set
+                    else "stdout-only"
                 ),
+                "artifact_set": [
+                    {
+                        "logical_name": member.logical_name,
+                        "artifact_kind": member.artifact_kind,
+                    }
+                    for member in descriptor.artifact_set
+                ],
             }
         )
     rows.sort(

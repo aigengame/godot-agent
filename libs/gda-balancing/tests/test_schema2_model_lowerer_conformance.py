@@ -1,0 +1,1432 @@
+"""Independent lowerer/consumer conformance for the #539 Model tracer."""
+
+import hashlib
+import json
+from copy import deepcopy
+from pathlib import Path
+from typing import Any, cast
+
+import gda_balancing.schema2.model as model_module
+import jsonschema
+from gda_balancing.schema2.bootstrap import admit_authorities
+from gda_balancing.schema2.authority import load_authorities
+from gda_balancing.schema2.diagnostics import Schema2RefusalReport
+from gda_balancing.schema2.model import (
+    CheckedModel,
+    admit_resolved_model,
+    check_model_source,
+    lower_checked_model,
+)
+
+
+def _reference_validate_canonical(value: Any) -> None:
+    if value is None or isinstance(value, (bool, str)):
+        if isinstance(value, str):
+            value.encode("utf-8")
+        return
+    if isinstance(value, int):
+        if not -(2**63) <= value <= 2**63 - 1:
+            raise ValueError("integer is outside signed Int64")
+        return
+    if isinstance(value, list):
+        for item in value:
+            _reference_validate_canonical(item)
+        return
+    if isinstance(value, dict):
+        if not all(isinstance(key, str) for key in value):
+            raise TypeError("canonical object keys must be strings")
+        for item in value.values():
+            _reference_validate_canonical(item)
+        return
+    raise TypeError("value is outside the canonical JSON profile")
+
+
+def _reference_encoded(value: Any) -> bytes:
+    _reference_validate_canonical(value)
+    return (
+        json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        + "\n"
+    ).encode()
+
+
+def _reference_content_identity(domain: str, value: Any) -> str:
+    return (
+        "sha256:"
+        + hashlib.sha256(
+            f"gda-balancing:{domain}:".encode() + _reference_encoded(value)
+        ).hexdigest()
+    )
+
+
+def _symbol(name: str, role: str) -> dict[str, Any]:
+    return {
+        "symbol": name,
+        "type": "quantity",
+        "role": role,
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain": {"minimum": 0, "maximum": 100},
+        "numeric_policy": "exact-int64",
+    }
+
+
+def _source(symbols: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "schema_version": "2.0.0",
+        "manifest": {
+            "id": "example.quantity-model",
+            "version": "1.0.0",
+            "entry_module": "main",
+        },
+        "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+        "modules": [
+            {
+                "id": "main",
+                "imports": [
+                    {
+                        "alias": "quantity",
+                        "package": "core.quantity",
+                        "version": "2.0.0",
+                        "symbol": "Quantity",
+                    }
+                ],
+                "symbols": symbols,
+            }
+        ],
+    }
+
+
+def _write_source(path: Path, source: dict[str, Any]) -> None:
+    path.write_text(json.dumps(source), encoding="utf-8")
+
+
+def _reference_select(root: Any, selector: list[str]) -> list[Any]:
+    values = [root]
+    for segment in selector:
+        selected: list[Any] = []
+        for value in values:
+            if segment == "*" and isinstance(value, list):
+                selected.extend(value)
+            elif isinstance(value, dict) and segment in value:
+                selected.append(value[segment])
+        values = selected
+    return values
+
+
+def _reference_path(root: Any, dotted: str) -> list[Any]:
+    values = [root]
+    for segment in dotted.split("."):
+        selected: list[Any] = []
+        for value in values:
+            candidates = value if isinstance(value, list) else [value]
+            for candidate in candidates:
+                if not isinstance(candidate, dict) or segment not in candidate:
+                    continue
+                child = candidate[segment]
+                selected.extend(child if isinstance(child, list) else [child])
+        values = selected
+    return values
+
+
+def _exact_path(root: Any, dotted: str) -> Any:
+    value = root
+    for segment in dotted.split("."):
+        value = value[segment]
+    return value
+
+
+def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
+    for package in language_bundle["language"]["packages"]:
+        for entry in package["semantic_closure"]:
+            entry["definitions"] = deepcopy(
+                _exact_path(language_bundle, entry["authority_path"])
+            )
+        package["semantic_identity"] = _reference_content_identity(
+            "domain-package-semantic-closure-v2",
+            package["semantic_closure"],
+        )
+        package["content_identity"] = _reference_content_identity(
+            "domain-package-release-v2",
+            {key: value for key, value in package.items() if key != "content_identity"},
+        )
+    language_bundle["content_identity"] = _reference_content_identity(
+        "language-definition-bundle-v2",
+        {
+            key: value
+            for key, value in language_bundle.items()
+            if key != "content_identity"
+        },
+    )
+
+
+def _reference_reason_matches(
+    language_bundle: dict[str, Any], reason: dict[str, Any], values: list[Any]
+) -> bool:
+    predicate = reason["predicate"]
+    operation = predicate["operation"]
+    if operation == "not-member":
+        inventory = _reference_path(
+            language_bundle, cast(str, predicate["inventory_path"])
+        )
+        member_field = predicate.get("member_field")
+        if member_field is not None:
+            inventory = [
+                item[member_field]
+                for item in inventory
+                if isinstance(item, dict) and member_field in item
+            ]
+        return any(value not in inventory for value in values)
+    if operation == "has-duplicate":
+        encoded = [
+            _reference_content_identity("reference-scalar", value) for value in values
+        ]
+        return len(encoded) != len(set(encoded))
+    if operation == "greater-than":
+        limit = _reference_path(language_bundle, cast(str, predicate["limit_path"]))
+        assert len(limit) == 1 and isinstance(limit[0], int)
+        return len(values) > limit[0]
+    if operation == "invalid-interval":
+        return any(
+            isinstance(value, dict)
+            and isinstance(value.get("minimum"), int)
+            and isinstance(value.get("maximum"), int)
+            and value["minimum"] > value["maximum"]
+            for value in values
+        )
+    if operation == "not-equal":
+        return len(values) == 2 and values[0] != values[1]
+    raise AssertionError(
+        f"reference consumer observed unknown reason operation: {operation}"
+    )
+
+
+def _reference_check_source(
+    source: dict[str, Any],
+    kernel: dict[str, Any],
+    language_bundle: dict[str, Any],
+) -> tuple[str, ...] | CheckedModel:
+    """Independently interpret the admitted source schema and model-check relation."""
+    language = language_bundle["language"]
+    source_schema = next(
+        item["schema"]
+        for item in language["wire_schemas"]
+        if item["artifact_kind"] == "model-source-package"
+    )
+    schema_errors = sorted(
+        jsonschema.Draft202012Validator(source_schema).iter_errors(source),
+        key=lambda item: tuple(str(part) for part in item.absolute_path),
+    )
+    reasons = {item["id"]: item for item in language["reasons"]}
+    if schema_errors:
+        path = tuple(str(part) for part in schema_errors[0].absolute_path)
+        for check in language["model_checks"]:
+            selector = tuple(check["selector"])
+            if len(selector) == len(path) and all(
+                expected == "*" or expected == actual
+                for expected, actual in zip(selector, path, strict=True)
+            ):
+                return (reasons[check["reason"]]["diagnostic"],)
+        source_contract_reasons = [
+            item
+            for item in reasons.values()
+            if item["stage"] == "static"
+            and item["predicate"]["operation"] == "not-equal"
+        ]
+        assert len(source_contract_reasons) == 1
+        return (source_contract_reasons[0]["diagnostic"],)
+
+    diagnostics = []
+    for check in language["model_checks"]:
+        values = _reference_select(source, check["selector"])
+        reason = reasons[check["reason"]]
+        if _reference_reason_matches(language_bundle, reason, values):
+            diagnostics.append(reason["diagnostic"])
+    if diagnostics:
+        return tuple(dict.fromkeys(diagnostics))
+
+    lowering = language["model_lowerings"][0]
+    profile = next(
+        item
+        for item in language["resolution_profiles"]
+        if item["id"] == lowering["resolution_profile"]
+    )
+    return CheckedModel(
+        source=source,
+        source_identity=_reference_content_identity(
+            profile["source_identity_domain"], source
+        ),
+        kernel=kernel,
+        language_bundle=language_bundle,
+    )
+
+
+def _renamed_reason_authorities(
+    reason_id: str, diagnostic: str
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    kernel, candidate_ldb = deepcopy(load_authorities())
+    language = candidate_ldb["language"]
+    renamed_reason = f"{reason_id}.renamed"
+    renamed_diagnostic = f"{diagnostic}.renamed"
+    reason = next(item for item in language["reasons"] if item["id"] == reason_id)
+    reason["id"] = renamed_reason
+    reason["diagnostic"] = renamed_diagnostic
+    for check in language["model_checks"]:
+        if check["reason"] == reason_id:
+            check["reason"] = renamed_reason
+    next(item for item in candidate_ldb["diagnostics"] if item["code"] == diagnostic)[
+        "code"
+    ] = renamed_diagnostic
+    for vector in candidate_ldb["vectors"]:
+        if vector.get("reason") == reason_id:
+            vector["reason"] = renamed_reason
+            vector["diagnostic"] = renamed_diagnostic
+        expect = vector.get("expect")
+        if isinstance(expect, dict) and isinstance(expect.get("diagnostics"), list):
+            for item in expect["diagnostics"]:
+                if isinstance(item, dict) and item.get("code") == diagnostic:
+                    item["code"] = renamed_diagnostic
+    for package in language["packages"]:
+        package["exports"]["reasons"] = [
+            renamed_reason if item == reason_id else item
+            for item in package["exports"]["reasons"]
+        ]
+        package["exports"]["diagnostics"] = [
+            renamed_diagnostic if item == diagnostic else item
+            for item in package["exports"]["diagnostics"]
+        ]
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted
+    return kernel, candidate_ldb, renamed_diagnostic
+
+
+def _reference_apply(
+    language: dict[str, Any],
+    invocation: dict[str, str],
+    fact: dict[str, Any],
+) -> dict[str, Any]:
+    """Independent index-and-render implementation of Kernel rule mechanics."""
+    index: dict[str, dict[str, Any]] = {}
+    for rule in language["rules"]:
+        if rule["id"] in index:
+            raise AssertionError("reference lowerer observed ambiguous rules")
+        index[rule["id"]] = rule
+    rule = index[invocation["rule"]]
+    assert rule["phase"] == invocation["phase"]
+    assert rule["judgment"] == invocation["judgment"]
+    assert [item["fact_kind"] for item in rule["premises"]] == [fact["kind"]]
+    environment = {
+        variable: fact["fields"][source_field]
+        for variable, source_field in rule["premises"][0]["bind"].items()
+    }
+
+    def render(term: dict[str, Any]) -> Any:
+        return term["value"] if term["tag"] == "literal" else environment[term["name"]]
+
+    return {
+        "kind": rule["conclusion"]["fact_kind"],
+        "fields": {
+            name: render(term) for name, term in rule["conclusion"]["fields"].items()
+        },
+    }
+
+
+def _reference_resolved_symbols(checked: CheckedModel) -> list[dict[str, Any]]:
+    language = checked.language_bundle["language"]
+    lowering = language["model_lowerings"][0]
+    profile = next(
+        item
+        for item in language["resolution_profiles"]
+        if item["id"] == lowering["resolution_profile"]
+    )
+    requirements = {
+        (
+            item[profile["requirement_package_member"]],
+            item[profile["requirement_version_member"]],
+        )
+        for item in checked.source[profile["requirements_member"]]
+    }
+    packages = {(item["id"], item["version"]): item for item in language["packages"]}
+    selected_symbols = _reference_select(checked.source, lowering["source_selector"])
+    selected_symbol_ids = {id(item) for item in selected_symbols}
+    resolved_symbol_ids: set[int] = set()
+    model_id = checked.source
+    for part in profile["manifest_id_path"].split("."):
+        model_id = model_id[part]
+    rows = []
+    for module in checked.source[profile["modules_member"]]:
+        imports = {
+            item[profile["import_alias_member"]]: item
+            for item in module[profile["imports_member"]]
+        }
+        for symbol in module[profile["symbols_member"]]:
+            if id(symbol) not in selected_symbol_ids:
+                continue
+            resolved_symbol_ids.add(id(symbol))
+            imported = imports[symbol[profile["symbol_type_member"]]]
+            package_key = (
+                imported[profile["import_package_member"]],
+                imported[profile["import_version_member"]],
+            )
+            assert package_key in requirements
+            package = packages[package_key]
+            assert imported[profile["import_symbol_member"]] in {
+                item["id"] for item in package["exports"]["types"]
+            }
+            fields = {
+                name: value
+                for name, value in symbol.items()
+                if name
+                not in {
+                    profile["symbol_name_member"],
+                    profile["symbol_type_member"],
+                }
+            }
+            fields[profile["symbol_fact_member"]] = symbol[
+                profile["symbol_name_member"]
+            ]
+            fields["resolved_symbol"] = {
+                "model": model_id,
+                "module": module[profile["module_id_member"]],
+                "name": symbol[profile["symbol_name_member"]],
+            }
+            fields["type_identity"] = {
+                "package": package_key[0],
+                "version": package_key[1],
+                "symbol": imported[profile["import_symbol_member"]],
+            }
+            rows.append(fields)
+    assert resolved_symbol_ids == selected_symbol_ids
+    return sorted(
+        rows,
+        key=lambda item: (
+            item["resolved_symbol"]["model"],
+            item["resolved_symbol"]["module"],
+            item["resolved_symbol"]["name"],
+        ),
+    )
+
+
+def _reference_artifact(
+    checked: CheckedModel, artifact_kind: str, payload: dict[str, Any]
+) -> dict[str, Any]:
+    language = checked.language_bundle["language"]
+    contract = next(
+        item
+        for item in language["artifact_contracts"]
+        if item["artifact_kind"] == artifact_kind
+    )
+    schema = next(
+        item["schema"]
+        for item in language["artifact_wire_schemas"]
+        if item["artifact_kind"] == contract["schema_kind"]
+    )
+    wire_identity = _reference_content_identity(
+        contract["wire_schema_identity_domain"],
+        {key: value for key, value in schema.items() if key != "$id"},
+    )
+    body = {
+        "artifact_kind": artifact_kind,
+        "artifact_version": "2.0.0",
+        "wire_schema_identity": wire_identity,
+        **payload,
+    }
+    artifact = {
+        **body,
+        "content_identity": _reference_content_identity(
+            contract["identity_domain"], body
+        ),
+    }
+    jsonschema.Draft202012Validator(schema).validate(artifact)
+    return artifact
+
+
+def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
+    language = checked.language_bundle["language"]
+    lowering = language["model_lowerings"][0]
+    profile = next(
+        item
+        for item in language["resolution_profiles"]
+        if item["id"] == lowering["resolution_profile"]
+    )
+    available = {(item["id"], item["version"]): item for item in language["packages"]}
+    requirements = sorted(
+        [
+            {
+                "id": item[profile["requirement_package_member"]],
+                "version": item[profile["requirement_version_member"]],
+            }
+            for item in checked.source[profile["requirements_member"]]
+        ],
+        key=lambda item: (item["id"], item["version"]),
+    )
+    selected: dict[str, dict[str, Any]] = {}
+    pending = list(requirements)
+    dependency_edges = []
+    while pending:
+        requirement = pending.pop(0)
+        package = available[(requirement["id"], requirement["version"])]
+        previous = selected.get(package["id"])
+        if previous is not None:
+            assert previous["content_identity"] == package["content_identity"]
+            continue
+        selected[package["id"]] = package
+        for dependency_id in sorted(package["dependencies"]["required"]):
+            candidates = [
+                candidate
+                for (candidate_id, _), candidate in available.items()
+                if candidate_id == dependency_id
+            ]
+            assert len(candidates) == 1
+            dependency = candidates[0]
+            dependency_edges.append(
+                {
+                    "from_package": package["id"],
+                    "kind": "required",
+                    "to_package": dependency["id"],
+                }
+            )
+            pending.append({"id": dependency["id"], "version": dependency["version"]})
+    selected_packages = [selected[name] for name in sorted(selected)]
+
+    def definitions(package: dict[str, Any], authority_path: str) -> list[Any]:
+        matches = [
+            entry["definitions"]
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == authority_path
+        ]
+        assert len(matches) == 1 and isinstance(matches[0], list)
+        return matches[0]
+
+    providers: dict[str, str] = {}
+    for package in selected_packages:
+        for capability in package["capabilities"]["provided"]:
+            assert capability not in providers
+            providers[capability] = package["id"]
+    for package in selected_packages:
+        assert all(
+            capability in providers
+            for capability in package["capabilities"]["required"]
+        )
+
+    def exported(collection: str) -> list[dict[str, Any]]:
+        rows = []
+        for package in selected_packages:
+            by_id = {
+                item["id"]: item
+                for item in definitions(package, f"language.{collection}")
+            }
+            rows.extend(
+                {
+                    "definition": by_id[identity],
+                    "package": package["id"],
+                }
+                for identity in package["exports"][collection]
+            )
+        return sorted(rows, key=lambda item: item["definition"]["id"])
+
+    numeric_definitions = {
+        item["id"]: item
+        for package in selected_packages
+        for item in definitions(package, "language.quantity.numeric_policies")
+    }
+    runtime_definitions = {
+        item["id"]: item
+        for package in selected_packages
+        for item in definitions(package, "language.runtime_profiles")
+    }
+    numeric_profiles = sorted(
+        {
+            profile_id
+            for package in selected_packages
+            for profile_id in package["profiles"]["numeric"]
+        }
+    )
+    runtime_profiles = sorted(
+        {
+            profile_id
+            for package in selected_packages
+            for profile_id in package["profiles"]["runtime"]
+        }
+    )
+    diagnostics = sorted(
+        {
+            code
+            for package in selected_packages
+            for code in package["exports"]["diagnostics"]
+        }
+    )
+    diagnostic_reasons = sorted(
+        [
+            reason
+            for package in selected_packages
+            for reason in definitions(package, "language.reasons")
+            if reason["diagnostic"] in diagnostics
+        ],
+        key=lambda item: item["id"],
+    )
+    dependency_edges.sort(key=lambda item: (item["from_package"], item["to_package"]))
+    types = sorted(
+        [
+            {**exported_type, "package": package["id"]}
+            for package in selected_packages
+            for exported_type in package["exports"]["types"]
+        ],
+        key=lambda item: item["id"],
+    )
+    return _reference_artifact(
+        checked,
+        "package-lock",
+        {
+            "resolution_profile": profile,
+            "root_requirements": requirements,
+            "packages": [
+                {
+                    "id": package["id"],
+                    "version": package["version"],
+                    "content_identity": package["content_identity"],
+                }
+                for package in selected_packages
+            ],
+            "dependency_edges": dependency_edges,
+            "capability_bindings": [
+                {
+                    "capability": capability,
+                    "provider_package": providers[capability],
+                }
+                for capability in sorted(providers)
+            ],
+            "types": types,
+            "components": exported("components"),
+            "conversions": exported("conversions"),
+            "operations": exported("operations"),
+            "numeric_profiles": [
+                numeric_definitions[name] for name in numeric_profiles
+            ],
+            "runtime_profiles": [
+                runtime_definitions[name] for name in runtime_profiles
+            ],
+            "diagnostics": diagnostics,
+            "diagnostic_reasons": diagnostic_reasons,
+            "language_rules": sorted(
+                {
+                    rule
+                    for package in selected_packages
+                    for rule in package["exports"]["language_rules"]
+                }
+            ),
+        },
+    )
+
+
+def _reference_rir(
+    checked: CheckedModel, lock: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    language = checked.language_bundle["language"]
+    lowering = language["model_lowerings"][0]
+    if lock is None:
+        lock = _reference_package_lock(checked)
+    declarations = []
+    for symbol in _reference_resolved_symbols(checked):
+        fact = {"kind": lowering["initial_fact_kind"], "fields": symbol}
+        for invocation in lowering["rule_chain"]:
+            fact = _reference_apply(language, invocation, fact)
+        declarations.append(fact["fields"])
+    return _reference_artifact(
+        checked,
+        "rir-semantic-payload",
+        {
+            lowering["output_member"]: declarations,
+            "operation_projections": lock["operations"],
+        },
+    )
+
+
+def _reference_pointer(parts: list[object]) -> str:
+    return "".join(
+        "/" + str(part).replace("~", "~0").replace("/", "~1") for part in parts
+    )
+
+
+def _reference_debug_map(checked: CheckedModel, rir: dict[str, Any]) -> dict[str, Any]:
+    language = checked.language_bundle["language"]
+    lowering = language["model_lowerings"][0]
+    profile = next(
+        item
+        for item in language["resolution_profiles"]
+        if item["id"] == lowering["resolution_profile"]
+    )
+    modules_member = profile["modules_member"]
+    symbols_member = profile["symbols_member"]
+    module_id_member = profile["module_id_member"]
+    symbol_name_member = profile["symbol_name_member"]
+    model_id = _exact_path(checked.source, profile["manifest_id_path"])
+    pointers = {
+        (
+            model_id,
+            module[module_id_member],
+            symbol[symbol_name_member],
+        ): [modules_member, module_index, symbols_member, symbol_index]
+        for module_index, module in enumerate(checked.source[modules_member])
+        for symbol_index, symbol in enumerate(module[symbols_member])
+    }
+    declarations = rir[lowering["output_member"]]
+    return _reference_artifact(
+        checked,
+        "debug-map",
+        {
+            "source_identity": checked.source_identity,
+            "rir_identity": rir["content_identity"],
+            "entries": [
+                {
+                    "rir_pointer": _reference_pointer(
+                        [lowering["output_member"], index]
+                    ),
+                    "source_pointer": _reference_pointer(
+                        pointers[
+                            (
+                                declaration["resolved_symbol"]["model"],
+                                declaration["resolved_symbol"]["module"],
+                                declaration["resolved_symbol"]["name"],
+                            )
+                        ]
+                    ),
+                }
+                for index, declaration in enumerate(declarations)
+            ],
+        },
+    )
+
+
+def _reference_semantic_artifacts(
+    checked: CheckedModel,
+) -> dict[str, dict[str, Any]]:
+    lock = _reference_package_lock(checked)
+    rir = _reference_rir(checked, lock)
+    resolved = _reference_artifact(
+        checked,
+        "resolved-model",
+        {
+            "kernel_identity": checked.kernel["content_identity"],
+            "language_bundle_identity": checked.language_bundle["content_identity"],
+            "package_lock_identity": lock["content_identity"],
+            "rir_identity": rir["content_identity"],
+        },
+    )
+    return {
+        "package-lock": lock,
+        "rir-semantic-payload": rir,
+        "resolved-model": resolved,
+        "debug-map": _reference_debug_map(checked, rir),
+    }
+
+
+def _reference_admits_semantic_artifacts(
+    candidate: dict[str, dict[str, Any]], checked: CheckedModel
+) -> bool:
+    expected = _reference_semantic_artifacts(checked)
+    return all(
+        candidate[name] == expected[name]
+        for name in (
+            "package-lock",
+            "rir-semantic-payload",
+            "resolved-model",
+        )
+    )
+
+
+def _materialize_vector_source(
+    vector: dict[str, Any], language_bundle: dict[str, Any]
+) -> dict[str, Any]:
+    fixture = vector["source_fixture"]
+    source = deepcopy(fixture["source"])
+    if fixture["mode"] == "literal":
+        return source
+    count = _exact_path(language_bundle, fixture["count_resource_path"])
+    count += fixture["count_offset"]
+    target: Any = source
+    for segment in fixture["collection_path"]:
+        target = target[int(segment)] if isinstance(target, list) else target[segment]
+    assert isinstance(target, list) and not target
+    for index in range(count):
+        item = deepcopy(fixture["template"])
+        item[fixture["index_member"]] = fixture["index_prefix"] + str(index).zfill(
+            fixture["index_width"]
+        )
+        target.append(item)
+    return source
+
+
+def _reference_materialize_vector_source(
+    vector: dict[str, Any], language_bundle: dict[str, Any]
+) -> dict[str, Any]:
+    fixture = vector["source_fixture"]
+    if fixture["mode"] == "literal":
+        return json.loads(json.dumps(fixture["source"]))
+    source = json.loads(json.dumps(fixture["source"]))
+    count_values = _reference_path(language_bundle, fixture["count_resource_path"])
+    assert len(count_values) == 1
+    count = count_values[0] + fixture["count_offset"]
+
+    def descend(value: Any, segments: list[str]) -> Any:
+        if not segments:
+            return value
+        segment = segments[0]
+        child = value[int(segment)] if isinstance(value, list) else value[segment]
+        return descend(child, segments[1:])
+
+    collection = descend(source, fixture["collection_path"])
+    assert isinstance(collection, list) and collection == []
+    template = fixture["template"]
+    for index in range(count):
+        item = {key: deepcopy(value) for key, value in template.items()}
+        digits = str(index)
+        padding = "0" * max(0, fixture["index_width"] - len(digits))
+        item[fixture["index_member"]] = fixture["index_prefix"] + padding + digits
+        collection.append(item)
+    return source
+
+
+def _lock_oracle(lock: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "resolution_profile": lock["resolution_profile"]["id"],
+        "root_requirements": lock["root_requirements"],
+        "packages": [
+            {"id": item["id"], "version": item["version"]} for item in lock["packages"]
+        ],
+        "dependency_edges": lock["dependency_edges"],
+        "capability_bindings": lock["capability_bindings"],
+        "types": lock["types"],
+        "components": [item["definition"]["id"] for item in lock["components"]],
+        "conversions": [item["definition"]["id"] for item in lock["conversions"]],
+        "operations": [item["definition"]["id"] for item in lock["operations"]],
+        "numeric_profiles": [item["id"] for item in lock["numeric_profiles"]],
+        "runtime_profiles": [item["id"] for item in lock["runtime_profiles"]],
+        "diagnostics": lock["diagnostics"],
+        "diagnostic_reasons": [item["id"] for item in lock["diagnostic_reasons"]],
+        "language_rules": lock["language_rules"],
+    }
+
+
+def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path):
+    kernel, language_bundle = load_authorities()
+    vectors = [item for item in language_bundle["vectors"] if "category" in item]
+    package = language_bundle["language"]["packages"][0]
+    closure_vectors = next(
+        entry["definitions"]
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "vectors"
+    )
+    assert {item["category"] for item in vectors} == {
+        "positive",
+        "negative",
+        "boundary",
+        "mutation",
+        "semantic-equivalence",
+    }
+    assert {item["id"] for item in vectors} <= set(package["vectors"])
+    assert vectors == [item for item in closure_vectors if "category" in item]
+
+    results: dict[str, dict[str, Any] | None] = {}
+    diagnostic_stages = {
+        item["code"]: item["stage"] for item in language_bundle["diagnostics"]
+    }
+    output_member = language_bundle["language"]["model_lowerings"][0]["output_member"]
+    for index, vector in enumerate(vectors):
+        source = _materialize_vector_source(vector, language_bundle)
+        reference_source = _reference_materialize_vector_source(vector, language_bundle)
+        assert source == reference_source
+        path = tmp_path / f"{index}-{vector['id']}.json"
+        _write_source(path, source)
+
+        production_checked = check_model_source(str(path))
+        reference_checked = _reference_check_source(
+            reference_source, kernel, language_bundle
+        )
+        expected = vector["expect"]
+        if expected["outcome"] == "refused":
+            assert isinstance(production_checked, Schema2RefusalReport)
+            assert isinstance(reference_checked, tuple)
+            production_diagnostics = [
+                {"code": item.code, "stage": production_checked.stage}
+                for item in production_checked.diagnostics
+            ]
+            reference_diagnostics = [
+                {"code": code, "stage": diagnostic_stages[code]}
+                for code in reference_checked
+            ]
+            assert production_diagnostics == reference_diagnostics
+            assert production_diagnostics == expected["diagnostics"]
+            assert expected["semantic_artifacts"] is False
+            results[vector["id"]] = None
+            continue
+
+        assert isinstance(production_checked, CheckedModel)
+        assert isinstance(reference_checked, CheckedModel)
+        production = lower_checked_model(production_checked)
+        reference = _reference_semantic_artifacts(reference_checked)
+        assert all(
+            production[name] == reference[name]
+            for name in (
+                "package-lock",
+                "rir-semantic-payload",
+                "resolved-model",
+                "debug-map",
+            )
+        )
+        assert _reference_admits_semantic_artifacts(production, reference_checked)
+        assert admit_resolved_model(
+            {
+                name: reference[name]
+                for name in (
+                    "package-lock",
+                    "rir-semantic-payload",
+                    "resolved-model",
+                )
+            }
+        ).admitted
+        assert _lock_oracle(production["package-lock"]) == expected["lock_oracle"]
+        assert (
+            production["rir-semantic-payload"]["content_identity"]
+            == expected["rir_identity"]
+        )
+        assert (
+            production["debug-map"]["content_identity"]
+            == expected["debug_map_identity"]
+        )
+        declarations = cast(
+            list[Any], production["rir-semantic-payload"][output_member]
+        )
+        assert len(declarations) == expected["declaration_count"]
+        results[vector["id"]] = production
+
+    for vector in vectors:
+        relation = vector["expect"]["relation"]
+        if relation["kind"] == "independent":
+            continue
+        current = results[vector["id"]]
+        reference = results[relation["reference"]]
+        assert current is not None and reference is not None
+        if relation["kind"] == "semantic-change":
+            assert (
+                current["rir-semantic-payload"]["content_identity"]
+                != reference["rir-semantic-payload"]["content_identity"]
+            )
+        else:
+            assert current["package-lock"] == reference["package-lock"]
+            assert current["rir-semantic-payload"] == reference["rir-semantic-payload"]
+            assert current["debug-map"] != reference["debug-map"]
+
+
+def test_independent_lowerers_mutually_consume_byte_identical_rir(tmp_path):
+    roles = (
+        "constant",
+        "parameter",
+        "input",
+        "state",
+        "derived",
+        "output",
+        "random",
+    )
+    path = tmp_path / "source.json"
+    source = _source([_symbol(role, role) for role in roles])
+    _write_source(path, source)
+    kernel, language_bundle = load_authorities()
+    checked = check_model_source(str(path))
+    reference_checked = _reference_check_source(source, kernel, language_bundle)
+    assert isinstance(checked, CheckedModel)
+    assert isinstance(reference_checked, CheckedModel)
+
+    production = lower_checked_model(checked)
+    reference = _reference_semantic_artifacts(reference_checked)
+
+    assert all(
+        production[name] == reference[name]
+        for name in (
+            "package-lock",
+            "rir-semantic-payload",
+            "resolved-model",
+            "debug-map",
+        )
+    )
+    assert _reference_admits_semantic_artifacts(production, reference_checked)
+    assert admit_resolved_model(
+        {
+            name: reference[name]
+            for name in (
+                "package-lock",
+                "rir-semantic-payload",
+                "resolved-model",
+            )
+        }
+    ).admitted
+
+
+def test_model_source_routing_follows_the_selected_ldb_profile_without_host_tokens(
+    tmp_path, monkeypatch
+):
+    def renamed_source(document: dict[str, Any]) -> dict[str, Any]:
+        document = deepcopy(document)
+        manifest = document.pop("manifest")
+        manifest["model_key"] = manifest.pop("id")
+        manifest["start_module"] = manifest.pop("entry_module")
+        document["header"] = manifest
+        document["dependencies"] = [
+            {
+                "package_id": item["id"],
+                "release": item["version"],
+            }
+            for item in document.pop("package_requirements")
+        ]
+        sections = document.pop("modules")
+        for section in sections:
+            section["module_key"] = section.pop("id")
+            uses = section.pop("imports")
+            for use in uses:
+                use["prefix"] = use.pop("alias")
+                use["package_id"] = use.pop("package")
+                use["release"] = use.pop("version")
+                use["export_name"] = use.pop("symbol")
+            section["uses"] = uses
+            declarations = section.pop("symbols")
+            for declaration in declarations:
+                declaration["name"] = declaration.pop("symbol")
+                declaration["type_ref"] = declaration.pop("type")
+            section["declarations"] = declarations
+        document["sections"] = sections
+        return document
+
+    path = tmp_path / "profile-routed-source.json"
+    source = renamed_source(_source([_symbol("health", "state")]))
+    _write_source(path, source)
+    kernel, candidate_ldb = deepcopy(load_authorities())
+    language = candidate_ldb["language"]
+    profile = language["resolution_profiles"][0]
+    old_profile_id = profile["id"]
+    profile["id"] = "renamed-exact-import-resolution-v1"
+    profile["manifest_id_path"] = "header.model_key"
+    profile["manifest_entry_module_path"] = "header.start_module"
+    profile["requirements_member"] = "dependencies"
+    profile["requirement_package_member"] = "package_id"
+    profile["requirement_version_member"] = "release"
+    profile["modules_member"] = "sections"
+    profile["module_id_member"] = "module_key"
+    profile["imports_member"] = "uses"
+    profile["import_alias_member"] = "prefix"
+    profile["import_package_member"] = "package_id"
+    profile["import_version_member"] = "release"
+    profile["import_symbol_member"] = "export_name"
+    profile["symbols_member"] = "declarations"
+    profile["symbol_name_member"] = "name"
+    profile["symbol_type_member"] = "type_ref"
+    profile["symbol_fact_member"] = "symbol"
+    lowering = language["model_lowerings"][0]
+    lowering["resolution_profile"] = profile["id"]
+    lowering["source_selector"] = ["sections", "*", "declarations", "*"]
+    selector_renames = {
+        "modules": "sections",
+        "symbols": "declarations",
+        "symbol": "name",
+    }
+    for check in language["model_checks"]:
+        check["selector"] = [
+            selector_renames.get(item, item) for item in check["selector"]
+        ]
+    source_schema = next(
+        item["schema"]
+        for item in language["wire_schemas"]
+        if item["artifact_kind"] == "model-source-package"
+    )
+    source_schema["properties"]["header"] = source_schema["properties"].pop("manifest")
+    source_schema["required"] = [
+        "header" if item == "manifest" else item for item in source_schema["required"]
+    ]
+    header_schema = source_schema["properties"]["header"]
+    header_schema["properties"]["model_key"] = header_schema["properties"].pop("id")
+    header_schema["properties"]["start_module"] = header_schema["properties"].pop(
+        "entry_module"
+    )
+    header_schema["required"] = [
+        {"id": "model_key", "entry_module": "start_module"}.get(item, item)
+        for item in header_schema["required"]
+    ]
+    source_schema["properties"]["dependencies"] = source_schema["properties"].pop(
+        "package_requirements"
+    )
+    source_schema["required"] = [
+        "dependencies" if item == "package_requirements" else item
+        for item in source_schema["required"]
+    ]
+    requirement_schema = source_schema["properties"]["dependencies"]["items"]
+    requirement_schema["properties"]["package_id"] = requirement_schema[
+        "properties"
+    ].pop("id")
+    requirement_schema["properties"]["release"] = requirement_schema["properties"].pop(
+        "version"
+    )
+    requirement_schema["required"] = ["package_id", "release"]
+    source_schema["properties"]["sections"] = source_schema["properties"].pop("modules")
+    source_schema["required"] = [
+        "sections" if item == "modules" else item for item in source_schema["required"]
+    ]
+    section_schema = source_schema["properties"]["sections"]["items"]
+    section_schema["properties"]["module_key"] = section_schema["properties"].pop("id")
+    section_schema["properties"]["uses"] = section_schema["properties"].pop("imports")
+    section_schema["properties"]["declarations"] = section_schema["properties"].pop(
+        "symbols"
+    )
+    section_schema["required"] = [
+        {
+            "id": "module_key",
+            "imports": "uses",
+            "symbols": "declarations",
+        }.get(item, item)
+        for item in section_schema["required"]
+    ]
+    use_schema = section_schema["properties"]["uses"]["items"]
+    for old, new in (
+        ("alias", "prefix"),
+        ("package", "package_id"),
+        ("version", "release"),
+        ("symbol", "export_name"),
+    ):
+        use_schema["properties"][new] = use_schema["properties"].pop(old)
+    use_schema["required"] = [
+        {
+            "alias": "prefix",
+            "package": "package_id",
+            "version": "release",
+            "symbol": "export_name",
+        }.get(item, item)
+        for item in use_schema["required"]
+    ]
+    declaration_schema = section_schema["properties"]["declarations"]["items"]
+    declaration_schema["properties"]["name"] = declaration_schema["properties"].pop(
+        "symbol"
+    )
+    declaration_schema["properties"]["type_ref"] = declaration_schema["properties"].pop(
+        "type"
+    )
+    declaration_schema["required"] = [
+        {"symbol": "name", "type": "type_ref"}.get(item, item)
+        for item in declaration_schema["required"]
+    ]
+    for vector in candidate_ldb["vectors"]:
+        fixture = vector.get("source_fixture")
+        if not isinstance(fixture, dict):
+            continue
+        fixture["source"] = renamed_source(fixture["source"])
+        if fixture["mode"] == "indexed-repeat":
+            fixture["collection_path"] = [
+                selector_renames.get(item, item) for item in fixture["collection_path"]
+            ]
+            fixture["index_member"] = "name"
+            fixture["template"]["name"] = fixture["template"].pop("symbol")
+            fixture["template"]["type_ref"] = fixture["template"].pop("type")
+        expect = vector["expect"]
+        if expect["outcome"] == "admitted":
+            assert expect["lock_oracle"]["resolution_profile"] == old_profile_id
+            expect["lock_oracle"]["resolution_profile"] = profile["id"]
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted
+    monkeypatch.setattr(
+        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
+    )
+    checked = check_model_source(str(path))
+    reference_checked = _reference_check_source(source, kernel, candidate_ldb)
+    assert isinstance(checked, CheckedModel)
+    assert isinstance(reference_checked, CheckedModel)
+
+    production = lower_checked_model(checked)
+    reference = _reference_semantic_artifacts(reference_checked)
+
+    assert all(
+        production[name] == reference[name]
+        for name in (
+            "package-lock",
+            "rir-semantic-payload",
+            "resolved-model",
+            "debug-map",
+        )
+    )
+    declarations = cast(
+        list[dict[str, Any]],
+        production["rir-semantic-payload"]["declarations"],
+    )
+    declaration = declarations[0]
+    assert declaration["symbol"] == "health"
+    assert "name" not in declaration
+
+
+def test_rir_output_member_follows_the_ldb_lowering_and_wire_schema(tmp_path):
+    path = tmp_path / "renamed-rir-output.json"
+    source = _source([_symbol("health", "state")])
+    _write_source(path, source)
+    kernel, candidate_ldb = deepcopy(load_authorities())
+    language = candidate_ldb["language"]
+    lowering = language["model_lowerings"][0]
+    lowering["output_member"] = "items"
+    rir_schema = next(
+        item["schema"]
+        for item in language["artifact_wire_schemas"]
+        if item["artifact_kind"] == "rir-semantic-payload"
+    )
+    rir_schema["properties"]["items"] = rir_schema["properties"].pop("declarations")
+    rir_schema["required"] = [
+        "items" if item == "declarations" else item for item in rir_schema["required"]
+    ]
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted
+    profile = language["resolution_profiles"][0]
+    checked = CheckedModel(
+        source=source,
+        source_identity=_reference_content_identity(
+            profile["source_identity_domain"], source
+        ),
+        kernel=kernel,
+        language_bundle=candidate_ldb,
+    )
+
+    production = lower_checked_model(checked)["rir-semantic-payload"]
+    reference = _reference_rir(checked)
+
+    assert production == reference
+    assert "items" in production
+    assert "declarations" not in production
+
+
+def test_schema_error_mapping_uses_the_complete_ldb_selector_path():
+    schema = {
+        "type": "object",
+        "properties": {
+            "metadata": {
+                "type": "object",
+                "properties": {"unit": {"type": "string"}},
+            }
+        },
+    }
+    error = next(
+        jsonschema.Draft202012Validator(schema).iter_errors({"metadata": {"unit": 7}})
+    )
+    _, language_bundle = load_authorities()
+
+    code = model_module._schema_error_code(error, language_bundle)
+
+    assert code == "language.source_contract_mismatch"
+
+
+def test_resolver_implementation_identity_is_receipt_only(tmp_path):
+    path = tmp_path / "receipt-only-resolver.json"
+    _write_source(path, _source([_symbol("health", "state")]))
+    checked = check_model_source(str(path))
+    assert isinstance(checked, CheckedModel)
+
+    artifacts = lower_checked_model(checked)
+
+    resolution_profile = cast(
+        dict[str, Any], artifacts["package-lock"]["resolution_profile"]
+    )
+    assert "resolver_identity" not in resolution_profile
+    assert (
+        artifacts["resolution-receipt"]["resolver"]
+        == "gda-balancing.python-exact-resolver-v1"
+    )
+
+
+def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_changes(
+    tmp_path,
+):
+    path = tmp_path / "renamed-authority.json"
+    _write_source(path, _source([_symbol("health", "state")]))
+    checked = check_model_source(str(path))
+    assert isinstance(checked, CheckedModel)
+    candidate_ldb = deepcopy(checked.language_bundle)
+    language = candidate_ldb["language"]
+    renames: dict[str, str] = {}
+    invocation_tokens: dict[str, tuple[str, str]] = {}
+    for rule in language["rules"]:
+        old_id = rule["id"]
+        new_id = f"{old_id}.renamed"
+        renames[old_id] = new_id
+        rule["id"] = new_id
+        rule["judgment"] = f"{rule['judgment']}.renamed"
+        invocation_tokens[new_id] = (rule["phase"], rule["judgment"])
+    for capability in language["capabilities"]:
+        capability["rule"] = renames[capability["rule"]]
+    for lowering in language["model_lowerings"]:
+        for invocation in lowering["rule_chain"]:
+            invocation["rule"] = renames[invocation["rule"]]
+            phase, judgment = invocation_tokens[invocation["rule"]]
+            invocation["phase"] = phase
+            invocation["judgment"] = judgment
+    for operation in language["operations"]:
+        operation["rule"] = renames[operation["rule"]]
+    for package in language["packages"]:
+        package["exports"]["language_rules"] = [
+            renames[rule_id] for rule_id in package["exports"]["language_rules"]
+        ]
+    for vector in candidate_ldb["vectors"]:
+        if "rule" not in vector:
+            continue
+        vector["rule"] = renames[vector["rule"]]
+        phase, judgment = invocation_tokens[vector["rule"]]
+        vector["input"]["phase"] = phase
+        vector["input"]["judgment"] = judgment
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(checked.kernel, candidate_ldb).admitted
+    candidate = CheckedModel(
+        source=checked.source,
+        source_identity=checked.source_identity,
+        kernel=checked.kernel,
+        language_bundle=candidate_ldb,
+    )
+
+    production = lower_checked_model(candidate)["rir-semantic-payload"]
+    reference = _reference_rir(candidate)
+
+    assert production == reference
+    operation_projections = cast(
+        list[dict[str, Any]], production["operation_projections"]
+    )
+    assert {item["definition"]["rule"] for item in operation_projections} == {
+        "quantity.lower.renamed"
+    }
+
+
+def test_independent_frontends_follow_a_renamed_model_check_reason_without_host_changes(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "renamed-check-reason.json"
+    source = _source([_symbol("same", "state"), _symbol("same", "output")])
+    _write_source(path, source)
+    old_reason = "quantity.reason.duplicate-symbol"
+    old_diagnostic = "language.duplicate_symbol"
+    kernel, candidate_ldb, new_diagnostic = _renamed_reason_authorities(
+        old_reason, old_diagnostic
+    )
+    monkeypatch.setattr(
+        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
+    )
+
+    production = check_model_source(str(path))
+    reference = _reference_check_source(source, kernel, candidate_ldb)
+
+    assert isinstance(production, Schema2RefusalReport)
+    assert isinstance(reference, tuple)
+    assert (
+        tuple(item.code for item in production.diagnostics)
+        == reference
+        == (new_diagnostic,)
+    )
+
+
+def test_frontend_failure_boundaries_follow_renamed_ldb_diagnostics_without_host_changes(
+    tmp_path, monkeypatch
+):
+    cases = (
+        (
+            "model.reason.source-too-large",
+            "language.source_too_large",
+            b" " * (1024 * 1024 + 1),
+        ),
+        (
+            "model.reason.source-parse-failure",
+            "language.source_parse_failure",
+            b'{"schema_version":"2.0.0",',
+        ),
+        (
+            "model.reason.source-contract-mismatch",
+            "language.source_contract_mismatch",
+            json.dumps(
+                {
+                    **_source([_symbol("health", "state")]),
+                    "modules": [
+                        {
+                            **_source([_symbol("health", "state")])["modules"][0],
+                            "symbols": [
+                                {
+                                    **_symbol("health", "state"),
+                                    "role": "host-defined-role",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ).encode(),
+        ),
+    )
+    for index, (reason_id, diagnostic, data) in enumerate(cases):
+        kernel, candidate_ldb, renamed = _renamed_reason_authorities(
+            reason_id, diagnostic
+        )
+        monkeypatch.setattr(
+            model_module, "load_authorities", lambda: (kernel, candidate_ldb)
+        )
+        path = tmp_path / f"failure-{index}.json"
+        path.write_bytes(data)
+
+        result = check_model_source(str(path))
+
+        assert isinstance(result, Schema2RefusalReport)
+        assert result.diagnostics[0].code == renamed
+
+
+def test_resolved_admission_follows_a_renamed_ldb_diagnostic_without_host_changes(
+    monkeypatch,
+):
+    kernel, candidate_ldb, renamed = _renamed_reason_authorities(
+        "model.reason.resolved-authority-mismatch",
+        "language.resolved_authority_mismatch",
+    )
+    source = _source([_symbol("health", "state")])
+    profile = candidate_ldb["language"]["resolution_profiles"][0]
+    checked = CheckedModel(
+        source=source,
+        source_identity=_reference_content_identity(
+            profile["source_identity_domain"], source
+        ),
+        kernel=kernel,
+        language_bundle=candidate_ldb,
+    )
+    artifacts = lower_checked_model(checked)
+    semantic_artifacts: dict[str, dict[str, Any]] = {
+        name: deepcopy(artifacts[name])
+        for name in (
+            "package-lock",
+            "rir-semantic-payload",
+            "resolved-model",
+        )
+    }
+    rir = semantic_artifacts["rir-semantic-payload"]
+    cast(list[dict[str, Any]], rir["declarations"])[0]["role"] = "host-defined-role"
+    semantic_artifacts["rir-semantic-payload"]["content_identity"] = (
+        _reference_content_identity(
+            "rir-semantic-payload-v2",
+            {
+                key: value
+                for key, value in semantic_artifacts["rir-semantic-payload"].items()
+                if key != "content_identity"
+            },
+        )
+    )
+    semantic_artifacts["resolved-model"]["rir_identity"] = semantic_artifacts[
+        "rir-semantic-payload"
+    ]["content_identity"]
+    semantic_artifacts["resolved-model"]["content_identity"] = (
+        _reference_content_identity(
+            "resolved-model-v2",
+            {
+                key: value
+                for key, value in semantic_artifacts["resolved-model"].items()
+                if key != "content_identity"
+            },
+        )
+    )
+    monkeypatch.setattr(
+        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
+    )
+
+    result = admit_resolved_model(semantic_artifacts)
+
+    assert result.admitted is False
+    assert result.diagnostics == (renamed,)

@@ -34,6 +34,15 @@ class UnreadableInputError(Exception):
     """
 
 
+class UsageError(Exception):
+    """A handler-side failure of a descriptor-declared CLI usage contract."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
 # Exit codes (bADR-0008). Channel follows meaning: exits 0-2 write stdout;
 # exits 3/4 keep stdout empty and write exactly one envelope to stderr.
 EXIT_SUCCESS = 0
@@ -52,6 +61,7 @@ USAGE_CODES = frozenset(
         "invalid_argument",
         "unreadable_input",
         "unwritable_output",
+        "invocation_key_conflict",
     }
 )
 

@@ -38,6 +38,7 @@ from gda_balancing.envelope import (
     EXIT_USAGE,
     RefusalReport,
     UnreadableInputError,
+    UsageError,
     internal_envelope,
     refusal_envelope,
     usage_envelope,
@@ -53,16 +54,11 @@ _DEBUG_FLAG = "--debug"
 _OUT_FLAG = "--out"
 
 
-class _UsageError(Exception):
+class _UsageError(UsageError):
     """Dispatch-internal control flow for the invocation surface.
 
     The dispatch tail maps it to the `usage` envelope / exit 3.
     """
-
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
 
 
 def dispatch(
@@ -81,7 +77,7 @@ def dispatch(
     """
     try:
         return _dispatch(list(argv), stdout, registry, stdin)
-    except _UsageError as err:
+    except UsageError as err:
         stderr.write(canonical_json(usage_envelope(err.code, err.message)))
         return EXIT_USAGE
     except UnreadableInputError as err:
@@ -177,7 +173,7 @@ def _dispatch(
 
     try:
         return _invoke_descriptor(descriptor, tail, stdout, stdin)
-    except _UsageError as err:
+    except UsageError as err:
         if descriptor.schema_major == 2 and err.code not in descriptor.usage_codes:
             raise TypeError(
                 "dispatch produced a Schema 2.x usage outcome absent from its descriptor"
@@ -274,9 +270,7 @@ def _bind(
             i += 1
             continue
         name, eq, inline_value = token.partition("=")
-        if name == _OUT_FLAG:
-            if not descriptor.artifact_sink:
-                raise _UsageError("unknown_argument", f"unknown argument: {name}")
+        if name == _OUT_FLAG and descriptor.artifact_sink:
             if out is not None:
                 raise _UsageError(
                     "argument_conflict", f"argument named more than once: {name}"

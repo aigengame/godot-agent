@@ -76,6 +76,18 @@ class ConformanceFixtures:
 
 
 @dataclass(frozen=True)
+class ArtifactSetMemberSpec:
+    """One descriptor-owned logical member of a Schema 2.x artifact set."""
+
+    logical_name: str
+    artifact_kind: str
+
+    def __post_init__(self) -> None:
+        if not self.logical_name or not self.artifact_kind:
+            raise ValueError("artifact-set member names and kinds must be non-empty")
+
+
+@dataclass(frozen=True)
 class CommandDescriptor:
     """Everything the surface needs to run, describe, and test one command."""
 
@@ -104,6 +116,10 @@ class CommandDescriptor:
     # `RootModel[<Body> | ArtifactReceipt]`, so the dispatch tail can construct
     # the receipt as the declared output type.
     artifact_sink: bool = field(default=False)
+    # A Schema 2.x multi-artifact producer owns publication in its handler and
+    # returns the committed set receipt. This is distinct from the legacy 1.x
+    # single-file ``artifact_sink`` dispatch tail.
+    artifact_set: tuple[ArtifactSetMemberSpec, ...] = field(default=())
     # The current registry temporarily contains historical 1.x commands while
     # Schema 2.0 lands in vertical slices.  Only descriptors marked ``2`` are
     # projected into the 2.x Surface manifest.
@@ -130,6 +146,17 @@ class CommandDescriptor:
             )
         if self.structured_params and self.schema_major != 2:
             raise ValueError("structured params are a Schema 2.x descriptor contract")
+        if self.artifact_set and self.schema_major != 2:
+            raise ValueError("artifact sets are a Schema 2.x descriptor contract")
+        if self.artifact_set and self.artifact_sink:
+            raise ValueError(
+                "one descriptor cannot use both artifact publication paths"
+            )
+        if self.artifact_set:
+            names = [member.logical_name for member in self.artifact_set]
+            kinds = [member.artifact_kind for member in self.artifact_set]
+            if len(names) != len(set(names)) or len(kinds) != len(set(kinds)):
+                raise ValueError("artifact-set logical names and kinds must be unique")
         if self.schema_major != 2 and (self.refusal_catalog or self.usage_codes):
             raise ValueError("Schema 2.x error contracts require schema_major=2")
         if len(self.refusal_catalog) != len(set(self.refusal_catalog)):
