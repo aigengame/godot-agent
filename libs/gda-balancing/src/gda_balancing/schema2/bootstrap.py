@@ -36,7 +36,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:0ba2c4aa09693a127e4e076c03e1547004a1ed85b4f6536d39b5bfd7a624d6b0"
+    "sha256:f7292a80ae07b695d0caec14432352f24584c3cd405fd79b11661cfac958109a"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -838,8 +838,8 @@ def _reference_contracts_close(
             owner_key_member = contract["owner_key_member"]
             target_key_member = contract["target_key_member"]
             if (
-                not owners
-                or not targets
+                not _path_is_declared(authorities, contract["owners"])
+                or not _path_is_declared(authorities, contract["targets"])
                 or not isinstance(equal_members, list)
                 or not equal_members
                 or not all(
@@ -880,8 +880,8 @@ def _reference_contracts_close(
         target_key_member = contract["target_key_member"]
         target_value_member = contract["target_value_member"]
         if (
-            not owners
-            or not targets
+            not _path_is_declared(authorities, contract["owners"])
+            or not _path_is_declared(authorities, contract["targets"])
             or not all(
                 isinstance(name, str) and name
                 for name in (
@@ -942,10 +942,8 @@ def _reference_contracts_close(
             return False
         owners = _path_values(authorities, contract.get("owners"))
         targets = contract.get("targets")
-        if (
-            not _path_is_declared(authorities, contract.get("owners"))
-            or not owners
-            or not isinstance(targets, dict)
+        if not _path_is_declared(authorities, contract.get("owners")) or not isinstance(
+            targets, dict
         ):
             return False
         for owner in owners:
@@ -1157,14 +1155,14 @@ def _definition_is_closed(
     )
 
 
-def _fact_contract_path_is_declared(fields: dict[str, Any], path: Any) -> bool:
+def _fact_contract_at_path(fields: dict[str, Any], path: Any) -> dict[str, Any] | None:
     if (
         not isinstance(path, list)
         or not path
         or not all(isinstance(segment, str) and segment for segment in path)
         or path[0] not in fields
     ):
-        return False
+        return None
     contract = fields[path[0]]
     for segment in path[1:]:
         if (
@@ -1173,9 +1171,13 @@ def _fact_contract_path_is_declared(fields: dict[str, Any], path: Any) -> bool:
             or not isinstance(contract.get("field_types"), dict)
             or segment not in contract["field_types"]
         ):
-            return False
+            return None
         contract = contract["field_types"][segment]
-    return True
+    return contract if isinstance(contract, dict) else None
+
+
+def _fact_contract_path_is_declared(fields: dict[str, Any], path: Any) -> bool:
+    return _fact_contract_at_path(fields, path) is not None
 
 
 def _resolution_judgment_is_closed(contract: Any) -> bool:
@@ -1567,10 +1569,18 @@ def _contract_value_kind(contract: Any) -> str | None:
     if not isinstance(contract, dict):
         return None
     value_type = contract.get("type")
-    if value_type in {"non-empty-string", "string"}:
+    if value_type in {"inventory-member", "non-empty-string", "string"}:
         return "string"
-    if value_type in {"list", "string-list"}:
+    if value_type in {"list", "list-of", "string-list"}:
         return "array"
+    if value_type in {"closed-int64-interval", "closed-object"} or (
+        "required_members" in contract and "field_types" in contract
+    ):
+        return "object"
+    if value_type in {"positive-signed-int64", "signed-int64"}:
+        return "integer"
+    if value_type == "boolean":
+        return "boolean"
     if "const" in contract:
         return _canonical_value_kind(contract["const"])
     return None
@@ -1864,11 +1874,112 @@ def _relation_recipes_are_closed(
     )
 
 
+def _semantic_element_contract(
+    authority_path: str, language_definitions: dict[str, Any]
+) -> dict[str, Any] | None:
+    parts = authority_path.split(".")
+    if len(parts) == 2 and parts[0] == "language":
+        collections = language_definitions.get("collections")
+        contract = collections.get(parts[1]) if isinstance(collections, dict) else None
+    elif len(parts) == 3 and parts[:2] == ["language", "quantity"]:
+        quantity = language_definitions.get("quantity")
+        collections = (
+            quantity.get("collections") if isinstance(quantity, dict) else None
+        )
+        contract = collections.get(parts[2]) if isinstance(collections, dict) else None
+    else:
+        return None
+    if not isinstance(contract, dict):
+        return None
+    item_type = contract.get("item_type")
+    return {"type": item_type} if isinstance(item_type, str) else contract
+
+
+def _definition_contract_at_path(
+    contract: dict[str, Any], path: list[str]
+) -> dict[str, Any] | None:
+    selected = contract
+    for segment in path:
+        field_types = selected.get("field_types")
+        if not isinstance(field_types, dict):
+            return None
+        child = field_types.get(segment)
+        if not isinstance(child, dict):
+            return None
+        selected = child
+    return selected
+
+
+def _contract_assignable_to_schema(contract: dict[str, Any], schema: Any) -> bool:
+    if not isinstance(schema, dict):
+        return False
+    if "const" in contract:
+        value = contract["const"]
+        if "const" in schema and schema["const"] != value:
+            return False
+        if isinstance(schema.get("enum"), list) and value not in schema["enum"]:
+            return False
+        expected = _canonical_value_kind(value)
+        actual = schema.get("type")
+        return actual is None or actual == expected
+    value_type = contract.get("type")
+    if value_type in {"inventory-member", "non-empty-string", "string"}:
+        return schema.get("type") == "string"
+    if value_type in {"positive-signed-int64", "signed-int64"}:
+        return schema.get("type") == "integer"
+    if value_type == "boolean":
+        return schema.get("type") == "boolean"
+    if value_type == "string-list":
+        return (
+            schema.get("type") == "array"
+            and isinstance(schema.get("items"), dict)
+            and schema["items"].get("type") == "string"
+        )
+    if value_type == "list-of":
+        item = contract.get("items")
+        return (
+            schema.get("type") == "array"
+            and isinstance(item, dict)
+            and _contract_assignable_to_schema(item, schema.get("items"))
+        )
+    is_object = value_type == "closed-object" or (
+        value_type is None
+        and isinstance(contract.get("required_members"), list)
+        and isinstance(contract.get("field_types"), dict)
+    )
+    if is_object:
+        required = contract.get("required_members")
+        fields = contract.get("field_types")
+        properties = schema.get("properties")
+        schema_required = schema.get("required")
+        return (
+            schema.get("type") == "object"
+            and isinstance(required, list)
+            and isinstance(fields, dict)
+            and isinstance(properties, dict)
+            and isinstance(schema_required, list)
+            and set(required) == set(fields)
+            and set(fields) == set(properties)
+            and set(schema_required) == set(required)
+            and schema.get("unevaluatedProperties") is False
+            and all(
+                _contract_assignable_to_schema(fields[name], properties[name])
+                for name in fields
+            )
+        )
+    return False
+
+
+def _schema_items_match(source: Any, target: Any) -> bool:
+    return isinstance(source, dict) and isinstance(target, dict) and source == target
+
+
 def _runtime_projection_is_closed(
     profile: Any,
     contract: Any,
     language_bundle: dict[str, Any],
     declaration_fields: dict[str, Any],
+    language_definitions: dict[str, Any],
 ) -> bool:
     if (
         not isinstance(profile, dict)
@@ -1886,6 +1997,8 @@ def _runtime_projection_is_closed(
             "seed",
             "edge",
             "path_typing",
+            "output_typing",
+            "resource_accounting",
         }
         or contract.get("closed") is not True
     ):
@@ -1941,8 +2054,37 @@ def _runtime_projection_is_closed(
         != {
             "declaration": "terminal-fact-contract",
             "lock": "package-lock-wire-schema",
-            "semantic_closure": "package-semantic-closure-values",
+            "semantic_closure": "kernel-language-definition-contract",
             "empty_path": "identity",
+        }
+        or contract.get("output_typing")
+        != {
+            "source": "collection-element-contract",
+            "target": "rir-selected-semantics-member-schema",
+            "shape_transforms": {
+                "as-is": "identity",
+                "definition": "identity",
+                "package-definition": "package-and-definition-object",
+                "closure-only": "no-output",
+            },
+        }
+        or contract.get("resource_accounting")
+        != {
+            "limit_member": "max_runtime_projection_steps",
+            "counter_scope": "per-runtime-projection",
+            "charged_events": [
+                "catalog-row",
+                "seed-candidate",
+                "edge-source",
+                "edge-target",
+                "collection-output-row",
+                "explicit-output-row",
+            ],
+            "exhaustion_reason": {
+                "stage": "static",
+                "operation": "greater-than",
+                "limit_path": "resources.max_runtime_projection_steps",
+            },
         }
     ):
         return False
@@ -2119,6 +2261,9 @@ def _runtime_projection_is_closed(
     required_outputs = (
         selected_schema.get("required") if isinstance(selected_schema, dict) else None
     )
+    selected_properties = (
+        selected_schema.get("properties") if isinstance(selected_schema, dict) else None
+    )
     packages = language.get("packages") if isinstance(language, dict) else None
     lock_schemas = [
         item.get("schema")
@@ -2128,6 +2273,7 @@ def _runtime_projection_is_closed(
     if not (
         isinstance(required_outputs, list)
         and set(output_members) == set(required_outputs)
+        and isinstance(selected_properties, dict)
         and isinstance(packages, list)
         and all(
             authority_paths
@@ -2198,30 +2344,20 @@ def _runtime_projection_is_closed(
                 member_schema["items"],
             )
         else:
-            definitions: Any = language_bundle
-            for segment in source["authority_path"].split("."):
-                if not isinstance(definitions, dict) or segment not in definitions:
-                    return False
-                definitions = definitions[segment]
-            if not isinstance(definitions, list) or not definitions:
+            element_contract = _semantic_element_contract(
+                source["authority_path"], language_definitions
+            )
+            if element_contract is None:
                 return False
-            collection_shapes[collection["id"]] = ("values", definitions)
+            collection_shapes[collection["id"]] = ("contract", element_contract)
 
     def projected_kind(shape: tuple[str, Any], path: list[str]) -> str | None:
         representation, payload = shape
         if representation == "schema":
             selected = _json_schema_path(payload, path)
             return _schema_value_kind(selected)
-        values = payload
-        for segment in path:
-            selected_values = []
-            for value in values:
-                if not isinstance(value, dict) or segment not in value:
-                    return None
-                selected_values.append(value[segment])
-            values = selected_values
-        kinds = {_canonical_value_kind(value) for value in values}
-        return kinds.pop() if len(kinds) == 1 else None
+        selected = _definition_contract_at_path(payload, path)
+        return _contract_value_kind(selected)
 
     for seed in seeds:
         declaration_kind = contract_kind(fact_contract(seed["declaration_path"]))
@@ -2247,12 +2383,50 @@ def _runtime_projection_is_closed(
         )
         if source_kind is None or source_kind != target_kind:
             return False
+    for collection in collections:
+        output_member = collection["output_member"]
+        if output_member is None:
+            continue
+        target = selected_properties.get(output_member)
+        if (
+            not isinstance(target, dict)
+            or target.get("type") != "array"
+            or not isinstance(target.get("items"), dict)
+        ):
+            return False
+        representation, payload = collection_shapes[collection["id"]]
+        shape = collection["output_shape"]
+        if representation == "schema":
+            if shape != "as-is" or not _schema_items_match(payload, target["items"]):
+                return False
+        elif shape == "definition":
+            if not _contract_assignable_to_schema(payload, target["items"]):
+                return False
+        elif shape == "package-definition":
+            target_item = target["items"]
+            properties = target_item.get("properties")
+            if not (
+                target_item.get("type") == "object"
+                and isinstance(properties, dict)
+                and set(properties) == {"package", "definition"}
+                and set(target_item.get("required", [])) == {"package", "definition"}
+                and target_item.get("unevaluatedProperties") is False
+                and properties["package"].get("type") == "string"
+                and _contract_assignable_to_schema(payload, properties["definition"])
+            ):
+                return False
+        else:
+            return False
     for output in outputs:
         source_schema = lock_properties.get(output["source_member"])
+        target_schema = selected_properties.get(output["output_member"])
         if (
             not isinstance(source_schema, dict)
             or source_schema.get("type") != "array"
             or not isinstance(source_schema.get("items"), dict)
+            or not isinstance(target_schema, dict)
+            or target_schema.get("type") != "array"
+            or not isinstance(target_schema.get("items"), dict)
             or _schema_value_kind(
                 _json_schema_path(
                     source_schema["items"],
@@ -2267,6 +2441,23 @@ def _runtime_projection_is_closed(
             for member in output["members"]
         ):
             return False
+        if output["kind"] == "selected-packages":
+            source_properties = source_schema["items"].get("properties")
+            target_item = target_schema["items"]
+            target_properties = target_item.get("properties")
+            members = set(output["members"])
+            if not (
+                isinstance(source_properties, dict)
+                and isinstance(target_properties, dict)
+                and set(target_properties) == members
+                and set(target_item.get("required", [])) == members
+                and target_item.get("unevaluatedProperties") is False
+                and all(
+                    source_properties[member] == target_properties[member]
+                    for member in members
+                )
+            ):
+                return False
         if output["kind"] == "selected-semantic-closures":
             entries = _json_schema_path(
                 source_schema["items"],
@@ -2288,6 +2479,23 @@ def _runtime_projection_is_closed(
                     [output["definitions_member"]],
                 )
                 is None
+            ):
+                return False
+            source_item = source_schema["items"]
+            source_properties = source_item.get("properties")
+            target_item = target_schema["items"]
+            target_properties = target_item.get("properties")
+            projected = {output["package_member"], output["entries_member"]}
+            if not (
+                isinstance(source_properties, dict)
+                and isinstance(target_properties, dict)
+                and set(target_properties) == projected
+                and set(target_item.get("required", [])) == projected
+                and target_item.get("unevaluatedProperties") is False
+                and all(
+                    source_properties[member] == target_properties[member]
+                    for member in projected
+                )
             ):
                 return False
     return True
@@ -2414,6 +2622,27 @@ def _language_definitions_are_closed(
         and item["predicate"].get("limit_path") == exhaustion_reason.get("limit_path")
     ]
     runtime_projection_contract = meta_format.get("runtime_projection")
+    runtime_accounting = (
+        runtime_projection_contract.get("resource_accounting")
+        if isinstance(runtime_projection_contract, dict)
+        else None
+    )
+    runtime_exhaustion_reason = (
+        runtime_accounting.get("exhaustion_reason")
+        if isinstance(runtime_accounting, dict)
+        else None
+    )
+    runtime_resource_reasons = [
+        item
+        for item in cast(list[dict[str, Any]], language.get("reasons", []))
+        if isinstance(runtime_exhaustion_reason, dict)
+        and item.get("stage") == runtime_exhaustion_reason.get("stage")
+        and isinstance(item.get("predicate"), dict)
+        and item["predicate"].get("operation")
+        == runtime_exhaustion_reason.get("operation")
+        and item["predicate"].get("limit_path")
+        == runtime_exhaustion_reason.get("limit_path")
+    ]
     if (
         len(profiles_by_id) != len(profiles)
         or not isinstance(resolution_contract, dict)
@@ -2422,6 +2651,7 @@ def _language_definitions_are_closed(
         or not operation_specs
         or len(operations_by_id) != len(operation_specs)
         or len(resource_reasons) != 1
+        or len(runtime_resource_reasons) != 1
         or len([profile for profile in profiles if profile.get("default") is True]) != 1
     ):
         return False
@@ -2482,6 +2712,7 @@ def _language_definitions_are_closed(
             runtime_projection_contract,
             language_bundle,
             fields,
+            cast(dict[str, Any], meta_format["language_definitions"]),
         ):
             return False
         for equality in equalities:
@@ -2491,6 +2722,18 @@ def _language_definitions_are_closed(
                 not _fact_contract_path_is_declared(fields, left)
                 or not _fact_contract_path_is_declared(fields, right)
                 or left == right
+            ):
+                return False
+            left_contract = _fact_contract_at_path(fields, left)
+            right_contract = _fact_contract_at_path(fields, right)
+            left_kind = _contract_value_kind(left_contract)
+            right_kind = _contract_value_kind(right_contract)
+            if (
+                left_kind is None
+                or left_kind != right_kind
+                or (
+                    left_kind in {"array", "object"} and left_contract != right_contract
+                )
             ):
                 return False
             pairs.append((tuple(left), tuple(right)))

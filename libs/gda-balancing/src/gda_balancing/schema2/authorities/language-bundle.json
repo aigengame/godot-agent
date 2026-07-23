@@ -1,7 +1,7 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:0ee7a5f4156434c422c86a4616d284cd529ed072d2e46eedfb3435af4e9e967f",
+  "content_identity": "sha256:62d749915bdac27115ac2c7557fae066f201115db503121df23d75e987ba6c7b",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
@@ -18,7 +18,7 @@
     {"code": "language.source_parse_failure", "stage": "parse"},
     {"code": "language.source_too_large", "stage": "ingress"}
   ],
-  "kernel_identity": "sha256:0ba2c4aa09693a127e4e076c03e1547004a1ed85b4f6536d39b5bfd7a624d6b0",
+  "kernel_identity": "sha256:f7292a80ae07b695d0caec14432352f24584c3cd405fd79b11661cfac958109a",
   "language": {
     "artifact_contracts": [
       {"artifact_kind": "artifact-set-manifest", "identity_domain": "artifact-set-manifest-v2", "schema_kind": "artifact-set-manifest", "wire_schema_identity_domain": "artifact-set-manifest-wire-schema-v2", "identity_excluded_members": []},
@@ -154,7 +154,7 @@
       {
         "artifact_kind": "domain-package-release",
         "capabilities": {"provided": ["quantity.declare", "quantity.lower"], "required": []},
-        "content_identity": "sha256:f5257127c7ce6c8c3a4aa6788d1408de3515559aebae3f62ec6738be29cc8d3b",
+        "content_identity": "sha256:bfbd3e228fde85773b8804e7c632cca4f2771bc896aa4a54ab59efed52c99a58",
         "dependencies": {"optional": [], "required": []},
         "exports": {
           "components": ["quantity.symbol"],
@@ -173,6 +173,7 @@
             "model.reason.resolution-binding-mismatch",
             "model.reason.resolution-resource-exhausted",
             "model.reason.resolved-authority-mismatch",
+            "model.reason.runtime-projection-resource-exhausted",
             "model.reason.source-contract-mismatch",
             "model.reason.source-parse-failure",
             "model.reason.source-too-large",
@@ -285,6 +286,7 @@
               {"diagnostic": "language.resolution_binding_mismatch", "id": "model.reason.resolution-binding-mismatch", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
               {"diagnostic": "language.resource_exhausted", "id": "model.reason.resolution-resource-exhausted", "predicate": {"limit_path": "resources.max_rule_match_steps", "operation": "greater-than"}, "stage": "static"},
               {"diagnostic": "language.resolved_authority_mismatch", "id": "model.reason.resolved-authority-mismatch", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
+              {"diagnostic": "language.resource_exhausted", "id": "model.reason.runtime-projection-resource-exhausted", "predicate": {"limit_path": "resources.max_runtime_projection_steps", "operation": "greater-than"}, "stage": "static"},
               {"diagnostic": "language.source_contract_mismatch", "id": "model.reason.source-contract-mismatch", "predicate": {"operation": "not-equal"}, "stage": "static"},
               {"diagnostic": "language.source_parse_failure", "id": "model.reason.source-parse-failure", "predicate": {"operation": "not-equal"}, "stage": "parse"},
               {"diagnostic": "language.source_too_large", "id": "model.reason.source-too-large", "predicate": {"operation": "greater-than", "limit_path": "resources.max_source_bytes"}, "stage": "ingress"},
@@ -465,6 +467,7 @@
           "model.accept.resolution-binding",
           "model.accept.resolution-step-boundary",
           "model.accept.resolved-authority",
+          "model.accept.runtime-projection-step-boundary",
           "model.accept.source-contract",
           "model.accept.source-parse",
           "model.accept.source-size",
@@ -482,6 +485,7 @@
           "model.refuse.resolution-binding",
           "model.refuse.resolution-step-budget",
           "model.refuse.resolved-authority",
+          "model.refuse.runtime-projection-step-budget",
           "model.refuse.source-contract",
           "model.refuse.source-parse",
           "model.refuse.source-size",
@@ -507,6 +511,7 @@
           {"diagnostic": "language.resolution_binding_mismatch", "id": "model.accept.resolution-binding", "input": {"actual": "bound", "expected": "bound"}, "matched": false, "reason": "model.reason.resolution-binding-mismatch", "stage": "resolution"},
           {"diagnostic": "language.resource_exhausted", "id": "model.accept.resolution-step-boundary", "input": {"value": 65536}, "matched": false, "reason": "model.reason.resolution-resource-exhausted", "stage": "static"},
           {"diagnostic": "language.resolved_authority_mismatch", "id": "model.accept.resolved-authority", "input": {"actual": "admitted", "expected": "admitted"}, "matched": false, "reason": "model.reason.resolved-authority-mismatch", "stage": "resolution"},
+          {"diagnostic": "language.resource_exhausted", "id": "model.accept.runtime-projection-step-boundary", "input": {"value": 65536}, "matched": false, "reason": "model.reason.runtime-projection-resource-exhausted", "stage": "static"},
           {"diagnostic": "language.source_contract_mismatch", "id": "model.accept.source-contract", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "model.reason.source-contract-mismatch", "stage": "static"},
           {"diagnostic": "language.source_parse_failure", "id": "model.accept.source-parse", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "model.reason.source-parse-failure", "stage": "parse"},
           {"diagnostic": "language.source_too_large", "id": "model.accept.source-size", "input": {"value": 1048576}, "matched": false, "reason": "model.reason.source-too-large", "stage": "ingress"},
@@ -537,6 +542,7 @@
                   "model.reason.resolution-binding-mismatch",
                   "model.reason.resolution-resource-exhausted",
                   "model.reason.resolved-authority-mismatch",
+                  "model.reason.runtime-projection-resource-exhausted",
                   "model.reason.source-contract-mismatch",
                   "model.reason.source-parse-failure",
                   "model.reason.source-too-large",
@@ -611,6 +617,7 @@
                   "model.reason.resolution-binding-mismatch",
                   "model.reason.resolution-resource-exhausted",
                   "model.reason.resolved-authority-mismatch",
+                  "model.reason.runtime-projection-resource-exhausted",
                   "model.reason.source-contract-mismatch",
                   "model.reason.source-parse-failure",
                   "model.reason.source-too-large",
@@ -713,6 +720,7 @@
                   "model.reason.resolution-binding-mismatch",
                   "model.reason.resolution-resource-exhausted",
                   "model.reason.resolved-authority-mismatch",
+                  "model.reason.runtime-projection-resource-exhausted",
                   "model.reason.source-contract-mismatch",
                   "model.reason.source-parse-failure",
                   "model.reason.source-too-large",
@@ -781,6 +789,7 @@
                   "model.reason.resolution-binding-mismatch",
                   "model.reason.resolution-resource-exhausted",
                   "model.reason.resolved-authority-mismatch",
+                  "model.reason.runtime-projection-resource-exhausted",
                   "model.reason.source-contract-mismatch",
                   "model.reason.source-parse-failure",
                   "model.reason.source-too-large",
@@ -829,6 +838,7 @@
           {"diagnostic": "language.resolution_binding_mismatch", "id": "model.refuse.resolution-binding", "input": {"actual": "unbound", "expected": "bound"}, "matched": true, "reason": "model.reason.resolution-binding-mismatch", "stage": "resolution"},
           {"diagnostic": "language.resource_exhausted", "id": "model.refuse.resolution-step-budget", "input": {"value": 65537}, "matched": true, "reason": "model.reason.resolution-resource-exhausted", "stage": "static"},
           {"diagnostic": "language.resolved_authority_mismatch", "id": "model.refuse.resolved-authority", "input": {"actual": "mutated", "expected": "admitted"}, "matched": true, "reason": "model.reason.resolved-authority-mismatch", "stage": "resolution"},
+          {"diagnostic": "language.resource_exhausted", "id": "model.refuse.runtime-projection-step-budget", "input": {"value": 65537}, "matched": true, "reason": "model.reason.runtime-projection-resource-exhausted", "stage": "static"},
           {"diagnostic": "language.source_contract_mismatch", "id": "model.refuse.source-contract", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "model.reason.source-contract-mismatch", "stage": "static"},
           {"diagnostic": "language.source_parse_failure", "id": "model.refuse.source-parse", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "model.reason.source-parse-failure", "stage": "parse"},
           {"diagnostic": "language.source_too_large", "id": "model.refuse.source-size", "input": {"value": 1048577}, "matched": true, "reason": "model.reason.source-too-large", "stage": "ingress"},
@@ -867,6 +877,7 @@
       {"diagnostic": "language.resolution_binding_mismatch", "id": "model.reason.resolution-binding-mismatch", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
       {"diagnostic": "language.resource_exhausted", "id": "model.reason.resolution-resource-exhausted", "predicate": {"limit_path": "resources.max_rule_match_steps", "operation": "greater-than"}, "stage": "static"},
       {"diagnostic": "language.resolved_authority_mismatch", "id": "model.reason.resolved-authority-mismatch", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
+      {"diagnostic": "language.resource_exhausted", "id": "model.reason.runtime-projection-resource-exhausted", "predicate": {"limit_path": "resources.max_runtime_projection_steps", "operation": "greater-than"}, "stage": "static"},
       {"diagnostic": "language.source_contract_mismatch", "id": "model.reason.source-contract-mismatch", "predicate": {"operation": "not-equal"}, "stage": "static"},
       {"diagnostic": "language.source_parse_failure", "id": "model.reason.source-parse-failure", "predicate": {"operation": "not-equal"}, "stage": "parse"},
       {"diagnostic": "language.source_too_large", "id": "model.reason.source-too-large", "predicate": {"operation": "greater-than", "limit_path": "resources.max_source_bytes"}, "stage": "ingress"},
@@ -1062,7 +1073,7 @@
       }
     ]
   },
-  "resources": {"max_diagnostics": 1000, "max_rule_match_steps": 65536, "max_source_bytes": 1048576, "max_symbols": 4096},
+  "resources": {"max_diagnostics": 1000, "max_rule_match_steps": 65536, "max_source_bytes": 1048576, "max_symbols": 4096, "max_runtime_projection_steps": 65536},
   "schema_major": 2,
   "vectors": [
     {
@@ -1131,6 +1142,7 @@
             "model.reason.resolution-binding-mismatch",
             "model.reason.resolution-resource-exhausted",
             "model.reason.resolved-authority-mismatch",
+            "model.reason.runtime-projection-resource-exhausted",
             "model.reason.source-contract-mismatch",
             "model.reason.source-parse-failure",
             "model.reason.source-too-large",
@@ -1233,6 +1245,7 @@
             "model.reason.resolution-binding-mismatch",
             "model.reason.resolution-resource-exhausted",
             "model.reason.resolved-authority-mismatch",
+            "model.reason.runtime-projection-resource-exhausted",
             "model.reason.source-contract-mismatch",
             "model.reason.source-parse-failure",
             "model.reason.source-too-large",
@@ -1307,6 +1320,7 @@
             "model.reason.resolution-binding-mismatch",
             "model.reason.resolution-resource-exhausted",
             "model.reason.resolved-authority-mismatch",
+            "model.reason.runtime-projection-resource-exhausted",
             "model.reason.source-contract-mismatch",
             "model.reason.source-parse-failure",
             "model.reason.source-too-large",
@@ -1375,6 +1389,7 @@
             "model.reason.resolution-binding-mismatch",
             "model.reason.resolution-resource-exhausted",
             "model.reason.resolved-authority-mismatch",
+            "model.reason.runtime-projection-resource-exhausted",
             "model.reason.source-contract-mismatch",
             "model.reason.source-parse-failure",
             "model.reason.source-too-large",
@@ -1418,6 +1433,8 @@
       }
     },
     {"diagnostic": "language.resource_exhausted", "id": "model.accept.resolution-step-boundary", "input": {"value": 65536}, "matched": false, "reason": "model.reason.resolution-resource-exhausted", "stage": "static"},
-    {"diagnostic": "language.resource_exhausted", "id": "model.refuse.resolution-step-budget", "input": {"value": 65537}, "matched": true, "reason": "model.reason.resolution-resource-exhausted", "stage": "static"}
+    {"diagnostic": "language.resource_exhausted", "id": "model.refuse.resolution-step-budget", "input": {"value": 65537}, "matched": true, "reason": "model.reason.resolution-resource-exhausted", "stage": "static"},
+    {"diagnostic": "language.resource_exhausted", "id": "model.accept.runtime-projection-step-boundary", "input": {"value": 65536}, "matched": false, "reason": "model.reason.runtime-projection-resource-exhausted", "stage": "static"},
+    {"diagnostic": "language.resource_exhausted", "id": "model.refuse.runtime-projection-step-budget", "input": {"value": 65537}, "matched": true, "reason": "model.reason.runtime-projection-resource-exhausted", "stage": "static"}
   ]
 }

@@ -89,6 +89,21 @@ class _ResolutionBudget:
         self.used += 1
 
 
+class _RuntimeProjectionResourceExhausted(Exception):
+    """The admitted runtime-projection budget was exhausted."""
+
+
+@dataclass
+class _RuntimeProjectionBudget:
+    limit: int
+    used: int = 0
+
+    def consume(self) -> None:
+        if self.used >= self.limit:
+            raise _RuntimeProjectionResourceExhausted
+        self.used += 1
+
+
 def _strict_object(data: bytes) -> dict[str, Any]:
     def reject_number(_value: str) -> Any:
         raise ValueError("non-integer number")
@@ -851,12 +866,35 @@ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
             f"Model Source name resolution failed: {err}",
             ldb,
         )
-    return CheckedModel(
+    checked = CheckedModel(
         source=source,
         source_identity=source_identity,
         kernel=kernel,
         language_bundle=ldb,
     )
+    try:
+        lock, declarations, admitted_lowering, _source_rows = _lowering_inputs(checked)
+        _runtime_projection(
+            lock,
+            declarations,
+            admitted_lowering,
+            _runtime_projection_budget(kernel, ldb),
+        )
+    except _RuntimeProjectionResourceExhausted:
+        resource_reason = _unique_reason(
+            ldb,
+            stage="static",
+            operation="greater-than",
+            limit_path="resources.max_runtime_projection_steps",
+        )
+        return _refusal(
+            cast(str, resource_reason["diagnostic"]),
+            source_identity,
+            "",
+            "Model Source runtime projection exhausted its admitted step budget",
+            ldb,
+        )
+    return checked
 
 
 def _artifact_contract(
@@ -1337,6 +1375,7 @@ def _runtime_projection(
     lock: dict[str, Any],
     declarations: list[dict[str, Any]],
     lowering: dict[str, Any],
+    budget: _RuntimeProjectionBudget,
 ) -> dict[str, Any]:
     """Project only declaration-reachable runtime semantics from a Package Lock."""
     profile = cast(dict[str, Any], lowering["runtime_projection"])
@@ -1360,6 +1399,7 @@ def _runtime_projection(
             if not isinstance(values, list):
                 raise ValueError("runtime projection lock member is not a list")
             for value in values:
+                budget.consume()
                 rows.append(
                     {
                         "package": path_value(value, source["package_path"]),
@@ -1381,6 +1421,7 @@ def _runtime_projection(
                         "runtime projection semantic-closure source is not unique"
                     )
                 for value in cast(list[Any], entries[0]["definitions"]):
+                    budget.consume()
                     rows.append(
                         {
                             "package": closure["package"],
@@ -1409,14 +1450,17 @@ def _runtime_projection(
             matches = [
                 index
                 for index, row in enumerate(catalog)
-                if row["package"] == package
-                and canonical_bytes(
-                    path_value(
-                        row["value"],
-                        cast(list[str], seed["target_path"]),
+                if (
+                    budget.consume() is None
+                    and row["package"] == package
+                    and canonical_bytes(
+                        path_value(
+                            row["value"],
+                            cast(list[str], seed["target_path"]),
+                        )
                     )
+                    == canonical_bytes(expected)
                 )
-                == canonical_bytes(expected)
             ]
             if not matches:
                 raise ValueError("runtime projection seed did not resolve")
@@ -1432,6 +1476,7 @@ def _runtime_projection(
             target_id = cast(str, edge["target_collection"])
             targets = catalogs[target_id]
             for source_index in tuple(selected[source_id]):
+                budget.consume()
                 source_row = catalogs[source_id][source_index]
                 source_value = path_value(
                     source_row["value"], cast(list[str], edge["source_path"])
@@ -1440,8 +1485,11 @@ def _runtime_projection(
                     target_index
                     for target_index, target_row in enumerate(targets)
                     if (
-                        not edge["same_package"]
-                        or target_row["package"] == source_row["package"]
+                        budget.consume() is None
+                        and (
+                            not edge["same_package"]
+                            or target_row["package"] == source_row["package"]
+                        )
                     )
                     and canonical_bytes(
                         path_value(
@@ -1470,7 +1518,7 @@ def _runtime_projection(
         rows = [
             row
             for index, row in enumerate(catalogs[collection_id])
-            if index in selected[collection_id]
+            if budget.consume() is None and index in selected[collection_id]
         ]
         for row in rows:
             authority_path = row["authority_path"]
@@ -1510,12 +1558,16 @@ def _runtime_projection(
                     for member in cast(list[str], output["members"])
                 }
                 for row in source_rows
-                if cast(dict[str, Any], row)[output["package_member"]]
-                in selected_packages
+                if (
+                    budget.consume() is None
+                    and cast(dict[str, Any], row)[output["package_member"]]
+                    in selected_packages
+                )
             ]
         elif kind == "selected-semantic-closures":
             output_values = []
             for closure in cast(list[dict[str, Any]], source_rows):
+                budget.consume()
                 package = cast(str, closure[output["package_member"]])
                 if package not in selected_packages:
                     continue
@@ -1543,6 +1595,17 @@ def _runtime_projection(
             raise ValueError("unknown admitted runtime projection output kind")
         projection[cast(str, output["output_member"])] = output_values
     return projection
+
+
+def _runtime_projection_budget(
+    kernel: dict[str, Any], language_bundle: dict[str, Any]
+) -> _RuntimeProjectionBudget:
+    meta_format = cast(dict[str, Any], kernel["meta_format"])
+    runtime_contract = cast(dict[str, Any], meta_format["runtime_projection"])
+    accounting = cast(dict[str, Any], runtime_contract["resource_accounting"])
+    limit_member = cast(str, accounting["limit_member"])
+    resources = cast(dict[str, Any], language_bundle["resources"])
+    return _RuntimeProjectionBudget(cast(int, resources[limit_member]))
 
 
 def _apply_language_rule(
@@ -1763,8 +1826,14 @@ def admit_resolved_model(
             lock,
             cast(list[dict[str, JsonValue]], declarations),
             lowering,
+            _runtime_projection_budget(kernel, ldb),
         )
-    except (KeyError, TypeError, ValueError):
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        _RuntimeProjectionResourceExhausted,
+    ):
         return ResolvedModelAdmission(False, diagnostic)
     if (
         lock != expected_lock
@@ -1826,17 +1895,17 @@ def admit_resolved_model(
     return ResolvedModelAdmission(True, ())
 
 
-def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]]:
-    """Lower one checked source to the semantic and provenance artifacts."""
-    admission = admit_authorities(checked.kernel, checked.language_bundle)
-    if not admission.admitted:
-        raise ValueError("lowerer received authorities that failed admission")
+def _lowering_inputs(
+    checked: CheckedModel,
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, JsonValue]],
+    dict[str, Any],
+    list[tuple[dict[str, Any], tuple[object, ...]]],
+]:
     lock = _package_lock(checked)
     language = _language(checked.language_bundle)
     lowering = _model_lowering(checked.language_bundle)
-    profile = _resolution_profile(
-        checked.language_bundle, cast(str, lowering["resolution_profile"])
-    )
     source_rows = _resolved_source_symbols(checked.source, checked.language_bundle)
     declarations: list[dict[str, JsonValue]] = []
     for fields, _source_pointer in source_rows:
@@ -1853,6 +1922,18 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
                 facts=[fact],
             )
         declarations.append(cast(dict[str, JsonValue], fact["fields"]))
+    return lock, declarations, lowering, source_rows
+
+
+def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]]:
+    """Lower one checked source to the semantic and provenance artifacts."""
+    admission = admit_authorities(checked.kernel, checked.language_bundle)
+    if not admission.admitted:
+        raise ValueError("lowerer received authorities that failed admission")
+    lock, declarations, lowering, source_rows = _lowering_inputs(checked)
+    profile = _resolution_profile(
+        checked.language_bundle, cast(str, lowering["resolution_profile"])
+    )
     output_member = cast(str, lowering["output_member"])
     rir = _identified_artifact(
         checked.language_bundle,
@@ -1860,7 +1941,13 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         {
             output_member: cast(JsonValue, declarations),
             "selected_semantics": cast(
-                JsonValue, _runtime_projection(lock, declarations, lowering)
+                JsonValue,
+                _runtime_projection(
+                    lock,
+                    declarations,
+                    lowering,
+                    _runtime_projection_budget(checked.kernel, checked.language_bundle),
+                ),
             ),
         },
     )

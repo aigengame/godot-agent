@@ -1882,3 +1882,51 @@ def test_resolution_step_exhaustion_is_a_typed_static_refusal(
     assert [item["code"] for item in error["diagnostics"]] == [
         "language.resource_exhausted"
     ]
+
+
+@pytest.mark.parametrize("command", ("check", "build"))
+def test_runtime_projection_step_exhaustion_is_a_typed_static_refusal(
+    tmp_path, run_cli, monkeypatch, command
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    kernel, candidate_ldb = deepcopy(model_module.load_authorities())
+    candidate_ldb["resources"]["max_runtime_projection_steps"] = 1
+    boundary = next(
+        vector
+        for vector in candidate_ldb["vectors"]
+        if vector["id"] == "model.accept.runtime-projection-step-boundary"
+    )
+    successor = next(
+        vector
+        for vector in candidate_ldb["vectors"]
+        if vector["id"] == "model.refuse.runtime-projection-step-budget"
+    )
+    boundary["input"]["value"] = 1
+    successor["input"]["value"] = 2
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted is True
+    monkeypatch.setattr(
+        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
+    )
+
+    output = tmp_path / "published"
+    arguments = ["model", command, str(source)]
+    if command == "build":
+        arguments.extend(
+            [
+                "--out",
+                str(output),
+                "--invocation-key",
+                "a" * 64,
+            ]
+        )
+    exit_code, stdout, stderr = run_cli(arguments)
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.resource_exhausted"
+    ]
+    assert not output.exists()

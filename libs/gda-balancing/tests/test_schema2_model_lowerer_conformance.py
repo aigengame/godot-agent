@@ -20,6 +20,10 @@ from gda_balancing.schema2.model import (
 )
 
 
+class _ReferenceRuntimeProjectionExhausted(Exception):
+    pass
+
+
 def _reference_validate_canonical(value: Any) -> None:
     if value is None or isinstance(value, (bool, str)):
         if isinstance(value, str):
@@ -438,7 +442,7 @@ def _reference_check_source(
             return (resource_diagnostic,)
         if stage_diagnostics:
             return tuple(dict.fromkeys(stage_diagnostics))
-    return CheckedModel(
+    checked = CheckedModel(
         source=source,
         source_identity=_reference_content_identity(
             profile["source_identity_domain"], source
@@ -446,6 +450,18 @@ def _reference_check_source(
         kernel=kernel,
         language_bundle=language_bundle,
     )
+    try:
+        _reference_semantic_artifacts(checked)
+    except _ReferenceRuntimeProjectionExhausted:
+        runtime_reasons = [
+            reason
+            for reason in reasons.values()
+            if reason["predicate"].get("limit_path")
+            == "resources.max_runtime_projection_steps"
+        ]
+        assert len(runtime_reasons) == 1
+        return (runtime_reasons[0]["diagnostic"],)
+    return checked
 
 
 def _renamed_reason_authorities(
@@ -868,18 +884,30 @@ def _reference_rir(
         {
             lowering["output_member"]: declarations,
             "selected_semantics": _reference_runtime_projection(
-                lock, declarations, lowering
+                checked, lock, declarations, lowering
             ),
         },
     )
 
 
 def _reference_runtime_projection(
+    checked: CheckedModel,
     lock: dict[str, Any],
     declarations: list[dict[str, Any]],
     lowering: dict[str, Any],
 ) -> dict[str, Any]:
     profile = lowering["runtime_projection"]
+    accounting = checked.kernel["meta_format"]["runtime_projection"][
+        "resource_accounting"
+    ]
+    limit = checked.language_bundle["resources"][accounting["limit_member"]]
+    steps = 0
+
+    def consume() -> None:
+        nonlocal steps
+        if steps >= limit:
+            raise _ReferenceRuntimeProjectionExhausted
+        steps += 1
 
     def descend(value: Any, path: list[str]) -> Any:
         if not path:
@@ -891,14 +919,16 @@ def _reference_runtime_projection(
         source = specification["source"]
         rows: list[tuple[str, str | None, Any]]
         if source["kind"] == "lock-member":
-            rows = [
-                (
-                    descend(value, source["package_path"]),
-                    None,
-                    value,
+            rows = []
+            for value in lock[source["member"]]:
+                consume()
+                rows.append(
+                    (
+                        descend(value, source["package_path"]),
+                        None,
+                        value,
+                    )
                 )
-                for value in lock[source["member"]]
-            ]
         else:
             rows = []
             for closure in lock["package_semantic_closures"]:
@@ -907,14 +937,15 @@ def _reference_runtime_projection(
                     for entry in closure["definitions"]
                     if entry["authority_path"] == source["authority_path"]
                 )
-                rows.extend(
-                    (
-                        closure["package"],
-                        source["authority_path"],
-                        definition,
+                for definition in entry["definitions"]:
+                    consume()
+                    rows.append(
+                        (
+                            closure["package"],
+                            source["authority_path"],
+                            definition,
+                        )
                     )
-                    for definition in entry["definitions"]
-                )
         catalogs[specification["id"]] = rows
 
     selected = {name: set() for name in catalogs}
@@ -922,6 +953,7 @@ def _reference_runtime_projection(
         for declaration in declarations:
             package = descend(declaration, seed["declaration_package_path"])
             for index, row in enumerate(catalogs[seed["collection"]]):
+                consume()
                 if row[0] != package:
                     continue
                 assert seed["operator"] == "declaration-field"
@@ -935,11 +967,13 @@ def _reference_runtime_projection(
         previous = {name: set(indexes) for name, indexes in selected.items()}
         for edge in profile["edges"]:
             for source_index in selected[edge["source_collection"]]:
+                consume()
                 source = catalogs[edge["source_collection"]][source_index]
                 expected = descend(source[2], edge["source_path"])
                 for target_index, target in enumerate(
                     catalogs[edge["target_collection"]]
                 ):
+                    consume()
                     if edge["same_package"] and source[0] != target[0]:
                         continue
                     if descend(target[2], edge["target_path"]) == expected:
@@ -953,11 +987,11 @@ def _reference_runtime_projection(
     projection: dict[str, Any] = {}
     selected_closure_values: dict[tuple[str, str], list[Any]] = {}
     for specification in profile["collections"]:
-        rows = [
-            row
-            for index, row in enumerate(catalogs[specification["id"]])
-            if index in selected[specification["id"]]
-        ]
+        rows = []
+        for index, row in enumerate(catalogs[specification["id"]]):
+            consume()
+            if index in selected[specification["id"]]:
+                rows.append(row)
         for package, authority_path, value in rows:
             if authority_path is not None:
                 selected_closure_values.setdefault(
@@ -978,14 +1012,15 @@ def _reference_runtime_projection(
     for output in profile["outputs"]:
         source_rows = lock[output["source_member"]]
         if output["kind"] == "selected-packages":
-            values = [
-                {member: row[member] for member in output["members"]}
-                for row in source_rows
-                if row[output["package_member"]] in selected_packages
-            ]
+            values = []
+            for row in source_rows:
+                consume()
+                if row[output["package_member"]] in selected_packages:
+                    values.append({member: row[member] for member in output["members"]})
         elif output["kind"] == "selected-semantic-closures":
             values = []
             for closure in source_rows:
+                consume()
                 package = closure[output["package_member"]]
                 if package not in selected_packages:
                     continue
@@ -1387,6 +1422,41 @@ def test_resolution_step_budget_drives_both_independent_consumers():
     reference = _reference_check_source(source, kernel, language_bundle)
 
     assert tuple(item.code for item in production) == ("language.resource_exhausted",)
+    assert reference == ("language.resource_exhausted",)
+
+
+def test_runtime_projection_budget_drives_both_independent_consumers(
+    tmp_path, monkeypatch
+):
+    source = _source([_symbol("health", "state")])
+    path = tmp_path / "source.json"
+    _write_source(path, source)
+    kernel, language_bundle = deepcopy(load_authorities())
+    language_bundle["resources"]["max_runtime_projection_steps"] = 1
+    vectors = {
+        vector["id"]: vector
+        for vector in language_bundle["vectors"]
+        if vector["id"]
+        in {
+            "model.accept.runtime-projection-step-boundary",
+            "model.refuse.runtime-projection-step-budget",
+        }
+    }
+    vectors["model.accept.runtime-projection-step-boundary"]["input"]["value"] = 1
+    vectors["model.refuse.runtime-projection-step-budget"]["input"]["value"] = 2
+    _reidentify_language_bundle(language_bundle)
+    assert admit_authorities(kernel, language_bundle).admitted
+    monkeypatch.setattr(
+        model_module, "load_authorities", lambda: (kernel, language_bundle)
+    )
+
+    production = check_model_source(str(path))
+    reference = _reference_check_source(source, kernel, language_bundle)
+
+    assert isinstance(production, Schema2RefusalReport)
+    assert tuple(item.code for item in production.diagnostics) == (
+        "language.resource_exhausted",
+    )
     assert reference == ("language.resource_exhausted",)
 
 
