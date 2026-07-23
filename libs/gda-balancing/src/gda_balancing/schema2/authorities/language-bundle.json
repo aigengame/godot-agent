@@ -1,7 +1,7 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:45622d1748c4c2c37f312a04788669f918f94882ae4feccb0fb64bd6ecd6de94",
+  "content_identity": "sha256:0ee7a5f4156434c422c86a4616d284cd529ed072d2e46eedfb3435af4e9e967f",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
@@ -18,7 +18,7 @@
     {"code": "language.source_parse_failure", "stage": "parse"},
     {"code": "language.source_too_large", "stage": "ingress"}
   ],
-  "kernel_identity": "sha256:9ef8a1686dbe132f8c176c36d8280274a78ad9691e0c12b1b0ab8537354c33af",
+  "kernel_identity": "sha256:0ba2c4aa09693a127e4e076c03e1547004a1ed85b4f6536d39b5bfd7a624d6b0",
   "language": {
     "artifact_contracts": [
       {"artifact_kind": "artifact-set-manifest", "identity_domain": "artifact-set-manifest-v2", "schema_kind": "artifact-set-manifest", "wire_schema_identity_domain": "artifact-set-manifest-wire-schema-v2", "identity_excluded_members": []},
@@ -76,11 +76,11 @@
       },
       {
         "artifact_kind": "rir-semantic-payload",
-        "schema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"artifact_kind": {"const": "rir-semantic-payload"}, "artifact_version": {"const": "2.0.0"}, "wire_schema_identity": {"type": "string", "minLength": 1}, "declarations": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"symbol": {"type": "string", "minLength": 1}, "resolved_symbol": {"type": "object", "properties": {"model": {"type": "string", "minLength": 1}, "module": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}, "required": ["model", "module", "name"], "unevaluatedProperties": false}, "type_identity": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "symbol": {"type": "string", "minLength": 1}}, "required": ["package", "version", "symbol"], "unevaluatedProperties": false}, "role": {"type": "string", "minLength": 1}, "representation": {"type": "string", "minLength": 1}, "kind": {"type": "string", "minLength": 1}, "unit": {"type": "string", "minLength": 1}, "domain": {"type": "object", "properties": {"minimum": {"type": "integer"}, "maximum": {"type": "integer"}}, "required": ["minimum", "maximum"], "unevaluatedProperties": false}, "numeric_policy": {"type": "string", "minLength": 1}}, "required": ["symbol", "resolved_symbol", "type_identity", "role", "representation", "kind", "unit", "domain", "numeric_policy"], "unevaluatedProperties": false}}, "content_identity": {"type": "string", "minLength": 1}, "selected_semantics": {"type": "object", "properties": {"packages": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}}, "required": ["id", "version"], "unevaluatedProperties": false}}, "package_semantic_closures": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definitions": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"authority_path": {"type": "string", "minLength": 1}, "definitions": {"type": "array"}}, "required": ["authority_path", "definitions"], "unevaluatedProperties": false}}}, "required": ["package", "definitions"], "unevaluatedProperties": false}}, "capability_bindings": {"type": "array", "items": {"type": "object", "properties": {"capability": {"type": "string", "minLength": 1}, "provider_package": {"type": "string", "minLength": 1}}, "required": ["capability", "provider_package"], "unevaluatedProperties": false}}, "types": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "constructor": {"type": "string", "minLength": 1}, "package": {"type": "string", "minLength": 1}}, "required": ["id", "constructor", "package"], "unevaluatedProperties": false}}, "components": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "constructor": {"type": "string", "minLength": 1}, "fields": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "required": ["id", "version", "constructor", "fields"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "conversions": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "from_type": {"type": "string", "minLength": 1}, "to_type": {"type": "string", "minLength": 1}, "operation": {"type": "string", "minLength": 1}, "exact": {"type": "boolean"}}, "required": ["id", "version", "from_type", "to_type", "operation", "exact"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "operations": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "inputs": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "type": {"type": "string", "minLength": 1}}, "required": ["name", "type"], "unevaluatedProperties": false}}, "result": {"type": "string", "minLength": 1}, "kind_rules": {"type": "object", "properties": {"inputs": {"type": "string", "minLength": 1}, "result": {"type": "string", "minLength": 1}}, "required": ["inputs", "result"], "unevaluatedProperties": false}, "unit_rules": {"type": "object", "properties": {"inputs": {"type": "string", "minLength": 1}, "result": {"type": "string", "minLength": 1}}, "required": ["inputs", "result"], "unevaluatedProperties": false}, "numeric_policy": {"type": "string", "minLength": 1}, "runtime_profile": {"type": "string", "minLength": 1}, "purity": {"type": "string", "minLength": 1}, "effects": {"type": "array", "items": {"type": "string", "minLength": 1}}, "refusals": {"type": "array", "items": {"type": "string", "minLength": 1}}, "resource_bounds": {"type": "object", "properties": {"max_steps": {"type": "integer"}}, "required": ["max_steps"], "unevaluatedProperties": false}, "body": {"type": "object", "properties": {"node": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}, "required": ["node", "name"], "unevaluatedProperties": false}, "rule": {"type": "string", "minLength": 1}, "vectors": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "required": ["id", "version", "inputs", "result", "kind_rules", "unit_rules", "numeric_policy", "runtime_profile", "purity", "effects", "refusals", "resource_bounds", "body", "rule", "vectors"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "numeric_profiles": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "overflow": {"type": "string", "minLength": 1}, "rounding": {"type": "string", "minLength": 1}}, "required": ["id", "overflow", "rounding"], "unevaluatedProperties": false}}, "runtime_profiles": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "numeric_policy": {"type": "string", "minLength": 1}, "evaluation": {"type": "string", "minLength": 1}, "effects": {"type": "array", "items": {"type": "string", "minLength": 1}}, "resource_bounds": {"type": "object", "properties": {"max_steps": {"type": "integer"}}, "required": ["max_steps"], "unevaluatedProperties": false}}, "required": ["id", "version", "numeric_policy", "evaluation", "effects", "resource_bounds"], "unevaluatedProperties": false}}}, "required": ["packages", "package_semantic_closures", "capability_bindings", "types", "components", "conversions", "operations", "numeric_profiles", "runtime_profiles"], "unevaluatedProperties": false}}, "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "declarations", "selected_semantics", "content_identity"], "unevaluatedProperties": false}
+        "schema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"artifact_kind": {"const": "rir-semantic-payload"}, "artifact_version": {"const": "2.0.0"}, "wire_schema_identity": {"type": "string", "minLength": 1}, "declarations": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"symbol": {"type": "string", "minLength": 1}, "resolved_symbol": {"type": "object", "properties": {"model": {"type": "string", "minLength": 1}, "module": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}, "required": ["model", "module", "name"], "unevaluatedProperties": false}, "type_identity": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "symbol": {"type": "string", "minLength": 1}}, "required": ["package", "version", "symbol"], "unevaluatedProperties": false}, "role": {"type": "string", "minLength": 1}, "representation": {"type": "string", "minLength": 1}, "kind": {"type": "string", "minLength": 1}, "unit": {"type": "string", "minLength": 1}, "domain": {"type": "object", "properties": {"minimum": {"type": "integer"}, "maximum": {"type": "integer"}}, "required": ["minimum", "maximum"], "unevaluatedProperties": false}, "numeric_policy": {"type": "string", "minLength": 1}, "domain_kind": {"type": "string", "minLength": 1}}, "required": ["symbol", "resolved_symbol", "type_identity", "role", "representation", "kind", "unit", "domain_kind", "domain", "numeric_policy"], "unevaluatedProperties": false}}, "content_identity": {"type": "string", "minLength": 1}, "selected_semantics": {"type": "object", "properties": {"packages": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}}, "required": ["id", "version"], "unevaluatedProperties": false}}, "package_semantic_closures": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definitions": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"authority_path": {"type": "string", "minLength": 1}, "definitions": {"type": "array"}}, "required": ["authority_path", "definitions"], "unevaluatedProperties": false}}}, "required": ["package", "definitions"], "unevaluatedProperties": false}}, "capability_bindings": {"type": "array", "items": {"type": "object", "properties": {"capability": {"type": "string", "minLength": 1}, "provider_package": {"type": "string", "minLength": 1}}, "required": ["capability", "provider_package"], "unevaluatedProperties": false}}, "types": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "constructor": {"type": "string", "minLength": 1}, "package": {"type": "string", "minLength": 1}}, "required": ["id", "constructor", "package"], "unevaluatedProperties": false}}, "components": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "constructor": {"type": "string", "minLength": 1}, "fields": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "required": ["id", "version", "constructor", "fields"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "conversions": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "from_type": {"type": "string", "minLength": 1}, "to_type": {"type": "string", "minLength": 1}, "operation": {"type": "string", "minLength": 1}, "exact": {"type": "boolean"}}, "required": ["id", "version", "from_type", "to_type", "operation", "exact"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "operations": {"type": "array", "items": {"type": "object", "properties": {"package": {"type": "string", "minLength": 1}, "definition": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "inputs": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1}, "type": {"type": "string", "minLength": 1}}, "required": ["name", "type"], "unevaluatedProperties": false}}, "result": {"type": "string", "minLength": 1}, "kind_rules": {"type": "object", "properties": {"inputs": {"type": "string", "minLength": 1}, "result": {"type": "string", "minLength": 1}}, "required": ["inputs", "result"], "unevaluatedProperties": false}, "unit_rules": {"type": "object", "properties": {"inputs": {"type": "string", "minLength": 1}, "result": {"type": "string", "minLength": 1}}, "required": ["inputs", "result"], "unevaluatedProperties": false}, "numeric_policy": {"type": "string", "minLength": 1}, "runtime_profile": {"type": "string", "minLength": 1}, "purity": {"type": "string", "minLength": 1}, "effects": {"type": "array", "items": {"type": "string", "minLength": 1}}, "refusals": {"type": "array", "items": {"type": "string", "minLength": 1}}, "resource_bounds": {"type": "object", "properties": {"max_steps": {"type": "integer"}}, "required": ["max_steps"], "unevaluatedProperties": false}, "body": {"type": "object", "properties": {"node": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}}, "required": ["node", "name"], "unevaluatedProperties": false}, "rule": {"type": "string", "minLength": 1}, "vectors": {"type": "array", "items": {"type": "string", "minLength": 1}}}, "required": ["id", "version", "inputs", "result", "kind_rules", "unit_rules", "numeric_policy", "runtime_profile", "purity", "effects", "refusals", "resource_bounds", "body", "rule", "vectors"], "unevaluatedProperties": false}}, "required": ["package", "definition"], "unevaluatedProperties": false}}, "numeric_profiles": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "overflow": {"type": "string", "minLength": 1}, "rounding": {"type": "string", "minLength": 1}}, "required": ["id", "overflow", "rounding"], "unevaluatedProperties": false}}, "runtime_profiles": {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "numeric_policy": {"type": "string", "minLength": 1}, "evaluation": {"type": "string", "minLength": 1}, "effects": {"type": "array", "items": {"type": "string", "minLength": 1}}, "resource_bounds": {"type": "object", "properties": {"max_steps": {"type": "integer"}}, "required": ["max_steps"], "unevaluatedProperties": false}}, "required": ["id", "version", "numeric_policy", "evaluation", "effects", "resource_bounds"], "unevaluatedProperties": false}}}, "required": ["packages", "package_semantic_closures", "capability_bindings", "types", "components", "conversions", "operations", "numeric_profiles", "runtime_profiles"], "unevaluatedProperties": false}}, "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "declarations", "selected_semantics", "content_identity"], "unevaluatedProperties": false}
       }
     ],
     "capabilities": [{"id": "quantity.declare", "rule": "quantity.declare"}, {"id": "quantity.lower", "rule": "quantity.lower"}],
-    "components": [{"constructor": "core.quantity", "fields": ["domain", "kind", "numeric_policy", "representation", "role", "unit"], "id": "quantity.symbol", "version": "2.0.0"}],
+    "components": [{"constructor": "core.quantity", "fields": ["domain_kind", "domain", "kind", "numeric_policy", "representation", "role", "unit"], "id": "quantity.symbol", "version": "2.0.0"}],
     "constructors": [{"id": "core.quantity", "parameters": ["kind", "unit", "domain", "representation", "numeric_policy", "role"]}],
     "conversions": [{"exact": true, "from_type": "Quantity", "id": "quantity.identity", "operation": "quantity.identity", "to_type": "Quantity", "version": "2.0.0"}],
     "model_checks": [
@@ -101,12 +101,9 @@
         "rule_chain": [{"judgment": "declare-quantity", "phase": "type", "rule": "quantity.declare"}, {"judgment": "lower-quantity", "phase": "lower", "rule": "quantity.lower"}],
         "source_selector": ["modules", "*", "symbols", "*"],
         "runtime_projection": {
-          "outputs": [
-            {"kind": "selected-packages", "source_member": "packages", "output_member": "packages", "package_member": "id", "members": ["id", "version"]},
-            {"kind": "selected-semantic-closures", "source_member": "package_semantic_closures", "output_member": "package_semantic_closures", "package_member": "package", "entries_member": "definitions", "authority_path_member": "authority_path", "definitions_member": "definitions"},
-            {"kind": "selected-package-rows", "source_member": "capability_bindings", "output_member": "capability_bindings", "package_member": "provider_package"}
-          ],
+          "outputs": [{"kind": "selected-packages", "source_member": "packages", "output_member": "packages", "package_member": "id", "members": ["id", "version"]}, {"kind": "selected-semantic-closures", "source_member": "package_semantic_closures", "output_member": "package_semantic_closures", "package_member": "package", "entries_member": "definitions", "authority_path_member": "authority_path", "definitions_member": "definitions"}],
           "collections": [
+            {"id": "capability_bindings", "source": {"kind": "lock-member", "member": "capability_bindings", "package_path": ["provider_package"]}, "output_member": "capability_bindings", "output_shape": "as-is"},
             {"id": "types", "source": {"kind": "lock-member", "member": "types", "package_path": ["package"]}, "output_member": "types", "output_shape": "as-is"},
             {"id": "components", "source": {"kind": "semantic-closure", "authority_path": "language.components"}, "output_member": "components", "output_shape": "package-definition"},
             {"id": "constructors", "source": {"kind": "semantic-closure", "authority_path": "language.constructors"}, "output_member": null, "output_shape": "closure-only"},
@@ -122,18 +119,14 @@
           ],
           "seeds": [
             {"operator": "declaration-field", "collection": "types", "declaration_path": ["type_identity", "symbol"], "declaration_package_path": ["type_identity", "package"], "target_path": ["id"]},
-            {"operator": "declaration-package", "collection": "domains", "declaration_package_path": ["type_identity", "package"]},
+            {"operator": "declaration-field", "collection": "domains", "declaration_path": ["domain_kind"], "declaration_package_path": ["type_identity", "package"], "target_path": []},
             {"operator": "declaration-field", "collection": "kinds", "declaration_path": ["kind"], "declaration_package_path": ["type_identity", "package"], "target_path": []},
             {"operator": "declaration-field", "collection": "numeric_profiles", "declaration_path": ["numeric_policy"], "declaration_package_path": ["type_identity", "package"], "target_path": ["id"]},
             {"operator": "declaration-field", "collection": "representations", "declaration_path": ["representation"], "declaration_package_path": ["type_identity", "package"], "target_path": []},
             {"operator": "declaration-field", "collection": "symbol_roles", "declaration_path": ["role"], "declaration_package_path": ["type_identity", "package"], "target_path": []},
             {"operator": "declaration-field", "collection": "units", "declaration_path": ["unit"], "declaration_package_path": ["type_identity", "package"], "target_path": ["id"]}
           ],
-          "edges": [
-            {"operator": "equal", "source_collection": "types", "source_path": ["constructor"], "target_collection": "constructors", "target_path": ["id"], "same_package": true},
-            {"operator": "equal", "source_collection": "constructors", "source_path": ["id"], "target_collection": "components", "target_path": ["constructor"], "same_package": true},
-            {"operator": "equal", "source_collection": "numeric_profiles", "source_path": ["id"], "target_collection": "runtime_profiles", "target_path": ["numeric_policy"], "same_package": true}
-          ]
+          "edges": [{"operator": "equal", "source_collection": "types", "source_path": ["constructor"], "target_collection": "constructors", "target_path": ["id"], "same_package": true}, {"operator": "equal", "source_collection": "constructors", "source_path": ["id"], "target_collection": "components", "target_path": ["constructor"], "same_package": true}]
         }
       }
     ],
@@ -161,7 +154,7 @@
       {
         "artifact_kind": "domain-package-release",
         "capabilities": {"provided": ["quantity.declare", "quantity.lower"], "required": []},
-        "content_identity": "sha256:4e76c1a169c8c9565252331747cbd070aeb69813d0f8640a55b9a86194ba7667",
+        "content_identity": "sha256:f5257127c7ce6c8c3a4aa6788d1408de3515559aebae3f62ec6738be29cc8d3b",
         "dependencies": {"optional": [], "required": []},
         "exports": {
           "components": ["quantity.symbol"],
@@ -178,6 +171,7 @@
             "model.reason.package-version-unavailable",
             "model.reason.resolution-ambiguity",
             "model.reason.resolution-binding-mismatch",
+            "model.reason.resolution-resource-exhausted",
             "model.reason.resolved-authority-mismatch",
             "model.reason.source-contract-mismatch",
             "model.reason.source-parse-failure",
@@ -198,7 +192,7 @@
         "profiles": {"numeric": ["exact-int64"], "resolution": ["exact-import-resolution-v1"], "runtime": ["compile.exact-int64"]},
         "semantic_closure": [
           {"authority_path": "language.capabilities", "definitions": [{"id": "quantity.declare", "rule": "quantity.declare"}, {"id": "quantity.lower", "rule": "quantity.lower"}]},
-          {"authority_path": "language.components", "definitions": [{"constructor": "core.quantity", "fields": ["domain", "kind", "numeric_policy", "representation", "role", "unit"], "id": "quantity.symbol", "version": "2.0.0"}]},
+          {"authority_path": "language.components", "definitions": [{"constructor": "core.quantity", "fields": ["domain_kind", "domain", "kind", "numeric_policy", "representation", "role", "unit"], "id": "quantity.symbol", "version": "2.0.0"}]},
           {"authority_path": "language.constructors", "definitions": [{"id": "core.quantity", "parameters": ["kind", "unit", "domain", "representation", "numeric_policy", "role"]}]},
           {"authority_path": "language.conversions", "definitions": [{"exact": true, "from_type": "Quantity", "id": "quantity.identity", "operation": "quantity.identity", "to_type": "Quantity", "version": "2.0.0"}]},
           {
@@ -224,12 +218,9 @@
                 "rule_chain": [{"judgment": "declare-quantity", "phase": "type", "rule": "quantity.declare"}, {"judgment": "lower-quantity", "phase": "lower", "rule": "quantity.lower"}],
                 "source_selector": ["modules", "*", "symbols", "*"],
                 "runtime_projection": {
-                  "outputs": [
-                    {"kind": "selected-packages", "source_member": "packages", "output_member": "packages", "package_member": "id", "members": ["id", "version"]},
-                    {"kind": "selected-semantic-closures", "source_member": "package_semantic_closures", "output_member": "package_semantic_closures", "package_member": "package", "entries_member": "definitions", "authority_path_member": "authority_path", "definitions_member": "definitions"},
-                    {"kind": "selected-package-rows", "source_member": "capability_bindings", "output_member": "capability_bindings", "package_member": "provider_package"}
-                  ],
+                  "outputs": [{"kind": "selected-packages", "source_member": "packages", "output_member": "packages", "package_member": "id", "members": ["id", "version"]}, {"kind": "selected-semantic-closures", "source_member": "package_semantic_closures", "output_member": "package_semantic_closures", "package_member": "package", "entries_member": "definitions", "authority_path_member": "authority_path", "definitions_member": "definitions"}],
                   "collections": [
+                    {"id": "capability_bindings", "source": {"kind": "lock-member", "member": "capability_bindings", "package_path": ["provider_package"]}, "output_member": "capability_bindings", "output_shape": "as-is"},
                     {"id": "types", "source": {"kind": "lock-member", "member": "types", "package_path": ["package"]}, "output_member": "types", "output_shape": "as-is"},
                     {"id": "components", "source": {"kind": "semantic-closure", "authority_path": "language.components"}, "output_member": "components", "output_shape": "package-definition"},
                     {"id": "constructors", "source": {"kind": "semantic-closure", "authority_path": "language.constructors"}, "output_member": null, "output_shape": "closure-only"},
@@ -245,18 +236,14 @@
                   ],
                   "seeds": [
                     {"operator": "declaration-field", "collection": "types", "declaration_path": ["type_identity", "symbol"], "declaration_package_path": ["type_identity", "package"], "target_path": ["id"]},
-                    {"operator": "declaration-package", "collection": "domains", "declaration_package_path": ["type_identity", "package"]},
+                    {"operator": "declaration-field", "collection": "domains", "declaration_path": ["domain_kind"], "declaration_package_path": ["type_identity", "package"], "target_path": []},
                     {"operator": "declaration-field", "collection": "kinds", "declaration_path": ["kind"], "declaration_package_path": ["type_identity", "package"], "target_path": []},
                     {"operator": "declaration-field", "collection": "numeric_profiles", "declaration_path": ["numeric_policy"], "declaration_package_path": ["type_identity", "package"], "target_path": ["id"]},
                     {"operator": "declaration-field", "collection": "representations", "declaration_path": ["representation"], "declaration_package_path": ["type_identity", "package"], "target_path": []},
                     {"operator": "declaration-field", "collection": "symbol_roles", "declaration_path": ["role"], "declaration_package_path": ["type_identity", "package"], "target_path": []},
                     {"operator": "declaration-field", "collection": "units", "declaration_path": ["unit"], "declaration_package_path": ["type_identity", "package"], "target_path": ["id"]}
                   ],
-                  "edges": [
-                    {"operator": "equal", "source_collection": "types", "source_path": ["constructor"], "target_collection": "constructors", "target_path": ["id"], "same_package": true},
-                    {"operator": "equal", "source_collection": "constructors", "source_path": ["id"], "target_collection": "components", "target_path": ["constructor"], "same_package": true},
-                    {"operator": "equal", "source_collection": "numeric_profiles", "source_path": ["id"], "target_collection": "runtime_profiles", "target_path": ["numeric_policy"], "same_package": true}
-                  ]
+                  "edges": [{"operator": "equal", "source_collection": "types", "source_path": ["constructor"], "target_collection": "constructors", "target_path": ["id"], "same_package": true}, {"operator": "equal", "source_collection": "constructors", "source_path": ["id"], "target_collection": "components", "target_path": ["constructor"], "same_package": true}]
                 }
               }
             ]
@@ -292,20 +279,21 @@
           {
             "authority_path": "language.reasons",
             "definitions": [
-              {"diagnostic": "language.unknown_kind", "id": "quantity.reason.unknown-kind", "predicate": {"inventory_path": "language.quantity.kinds", "operation": "not-member"}, "stage": "static"},
-              {"diagnostic": "language.unknown_unit", "id": "quantity.reason.unknown-unit", "predicate": {"inventory_path": "language.quantity.units", "member_field": "id", "operation": "not-member"}, "stage": "static"},
-              {"diagnostic": "language.duplicate_symbol", "id": "quantity.reason.duplicate-symbol", "predicate": {"operation": "has-duplicate"}, "stage": "static"},
-              {"diagnostic": "language.resource_exhausted", "id": "quantity.reason.resource-exhausted", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "static"},
-              {"diagnostic": "language.invalid_domain", "id": "quantity.reason.invalid-domain", "predicate": {"operation": "invalid-interval"}, "stage": "static"},
+              {"diagnostic": "language.name_ambiguity", "id": "model.reason.name-ambiguity", "predicate": {"operation": "not-equal"}, "stage": "static"},
               {"diagnostic": "language.package_version_unavailable", "id": "model.reason.package-version-unavailable", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
               {"diagnostic": "language.resolution_ambiguity", "id": "model.reason.resolution-ambiguity", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
               {"diagnostic": "language.resolution_binding_mismatch", "id": "model.reason.resolution-binding-mismatch", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
+              {"diagnostic": "language.resource_exhausted", "id": "model.reason.resolution-resource-exhausted", "predicate": {"limit_path": "resources.max_rule_match_steps", "operation": "greater-than"}, "stage": "static"},
               {"diagnostic": "language.resolved_authority_mismatch", "id": "model.reason.resolved-authority-mismatch", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
-              {"diagnostic": "language.unresolved_name", "id": "model.reason.unresolved-name", "predicate": {"operation": "not-equal"}, "stage": "static"},
-              {"diagnostic": "language.name_ambiguity", "id": "model.reason.name-ambiguity", "predicate": {"operation": "not-equal"}, "stage": "static"},
               {"diagnostic": "language.source_contract_mismatch", "id": "model.reason.source-contract-mismatch", "predicate": {"operation": "not-equal"}, "stage": "static"},
               {"diagnostic": "language.source_parse_failure", "id": "model.reason.source-parse-failure", "predicate": {"operation": "not-equal"}, "stage": "parse"},
-              {"diagnostic": "language.source_too_large", "id": "model.reason.source-too-large", "predicate": {"operation": "greater-than", "limit_path": "resources.max_source_bytes"}, "stage": "ingress"}
+              {"diagnostic": "language.source_too_large", "id": "model.reason.source-too-large", "predicate": {"operation": "greater-than", "limit_path": "resources.max_source_bytes"}, "stage": "ingress"},
+              {"diagnostic": "language.unresolved_name", "id": "model.reason.unresolved-name", "predicate": {"operation": "not-equal"}, "stage": "static"},
+              {"diagnostic": "language.duplicate_symbol", "id": "quantity.reason.duplicate-symbol", "predicate": {"operation": "has-duplicate"}, "stage": "static"},
+              {"diagnostic": "language.invalid_domain", "id": "quantity.reason.invalid-domain", "predicate": {"operation": "invalid-interval"}, "stage": "static"},
+              {"diagnostic": "language.resource_exhausted", "id": "quantity.reason.resource-exhausted", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "static"},
+              {"diagnostic": "language.unknown_kind", "id": "quantity.reason.unknown-kind", "predicate": {"inventory_path": "language.quantity.kinds", "operation": "not-member"}, "stage": "static"},
+              {"diagnostic": "language.unknown_unit", "id": "quantity.reason.unknown-unit", "predicate": {"inventory_path": "language.quantity.units", "member_field": "id", "operation": "not-member"}, "stage": "static"}
             ]
           },
           {
@@ -407,22 +395,44 @@
               {
                 "conclusion": {
                   "fact_kind": "typed-quantity-symbol",
-                  "fields": {"domain": {"name": "domain", "tag": "variable"}, "kind": {"name": "kind", "tag": "variable"}, "numeric_policy": {"name": "numeric_policy", "tag": "variable"}, "representation": {"name": "representation", "tag": "variable"}, "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"}, "role": {"name": "role", "tag": "variable"}, "symbol": {"name": "symbol", "tag": "variable"}, "type_identity": {"name": "type_identity", "tag": "variable"}, "unit": {"name": "unit", "tag": "variable"}}
+                  "fields": {
+                    "domain": {"name": "domain", "tag": "variable"},
+                    "kind": {"name": "kind", "tag": "variable"},
+                    "numeric_policy": {"name": "numeric_policy", "tag": "variable"},
+                    "representation": {"name": "representation", "tag": "variable"},
+                    "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"},
+                    "role": {"name": "role", "tag": "variable"},
+                    "symbol": {"name": "symbol", "tag": "variable"},
+                    "type_identity": {"name": "type_identity", "tag": "variable"},
+                    "unit": {"name": "unit", "tag": "variable"},
+                    "domain_kind": {"tag": "variable", "name": "domain_kind"}
+                  }
                 },
                 "id": "quantity.declare",
                 "judgment": "declare-quantity",
                 "phase": "type",
-                "premises": [{"bind": {"domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy", "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role", "symbol": "symbol", "type_identity": "type_identity", "unit": "unit"}, "fact_kind": "quantity-source"}]
+                "premises": [{"bind": {"domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy", "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role", "symbol": "symbol", "type_identity": "type_identity", "unit": "unit", "domain_kind": "domain_kind"}, "fact_kind": "quantity-source"}]
               },
               {
                 "conclusion": {
                   "fact_kind": "rir-quantity-declaration",
-                  "fields": {"domain": {"name": "domain", "tag": "variable"}, "kind": {"name": "kind", "tag": "variable"}, "numeric_policy": {"name": "numeric_policy", "tag": "variable"}, "representation": {"name": "representation", "tag": "variable"}, "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"}, "role": {"name": "role", "tag": "variable"}, "symbol": {"name": "symbol", "tag": "variable"}, "type_identity": {"name": "type_identity", "tag": "variable"}, "unit": {"name": "unit", "tag": "variable"}}
+                  "fields": {
+                    "domain": {"name": "domain", "tag": "variable"},
+                    "kind": {"name": "kind", "tag": "variable"},
+                    "numeric_policy": {"name": "numeric_policy", "tag": "variable"},
+                    "representation": {"name": "representation", "tag": "variable"},
+                    "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"},
+                    "role": {"name": "role", "tag": "variable"},
+                    "symbol": {"name": "symbol", "tag": "variable"},
+                    "type_identity": {"name": "type_identity", "tag": "variable"},
+                    "unit": {"name": "unit", "tag": "variable"},
+                    "domain_kind": {"tag": "variable", "name": "domain_kind"}
+                  }
                 },
                 "id": "quantity.lower",
                 "judgment": "lower-quantity",
                 "phase": "lower",
-                "premises": [{"bind": {"domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy", "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role", "symbol": "symbol", "type_identity": "type_identity", "unit": "unit"}, "fact_kind": "typed-quantity-symbol"}]
+                "premises": [{"bind": {"domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy", "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role", "symbol": "symbol", "type_identity": "type_identity", "unit": "unit", "domain_kind": "domain_kind"}, "fact_kind": "typed-quantity-symbol"}]
               }
             ]
           },
@@ -447,12 +457,13 @@
             ]
           }
         ],
-        "semantic_identity": "sha256:456d3438a9eb2829587fb73e245b756e317050176dc79b08912af60191d911c5",
+        "semantic_identity": "sha256:68e8c21eaee3befadb35739ca3c0567aba383b44079742465f096c1dd49dff73",
         "vectors": [
           "model.accept.name-ambiguity",
           "model.accept.package-version",
           "model.accept.resolution-ambiguity",
           "model.accept.resolution-binding",
+          "model.accept.resolution-step-boundary",
           "model.accept.resolved-authority",
           "model.accept.source-contract",
           "model.accept.source-parse",
@@ -469,6 +480,7 @@
           "model.refuse.package-version",
           "model.refuse.resolution-ambiguity",
           "model.refuse.resolution-binding",
+          "model.refuse.resolution-step-budget",
           "model.refuse.resolved-authority",
           "model.refuse.source-contract",
           "model.refuse.source-parse",
@@ -493,6 +505,7 @@
           {"diagnostic": "language.package_version_unavailable", "id": "model.accept.package-version", "input": {"actual": "available", "expected": "available"}, "matched": false, "reason": "model.reason.package-version-unavailable", "stage": "resolution"},
           {"diagnostic": "language.resolution_ambiguity", "id": "model.accept.resolution-ambiguity", "input": {"actual": "one", "expected": "one"}, "matched": false, "reason": "model.reason.resolution-ambiguity", "stage": "resolution"},
           {"diagnostic": "language.resolution_binding_mismatch", "id": "model.accept.resolution-binding", "input": {"actual": "bound", "expected": "bound"}, "matched": false, "reason": "model.reason.resolution-binding-mismatch", "stage": "resolution"},
+          {"diagnostic": "language.resource_exhausted", "id": "model.accept.resolution-step-boundary", "input": {"value": 65536}, "matched": false, "reason": "model.reason.resolution-resource-exhausted", "stage": "static"},
           {"diagnostic": "language.resolved_authority_mismatch", "id": "model.accept.resolved-authority", "input": {"actual": "admitted", "expected": "admitted"}, "matched": false, "reason": "model.reason.resolved-authority-mismatch", "stage": "resolution"},
           {"diagnostic": "language.source_contract_mismatch", "id": "model.accept.source-contract", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "model.reason.source-contract-mismatch", "stage": "static"},
           {"diagnostic": "language.source_parse_failure", "id": "model.accept.source-parse", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "model.reason.source-parse-failure", "stage": "parse"},
@@ -501,7 +514,7 @@
           {
             "category": "boundary",
             "expect": {
-              "debug_map_identity": "sha256:0529a35470341d19003130d21a59ee48ffe38dc6c13cdc73e69db597845838db",
+              "debug_map_identity": "sha256:fb69b589346bbc867887e3ffa07c9e1b2a8a67096ac1d997d22d957540facf82",
               "declaration_count": 4096,
               "diagnostics": [],
               "lock_oracle": {
@@ -522,6 +535,7 @@
                   "model.reason.package-version-unavailable",
                   "model.reason.resolution-ambiguity",
                   "model.reason.resolution-binding-mismatch",
+                  "model.reason.resolution-resource-exhausted",
                   "model.reason.resolved-authority-mismatch",
                   "model.reason.source-contract-mismatch",
                   "model.reason.source-parse-failure",
@@ -537,7 +551,7 @@
               },
               "outcome": "admitted",
               "relation": {"kind": "independent", "reference": null},
-              "rir_identity": "sha256:1f13e14ff9a94e4297cac7f7530acddf451166c11090c2c61dc0423c3e809851",
+              "rir_identity": "sha256:a49c804644b6220180cdd0dc4b4bcc1f5d1dfbf0990d618ca594c6eb864463c6",
               "semantic_artifacts": true
             },
             "id": "model.compile.boundary-max-symbols",
@@ -551,7 +565,7 @@
               "index_width": 4,
               "mode": "indexed-repeat",
               "source": {"manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"}, "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}], "symbols": []}], "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "schema_version": "2.0.0"},
-              "template": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "template", "type": "quantity", "unit": "1"}
+              "template": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "template", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}
             }
           },
           {
@@ -568,13 +582,13 @@
               "index_width": 4,
               "mode": "indexed-repeat",
               "source": {"manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"}, "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}], "symbols": []}], "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "schema_version": "2.0.0"},
-              "template": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "template", "type": "quantity", "unit": "1"}
+              "template": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "template", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}
             }
           },
           {
             "category": "mutation",
             "expect": {
-              "debug_map_identity": "sha256:699d752a7d1f202e35affa1138ae5206f8d5388b594b2eaf75c764552834ab27",
+              "debug_map_identity": "sha256:388cc077a19472e98713a6e092bd3754439c6d04dfd20bace3b8e00305c3ca54",
               "declaration_count": 7,
               "diagnostics": [],
               "lock_oracle": {
@@ -595,6 +609,7 @@
                   "model.reason.package-version-unavailable",
                   "model.reason.resolution-ambiguity",
                   "model.reason.resolution-binding-mismatch",
+                  "model.reason.resolution-resource-exhausted",
                   "model.reason.resolved-authority-mismatch",
                   "model.reason.source-contract-mismatch",
                   "model.reason.source-parse-failure",
@@ -610,7 +625,7 @@
               },
               "outcome": "admitted",
               "relation": {"kind": "semantic-change", "reference": "model.compile.positive"},
-              "rir_identity": "sha256:8d0cb377be8bed14e33a201249e60e5120ef315029fa58357c3c8ef5479b484f",
+              "rir_identity": "sha256:24bdb080ed52e505e665450eab94ef8ea90930cb2bff2f5d5abc3f190482c268",
               "semantic_artifacts": true
             },
             "id": "model.compile.mutation-role-change",
@@ -623,13 +638,13 @@
                     "id": "main",
                     "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
                     "symbols": [
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "state_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"}
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "state_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}
                     ]
                   }
                 ],
@@ -650,7 +665,7 @@
                   {
                     "id": "main",
                     "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
-                    "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "same", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "same", "type": "quantity", "unit": "1"}]
+                    "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "same", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "same", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}]
                   }
                 ],
                 "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
@@ -666,7 +681,7 @@
               "mode": "literal",
               "source": {
                 "manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"},
-                "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "9.0.0"}], "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "health", "type": "quantity", "unit": "1"}]}],
+                "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "9.0.0"}], "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "health", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}]}],
                 "package_requirements": [{"id": "core.quantity", "version": "9.0.0"}],
                 "schema_version": "2.0.0"
               }
@@ -675,7 +690,7 @@
           {
             "category": "positive",
             "expect": {
-              "debug_map_identity": "sha256:cd89093db631a2996495ca2b62aefa4a4b0a0779f901672f1a5f416d5c1fbfed",
+              "debug_map_identity": "sha256:9cc9b110fd2d6ea52a50ceb4c45fd79d98f5fe3ef851784feea31803f3f179f4",
               "declaration_count": 7,
               "diagnostics": [],
               "lock_oracle": {
@@ -696,6 +711,7 @@
                   "model.reason.package-version-unavailable",
                   "model.reason.resolution-ambiguity",
                   "model.reason.resolution-binding-mismatch",
+                  "model.reason.resolution-resource-exhausted",
                   "model.reason.resolved-authority-mismatch",
                   "model.reason.source-contract-mismatch",
                   "model.reason.source-parse-failure",
@@ -711,7 +727,7 @@
               },
               "outcome": "admitted",
               "relation": {"kind": "independent", "reference": null},
-              "rir_identity": "sha256:a0b6610a6930576b0e73a3a041b30dbfbbf6a1dac523acf552884e665fa45480",
+              "rir_identity": "sha256:e5103b8d2cc71ed88de298f4e06a8b06ea4adbf5b82dbf8f1593e61039446117",
               "semantic_artifacts": true
             },
             "id": "model.compile.positive",
@@ -724,13 +740,13 @@
                     "id": "main",
                     "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
                     "symbols": [
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"}
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}
                     ]
                   }
                 ],
@@ -742,7 +758,7 @@
           {
             "category": "semantic-equivalence",
             "expect": {
-              "debug_map_identity": "sha256:649289ecdebab6d546fc0005a507255ccbbd7588a7694c286c3c24ceec99025f",
+              "debug_map_identity": "sha256:bed23b5d5db15c4838710aca30cff69606adc37daaad2a7a55df0a4eafaa6687",
               "declaration_count": 7,
               "diagnostics": [],
               "lock_oracle": {
@@ -763,6 +779,7 @@
                   "model.reason.package-version-unavailable",
                   "model.reason.resolution-ambiguity",
                   "model.reason.resolution-binding-mismatch",
+                  "model.reason.resolution-resource-exhausted",
                   "model.reason.resolved-authority-mismatch",
                   "model.reason.source-contract-mismatch",
                   "model.reason.source-parse-failure",
@@ -778,7 +795,7 @@
               },
               "outcome": "admitted",
               "relation": {"kind": "semantic-equivalent", "reference": "model.compile.positive"},
-              "rir_identity": "sha256:a0b6610a6930576b0e73a3a041b30dbfbbf6a1dac523acf552884e665fa45480",
+              "rir_identity": "sha256:e5103b8d2cc71ed88de298f4e06a8b06ea4adbf5b82dbf8f1593e61039446117",
               "semantic_artifacts": true
             },
             "id": "model.compile.semantic-equivalent-order",
@@ -791,13 +808,13 @@
                     "id": "main",
                     "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
                     "symbols": [
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"},
-                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"}
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                      {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}
                     ]
                   }
                 ],
@@ -810,6 +827,7 @@
           {"diagnostic": "language.package_version_unavailable", "id": "model.refuse.package-version", "input": {"actual": "missing", "expected": "available"}, "matched": true, "reason": "model.reason.package-version-unavailable", "stage": "resolution"},
           {"diagnostic": "language.resolution_ambiguity", "id": "model.refuse.resolution-ambiguity", "input": {"actual": "many", "expected": "one"}, "matched": true, "reason": "model.reason.resolution-ambiguity", "stage": "resolution"},
           {"diagnostic": "language.resolution_binding_mismatch", "id": "model.refuse.resolution-binding", "input": {"actual": "unbound", "expected": "bound"}, "matched": true, "reason": "model.reason.resolution-binding-mismatch", "stage": "resolution"},
+          {"diagnostic": "language.resource_exhausted", "id": "model.refuse.resolution-step-budget", "input": {"value": 65537}, "matched": true, "reason": "model.reason.resolution-resource-exhausted", "stage": "static"},
           {"diagnostic": "language.resolved_authority_mismatch", "id": "model.refuse.resolved-authority", "input": {"actual": "mutated", "expected": "admitted"}, "matched": true, "reason": "model.reason.resolved-authority-mismatch", "stage": "resolution"},
           {"diagnostic": "language.source_contract_mismatch", "id": "model.refuse.source-contract", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "model.reason.source-contract-mismatch", "stage": "static"},
           {"diagnostic": "language.source_parse_failure", "id": "model.refuse.source-parse", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "model.reason.source-parse-failure", "stage": "parse"},
@@ -821,15 +839,15 @@
           {"diagnostic": "language.duplicate_symbol", "id": "quantity.accept.unique", "input": {"values": ["health", "mana"]}, "matched": false, "reason": "quantity.reason.duplicate-symbol", "stage": "static"},
           {"diagnostic": "language.unknown_unit", "id": "quantity.accept.unit", "input": {"value": "1"}, "matched": false, "reason": "quantity.reason.unknown-unit", "stage": "static"},
           {
-            "expect": {"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1"}},
+            "expect": {"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1", "domain_kind": "closed-interval"}},
             "id": "quantity.declare.valid",
-            "input": {"facts": [{"kind": "quantity-source", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1"}}], "judgment": "declare-quantity", "phase": "type"},
+            "input": {"facts": [{"kind": "quantity-source", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1", "domain_kind": "closed-interval"}}], "judgment": "declare-quantity", "phase": "type"},
             "rule": "quantity.declare"
           },
           {
-            "expect": {"kind": "rir-quantity-declaration", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1"}},
+            "expect": {"kind": "rir-quantity-declaration", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1", "domain_kind": "closed-interval"}},
             "id": "quantity.lower.valid",
-            "input": {"facts": [{"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1"}}], "judgment": "lower-quantity", "phase": "lower"},
+            "input": {"facts": [{"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1", "domain_kind": "closed-interval"}}], "judgment": "lower-quantity", "phase": "lower"},
             "rule": "quantity.lower"
           },
           {"diagnostic": "language.invalid_domain", "id": "quantity.refuse.domain", "input": {"maximum": 1, "minimum": 2}, "matched": true, "reason": "quantity.reason.invalid-domain", "stage": "static"},
@@ -843,20 +861,21 @@
     ],
     "quantity": {"domains": ["closed-interval"], "kinds": ["scalar"], "numeric_policies": [{"id": "exact-int64", "overflow": "refuse", "rounding": "none"}], "representations": ["Int"], "symbol_roles": ["constant", "parameter", "input", "state", "derived", "output", "random"], "units": [{"dimension": "dimensionless", "id": "1"}]},
     "reasons": [
-      {"diagnostic": "language.unknown_kind", "id": "quantity.reason.unknown-kind", "predicate": {"inventory_path": "language.quantity.kinds", "operation": "not-member"}, "stage": "static"},
-      {"diagnostic": "language.unknown_unit", "id": "quantity.reason.unknown-unit", "predicate": {"inventory_path": "language.quantity.units", "member_field": "id", "operation": "not-member"}, "stage": "static"},
-      {"diagnostic": "language.duplicate_symbol", "id": "quantity.reason.duplicate-symbol", "predicate": {"operation": "has-duplicate"}, "stage": "static"},
-      {"diagnostic": "language.resource_exhausted", "id": "quantity.reason.resource-exhausted", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "static"},
-      {"diagnostic": "language.invalid_domain", "id": "quantity.reason.invalid-domain", "predicate": {"operation": "invalid-interval"}, "stage": "static"},
+      {"diagnostic": "language.name_ambiguity", "id": "model.reason.name-ambiguity", "predicate": {"operation": "not-equal"}, "stage": "static"},
       {"diagnostic": "language.package_version_unavailable", "id": "model.reason.package-version-unavailable", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
       {"diagnostic": "language.resolution_ambiguity", "id": "model.reason.resolution-ambiguity", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
       {"diagnostic": "language.resolution_binding_mismatch", "id": "model.reason.resolution-binding-mismatch", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
+      {"diagnostic": "language.resource_exhausted", "id": "model.reason.resolution-resource-exhausted", "predicate": {"limit_path": "resources.max_rule_match_steps", "operation": "greater-than"}, "stage": "static"},
       {"diagnostic": "language.resolved_authority_mismatch", "id": "model.reason.resolved-authority-mismatch", "predicate": {"operation": "not-equal"}, "stage": "resolution"},
-      {"diagnostic": "language.unresolved_name", "id": "model.reason.unresolved-name", "predicate": {"operation": "not-equal"}, "stage": "static"},
-      {"diagnostic": "language.name_ambiguity", "id": "model.reason.name-ambiguity", "predicate": {"operation": "not-equal"}, "stage": "static"},
       {"diagnostic": "language.source_contract_mismatch", "id": "model.reason.source-contract-mismatch", "predicate": {"operation": "not-equal"}, "stage": "static"},
       {"diagnostic": "language.source_parse_failure", "id": "model.reason.source-parse-failure", "predicate": {"operation": "not-equal"}, "stage": "parse"},
-      {"diagnostic": "language.source_too_large", "id": "model.reason.source-too-large", "predicate": {"operation": "greater-than", "limit_path": "resources.max_source_bytes"}, "stage": "ingress"}
+      {"diagnostic": "language.source_too_large", "id": "model.reason.source-too-large", "predicate": {"operation": "greater-than", "limit_path": "resources.max_source_bytes"}, "stage": "ingress"},
+      {"diagnostic": "language.unresolved_name", "id": "model.reason.unresolved-name", "predicate": {"operation": "not-equal"}, "stage": "static"},
+      {"diagnostic": "language.duplicate_symbol", "id": "quantity.reason.duplicate-symbol", "predicate": {"operation": "has-duplicate"}, "stage": "static"},
+      {"diagnostic": "language.invalid_domain", "id": "quantity.reason.invalid-domain", "predicate": {"operation": "invalid-interval"}, "stage": "static"},
+      {"diagnostic": "language.resource_exhausted", "id": "quantity.reason.resource-exhausted", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "static"},
+      {"diagnostic": "language.unknown_kind", "id": "quantity.reason.unknown-kind", "predicate": {"inventory_path": "language.quantity.kinds", "operation": "not-member"}, "stage": "static"},
+      {"diagnostic": "language.unknown_unit", "id": "quantity.reason.unknown-unit", "predicate": {"inventory_path": "language.quantity.units", "member_field": "id", "operation": "not-member"}, "stage": "static"}
     ],
     "resolution_profiles": [
       {
@@ -952,22 +971,44 @@
       {
         "conclusion": {
           "fact_kind": "typed-quantity-symbol",
-          "fields": {"domain": {"name": "domain", "tag": "variable"}, "kind": {"name": "kind", "tag": "variable"}, "numeric_policy": {"name": "numeric_policy", "tag": "variable"}, "representation": {"name": "representation", "tag": "variable"}, "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"}, "role": {"name": "role", "tag": "variable"}, "symbol": {"name": "symbol", "tag": "variable"}, "type_identity": {"name": "type_identity", "tag": "variable"}, "unit": {"name": "unit", "tag": "variable"}}
+          "fields": {
+            "domain": {"name": "domain", "tag": "variable"},
+            "kind": {"name": "kind", "tag": "variable"},
+            "numeric_policy": {"name": "numeric_policy", "tag": "variable"},
+            "representation": {"name": "representation", "tag": "variable"},
+            "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"},
+            "role": {"name": "role", "tag": "variable"},
+            "symbol": {"name": "symbol", "tag": "variable"},
+            "type_identity": {"name": "type_identity", "tag": "variable"},
+            "unit": {"name": "unit", "tag": "variable"},
+            "domain_kind": {"tag": "variable", "name": "domain_kind"}
+          }
         },
         "id": "quantity.declare",
         "judgment": "declare-quantity",
         "phase": "type",
-        "premises": [{"bind": {"domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy", "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role", "symbol": "symbol", "type_identity": "type_identity", "unit": "unit"}, "fact_kind": "quantity-source"}]
+        "premises": [{"bind": {"domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy", "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role", "symbol": "symbol", "type_identity": "type_identity", "unit": "unit", "domain_kind": "domain_kind"}, "fact_kind": "quantity-source"}]
       },
       {
         "conclusion": {
           "fact_kind": "rir-quantity-declaration",
-          "fields": {"domain": {"name": "domain", "tag": "variable"}, "kind": {"name": "kind", "tag": "variable"}, "numeric_policy": {"name": "numeric_policy", "tag": "variable"}, "representation": {"name": "representation", "tag": "variable"}, "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"}, "role": {"name": "role", "tag": "variable"}, "symbol": {"name": "symbol", "tag": "variable"}, "type_identity": {"name": "type_identity", "tag": "variable"}, "unit": {"name": "unit", "tag": "variable"}}
+          "fields": {
+            "domain": {"name": "domain", "tag": "variable"},
+            "kind": {"name": "kind", "tag": "variable"},
+            "numeric_policy": {"name": "numeric_policy", "tag": "variable"},
+            "representation": {"name": "representation", "tag": "variable"},
+            "resolved_symbol": {"name": "resolved_symbol", "tag": "variable"},
+            "role": {"name": "role", "tag": "variable"},
+            "symbol": {"name": "symbol", "tag": "variable"},
+            "type_identity": {"name": "type_identity", "tag": "variable"},
+            "unit": {"name": "unit", "tag": "variable"},
+            "domain_kind": {"tag": "variable", "name": "domain_kind"}
+          }
         },
         "id": "quantity.lower",
         "judgment": "lower-quantity",
         "phase": "lower",
-        "premises": [{"bind": {"domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy", "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role", "symbol": "symbol", "type_identity": "type_identity", "unit": "unit"}, "fact_kind": "typed-quantity-symbol"}]
+        "premises": [{"bind": {"domain": "domain", "kind": "kind", "numeric_policy": "numeric_policy", "representation": "representation", "resolved_symbol": "resolved_symbol", "role": "role", "symbol": "symbol", "type_identity": "type_identity", "unit": "unit", "domain_kind": "domain_kind"}, "fact_kind": "typed-quantity-symbol"}]
       }
     ],
     "runtime_profiles": [{"effects": [], "evaluation": "declaration-only", "id": "compile.exact-int64", "numeric_policy": "exact-int64", "resource_bounds": {"max_steps": 4096}, "version": "2.0.0"}],
@@ -994,8 +1035,18 @@
                     "minItems": 1,
                     "items": {
                       "type": "object",
-                      "properties": {"symbol": {"type": "string", "minLength": 1}, "type": {"type": "string", "minLength": 1}, "role": {"enum": ["constant", "parameter", "input", "state", "derived", "output", "random"]}, "representation": {"const": "Int"}, "kind": {"const": "scalar"}, "unit": {"const": "1"}, "domain": {"type": "object", "properties": {"minimum": {"type": "integer"}, "maximum": {"type": "integer"}}, "required": ["minimum", "maximum"], "unevaluatedProperties": false}, "numeric_policy": {"const": "exact-int64"}},
-                      "required": ["symbol", "type", "role", "representation", "kind", "unit", "domain", "numeric_policy"],
+                      "properties": {
+                        "symbol": {"type": "string", "minLength": 1},
+                        "type": {"type": "string", "minLength": 1},
+                        "role": {"enum": ["constant", "parameter", "input", "state", "derived", "output", "random"]},
+                        "representation": {"const": "Int"},
+                        "kind": {"const": "scalar"},
+                        "unit": {"const": "1"},
+                        "domain": {"type": "object", "properties": {"minimum": {"type": "integer"}, "maximum": {"type": "integer"}}, "required": ["minimum", "maximum"], "unevaluatedProperties": false},
+                        "numeric_policy": {"const": "exact-int64"},
+                        "domain_kind": {"const": "closed-interval"}
+                      },
+                      "required": ["symbol", "type", "role", "representation", "kind", "unit", "domain_kind", "domain", "numeric_policy"],
                       "unevaluatedProperties": false
                     }
                   }
@@ -1015,15 +1066,15 @@
   "schema_major": 2,
   "vectors": [
     {
-      "expect": {"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1"}},
+      "expect": {"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1", "domain_kind": "closed-interval"}},
       "id": "quantity.declare.valid",
-      "input": {"facts": [{"kind": "quantity-source", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1"}}], "judgment": "declare-quantity", "phase": "type"},
+      "input": {"facts": [{"kind": "quantity-source", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1", "domain_kind": "closed-interval"}}], "judgment": "declare-quantity", "phase": "type"},
       "rule": "quantity.declare"
     },
     {
-      "expect": {"kind": "rir-quantity-declaration", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1"}},
+      "expect": {"kind": "rir-quantity-declaration", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1", "domain_kind": "closed-interval"}},
       "id": "quantity.lower.valid",
-      "input": {"facts": [{"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1"}}], "judgment": "lower-quantity", "phase": "lower"},
+      "input": {"facts": [{"kind": "typed-quantity-symbol", "fields": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "resolved_symbol": {"model": "example.model", "module": "main", "name": "health"}, "role": "state", "symbol": "health", "type_identity": {"package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}, "unit": "1", "domain_kind": "closed-interval"}}], "judgment": "lower-quantity", "phase": "lower"},
       "rule": "quantity.lower"
     },
     {"diagnostic": "language.unknown_kind", "id": "quantity.refuse.kind", "input": {"value": "missing-kind"}, "matched": true, "reason": "quantity.reason.unknown-kind", "stage": "static"},
@@ -1057,7 +1108,7 @@
     {
       "category": "positive",
       "expect": {
-        "debug_map_identity": "sha256:cd89093db631a2996495ca2b62aefa4a4b0a0779f901672f1a5f416d5c1fbfed",
+        "debug_map_identity": "sha256:9cc9b110fd2d6ea52a50ceb4c45fd79d98f5fe3ef851784feea31803f3f179f4",
         "declaration_count": 7,
         "diagnostics": [],
         "lock_oracle": {
@@ -1078,6 +1129,7 @@
             "model.reason.package-version-unavailable",
             "model.reason.resolution-ambiguity",
             "model.reason.resolution-binding-mismatch",
+            "model.reason.resolution-resource-exhausted",
             "model.reason.resolved-authority-mismatch",
             "model.reason.source-contract-mismatch",
             "model.reason.source-parse-failure",
@@ -1093,7 +1145,7 @@
         },
         "outcome": "admitted",
         "relation": {"kind": "independent", "reference": null},
-        "rir_identity": "sha256:a0b6610a6930576b0e73a3a041b30dbfbbf6a1dac523acf552884e665fa45480",
+        "rir_identity": "sha256:e5103b8d2cc71ed88de298f4e06a8b06ea4adbf5b82dbf8f1593e61039446117",
         "semantic_artifacts": true
       },
       "id": "model.compile.positive",
@@ -1106,13 +1158,13 @@
               "id": "main",
               "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
               "symbols": [
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"}
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}
               ]
             }
           ],
@@ -1133,7 +1185,7 @@
             {
               "id": "main",
               "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
-              "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "same", "type": "quantity", "unit": "1"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "same", "type": "quantity", "unit": "1"}]
+              "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "same", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}, {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "same", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}]
             }
           ],
           "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
@@ -1149,7 +1201,7 @@
         "mode": "literal",
         "source": {
           "manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"},
-          "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "9.0.0"}], "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "health", "type": "quantity", "unit": "1"}]}],
+          "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "9.0.0"}], "symbols": [{"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "health", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}]}],
           "package_requirements": [{"id": "core.quantity", "version": "9.0.0"}],
           "schema_version": "2.0.0"
         }
@@ -1158,7 +1210,7 @@
     {
       "category": "boundary",
       "expect": {
-        "debug_map_identity": "sha256:0529a35470341d19003130d21a59ee48ffe38dc6c13cdc73e69db597845838db",
+        "debug_map_identity": "sha256:fb69b589346bbc867887e3ffa07c9e1b2a8a67096ac1d997d22d957540facf82",
         "declaration_count": 4096,
         "diagnostics": [],
         "lock_oracle": {
@@ -1179,6 +1231,7 @@
             "model.reason.package-version-unavailable",
             "model.reason.resolution-ambiguity",
             "model.reason.resolution-binding-mismatch",
+            "model.reason.resolution-resource-exhausted",
             "model.reason.resolved-authority-mismatch",
             "model.reason.source-contract-mismatch",
             "model.reason.source-parse-failure",
@@ -1194,7 +1247,7 @@
         },
         "outcome": "admitted",
         "relation": {"kind": "independent", "reference": null},
-        "rir_identity": "sha256:1f13e14ff9a94e4297cac7f7530acddf451166c11090c2c61dc0423c3e809851",
+        "rir_identity": "sha256:a49c804644b6220180cdd0dc4b4bcc1f5d1dfbf0990d618ca594c6eb864463c6",
         "semantic_artifacts": true
       },
       "id": "model.compile.boundary-max-symbols",
@@ -1208,7 +1261,7 @@
         "index_width": 4,
         "mode": "indexed-repeat",
         "source": {"manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"}, "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}], "symbols": []}], "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "schema_version": "2.0.0"},
-        "template": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "template", "type": "quantity", "unit": "1"}
+        "template": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "template", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}
       }
     },
     {
@@ -1225,13 +1278,13 @@
         "index_width": 4,
         "mode": "indexed-repeat",
         "source": {"manifest": {"entry_module": "main", "id": "example.quantity-model", "version": "1.0.0"}, "modules": [{"id": "main", "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}], "symbols": []}], "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}], "schema_version": "2.0.0"},
-        "template": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "template", "type": "quantity", "unit": "1"}
+        "template": {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "template", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}
       }
     },
     {
       "category": "mutation",
       "expect": {
-        "debug_map_identity": "sha256:699d752a7d1f202e35affa1138ae5206f8d5388b594b2eaf75c764552834ab27",
+        "debug_map_identity": "sha256:388cc077a19472e98713a6e092bd3754439c6d04dfd20bace3b8e00305c3ca54",
         "declaration_count": 7,
         "diagnostics": [],
         "lock_oracle": {
@@ -1252,6 +1305,7 @@
             "model.reason.package-version-unavailable",
             "model.reason.resolution-ambiguity",
             "model.reason.resolution-binding-mismatch",
+            "model.reason.resolution-resource-exhausted",
             "model.reason.resolved-authority-mismatch",
             "model.reason.source-contract-mismatch",
             "model.reason.source-parse-failure",
@@ -1267,7 +1321,7 @@
         },
         "outcome": "admitted",
         "relation": {"kind": "semantic-change", "reference": "model.compile.positive"},
-        "rir_identity": "sha256:8d0cb377be8bed14e33a201249e60e5120ef315029fa58357c3c8ef5479b484f",
+        "rir_identity": "sha256:24bdb080ed52e505e665450eab94ef8ea90930cb2bff2f5d5abc3f190482c268",
         "semantic_artifacts": true
       },
       "id": "model.compile.mutation-role-change",
@@ -1280,13 +1334,13 @@
               "id": "main",
               "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
               "symbols": [
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "state_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"}
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "state_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}
               ]
             }
           ],
@@ -1298,7 +1352,7 @@
     {
       "category": "semantic-equivalence",
       "expect": {
-        "debug_map_identity": "sha256:649289ecdebab6d546fc0005a507255ccbbd7588a7694c286c3c24ceec99025f",
+        "debug_map_identity": "sha256:bed23b5d5db15c4838710aca30cff69606adc37daaad2a7a55df0a4eafaa6687",
         "declaration_count": 7,
         "diagnostics": [],
         "lock_oracle": {
@@ -1319,6 +1373,7 @@
             "model.reason.package-version-unavailable",
             "model.reason.resolution-ambiguity",
             "model.reason.resolution-binding-mismatch",
+            "model.reason.resolution-resource-exhausted",
             "model.reason.resolved-authority-mismatch",
             "model.reason.source-contract-mismatch",
             "model.reason.source-parse-failure",
@@ -1334,7 +1389,7 @@
         },
         "outcome": "admitted",
         "relation": {"kind": "semantic-equivalent", "reference": "model.compile.positive"},
-        "rir_identity": "sha256:a0b6610a6930576b0e73a3a041b30dbfbbf6a1dac523acf552884e665fa45480",
+        "rir_identity": "sha256:e5103b8d2cc71ed88de298f4e06a8b06ea4adbf5b82dbf8f1593e61039446117",
         "semantic_artifacts": true
       },
       "id": "model.compile.semantic-equivalent-order",
@@ -1347,13 +1402,13 @@
               "id": "main",
               "imports": [{"alias": "quantity", "package": "core.quantity", "symbol": "Quantity", "version": "2.0.0"}],
               "symbols": [
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1"},
-                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1"}
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "random", "symbol": "random_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "output", "symbol": "output_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "derived", "symbol": "derived_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "state", "symbol": "state_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "input", "symbol": "input_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "parameter", "symbol": "parameter_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"},
+                {"domain": {"maximum": 100, "minimum": 0}, "kind": "scalar", "numeric_policy": "exact-int64", "representation": "Int", "role": "constant", "symbol": "constant_value", "type": "quantity", "unit": "1", "domain_kind": "closed-interval"}
               ]
             }
           ],
@@ -1361,6 +1416,8 @@
           "schema_version": "2.0.0"
         }
       }
-    }
+    },
+    {"diagnostic": "language.resource_exhausted", "id": "model.accept.resolution-step-boundary", "input": {"value": 65536}, "matched": false, "reason": "model.reason.resolution-resource-exhausted", "stage": "static"},
+    {"diagnostic": "language.resource_exhausted", "id": "model.refuse.resolution-step-budget", "input": {"value": 65537}, "matched": true, "reason": "model.reason.resolution-resource-exhausted", "stage": "static"}
   ]
 }

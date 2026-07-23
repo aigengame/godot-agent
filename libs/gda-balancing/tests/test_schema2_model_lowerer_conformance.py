@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
@@ -66,6 +67,7 @@ def _symbol(name: str, role: str) -> dict[str, Any]:
         "representation": "Int",
         "kind": "scalar",
         "unit": "1",
+        "domain_kind": "closed-interval",
         "domain": {"minimum": 0, "maximum": 100},
         "numeric_policy": "exact-int64",
     }
@@ -289,6 +291,25 @@ def _reference_check_source(
         for item in language["resolution_profiles"]
         if item["id"] == lowering["resolution_profile"]
     )
+    resource_reasons = [
+        reason
+        for reason in reasons.values()
+        if reason["predicate"].get("limit_path") == "resources.max_rule_match_steps"
+    ]
+    assert len(resource_reasons) == 1
+    resource_diagnostic = resource_reasons[0]["diagnostic"]
+    step_limit = language_bundle["resources"]["max_rule_match_steps"]
+    base_steps = 0
+
+    class BudgetExhausted(Exception):
+        pass
+
+    def consume_base() -> None:
+        nonlocal base_steps
+        if base_steps >= step_limit:
+            raise BudgetExhausted
+        base_steps += 1
+
     relations: dict[str, list[dict[str, dict[str, str]]]] = {}
 
     def read_term(term: dict[str, Any], environment: dict[str, Any]) -> Any:
@@ -306,36 +327,40 @@ def _reference_check_source(
             value = value[segment]
         return value
 
-    for recipe in profile["relation_recipes"]:
-        environments: list[dict[str, Any]] = [{}]
-        for binding in recipe["bindings"]:
-            next_environments = []
+    try:
+        for recipe in profile["relation_recipes"]:
+            environments: list[dict[str, Any]] = [{}]
+            for binding in recipe["bindings"]:
+                next_environments = []
+                for environment in environments:
+                    candidates = read_term(binding["source"], environment)
+                    assert isinstance(candidates, list)
+                    for candidate in candidates:
+                        consume_base()
+                        next_environments.append(
+                            {**environment, binding["name"]: candidate}
+                        )
+                environments = next_environments
+            relation_rows = []
             for environment in environments:
-                candidates = read_term(binding["source"], environment)
-                assert isinstance(candidates, list)
-                next_environments.extend(
-                    {**environment, binding["name"]: candidate}
-                    for candidate in candidates
-                )
-            environments = next_environments
-        relation_rows = []
-        for environment in environments:
-            if any(
-                predicate["operator"] == "equal"
-                and read_term(predicate["left"], environment)
-                != read_term(predicate["right"], environment)
-                for predicate in recipe["predicates"]
-            ):
-                continue
-            relation_rows.append(
-                {
-                    "values": {
-                        field["name"]: read_term(field["term"], environment)
-                        for field in recipe["fields"]
-                    }
-                }
-            )
-        relations[recipe["id"]] = relation_rows
+                rejected = False
+                for predicate in recipe["predicates"]:
+                    consume_base()
+                    if predicate["operator"] == "equal" and read_term(
+                        predicate["left"], environment
+                    ) != read_term(predicate["right"], environment):
+                        rejected = True
+                        break
+                if rejected:
+                    continue
+                values = {}
+                for field in recipe["fields"]:
+                    consume_base()
+                    values[field["name"]] = read_term(field["term"], environment)
+                relation_rows.append({"values": values})
+            relations[recipe["id"]] = relation_rows
+    except BudgetExhausted:
+        return (resource_diagnostic,)
 
     def matches(
         subject: dict[str, Any],
@@ -347,37 +372,39 @@ def _reference_check_source(
             for field in fields
         )
 
-    def law_fails(law: dict[str, Any]) -> bool:
+    def law_fails(law: dict[str, Any], consume: Callable[[], None]) -> bool:
         operator = law["operator"]
         if operator == "require-match":
             for subject in relations[law["subject_relation"]]:
+                consume()
                 guard = law.get("guard")
                 if guard is not None:
-                    guarded = [
-                        target
-                        for target in relations[guard["target_relation"]]
-                        if matches(subject, target, guard["match"])
-                    ]
+                    guarded = []
+                    for target in relations[guard["target_relation"]]:
+                        consume()
+                        if matches(subject, target, guard["match"]):
+                            guarded.append(target)
                     if guard["cardinality"] == "exactly-one" and len(guarded) != 1:
                         continue
-                targets = [
-                    target
-                    for target in relations[law["target_relation"]]
-                    if matches(subject, target, law["match"])
-                ]
+                targets = []
+                for target in relations[law["target_relation"]]:
+                    consume()
+                    if matches(subject, target, law["match"]):
+                        targets.append(target)
                 if law["cardinality"] == "exactly-one" and len(targets) != 1:
                     return True
             return False
         if operator == "require-unique":
             fields = [*law["scope"], *law["key"]]
-            keys = [
-                tuple(item["values"][field] for field in fields)
-                for item in relations[law["relation"]]
-            ]
+            keys = []
+            for item in relations[law["relation"]]:
+                consume()
+                keys.append(tuple(item["values"][field] for field in fields))
             return len(keys) != len(set(keys))
         if operator == "require-single-value":
             grouped: dict[tuple[str, ...], set[tuple[str, ...]]] = {}
             for item in relations[law["relation"]]:
+                consume()
                 group = tuple(
                     item["values"][field] for field in [*law["scope"], *law["group"]]
                 )
@@ -391,11 +418,24 @@ def _reference_check_source(
     resolution_meta = kernel["meta_format"]["resolution_judgment"]
     operations = {item["id"]: item for item in resolution_meta["operations"]}
     for stage in resolution_meta["stage_order"]:
+        stage_steps = base_steps
+
+        def consume_stage() -> None:
+            nonlocal stage_steps
+            if stage_steps >= step_limit:
+                raise BudgetExhausted
+            stage_steps += 1
+
         stage_diagnostics = list(diagnostics_by_stage.get(stage, []))
-        for judgment in profile["judgment_chain"]:
-            operation = operations[judgment["operation"]]
-            if operation["stage"] == stage and law_fails(operation["law"]):
-                stage_diagnostics.append(reasons[judgment["reason"]]["diagnostic"])
+        try:
+            for judgment in profile["judgment_chain"]:
+                operation = operations[judgment["operation"]]
+                if operation["stage"] == stage and law_fails(
+                    operation["law"], consume_stage
+                ):
+                    stage_diagnostics.append(reasons[judgment["reason"]]["diagnostic"])
+        except BudgetExhausted:
+            return (resource_diagnostic,)
         if stage_diagnostics:
             return tuple(dict.fromkeys(stage_diagnostics))
     return CheckedModel(
@@ -884,9 +924,10 @@ def _reference_runtime_projection(
             for index, row in enumerate(catalogs[seed["collection"]]):
                 if row[0] != package:
                     continue
-                if seed["operator"] == "declaration-package" or descend(
-                    row[2], seed["target_path"]
-                ) == descend(declaration, seed["declaration_path"]):
+                assert seed["operator"] == "declaration-field"
+                if descend(row[2], seed["target_path"]) == descend(
+                    declaration, seed["declaration_path"]
+                ):
                     selected[seed["collection"]].add(index)
 
     previous = None
@@ -942,13 +983,7 @@ def _reference_runtime_projection(
                 for row in source_rows
                 if row[output["package_member"]] in selected_packages
             ]
-        elif output["kind"] == "selected-package-rows":
-            values = [
-                row
-                for row in source_rows
-                if row[output["package_member"]] in selected_packages
-            ]
-        else:
+        elif output["kind"] == "selected-semantic-closures":
             values = []
             for closure in source_rows:
                 package = closure[output["package_member"]]
@@ -972,6 +1007,11 @@ def _reference_runtime_projection(
                             output["entries_member"]: entries,
                         }
                     )
+        else:
+            raise AssertionError(
+                f"reference consumer observed unknown projection output: "
+                f"{output['kind']}"
+            )
         projection[output["output_member"]] = values
     return projection
 
@@ -1317,6 +1357,37 @@ def test_resolution_stage_order_is_authoritative_across_independent_consumers(
         "language.name_ambiguity",
         "language.unresolved_name",
     )
+
+
+def test_resolution_step_budget_drives_both_independent_consumers():
+    source = _source([_symbol("health", "state")])
+    kernel, language_bundle = deepcopy(load_authorities())
+    language_bundle["resources"]["max_rule_match_steps"] = 1
+    vectors = {
+        vector["id"]: vector
+        for vector in language_bundle["vectors"]
+        if vector["id"]
+        in {
+            "model.accept.resolution-step-boundary",
+            "model.refuse.resolution-step-budget",
+        }
+    }
+    vectors["model.accept.resolution-step-boundary"]["input"]["value"] = 1
+    vectors["model.refuse.resolution-step-budget"]["input"]["value"] = 2
+    _reidentify_language_bundle(language_bundle)
+    assert admit_authorities(kernel, language_bundle).admitted
+
+    production = model_module._resolution_diagnostics(
+        source,
+        _reference_content_identity("model-source-package-v2", source),
+        kernel,
+        language_bundle,
+        stage="static",
+    )
+    reference = _reference_check_source(source, kernel, language_bundle)
+
+    assert tuple(item.code for item in production) == ("language.resource_exhausted",)
+    assert reference == ("language.resource_exhausted",)
 
 
 def test_resolution_law_fields_drive_both_independent_interpreters(tmp_path):

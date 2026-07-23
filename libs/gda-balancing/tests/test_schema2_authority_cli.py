@@ -188,6 +188,7 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
                 "representation": "Int",
                 "kind": "scalar",
                 "unit": "1",
+                "domain_kind": "closed-interval",
                 "domain": {"minimum": 0, "maximum": 100},
                 "numeric_policy": "exact-int64",
             }

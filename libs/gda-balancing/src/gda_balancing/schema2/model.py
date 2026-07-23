@@ -74,6 +74,21 @@ class ResolvedModelAdmission:
     diagnostics: tuple[str, ...]
 
 
+class _ResolutionResourceExhausted(Exception):
+    """The admitted resolution-step budget was exhausted."""
+
+
+@dataclass
+class _ResolutionBudget:
+    limit: int
+    used: int = 0
+
+    def consume(self) -> None:
+        if self.used >= self.limit:
+            raise _ResolutionResourceExhausted
+        self.used += 1
+
+
 def _strict_object(data: bytes) -> dict[str, Any]:
     def reject_number(_value: str) -> Any:
         raise ValueError("non-integer number")
@@ -502,6 +517,7 @@ def _resolution_relations(
     source: dict[str, Any],
     language_bundle: dict[str, Any],
     profile: dict[str, Any],
+    budget: _ResolutionBudget,
 ) -> dict[str, list[dict[str, Any]]]:
     language = _language(language_bundle)
 
@@ -536,6 +552,7 @@ def _resolution_relations(
                 if not isinstance(values, list):
                     raise ValueError("admitted relation binding source is not a list")
                 for index, value in enumerate(values):
+                    budget.consume()
                     expanded.append(
                         {
                             **environment,
@@ -548,20 +565,20 @@ def _resolution_relations(
             environments = expanded
         rows: list[dict[str, Any]] = []
         for environment in environments:
-            if any(
-                predicate["operator"] == "equal"
-                and canonical_bytes(
-                    cast(JsonValue, evaluate_term(predicate["left"], environment)[0])
-                )
-                != canonical_bytes(
-                    cast(JsonValue, evaluate_term(predicate["right"], environment)[0])
-                )
-                for predicate in cast(list[dict[str, Any]], recipe["predicates"])
-            ):
+            rejected = False
+            for predicate in cast(list[dict[str, Any]], recipe["predicates"]):
+                budget.consume()
+                if predicate["operator"] == "equal" and canonical_bytes(
+                    evaluate_term(predicate["left"], environment)[0]
+                ) != canonical_bytes(evaluate_term(predicate["right"], environment)[0]):
+                    rejected = True
+                    break
+            if rejected:
                 continue
             values: dict[str, str] = {}
             pointers: dict[str, str] = {}
             for field in cast(list[dict[str, Any]], recipe["fields"]):
+                budget.consume()
                 value, pointer = evaluate_term(field["term"], environment)
                 if not isinstance(value, str):
                     raise ValueError("admitted relation field did not produce a string")
@@ -591,25 +608,27 @@ def _law_matches(
 def _resolution_law_failures(
     law: dict[str, Any],
     relations: dict[str, list[dict[str, Any]]],
+    budget: _ResolutionBudget,
 ) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
     operator = law["operator"]
     if operator == "require-match":
         failures: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
         for subject in relations[law["subject_relation"]]:
+            budget.consume()
             guard = law.get("guard")
             if isinstance(guard, dict):
-                guarded = [
-                    target
-                    for target in relations[guard["target_relation"]]
-                    if _law_matches(subject, target, guard["match"])
-                ]
+                guarded = []
+                for target in relations[guard["target_relation"]]:
+                    budget.consume()
+                    if _law_matches(subject, target, guard["match"]):
+                        guarded.append(target)
                 if guard["cardinality"] == "exactly-one" and len(guarded) != 1:
                     continue
-            matches = [
-                target
-                for target in relations[law["target_relation"]]
-                if _law_matches(subject, target, law["match"])
-            ]
+            matches = []
+            for target in relations[law["target_relation"]]:
+                budget.consume()
+                if _law_matches(subject, target, law["match"]):
+                    matches.append(target)
             if law["cardinality"] == "exactly-one" and len(matches) != 1:
                 failures.append((subject, None))
         return failures
@@ -618,6 +637,7 @@ def _resolution_law_failures(
         failures = []
         fields = [*law["scope"], *law["key"]]
         for item in relations[law["relation"]]:
+            budget.consume()
             key = tuple(item["values"][field] for field in fields)
             previous = unique_first.get(key)
             if previous is None:
@@ -629,6 +649,7 @@ def _resolution_law_failures(
         group_first: dict[tuple[str, ...], tuple[tuple[str, ...], dict[str, Any]]] = {}
         failures = []
         for item in relations[law["relation"]]:
+            budget.consume()
             group = tuple(
                 item["values"][field] for field in [*law["scope"], *law["group"]]
             )
@@ -666,39 +687,63 @@ def _resolution_diagnostics(
         item["id"]: item
         for item in cast(list[dict[str, Any]], resolution_contract["operations"])
     }
-    relations = _resolution_relations(source, language_bundle, profile)
+    resource_reason = _unique_reason(
+        language_bundle,
+        stage="static",
+        operation="greater-than",
+        limit_path="resources.max_rule_match_steps",
+    )
+    budget = _ResolutionBudget(
+        cast(
+            int,
+            _path_value(
+                language_bundle,
+                cast(str, resource_reason["predicate"]["limit_path"]),
+            ),
+        )
+    )
     diagnostics: list[Schema2Diagnostic] = []
-    for judgment in cast(list[dict[str, Any]], profile["judgment_chain"]):
-        operation_spec = operation_specs[judgment["operation"]]
-        if operation_spec["stage"] != stage:
-            continue
-        law = cast(dict[str, Any], operation_spec["law"])
-        pointer_field = cast(str, law["pointer_field"])
-        reason = reasons[judgment["reason"]]
-        for item, previous in _resolution_law_failures(law, relations):
-            pointer = cast(dict[str, str], item["pointers"]).get(pointer_field, "")
-            related = (
-                (
-                    _location(
-                        source_identity,
-                        cast(dict[str, str], previous["pointers"]).get(
-                            pointer_field, ""
+    try:
+        relations = _resolution_relations(source, language_bundle, profile, budget)
+        for judgment in cast(list[dict[str, Any]], profile["judgment_chain"]):
+            operation_spec = operation_specs[judgment["operation"]]
+            if operation_spec["stage"] != stage:
+                continue
+            law = cast(dict[str, Any], operation_spec["law"])
+            pointer_field = cast(str, law["pointer_field"])
+            reason = reasons[judgment["reason"]]
+            for item, previous in _resolution_law_failures(law, relations, budget):
+                pointer = cast(dict[str, str], item["pointers"]).get(pointer_field, "")
+                related = (
+                    (
+                        _location(
+                            source_identity,
+                            cast(dict[str, str], previous["pointers"]).get(
+                                pointer_field, ""
+                            ),
                         ),
-                    ),
+                    )
+                    if previous is not None
+                    else ()
                 )
-                if previous is not None
-                else ()
-            )
-            diagnostics.append(
-                Schema2Diagnostic(
-                    code=cast(str, reason["diagnostic"]),
-                    message=(
-                        f"Model Source failed resolution judgment {judgment['id']}"
-                    ),
-                    primary=_location(source_identity, pointer),
-                    related=related,
+                diagnostics.append(
+                    Schema2Diagnostic(
+                        code=cast(str, reason["diagnostic"]),
+                        message=(
+                            f"Model Source failed resolution judgment {judgment['id']}"
+                        ),
+                        primary=_location(source_identity, pointer),
+                        related=related,
+                    )
                 )
+    except _ResolutionResourceExhausted:
+        return [
+            Schema2Diagnostic(
+                code=cast(str, resource_reason["diagnostic"]),
+                message="Model Source resolution exhausted its admitted step budget",
+                primary=_location(source_identity, ""),
             )
+        ]
     return diagnostics
 
 
@@ -1356,30 +1401,23 @@ def _runtime_projection(
                 declaration,
                 cast(list[str], seed["declaration_package_path"]),
             )
-            if seed["operator"] == "declaration-package":
-                matches = [
-                    index
-                    for index, row in enumerate(catalog)
-                    if row["package"] == package
-                ]
-            elif seed["operator"] == "declaration-field":
-                expected = path_value(
-                    declaration, cast(list[str], seed["declaration_path"])
-                )
-                matches = [
-                    index
-                    for index, row in enumerate(catalog)
-                    if row["package"] == package
-                    and canonical_bytes(
-                        path_value(
-                            row["value"],
-                            cast(list[str], seed["target_path"]),
-                        )
-                    )
-                    == canonical_bytes(expected)
-                ]
-            else:
+            if seed["operator"] != "declaration-field":
                 raise ValueError("unknown admitted runtime projection seed operator")
+            expected = path_value(
+                declaration, cast(list[str], seed["declaration_path"])
+            )
+            matches = [
+                index
+                for index, row in enumerate(catalog)
+                if row["package"] == package
+                and canonical_bytes(
+                    path_value(
+                        row["value"],
+                        cast(list[str], seed["target_path"]),
+                    )
+                )
+                == canonical_bytes(expected)
+            ]
             if not matches:
                 raise ValueError("runtime projection seed did not resolve")
             selected[collection_id].update(matches)
@@ -1471,13 +1509,6 @@ def _runtime_projection(
                     member: cast(dict[str, Any], row)[member]
                     for member in cast(list[str], output["members"])
                 }
-                for row in source_rows
-                if cast(dict[str, Any], row)[output["package_member"]]
-                in selected_packages
-            ]
-        elif kind == "selected-package-rows":
-            output_values = [
-                row
                 for row in source_rows
                 if cast(dict[str, Any], row)[output["package_member"]]
                 in selected_packages

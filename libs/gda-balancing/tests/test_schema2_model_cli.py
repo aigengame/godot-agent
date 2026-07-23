@@ -30,6 +30,7 @@ def _quantity_symbol(name: str, role: str) -> dict[str, Any]:
         "representation": "Int",
         "kind": "scalar",
         "unit": "1",
+        "domain_kind": "closed-interval",
         "domain": {"minimum": 0, "maximum": 100},
         "numeric_policy": "exact-int64",
     }
@@ -1798,3 +1799,86 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
     assert original["package-lock"] != mutated["package-lock"]
     assert original["resolved-model"] != mutated["resolved-model"]
+
+
+@pytest.mark.parametrize(
+    "unused_semantics",
+    ("domain", "runtime-profile", "capability"),
+)
+def test_unreachable_package_semantics_do_not_change_rir(
+    tmp_path,
+    unused_semantics,
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    original = model_module.lower_checked_model(checked)
+    candidate_ldb = deepcopy(checked.language_bundle)
+    language = candidate_ldb["language"]
+    package = language["packages"][0]
+    if unused_semantics == "domain":
+        language["quantity"]["domains"].append("unused-domain")
+        package["exports"]["domains"].append("unused-domain")
+    elif unused_semantics == "runtime-profile":
+        language["runtime_profiles"].append(
+            {
+                "id": "compile.unused",
+                "version": "2.0.0",
+                "numeric_policy": "exact-int64",
+                "evaluation": "declaration-only",
+                "effects": [],
+                "resource_bounds": {"max_steps": 1},
+            }
+        )
+        package["profiles"]["runtime"].append("compile.unused")
+    else:
+        language["capabilities"].append(
+            {"id": "quantity.unused", "rule": "quantity.lower"}
+        )
+        package["capabilities"]["provided"].append("quantity.unused")
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
+
+    mutated = model_module.lower_checked_model(
+        replace(checked, language_bundle=candidate_ldb)
+    )
+
+    assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
+    assert original["package-lock"] != mutated["package-lock"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+
+
+def test_resolution_step_exhaustion_is_a_typed_static_refusal(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    kernel, candidate_ldb = deepcopy(model_module.load_authorities())
+    candidate_ldb["resources"]["max_rule_match_steps"] = 1
+    boundary = next(
+        vector
+        for vector in candidate_ldb["vectors"]
+        if vector["id"] == "model.accept.resolution-step-boundary"
+    )
+    successor = next(
+        vector
+        for vector in candidate_ldb["vectors"]
+        if vector["id"] == "model.refuse.resolution-step-budget"
+    )
+    boundary["input"]["value"] = 1
+    successor["input"]["value"] = 2
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted is True
+    monkeypatch.setattr(
+        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
+    )
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.resource_exhausted"
+    ]

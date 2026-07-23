@@ -36,7 +36,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9ef8a1686dbe132f8c176c36d8280274a78ad9691e0c12b1b0ab8537354c33af"
+    "sha256:0ba2c4aa09693a127e4e076c03e1547004a1ed85b4f6536d39b5bfd7a624d6b0"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1190,6 +1190,8 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
             "stage_order",
             "relation_schemas",
             "relation_recipe_format",
+            "routing_equivalences",
+            "resource_accounting",
             "law_format",
         }
         or contract.get("closed") is not True
@@ -1200,6 +1202,8 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
     operations = contract.get("operations")
     law_format = contract.get("law_format")
     recipe_format = contract.get("relation_recipe_format")
+    routing_equivalences = contract.get("routing_equivalences")
+    resource_accounting = contract.get("resource_accounting")
     if (
         not isinstance(stages, list)
         or not stages
@@ -1220,12 +1224,95 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
             "binding_source_roots",
             "term_roots",
             "predicate_operators",
+            "binding",
+            "term",
+            "predicate",
+            "field",
+            "root_typing",
         }
         or recipe_format.get("closed") is not True
         or recipe_format.get("binding_source_roots")
         != ["source", "language", "binding"]
         or recipe_format.get("term_roots") != ["source", "language", "binding"]
         or recipe_format.get("predicate_operators") != ["equal"]
+        or recipe_format.get("binding")
+        != {
+            "required_members": ["name", "source"],
+            "source_result": "list",
+            "expansion_order": "source-list-order",
+        }
+        or recipe_format.get("term")
+        != {
+            "required_members": {
+                "source": ["root", "path"],
+                "language": ["root", "path"],
+                "binding": ["root", "binding", "path"],
+            },
+            "path_semantics": "closed-object-member-path",
+            "empty_path": "identity",
+        }
+        or recipe_format.get("predicate")
+        != {
+            "required_members": ["operator", "left", "right"],
+            "operand_type": "canonical-value",
+        }
+        or recipe_format.get("field")
+        != {
+            "required_members": ["name", "term", "pointer"],
+            "result_type": "non-empty-string",
+            "pointer_true_origin": "source",
+        }
+        or recipe_format.get("root_typing")
+        != {
+            "source": "model-source-wire-schema",
+            "language": "kernel-declared-language-contracts",
+            "binding": "expanded-binding-item",
+        }
+        or not isinstance(routing_equivalences, list)
+        or not routing_equivalences
+        or any(
+            not isinstance(item, dict)
+            or set(item)
+            != {
+                "profile_member",
+                "recipe",
+                "subject_kind",
+                "subject",
+                "projection",
+            }
+            or not all(
+                isinstance(item.get(member), str) and item[member]
+                for member in ("profile_member", "recipe", "subject")
+            )
+            or item.get("subject_kind") not in {"binding-source", "field-term"}
+            or item.get("projection") not in {"dot-path", "last-segment"}
+            for item in routing_equivalences
+        )
+        or len(
+            {
+                item["profile_member"]
+                for item in routing_equivalences
+                if isinstance(item, dict) and "profile_member" in item
+            }
+        )
+        != len(routing_equivalences)
+        or resource_accounting
+        != {
+            "limit_member": "max_rule_match_steps",
+            "counter_scope": "per-resolution-stage",
+            "charged_events": [
+                "binding-expansion",
+                "predicate-comparison",
+                "field-projection",
+                "law-subject-evaluation",
+                "law-target-comparison",
+            ],
+            "exhaustion_reason": {
+                "stage": "static",
+                "operation": "greater-than",
+                "limit_path": "resources.max_rule_match_steps",
+            },
+        }
     ):
         return False
     relation_fields: dict[str, set[str]] = {}
@@ -1276,11 +1363,31 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
     for operation in operations:
         if (
             not isinstance(operation, dict)
-            or set(operation) != {"id", "stage", "law"}
+            or set(operation)
+            != {
+                "id",
+                "stage",
+                "law",
+                "input",
+                "result",
+                "effects",
+                "refusals",
+                "resources",
+            }
             or not isinstance(operation.get("id"), str)
             or operation["id"] in operation_ids
             or operation.get("stage") not in stages
             or not isinstance(operation.get("law"), dict)
+            or operation.get("input") != {"fact_kind": "resolution-state"}
+            or operation.get("result") != {"fact_kind": "resolution-state"}
+            or operation.get("effects") != []
+            or operation.get("refusals") != ["reason-bound-diagnostic"]
+            or operation.get("resources")
+            != [
+                "max_diagnostics",
+                "max_rule_match_steps",
+                "max_symbols",
+            ]
         ):
             return False
         operation_ids.add(operation["id"])
@@ -1381,9 +1488,256 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
     return flattened == [operation["id"] for operation in operations]
 
 
+def _json_schema_path(schema: Any, path: list[str]) -> dict[str, Any] | None:
+    current = schema
+    for segment in path:
+        if (
+            not isinstance(current, dict)
+            or current.get("type") != "object"
+            or not isinstance(current.get("properties"), dict)
+            or segment not in current["properties"]
+        ):
+            return None
+        current = current["properties"][segment]
+    return current if isinstance(current, dict) else None
+
+
+def _schema_value_kind(schema: Any) -> str | None:
+    if not isinstance(schema, dict):
+        return None
+    value_type = schema.get("type")
+    if isinstance(value_type, str):
+        return value_type
+    if "const" in schema:
+        value = schema["const"]
+        if isinstance(value, str):
+            return "string"
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, int):
+            return "integer"
+    if isinstance(schema.get("enum"), list) and schema["enum"]:
+        kinds = {_canonical_value_kind(value) for value in schema["enum"]}
+        if len(kinds) == 1:
+            return kinds.pop()
+    return None
+
+
+def _canonical_value_kind(value: Any) -> str | None:
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    if value is None:
+        return "null"
+    return None
+
+
+def _package_release_path_contract(
+    contract: dict[str, Any], path: list[str]
+) -> dict[str, Any] | None:
+    if not path:
+        return contract
+    if len(path) == 1:
+        field_types = contract.get("field_types")
+        selected = field_types.get(path[0]) if isinstance(field_types, dict) else None
+        return selected if isinstance(selected, dict) else None
+    if len(path) != 2:
+        return None
+    nested = contract.get("nested_field_types")
+    group = nested.get(path[0]) if isinstance(nested, dict) else None
+    selected = group.get(path[1]) if isinstance(group, dict) else None
+    if not isinstance(selected, dict):
+        return None
+    if path == ["exports", "types"]:
+        item = contract.get("type_export")
+        if not isinstance(item, dict):
+            return None
+        return {**selected, "items": item}
+    return selected
+
+
+def _contract_value_kind(contract: Any) -> str | None:
+    if not isinstance(contract, dict):
+        return None
+    value_type = contract.get("type")
+    if value_type in {"non-empty-string", "string"}:
+        return "string"
+    if value_type in {"list", "string-list"}:
+        return "array"
+    if "const" in contract:
+        return _canonical_value_kind(contract["const"])
+    return None
+
+
+def _relation_recipe_paths_are_typed(
+    profile: dict[str, Any],
+    language_bundle: dict[str, Any],
+    resolution_contract: dict[str, Any],
+    package_release_contract: dict[str, Any],
+) -> bool:
+    language = language_bundle.get("language")
+    wire_schemas = language.get("wire_schemas") if isinstance(language, dict) else None
+    if not isinstance(language, dict) or not isinstance(wire_schemas, list):
+        return False
+    source_schemas = [
+        item.get("schema")
+        for item in wire_schemas
+        if isinstance(item, dict)
+        and item.get("artifact_kind") == "model-source-package"
+    ]
+    if len(source_schemas) != 1 or not isinstance(source_schemas[0], dict):
+        return False
+    source_schema = source_schemas[0]
+    recipes = profile["relation_recipes"]
+    recipe_by_id = {recipe["id"]: recipe for recipe in recipes}
+
+    # A shape is (representation, schema-or-values, source-origin).
+    def term_shape(
+        term: dict[str, Any],
+        bindings: dict[str, tuple[str, Any, str]],
+    ) -> tuple[str, Any, str] | None:
+        root = term["root"]
+        if root == "source":
+            shape: tuple[str, Any, str] = ("schema", source_schema, "source")
+        elif root == "language":
+            if term["path"] != ["packages"]:
+                return None
+            return ("contract-list", package_release_contract, "language")
+        elif root == "binding" and term.get("binding") in bindings:
+            shape = bindings[term["binding"]]
+        else:
+            return None
+        representation, payload, origin = shape
+        path = term["path"]
+        if representation == "schema":
+            selected = _json_schema_path(payload, path)
+            return ("schema", selected, origin) if selected is not None else None
+        if representation == "contract":
+            selected = _package_release_path_contract(payload, path)
+            return ("contract", selected, origin) if selected is not None else None
+        values = payload
+        for segment in path:
+            if not isinstance(values, list):
+                return None
+            selected_values = []
+            for value in values:
+                if not isinstance(value, dict) or segment not in value:
+                    return None
+                selected_values.append(value[segment])
+            values = selected_values
+        return ("values", values, origin)
+
+    def result_kind(shape: tuple[str, Any, str]) -> str | None:
+        representation, payload, _origin = shape
+        if representation == "schema":
+            return _schema_value_kind(payload)
+        if representation in {"contract", "contract-list"}:
+            return (
+                "array"
+                if representation == "contract-list"
+                else _contract_value_kind(payload)
+            )
+        if not isinstance(payload, list) or not payload:
+            return None
+        kinds = {_canonical_value_kind(value) for value in payload}
+        return kinds.pop() if len(kinds) == 1 else None
+
+    for recipe in recipes:
+        bindings: dict[str, tuple[str, Any, str]] = {}
+        for binding in recipe["bindings"]:
+            shape = term_shape(binding["source"], bindings)
+            if shape is None:
+                return False
+            representation, payload, origin = shape
+            if representation == "schema":
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("type") != "array"
+                    or not isinstance(payload.get("items"), dict)
+                ):
+                    return False
+                bindings[binding["name"]] = ("schema", payload["items"], origin)
+            elif representation in {"contract", "contract-list"}:
+                if representation == "contract-list":
+                    item_contract = payload
+                elif payload.get("type") == "string-list":
+                    item_contract = {"type": "non-empty-string"}
+                else:
+                    item_contract = payload.get("items")
+                if not isinstance(item_contract, dict):
+                    return False
+                bindings[binding["name"]] = ("contract", item_contract, origin)
+            else:
+                if (
+                    not isinstance(payload, list)
+                    or not payload
+                    or not all(isinstance(value, list) for value in payload)
+                ):
+                    return False
+                bindings[binding["name"]] = (
+                    "values",
+                    [item for value in payload for item in value],
+                    origin,
+                )
+        for predicate in recipe["predicates"]:
+            left = term_shape(predicate["left"], bindings)
+            right = term_shape(predicate["right"], bindings)
+            if (
+                left is None
+                or right is None
+                or result_kind(left) is None
+                or result_kind(left) != result_kind(right)
+            ):
+                return False
+        for field in recipe["fields"]:
+            shape = term_shape(field["term"], bindings)
+            if (
+                shape is None
+                or result_kind(shape) != "string"
+                or (field["pointer"] and shape[2] != "source")
+            ):
+                return False
+
+    for equivalence in resolution_contract["routing_equivalences"]:
+        recipe = recipe_by_id.get(equivalence["recipe"])
+        if recipe is None:
+            return False
+        if equivalence["subject_kind"] == "binding-source":
+            matches = [
+                binding["source"]
+                for binding in recipe["bindings"]
+                if binding["name"] == equivalence["subject"]
+            ]
+        else:
+            matches = [
+                field["term"]
+                for field in recipe["fields"]
+                if field["name"] == equivalence["subject"]
+            ]
+        if len(matches) != 1 or not matches[0]["path"]:
+            return False
+        expected = (
+            ".".join(matches[0]["path"])
+            if equivalence["projection"] == "dot-path"
+            else matches[0]["path"][-1]
+        )
+        if profile.get(equivalence["profile_member"]) != expected:
+            return False
+    return True
+
+
 def _relation_recipes_are_closed(
     profile: dict[str, Any],
     resolution_contract: dict[str, Any],
+    language_bundle: dict[str, Any],
+    package_release_contract: dict[str, Any],
 ) -> bool:
     recipes = profile.get("relation_recipes")
     schemas = resolution_contract.get("relation_schemas")
@@ -1502,13 +1856,19 @@ def _relation_recipes_are_closed(
             )
         ):
             return False
-    return True
+    return _relation_recipe_paths_are_typed(
+        profile,
+        language_bundle,
+        resolution_contract,
+        package_release_contract,
+    )
 
 
 def _runtime_projection_is_closed(
     profile: Any,
     contract: Any,
     language_bundle: dict[str, Any],
+    declaration_fields: dict[str, Any],
 ) -> bool:
     if (
         not isinstance(profile, dict)
@@ -1522,6 +1882,10 @@ def _runtime_projection_is_closed(
             "seed_operators",
             "edge_operators",
             "output_kinds",
+            "collection",
+            "seed",
+            "edge",
+            "path_typing",
         }
         or contract.get("closed") is not True
     ):
@@ -1535,13 +1899,50 @@ def _runtime_projection_is_closed(
         source_kinds != {"lock-member", "semantic-closure"}
         or output_shapes
         != {"as-is", "package-definition", "definition", "closure-only"}
-        or seed_operators != {"declaration-field", "declaration-package"}
+        or seed_operators != {"declaration-field"}
         or edge_operators != {"equal"}
         or output_kinds
         != {
             "selected-packages",
             "selected-semantic-closures",
-            "selected-package-rows",
+        }
+        or contract.get("collection")
+        != {
+            "required_members": ["id", "source", "output_member", "output_shape"],
+            "lock_source_members": ["kind", "member", "package_path"],
+            "closure_source_members": ["kind", "authority_path"],
+        }
+        or contract.get("seed")
+        != {
+            "required_members": [
+                "operator",
+                "collection",
+                "declaration_path",
+                "declaration_package_path",
+                "target_path",
+            ],
+            "match": "canonical-equality",
+            "cardinality": "at-least-one",
+        }
+        or contract.get("edge")
+        != {
+            "required_members": [
+                "operator",
+                "source_collection",
+                "source_path",
+                "target_collection",
+                "target_path",
+                "same_package",
+            ],
+            "match": "canonical-equality",
+            "cardinality": "at-least-one",
+        }
+        or contract.get("path_typing")
+        != {
+            "declaration": "terminal-fact-contract",
+            "lock": "package-lock-wire-schema",
+            "semantic_closure": "package-semantic-closure-values",
+            "empty_path": "identity",
         }
     ):
         return False
@@ -1662,21 +2063,16 @@ def _runtime_projection_is_closed(
         expected = {
             "operator",
             "collection",
+            "declaration_path",
             "declaration_package_path",
+            "target_path",
         }
-        if seed["operator"] == "declaration-field":
-            expected.update({"declaration_path", "target_path"})
         if (
             set(seed) != expected
             or seed.get("collection") not in collection_names
             or not path_is_closed(seed.get("declaration_package_path"))
-            or (
-                seed["operator"] == "declaration-field"
-                and (
-                    not path_is_closed(seed.get("declaration_path"))
-                    or not path_is_closed(seed.get("target_path"), empty=True)
-                )
-            )
+            or not path_is_closed(seed.get("declaration_path"))
+            or not path_is_closed(seed.get("target_path"), empty=True)
         ):
             return False
     for edge in edges:
@@ -1724,7 +2120,12 @@ def _runtime_projection_is_closed(
         selected_schema.get("required") if isinstance(selected_schema, dict) else None
     )
     packages = language.get("packages") if isinstance(language, dict) else None
-    return (
+    lock_schemas = [
+        item.get("schema")
+        for item in wire_schemas
+        if isinstance(item, dict) and item.get("artifact_kind") == "package-lock"
+    ]
+    if not (
         isinstance(required_outputs, list)
         and set(output_members) == set(required_outputs)
         and isinstance(packages, list)
@@ -1738,7 +2139,158 @@ def _runtime_projection_is_closed(
             for package in packages
             if isinstance(package, dict)
         )
-    )
+        and len(lock_schemas) == 1
+        and isinstance(lock_schemas[0], dict)
+        and isinstance(lock_schemas[0].get("properties"), dict)
+    ):
+        return False
+    lock_properties = lock_schemas[0]["properties"]
+
+    def fact_contract(path: list[str]) -> dict[str, Any] | None:
+        if not path or path[0] not in declaration_fields:
+            return None
+        selected = declaration_fields[path[0]]
+        for segment in path[1:]:
+            if (
+                not isinstance(selected, dict)
+                or selected.get("type") != "closed-object"
+                or not isinstance(selected.get("field_types"), dict)
+                or segment not in selected["field_types"]
+            ):
+                return None
+            selected = selected["field_types"][segment]
+        return selected if isinstance(selected, dict) else None
+
+    def contract_kind(value: dict[str, Any] | None) -> str | None:
+        if value is None:
+            return None
+        kind = value.get("type")
+        if kind in {"non-empty-string", "inventory-member"}:
+            return "string"
+        if kind in {"closed-object", "closed-int64-interval"}:
+            return "object"
+        if kind in {"signed-int64", "positive-signed-int64"}:
+            return "integer"
+        if kind == "boolean":
+            return "boolean"
+        return None
+
+    collection_shapes: dict[str, tuple[str, Any]] = {}
+    for collection in collections:
+        source = collection["source"]
+        if source["kind"] == "lock-member":
+            member_schema = lock_properties.get(source["member"])
+            if (
+                not isinstance(member_schema, dict)
+                or member_schema.get("type") != "array"
+                or not isinstance(member_schema.get("items"), dict)
+                or _schema_value_kind(
+                    _json_schema_path(
+                        member_schema["items"],
+                        source["package_path"],
+                    )
+                )
+                != "string"
+            ):
+                return False
+            collection_shapes[collection["id"]] = (
+                "schema",
+                member_schema["items"],
+            )
+        else:
+            definitions: Any = language_bundle
+            for segment in source["authority_path"].split("."):
+                if not isinstance(definitions, dict) or segment not in definitions:
+                    return False
+                definitions = definitions[segment]
+            if not isinstance(definitions, list) or not definitions:
+                return False
+            collection_shapes[collection["id"]] = ("values", definitions)
+
+    def projected_kind(shape: tuple[str, Any], path: list[str]) -> str | None:
+        representation, payload = shape
+        if representation == "schema":
+            selected = _json_schema_path(payload, path)
+            return _schema_value_kind(selected)
+        values = payload
+        for segment in path:
+            selected_values = []
+            for value in values:
+                if not isinstance(value, dict) or segment not in value:
+                    return None
+                selected_values.append(value[segment])
+            values = selected_values
+        kinds = {_canonical_value_kind(value) for value in values}
+        return kinds.pop() if len(kinds) == 1 else None
+
+    for seed in seeds:
+        declaration_kind = contract_kind(fact_contract(seed["declaration_path"]))
+        package_kind = contract_kind(fact_contract(seed["declaration_package_path"]))
+        target_kind = projected_kind(
+            collection_shapes[seed["collection"]],
+            seed["target_path"],
+        )
+        if (
+            declaration_kind is None
+            or declaration_kind != target_kind
+            or package_kind != "string"
+        ):
+            return False
+    for edge in edges:
+        source_kind = projected_kind(
+            collection_shapes[edge["source_collection"]],
+            edge["source_path"],
+        )
+        target_kind = projected_kind(
+            collection_shapes[edge["target_collection"]],
+            edge["target_path"],
+        )
+        if source_kind is None or source_kind != target_kind:
+            return False
+    for output in outputs:
+        source_schema = lock_properties.get(output["source_member"])
+        if (
+            not isinstance(source_schema, dict)
+            or source_schema.get("type") != "array"
+            or not isinstance(source_schema.get("items"), dict)
+            or _schema_value_kind(
+                _json_schema_path(
+                    source_schema["items"],
+                    [output["package_member"]],
+                )
+            )
+            != "string"
+        ):
+            return False
+        if output["kind"] == "selected-packages" and any(
+            _json_schema_path(source_schema["items"], [member]) is None
+            for member in output["members"]
+        ):
+            return False
+        if output["kind"] == "selected-semantic-closures":
+            entries = _json_schema_path(
+                source_schema["items"],
+                [output["entries_member"]],
+            )
+            if (
+                not isinstance(entries, dict)
+                or entries.get("type") != "array"
+                or not isinstance(entries.get("items"), dict)
+                or _schema_value_kind(
+                    _json_schema_path(
+                        entries["items"],
+                        [output["authority_path_member"]],
+                    )
+                )
+                != "string"
+                or _json_schema_path(
+                    entries["items"],
+                    [output["definitions_member"]],
+                )
+                is None
+            ):
+                return False
+    return True
 
 
 def _language_definitions_are_closed(
@@ -1844,6 +2396,23 @@ def _language_definitions_are_closed(
         and isinstance(item.get("id"), str)
         and isinstance(item.get("stage"), str)
     }
+    accounting = (
+        resolution_contract.get("resource_accounting")
+        if isinstance(resolution_contract, dict)
+        else None
+    )
+    exhaustion_reason = (
+        accounting.get("exhaustion_reason") if isinstance(accounting, dict) else None
+    )
+    resource_reasons = [
+        item
+        for item in cast(list[dict[str, Any]], language.get("reasons", []))
+        if isinstance(exhaustion_reason, dict)
+        and item.get("stage") == exhaustion_reason.get("stage")
+        and isinstance(item.get("predicate"), dict)
+        and item["predicate"].get("operation") == exhaustion_reason.get("operation")
+        and item["predicate"].get("limit_path") == exhaustion_reason.get("limit_path")
+    ]
     runtime_projection_contract = meta_format.get("runtime_projection")
     if (
         len(profiles_by_id) != len(profiles)
@@ -1852,6 +2421,7 @@ def _language_definitions_are_closed(
         or not isinstance(operation_specs, list)
         or not operation_specs
         or len(operations_by_id) != len(operation_specs)
+        or len(resource_reasons) != 1
         or len([profile for profile in profiles if profile.get("default") is True]) != 1
     ):
         return False
@@ -1859,7 +2429,12 @@ def _language_definitions_are_closed(
         chain = profile.get("judgment_chain")
         if (
             not isinstance(chain, list)
-            or not _relation_recipes_are_closed(profile, resolution_contract)
+            or not _relation_recipes_are_closed(
+                profile,
+                resolution_contract,
+                language_bundle,
+                cast(dict[str, Any], meta_format["package_release"]),
+            )
             or [item.get("operation") for item in chain if isinstance(item, dict)]
             != operation_order
             or any(
@@ -1887,11 +2462,6 @@ def _language_definitions_are_closed(
             or not chain
             or not isinstance(equalities, list)
             or not all(isinstance(item, dict) for item in equalities)
-            or not _runtime_projection_is_closed(
-                lowering.get("runtime_projection"),
-                runtime_projection_contract,
-                language_bundle,
-            )
             or not isinstance(profile, dict)
             or not isinstance(initial_fields, dict)
             or profile.get("symbol_fact_member") not in initial_fields
@@ -1907,7 +2477,12 @@ def _language_definitions_are_closed(
         kind = conclusion.get("fact_kind") if isinstance(conclusion, dict) else None
         fields = fact_schemas.get(kind) if isinstance(kind, str) else None
         pairs: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
-        if not isinstance(fields, dict):
+        if not isinstance(fields, dict) or not _runtime_projection_is_closed(
+            lowering.get("runtime_projection"),
+            runtime_projection_contract,
+            language_bundle,
+            fields,
+        ):
             return False
         for equality in equalities:
             left = equality.get("left")

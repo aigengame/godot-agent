@@ -184,7 +184,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:9ef8a1686dbe132f8c176c36d8280274a78ad9691e0c12b1b0ab8537354c33af",
+  "content_identity": "sha256:0ba2c4aa09693a127e4e076c03e1547004a1ed85b4f6536d39b5bfd7a624d6b0",
   "diagnostics": [{"code": "kernel.identity_mismatch", "stage": "ingress"}, {"code": "kernel.binding_mismatch", "stage": "ingress"}, {"code": "kernel.member_set_mismatch", "stage": "ingress"}, {"code": "kernel.duplicate_identifier", "stage": "static"}, {"code": "kernel.unknown_operation", "stage": "static"}, {"code": "kernel.vector_mismatch", "stage": "static"}, {"code": "kernel.diagnostic_closure", "stage": "static"}, {"code": "kernel.resource_exhausted", "stage": "ingress"}],
   "meta_format": {
     "fact": {
@@ -199,7 +199,8 @@
           "role": {"path": "language.quantity.symbol_roles", "type": "inventory-member"},
           "symbol": {"type": "non-empty-string"},
           "type_identity": {"field_types": {"package": {"type": "non-empty-string"}, "symbol": {"type": "non-empty-string"}, "version": {"type": "non-empty-string"}}, "required_members": ["package", "version", "symbol"], "type": "closed-object"},
-          "unit": {"path": "language.quantity.units.id", "type": "inventory-member"}
+          "unit": {"path": "language.quantity.units.id", "type": "inventory-member"},
+          "domain_kind": {"type": "inventory-member", "path": "language.quantity.domains"}
         }
       },
       "field_names": "non-empty-strings",
@@ -448,21 +449,71 @@
       "closed": true,
       "input": {"fact_kind": "model-source-and-language-bundle"},
       "operations": [
-        {"id": "require-unique-module-ids", "stage": "static", "law": {"operator": "require-unique", "relation": "modules", "scope": [], "key": ["module"], "pointer_field": "module"}},
-        {"id": "require-unique-import-aliases", "stage": "static", "law": {"operator": "require-unique", "relation": "imports", "scope": ["module"], "key": ["alias"], "pointer_field": "alias"}},
-        {"id": "bind-import-requirements", "stage": "static", "law": {"operator": "require-match", "subject_relation": "imports", "target_relation": "requirements", "match": [{"subject": "package", "target": "package"}, {"subject": "version", "target": "version"}], "cardinality": "exactly-one", "pointer_field": "package"}},
+        {"id": "require-unique-module-ids", "stage": "static", "law": {"operator": "require-unique", "relation": "modules", "scope": [], "key": ["module"], "pointer_field": "module"}, "input": {"fact_kind": "resolution-state"}, "result": {"fact_kind": "resolution-state"}, "effects": [], "refusals": ["reason-bound-diagnostic"], "resources": ["max_diagnostics", "max_rule_match_steps", "max_symbols"]},
+        {"id": "require-unique-import-aliases", "stage": "static", "law": {"operator": "require-unique", "relation": "imports", "scope": ["module"], "key": ["alias"], "pointer_field": "alias"}, "input": {"fact_kind": "resolution-state"}, "result": {"fact_kind": "resolution-state"}, "effects": [], "refusals": ["reason-bound-diagnostic"], "resources": ["max_diagnostics", "max_rule_match_steps", "max_symbols"]},
+        {
+          "id": "bind-import-requirements",
+          "stage": "static",
+          "law": {"operator": "require-match", "subject_relation": "imports", "target_relation": "requirements", "match": [{"subject": "package", "target": "package"}, {"subject": "version", "target": "version"}], "cardinality": "exactly-one", "pointer_field": "package"},
+          "input": {"fact_kind": "resolution-state"},
+          "result": {"fact_kind": "resolution-state"},
+          "effects": [],
+          "refusals": ["reason-bound-diagnostic"],
+          "resources": ["max_diagnostics", "max_rule_match_steps", "max_symbols"]
+        },
         {
           "id": "bind-exported-types",
           "stage": "static",
-          "law": {"operator": "require-match", "subject_relation": "imports", "target_relation": "exported_types", "match": [{"subject": "package", "target": "package"}, {"subject": "version", "target": "version"}, {"subject": "import_symbol", "target": "symbol"}], "guard": {"target_relation": "packages", "match": [{"subject": "package", "target": "package"}, {"subject": "version", "target": "version"}], "cardinality": "exactly-one"}, "cardinality": "exactly-one", "pointer_field": "import_symbol"}
+          "law": {"operator": "require-match", "subject_relation": "imports", "target_relation": "exported_types", "match": [{"subject": "package", "target": "package"}, {"subject": "version", "target": "version"}, {"subject": "import_symbol", "target": "symbol"}], "guard": {"target_relation": "packages", "match": [{"subject": "package", "target": "package"}, {"subject": "version", "target": "version"}], "cardinality": "exactly-one"}, "cardinality": "exactly-one", "pointer_field": "import_symbol"},
+          "input": {"fact_kind": "resolution-state"},
+          "result": {"fact_kind": "resolution-state"},
+          "effects": [],
+          "refusals": ["reason-bound-diagnostic"],
+          "resources": ["max_diagnostics", "max_rule_match_steps", "max_symbols"]
         },
-        {"id": "bind-symbol-aliases", "stage": "static", "law": {"operator": "require-match", "subject_relation": "symbols", "target_relation": "imports", "match": [{"subject": "module", "target": "module"}, {"subject": "type_alias", "target": "alias"}], "cardinality": "exactly-one", "pointer_field": "type_alias"}},
-        {"id": "require-unique-symbol-identities", "stage": "static", "law": {"operator": "require-unique", "relation": "symbols", "scope": ["model", "module"], "key": ["symbol"], "pointer_field": "symbol"}},
-        {"id": "require-entry-module", "stage": "static", "law": {"operator": "require-match", "subject_relation": "manifest_entry", "target_relation": "modules", "match": [{"subject": "module", "target": "module"}], "cardinality": "exactly-one", "pointer_field": "module"}},
-        {"id": "select-exact-packages", "stage": "resolution", "law": {"operator": "require-match", "subject_relation": "requirements", "target_relation": "packages", "match": [{"subject": "package", "target": "package"}, {"subject": "version", "target": "version"}], "cardinality": "exactly-one", "pointer_field": "version"}},
-        {"id": "close-required-dependencies", "stage": "resolution", "law": {"operator": "require-match", "subject_relation": "selected_dependencies", "target_relation": "packages", "match": [{"subject": "dependency", "target": "package"}], "cardinality": "exactly-one", "pointer_field": "dependency"}},
-        {"id": "require-single-package-version", "stage": "resolution", "law": {"operator": "require-single-value", "relation": "requirements", "scope": [], "group": ["package"], "value": ["version"], "pointer_field": "version"}},
-        {"id": "bind-capability-providers", "stage": "resolution", "law": {"operator": "require-match", "subject_relation": "required_capabilities", "target_relation": "provided_capabilities", "match": [{"subject": "capability", "target": "capability"}], "cardinality": "exactly-one", "pointer_field": "capability"}}
+        {
+          "id": "bind-symbol-aliases",
+          "stage": "static",
+          "law": {"operator": "require-match", "subject_relation": "symbols", "target_relation": "imports", "match": [{"subject": "module", "target": "module"}, {"subject": "type_alias", "target": "alias"}], "cardinality": "exactly-one", "pointer_field": "type_alias"},
+          "input": {"fact_kind": "resolution-state"},
+          "result": {"fact_kind": "resolution-state"},
+          "effects": [],
+          "refusals": ["reason-bound-diagnostic"],
+          "resources": ["max_diagnostics", "max_rule_match_steps", "max_symbols"]
+        },
+        {"id": "require-unique-symbol-identities", "stage": "static", "law": {"operator": "require-unique", "relation": "symbols", "scope": ["model", "module"], "key": ["symbol"], "pointer_field": "symbol"}, "input": {"fact_kind": "resolution-state"}, "result": {"fact_kind": "resolution-state"}, "effects": [], "refusals": ["reason-bound-diagnostic"], "resources": ["max_diagnostics", "max_rule_match_steps", "max_symbols"]},
+        {"id": "require-entry-module", "stage": "static", "law": {"operator": "require-match", "subject_relation": "manifest_entry", "target_relation": "modules", "match": [{"subject": "module", "target": "module"}], "cardinality": "exactly-one", "pointer_field": "module"}, "input": {"fact_kind": "resolution-state"}, "result": {"fact_kind": "resolution-state"}, "effects": [], "refusals": ["reason-bound-diagnostic"], "resources": ["max_diagnostics", "max_rule_match_steps", "max_symbols"]},
+        {
+          "id": "select-exact-packages",
+          "stage": "resolution",
+          "law": {"operator": "require-match", "subject_relation": "requirements", "target_relation": "packages", "match": [{"subject": "package", "target": "package"}, {"subject": "version", "target": "version"}], "cardinality": "exactly-one", "pointer_field": "version"},
+          "input": {"fact_kind": "resolution-state"},
+          "result": {"fact_kind": "resolution-state"},
+          "effects": [],
+          "refusals": ["reason-bound-diagnostic"],
+          "resources": ["max_diagnostics", "max_rule_match_steps", "max_symbols"]
+        },
+        {
+          "id": "close-required-dependencies",
+          "stage": "resolution",
+          "law": {"operator": "require-match", "subject_relation": "selected_dependencies", "target_relation": "packages", "match": [{"subject": "dependency", "target": "package"}], "cardinality": "exactly-one", "pointer_field": "dependency"},
+          "input": {"fact_kind": "resolution-state"},
+          "result": {"fact_kind": "resolution-state"},
+          "effects": [],
+          "refusals": ["reason-bound-diagnostic"],
+          "resources": ["max_diagnostics", "max_rule_match_steps", "max_symbols"]
+        },
+        {"id": "require-single-package-version", "stage": "resolution", "law": {"operator": "require-single-value", "relation": "requirements", "scope": [], "group": ["package"], "value": ["version"], "pointer_field": "version"}, "input": {"fact_kind": "resolution-state"}, "result": {"fact_kind": "resolution-state"}, "effects": [], "refusals": ["reason-bound-diagnostic"], "resources": ["max_diagnostics", "max_rule_match_steps", "max_symbols"]},
+        {
+          "id": "bind-capability-providers",
+          "stage": "resolution",
+          "law": {"operator": "require-match", "subject_relation": "required_capabilities", "target_relation": "provided_capabilities", "match": [{"subject": "capability", "target": "capability"}], "cardinality": "exactly-one", "pointer_field": "capability"},
+          "input": {"fact_kind": "resolution-state"},
+          "result": {"fact_kind": "resolution-state"},
+          "effects": [],
+          "refusals": ["reason-bound-diagnostic"],
+          "resources": ["max_diagnostics", "max_rule_match_steps", "max_symbols"]
+        }
       ],
       "result": {"fact_kind": "resolution-verdict", "success_members": ["selected-packages", "dependency-edges", "resolved-symbols", "capability-bindings"], "refusal_members": ["stage", "diagnostics", "truncated"]},
       "stage_order": ["static", "resolution"],
@@ -482,9 +533,48 @@
         "closed": true,
         "operators": [{"id": "require-match", "required_members": ["operator", "subject_relation", "target_relation", "match", "cardinality", "pointer_field"], "optional_members": ["guard"], "cardinalities": ["exactly-one"]}, {"id": "require-unique", "required_members": ["operator", "relation", "scope", "key", "pointer_field"], "optional_members": []}, {"id": "require-single-value", "required_members": ["operator", "relation", "scope", "group", "value", "pointer_field"], "optional_members": []}]
       },
-      "relation_recipe_format": {"closed": true, "binding_source_roots": ["source", "language", "binding"], "term_roots": ["source", "language", "binding"], "predicate_operators": ["equal"]}
+      "relation_recipe_format": {
+        "closed": true,
+        "binding_source_roots": ["source", "language", "binding"],
+        "term_roots": ["source", "language", "binding"],
+        "predicate_operators": ["equal"],
+        "binding": {"required_members": ["name", "source"], "source_result": "list", "expansion_order": "source-list-order"},
+        "term": {"required_members": {"source": ["root", "path"], "language": ["root", "path"], "binding": ["root", "binding", "path"]}, "path_semantics": "closed-object-member-path", "empty_path": "identity"},
+        "predicate": {"required_members": ["operator", "left", "right"], "operand_type": "canonical-value"},
+        "field": {"required_members": ["name", "term", "pointer"], "result_type": "non-empty-string", "pointer_true_origin": "source"},
+        "root_typing": {"source": "model-source-wire-schema", "language": "kernel-declared-language-contracts", "binding": "expanded-binding-item"}
+      },
+      "routing_equivalences": [
+        {"profile_member": "manifest_id_path", "recipe": "symbols", "subject_kind": "field-term", "subject": "model", "projection": "dot-path"},
+        {"profile_member": "manifest_entry_module_path", "recipe": "manifest_entry", "subject_kind": "field-term", "subject": "module", "projection": "dot-path"},
+        {"profile_member": "requirements_member", "recipe": "requirements", "subject_kind": "binding-source", "subject": "requirement", "projection": "last-segment"},
+        {"profile_member": "requirement_package_member", "recipe": "requirements", "subject_kind": "field-term", "subject": "package", "projection": "last-segment"},
+        {"profile_member": "requirement_version_member", "recipe": "requirements", "subject_kind": "field-term", "subject": "version", "projection": "last-segment"},
+        {"profile_member": "modules_member", "recipe": "modules", "subject_kind": "binding-source", "subject": "module", "projection": "last-segment"},
+        {"profile_member": "module_id_member", "recipe": "modules", "subject_kind": "field-term", "subject": "module", "projection": "last-segment"},
+        {"profile_member": "imports_member", "recipe": "imports", "subject_kind": "binding-source", "subject": "import", "projection": "last-segment"},
+        {"profile_member": "import_alias_member", "recipe": "imports", "subject_kind": "field-term", "subject": "alias", "projection": "last-segment"},
+        {"profile_member": "import_package_member", "recipe": "imports", "subject_kind": "field-term", "subject": "package", "projection": "last-segment"},
+        {"profile_member": "import_version_member", "recipe": "imports", "subject_kind": "field-term", "subject": "version", "projection": "last-segment"},
+        {"profile_member": "import_symbol_member", "recipe": "imports", "subject_kind": "field-term", "subject": "import_symbol", "projection": "last-segment"},
+        {"profile_member": "symbols_member", "recipe": "symbols", "subject_kind": "binding-source", "subject": "symbol", "projection": "last-segment"},
+        {"profile_member": "symbol_name_member", "recipe": "symbols", "subject_kind": "field-term", "subject": "symbol", "projection": "last-segment"},
+        {"profile_member": "symbol_type_member", "recipe": "symbols", "subject_kind": "field-term", "subject": "type_alias", "projection": "last-segment"}
+      ],
+      "resource_accounting": {"limit_member": "max_rule_match_steps", "counter_scope": "per-resolution-stage", "charged_events": ["binding-expansion", "predicate-comparison", "field-projection", "law-subject-evaluation", "law-target-comparison"], "exhaustion_reason": {"stage": "static", "operation": "greater-than", "limit_path": "resources.max_rule_match_steps"}}
     },
-    "runtime_projection": {"closed": true, "collection_source_kinds": ["lock-member", "semantic-closure"], "output_shapes": ["as-is", "package-definition", "definition", "closure-only"], "seed_operators": ["declaration-field", "declaration-package"], "edge_operators": ["equal"], "output_kinds": ["selected-packages", "selected-semantic-closures", "selected-package-rows"]}
+    "runtime_projection": {
+      "closed": true,
+      "collection_source_kinds": ["lock-member", "semantic-closure"],
+      "output_shapes": ["as-is", "package-definition", "definition", "closure-only"],
+      "seed_operators": ["declaration-field"],
+      "edge_operators": ["equal"],
+      "output_kinds": ["selected-packages", "selected-semantic-closures"],
+      "collection": {"required_members": ["id", "source", "output_member", "output_shape"], "lock_source_members": ["kind", "member", "package_path"], "closure_source_members": ["kind", "authority_path"]},
+      "seed": {"required_members": ["operator", "collection", "declaration_path", "declaration_package_path", "target_path"], "match": "canonical-equality", "cardinality": "at-least-one"},
+      "edge": {"required_members": ["operator", "source_collection", "source_path", "target_collection", "target_path", "same_package"], "match": "canonical-equality", "cardinality": "at-least-one"},
+      "path_typing": {"declaration": "terminal-fact-contract", "lock": "package-lock-wire-schema", "semantic_closure": "package-semantic-closure-values", "empty_path": "identity"}
+    }
   },
   "resources": {"max_authority_bytes": 262144, "max_diagnostics": 128, "max_members": 256, "max_nesting_depth": 32},
   "schema_major": 2,

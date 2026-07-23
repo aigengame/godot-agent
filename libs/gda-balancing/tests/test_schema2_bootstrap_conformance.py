@@ -17,7 +17,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9ef8a1686dbe132f8c176c36d8280274a78ad9691e0c12b1b0ab8537354c33af"
+    "sha256:0ba2c4aa09693a127e4e076c03e1547004a1ed85b4f6536d39b5bfd7a624d6b0"
 )
 
 
@@ -927,6 +927,8 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
             "stage_order",
             "relation_schemas",
             "relation_recipe_format",
+            "routing_equivalences",
+            "resource_accounting",
             "law_format",
         }
         or value.get("closed") is not True
@@ -937,6 +939,8 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
     operations = value.get("operations")
     law_format = value.get("law_format")
     recipe_format = value.get("relation_recipe_format")
+    routing_equivalences = value.get("routing_equivalences")
+    resource_accounting = value.get("resource_accounting")
     if (
         not isinstance(stages, list)
         or not stages
@@ -957,12 +961,95 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
             "binding_source_roots",
             "term_roots",
             "predicate_operators",
+            "binding",
+            "term",
+            "predicate",
+            "field",
+            "root_typing",
         }
         or recipe_format.get("closed") is not True
         or recipe_format.get("binding_source_roots")
         != ["source", "language", "binding"]
         or recipe_format.get("term_roots") != ["source", "language", "binding"]
         or recipe_format.get("predicate_operators") != ["equal"]
+        or recipe_format.get("binding")
+        != {
+            "required_members": ["name", "source"],
+            "source_result": "list",
+            "expansion_order": "source-list-order",
+        }
+        or recipe_format.get("term")
+        != {
+            "required_members": {
+                "source": ["root", "path"],
+                "language": ["root", "path"],
+                "binding": ["root", "binding", "path"],
+            },
+            "path_semantics": "closed-object-member-path",
+            "empty_path": "identity",
+        }
+        or recipe_format.get("predicate")
+        != {
+            "required_members": ["operator", "left", "right"],
+            "operand_type": "canonical-value",
+        }
+        or recipe_format.get("field")
+        != {
+            "required_members": ["name", "term", "pointer"],
+            "result_type": "non-empty-string",
+            "pointer_true_origin": "source",
+        }
+        or recipe_format.get("root_typing")
+        != {
+            "source": "model-source-wire-schema",
+            "language": "kernel-declared-language-contracts",
+            "binding": "expanded-binding-item",
+        }
+        or not isinstance(routing_equivalences, list)
+        or not routing_equivalences
+        or any(
+            not isinstance(item, dict)
+            or set(item)
+            != {
+                "profile_member",
+                "recipe",
+                "subject_kind",
+                "subject",
+                "projection",
+            }
+            or not all(
+                isinstance(item.get(member), str) and item[member]
+                for member in ("profile_member", "recipe", "subject")
+            )
+            or item.get("subject_kind") not in {"binding-source", "field-term"}
+            or item.get("projection") not in {"dot-path", "last-segment"}
+            for item in routing_equivalences
+        )
+        or len(
+            {
+                item["profile_member"]
+                for item in routing_equivalences
+                if isinstance(item, dict) and "profile_member" in item
+            }
+        )
+        != len(routing_equivalences)
+        or resource_accounting
+        != {
+            "limit_member": "max_rule_match_steps",
+            "counter_scope": "per-resolution-stage",
+            "charged_events": [
+                "binding-expansion",
+                "predicate-comparison",
+                "field-projection",
+                "law-subject-evaluation",
+                "law-target-comparison",
+            ],
+            "exhaustion_reason": {
+                "stage": "static",
+                "operation": "greater-than",
+                "limit_path": "resources.max_rule_match_steps",
+            },
+        }
     ):
         return False
     relation_fields: dict[str, set[str]] = {}
@@ -1018,11 +1105,31 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
     for operation in operations:
         if (
             not isinstance(operation, dict)
-            or set(operation) != {"id", "stage", "law"}
+            or set(operation)
+            != {
+                "id",
+                "stage",
+                "law",
+                "input",
+                "result",
+                "effects",
+                "refusals",
+                "resources",
+            }
             or not isinstance(operation.get("id"), str)
             or operation["id"] in seen
             or operation.get("stage") not in stages
             or not isinstance(operation.get("law"), dict)
+            or operation.get("input") != {"fact_kind": "resolution-state"}
+            or operation.get("result") != {"fact_kind": "resolution-state"}
+            or operation.get("effects") != []
+            or operation.get("refusals") != ["reason-bound-diagnostic"]
+            or operation.get("resources")
+            != [
+                "max_diagnostics",
+                "max_rule_match_steps",
+                "max_symbols",
+            ]
         ):
             return False
         seen.add(operation["id"])
@@ -1115,9 +1222,225 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
     ]
 
 
+def _consumer_b_schema_path(schema: Any, path: list[str]) -> dict[str, Any] | None:
+    selected = schema
+    for segment in path:
+        if (
+            not isinstance(selected, dict)
+            or selected.get("type") != "object"
+            or not isinstance(selected.get("properties"), dict)
+            or segment not in selected["properties"]
+        ):
+            return None
+        selected = selected["properties"][segment]
+    return selected if isinstance(selected, dict) else None
+
+
+def _consumer_b_kind(value: Any, *, schema: bool = False) -> str | None:
+    if schema:
+        if not isinstance(value, dict):
+            return None
+        if isinstance(value.get("type"), str):
+            return value["type"]
+        if "const" in value:
+            return _consumer_b_kind(value["const"])
+        if isinstance(value.get("enum"), list) and value["enum"]:
+            kinds = {_consumer_b_kind(item) for item in value["enum"]}
+            return kinds.pop() if len(kinds) == 1 else None
+        return None
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    if value is None:
+        return "null"
+    return None
+
+
+def _consumer_b_relation_paths_are_typed(
+    profile: dict[str, Any],
+    resolution: dict[str, Any],
+    ldb: dict[str, Any],
+    package_release: dict[str, Any],
+) -> bool:
+    language = ldb.get("language")
+    schemas = language.get("wire_schemas") if isinstance(language, dict) else None
+    source = [
+        item.get("schema")
+        for item in schemas or []
+        if isinstance(item, dict)
+        and item.get("artifact_kind") == "model-source-package"
+    ]
+    if (
+        not isinstance(language, dict)
+        or len(source) != 1
+        or not isinstance(source[0], dict)
+    ):
+        return False
+    recipes = profile["relation_recipes"]
+    recipes_by_id = {item["id"]: item for item in recipes}
+
+    def select(
+        term: dict[str, Any],
+        bindings: dict[str, tuple[str, Any, str]],
+    ) -> tuple[str, Any, str] | None:
+        if term["root"] == "source":
+            representation, payload, origin = "schema", source[0], "source"
+        elif term["root"] == "language":
+            if term["path"] != ["packages"]:
+                return None
+            return ("package-list", package_release, "language")
+        elif term["root"] == "binding" and term.get("binding") in bindings:
+            representation, payload, origin = bindings[term["binding"]]
+        else:
+            return None
+        if representation == "schema":
+            selected = _consumer_b_schema_path(payload, term["path"])
+            return ("schema", selected, origin) if selected is not None else None
+        if representation == "contract":
+            if not isinstance(payload, dict):
+                return None
+            path = term["path"]
+            if not path:
+                return ("contract", payload, origin)
+            direct = payload.get("field_types")
+            nested = payload.get("nested_field_types")
+            if len(path) == 1 and isinstance(direct, dict):
+                selected = direct.get(path[0])
+            elif (
+                len(path) == 2
+                and isinstance(nested, dict)
+                and isinstance(nested.get(path[0]), dict)
+            ):
+                selected = nested[path[0]].get(path[1])
+                if path == ["exports", "types"] and isinstance(selected, dict):
+                    selected = {**selected, "items": payload.get("type_export")}
+            else:
+                selected = None
+            return (
+                ("contract", selected, origin) if isinstance(selected, dict) else None
+            )
+        if not isinstance(payload, list):
+            return None
+        values = payload
+        for segment in term["path"]:
+            next_values = []
+            for value in values:
+                if not isinstance(value, dict) or segment not in value:
+                    return None
+                next_values.append(value[segment])
+            values = next_values
+        return ("values", values, origin)
+
+    def result_kind(shape: tuple[str, Any, str]) -> str | None:
+        representation, payload, _origin = shape
+        if representation == "schema":
+            return _consumer_b_kind(payload, schema=True)
+        if representation == "package-list":
+            return "array"
+        if representation == "contract":
+            value_type = payload.get("type")
+            if value_type in {"non-empty-string", "string"}:
+                return "string"
+            if value_type in {"list", "string-list"}:
+                return "array"
+            if "const" in payload:
+                return _consumer_b_kind(payload["const"])
+            return None
+        if not payload:
+            return None
+        kinds = {_consumer_b_kind(value) for value in payload}
+        return kinds.pop() if len(kinds) == 1 else None
+
+    for recipe in recipes:
+        bindings: dict[str, tuple[str, Any, str]] = {}
+        for binding in recipe["bindings"]:
+            shape = select(binding["source"], bindings)
+            if shape is None:
+                return False
+            representation, payload, origin = shape
+            if representation == "schema":
+                if payload.get("type") != "array" or not isinstance(
+                    payload.get("items"), dict
+                ):
+                    return False
+                bindings[binding["name"]] = ("schema", payload["items"], origin)
+            elif representation in {"contract", "package-list"}:
+                if representation == "package-list":
+                    item = payload
+                elif payload.get("type") == "string-list":
+                    item = {"type": "non-empty-string"}
+                else:
+                    item = payload.get("items")
+                if not isinstance(item, dict):
+                    return False
+                bindings[binding["name"]] = ("contract", item, origin)
+            else:
+                if not payload or not all(isinstance(value, list) for value in payload):
+                    return False
+                bindings[binding["name"]] = (
+                    "values",
+                    [item for value in payload for item in value],
+                    origin,
+                )
+        for predicate in recipe["predicates"]:
+            left = select(predicate["left"], bindings)
+            right = select(predicate["right"], bindings)
+            if (
+                left is None
+                or right is None
+                or result_kind(left) is None
+                or result_kind(left) != result_kind(right)
+            ):
+                return False
+        for field in recipe["fields"]:
+            shape = select(field["term"], bindings)
+            if (
+                shape is None
+                or result_kind(shape) != "string"
+                or (field["pointer"] and shape[2] != "source")
+            ):
+                return False
+    for equivalence in resolution["routing_equivalences"]:
+        recipe = recipes_by_id.get(equivalence["recipe"])
+        if recipe is None:
+            return False
+        candidates = (
+            [
+                binding["source"]
+                for binding in recipe["bindings"]
+                if binding["name"] == equivalence["subject"]
+            ]
+            if equivalence["subject_kind"] == "binding-source"
+            else [
+                field["term"]
+                for field in recipe["fields"]
+                if field["name"] == equivalence["subject"]
+            ]
+        )
+        if len(candidates) != 1 or not candidates[0]["path"]:
+            return False
+        expected = (
+            ".".join(candidates[0]["path"])
+            if equivalence["projection"] == "dot-path"
+            else candidates[0]["path"][-1]
+        )
+        if profile.get(equivalence["profile_member"]) != expected:
+            return False
+    return True
+
+
 def _consumer_b_relation_recipes_are_closed(
     profile: dict[str, Any],
     resolution: dict[str, Any],
+    ldb: dict[str, Any],
+    package_release: dict[str, Any],
 ) -> bool:
     recipes = profile.get("relation_recipes")
     schemas = resolution.get("relation_schemas")
@@ -1213,13 +1536,19 @@ def _consumer_b_relation_recipes_are_closed(
             )
         ):
             return False
-    return True
+    return _consumer_b_relation_paths_are_typed(
+        profile,
+        resolution,
+        ldb,
+        package_release,
+    )
 
 
 def _consumer_b_runtime_projection_is_closed(
     profile: Any,
     contract: Any,
     ldb: dict[str, Any],
+    declaration_fields: dict[str, Any],
 ) -> bool:
     if (
         not isinstance(profile, dict)
@@ -1233,25 +1562,67 @@ def _consumer_b_runtime_projection_is_closed(
             "seed_operators",
             "edge_operators",
             "output_kinds",
+            "collection",
+            "seed",
+            "edge",
+            "path_typing",
         }
         or contract.get("closed") is not True
     ):
         return False
     sources = set(contract.get("collection_source_kinds", []))
-    shapes = set(contract.get("output_shapes", []))
+    allowed_shapes = set(contract.get("output_shapes", []))
     seeds_allowed = set(contract.get("seed_operators", []))
     edges_allowed = set(contract.get("edge_operators", []))
     outputs_allowed = set(contract.get("output_kinds", []))
     if (
         sources != {"lock-member", "semantic-closure"}
-        or shapes != {"as-is", "package-definition", "definition", "closure-only"}
-        or seeds_allowed != {"declaration-field", "declaration-package"}
+        or allowed_shapes
+        != {"as-is", "package-definition", "definition", "closure-only"}
+        or seeds_allowed != {"declaration-field"}
         or edges_allowed != {"equal"}
         or outputs_allowed
         != {
             "selected-packages",
             "selected-semantic-closures",
-            "selected-package-rows",
+        }
+        or contract.get("collection")
+        != {
+            "required_members": ["id", "source", "output_member", "output_shape"],
+            "lock_source_members": ["kind", "member", "package_path"],
+            "closure_source_members": ["kind", "authority_path"],
+        }
+        or contract.get("seed")
+        != {
+            "required_members": [
+                "operator",
+                "collection",
+                "declaration_path",
+                "declaration_package_path",
+                "target_path",
+            ],
+            "match": "canonical-equality",
+            "cardinality": "at-least-one",
+        }
+        or contract.get("edge")
+        != {
+            "required_members": [
+                "operator",
+                "source_collection",
+                "source_path",
+                "target_collection",
+                "target_path",
+                "same_package",
+            ],
+            "match": "canonical-equality",
+            "cardinality": "at-least-one",
+        }
+        or contract.get("path_typing")
+        != {
+            "declaration": "terminal-fact-contract",
+            "lock": "package-lock-wire-schema",
+            "semantic_closure": "package-semantic-closure-values",
+            "empty_path": "identity",
         }
     ):
         return False
@@ -1315,7 +1686,7 @@ def _consumer_b_runtime_projection_is_closed(
             or not isinstance(collection.get("id"), str)
             or not collection["id"]
             or not isinstance(collection.get("source"), dict)
-            or collection.get("output_shape") not in shapes
+            or collection.get("output_shape") not in allowed_shapes
         ):
             return False
         output_member = collection.get("output_member")
@@ -1353,17 +1724,15 @@ def _consumer_b_runtime_projection_is_closed(
         if not isinstance(seed, dict) or seed.get("operator") not in seeds_allowed:
             return False
         expected = {"operator", "collection", "declaration_package_path"}
-        if seed["operator"] == "declaration-field":
-            expected |= {"declaration_path", "target_path"}
+        expected |= {"declaration_path", "target_path"}
         if (
             set(seed) != expected
             or seed.get("collection") not in collection_set
             or not valid_path(seed.get("declaration_package_path"))
         ):
             return False
-        if seed["operator"] == "declaration-field" and (
-            not valid_path(seed.get("declaration_path"))
-            or not valid_path(seed.get("target_path"), True)
+        if not valid_path(seed.get("declaration_path")) or not valid_path(
+            seed.get("target_path"), True
         ):
             return False
     if any(
@@ -1387,9 +1756,10 @@ def _consumer_b_runtime_projection_is_closed(
     ):
         return False
     language = ldb.get("language")
-    schemas = (
-        language.get("artifact_wire_schemas") if isinstance(language, dict) else []
+    schema_values = (
+        language.get("artifact_wire_schemas") if isinstance(language, dict) else None
     )
+    schemas = schema_values if isinstance(schema_values, list) else []
     rir = [
         item["schema"]
         for item in schemas
@@ -1401,7 +1771,12 @@ def _consumer_b_runtime_projection_is_closed(
     selected = rir[0].get("properties", {}).get("selected_semantics")
     required = selected.get("required") if isinstance(selected, dict) else None
     packages = language.get("packages") if isinstance(language, dict) else None
-    return (
+    locks = [
+        item["schema"]
+        for item in schemas
+        if isinstance(item, dict) and item.get("artifact_kind") == "package-lock"
+    ]
+    if not (
         len(projected_members) == len(set(projected_members))
         and isinstance(required, list)
         and set(projected_members) == set(required)
@@ -1416,7 +1791,157 @@ def _consumer_b_runtime_projection_is_closed(
             for package in packages
             if isinstance(package, dict)
         )
-    )
+        and len(locks) == 1
+        and isinstance(locks[0].get("properties"), dict)
+    ):
+        return False
+    lock_properties = locks[0]["properties"]
+
+    def fact_value(path: list[str]) -> dict[str, Any] | None:
+        if not path or path[0] not in declaration_fields:
+            return None
+        selected_contract = declaration_fields[path[0]]
+        for segment in path[1:]:
+            if (
+                not isinstance(selected_contract, dict)
+                or selected_contract.get("type") != "closed-object"
+                or not isinstance(selected_contract.get("field_types"), dict)
+                or segment not in selected_contract["field_types"]
+            ):
+                return None
+            selected_contract = selected_contract["field_types"][segment]
+        return selected_contract
+
+    def fact_kind(value: dict[str, Any] | None) -> str | None:
+        kind = value.get("type") if isinstance(value, dict) else None
+        if kind in {"non-empty-string", "inventory-member"}:
+            return "string"
+        if kind in {"closed-object", "closed-int64-interval"}:
+            return "object"
+        if kind in {"signed-int64", "positive-signed-int64"}:
+            return "integer"
+        if kind == "boolean":
+            return "boolean"
+        return None
+
+    shapes: dict[str, tuple[str, Any]] = {}
+    for collection in collections:
+        source = collection["source"]
+        if source["kind"] == "lock-member":
+            member = lock_properties.get(source["member"])
+            if (
+                not isinstance(member, dict)
+                or member.get("type") != "array"
+                or not isinstance(member.get("items"), dict)
+                or _consumer_b_kind(
+                    _consumer_b_schema_path(
+                        member["items"],
+                        source["package_path"],
+                    ),
+                    schema=True,
+                )
+                != "string"
+            ):
+                return False
+            shapes[collection["id"]] = ("schema", member["items"])
+        else:
+            definitions: Any = ldb
+            for segment in source["authority_path"].split("."):
+                if not isinstance(definitions, dict) or segment not in definitions:
+                    return False
+                definitions = definitions[segment]
+            if not isinstance(definitions, list) or not definitions:
+                return False
+            shapes[collection["id"]] = ("values", definitions)
+
+    def selected_kind(shape: tuple[str, Any], path: list[str]) -> str | None:
+        representation, payload = shape
+        if representation == "schema":
+            return _consumer_b_kind(
+                _consumer_b_schema_path(payload, path),
+                schema=True,
+            )
+        values = payload
+        for segment in path:
+            next_values = []
+            for value in values:
+                if not isinstance(value, dict) or segment not in value:
+                    return None
+                next_values.append(value[segment])
+            values = next_values
+        kinds = {_consumer_b_kind(value) for value in values}
+        return kinds.pop() if len(kinds) == 1 else None
+
+    for seed in seeds:
+        declaration_kind = fact_kind(fact_value(seed["declaration_path"]))
+        package_kind = fact_kind(fact_value(seed["declaration_package_path"]))
+        target_kind = selected_kind(
+            shapes[seed["collection"]],
+            seed["target_path"],
+        )
+        if (
+            declaration_kind is None
+            or declaration_kind != target_kind
+            or package_kind != "string"
+        ):
+            return False
+    for edge in edges:
+        source_kind = selected_kind(
+            shapes[edge["source_collection"]],
+            edge["source_path"],
+        )
+        target_kind = selected_kind(
+            shapes[edge["target_collection"]],
+            edge["target_path"],
+        )
+        if source_kind is None or source_kind != target_kind:
+            return False
+    for output in outputs:
+        source_schema = lock_properties.get(output["source_member"])
+        if (
+            not isinstance(source_schema, dict)
+            or source_schema.get("type") != "array"
+            or not isinstance(source_schema.get("items"), dict)
+            or _consumer_b_kind(
+                _consumer_b_schema_path(
+                    source_schema["items"],
+                    [output["package_member"]],
+                ),
+                schema=True,
+            )
+            != "string"
+        ):
+            return False
+        if output["kind"] == "selected-packages" and any(
+            _consumer_b_schema_path(source_schema["items"], [member]) is None
+            for member in output["members"]
+        ):
+            return False
+        if output["kind"] == "selected-semantic-closures":
+            entries = _consumer_b_schema_path(
+                source_schema["items"],
+                [output["entries_member"]],
+            )
+            if (
+                not isinstance(entries, dict)
+                or entries.get("type") != "array"
+                or not isinstance(entries.get("items"), dict)
+                or _consumer_b_kind(
+                    _consumer_b_schema_path(
+                        entries["items"],
+                        [output["authority_path_member"]],
+                    ),
+                    schema=True,
+                )
+                != "string"
+                or _consumer_b_schema_path(
+                    entries["items"],
+                    [output["definitions_member"]],
+                )
+                is None
+            ):
+                return False
+    return True
 
 
 def _consumer_b_language_definitions_are_closed(
@@ -1518,6 +2043,24 @@ def _consumer_b_language_definitions_are_closed(
         and isinstance(item.get("id"), str)
         and isinstance(item.get("stage"), str)
     }
+    accounting = (
+        resolution_contract.get("resource_accounting")
+        if isinstance(resolution_contract, dict)
+        else None
+    )
+    exhaustion_reason = (
+        accounting.get("exhaustion_reason") if isinstance(accounting, dict) else None
+    )
+    resource_reasons = [
+        item
+        for item in language.get("reasons", [])
+        if isinstance(exhaustion_reason, dict)
+        and isinstance(item, dict)
+        and item.get("stage") == exhaustion_reason.get("stage")
+        and isinstance(item.get("predicate"), dict)
+        and item["predicate"].get("operation") == exhaustion_reason.get("operation")
+        and item["predicate"].get("limit_path") == exhaustion_reason.get("limit_path")
+    ]
     runtime_projection_contract = meta.get("runtime_projection")
     if (
         len(profiles_by_id) != len(profiles)
@@ -1526,6 +2069,7 @@ def _consumer_b_language_definitions_are_closed(
         or not isinstance(operation_specs, list)
         or not operation_specs
         or len(operations_by_id) != len(operation_specs)
+        or len(resource_reasons) != 1
         or len([profile for profile in profiles if profile.get("default") is True]) != 1
     ):
         return False
@@ -1533,7 +2077,12 @@ def _consumer_b_language_definitions_are_closed(
         chain = profile.get("judgment_chain")
         if (
             not isinstance(chain, list)
-            or not _consumer_b_relation_recipes_are_closed(profile, resolution_contract)
+            or not _consumer_b_relation_recipes_are_closed(
+                profile,
+                resolution_contract,
+                ldb,
+                meta["package_release"],
+            )
             or [item.get("operation") for item in chain if isinstance(item, dict)]
             != operation_order
             or any(
@@ -1561,11 +2110,6 @@ def _consumer_b_language_definitions_are_closed(
             or not chain
             or not isinstance(equalities, list)
             or not all(isinstance(item, dict) for item in equalities)
-            or not _consumer_b_runtime_projection_is_closed(
-                lowering.get("runtime_projection"),
-                runtime_projection_contract,
-                ldb,
-            )
             or not isinstance(profile, dict)
             or not isinstance(initial_fields, dict)
             or profile.get("symbol_fact_member") not in initial_fields
@@ -1581,7 +2125,12 @@ def _consumer_b_language_definitions_are_closed(
         kind = conclusion.get("fact_kind") if isinstance(conclusion, dict) else None
         fields = fact_schemas.get(kind) if isinstance(kind, str) else None
         pairs: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
-        if not isinstance(fields, dict):
+        if not isinstance(fields, dict) or not _consumer_b_runtime_projection_is_closed(
+            lowering.get("runtime_projection"),
+            runtime_projection_contract,
+            ldb,
+            fields,
+        ):
             return False
         for equality in equalities:
             left = equality.get("left")
@@ -2868,6 +3417,17 @@ def _reidentify(kernel: dict[str, Any], ldb: dict[str, Any]) -> None:
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
 
+def _refresh_package_closure_and_reidentify(ldb: dict[str, Any]) -> None:
+    for package in ldb["language"]["packages"]:
+        for entry in package["semantic_closure"]:
+            value: Any = ldb
+            for segment in entry["authority_path"].split("."):
+                value = value[segment]
+            entry["definitions"] = deepcopy(value)
+        _reidentify_package_release(package)
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+
 def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     authority = authority_set()
     kernel = authority["kernel"]
@@ -2881,6 +3441,56 @@ def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     assert first["law_ids"]
     assert first["rule_ids"] == ["quantity.declare", "quantity.lower"]
     assert ldb["language"]["model_source_schema_versions"] == ["2.0.0"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "relation-missing-path",
+        "relation-wrong-result-type",
+        "projection-missing-path",
+        "projection-wrong-result-type",
+        "scalar-routing-drift",
+    ),
+)
+def test_two_consumers_refuse_reidentified_authority_paths_without_typed_closure(
+    mutation,
+):
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    profile = ldb["language"]["resolution_profiles"][0]
+    lowering = ldb["language"]["model_lowerings"][0]
+    if mutation.startswith("relation"):
+        recipe = next(
+            item for item in profile["relation_recipes"] if item["id"] == "imports"
+        )
+        alias = next(item for item in recipe["fields"] if item["name"] == "alias")
+        alias["term"]["path"] = (
+            ["missing_member"] if mutation == "relation-missing-path" else []
+        )
+    elif mutation.startswith("projection"):
+        seed = next(
+            item
+            for item in lowering["runtime_projection"]["seeds"]
+            if item["collection"] == "units"
+        )
+        seed["target_path"] = (
+            ["missing_member"] if mutation == "projection-missing-path" else []
+        )
+    else:
+        profile["modules_member"] = "host_drift"
+    _refresh_package_closure_and_reidentify(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.definitions",
+    ) in first["diagnostics"]
 
 
 def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_execution():
@@ -2914,10 +3524,23 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
     assert all(
         set(item)
         == {
+            "effects",
             "id",
+            "input",
             "law",
+            "refusals",
+            "resources",
+            "result",
             "stage",
         }
+        for item in resolution["operations"]
+    )
+    assert all(
+        item["input"] == {"fact_kind": "resolution-state"}
+        and item["result"] == {"fact_kind": "resolution-state"}
+        and item["effects"] == []
+        and item["refusals"] == ["reason-bound-diagnostic"]
+        and item["resources"]
         for item in resolution["operations"]
     )
     assert {item["tag"] for item in meta_format["term"]["constructors"]} == {
