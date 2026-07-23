@@ -36,7 +36,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:079167bf2a7da3d2c68f4f692d4875147ac74a41a8a59ab1d53fa9f16aaddb0c"
+    "sha256:678f0471d93f3eb32cdeb6bc5e8f679fb3e6e60f18853752501657eef413bfaf"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -374,8 +374,34 @@ def _package_semantic_closure_is_closed(
             or set(definition_keys) != set(owner_keys)
         ):
             return False
+    semantic_projection = contract.get("semantic_identity_projection")
+    if (
+        not isinstance(semantic_projection, dict)
+        or set(semantic_projection)
+        != {"domain", "path_inventory_member", "source_member", "path_member"}
+        or semantic_projection.get("source_member") != "semantic_closure"
+        or semantic_projection.get("path_member") != "authority_path"
+        or not isinstance(semantic_projection.get("domain"), str)
+        or not isinstance(semantic_projection.get("path_inventory_member"), str)
+    ):
+        return False
+    runtime_paths = package.get(semantic_projection["path_inventory_member"])
+    closure_paths = [entry["authority_path"] for entry in closure]
+    if (
+        not isinstance(runtime_paths, list)
+        or not runtime_paths
+        or not all(isinstance(path, str) and path for path in runtime_paths)
+        or len(runtime_paths) != len(set(runtime_paths))
+        or not set(runtime_paths) <= set(closure_paths)
+    ):
+        return False
+    runtime_closure = [
+        entry for entry in closure if entry["authority_path"] in set(runtime_paths)
+    ]
     try:
-        expected = content_identity(domain, cast(JsonValue, closure))
+        expected = content_identity(
+            semantic_projection["domain"], cast(JsonValue, runtime_closure)
+        )
     except (TypeError, ValueError):
         return False
     return package.get("semantic_identity") == expected
@@ -1152,6 +1178,204 @@ def _fact_contract_path_is_declared(fields: dict[str, Any], path: Any) -> bool:
     return True
 
 
+def _resolution_judgment_is_closed(contract: Any) -> bool:
+    if (
+        not isinstance(contract, dict)
+        or set(contract)
+        != {
+            "closed",
+            "input",
+            "operations",
+            "result",
+            "stage_order",
+            "relation_schemas",
+            "law_format",
+        }
+        or contract.get("closed") is not True
+    ):
+        return False
+    stages = contract.get("stage_order")
+    relations = contract.get("relation_schemas")
+    operations = contract.get("operations")
+    law_format = contract.get("law_format")
+    if (
+        not isinstance(stages, list)
+        or not stages
+        or not all(isinstance(stage, str) and stage for stage in stages)
+        or len(stages) != len(set(stages))
+        or not isinstance(relations, list)
+        or not relations
+        or not isinstance(operations, list)
+        or not operations
+        or not isinstance(law_format, dict)
+        or set(law_format) != {"closed", "operators"}
+        or law_format.get("closed") is not True
+        or not isinstance(law_format.get("operators"), list)
+    ):
+        return False
+    relation_fields: dict[str, set[str]] = {}
+    for relation in relations:
+        if (
+            not isinstance(relation, dict)
+            or set(relation) != {"id", "fields", "pointer_fields"}
+            or not isinstance(relation.get("id"), str)
+            or not isinstance(relation.get("fields"), list)
+            or not relation["fields"]
+            or not all(isinstance(field, str) and field for field in relation["fields"])
+            or len(relation["fields"]) != len(set(relation["fields"]))
+            or not isinstance(relation.get("pointer_fields"), list)
+            or not all(
+                isinstance(field, str) and field for field in relation["pointer_fields"]
+            )
+            or not set(relation["pointer_fields"]) <= set(relation["fields"])
+            or relation["id"] in relation_fields
+        ):
+            return False
+        relation_fields[relation["id"]] = set(relation["fields"])
+    law_specs = {
+        item["id"]: item
+        for item in law_format["operators"]
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    if len(law_specs) != len(law_format["operators"]):
+        return False
+    for spec in law_specs.values():
+        required = spec.get("required_members")
+        optional = spec.get("optional_members")
+        if (
+            set(spec)
+            not in (
+                {"id", "required_members", "optional_members"},
+                {"id", "required_members", "optional_members", "cardinalities"},
+            )
+            or not isinstance(required, list)
+            or not isinstance(optional, list)
+            or not all(isinstance(member, str) and member for member in required)
+            or not all(isinstance(member, str) and member for member in optional)
+            or len(required) != len(set(required))
+            or len(optional) != len(set(optional))
+            or set(required) & set(optional)
+        ):
+            return False
+    operation_ids: set[str] = set()
+    for operation in operations:
+        if (
+            not isinstance(operation, dict)
+            or set(operation)
+            != {
+                "effects",
+                "id",
+                "input",
+                "refusals",
+                "resources",
+                "result",
+                "stage",
+                "law",
+            }
+            or not isinstance(operation.get("id"), str)
+            or operation["id"] in operation_ids
+            or operation.get("stage") not in stages
+            or not isinstance(operation.get("law"), dict)
+        ):
+            return False
+        operation_ids.add(operation["id"])
+        law = operation["law"]
+        spec = law_specs.get(law.get("operator"))
+        if not isinstance(spec, dict):
+            return False
+        required_members = set(spec["required_members"])
+        optional_members = set(spec["optional_members"])
+        if not required_members <= set(law) or not set(law) <= (
+            required_members | optional_members
+        ):
+            return False
+        operator = law["operator"]
+        if operator == "require-match":
+            subject_fields = relation_fields.get(law.get("subject_relation"))
+            target_fields = relation_fields.get(law.get("target_relation"))
+            matches = law.get("match")
+            cardinalities = spec.get("cardinalities")
+            if (
+                subject_fields is None
+                or target_fields is None
+                or not isinstance(matches, list)
+                or not matches
+                or not isinstance(cardinalities, list)
+                or law.get("cardinality") not in cardinalities
+                or law.get("pointer_field") not in subject_fields
+                or any(
+                    not isinstance(match, dict)
+                    or set(match) != {"subject", "target"}
+                    or match.get("subject") not in subject_fields
+                    or match.get("target") not in target_fields
+                    for match in matches
+                )
+            ):
+                return False
+            guard = law.get("guard")
+            if guard is not None:
+                guard_relation = (
+                    guard.get("target_relation") if isinstance(guard, dict) else None
+                )
+                guard_fields = (
+                    relation_fields.get(guard_relation)
+                    if isinstance(guard_relation, str)
+                    else None
+                )
+                if (
+                    not isinstance(guard, dict)
+                    or set(guard) != {"target_relation", "match", "cardinality"}
+                    or guard_fields is None
+                    or guard.get("cardinality") not in cardinalities
+                    or not isinstance(guard.get("match"), list)
+                    or not guard["match"]
+                    or any(
+                        not isinstance(match, dict)
+                        or set(match) != {"subject", "target"}
+                        or match.get("subject") not in subject_fields
+                        or match.get("target") not in guard_fields
+                        for match in guard["match"]
+                    )
+                ):
+                    return False
+        elif operator in {"require-unique", "require-single-value"}:
+            fields = relation_fields.get(law.get("relation"))
+            list_members = (
+                ("scope", "key")
+                if operator == "require-unique"
+                else ("scope", "group", "value")
+            )
+            if (
+                fields is None
+                or law.get("pointer_field") not in fields
+                or any(
+                    not isinstance(law.get(member), list)
+                    or not all(field in fields for field in law[member])
+                    for member in list_members
+                )
+                or (
+                    operator == "require-unique" and not cast(list[Any], law.get("key"))
+                )
+                or (
+                    operator == "require-single-value"
+                    and (
+                        not cast(list[Any], law.get("group"))
+                        or not cast(list[Any], law.get("value"))
+                    )
+                )
+            ):
+                return False
+        else:
+            return False
+    flattened = [
+        operation["id"]
+        for stage in stages
+        for operation in operations
+        if operation["stage"] == stage
+    ]
+    return flattened == [operation["id"] for operation in operations]
+
+
 def _language_definitions_are_closed(
     language_bundle: dict[str, Any], meta_format: dict[str, Any]
 ) -> bool:
@@ -1240,11 +1464,9 @@ def _language_definitions_are_closed(
         if isinstance(resolution_contract, dict)
         else None
     )
-    operation_order = (
-        resolution_contract.get("required_operation_order")
-        if isinstance(resolution_contract, dict)
-        else None
-    )
+    operation_order = [
+        item["id"] for item in operation_specs or [] if isinstance(item, dict)
+    ]
     operations_by_id = {
         item["id"]: item
         for item in operation_specs or []
@@ -1259,11 +1481,10 @@ def _language_definitions_are_closed(
     }
     if (
         len(profiles_by_id) != len(profiles)
+        or not _resolution_judgment_is_closed(resolution_contract)
         or not isinstance(operation_specs, list)
         or not operation_specs
         or len(operations_by_id) != len(operation_specs)
-        or not isinstance(operation_order, list)
-        or operation_order != [item["id"] for item in operation_specs]
         or len([profile for profile in profiles if profile.get("default") is True]) != 1
     ):
         return False

@@ -100,6 +100,7 @@ def model_build_handler(
         None,
         "after-member-write",
         "before-commit",
+        "before-anchor-commit",
         "after-commit",
     }:
         raise ValueError("unknown publication fault")

@@ -44,6 +44,7 @@ def isolated_schema2_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv(
         "GDA_BALANCING_STORE_DIR", str(tmp_path / ".gda-balancing-store-v2")
     )
+    monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a5" * 32)
 
 
 @pytest.fixture

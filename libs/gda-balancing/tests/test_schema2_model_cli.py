@@ -1,7 +1,12 @@
 """Public Model compiler tracer for Standard Schema 2.0 (#539)."""
 
+import hashlib
+import hmac
 import json
 import os
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from copy import deepcopy
 from pathlib import Path
@@ -984,7 +989,9 @@ def test_model_build_precommit_fault_leaves_no_visible_or_partial_set(
     assert (exit_code, stdout) == (4, "")
     assert json.loads(stderr)["error"]["code"] == "internal_error"
     assert not out.exists()
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["model-source.json"]
+    store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+    assert not (store / "invocations").exists()
+    assert not (store / "anchors").exists()
 
 
 def test_model_build_postcommit_fault_is_recoverable_by_invocation_key(
@@ -1024,6 +1031,141 @@ def test_model_build_postcommit_fault_is_recoverable_by_invocation_key(
     assert json.loads(recovered_stdout)["invocation_key"] == "0" * 64
 
 
+def test_model_build_before_anchor_commit_fault_has_no_visible_anchor_and_recovers(
+    tmp_path, run_cli
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    out = tmp_path / "published-model"
+    argv = [
+        "model",
+        "build",
+        str(source),
+        "--out",
+        str(out),
+        "--invocation-key",
+        "8" * 64,
+    ]
+    faulting = replace(
+        model_command_module.MODEL_BUILD,
+        handler=model_command_module.model_build_handler(
+            publication_fault="before-anchor-commit"
+        ),
+    )
+
+    exit_code, stdout, stderr = run_cli(argv, registry=(faulting,))
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+    anchors = Path(os.environ["GDA_BALANCING_STORE_DIR"]) / "anchors"
+    assert not anchors.exists() or not list(anchors.rglob("*.json"))
+    assert not out.exists()
+
+    recovered_exit, recovered_stdout, recovered_stderr = run_cli(argv)
+    assert (recovered_exit, recovered_stderr) == (0, "")
+    assert json.loads(recovered_stdout)["invocation_key"] == "8" * 64
+
+
+def test_publication_anchor_is_authenticated_outside_the_writable_store(
+    tmp_path, run_cli
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    out = tmp_path / "published-model"
+    argv = [
+        "model",
+        "build",
+        str(source),
+        "--out",
+        str(out),
+        "--invocation-key",
+        "7" * 64,
+    ]
+    first = run_cli(argv)
+    assert first[0] == 0
+    anchor_path = _anchor_path("7" * 64)
+    anchor = json.loads(anchor_path.read_text())
+    assert anchor["anchor_kind"] == "authenticated-publication-index-v1"
+    assert anchor["algorithm"] == "hmac-sha256"
+    expected = hmac.new(
+        bytes.fromhex(os.environ["GDA_BALANCING_ANCHOR_KEY"]),
+        canonical_bytes(anchor["publication_index"]),
+        hashlib.sha256,
+    ).hexdigest()
+    assert hmac.compare_digest(anchor["authentication"], expected)
+
+    anchor["publication_index"]["receipt_identity"] = "sha256:" + "f" * 64
+    anchor_path.unlink()
+    anchor_path.write_bytes(canonical_bytes(anchor))
+    anchor_path.chmod(0o444)
+    out.unlink()
+
+    exit_code, stdout, stderr = run_cli(argv)
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+
+
+def test_same_invocation_key_concurrent_writers_recover_one_committed_set(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    entered_anchor = threading.Event()
+    release_anchor = threading.Event()
+    second_started = threading.Event()
+    real_write_anchor = model_module._write_anchor_exclusive
+    calls = 0
+    calls_guard = threading.Lock()
+
+    def pause_first_anchor(path, artifact, **kwargs):
+        nonlocal calls
+        with calls_guard:
+            calls += 1
+            current = calls
+        if current == 1:
+            entered_anchor.set()
+            assert release_anchor.wait(timeout=10)
+        return real_write_anchor(path, artifact, **kwargs)
+
+    monkeypatch.setattr(model_module, "_write_anchor_exclusive", pause_first_anchor)
+    key = "6" * 64
+    descriptor = descriptor_identity(model_command_module.MODEL_BUILD)
+
+    def publish(out: Path, *, announce: bool = False):
+        if announce:
+            second_started.set()
+        return model_module.publish_model_artifacts(
+            checked,
+            str(source),
+            str(out),
+            key,
+            descriptor,
+            model_command_module.MODEL_BUILD.artifact_set,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(publish, tmp_path / "first.json")
+        assert entered_anchor.wait(timeout=10)
+        second = executor.submit(
+            publish,
+            tmp_path / "second.json",
+            announce=True,
+        )
+        assert second_started.wait(timeout=10)
+        time.sleep(0.05)
+        release_anchor.set()
+        first_receipt = first.result(timeout=10)
+        second_receipt = second.result(timeout=10)
+
+    assert first_receipt == second_receipt
+    assert (tmp_path / "first.json").is_file()
+    assert (tmp_path / "second.json").is_file()
+    assert _anchor_path(key).is_file()
+
+
 def test_publication_index_anchor_rejects_a_coherently_reidentified_rewrite(
     tmp_path, run_cli
 ):
@@ -1052,13 +1194,28 @@ def test_publication_index_anchor_rejects_a_coherently_reidentified_rewrite(
     resolved = json.loads((artifact_dir / "resolved-model.json").read_text())
     resolved["rir_identity"] = rir["content_identity"]
     _reidentify(resolved, "resolved-model-v2")
+    debug_map = json.loads((artifact_dir / "debug-map.json").read_text())
+    debug_map["rir_identity"] = rir["content_identity"]
+    _reidentify(debug_map, "debug-map-v2")
+    capability_manifest = json.loads(
+        (artifact_dir / "capability-manifest.json").read_text()
+    )
+    capability_manifest["rir_identity"] = rir["content_identity"]
+    capability_manifest["resolved_model_identity"] = resolved["content_identity"]
+    _reidentify(capability_manifest, "capability-manifest-v2")
     build_receipt = json.loads((artifact_dir / "build-receipt.json").read_text())
     build_receipt["rir_identity"] = rir["content_identity"]
     build_receipt["resolved_model_identity"] = resolved["content_identity"]
+    build_receipt["debug_map_identity"] = debug_map["content_identity"]
+    build_receipt["capability_manifest_identity"] = capability_manifest[
+        "content_identity"
+    ]
     _reidentify(build_receipt, "build-receipt-v2")
     for name, artifact in (
         ("rir-semantic-payload", rir),
         ("resolved-model", resolved),
+        ("debug-map", debug_map),
+        ("capability-manifest", capability_manifest),
         ("build-receipt", build_receipt),
     ):
         (artifact_dir / f"{name}.json").write_bytes(canonical_bytes(artifact))
@@ -1067,6 +1224,8 @@ def test_publication_index_anchor_rejects_a_coherently_reidentified_rewrite(
     replacements = {
         "rir-semantic-payload": rir["content_identity"],
         "resolved-model": resolved["content_identity"],
+        "debug-map": debug_map["content_identity"],
+        "capability-manifest": capability_manifest["content_identity"],
         "build-receipt": build_receipt["content_identity"],
     }
     for member in manifest["members"]:
@@ -1082,7 +1241,13 @@ def test_publication_index_anchor_rejects_a_coherently_reidentified_rewrite(
     index["receipt_identity"] = receipt["content_identity"]
     _reidentify(index, "publication-index-v2")
     (artifact_dir / "publication-index.json").write_bytes(canonical_bytes(index))
-    assert anchor.read_bytes() == anchor_before
+    forged_anchor = json.loads(anchor.read_text())
+    forged_anchor["publication_index"] = index
+    anchor.unlink()
+    anchor.write_bytes(canonical_bytes(forged_anchor))
+    anchor.chmod(0o444)
+    out.unlink()
+    assert anchor.read_bytes() != anchor_before
 
     exit_code, stdout, stderr = run_cli(argv)
 
@@ -1324,9 +1489,17 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
         ]
         for entry in package["semantic_closure"]:
             entry["definitions"] = deepcopy(exact_path(entry["authority_path"]))
+        runtime_paths = set(package["runtime_semantic_paths"])
         package["semantic_identity"] = content_identity(
             "domain-package-semantic-closure-v2",
-            cast(JsonValue, package["semantic_closure"]),
+            cast(
+                JsonValue,
+                [
+                    entry
+                    for entry in package["semantic_closure"]
+                    if entry["authority_path"] in runtime_paths
+                ],
+            ),
         )
         _reidentify(package, "domain-package-release-v2")
     _reidentify(language_bundle, "language-definition-bundle-v2")
@@ -1488,7 +1661,7 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
     assert {item["role"] for item in declarations} == {"lowered-by-ldb"}
 
 
-def test_rir_identity_binds_the_full_selected_package_semantics(tmp_path):
+def test_rir_identity_binds_the_full_selected_runtime_semantics(tmp_path):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
     checked = model_module.check_model_source(str(source))
@@ -1540,3 +1713,26 @@ def test_rir_identity_binds_the_full_selected_package_semantics(tmp_path):
         mutated_rir["package_lock_semantic_identity"]
         == mutated_lock["semantic_identity"]
     )
+
+
+def test_compile_only_package_authority_does_not_change_rir_semantics(tmp_path):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    original = model_module.lower_checked_model(checked)
+    candidate_ldb = deepcopy(checked.language_bundle)
+    candidate_ldb["language"]["model_checks"].reverse()
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
+    candidate = replace(checked, language_bundle=candidate_ldb)
+
+    mutated = model_module.lower_checked_model(candidate)
+
+    original_package = checked.language_bundle["language"]["packages"][0]
+    mutated_package = candidate_ldb["language"]["packages"][0]
+    assert original_package["semantic_identity"] == mutated_package["semantic_identity"]
+    assert original_package["content_identity"] != mutated_package["content_identity"]
+    assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
+    assert original["package-lock"] != mutated["package-lock"]
+    assert original["resolved-model"] != mutated["resolved-model"]

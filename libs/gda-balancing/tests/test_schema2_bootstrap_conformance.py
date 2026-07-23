@@ -17,7 +17,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:079167bf2a7da3d2c68f4f692d4875147ac74a41a8a59ab1d53fa9f16aaddb0c"
+    "sha256:678f0471d93f3eb32cdeb6bc5e8f679fb3e6e60f18853752501657eef413bfaf"
 )
 
 
@@ -28,6 +28,23 @@ def _identity(domain: str, artifact: dict[str, Any]) -> str:
         "sha256:"
         + hashlib.sha256(f"gda-balancing:{domain}:".encode() + encoded).hexdigest()
     )
+
+
+def _reidentify_package_release(package: dict[str, Any]) -> None:
+    runtime_paths = set(package["runtime_semantic_paths"])
+    runtime_closure = [
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] in runtime_paths
+    ]
+    package["semantic_identity"] = (
+        "sha256:"
+        + hashlib.sha256(
+            b"gda-balancing:domain-package-semantic-closure-v2:"
+            + _encoded(runtime_closure)
+        ).hexdigest()
+    )
+    package["content_identity"] = _identity("domain-package-release-v2", package)
 
 
 def _safe_identity(domain: str, artifact: dict[str, Any]) -> str | None:
@@ -344,13 +361,39 @@ def _consumer_b_package_semantic_closure_is_closed(
             or set(definition_keys) != set(owner_keys)
         ):
             return False
+    semantic_projection = contract.get("semantic_identity_projection")
+    if (
+        not isinstance(semantic_projection, dict)
+        or set(semantic_projection)
+        != {"domain", "path_inventory_member", "source_member", "path_member"}
+        or semantic_projection.get("source_member") != "semantic_closure"
+        or semantic_projection.get("path_member") != "authority_path"
+        or not isinstance(semantic_projection.get("domain"), str)
+        or not isinstance(semantic_projection.get("path_inventory_member"), str)
+    ):
+        return False
+    runtime_paths = package.get(semantic_projection["path_inventory_member"])
+    closure_paths = [entry["authority_path"] for entry in closure]
+    if (
+        not isinstance(runtime_paths, list)
+        or not runtime_paths
+        or not all(isinstance(path, str) and path for path in runtime_paths)
+        or len(runtime_paths) != len(set(runtime_paths))
+        or not set(runtime_paths) <= set(closure_paths)
+    ):
+        return False
+    runtime_closure = [
+        entry for entry in closure if entry["authority_path"] in set(runtime_paths)
+    ]
     try:
-        encoded = _encoded(closure)
+        encoded = _encoded(runtime_closure)
     except (TypeError, ValueError, UnicodeEncodeError):
         return False
     expected = (
         "sha256:"
-        + hashlib.sha256(f"gda-balancing:{domain}:".encode() + encoded).hexdigest()
+        + hashlib.sha256(
+            f"gda-balancing:{semantic_projection['domain']}:".encode() + encoded
+        ).hexdigest()
     )
     return package.get("semantic_identity") == expected
 
@@ -872,6 +915,201 @@ def _consumer_b_fact_contract_path_is_declared(
     return True
 
 
+def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
+    if (
+        not isinstance(value, dict)
+        or set(value)
+        != {
+            "closed",
+            "input",
+            "operations",
+            "result",
+            "stage_order",
+            "relation_schemas",
+            "law_format",
+        }
+        or value.get("closed") is not True
+    ):
+        return False
+    stages = value.get("stage_order")
+    relations = value.get("relation_schemas")
+    operations = value.get("operations")
+    law_format = value.get("law_format")
+    if (
+        not isinstance(stages, list)
+        or not stages
+        or not all(isinstance(stage, str) and stage for stage in stages)
+        or len(stages) != len(set(stages))
+        or not isinstance(relations, list)
+        or not relations
+        or not isinstance(operations, list)
+        or not operations
+        or not isinstance(law_format, dict)
+        or set(law_format) != {"closed", "operators"}
+        or law_format.get("closed") is not True
+        or not isinstance(law_format.get("operators"), list)
+    ):
+        return False
+    relation_fields: dict[str, set[str]] = {}
+    for relation in relations:
+        if (
+            not isinstance(relation, dict)
+            or set(relation) != {"id", "fields", "pointer_fields"}
+            or not isinstance(relation.get("id"), str)
+            or relation["id"] in relation_fields
+            or not isinstance(relation.get("fields"), list)
+            or not relation["fields"]
+            or not all(isinstance(field, str) and field for field in relation["fields"])
+            or len(relation["fields"]) != len(set(relation["fields"]))
+            or not isinstance(relation.get("pointer_fields"), list)
+            or not all(
+                isinstance(field, str) and field for field in relation["pointer_fields"]
+            )
+            or not set(relation["pointer_fields"]) <= set(relation["fields"])
+        ):
+            return False
+        relation_fields[relation["id"]] = set(relation["fields"])
+    specifications = {
+        item["id"]: item
+        for item in law_format["operators"]
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    if len(specifications) != len(law_format["operators"]):
+        return False
+    for specification in specifications.values():
+        required = specification.get("required_members")
+        optional = specification.get("optional_members")
+        if (
+            set(specification)
+            not in (
+                {"id", "required_members", "optional_members"},
+                {"id", "required_members", "optional_members", "cardinalities"},
+            )
+            or not isinstance(required, list)
+            or not isinstance(optional, list)
+            or not all(isinstance(member, str) and member for member in required)
+            or not all(isinstance(member, str) and member for member in optional)
+            or len(required) != len(set(required))
+            or len(optional) != len(set(optional))
+            or set(required) & set(optional)
+        ):
+            return False
+
+    def field_list(law: dict[str, Any], member: str, fields: set[str]) -> bool:
+        selected = law.get(member)
+        return isinstance(selected, list) and all(field in fields for field in selected)
+
+    seen: set[str] = set()
+    for operation in operations:
+        if (
+            not isinstance(operation, dict)
+            or set(operation)
+            != {
+                "effects",
+                "id",
+                "input",
+                "refusals",
+                "resources",
+                "result",
+                "stage",
+                "law",
+            }
+            or not isinstance(operation.get("id"), str)
+            or operation["id"] in seen
+            or operation.get("stage") not in stages
+            or not isinstance(operation.get("law"), dict)
+        ):
+            return False
+        seen.add(operation["id"])
+        law = operation["law"]
+        specification = specifications.get(law.get("operator"))
+        if not isinstance(specification, dict):
+            return False
+        required = set(specification["required_members"])
+        optional = set(specification["optional_members"])
+        if not required <= set(law) or not set(law) <= required | optional:
+            return False
+        operator = law["operator"]
+        if operator == "require-match":
+            source_fields = relation_fields.get(law.get("subject_relation"))
+            target_fields = relation_fields.get(law.get("target_relation"))
+            pairs = law.get("match")
+            cardinalities = specification.get("cardinalities")
+            if (
+                source_fields is None
+                or target_fields is None
+                or not isinstance(pairs, list)
+                or not pairs
+                or not isinstance(cardinalities, list)
+                or law.get("cardinality") not in cardinalities
+                or law.get("pointer_field") not in source_fields
+                or any(
+                    not isinstance(pair, dict)
+                    or set(pair) != {"subject", "target"}
+                    or pair.get("subject") not in source_fields
+                    or pair.get("target") not in target_fields
+                    for pair in pairs
+                )
+            ):
+                return False
+            guard = law.get("guard")
+            if guard is not None:
+                guarded_relation = (
+                    guard.get("target_relation") if isinstance(guard, dict) else None
+                )
+                guarded_fields = (
+                    relation_fields.get(guarded_relation)
+                    if isinstance(guarded_relation, str)
+                    else None
+                )
+                if (
+                    not isinstance(guard, dict)
+                    or set(guard) != {"target_relation", "match", "cardinality"}
+                    or guarded_fields is None
+                    or guard.get("cardinality") not in cardinalities
+                    or not isinstance(guard.get("match"), list)
+                    or not guard["match"]
+                    or any(
+                        not isinstance(pair, dict)
+                        or set(pair) != {"subject", "target"}
+                        or pair.get("subject") not in source_fields
+                        or pair.get("target") not in guarded_fields
+                        for pair in guard["match"]
+                    )
+                ):
+                    return False
+        elif operator == "require-unique":
+            fields = relation_fields.get(law.get("relation"))
+            if (
+                fields is None
+                or not field_list(law, "scope", fields)
+                or not field_list(law, "key", fields)
+                or not law["key"]
+                or law.get("pointer_field") not in fields
+            ):
+                return False
+        elif operator == "require-single-value":
+            fields = relation_fields.get(law.get("relation"))
+            if (
+                fields is None
+                or not field_list(law, "scope", fields)
+                or not field_list(law, "group", fields)
+                or not field_list(law, "value", fields)
+                or not law["group"]
+                or not law["value"]
+                or law.get("pointer_field") not in fields
+            ):
+                return False
+        else:
+            return False
+    return [operation["id"] for operation in operations] == [
+        operation["id"]
+        for stage in stages
+        for operation in operations
+        if operation["stage"] == stage
+    ]
+
+
 def _consumer_b_language_definitions_are_closed(
     ldb: dict[str, Any], meta: dict[str, Any]
 ) -> bool:
@@ -956,11 +1194,9 @@ def _consumer_b_language_definitions_are_closed(
         if isinstance(resolution_contract, dict)
         else None
     )
-    operation_order = (
-        resolution_contract.get("required_operation_order")
-        if isinstance(resolution_contract, dict)
-        else None
-    )
+    operation_order = [
+        item["id"] for item in operation_specs or [] if isinstance(item, dict)
+    ]
     operations_by_id = {
         item["id"]: item
         for item in operation_specs or []
@@ -975,11 +1211,10 @@ def _consumer_b_language_definitions_are_closed(
     }
     if (
         len(profiles_by_id) != len(profiles)
+        or not _consumer_b_resolution_contract_is_closed(resolution_contract)
         or not isinstance(operation_specs, list)
         or not operation_specs
         or len(operations_by_id) != len(operation_specs)
-        or not isinstance(operation_order, list)
-        or operation_order != [item["id"] for item in operation_specs]
         or len([profile for profile in profiles if profile.get("default") is True]) != 1
     ):
         return False
@@ -2350,20 +2585,21 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
     }
     resolution = meta_format["resolution_judgment"]
     assert resolution["closed"] is True
-    assert resolution["evaluation_order"] == (
-        "profile-chain-with-static-before-resolution"
-    )
-    assert resolution["required_operation_order"] == [
-        item["id"] for item in resolution["operations"]
+    assert resolution["stage_order"] == ["static", "resolution"]
+    assert [item["id"] for item in resolution["operations"]] == [
+        item["id"]
+        for stage in resolution["stage_order"]
+        for item in resolution["operations"]
+        if item["stage"] == stage
     ]
+    assert _consumer_b_resolution_contract_is_closed(resolution)
     assert all(
         set(item)
         == {
-            "arguments",
             "effects",
             "id",
             "input",
-            "operator",
+            "law",
             "refusals",
             "resources",
             "result",
@@ -2515,6 +2751,7 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
         "exports",
         "id",
         "profiles",
+        "runtime_semantic_paths",
         "semantic_closure",
         "semantic_identity",
         "vector_definitions",
@@ -2525,13 +2762,9 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     assert package["content_identity"] == _identity(
         "domain-package-release-v2", package
     )
-    semantic_encoded = _encoded(package["semantic_closure"])
-    assert package["semantic_identity"] == (
-        "sha256:"
-        + hashlib.sha256(
-            b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
-        ).hexdigest()
-    )
+    expected_package = deepcopy(package)
+    _reidentify_package_release(expected_package)
+    assert package["semantic_identity"] == expected_package["semantic_identity"]
     assert package["dependencies"] == {"optional": [], "required": []}
     assert package["capabilities"]["required"] == []
     assert package["exports"]["components"] == ["quantity.symbol"]
@@ -2612,14 +2845,7 @@ def test_authority_admission_requires_one_default_resolution_profile():
     for entry in package["semantic_closure"]:
         if entry["authority_path"] == "language.resolution_profiles":
             entry["definitions"] = deepcopy(ldb["language"]["resolution_profiles"])
-    semantic_encoded = _encoded(package["semantic_closure"])
-    package["semantic_identity"] = (
-        "sha256:"
-        + hashlib.sha256(
-            b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
-        ).hexdigest()
-    )
-    package["content_identity"] = _identity("domain-package-release-v2", package)
+    _reidentify_package_release(package)
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -2688,14 +2914,7 @@ def test_coherent_package_semantic_change_changes_the_release_identity():
         if entry["authority_path"] == "language.operations"
     )
     operation_entry["definitions"][0]["resource_bounds"]["max_steps"] = 2
-    semantic_encoded = _encoded(package["semantic_closure"])
-    package["semantic_identity"] = (
-        "sha256:"
-        + hashlib.sha256(
-            b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
-        ).hexdigest()
-    )
-    package["content_identity"] = _identity("domain-package-release-v2", package)
+    _reidentify_package_release(package)
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -2734,14 +2953,7 @@ def test_semantic_closure_cannot_move_a_definition_to_a_non_owner_package():
     quantity_components["definitions"] = []
 
     for package in (quantity_package, other_package):
-        semantic_encoded = _encoded(package["semantic_closure"])
-        package["semantic_identity"] = (
-            "sha256:"
-            + hashlib.sha256(
-                b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
-            ).hexdigest()
-        )
-        package["content_identity"] = _identity("domain-package-release-v2", package)
+        _reidentify_package_release(package)
     ldb["language"]["packages"].append(other_package)
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
@@ -2770,14 +2982,7 @@ def test_model_lowering_invocation_must_match_the_referenced_rule_contract():
         if entry["authority_path"] == "language.model_lowerings"
     )
     lowering_entry["definitions"] = deepcopy(language["model_lowerings"])
-    semantic_encoded = _encoded(package["semantic_closure"])
-    package["semantic_identity"] = (
-        "sha256:"
-        + hashlib.sha256(
-            b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
-        ).hexdigest()
-    )
-    package["content_identity"] = _identity("domain-package-release-v2", package)
+    _reidentify_package_release(package)
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
@@ -3088,14 +3293,7 @@ def test_reidentified_package_cannot_export_an_open_host_operation_definition():
         if entry["authority_path"] == "language.operations"
     )
     operation_entry["definitions"] = deepcopy(language["operations"])
-    semantic_encoded = _encoded(package["semantic_closure"])
-    package["semantic_identity"] = (
-        "sha256:"
-        + hashlib.sha256(
-            b"gda-balancing:domain-package-semantic-closure-v2:" + semantic_encoded
-        ).hexdigest()
-    )
-    package["content_identity"] = _identity("domain-package-release-v2", package)
+    _reidentify_package_release(package)
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
     first = _consumer_a(authority["kernel"], ldb)

@@ -1,14 +1,18 @@
 """Authority-driven Model Source checking and lowering for Schema 2.0."""
 
+import fcntl
+import hashlib
+import hmac
 import json
 import os
 import shutil
 import stat
 import tempfile
 from collections.abc import Iterable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Iterator, cast
 
 import jsonschema
 
@@ -27,6 +31,7 @@ from gda_balancing.schema2.diagnostics import (
 _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
 _LOWERER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-lowerer-v1"
 _STORE_DIRECTORY_ENV = "GDA_BALANCING_STORE_DIR"
+_ANCHOR_KEY_ENV = "GDA_BALANCING_ANCHOR_KEY"
 
 
 def _normalized_absolute_path(value: str) -> Path:
@@ -492,22 +497,12 @@ def _schema_error_diagnostics(
     ]
 
 
-def _resolution_diagnostics(
+def _resolution_relations(
     source: dict[str, Any],
-    source_identity: str,
-    kernel: dict[str, Any],
     language_bundle: dict[str, Any],
-    *,
-    stage: str,
-) -> list[Schema2Diagnostic]:
+    profile: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
     language = _language(language_bundle)
-    lowering = _model_lowering(language_bundle)
-    profile = _resolution_profile(
-        language_bundle, cast(str, lowering["resolution_profile"])
-    )
-    reasons = {
-        item["id"]: item for item in cast(list[dict[str, Any]], language["reasons"])
-    }
     modules_member = cast(str, profile["modules_member"])
     module_id_member = cast(str, profile["module_id_member"])
     imports_member = cast(str, profile["imports_member"])
@@ -524,15 +519,294 @@ def _resolution_diagnostics(
     modules = cast(list[dict[str, Any]], source[modules_member])
     requirements = cast(list[dict[str, str]], source[requirements_member])
     packages = cast(list[dict[str, Any]], language["packages"])
-    available = {
-        (cast(str, item["id"]), cast(str, item["version"])): item for item in packages
-    }
-    requirement_keys = [
-        (item[requirement_package_member], item[requirement_version_member])
-        for item in requirements
+    model_id = cast(str, _path_value(source, cast(str, profile["manifest_id_path"])))
+
+    def row(
+        values: dict[str, str], pointers: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        return {"values": values, "pointers": pointers or {}}
+
+    requirement_rows = [
+        row(
+            {
+                "package": item[requirement_package_member],
+                "version": item[requirement_version_member],
+            },
+            {
+                "package": _pointer(
+                    (requirements_member, index, requirement_package_member)
+                ),
+                "version": _pointer(
+                    (requirements_member, index, requirement_version_member)
+                ),
+            },
+        )
+        for index, item in enumerate(requirements)
     ]
-    selected_packages = [available[key] for key in requirement_keys if key in available]
-    diagnostics: list[Schema2Diagnostic] = []
+    package_rows = [
+        row({"package": cast(str, item["id"]), "version": cast(str, item["version"])})
+        for item in packages
+    ]
+    module_rows: list[dict[str, Any]] = []
+    import_rows: list[dict[str, Any]] = []
+    symbol_rows: list[dict[str, Any]] = []
+    for module_index, module in enumerate(modules):
+        module_id = cast(str, module[module_id_member])
+        module_rows.append(
+            row(
+                {"module": module_id},
+                {"module": _pointer((modules_member, module_index, module_id_member))},
+            )
+        )
+        for import_index, item in enumerate(
+            cast(list[dict[str, str]], module[imports_member])
+        ):
+            import_rows.append(
+                row(
+                    {
+                        "module": module_id,
+                        "alias": item[alias_member],
+                        "package": item[package_member],
+                        "version": item[version_member],
+                        "import_symbol": item[import_symbol_member],
+                    },
+                    {
+                        "alias": _pointer(
+                            (
+                                modules_member,
+                                module_index,
+                                imports_member,
+                                import_index,
+                                alias_member,
+                            )
+                        ),
+                        "package": _pointer(
+                            (
+                                modules_member,
+                                module_index,
+                                imports_member,
+                                import_index,
+                                package_member,
+                            )
+                        ),
+                        "version": _pointer(
+                            (
+                                modules_member,
+                                module_index,
+                                imports_member,
+                                import_index,
+                                version_member,
+                            )
+                        ),
+                        "import_symbol": _pointer(
+                            (
+                                modules_member,
+                                module_index,
+                                imports_member,
+                                import_index,
+                                import_symbol_member,
+                            )
+                        ),
+                    },
+                )
+            )
+        for symbol_index, symbol in enumerate(
+            cast(list[dict[str, Any]], module[symbols_member])
+        ):
+            symbol_rows.append(
+                row(
+                    {
+                        "model": model_id,
+                        "module": module_id,
+                        "symbol": cast(str, symbol[source_symbol_member]),
+                        "type_alias": cast(str, symbol[source_type_member]),
+                    },
+                    {
+                        "symbol": _pointer(
+                            (
+                                modules_member,
+                                module_index,
+                                symbols_member,
+                                symbol_index,
+                                source_symbol_member,
+                            )
+                        ),
+                        "type_alias": _pointer(
+                            (
+                                modules_member,
+                                module_index,
+                                symbols_member,
+                                symbol_index,
+                                source_type_member,
+                            )
+                        ),
+                    },
+                )
+            )
+    exported_type_rows = [
+        row(
+            {
+                "package": cast(str, package["id"]),
+                "version": cast(str, package["version"]),
+                "symbol": cast(str, exported["id"]),
+            }
+        )
+        for package in packages
+        for exported in cast(list[dict[str, Any]], package["exports"]["types"])
+    ]
+    requirement_keys = {
+        (
+            item[requirement_package_member],
+            item[requirement_version_member],
+        )
+        for item in requirements
+    }
+    selected_packages = [
+        package
+        for package in packages
+        if (package["id"], package["version"]) in requirement_keys
+    ]
+    dependency_rows = [
+        row(
+            {
+                "owner": cast(str, package["id"]),
+                "dependency": cast(str, dependency),
+            }
+        )
+        for package in selected_packages
+        for dependency in cast(list[str], package["dependencies"]["required"])
+    ]
+    required_capability_rows = [
+        row(
+            {
+                "package": cast(str, package["id"]),
+                "capability": cast(str, capability),
+            }
+        )
+        for package in selected_packages
+        for capability in cast(list[str], package["capabilities"]["required"])
+    ]
+    provided_capability_rows = [
+        row(
+            {
+                "package": cast(str, package["id"]),
+                "capability": cast(str, capability),
+            }
+        )
+        for package in selected_packages
+        for capability in cast(list[str], package["capabilities"]["provided"])
+    ]
+    return {
+        "requirements": requirement_rows,
+        "packages": package_rows,
+        "modules": module_rows,
+        "imports": import_rows,
+        "symbols": symbol_rows,
+        "exported_types": exported_type_rows,
+        "manifest_entry": [
+            row(
+                {
+                    "module": cast(
+                        str,
+                        _path_value(
+                            source,
+                            cast(str, profile["manifest_entry_module_path"]),
+                        ),
+                    )
+                },
+                {
+                    "module": "/"
+                    + cast(str, profile["manifest_entry_module_path"]).replace(".", "/")
+                },
+            )
+        ],
+        "selected_dependencies": dependency_rows,
+        "required_capabilities": required_capability_rows,
+        "provided_capabilities": provided_capability_rows,
+    }
+
+
+def _law_matches(
+    subject: dict[str, Any],
+    target: dict[str, Any],
+    fields: list[dict[str, str]],
+) -> bool:
+    return all(
+        subject["values"][field["subject"]] == target["values"][field["target"]]
+        for field in fields
+    )
+
+
+def _resolution_law_failures(
+    law: dict[str, Any],
+    relations: dict[str, list[dict[str, Any]]],
+) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
+    operator = law["operator"]
+    if operator == "require-match":
+        failures: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
+        for subject in relations[law["subject_relation"]]:
+            guard = law.get("guard")
+            if isinstance(guard, dict):
+                guarded = [
+                    target
+                    for target in relations[guard["target_relation"]]
+                    if _law_matches(subject, target, guard["match"])
+                ]
+                if guard["cardinality"] == "exactly-one" and len(guarded) != 1:
+                    continue
+            matches = [
+                target
+                for target in relations[law["target_relation"]]
+                if _law_matches(subject, target, law["match"])
+            ]
+            if law["cardinality"] == "exactly-one" and len(matches) != 1:
+                failures.append((subject, None))
+        return failures
+    if operator == "require-unique":
+        unique_first: dict[tuple[str, ...], dict[str, Any]] = {}
+        failures = []
+        fields = [*law["scope"], *law["key"]]
+        for item in relations[law["relation"]]:
+            key = tuple(item["values"][field] for field in fields)
+            previous = unique_first.get(key)
+            if previous is None:
+                unique_first[key] = item
+            else:
+                failures.append((item, previous))
+        return failures
+    if operator == "require-single-value":
+        group_first: dict[tuple[str, ...], tuple[tuple[str, ...], dict[str, Any]]] = {}
+        failures = []
+        for item in relations[law["relation"]]:
+            group = tuple(
+                item["values"][field] for field in [*law["scope"], *law["group"]]
+            )
+            value = tuple(item["values"][field] for field in law["value"])
+            previous = group_first.get(group)
+            if previous is None:
+                group_first[group] = (value, item)
+            elif previous[0] != value:
+                failures.append((item, previous[1]))
+        return failures
+    raise ValueError(f"unknown admitted resolution law operator: {operator}")
+
+
+def _resolution_diagnostics(
+    source: dict[str, Any],
+    source_identity: str,
+    kernel: dict[str, Any],
+    language_bundle: dict[str, Any],
+    *,
+    stage: str,
+) -> list[Schema2Diagnostic]:
+    language = _language(language_bundle)
+    lowering = _model_lowering(language_bundle)
+    profile = _resolution_profile(
+        language_bundle, cast(str, lowering["resolution_profile"])
+    )
+    reasons = {
+        item["id"]: item for item in cast(list[dict[str, Any]], language["reasons"])
+    }
     resolution_contract = cast(
         dict[str, Any],
         cast(dict[str, Any], kernel["meta_format"])["resolution_judgment"],
@@ -541,279 +815,39 @@ def _resolution_diagnostics(
         item["id"]: item
         for item in cast(list[dict[str, Any]], resolution_contract["operations"])
     }
-
-    def report(
-        judgment: dict[str, Any],
-        pointer: str,
-        *,
-        related: tuple[ArtifactLocation, ...] = (),
-    ) -> None:
-        reason = reasons[judgment["reason"]]
-        diagnostics.append(
-            Schema2Diagnostic(
-                code=cast(str, reason["diagnostic"]),
-                message=f"Model Source failed resolution judgment {judgment['id']}",
-                primary=_location(source_identity, pointer),
-                related=related,
-            )
-        )
-
+    relations = _resolution_relations(source, language_bundle, profile)
+    diagnostics: list[Schema2Diagnostic] = []
     for judgment in cast(list[dict[str, Any]], profile["judgment_chain"]):
         operation_spec = operation_specs[judgment["operation"]]
         if operation_spec["stage"] != stage:
             continue
-        operation = operation_spec["operator"]
-        if operation == "select-exact-packages":
-            for index, key in enumerate(requirement_keys):
-                if key not in available:
-                    report(
-                        judgment,
-                        _pointer(
-                            (
-                                requirements_member,
-                                index,
-                                requirement_version_member,
-                            )
+        law = cast(dict[str, Any], operation_spec["law"])
+        pointer_field = cast(str, law["pointer_field"])
+        reason = reasons[judgment["reason"]]
+        for item, previous in _resolution_law_failures(law, relations):
+            pointer = cast(dict[str, str], item["pointers"]).get(pointer_field, "")
+            related = (
+                (
+                    _location(
+                        source_identity,
+                        cast(dict[str, str], previous["pointers"]).get(
+                            pointer_field, ""
                         ),
-                    )
-            continue
-        if operation == "close-required-dependencies":
-            for package in selected_packages:
-                for dependency in package["dependencies"]["required"]:
-                    candidates = [item for item in packages if item["id"] == dependency]
-                    if len(candidates) != 1:
-                        report(judgment, "")
-            continue
-        if operation == "require-single-package-version":
-            first: dict[str, tuple[str, int]] = {}
-            for index, (package_id, version) in enumerate(requirement_keys):
-                previous = first.get(package_id)
-                if previous is None:
-                    first[package_id] = (version, index)
-                elif previous[0] != version:
-                    report(
-                        judgment,
-                        _pointer(
-                            (
-                                requirements_member,
-                                index,
-                                requirement_version_member,
-                            )
-                        ),
-                        related=(
-                            _location(
-                                source_identity,
-                                _pointer(
-                                    (
-                                        requirements_member,
-                                        previous[1],
-                                        requirement_version_member,
-                                    )
-                                ),
-                            ),
-                        ),
-                    )
-            continue
-        if operation == "require-unique-module-ids":
-            first_modules: dict[str, int] = {}
-            for module_index, module in enumerate(modules):
-                module_id = cast(str, module[module_id_member])
-                if module_id in first_modules:
-                    report(
-                        judgment,
-                        _pointer((modules_member, module_index, module_id_member)),
-                        related=(
-                            _location(
-                                source_identity,
-                                _pointer(
-                                    (
-                                        modules_member,
-                                        first_modules[module_id],
-                                        module_id_member,
-                                    )
-                                ),
-                            ),
-                        ),
-                    )
-                else:
-                    first_modules[module_id] = module_index
-            continue
-        if operation == "require-unique-import-aliases":
-            for module_index, module in enumerate(modules):
-                first_aliases: dict[str, int] = {}
-                for import_index, item in enumerate(
-                    cast(list[dict[str, str]], module[imports_member])
-                ):
-                    alias = item[alias_member]
-                    if alias in first_aliases:
-                        report(
-                            judgment,
-                            _pointer(
-                                (
-                                    modules_member,
-                                    module_index,
-                                    imports_member,
-                                    import_index,
-                                    alias_member,
-                                )
-                            ),
-                            related=(
-                                _location(
-                                    source_identity,
-                                    _pointer(
-                                        (
-                                            modules_member,
-                                            module_index,
-                                            imports_member,
-                                            first_aliases[alias],
-                                            alias_member,
-                                        )
-                                    ),
-                                ),
-                            ),
-                        )
-                    else:
-                        first_aliases[alias] = import_index
-            continue
-        if operation == "bind-import-requirements":
-            required = set(requirement_keys)
-            for module_index, module in enumerate(modules):
-                for import_index, item in enumerate(
-                    cast(list[dict[str, str]], module[imports_member])
-                ):
-                    if (item[package_member], item[version_member]) not in required:
-                        report(
-                            judgment,
-                            _pointer(
-                                (
-                                    modules_member,
-                                    module_index,
-                                    imports_member,
-                                    import_index,
-                                    package_member,
-                                )
-                            ),
-                        )
-            continue
-        if operation == "bind-exported-types":
-            for module_index, module in enumerate(modules):
-                for import_index, item in enumerate(
-                    cast(list[dict[str, str]], module[imports_member])
-                ):
-                    package = available.get(
-                        (item[package_member], item[version_member])
-                    )
-                    if package is None:
-                        continue
-                    exported_types = {
-                        exported["id"] for exported in package["exports"]["types"]
-                    }
-                    if item[import_symbol_member] not in exported_types:
-                        report(
-                            judgment,
-                            _pointer(
-                                (
-                                    modules_member,
-                                    module_index,
-                                    imports_member,
-                                    import_index,
-                                    import_symbol_member,
-                                )
-                            ),
-                        )
-            continue
-        if operation == "bind-symbol-aliases":
-            for module_index, module in enumerate(modules):
-                aliases = {
-                    item[alias_member]
-                    for item in cast(list[dict[str, str]], module[imports_member])
-                }
-                for symbol_index, symbol in enumerate(
-                    cast(list[dict[str, Any]], module[symbols_member])
-                ):
-                    if symbol[source_type_member] not in aliases:
-                        report(
-                            judgment,
-                            _pointer(
-                                (
-                                    modules_member,
-                                    module_index,
-                                    symbols_member,
-                                    symbol_index,
-                                    source_type_member,
-                                )
-                            ),
-                        )
-            continue
-        if operation == "require-unique-symbol-identities":
-            model_id = cast(
-                str, _path_value(source, cast(str, profile["manifest_id_path"]))
-            )
-            first_symbols: dict[tuple[str, str, str], tuple[int, int]] = {}
-            for module_index, module in enumerate(modules):
-                module_id = cast(str, module[module_id_member])
-                for symbol_index, symbol in enumerate(
-                    cast(list[dict[str, Any]], module[symbols_member])
-                ):
-                    key = (model_id, module_id, symbol[source_symbol_member])
-                    previous = first_symbols.get(key)
-                    if previous is not None:
-                        report(
-                            judgment,
-                            _pointer(
-                                (
-                                    modules_member,
-                                    module_index,
-                                    symbols_member,
-                                    symbol_index,
-                                    source_symbol_member,
-                                )
-                            ),
-                            related=(
-                                _location(
-                                    source_identity,
-                                    _pointer(
-                                        (
-                                            modules_member,
-                                            previous[0],
-                                            symbols_member,
-                                            previous[1],
-                                            source_symbol_member,
-                                        )
-                                    ),
-                                ),
-                            ),
-                        )
-                    else:
-                        first_symbols[key] = (module_index, symbol_index)
-            continue
-        if operation == "require-entry-module":
-            entry_module = _path_value(
-                source, cast(str, profile["manifest_entry_module_path"])
-            )
-            if entry_module not in {module[module_id_member] for module in modules}:
-                report(
-                    judgment,
-                    "/"
-                    + cast(str, profile["manifest_entry_module_path"]).replace(
-                        ".", "/"
                     ),
                 )
-            continue
-        if operation == "bind-capability-providers":
-            providers: dict[str, str] = {}
-            for package in selected_packages:
-                for capability in package["capabilities"]["provided"]:
-                    if capability in providers:
-                        report(judgment, "")
-                    else:
-                        providers[capability] = package["id"]
-            for package in selected_packages:
-                for capability in package["capabilities"]["required"]:
-                    if capability not in providers:
-                        report(judgment, "")
-            continue
-        raise ValueError(f"unknown admitted resolution operation: {operation}")
+                if previous is not None
+                else ()
+            )
+            diagnostics.append(
+                Schema2Diagnostic(
+                    code=cast(str, reason["diagnostic"]),
+                    message=(
+                        f"Model Source failed resolution judgment {judgment['id']}"
+                    ),
+                    primary=_location(source_identity, pointer),
+                    related=related,
+                )
+            )
     return diagnostics
 
 
@@ -876,36 +910,32 @@ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
         jsonschema.Draft202012Validator(source_schema).iter_errors(source),
         key=lambda item: tuple(str(part) for part in item.absolute_path),
     )
-    static_diagnostics = [
+    structural_diagnostics = [
         diagnostic
         for error in errors
         for diagnostic in _schema_error_diagnostics(error, source_identity, ldb)
     ]
-    static_diagnostics.extend(_model_check_diagnostics(source, source_identity, ldb))
-    static_diagnostics.extend(
-        _resolution_diagnostics(
-            source,
-            source_identity,
-            kernel,
-            ldb,
-            stage="static",
+    structural_diagnostics.extend(
+        _model_check_diagnostics(source, source_identity, ldb)
+    )
+    resolution_contract = cast(
+        dict[str, Any],
+        cast(dict[str, Any], kernel["meta_format"])["resolution_judgment"],
+    )
+    for stage in cast(list[str], resolution_contract["stage_order"]):
+        diagnostics = list(structural_diagnostics) if stage == "static" else []
+        diagnostics.extend(
+            _resolution_diagnostics(
+                source,
+                source_identity,
+                kernel,
+                ldb,
+                stage=stage,
+            )
         )
-    )
-    refusal = _bounded_refusal(static_diagnostics, ldb)
-    if refusal is not None:
-        return refusal
-    refusal = _bounded_refusal(
-        _resolution_diagnostics(
-            source,
-            source_identity,
-            kernel,
-            ldb,
-            stage="resolution",
-        ),
-        ldb,
-    )
-    if refusal is not None:
-        return refusal
+        refusal = _bounded_refusal(diagnostics, ldb)
+        if refusal is not None:
+            return refusal
     try:
         _resolved_source_symbols(source, ldb)
     except (KeyError, TypeError, ValueError) as err:
@@ -976,14 +1006,17 @@ def _identified_artifact(
     payload: dict[str, JsonValue],
 ) -> dict[str, JsonValue]:
     contract = _artifact_contract(language_bundle, artifact_kind)
-    body: dict[str, JsonValue] = {
-        "artifact_kind": artifact_kind,
-        "artifact_version": "2.0.0",
-        "wire_schema_identity": _wire_schema_identity_for_kind(
-            language_bundle, artifact_kind
-        ),
-        **payload,
-    }
+    body = cast(
+        dict[str, JsonValue],
+        {
+            "artifact_kind": artifact_kind,
+            "artifact_version": "2.0.0",
+            "wire_schema_identity": _wire_schema_identity_for_kind(
+                language_bundle, artifact_kind
+            ),
+            **payload,
+        },
+    )
     excluded = set(cast(list[str], contract["identity_excluded_members"]))
     identity_body = {key: value for key, value in body.items() if key not in excluded}
     artifact = {
@@ -1222,6 +1255,16 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
             raise ValueError(f"package semantic closure is missing {authority_path}")
         return cast(list[Any], matches[0])
 
+    def runtime_semantic_closure(
+        package: dict[str, Any],
+    ) -> list[dict[str, JsonValue]]:
+        runtime_paths = set(cast(list[str], package["runtime_semantic_paths"]))
+        return [
+            cast(dict[str, JsonValue], entry)
+            for entry in cast(list[dict[str, Any]], package["semantic_closure"])
+            if entry["authority_path"] in runtime_paths
+        ]
+
     providers: dict[str, str] = {}
     for package in selected_packages:
         for capability in package["capabilities"]["provided"]:
@@ -1315,53 +1358,55 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
         for exported_type in package["exports"]["types"]
     ]
     selected_types.sort(key=lambda item: cast(str, item["id"]))
-    body: dict[str, JsonValue] = {
-        "resolution_profile": cast(JsonValue, profile),
-        "root_requirements": cast(JsonValue, requirements),
-        "packages": [
-            {
-                "id": package["id"],
-                "version": package["version"],
-                "content_identity": package["content_identity"],
-                "semantic_identity": package["semantic_identity"],
-            }
-            for package in selected_packages
-        ],
-        "package_semantic_closures": [
-            {
-                "package": package["id"],
-                "semantic_identity": package["semantic_identity"],
-                "definitions": package["semantic_closure"],
-            }
-            for package in selected_packages
-        ],
-        "dependency_edges": cast(JsonValue, dependency_edges),
-        "capability_bindings": [
-            {"capability": capability, "provider_package": providers[capability]}
-            for capability in sorted(providers)
-        ],
-        "types": cast(JsonValue, selected_types),
-        "components": cast(JsonValue, exported("components")),
-        "conversions": cast(JsonValue, exported("conversions")),
-        "operations": cast(JsonValue, exported("operations")),
-        "numeric_profiles": cast(
-            JsonValue, [numeric_definitions[name] for name in numeric_profiles]
-        ),
-        "runtime_profiles": cast(
-            JsonValue, [runtime_definitions[name] for name in runtime_profiles]
-        ),
-        "diagnostics": selected_diagnostics,
-        "diagnostic_reasons": cast(JsonValue, selected_reasons),
-        "language_rules": sorted(
-            {
-                rule
+    body = cast(
+        dict[str, JsonValue],
+        {
+            "resolution_profile": cast(JsonValue, profile),
+            "root_requirements": cast(JsonValue, requirements),
+            "packages": [
+                {
+                    "id": package["id"],
+                    "version": package["version"],
+                    "content_identity": package["content_identity"],
+                    "semantic_identity": package["semantic_identity"],
+                }
                 for package in selected_packages
-                for rule in package["exports"]["language_rules"]
-            }
-        ),
-    }
-    semantic_projection = {
-        **body,
+            ],
+            "package_semantic_closures": [
+                {
+                    "package": package["id"],
+                    "semantic_identity": package["semantic_identity"],
+                    "definitions": runtime_semantic_closure(package),
+                }
+                for package in selected_packages
+            ],
+            "dependency_edges": cast(JsonValue, dependency_edges),
+            "capability_bindings": [
+                {"capability": capability, "provider_package": providers[capability]}
+                for capability in sorted(providers)
+            ],
+            "types": cast(JsonValue, selected_types),
+            "components": cast(JsonValue, exported("components")),
+            "conversions": cast(JsonValue, exported("conversions")),
+            "operations": cast(JsonValue, exported("operations")),
+            "numeric_profiles": cast(
+                JsonValue, [numeric_definitions[name] for name in numeric_profiles]
+            ),
+            "runtime_profiles": cast(
+                JsonValue, [runtime_definitions[name] for name in runtime_profiles]
+            ),
+            "diagnostics": selected_diagnostics,
+            "diagnostic_reasons": cast(JsonValue, selected_reasons),
+            "language_rules": sorted(
+                {
+                    rule
+                    for package in selected_packages
+                    for rule in package["exports"]["language_rules"]
+                }
+            ),
+        },
+    )
+    semantic_projection: dict[str, JsonValue] = {
         "packages": [
             {
                 "id": package["id"],
@@ -1370,6 +1415,14 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
             }
             for package in selected_packages
         ],
+        "package_semantic_closures": cast(JsonValue, body["package_semantic_closures"]),
+        "capability_bindings": cast(JsonValue, body["capability_bindings"]),
+        "types": cast(JsonValue, body["types"]),
+        "components": cast(JsonValue, body["components"]),
+        "conversions": cast(JsonValue, body["conversions"]),
+        "operations": cast(JsonValue, body["operations"]),
+        "numeric_profiles": cast(JsonValue, body["numeric_profiles"]),
+        "runtime_profiles": cast(JsonValue, body["runtime_profiles"]),
     }
     body["selected_semantics"] = cast(JsonValue, semantic_projection)
     body["semantic_identity"] = content_identity(
@@ -1914,28 +1967,114 @@ def _store_anchor_path(descriptor_identity: str, invocation_key: str) -> Path:
     return _store_root() / "anchors" / descriptor_key / f"{invocation_key}.json"
 
 
-def _write_anchor_exclusive(path: Path, artifact: dict[str, JsonValue]) -> None:
-    data = canonical_bytes(cast(JsonValue, artifact))
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    try:
-        descriptor = os.open(path, flags, 0o444)
-    except OSError as err:
+def _store_lock_path(descriptor_identity: str, invocation_key: str) -> Path:
+    if not descriptor_identity.startswith("sha256:"):
+        raise ValueError("descriptor identity is not content addressed")
+    descriptor_key = descriptor_identity.removeprefix("sha256:")
+    return _store_root() / "locks" / descriptor_key / f"{invocation_key}.lock"
+
+
+def _anchor_authentication_key() -> bytes:
+    encoded = os.environ.get(_ANCHOR_KEY_ENV)
+    if (
+        encoded is None
+        or len(encoded) != 64
+        or encoded.lower() != encoded
+        or any(character not in "0123456789abcdef" for character in encoded)
+    ):
         raise RuntimeError(
-            "publication anchor already exists or is unwritable"
-        ) from err
+            f"{_ANCHOR_KEY_ENV} must contain exactly 64 lowercase hexadecimal digits"
+        )
+    return bytes.fromhex(encoded)
+
+
+def _authenticated_anchor(
+    index: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    authentication = hmac.new(
+        _anchor_authentication_key(),
+        canonical_bytes(cast(JsonValue, index)),
+        hashlib.sha256,
+    ).hexdigest()
+    return {
+        "anchor_kind": "authenticated-publication-index-v1",
+        "algorithm": "hmac-sha256",
+        "publication_index": cast(JsonValue, index),
+        "authentication": authentication,
+    }
+
+
+def _verified_anchor(path: Path) -> dict[str, Any]:
+    envelope = _read_canonical_artifact(path)
+    if set(envelope) != {
+        "anchor_kind",
+        "algorithm",
+        "publication_index",
+        "authentication",
+    }:
+        raise RuntimeError("committed publication anchor envelope is malformed")
+    index = envelope.get("publication_index")
+    authentication = envelope.get("authentication")
+    if (
+        envelope.get("anchor_kind") != "authenticated-publication-index-v1"
+        or envelope.get("algorithm") != "hmac-sha256"
+        or not isinstance(index, dict)
+        or not isinstance(authentication, str)
+    ):
+        raise RuntimeError("committed publication anchor envelope is malformed")
+    expected = hmac.new(
+        _anchor_authentication_key(),
+        canonical_bytes(cast(JsonValue, index)),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(authentication, expected):
+        raise RuntimeError("committed publication anchor authentication is invalid")
+    return index
+
+
+def _write_anchor_exclusive(
+    path: Path,
+    artifact: dict[str, JsonValue],
+    *,
+    before_commit: bool = False,
+) -> None:
+    data = canonical_bytes(cast(JsonValue, _authenticated_anchor(artifact)))
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
+    temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-    except Exception:
+            os.fchmod(stream.fileno(), 0o444)
+        if before_commit:
+            raise RuntimeError("injected publication fault before anchor commit")
         try:
-            path.unlink()
-        finally:
-            _fsync_directory(path.parent)
-        raise
-    else:
+            os.link(temporary, path)
+        except OSError as err:
+            raise RuntimeError(
+                "publication anchor already exists or is unwritable"
+            ) from err
         _fsync_directory(path.parent)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+@contextmanager
+def _invocation_lock(path: Path) -> Iterator[None]:
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise RuntimeError("invocation-key lock is not a regular file")
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 def _primary_artifact_name(
@@ -1974,8 +2113,12 @@ def _ensure_directory_chain(path: Path) -> None:
         if not candidate.exists()
     ]
     for directory in missing:
-        directory.mkdir()
-        _fsync_directory(directory.parent)
+        try:
+            directory.mkdir()
+        except FileExistsError:
+            pass
+        else:
+            _fsync_directory(directory.parent)
     _assert_directory_without_symlink(path)
 
 
@@ -2049,9 +2192,7 @@ def _recover_publication(
         or stat.S_IMODE(anchor_metadata.st_mode) & 0o222
     ):
         raise RuntimeError("committed publication anchor trust boundary is invalid")
-    anchor = _read_canonical_artifact(anchor_path)
-    if not _verify_artifact(anchor, language_bundle):
-        raise RuntimeError("committed publication anchor identity is invalid")
+    anchor = _verified_anchor(anchor_path)
     index = _read_canonical_artifact(invocation_path / "publication-index.json")
     if not _verify_artifact(index, language_bundle) or index != anchor:
         raise RuntimeError("committed publication index identity is invalid")
@@ -2190,7 +2331,35 @@ def publish_model_artifacts(
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
     publication_fault: str | None = None,
 ) -> dict[str, JsonValue]:
-    """Atomically publish one complete build set and return its receipt."""
+    """Serialize one invocation key before inspecting or changing its publication."""
+    lock_path = _store_lock_path(descriptor_identity, invocation_key)
+    _ensure_directory_chain(lock_path.parent)
+    if lock_path.is_symlink():
+        raise UsageError(
+            "argument_conflict", "Invocation-key lock must not be a symlink"
+        )
+    with _invocation_lock(lock_path):
+        return _publish_model_artifacts_locked(
+            checked,
+            source_path,
+            out,
+            invocation_key,
+            descriptor_identity,
+            artifact_set,
+            publication_fault,
+        )
+
+
+def _publish_model_artifacts_locked(
+    checked: CheckedModel,
+    source_path: str,
+    out: str,
+    invocation_key: str,
+    descriptor_identity: str,
+    artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    publication_fault: str | None = None,
+) -> dict[str, JsonValue]:
+    """Atomically publish one complete build set while its invocation lock is held."""
     out_path = _normalized_absolute_path(out)
     if os.path.realpath(source_path) == os.path.realpath(out_path):
         raise UsageError(
@@ -2343,6 +2512,7 @@ def publish_model_artifacts(
 
     stage = Path(tempfile.mkdtemp(prefix=f".{invocation_key}.", dir=descriptor_parent))
     anchored = False
+    committed_by_this_attempt = False
     try:
         for member_index, member in enumerate(artifact_set):
             name = member.logical_name
@@ -2369,8 +2539,13 @@ def publish_model_artifacts(
         if invocation_path.exists() or invocation_path.is_symlink():
             raise RuntimeError("Invocation-key publication appeared before commit")
         os.replace(stage, invocation_path)
+        committed_by_this_attempt = True
         _fsync_directory(descriptor_parent)
-        _write_anchor_exclusive(anchor_path, index)
+        _write_anchor_exclusive(
+            anchor_path,
+            index,
+            before_commit=publication_fault == "before-anchor-commit",
+        )
         anchored = True
         if publication_fault == "after-commit":
             raise RuntimeError("injected publication fault after commit")
@@ -2378,7 +2553,12 @@ def publish_model_artifacts(
     except Exception:
         if stage.exists():
             shutil.rmtree(stage)
-        if not anchored and invocation_path.exists() and not anchor_path.exists():
+        if (
+            committed_by_this_attempt
+            and not anchored
+            and invocation_path.exists()
+            and not anchor_path.exists()
+        ):
             shutil.rmtree(invocation_path)
             _fsync_directory(invocation_path.parent)
         for directory in reversed(created_directories):

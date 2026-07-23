@@ -169,9 +169,14 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             entry["definitions"] = deepcopy(
                 _exact_path(language_bundle, entry["authority_path"])
             )
+        runtime_paths = set(package["runtime_semantic_paths"])
         package["semantic_identity"] = _reference_content_identity(
             "domain-package-semantic-closure-v2",
-            package["semantic_closure"],
+            [
+                entry
+                for entry in package["semantic_closure"]
+                if entry["authority_path"] in runtime_paths
+            ],
         )
         package["content_identity"] = _reference_content_identity(
             "domain-package-release-v2",
@@ -263,7 +268,7 @@ def _reference_check_source(
         assert len(source_contract_reasons) == 1
         return (source_contract_reasons[0]["diagnostic"],)
 
-    diagnostics = []
+    diagnostics_by_stage: dict[str, list[str]] = {}
     for check in language["model_checks"]:
         reason = reasons[check["reason"]]
         scopes = (
@@ -274,9 +279,9 @@ def _reference_check_source(
         for scope in scopes:
             values = _reference_select(scope, check["selector"])
             if _reference_reason_matches(language_bundle, reason, values):
-                diagnostics.append(reason["diagnostic"])
-    if diagnostics:
-        return tuple(dict.fromkeys(diagnostics))
+                diagnostics_by_stage.setdefault(reason["stage"], []).append(
+                    reason["diagnostic"]
+                )
 
     lowering = _reference_lowering(language)
     profile = next(
@@ -285,124 +290,156 @@ def _reference_check_source(
         if item["id"] == lowering["resolution_profile"]
     )
     requirements = source[profile["requirements_member"]]
-    requirement_keys = [
+    modules = source[profile["modules_member"]]
+    packages = language["packages"]
+
+    def row(**values: str) -> dict[str, dict[str, str]]:
+        return {"values": values}
+
+    requirement_keys = {
         (
             item[profile["requirement_package_member"]],
             item[profile["requirement_version_member"]],
         )
         for item in requirements
+    }
+    selected = [
+        package
+        for package in packages
+        if (package["id"], package["version"]) in requirement_keys
     ]
-    available = {(item["id"], item["version"]): item for item in language["packages"]}
-    selected = [available[key] for key in requirement_keys if key in available]
-    modules = source[profile["modules_member"]]
-    resolution_diagnostics: list[str] = []
-    for judgment in profile["judgment_chain"]:
-        reason = reasons[judgment["reason"]]
-        operation = judgment["operation"]
-        failed = False
-        if operation == "select-exact-packages":
-            failed = any(key not in available for key in requirement_keys)
-        elif operation == "close-required-dependencies":
-            failed = any(
-                len([item for item in language["packages"] if item["id"] == dependency])
-                != 1
-                for package in selected
-                for dependency in package["dependencies"]["required"]
+    model_id_value: Any = source
+    for part in profile["manifest_id_path"].split("."):
+        model_id_value = model_id_value[part]
+    model_id = cast(str, model_id_value)
+    entry_module_value: Any = source
+    for part in profile["manifest_entry_module_path"].split("."):
+        entry_module_value = entry_module_value[part]
+    entry_module = cast(str, entry_module_value)
+    relations = {
+        "requirements": [
+            row(
+                package=item[profile["requirement_package_member"]],
+                version=item[profile["requirement_version_member"]],
             )
-        elif operation == "require-single-package-version":
-            versions: dict[str, set[str]] = {}
-            for package_id, version in requirement_keys:
-                versions.setdefault(package_id, set()).add(version)
-            failed = any(len(items) != 1 for items in versions.values())
-        elif operation == "require-unique-module-ids":
-            ids = [item[profile["module_id_member"]] for item in modules]
-            failed = len(ids) != len(set(ids))
-        elif operation == "require-unique-import-aliases":
-            failed = any(
-                len(aliases) != len(set(aliases))
-                for aliases in (
-                    [
-                        item[profile["import_alias_member"]]
-                        for item in module[profile["imports_member"]]
+            for item in requirements
+        ],
+        "packages": [
+            row(package=package["id"], version=package["version"])
+            for package in packages
+        ],
+        "modules": [
+            row(module=module[profile["module_id_member"]]) for module in modules
+        ],
+        "imports": [
+            row(
+                module=module[profile["module_id_member"]],
+                alias=item[profile["import_alias_member"]],
+                package=item[profile["import_package_member"]],
+                version=item[profile["import_version_member"]],
+                import_symbol=item[profile["import_symbol_member"]],
+            )
+            for module in modules
+            for item in module[profile["imports_member"]]
+        ],
+        "symbols": [
+            row(
+                model=model_id,
+                module=module[profile["module_id_member"]],
+                symbol=symbol[profile["symbol_name_member"]],
+                type_alias=symbol[profile["symbol_type_member"]],
+            )
+            for module in modules
+            for symbol in module[profile["symbols_member"]]
+        ],
+        "exported_types": [
+            row(
+                package=package["id"],
+                version=package["version"],
+                symbol=exported["id"],
+            )
+            for package in packages
+            for exported in package["exports"]["types"]
+        ],
+        "manifest_entry": [row(module=entry_module)],
+        "selected_dependencies": [
+            row(owner=package["id"], dependency=dependency)
+            for package in selected
+            for dependency in package["dependencies"]["required"]
+        ],
+        "required_capabilities": [
+            row(package=package["id"], capability=capability)
+            for package in selected
+            for capability in package["capabilities"]["required"]
+        ],
+        "provided_capabilities": [
+            row(package=package["id"], capability=capability)
+            for package in selected
+            for capability in package["capabilities"]["provided"]
+        ],
+    }
+
+    def matches(
+        subject: dict[str, Any],
+        target: dict[str, Any],
+        fields: list[dict[str, str]],
+    ) -> bool:
+        return all(
+            subject["values"][field["subject"]] == target["values"][field["target"]]
+            for field in fields
+        )
+
+    def law_fails(law: dict[str, Any]) -> bool:
+        operator = law["operator"]
+        if operator == "require-match":
+            for subject in relations[law["subject_relation"]]:
+                guard = law.get("guard")
+                if guard is not None:
+                    guarded = [
+                        target
+                        for target in relations[guard["target_relation"]]
+                        if matches(subject, target, guard["match"])
                     ]
-                    for module in modules
-                )
-            )
-        elif operation == "bind-import-requirements":
-            required = set(requirement_keys)
-            failed = any(
-                (
-                    item[profile["import_package_member"]],
-                    item[profile["import_version_member"]],
-                )
-                not in required
-                for module in modules
-                for item in module[profile["imports_member"]]
-            )
-        elif operation == "bind-exported-types":
-            failed = any(
-                key in available
-                and item[profile["import_symbol_member"]]
-                not in {value["id"] for value in available[key]["exports"]["types"]}
-                for module in modules
-                for item in module[profile["imports_member"]]
-                for key in [
-                    (
-                        item[profile["import_package_member"]],
-                        item[profile["import_version_member"]],
-                    )
+                    if guard["cardinality"] == "exactly-one" and len(guarded) != 1:
+                        continue
+                targets = [
+                    target
+                    for target in relations[law["target_relation"]]
+                    if matches(subject, target, law["match"])
                 ]
-            )
-        elif operation == "bind-symbol-aliases":
-            failed = any(
-                symbol[profile["symbol_type_member"]]
-                not in {
-                    item[profile["import_alias_member"]]
-                    for item in module[profile["imports_member"]]
-                }
-                for module in modules
-                for symbol in module[profile["symbols_member"]]
-            )
-        elif operation == "require-unique-symbol-identities":
-            model_id = source
-            for part in profile["manifest_id_path"].split("."):
-                model_id = model_id[part]
-            identities = [
-                (
-                    model_id,
-                    module[profile["module_id_member"]],
-                    symbol[profile["symbol_name_member"]],
+                if law["cardinality"] == "exactly-one" and len(targets) != 1:
+                    return True
+            return False
+        if operator == "require-unique":
+            fields = [*law["scope"], *law["key"]]
+            keys = [
+                tuple(item["values"][field] for field in fields)
+                for item in relations[law["relation"]]
+            ]
+            return len(keys) != len(set(keys))
+        if operator == "require-single-value":
+            grouped: dict[tuple[str, ...], set[tuple[str, ...]]] = {}
+            for item in relations[law["relation"]]:
+                group = tuple(
+                    item["values"][field] for field in [*law["scope"], *law["group"]]
                 )
-                for module in modules
-                for symbol in module[profile["symbols_member"]]
-            ]
-            failed = len(identities) != len(set(identities))
-        elif operation == "require-entry-module":
-            entry_module = source
-            for part in profile["manifest_entry_module_path"].split("."):
-                entry_module = entry_module[part]
-            failed = entry_module not in {
-                module[profile["module_id_member"]] for module in modules
-            }
-        elif operation == "bind-capability-providers":
-            provided = [
-                capability
-                for package in selected
-                for capability in package["capabilities"]["provided"]
-            ]
-            failed = len(provided) != len(set(provided)) or any(
-                capability not in set(provided)
-                for package in selected
-                for capability in package["capabilities"]["required"]
-            )
-        else:
-            raise AssertionError(
-                f"reference consumer observed unknown resolution operation: {operation}"
-            )
-        if failed:
-            resolution_diagnostics.append(reason["diagnostic"])
-    if resolution_diagnostics:
-        return tuple(dict.fromkeys(resolution_diagnostics))
+                value = tuple(item["values"][field] for field in law["value"])
+                grouped.setdefault(group, set()).add(value)
+            return any(len(values) != 1 for values in grouped.values())
+        raise AssertionError(
+            f"reference consumer observed unknown resolution law: {operator}"
+        )
+
+    resolution_meta = kernel["meta_format"]["resolution_judgment"]
+    operations = {item["id"]: item for item in resolution_meta["operations"]}
+    for stage in resolution_meta["stage_order"]:
+        stage_diagnostics = list(diagnostics_by_stage.get(stage, []))
+        for judgment in profile["judgment_chain"]:
+            operation = operations[judgment["operation"]]
+            if operation["stage"] == stage and law_fails(operation["law"]):
+                stage_diagnostics.append(reasons[judgment["reason"]]["diagnostic"])
+        if stage_diagnostics:
+            return tuple(dict.fromkeys(stage_diagnostics))
     return CheckedModel(
         source=source,
         source_identity=_reference_content_identity(
@@ -756,7 +793,11 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
             {
                 "package": package["id"],
                 "semantic_identity": package["semantic_identity"],
-                "definitions": package["semantic_closure"],
+                "definitions": [
+                    entry
+                    for entry in package["semantic_closure"]
+                    if entry["authority_path"] in set(package["runtime_semantic_paths"])
+                ],
             }
             for package in selected_packages
         ],
@@ -785,7 +826,6 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
         ),
     }
     semantic_projection = {
-        **payload,
         "packages": [
             {
                 "id": package["id"],
@@ -794,6 +834,14 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
             }
             for package in selected_packages
         ],
+        "package_semantic_closures": payload["package_semantic_closures"],
+        "capability_bindings": payload["capability_bindings"],
+        "types": payload["types"],
+        "components": payload["components"],
+        "conversions": payload["conversions"],
+        "operations": payload["operations"],
+        "numeric_profiles": payload["numeric_profiles"],
+        "runtime_profiles": payload["runtime_profiles"],
     }
     payload["selected_semantics"] = semantic_projection
     payload["semantic_identity"] = _reference_content_identity(
@@ -1142,6 +1190,67 @@ def test_independent_lowerers_mutually_consume_byte_identical_rir(tmp_path):
             )
         }
     ).admitted
+
+
+def test_resolution_stage_order_is_authoritative_across_independent_consumers(
+    tmp_path,
+):
+    source = _source([_symbol("health", "state")])
+    source["package_requirements"][0]["version"] = "9.9.9"
+    source["modules"][0]["imports"][0]["version"] = "9.9.9"
+    source["modules"][0]["imports"].append(deepcopy(source["modules"][0]["imports"][0]))
+    path = tmp_path / "source.json"
+    _write_source(path, source)
+    kernel, language_bundle = load_authorities()
+
+    production = check_model_source(str(path))
+    reference = _reference_check_source(source, kernel, language_bundle)
+
+    assert isinstance(production, Schema2RefusalReport)
+    assert production.stage == "static"
+    assert tuple(item.code for item in production.diagnostics) == (
+        "language.name_ambiguity",
+        "language.unresolved_name",
+    )
+    assert reference == (
+        "language.name_ambiguity",
+        "language.unresolved_name",
+    )
+
+
+def test_resolution_law_fields_drive_both_independent_interpreters(tmp_path):
+    source = _source([_symbol("health", "state")])
+    second_import = deepcopy(source["modules"][0]["imports"][0])
+    second_import["alias"] = "quantity_again"
+    source["modules"][0]["imports"].append(second_import)
+    path = tmp_path / "source.json"
+    _write_source(path, source)
+    kernel, language_bundle = deepcopy(load_authorities())
+    operation = next(
+        item
+        for item in kernel["meta_format"]["resolution_judgment"]["operations"]
+        if item["id"] == "require-unique-import-aliases"
+    )
+    assert operation["law"] == {
+        "operator": "require-unique",
+        "relation": "imports",
+        "scope": ["module"],
+        "key": ["alias"],
+        "pointer_field": "alias",
+    }
+    operation["law"]["key"] = ["package"]
+
+    production = model_module._resolution_diagnostics(
+        source,
+        _reference_content_identity("model-source-package-v2", source),
+        kernel,
+        language_bundle,
+        stage="static",
+    )
+    reference = _reference_check_source(source, kernel, language_bundle)
+
+    assert tuple(item.code for item in production) == ("language.name_ambiguity",)
+    assert reference == ("language.name_ambiguity",)
 
 
 def test_resolved_admission_refuses_reidentified_rir_semantic_closure_drift(tmp_path):
