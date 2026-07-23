@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import stat
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -348,6 +349,26 @@ def test_model_check_reports_structural_members_at_the_exact_artifact_pointer(
             "language.source_contract_mismatch",
         ),
     ]
+
+
+def test_model_check_gates_resolution_when_required_top_level_members_are_missing(
+    tmp_path, run_cli
+):
+    source = tmp_path / "structurally-incomplete.json"
+    source.write_text('{"schema_version":"2.0.0"}', encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert {
+        (item["primary"]["pointer"], item["code"]) for item in error["diagnostics"]
+    } == {
+        ("/manifest", "language.source_contract_mismatch"),
+        ("/package_requirements", "language.source_contract_mismatch"),
+        ("/modules", "language.source_contract_mismatch"),
+    }
 
 
 def test_model_check_reports_source_size_at_ingress(tmp_path, run_cli):
@@ -1106,6 +1127,36 @@ def test_publication_anchor_is_authenticated_outside_the_writable_store(
     assert json.loads(stderr)["error"]["code"] == "internal_error"
 
 
+def test_publication_anchor_fsync_covers_read_only_mode(tmp_path, monkeypatch):
+    path = tmp_path / "anchor.json"
+    observed: list[tuple[str, int]] = []
+    real_fchmod = os.fchmod
+    real_fsync = os.fsync
+
+    def record_fchmod(descriptor: int, mode: int) -> None:
+        real_fchmod(descriptor, mode)
+        observed.append(("fchmod", stat.S_IMODE(os.fstat(descriptor).st_mode)))
+
+    def record_fsync(descriptor: int) -> None:
+        mode = os.fstat(descriptor).st_mode
+        if stat.S_ISREG(mode):
+            observed.append(("fsync", stat.S_IMODE(mode)))
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fchmod", record_fchmod)
+    monkeypatch.setattr(os, "fsync", record_fsync)
+
+    model_module._write_anchor_exclusive(
+        path,
+        cast(
+            dict[str, JsonValue],
+            {"content_identity": "sha256:" + "1" * 64},
+        ),
+    )
+
+    assert observed == [("fchmod", 0o444), ("fsync", 0o444)]
+
+
 def test_same_invocation_key_concurrent_writers_recover_one_committed_set(
     tmp_path, monkeypatch
 ):
@@ -1530,10 +1581,6 @@ def test_resolved_model_admission_rejects_coherently_reidentified_authority_drif
         artifacts["package-lock"]["operations"][0]["definition"]["id"] = (
             "quantity.reidentified"
         )
-        artifacts["rir-semantic-payload"]["selected_semantics"]["operations"][0][
-            "definition"
-        ]["id"] = "quantity.reidentified"
-        _reidentify(artifacts["rir-semantic-payload"], "rir-semantic-payload-v2")
 
     def mutate_diagnostic(artifacts):
         artifacts["package-lock"]["diagnostics"][0] = "language.reidentified"
@@ -1661,7 +1708,7 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
     assert {item["role"] for item in declarations} == {"lowered-by-ldb"}
 
 
-def test_rir_identity_binds_the_full_selected_runtime_semantics(tmp_path):
+def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(_model_source()), encoding="utf-8")
     checked = model_module.check_model_source(str(source))
@@ -1681,10 +1728,12 @@ def test_rir_identity_binds_the_full_selected_runtime_semantics(tmp_path):
     mutated_lock = mutated["package-lock"]
     original_rir = original["rir-semantic-payload"]
     mutated_rir = mutated["rir-semantic-payload"]
-    assert original_rir["selected_semantics"] == original_lock["selected_semantics"]
-    assert mutated_rir["selected_semantics"] == mutated_lock["selected_semantics"]
     original_selected = cast(dict[str, Any], original_rir["selected_semantics"])
     mutated_selected = cast(dict[str, Any], mutated_rir["selected_semantics"])
+    assert original_selected != original_lock["selected_semantics"]
+    assert mutated_selected != mutated_lock["selected_semantics"]
+    assert original_selected["operations"] == []
+    assert original_selected["conversions"] == []
     original_closures = cast(
         list[dict[str, Any]], original_selected["package_semantic_closures"]
     )
@@ -1705,14 +1754,8 @@ def test_rir_identity_binds_the_full_selected_runtime_semantics(tmp_path):
     assert mutated_units[0]["dimension"] == "reidentified-dimension"
     assert original_lock["content_identity"] != mutated_lock["content_identity"]
     assert original_rir["content_identity"] != mutated_rir["content_identity"]
-    assert (
-        original_rir["package_lock_semantic_identity"]
-        == original_lock["semantic_identity"]
-    )
-    assert (
-        mutated_rir["package_lock_semantic_identity"]
-        == mutated_lock["semantic_identity"]
-    )
+    assert "package_lock_semantic_identity" not in original_rir
+    assert "semantic_identity" not in original_closures[0]
 
 
 def test_compile_only_package_authority_does_not_change_rir_semantics(tmp_path):
@@ -1733,6 +1776,25 @@ def test_compile_only_package_authority_does_not_change_rir_semantics(tmp_path):
     mutated_package = candidate_ldb["language"]["packages"][0]
     assert original_package["semantic_identity"] == mutated_package["semantic_identity"]
     assert original_package["content_identity"] != mutated_package["content_identity"]
+    assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
+    assert original["package-lock"] != mutated["package-lock"]
+    assert original["resolved-model"] != mutated["resolved-model"]
+
+
+def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    original = model_module.lower_checked_model(checked)
+    candidate_ldb = deepcopy(checked.language_bundle)
+    candidate_ldb["language"]["operations"][0]["resource_bounds"]["max_steps"] += 1
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
+    candidate = replace(checked, language_bundle=candidate_ldb)
+
+    mutated = model_module.lower_checked_model(candidate)
+
     assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
     assert original["package-lock"] != mutated["package-lock"]
     assert original["resolved-model"] != mutated["resolved-model"]

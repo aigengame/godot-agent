@@ -289,95 +289,53 @@ def _reference_check_source(
         for item in language["resolution_profiles"]
         if item["id"] == lowering["resolution_profile"]
     )
-    requirements = source[profile["requirements_member"]]
-    modules = source[profile["modules_member"]]
-    packages = language["packages"]
+    relations: dict[str, list[dict[str, dict[str, str]]]] = {}
 
-    def row(**values: str) -> dict[str, dict[str, str]]:
-        return {"values": values}
+    def read_term(term: dict[str, Any], environment: dict[str, Any]) -> Any:
+        if term["root"] == "source":
+            value: Any = source
+        elif term["root"] == "language":
+            value = language
+        elif term["root"] == "binding":
+            value = environment[term["binding"]]
+        else:
+            raise AssertionError(
+                f"reference consumer observed unknown term root: {term['root']}"
+            )
+        for segment in term["path"]:
+            value = value[segment]
+        return value
 
-    requirement_keys = {
-        (
-            item[profile["requirement_package_member"]],
-            item[profile["requirement_version_member"]],
-        )
-        for item in requirements
-    }
-    selected = [
-        package
-        for package in packages
-        if (package["id"], package["version"]) in requirement_keys
-    ]
-    model_id_value: Any = source
-    for part in profile["manifest_id_path"].split("."):
-        model_id_value = model_id_value[part]
-    model_id = cast(str, model_id_value)
-    entry_module_value: Any = source
-    for part in profile["manifest_entry_module_path"].split("."):
-        entry_module_value = entry_module_value[part]
-    entry_module = cast(str, entry_module_value)
-    relations = {
-        "requirements": [
-            row(
-                package=item[profile["requirement_package_member"]],
-                version=item[profile["requirement_version_member"]],
+    for recipe in profile["relation_recipes"]:
+        environments: list[dict[str, Any]] = [{}]
+        for binding in recipe["bindings"]:
+            next_environments = []
+            for environment in environments:
+                candidates = read_term(binding["source"], environment)
+                assert isinstance(candidates, list)
+                next_environments.extend(
+                    {**environment, binding["name"]: candidate}
+                    for candidate in candidates
+                )
+            environments = next_environments
+        relation_rows = []
+        for environment in environments:
+            if any(
+                predicate["operator"] == "equal"
+                and read_term(predicate["left"], environment)
+                != read_term(predicate["right"], environment)
+                for predicate in recipe["predicates"]
+            ):
+                continue
+            relation_rows.append(
+                {
+                    "values": {
+                        field["name"]: read_term(field["term"], environment)
+                        for field in recipe["fields"]
+                    }
+                }
             )
-            for item in requirements
-        ],
-        "packages": [
-            row(package=package["id"], version=package["version"])
-            for package in packages
-        ],
-        "modules": [
-            row(module=module[profile["module_id_member"]]) for module in modules
-        ],
-        "imports": [
-            row(
-                module=module[profile["module_id_member"]],
-                alias=item[profile["import_alias_member"]],
-                package=item[profile["import_package_member"]],
-                version=item[profile["import_version_member"]],
-                import_symbol=item[profile["import_symbol_member"]],
-            )
-            for module in modules
-            for item in module[profile["imports_member"]]
-        ],
-        "symbols": [
-            row(
-                model=model_id,
-                module=module[profile["module_id_member"]],
-                symbol=symbol[profile["symbol_name_member"]],
-                type_alias=symbol[profile["symbol_type_member"]],
-            )
-            for module in modules
-            for symbol in module[profile["symbols_member"]]
-        ],
-        "exported_types": [
-            row(
-                package=package["id"],
-                version=package["version"],
-                symbol=exported["id"],
-            )
-            for package in packages
-            for exported in package["exports"]["types"]
-        ],
-        "manifest_entry": [row(module=entry_module)],
-        "selected_dependencies": [
-            row(owner=package["id"], dependency=dependency)
-            for package in selected
-            for dependency in package["dependencies"]["required"]
-        ],
-        "required_capabilities": [
-            row(package=package["id"], capability=capability)
-            for package in selected
-            for capability in package["capabilities"]["required"]
-        ],
-        "provided_capabilities": [
-            row(package=package["id"], capability=capability)
-            for package in selected
-            for capability in package["capabilities"]["provided"]
-        ],
-    }
+        relations[recipe["id"]] = relation_rows
 
     def matches(
         subject: dict[str, Any],
@@ -869,10 +827,153 @@ def _reference_rir(
         "rir-semantic-payload",
         {
             lowering["output_member"]: declarations,
-            "selected_semantics": lock["selected_semantics"],
-            "package_lock_semantic_identity": lock["semantic_identity"],
+            "selected_semantics": _reference_runtime_projection(
+                lock, declarations, lowering
+            ),
         },
     )
+
+
+def _reference_runtime_projection(
+    lock: dict[str, Any],
+    declarations: list[dict[str, Any]],
+    lowering: dict[str, Any],
+) -> dict[str, Any]:
+    profile = lowering["runtime_projection"]
+
+    def descend(value: Any, path: list[str]) -> Any:
+        if not path:
+            return value
+        return descend(value[path[0]], path[1:])
+
+    catalogs: dict[str, list[tuple[str, str | None, Any]]] = {}
+    for specification in profile["collections"]:
+        source = specification["source"]
+        rows: list[tuple[str, str | None, Any]]
+        if source["kind"] == "lock-member":
+            rows = [
+                (
+                    descend(value, source["package_path"]),
+                    None,
+                    value,
+                )
+                for value in lock[source["member"]]
+            ]
+        else:
+            rows = []
+            for closure in lock["package_semantic_closures"]:
+                entry = next(
+                    entry
+                    for entry in closure["definitions"]
+                    if entry["authority_path"] == source["authority_path"]
+                )
+                rows.extend(
+                    (
+                        closure["package"],
+                        source["authority_path"],
+                        definition,
+                    )
+                    for definition in entry["definitions"]
+                )
+        catalogs[specification["id"]] = rows
+
+    selected = {name: set() for name in catalogs}
+    for seed in profile["seeds"]:
+        for declaration in declarations:
+            package = descend(declaration, seed["declaration_package_path"])
+            for index, row in enumerate(catalogs[seed["collection"]]):
+                if row[0] != package:
+                    continue
+                if seed["operator"] == "declaration-package" or descend(
+                    row[2], seed["target_path"]
+                ) == descend(declaration, seed["declaration_path"]):
+                    selected[seed["collection"]].add(index)
+
+    previous = None
+    while previous != selected:
+        previous = {name: set(indexes) for name, indexes in selected.items()}
+        for edge in profile["edges"]:
+            for source_index in selected[edge["source_collection"]]:
+                source = catalogs[edge["source_collection"]][source_index]
+                expected = descend(source[2], edge["source_path"])
+                for target_index, target in enumerate(
+                    catalogs[edge["target_collection"]]
+                ):
+                    if edge["same_package"] and source[0] != target[0]:
+                        continue
+                    if descend(target[2], edge["target_path"]) == expected:
+                        selected[edge["target_collection"]].add(target_index)
+
+    selected_packages = {
+        catalogs[name][index][0]
+        for name, indexes in selected.items()
+        for index in indexes
+    }
+    projection: dict[str, Any] = {}
+    selected_closure_values: dict[tuple[str, str], list[Any]] = {}
+    for specification in profile["collections"]:
+        rows = [
+            row
+            for index, row in enumerate(catalogs[specification["id"]])
+            if index in selected[specification["id"]]
+        ]
+        for package, authority_path, value in rows:
+            if authority_path is not None:
+                selected_closure_values.setdefault(
+                    (package, authority_path), []
+                ).append(value)
+        member = specification["output_member"]
+        if member is None:
+            continue
+        if specification["output_shape"] == "as-is":
+            projection[member] = [row[2] for row in rows]
+        elif specification["output_shape"] == "package-definition":
+            projection[member] = [
+                {"package": row[0], "definition": row[2]} for row in rows
+            ]
+        else:
+            projection[member] = [row[2] for row in rows]
+
+    for output in profile["outputs"]:
+        source_rows = lock[output["source_member"]]
+        if output["kind"] == "selected-packages":
+            values = [
+                {member: row[member] for member in output["members"]}
+                for row in source_rows
+                if row[output["package_member"]] in selected_packages
+            ]
+        elif output["kind"] == "selected-package-rows":
+            values = [
+                row
+                for row in source_rows
+                if row[output["package_member"]] in selected_packages
+            ]
+        else:
+            values = []
+            for closure in source_rows:
+                package = closure[output["package_member"]]
+                if package not in selected_packages:
+                    continue
+                entries = []
+                for entry in closure[output["entries_member"]]:
+                    authority_path = entry[output["authority_path_member"]]
+                    definitions = selected_closure_values.get((package, authority_path))
+                    if definitions:
+                        entries.append(
+                            {
+                                output["authority_path_member"]: authority_path,
+                                output["definitions_member"]: definitions,
+                            }
+                        )
+                if entries:
+                    values.append(
+                        {
+                            output["package_member"]: package,
+                            output["entries_member"]: entries,
+                        }
+                    )
+        projection[output["output_member"]] = values
+    return projection
 
 
 def _reference_pointer(parts: list[object]) -> str:
@@ -1253,6 +1354,47 @@ def test_resolution_law_fields_drive_both_independent_interpreters(tmp_path):
     assert reference == ("language.name_ambiguity",)
 
 
+def test_resolution_relation_recipes_drive_both_independent_interpreters(tmp_path):
+    source = _source([_symbol("health", "state")])
+    second_import = deepcopy(source["modules"][0]["imports"][0])
+    second_import["alias"] = "quantity_again"
+    source["modules"][0]["imports"].append(second_import)
+    path = tmp_path / "source.json"
+    _write_source(path, source)
+    kernel, language_bundle = deepcopy(load_authorities())
+    profile = language_bundle["language"]["resolution_profiles"][0]
+    imports_recipe = next(
+        item for item in profile["relation_recipes"] if item["id"] == "imports"
+    )
+    alias_field = next(
+        item for item in imports_recipe["fields"] if item["name"] == "alias"
+    )
+    assert alias_field["term"] == {
+        "root": "binding",
+        "binding": "import",
+        "path": ["alias"],
+    }
+    alias_field["term"]["path"] = ["package"]
+
+    production = model_module._resolution_diagnostics(
+        source,
+        _reference_content_identity("model-source-package-v2", source),
+        kernel,
+        language_bundle,
+        stage="static",
+    )
+    reference = _reference_check_source(source, kernel, language_bundle)
+
+    assert tuple(item.code for item in production) == (
+        "language.name_ambiguity",
+        "language.unresolved_name",
+    )
+    assert reference == (
+        "language.name_ambiguity",
+        "language.unresolved_name",
+    )
+
+
 def test_resolved_admission_refuses_reidentified_rir_semantic_closure_drift(tmp_path):
     path = tmp_path / "source.json"
     _write_source(path, _source([_symbol("health", "state")]))
@@ -1353,6 +1495,45 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
     profile["symbol_name_member"] = "name"
     profile["symbol_type_member"] = "type_ref"
     profile["symbol_fact_member"] = "symbol"
+
+    def rewrite_relation_term(term: dict[str, Any]) -> None:
+        if term["root"] == "source":
+            source_paths = {
+                ("manifest", "id"): ["header", "model_key"],
+                ("manifest", "entry_module"): ["header", "start_module"],
+                ("package_requirements",): ["dependencies"],
+                ("modules",): ["sections"],
+            }
+            term["path"] = source_paths.get(tuple(term["path"]), term["path"])
+            return
+        if term["root"] != "binding":
+            return
+        field_renames = {
+            "requirement": {"id": "package_id", "version": "release"},
+            "module": {
+                "id": "module_key",
+                "imports": "uses",
+                "symbols": "declarations",
+            },
+            "import": {
+                "alias": "prefix",
+                "package": "package_id",
+                "version": "release",
+                "symbol": "export_name",
+            },
+            "symbol": {"symbol": "name", "type": "type_ref"},
+        }
+        renames = field_renames.get(term["binding"], {})
+        term["path"] = [renames.get(segment, segment) for segment in term["path"]]
+
+    for recipe in profile["relation_recipes"]:
+        for binding in recipe["bindings"]:
+            rewrite_relation_term(binding["source"])
+        for predicate in recipe["predicates"]:
+            rewrite_relation_term(predicate["left"])
+            rewrite_relation_term(predicate["right"])
+        for field in recipe["fields"]:
+            rewrite_relation_term(field["term"])
     lowering = next(
         item
         for item in language["model_lowerings"]
@@ -1622,13 +1803,18 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
         language_bundle=candidate_ldb,
     )
 
-    production = lower_checked_model(candidate)["rir-semantic-payload"]
+    artifacts = lower_checked_model(candidate)
+    production = artifacts["rir-semantic-payload"]
     reference = _reference_rir(candidate)
 
     assert production == reference
     selected_semantics = cast(dict[str, Any], production["selected_semantics"])
     operation_projections = cast(list[dict[str, Any]], selected_semantics["operations"])
-    assert {item["definition"]["rule"] for item in operation_projections} == {
+    assert operation_projections == []
+    lock_operations = cast(
+        list[dict[str, Any]], artifacts["package-lock"]["operations"]
+    )
+    assert {item["definition"]["rule"] for item in lock_operations} == {
         "quantity.lower.renamed"
     }
 

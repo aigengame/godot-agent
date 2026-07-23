@@ -36,7 +36,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:678f0471d93f3eb32cdeb6bc5e8f679fb3e6e60f18853752501657eef413bfaf"
+    "sha256:9ef8a1686dbe132f8c176c36d8280274a78ad9691e0c12b1b0ab8537354c33af"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1189,6 +1189,7 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
             "result",
             "stage_order",
             "relation_schemas",
+            "relation_recipe_format",
             "law_format",
         }
         or contract.get("closed") is not True
@@ -1198,6 +1199,7 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
     relations = contract.get("relation_schemas")
     operations = contract.get("operations")
     law_format = contract.get("law_format")
+    recipe_format = contract.get("relation_recipe_format")
     if (
         not isinstance(stages, list)
         or not stages
@@ -1211,6 +1213,19 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
         or set(law_format) != {"closed", "operators"}
         or law_format.get("closed") is not True
         or not isinstance(law_format.get("operators"), list)
+        or not isinstance(recipe_format, dict)
+        or set(recipe_format)
+        != {
+            "closed",
+            "binding_source_roots",
+            "term_roots",
+            "predicate_operators",
+        }
+        or recipe_format.get("closed") is not True
+        or recipe_format.get("binding_source_roots")
+        != ["source", "language", "binding"]
+        or recipe_format.get("term_roots") != ["source", "language", "binding"]
+        or recipe_format.get("predicate_operators") != ["equal"]
     ):
         return False
     relation_fields: dict[str, set[str]] = {}
@@ -1261,17 +1276,7 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
     for operation in operations:
         if (
             not isinstance(operation, dict)
-            or set(operation)
-            != {
-                "effects",
-                "id",
-                "input",
-                "refusals",
-                "resources",
-                "result",
-                "stage",
-                "law",
-            }
+            or set(operation) != {"id", "stage", "law"}
             or not isinstance(operation.get("id"), str)
             or operation["id"] in operation_ids
             or operation.get("stage") not in stages
@@ -1374,6 +1379,366 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
         if operation["stage"] == stage
     ]
     return flattened == [operation["id"] for operation in operations]
+
+
+def _relation_recipes_are_closed(
+    profile: dict[str, Any],
+    resolution_contract: dict[str, Any],
+) -> bool:
+    recipes = profile.get("relation_recipes")
+    schemas = resolution_contract.get("relation_schemas")
+    recipe_format = resolution_contract.get("relation_recipe_format")
+    if (
+        not isinstance(recipes, list)
+        or not isinstance(schemas, list)
+        or not isinstance(recipe_format, dict)
+        or [item.get("id") for item in recipes if isinstance(item, dict)]
+        != [item.get("id") for item in schemas if isinstance(item, dict)]
+    ):
+        return False
+    allowed_sources = set(
+        cast(list[str], recipe_format.get("binding_source_roots", []))
+    )
+    allowed_terms = set(cast(list[str], recipe_format.get("term_roots", [])))
+    allowed_predicates = set(
+        cast(list[str], recipe_format.get("predicate_operators", []))
+    )
+
+    def term_is_closed(
+        term: Any,
+        bindings: set[str],
+        *,
+        allowed_roots: set[str],
+    ) -> bool:
+        if not isinstance(term, dict) or not isinstance(term.get("root"), str):
+            return False
+        root = term["root"]
+        expected = (
+            {"root", "path", "binding"}
+            if root == "binding"
+            else {
+                "root",
+                "path",
+            }
+        )
+        return (
+            root in allowed_roots
+            and set(term) == expected
+            and isinstance(term.get("path"), list)
+            and all(isinstance(segment, str) and segment for segment in term["path"])
+            and (
+                root != "binding"
+                or (
+                    isinstance(term.get("binding"), str) and term["binding"] in bindings
+                )
+            )
+        )
+
+    for recipe, schema in zip(recipes, schemas, strict=True):
+        if (
+            not isinstance(recipe, dict)
+            or not isinstance(schema, dict)
+            or set(recipe) != {"id", "bindings", "predicates", "fields"}
+            or recipe.get("id") != schema.get("id")
+            or not isinstance(recipe.get("bindings"), list)
+            or not isinstance(recipe.get("predicates"), list)
+            or not isinstance(recipe.get("fields"), list)
+        ):
+            return False
+        bindings: set[str] = set()
+        for binding in recipe["bindings"]:
+            if (
+                not isinstance(binding, dict)
+                or set(binding) != {"name", "source"}
+                or not isinstance(binding.get("name"), str)
+                or not binding["name"]
+                or binding["name"] in bindings
+                or not term_is_closed(
+                    binding.get("source"),
+                    bindings,
+                    allowed_roots=allowed_sources,
+                )
+            ):
+                return False
+            bindings.add(binding["name"])
+        for predicate in recipe["predicates"]:
+            if (
+                not isinstance(predicate, dict)
+                or set(predicate) != {"operator", "left", "right"}
+                or predicate.get("operator") not in allowed_predicates
+                or not term_is_closed(
+                    predicate.get("left"),
+                    bindings,
+                    allowed_roots=allowed_terms,
+                )
+                or not term_is_closed(
+                    predicate.get("right"),
+                    bindings,
+                    allowed_roots=allowed_terms,
+                )
+            ):
+                return False
+        schema_fields = schema.get("fields")
+        pointer_fields = schema.get("pointer_fields")
+        if (
+            not isinstance(schema_fields, list)
+            or not isinstance(pointer_fields, list)
+            or [
+                field.get("name")
+                for field in recipe["fields"]
+                if isinstance(field, dict)
+            ]
+            != schema_fields
+            or any(
+                not isinstance(field, dict)
+                or set(field) != {"name", "term", "pointer"}
+                or field.get("pointer") != (field.get("name") in pointer_fields)
+                or not term_is_closed(
+                    field.get("term"),
+                    bindings,
+                    allowed_roots=allowed_terms,
+                )
+                for field in recipe["fields"]
+            )
+        ):
+            return False
+    return True
+
+
+def _runtime_projection_is_closed(
+    profile: Any,
+    contract: Any,
+    language_bundle: dict[str, Any],
+) -> bool:
+    if (
+        not isinstance(profile, dict)
+        or set(profile) != {"outputs", "collections", "seeds", "edges"}
+        or not isinstance(contract, dict)
+        or set(contract)
+        != {
+            "closed",
+            "collection_source_kinds",
+            "output_shapes",
+            "seed_operators",
+            "edge_operators",
+            "output_kinds",
+        }
+        or contract.get("closed") is not True
+    ):
+        return False
+    source_kinds = set(cast(list[Any], contract.get("collection_source_kinds", [])))
+    output_shapes = set(cast(list[Any], contract.get("output_shapes", [])))
+    seed_operators = set(cast(list[Any], contract.get("seed_operators", [])))
+    edge_operators = set(cast(list[Any], contract.get("edge_operators", [])))
+    output_kinds = set(cast(list[Any], contract.get("output_kinds", [])))
+    if (
+        source_kinds != {"lock-member", "semantic-closure"}
+        or output_shapes
+        != {"as-is", "package-definition", "definition", "closure-only"}
+        or seed_operators != {"declaration-field", "declaration-package"}
+        or edge_operators != {"equal"}
+        or output_kinds
+        != {
+            "selected-packages",
+            "selected-semantic-closures",
+            "selected-package-rows",
+        }
+    ):
+        return False
+
+    def path_is_closed(path: Any, *, empty: bool = False) -> bool:
+        return (
+            isinstance(path, list)
+            and (empty or bool(path))
+            and all(isinstance(segment, str) and segment for segment in path)
+        )
+
+    outputs = profile.get("outputs")
+    collections = profile.get("collections")
+    seeds = profile.get("seeds")
+    edges = profile.get("edges")
+    if (
+        not isinstance(outputs, list)
+        or not isinstance(collections, list)
+        or not isinstance(seeds, list)
+        or not isinstance(edges, list)
+    ):
+        return False
+    output_members: list[str] = []
+    for output in outputs:
+        if not isinstance(output, dict) or output.get("kind") not in output_kinds:
+            return False
+        kind = output["kind"]
+        expected = {
+            "kind",
+            "source_member",
+            "output_member",
+            "package_member",
+        }
+        if kind == "selected-packages":
+            expected.add("members")
+        elif kind == "selected-semantic-closures":
+            expected.update(
+                {
+                    "entries_member",
+                    "authority_path_member",
+                    "definitions_member",
+                }
+            )
+        if (
+            set(output) != expected
+            or any(
+                not isinstance(output.get(member), str) or not output[member]
+                for member in expected - {"kind", "members"}
+            )
+            or (
+                "members" in output
+                and (
+                    not isinstance(output["members"], list)
+                    or not output["members"]
+                    or not all(
+                        isinstance(member, str) and member
+                        for member in output["members"]
+                    )
+                    or len(output["members"]) != len(set(output["members"]))
+                )
+            )
+        ):
+            return False
+        output_members.append(output["output_member"])
+
+    collection_ids: list[str] = []
+    authority_paths: set[str] = set()
+    for collection in collections:
+        if (
+            not isinstance(collection, dict)
+            or set(collection) != {"id", "source", "output_member", "output_shape"}
+            or not isinstance(collection.get("id"), str)
+            or not collection["id"]
+            or not isinstance(collection.get("source"), dict)
+            or collection.get("output_shape") not in output_shapes
+            or (
+                collection["output_shape"] == "closure-only"
+                and collection.get("output_member") is not None
+            )
+            or (
+                collection["output_shape"] != "closure-only"
+                and (
+                    not isinstance(collection.get("output_member"), str)
+                    or not collection["output_member"]
+                )
+            )
+        ):
+            return False
+        source = collection["source"]
+        if source.get("kind") == "lock-member":
+            if (
+                set(source) != {"kind", "member", "package_path"}
+                or not isinstance(source.get("member"), str)
+                or not source["member"]
+                or not path_is_closed(source.get("package_path"))
+            ):
+                return False
+        elif source.get("kind") == "semantic-closure":
+            if (
+                set(source) != {"kind", "authority_path"}
+                or not isinstance(source.get("authority_path"), str)
+                or not source["authority_path"]
+            ):
+                return False
+            authority_paths.add(source["authority_path"])
+        else:
+            return False
+        collection_ids.append(collection["id"])
+        if collection["output_member"] is not None:
+            output_members.append(collection["output_member"])
+    if len(collection_ids) != len(set(collection_ids)):
+        return False
+    collection_names = set(collection_ids)
+
+    for seed in seeds:
+        if not isinstance(seed, dict) or seed.get("operator") not in seed_operators:
+            return False
+        expected = {
+            "operator",
+            "collection",
+            "declaration_package_path",
+        }
+        if seed["operator"] == "declaration-field":
+            expected.update({"declaration_path", "target_path"})
+        if (
+            set(seed) != expected
+            or seed.get("collection") not in collection_names
+            or not path_is_closed(seed.get("declaration_package_path"))
+            or (
+                seed["operator"] == "declaration-field"
+                and (
+                    not path_is_closed(seed.get("declaration_path"))
+                    or not path_is_closed(seed.get("target_path"), empty=True)
+                )
+            )
+        ):
+            return False
+    for edge in edges:
+        if (
+            not isinstance(edge, dict)
+            or set(edge)
+            != {
+                "operator",
+                "source_collection",
+                "source_path",
+                "target_collection",
+                "target_path",
+                "same_package",
+            }
+            or edge.get("operator") not in edge_operators
+            or edge.get("source_collection") not in collection_names
+            or edge.get("target_collection") not in collection_names
+            or not path_is_closed(edge.get("source_path"), empty=True)
+            or not path_is_closed(edge.get("target_path"), empty=True)
+            or not isinstance(edge.get("same_package"), bool)
+        ):
+            return False
+    if len(output_members) != len(set(output_members)):
+        return False
+    language = language_bundle.get("language")
+    wire_schemas = (
+        language.get("artifact_wire_schemas") if isinstance(language, dict) else None
+    )
+    if not isinstance(wire_schemas, list):
+        return False
+    rir_schemas = [
+        item.get("schema")
+        for item in wire_schemas
+        if isinstance(item, dict)
+        and item.get("artifact_kind") == "rir-semantic-payload"
+    ]
+    if len(rir_schemas) != 1 or not isinstance(rir_schemas[0], dict):
+        return False
+    selected_schema = (
+        rir_schemas[0].get("properties", {}).get("selected_semantics")
+        if isinstance(rir_schemas[0].get("properties"), dict)
+        else None
+    )
+    required_outputs = (
+        selected_schema.get("required") if isinstance(selected_schema, dict) else None
+    )
+    packages = language.get("packages") if isinstance(language, dict) else None
+    return (
+        isinstance(required_outputs, list)
+        and set(output_members) == set(required_outputs)
+        and isinstance(packages, list)
+        and all(
+            authority_paths
+            <= {
+                entry.get("authority_path")
+                for entry in package.get("semantic_closure", [])
+                if isinstance(entry, dict)
+            }
+            for package in packages
+            if isinstance(package, dict)
+        )
+    )
 
 
 def _language_definitions_are_closed(
@@ -1479,8 +1844,10 @@ def _language_definitions_are_closed(
         and isinstance(item.get("id"), str)
         and isinstance(item.get("stage"), str)
     }
+    runtime_projection_contract = meta_format.get("runtime_projection")
     if (
         len(profiles_by_id) != len(profiles)
+        or not isinstance(resolution_contract, dict)
         or not _resolution_judgment_is_closed(resolution_contract)
         or not isinstance(operation_specs, list)
         or not operation_specs
@@ -1492,6 +1859,7 @@ def _language_definitions_are_closed(
         chain = profile.get("judgment_chain")
         if (
             not isinstance(chain, list)
+            or not _relation_recipes_are_closed(profile, resolution_contract)
             or [item.get("operation") for item in chain if isinstance(item, dict)]
             != operation_order
             or any(
@@ -1519,6 +1887,11 @@ def _language_definitions_are_closed(
             or not chain
             or not isinstance(equalities, list)
             or not all(isinstance(item, dict) for item in equalities)
+            or not _runtime_projection_is_closed(
+                lowering.get("runtime_projection"),
+                runtime_projection_contract,
+                language_bundle,
+            )
             or not isinstance(profile, dict)
             or not isinstance(initial_fields, dict)
             or profile.get("symbol_fact_member") not in initial_fields

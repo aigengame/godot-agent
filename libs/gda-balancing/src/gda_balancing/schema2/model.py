@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, cast
+from typing import Any, Iterator, TypeAlias, cast
 
 import jsonschema
 
@@ -32,6 +32,7 @@ _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
 _LOWERER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-lowerer-v1"
 _STORE_DIRECTORY_ENV = "GDA_BALANCING_STORE_DIR"
 _ANCHOR_KEY_ENV = "GDA_BALANCING_ANCHOR_KEY"
+_RelationBindings: TypeAlias = dict[str, tuple[Any, tuple[object, ...] | None]]
 
 
 def _normalized_absolute_path(value: str) -> Path:
@@ -503,227 +504,77 @@ def _resolution_relations(
     profile: dict[str, Any],
 ) -> dict[str, list[dict[str, Any]]]:
     language = _language(language_bundle)
-    modules_member = cast(str, profile["modules_member"])
-    module_id_member = cast(str, profile["module_id_member"])
-    imports_member = cast(str, profile["imports_member"])
-    symbols_member = cast(str, profile["symbols_member"])
-    alias_member = cast(str, profile["import_alias_member"])
-    package_member = cast(str, profile["import_package_member"])
-    version_member = cast(str, profile["import_version_member"])
-    import_symbol_member = cast(str, profile["import_symbol_member"])
-    source_type_member = cast(str, profile["symbol_type_member"])
-    source_symbol_member = cast(str, profile["symbol_name_member"])
-    requirements_member = cast(str, profile["requirements_member"])
-    requirement_package_member = cast(str, profile["requirement_package_member"])
-    requirement_version_member = cast(str, profile["requirement_version_member"])
-    modules = cast(list[dict[str, Any]], source[modules_member])
-    requirements = cast(list[dict[str, str]], source[requirements_member])
-    packages = cast(list[dict[str, Any]], language["packages"])
-    model_id = cast(str, _path_value(source, cast(str, profile["manifest_id_path"])))
 
-    def row(
-        values: dict[str, str], pointers: dict[str, str] | None = None
-    ) -> dict[str, Any]:
-        return {"values": values, "pointers": pointers or {}}
+    def evaluate_term(
+        term: dict[str, Any],
+        bindings: _RelationBindings,
+    ) -> tuple[Any, tuple[object, ...] | None]:
+        root = term["root"]
+        if root == "source":
+            value: Any = source
+            pointer: tuple[object, ...] | None = ()
+        elif root == "language":
+            value = language
+            pointer = None
+        elif root == "binding":
+            value, pointer = bindings[term["binding"]]
+        else:
+            raise ValueError(f"unknown admitted relation term root: {root}")
+        for segment in cast(list[str], term["path"]):
+            value = value[segment]
+            if pointer is not None:
+                pointer = (*pointer, segment)
+        return value, pointer
 
-    requirement_rows = [
-        row(
-            {
-                "package": item[requirement_package_member],
-                "version": item[requirement_version_member],
-            },
-            {
-                "package": _pointer(
-                    (requirements_member, index, requirement_package_member)
-                ),
-                "version": _pointer(
-                    (requirements_member, index, requirement_version_member)
-                ),
-            },
-        )
-        for index, item in enumerate(requirements)
-    ]
-    package_rows = [
-        row({"package": cast(str, item["id"]), "version": cast(str, item["version"])})
-        for item in packages
-    ]
-    module_rows: list[dict[str, Any]] = []
-    import_rows: list[dict[str, Any]] = []
-    symbol_rows: list[dict[str, Any]] = []
-    for module_index, module in enumerate(modules):
-        module_id = cast(str, module[module_id_member])
-        module_rows.append(
-            row(
-                {"module": module_id},
-                {"module": _pointer((modules_member, module_index, module_id_member))},
-            )
-        )
-        for import_index, item in enumerate(
-            cast(list[dict[str, str]], module[imports_member])
-        ):
-            import_rows.append(
-                row(
-                    {
-                        "module": module_id,
-                        "alias": item[alias_member],
-                        "package": item[package_member],
-                        "version": item[version_member],
-                        "import_symbol": item[import_symbol_member],
-                    },
-                    {
-                        "alias": _pointer(
-                            (
-                                modules_member,
-                                module_index,
-                                imports_member,
-                                import_index,
-                                alias_member,
-                            )
-                        ),
-                        "package": _pointer(
-                            (
-                                modules_member,
-                                module_index,
-                                imports_member,
-                                import_index,
-                                package_member,
-                            )
-                        ),
-                        "version": _pointer(
-                            (
-                                modules_member,
-                                module_index,
-                                imports_member,
-                                import_index,
-                                version_member,
-                            )
-                        ),
-                        "import_symbol": _pointer(
-                            (
-                                modules_member,
-                                module_index,
-                                imports_member,
-                                import_index,
-                                import_symbol_member,
-                            )
-                        ),
-                    },
-                )
-            )
-        for symbol_index, symbol in enumerate(
-            cast(list[dict[str, Any]], module[symbols_member])
-        ):
-            symbol_rows.append(
-                row(
-                    {
-                        "model": model_id,
-                        "module": module_id,
-                        "symbol": cast(str, symbol[source_symbol_member]),
-                        "type_alias": cast(str, symbol[source_type_member]),
-                    },
-                    {
-                        "symbol": _pointer(
-                            (
-                                modules_member,
-                                module_index,
-                                symbols_member,
-                                symbol_index,
-                                source_symbol_member,
-                            )
-                        ),
-                        "type_alias": _pointer(
-                            (
-                                modules_member,
-                                module_index,
-                                symbols_member,
-                                symbol_index,
-                                source_type_member,
-                            )
-                        ),
-                    },
-                )
-            )
-    exported_type_rows = [
-        row(
-            {
-                "package": cast(str, package["id"]),
-                "version": cast(str, package["version"]),
-                "symbol": cast(str, exported["id"]),
-            }
-        )
-        for package in packages
-        for exported in cast(list[dict[str, Any]], package["exports"]["types"])
-    ]
-    requirement_keys = {
-        (
-            item[requirement_package_member],
-            item[requirement_version_member],
-        )
-        for item in requirements
-    }
-    selected_packages = [
-        package
-        for package in packages
-        if (package["id"], package["version"]) in requirement_keys
-    ]
-    dependency_rows = [
-        row(
-            {
-                "owner": cast(str, package["id"]),
-                "dependency": cast(str, dependency),
-            }
-        )
-        for package in selected_packages
-        for dependency in cast(list[str], package["dependencies"]["required"])
-    ]
-    required_capability_rows = [
-        row(
-            {
-                "package": cast(str, package["id"]),
-                "capability": cast(str, capability),
-            }
-        )
-        for package in selected_packages
-        for capability in cast(list[str], package["capabilities"]["required"])
-    ]
-    provided_capability_rows = [
-        row(
-            {
-                "package": cast(str, package["id"]),
-                "capability": cast(str, capability),
-            }
-        )
-        for package in selected_packages
-        for capability in cast(list[str], package["capabilities"]["provided"])
-    ]
-    return {
-        "requirements": requirement_rows,
-        "packages": package_rows,
-        "modules": module_rows,
-        "imports": import_rows,
-        "symbols": symbol_rows,
-        "exported_types": exported_type_rows,
-        "manifest_entry": [
-            row(
-                {
-                    "module": cast(
-                        str,
-                        _path_value(
-                            source,
-                            cast(str, profile["manifest_entry_module_path"]),
-                        ),
+    relations: dict[str, list[dict[str, Any]]] = {}
+    for recipe in cast(list[dict[str, Any]], profile["relation_recipes"]):
+        environments: list[_RelationBindings] = [{}]
+        for binding in cast(list[dict[str, Any]], recipe["bindings"]):
+            expanded: list[_RelationBindings] = []
+            for environment in environments:
+                values, pointer = evaluate_term(binding["source"], environment)
+                if not isinstance(values, list):
+                    raise ValueError("admitted relation binding source is not a list")
+                for index, value in enumerate(values):
+                    expanded.append(
+                        {
+                            **environment,
+                            binding["name"]: (
+                                value,
+                                (*pointer, index) if pointer is not None else None,
+                            ),
+                        }
                     )
-                },
-                {
-                    "module": "/"
-                    + cast(str, profile["manifest_entry_module_path"]).replace(".", "/")
-                },
-            )
-        ],
-        "selected_dependencies": dependency_rows,
-        "required_capabilities": required_capability_rows,
-        "provided_capabilities": provided_capability_rows,
-    }
+            environments = expanded
+        rows: list[dict[str, Any]] = []
+        for environment in environments:
+            if any(
+                predicate["operator"] == "equal"
+                and canonical_bytes(
+                    cast(JsonValue, evaluate_term(predicate["left"], environment)[0])
+                )
+                != canonical_bytes(
+                    cast(JsonValue, evaluate_term(predicate["right"], environment)[0])
+                )
+                for predicate in cast(list[dict[str, Any]], recipe["predicates"])
+            ):
+                continue
+            values: dict[str, str] = {}
+            pointers: dict[str, str] = {}
+            for field in cast(list[dict[str, Any]], recipe["fields"]):
+                value, pointer = evaluate_term(field["term"], environment)
+                if not isinstance(value, str):
+                    raise ValueError("admitted relation field did not produce a string")
+                values[field["name"]] = value
+                if field["pointer"]:
+                    if pointer is None:
+                        raise ValueError(
+                            "admitted relation pointer has no source location"
+                        )
+                    pointers[field["name"]] = _pointer(pointer)
+            rows.append({"values": values, "pointers": pointers})
+        relations[recipe["id"]] = rows
+    return relations
 
 
 def _law_matches(
@@ -915,24 +766,29 @@ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
         for error in errors
         for diagnostic in _schema_error_diagnostics(error, source_identity, ldb)
     ]
-    structural_diagnostics.extend(
-        _model_check_diagnostics(source, source_identity, ldb)
-    )
+    static_diagnostics = [
+        *structural_diagnostics,
+        *_model_check_diagnostics(source, source_identity, ldb),
+    ]
     resolution_contract = cast(
         dict[str, Any],
         cast(dict[str, Any], kernel["meta_format"])["resolution_judgment"],
     )
     for stage in cast(list[str], resolution_contract["stage_order"]):
-        diagnostics = list(structural_diagnostics) if stage == "static" else []
-        diagnostics.extend(
-            _resolution_diagnostics(
-                source,
-                source_identity,
-                kernel,
-                ldb,
-                stage=stage,
+        diagnostics = list(static_diagnostics) if stage == "static" else []
+        try:
+            diagnostics.extend(
+                _resolution_diagnostics(
+                    source,
+                    source_identity,
+                    kernel,
+                    ldb,
+                    stage=stage,
+                )
             )
-        )
+        except (KeyError, TypeError, ValueError):
+            if not structural_diagnostics:
+                raise
         refusal = _bounded_refusal(diagnostics, ldb)
         if refusal is not None:
             return refusal
@@ -1432,6 +1288,232 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
     return _identified_artifact(checked.language_bundle, "package-lock", body)
 
 
+def _runtime_projection(
+    lock: dict[str, Any],
+    declarations: list[dict[str, Any]],
+    lowering: dict[str, Any],
+) -> dict[str, Any]:
+    """Project only declaration-reachable runtime semantics from a Package Lock."""
+    profile = cast(dict[str, Any], lowering["runtime_projection"])
+
+    def path_value(root: Any, path: list[str]) -> Any:
+        value = root
+        for segment in path:
+            if not isinstance(value, dict) or segment not in value:
+                raise ValueError(
+                    "runtime projection path is outside its admitted value"
+                )
+            value = value[segment]
+        return value
+
+    catalogs: dict[str, list[dict[str, Any]]] = {}
+    for collection in cast(list[dict[str, Any]], profile["collections"]):
+        source = cast(dict[str, Any], collection["source"])
+        rows: list[dict[str, Any]] = []
+        if source["kind"] == "lock-member":
+            values = lock[source["member"]]
+            if not isinstance(values, list):
+                raise ValueError("runtime projection lock member is not a list")
+            for value in values:
+                rows.append(
+                    {
+                        "package": path_value(value, source["package_path"]),
+                        "authority_path": None,
+                        "value": value,
+                    }
+                )
+        elif source["kind"] == "semantic-closure":
+            for closure in cast(
+                list[dict[str, Any]], lock["package_semantic_closures"]
+            ):
+                entries = [
+                    entry
+                    for entry in cast(list[dict[str, Any]], closure["definitions"])
+                    if entry["authority_path"] == source["authority_path"]
+                ]
+                if len(entries) != 1:
+                    raise ValueError(
+                        "runtime projection semantic-closure source is not unique"
+                    )
+                for value in cast(list[Any], entries[0]["definitions"]):
+                    rows.append(
+                        {
+                            "package": closure["package"],
+                            "authority_path": source["authority_path"],
+                            "value": value,
+                        }
+                    )
+        else:
+            raise ValueError("unknown admitted runtime projection collection source")
+        catalogs[collection["id"]] = rows
+
+    selected: dict[str, set[int]] = {collection_id: set() for collection_id in catalogs}
+    for seed in cast(list[dict[str, Any]], profile["seeds"]):
+        collection_id = cast(str, seed["collection"])
+        catalog = catalogs[collection_id]
+        for declaration in declarations:
+            package = path_value(
+                declaration,
+                cast(list[str], seed["declaration_package_path"]),
+            )
+            if seed["operator"] == "declaration-package":
+                matches = [
+                    index
+                    for index, row in enumerate(catalog)
+                    if row["package"] == package
+                ]
+            elif seed["operator"] == "declaration-field":
+                expected = path_value(
+                    declaration, cast(list[str], seed["declaration_path"])
+                )
+                matches = [
+                    index
+                    for index, row in enumerate(catalog)
+                    if row["package"] == package
+                    and canonical_bytes(
+                        path_value(
+                            row["value"],
+                            cast(list[str], seed["target_path"]),
+                        )
+                    )
+                    == canonical_bytes(expected)
+                ]
+            else:
+                raise ValueError("unknown admitted runtime projection seed operator")
+            if not matches:
+                raise ValueError("runtime projection seed did not resolve")
+            selected[collection_id].update(matches)
+
+    changed = True
+    while changed:
+        changed = False
+        for edge in cast(list[dict[str, Any]], profile["edges"]):
+            if edge["operator"] != "equal":
+                raise ValueError("unknown admitted runtime projection edge operator")
+            source_id = cast(str, edge["source_collection"])
+            target_id = cast(str, edge["target_collection"])
+            targets = catalogs[target_id]
+            for source_index in tuple(selected[source_id]):
+                source_row = catalogs[source_id][source_index]
+                source_value = path_value(
+                    source_row["value"], cast(list[str], edge["source_path"])
+                )
+                matches = [
+                    target_index
+                    for target_index, target_row in enumerate(targets)
+                    if (
+                        not edge["same_package"]
+                        or target_row["package"] == source_row["package"]
+                    )
+                    and canonical_bytes(
+                        path_value(
+                            target_row["value"],
+                            cast(list[str], edge["target_path"]),
+                        )
+                    )
+                    == canonical_bytes(source_value)
+                ]
+                if not matches:
+                    raise ValueError("runtime projection edge did not resolve")
+                previous_count = len(selected[target_id])
+                selected[target_id].update(matches)
+                changed = changed or len(selected[target_id]) != previous_count
+
+    selected_packages = {
+        row["package"]
+        for collection_id, indexes in selected.items()
+        for index, row in enumerate(catalogs[collection_id])
+        if index in indexes
+    }
+    projection: dict[str, Any] = {}
+    closure_values: dict[tuple[str, str], list[Any]] = {}
+    for collection in cast(list[dict[str, Any]], profile["collections"]):
+        collection_id = cast(str, collection["id"])
+        rows = [
+            row
+            for index, row in enumerate(catalogs[collection_id])
+            if index in selected[collection_id]
+        ]
+        for row in rows:
+            authority_path = row["authority_path"]
+            if isinstance(authority_path, str):
+                closure_values.setdefault(
+                    (cast(str, row["package"]), authority_path), []
+                ).append(row["value"])
+        output_member = collection["output_member"]
+        if output_member is None:
+            continue
+        shape = collection["output_shape"]
+        if shape == "as-is":
+            projected_values: list[Any] = [row["value"] for row in rows]
+        elif shape == "package-definition":
+            projected_values = [
+                {
+                    "package": cast(str, row["package"]),
+                    "definition": row["value"],
+                }
+                for row in rows
+            ]
+        elif shape == "definition":
+            projected_values = [row["value"] for row in rows]
+        else:
+            raise ValueError("unknown admitted runtime projection output shape")
+        projection[cast(str, output_member)] = projected_values
+
+    for output in cast(list[dict[str, Any]], profile["outputs"]):
+        source_rows = lock[output["source_member"]]
+        if not isinstance(source_rows, list):
+            raise ValueError("runtime projection output source is not a list")
+        kind = output["kind"]
+        if kind == "selected-packages":
+            output_values: list[Any] = [
+                {
+                    member: cast(dict[str, Any], row)[member]
+                    for member in cast(list[str], output["members"])
+                }
+                for row in source_rows
+                if cast(dict[str, Any], row)[output["package_member"]]
+                in selected_packages
+            ]
+        elif kind == "selected-package-rows":
+            output_values = [
+                row
+                for row in source_rows
+                if cast(dict[str, Any], row)[output["package_member"]]
+                in selected_packages
+            ]
+        elif kind == "selected-semantic-closures":
+            output_values = []
+            for closure in cast(list[dict[str, Any]], source_rows):
+                package = cast(str, closure[output["package_member"]])
+                if package not in selected_packages:
+                    continue
+                entries = []
+                for entry in cast(
+                    list[dict[str, Any]], closure[output["entries_member"]]
+                ):
+                    authority_path = cast(str, entry[output["authority_path_member"]])
+                    definitions = closure_values.get((package, authority_path))
+                    if definitions:
+                        entries.append(
+                            {
+                                output["authority_path_member"]: authority_path,
+                                output["definitions_member"]: definitions,
+                            }
+                        )
+                if entries:
+                    output_values.append(
+                        {
+                            output["package_member"]: package,
+                            output["entries_member"]: entries,
+                        }
+                    )
+        else:
+            raise ValueError("unknown admitted runtime projection output kind")
+        projection[cast(str, output["output_member"])] = output_values
+    return projection
+
+
 def _apply_language_rule(
     language: dict[str, Any],
     *,
@@ -1645,10 +1727,17 @@ def admit_resolved_model(
         expected_lock = _package_lock(synthetic)
     except (KeyError, TypeError, ValueError, jsonschema.ValidationError):
         return ResolvedModelAdmission(False, diagnostic)
+    try:
+        expected_runtime_projection = _runtime_projection(
+            lock,
+            cast(list[dict[str, JsonValue]], declarations),
+            lowering,
+        )
+    except (KeyError, TypeError, ValueError):
+        return ResolvedModelAdmission(False, diagnostic)
     if (
         lock != expected_lock
-        or rir.get("selected_semantics") != lock.get("selected_semantics")
-        or rir.get("package_lock_semantic_identity") != lock.get("semantic_identity")
+        or rir.get("selected_semantics") != expected_runtime_projection
     ):
         return ResolvedModelAdmission(False, diagnostic)
     language = _language(ldb)
@@ -1739,8 +1828,9 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         "rir-semantic-payload",
         {
             output_member: cast(JsonValue, declarations),
-            "selected_semantics": cast(JsonValue, lock["selected_semantics"]),
-            "package_lock_semantic_identity": cast(str, lock["semantic_identity"]),
+            "selected_semantics": cast(
+                JsonValue, _runtime_projection(lock, declarations, lowering)
+            ),
         },
     )
     resolved = _identified_artifact(
@@ -2047,8 +2137,8 @@ def _write_anchor_exclusive(
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(data)
             stream.flush()
-            os.fsync(stream.fileno())
             os.fchmod(stream.fileno(), 0o444)
+            os.fsync(stream.fileno())
         if before_commit:
             raise RuntimeError("injected publication fault before anchor commit")
         try:
