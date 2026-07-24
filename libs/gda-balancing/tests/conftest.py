@@ -100,7 +100,11 @@ def invocation(doc_dir: Path, tmp_path: Path) -> Callable[..., list[str]]:
     def _build(descriptor: CommandDescriptor, *, refusing: bool = False) -> list[str]:
         fixtures = descriptor.fixtures
         content = fixtures.refusing_document if refusing else fixtures.valid_document
-        tail = list(fixtures.valid_args)
+        tail = list(
+            fixtures.refusing_args
+            if refusing and fixtures.refusing_args
+            else fixtures.valid_args
+        )
         if descriptor.artifact_set:
             token = next(sequence)
             tail.extend(

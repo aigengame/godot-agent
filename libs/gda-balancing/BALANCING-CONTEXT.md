@@ -198,6 +198,13 @@ releases never mutate an instantiated game silently. First families: RPG (CRPG/J
 Roguelike (metroidvania-like, survivors-like, deckbuilder-like) (bADR-0017).
 _Avoid_: preset, profile
 
+**Template admission profile**:
+An LDB-owned, versioned selection of Kernel-defined generic judgments that maps the exact member
+roles of a Template release and orders its semantic admission. It requires the starter to pass the
+ordinary Model Source path and executes declared negative/boundary vectors; it does not grant
+language authority to the Template (bADR-0017).
+_Avoid_: template validator callback, host companion checks, genre runtime profile
+
 **Reference fixture**:
 A paper-game source/experiment pair for a supported genre, living in the conformance suite as an
 executable consumer. In 2.x each fixture participates in one or more `Golden scenarios` and traces

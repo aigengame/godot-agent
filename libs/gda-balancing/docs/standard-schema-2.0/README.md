@@ -45,7 +45,10 @@ authenticated atomic publication. Issue #553 adds `template list|get|instantiate
 source, package dependency, defaults, compatibility, documentation, Experiment, coverage row,
 Golden scenario, and negative/boundary vectors. Every companion payload binds an LDB-projected
 wire schema and is structurally and semantically re-admitted before the release can be listed,
-retrieved, or instantiated.
+retrieved, or instantiated. The Kernel defines the closed Template-admission operations, the LDB
+selects their member-role judgment chain, every coverage row resolves capability/operation/package
+and observable identities, and the negative/boundary vectors execute through the ordinary Model
+Source checker.
 
 Instantiation publishes a newly identified editable Model Source plus an instantiation receipt.
 The source records explicit template provenance, the release remains immutable, retries are
@@ -141,8 +144,9 @@ decision introduces a new semantic root, open host extension, or cross-artifact 
 1. The bounded disposable authority mechanism has been replaced by #538's permanent Kernel/LDB,
    #539's Model-build tracer, and #553's minimal content-addressed Template release. Disposable code
    remains non-authoritative and closes no acceptance criterion by itself.
-2. Issue #554 must audit the delivered 2.0 surface against PRD #534 and the exact-head conformance
-   evidence, without treating the narrow Quantity/Template tracers as whole-Schema completion.
+2. Issue #554 must implement the limited clean-forward, semantics-preserving 1.x-to-2.x Model Source
+   migration and refuse deprecated, unsupported, or lossy constructs without partial output or a
+   compatibility runtime.
 3. A production RPG tracer must then close its required
    vertical coverage rows and public artifact path.
 4. A Roguelike cross-genre tracer follows only after those gates pass; it must reuse the same kernel,

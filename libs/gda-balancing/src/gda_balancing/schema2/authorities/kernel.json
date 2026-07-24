@@ -34,6 +34,8 @@
             {"keys": ["id"], "path": "language_bundle.language.reasons", "subject": "language.reasons"},
             {"keys": ["id"], "path": "language_bundle.language.resolution_profiles", "subject": "language.resolution_profiles"},
             {"keys": ["id"], "path": "language_bundle.language.resolution_profiles.judgment_chain", "subject": "language.resolution_profiles.judgment_chain"},
+            {"keys": ["id"], "path": "language_bundle.language.template_admission_profiles", "subject": "language.template_admission_profiles"},
+            {"keys": ["id"], "path": "language_bundle.language.template_admission_profiles.judgment_chain", "subject": "language.template_admission_profiles.judgment_chain"},
             {"keys": ["id"], "path": "language_bundle.language.rules", "subject": "language.rules"},
             {"keys": ["id"], "path": "language_bundle.language.runtime_profiles", "subject": "language.runtime_profiles"},
             {"keys": ["artifact_kind"], "path": "language_bundle.language.wire_schemas", "subject": "language.wire_schemas"},
@@ -65,6 +67,8 @@
           "correlations": [{"owner_value_member": "rule", "owners": "language_bundle.language.operations", "references_member": "vectors", "target_key_member": "id", "target_value_member": "rule", "targets": "language_bundle.vectors"}, {"equal_members": ["phase", "judgment"], "owner_key_member": "rule", "owners": "language_bundle.language.model_lowerings.rule_chain", "target_key_member": "id", "targets": "language_bundle.language.rules"}],
           "equalities": [
             {"left": "language_bundle.language.model_source_schema_versions", "mode": "set", "right": "language_bundle.language.wire_schemas.schema.properties.schema_version.const"},
+            {"left": "kernel.meta_format.template_admission.operations.id", "mode": "set", "right": "language_bundle.language.template_admission_profiles.judgment_chain.operation"},
+            {"left": "kernel.meta_format.template_admission.roles", "mode": "set", "right": "language_bundle.language.template_admission_profiles.member_roles.role"},
             {"left": "language_bundle.language.quantity.kinds", "mode": "set", "profile": {"owners": "language_bundle.language.model_lowerings", "owner_profile_member": "resolution_profile", "profiles": "language_bundle.language.resolution_profiles", "profile_key_member": "id"}, "right_template": ["language_bundle", "language", "wire_schemas", "schema", "properties", {"profile_member": "modules_member"}, "items", "properties", {"profile_member": "symbols_member"}, "items", "properties", "kind", "const"]},
             {
               "left": "language_bundle.language.quantity.numeric_policies.id",
@@ -95,6 +99,7 @@
             {"owners": "language_bundle.language.model_lowerings", "targets": {"admission_reason": "language_bundle.language.reasons.id", "initial_fact_kind": "kernel.meta_format.fact.schemas.kind", "resolution_profile": "language_bundle.language.resolution_profiles.id", "rule_chain.rule": "language_bundle.language.rules.id"}},
             {"owners": "language_bundle.language.resolution_profiles", "targets": {"model_lowering": "language_bundle.language.model_lowerings.id", "structural_reason": "language_bundle.language.reasons.id"}},
             {"owners": "language_bundle.language.resolution_profiles.judgment_chain", "targets": {"reason": "language_bundle.language.reasons.id"}},
+            {"owners": "language_bundle.language.template_admission_profiles.judgment_chain", "targets": {"operation": "kernel.meta_format.template_admission.operations.id"}},
             {"owners": "language_bundle.language.operations", "targets": {"inputs.type": "language_bundle.language.packages.exports.types.id", "numeric_policy": "language_bundle.language.quantity.numeric_policies.id", "result": "language_bundle.language.packages.exports.types.id", "rule": "language_bundle.language.rules.id", "runtime_profile": "language_bundle.language.runtime_profiles.id", "vectors": "language_bundle.vectors.id"}},
             {"owners": "language_bundle.language.runtime_profiles", "targets": {"numeric_policy": "language_bundle.language.quantity.numeric_policies.id"}},
             {
@@ -139,7 +144,7 @@
     ],
     "refusal_stages": ["ingress", "parse", "static", "resolution", "runtime", "evaluation", "migration", "approval"],
     "required_ldb_members": ["artifact_kind", "artifact_version", "schema_major", "kernel_identity", "content_identity", "language", "diagnostics", "resources", "vectors"],
-    "required_language_members": ["artifact_contracts", "artifact_wire_schemas", "capabilities", "components", "constructors", "conversions", "model_checks", "model_lowerings", "model_source_schema_versions", "operations", "packages", "quantity", "reasons", "resolution_profiles", "rules", "runtime_profiles", "wire_schemas"]
+    "required_language_members": ["artifact_contracts", "artifact_wire_schemas", "capabilities", "components", "constructors", "conversions", "model_checks", "model_lowerings", "model_source_schema_versions", "operations", "packages", "quantity", "reasons", "resolution_profiles", "rules", "runtime_profiles", "template_admission_profiles", "wire_schemas"]
   },
   "artifact_kind": "schema-major-kernel",
   "artifact_version": "2.0.0",
@@ -184,7 +189,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:f7292a80ae07b695d0caec14432352f24584c3cd405fd79b11661cfac958109a",
+  "content_identity": "sha256:dec04c51d45fc39cdcebdb29ba5b5b39e18ce76b4f4779663013017c4db59c5f",
   "diagnostics": [{"code": "kernel.identity_mismatch", "stage": "ingress"}, {"code": "kernel.binding_mismatch", "stage": "ingress"}, {"code": "kernel.member_set_mismatch", "stage": "ingress"}, {"code": "kernel.duplicate_identifier", "stage": "static"}, {"code": "kernel.unknown_operation", "stage": "static"}, {"code": "kernel.vector_mismatch", "stage": "static"}, {"code": "kernel.diagnostic_closure", "stage": "static"}, {"code": "kernel.resource_exhausted", "stage": "ingress"}],
   "meta_format": {
     "fact": {
@@ -237,6 +242,20 @@
       "lock_oracle_members": ["resolution_profile", "root_requirements", "packages", "dependency_edges", "capability_bindings", "types", "components", "conversions", "operations", "numeric_profiles", "runtime_profiles", "diagnostics", "diagnostic_reasons", "language_rules"],
       "relation_kinds": ["independent", "semantic-change", "semantic-equivalent"],
       "required_members": ["id", "category", "source_fixture", "expect"]
+    },
+    "template_admission": {
+      "closed": true,
+      "roles": ["source", "experiment", "dependencies", "defaults", "compatibility", "documentation", "coverage", "golden", "negative-vector", "boundary-vector"],
+      "operations": [
+        {"effects": [], "id": "require-exact-member-roles", "input": {"fact_kind": "template-release"}, "law": {"operator": "require-exact-member-roles"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_members"], "result": {"fact_kind": "template-release"}},
+        {"effects": [], "id": "admit-starter-model-source", "input": {"fact_kind": "template-release"}, "law": {"operator": "admit-starter-model-source"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_source_bytes", "max_symbols"], "result": {"fact_kind": "template-release"}},
+        {"effects": [], "id": "bind-authorities-and-source", "input": {"fact_kind": "template-release"}, "law": {"operator": "bind-authorities-and-source"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_members"], "result": {"fact_kind": "template-release"}},
+        {"effects": [], "id": "close-package-dependencies", "input": {"fact_kind": "template-release"}, "law": {"operator": "close-package-dependencies"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_members"], "result": {"fact_kind": "template-release"}},
+        {"effects": [], "id": "admit-defaults", "input": {"fact_kind": "template-release"}, "law": {"operator": "admit-defaults"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_symbols"], "result": {"fact_kind": "template-release"}},
+        {"effects": [], "id": "close-coverage", "input": {"fact_kind": "template-release"}, "law": {"operator": "close-coverage"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_members"], "result": {"fact_kind": "template-release"}},
+        {"effects": [], "id": "execute-negative-vectors", "input": {"fact_kind": "template-release"}, "law": {"operator": "execute-negative-vectors"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_source_bytes", "max_symbols"], "result": {"fact_kind": "template-release"}},
+        {"effects": [], "id": "execute-boundary-vectors", "input": {"fact_kind": "template-release"}, "law": {"operator": "execute-boundary-vectors"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_source_bytes", "max_symbols"], "result": {"fact_kind": "template-release"}}
+      ]
     },
     "language_bundle": {
       "closed": true,
@@ -361,6 +380,36 @@
             "relation_recipes",
             "judgment_chain"
           ]
+        },
+        "template_admission_profiles": {
+          "field_types": {
+            "id": {"type": "non-empty-string"},
+            "source_identity_domain": {"type": "non-empty-string"},
+            "member_roles": {
+              "items": {
+                "field_types": {
+                  "role": {"enum": ["source", "experiment", "dependencies", "defaults", "compatibility", "documentation", "coverage", "golden", "negative-vector", "boundary-vector"]},
+                  "logical_name": {"type": "non-empty-string"},
+                  "member_kind": {"type": "non-empty-string"}
+                },
+                "required_members": ["role", "logical_name", "member_kind"],
+                "type": "closed-object"
+              },
+              "type": "list-of"
+            },
+            "judgment_chain": {
+              "items": {
+                "field_types": {
+                  "id": {"type": "non-empty-string"},
+                  "operation": {"enum": ["require-exact-member-roles", "admit-starter-model-source", "bind-authorities-and-source", "close-package-dependencies", "admit-defaults", "close-coverage", "execute-negative-vectors", "execute-boundary-vectors"]}
+                },
+                "required_members": ["id", "operation"],
+                "type": "closed-object"
+              },
+              "type": "list-of"
+            }
+          },
+          "required_members": ["id", "source_identity_domain", "member_roles", "judgment_chain"]
         },
         "runtime_profiles": {"field_types": {"effects": {"type": "string-list"}, "evaluation": {"const": "declaration-only"}, "id": {"type": "non-empty-string"}, "numeric_policy": {"type": "non-empty-string"}, "resource_bounds": {"field_types": {"max_steps": {"type": "positive-signed-int64"}}, "required_members": ["max_steps"], "type": "closed-object"}, "version": {"type": "non-empty-string"}}, "required_members": ["id", "version", "numeric_policy", "evaluation", "effects", "resource_bounds"]},
         "wire_schemas": {

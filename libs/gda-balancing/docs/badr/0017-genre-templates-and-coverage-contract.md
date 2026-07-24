@@ -40,6 +40,15 @@ distribution contract and a falsifiable definition of genre completeness.
   `profile` remains reserved away from Genre template because Runtime/Numeric profile definitions have
   different authority and compatibility semantics.
 
+- **Template-release admission is Kernel-defined and LDB-selected.** The Kernel owns the closed
+  generic judgment-operation vocabulary; the LDB owns one versioned admission profile that maps
+  exact release-member roles to kinds and orders those judgments. A consumer must admit the starter
+  through the ordinary Model Source path, close authority/source/package/default/Experiment/
+  coverage bindings, and execute the declared negative and boundary vectors. JSON Schema
+  validation or host-selected companion checks alone cannot admit a release. The admission profile
+  does not make the template a language authority: it defines how the existing authorities judge
+  the distribution container.
+
 - **The initial game-domain package boundaries are:**
 
   | Package | Owns | Does not own |

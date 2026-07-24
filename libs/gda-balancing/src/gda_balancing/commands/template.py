@@ -14,7 +14,6 @@ from gda_balancing.descriptors import (
 )
 from gda_balancing.schema2.authority import load_authorities
 from gda_balancing.schema2.bootstrap import (
-    BOOTSTRAP_REFUSAL_CATALOG,
     admit_authorities,
 )
 from gda_balancing.schema2.canonical import JsonValue, content_identity
@@ -25,7 +24,10 @@ from gda_balancing.schema2.diagnostics import (
     bootstrap_refusal,
 )
 from gda_balancing.schema2.model import (
+    MODEL_REFUSAL_CATALOG,
+    CheckedModel,
     PublicationMember,
+    check_model_source_value,
     identified_artifact,
     publication_authentication_key,
     publish_artifact_set,
@@ -94,16 +96,13 @@ class TemplateInstantiateResult(BaseModel):
     content_identity: str
 
 
-TEMPLATE_REFUSAL_CATALOG = BOOTSTRAP_REFUSAL_CATALOG + (
-    ("language.source_contract_mismatch", "static"),
-    ("language.package_version_unavailable", "resolution"),
-)
+TEMPLATE_REFUSAL_CATALOG = MODEL_REFUSAL_CATALOG
 TemplateProvider = Callable[[], dict[str, JsonValue]]
 _TEMPLATE_KERNEL_IDENTITY = (
-    "sha256:f7292a80ae07b695d0caec14432352f24584c3cd405fd79b11661cfac958109a"
+    "sha256:dec04c51d45fc39cdcebdb29ba5b5b39e18ce76b4f4779663013017c4db59c5f"
 )
 _TEMPLATE_LDB_IDENTITY = (
-    "sha256:97468f52ce6d86bcdb59123b3e745b2da85b47aaf10f8828004f8821b99b9912"
+    "sha256:2b7fabc914a0bd53941897221e53cc01c02602b1d38dada51a53c0d00a77f390"
 )
 _TEMPLATE_PACKAGE_IDENTITY = (
     "sha256:bfbd3e228fde85773b8804e7c632cca4f2771bc896aa4a54ab59efed52c99a58"
@@ -119,7 +118,7 @@ _TEMPLATE_MEMBER_SCHEMA_IDENTITIES = {
         "sha256:98272c6c0ee29ea45f3a9f1a3d5ed1e668b5d94d8eb58cabbbc709e03497deda"
     ),
     "genre-coverage-matrix": (
-        "sha256:05791006bf7bd006b4a1a4c47b49853f301eea02f2dd754a1a278bbd599df0bd"
+        "sha256:90ca0e184ed384a95c1401e8865252a1fc47ada82c75385472dfc1087b5c6c17"
     ),
     "golden-scenario": (
         "sha256:be1c523755066def1500c813be49461e8b25a0714fd3ae6c496cab677c8bdbe4"
@@ -232,6 +231,387 @@ def _template_contract_refusal(
     )
 
 
+def _template_admission_profile(
+    language_bundle: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    language = cast(dict[str, JsonValue], language_bundle["language"])
+    profiles = cast(list[dict[str, JsonValue]], language["template_admission_profiles"])
+    if len(profiles) != 1:
+        raise ValueError("exactly one Template admission profile is required")
+    return profiles[0]
+
+
+def _template_members_by_role(
+    release: dict[str, JsonValue],
+    profile: dict[str, JsonValue],
+) -> dict[str, dict[str, JsonValue]]:
+    members = {
+        cast(str, member["logical_name"]): member
+        for member in cast(list[dict[str, JsonValue]], release["members"])
+    }
+    result: dict[str, dict[str, JsonValue]] = {}
+    for row in cast(list[dict[str, JsonValue]], profile["member_roles"]):
+        logical_name = cast(str, row["logical_name"])
+        member = members.get(logical_name)
+        if member is None or member["member_kind"] != row["member_kind"]:
+            raise ValueError(f"missing exact Template member role: {row['role']}")
+        result[cast(str, row["role"])] = member
+    return result
+
+
+def _apply_template_vector(
+    source: dict[str, Any],
+    pointer: str,
+    value: JsonValue,
+) -> dict[str, Any] | None:
+    if not pointer.startswith("/") or pointer == "/":
+        return None
+    parts = [
+        part.replace("~1", "/").replace("~0", "~")
+        for part in pointer.removeprefix("/").split("/")
+    ]
+    mutated = deepcopy(source)
+    current: Any = mutated
+    for part in parts[:-1]:
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        elif isinstance(current, list) and part.isdecimal():
+            index = int(part)
+            if index >= len(current):
+                return None
+            current = current[index]
+        else:
+            return None
+    final = parts[-1]
+    if isinstance(current, dict) and final in current:
+        current[final] = value
+    elif isinstance(current, list) and final.isdecimal():
+        index = int(final)
+        if index >= len(current):
+            return None
+        current[index] = value
+    else:
+        return None
+    return mutated
+
+
+def _template_source_symbols(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        f"{module['id']}.{symbol['symbol']}": symbol
+        for module in cast(list[dict[str, Any]], source["modules"])
+        for symbol in cast(list[dict[str, Any]], module["symbols"])
+    }
+
+
+def _validate_template_semantics(
+    release: dict[str, JsonValue],
+    kernel: dict[str, JsonValue],
+    language_bundle: dict[str, JsonValue],
+) -> Schema2RefusalReport | None:
+    """Execute the LDB-selected Template judgments defined by the Kernel."""
+    try:
+        profile = _template_admission_profile(language_bundle)
+        roles = _template_members_by_role(release, profile)
+    except (KeyError, TypeError, ValueError) as err:
+        return _template_contract_refusal(
+            release,
+            "/members",
+            f"Template release cannot satisfy its LDB member-role profile: {err}",
+        )
+    language = cast(dict[str, JsonValue], language_bundle["language"])
+    kernel_operations = {
+        cast(str, row["id"]): row
+        for row in cast(
+            list[dict[str, JsonValue]],
+            cast(
+                dict[str, JsonValue],
+                cast(dict[str, JsonValue], kernel["meta_format"])["template_admission"],
+            )["operations"],
+        )
+    }
+    source = cast(dict[str, Any], roles["source"]["payload"])
+    source_identity = content_identity(
+        cast(str, profile["source_identity_domain"]),
+        cast(JsonValue, source),
+    )
+    checked_source: CheckedModel | None = None
+
+    def refuse(pointer: str, message: str) -> Schema2RefusalReport:
+        return _template_contract_refusal(release, pointer, message)
+
+    for judgment in cast(list[dict[str, JsonValue]], profile["judgment_chain"]):
+        operation_id = cast(str, judgment["operation"])
+        operation = kernel_operations.get(operation_id)
+        if operation is None:
+            return refuse(
+                "/members",
+                f"Template admission judgment uses unknown Kernel operation: {operation_id}",
+            )
+        law = cast(dict[str, JsonValue], operation["law"])
+        operator = cast(str, law["operator"])
+
+        if operator == "require-exact-member-roles":
+            expected = {
+                (row["logical_name"], row["member_kind"])
+                for row in cast(list[dict[str, JsonValue]], profile["member_roles"])
+            }
+            actual = {
+                (member["logical_name"], member["member_kind"])
+                for member in cast(list[dict[str, JsonValue]], release["members"])
+            }
+            if actual != expected or len(actual) != len(expected):
+                return refuse(
+                    "/members",
+                    "Template release does not contain the exact LDB member roles",
+                )
+
+        elif operator == "admit-starter-model-source":
+            checked = check_model_source_value(source)
+            if isinstance(checked, Schema2RefusalReport):
+                return checked
+            if (
+                checked.kernel["content_identity"] != kernel["content_identity"]
+                or checked.language_bundle["content_identity"]
+                != language_bundle["content_identity"]
+            ):
+                return refuse(
+                    "/members/starter-model-source",
+                    "Template starter was admitted by different authorities",
+                )
+            checked_source = checked
+
+        elif operator == "bind-authorities-and-source":
+            experiment = cast(dict[str, Any], roles["experiment"]["payload"])
+            golden = cast(dict[str, Any], roles["golden"]["payload"])
+            metrics = cast(list[dict[str, Any]], experiment["metrics"])
+            quantity = cast(dict[str, JsonValue], language["quantity"])
+            known_kinds = set(cast(list[str], quantity["kinds"]))
+            known_units = {
+                cast(str, row["id"])
+                for row in cast(
+                    list[dict[str, JsonValue]],
+                    quantity["units"],
+                )
+            }
+            metric_ids = [cast(str, row["id"]) for row in metrics]
+            if (
+                experiment["kernel_identity"] != kernel["content_identity"]
+                or experiment["language_bundle_identity"]
+                != language_bundle["content_identity"]
+                or experiment["model_source_identity"] != source_identity
+                or golden["experiment"] != experiment["id"]
+                or golden["model_source_identity"] != source_identity
+                or cast(list[str], experiment["scenarios"]) != [golden["id"]]
+                or len(metric_ids) != len(set(metric_ids))
+                or any(
+                    row["kind"] not in known_kinds
+                    or row["unit"] not in known_units
+                    or row["target"]["minimum"] > row["target"]["maximum"]
+                    for row in metrics
+                )
+            ):
+                return refuse(
+                    "/members/experiment-specification",
+                    "Template Experiment and Golden Scenario are not closed over the exact authorities and source",
+                )
+
+        elif operator == "close-package-dependencies":
+            dependencies = cast(dict[str, Any], roles["dependencies"]["payload"])
+            compatibility = cast(dict[str, Any], roles["compatibility"]["payload"])
+            available = {
+                (row["id"], row["version"]): row
+                for row in cast(list[dict[str, Any]], language["packages"])
+            }
+            requirements = {
+                (row["id"], row["version"])
+                for row in cast(list[dict[str, Any]], source["package_requirements"])
+            }
+            declared = {
+                (row["id"], row["version"]): row
+                for row in cast(list[dict[str, Any]], dependencies["packages"])
+            }
+            compatible = {
+                (row["id"], row["version"])
+                for row in cast(list[dict[str, Any]], compatibility["packages"])
+            }
+            expected = set(requirements)
+            pending = list(requirements)
+            while pending:
+                package_key = pending.pop()
+                package = available.get(package_key)
+                if package is None:
+                    return _template_refusal(
+                        "language.package_version_unavailable",
+                        "resolution",
+                        cast(str, release["content_identity"]),
+                        "/members/declared-package-dependencies",
+                        "Template starter requires an unavailable package release",
+                    )
+                for dependency_id in cast(
+                    list[str], package["dependencies"]["required"]
+                ):
+                    matches = [key for key in available if key[0] == dependency_id]
+                    if len(matches) != 1:
+                        return _template_refusal(
+                            "language.package_version_unavailable",
+                            "resolution",
+                            cast(str, release["content_identity"]),
+                            "/members/declared-package-dependencies",
+                            "Template dependency closure is not exact",
+                        )
+                    if matches[0] not in expected:
+                        expected.add(matches[0])
+                        pending.append(matches[0])
+            if (
+                set(declared) != expected
+                or compatible != requirements
+                or compatibility["kernel_identity"] != kernel["content_identity"]
+                or compatibility["language_bundle_identity"]
+                != language_bundle["content_identity"]
+                or any(
+                    declared[key]["content_identity"]
+                    != available[key]["content_identity"]
+                    for key in declared
+                )
+            ):
+                return _template_refusal(
+                    "language.package_version_unavailable",
+                    "resolution",
+                    cast(str, release["content_identity"]),
+                    "/members/declared-package-dependencies",
+                    "Template package declarations are not the exact source dependency closure",
+                )
+
+        elif operator == "admit-defaults":
+            symbols = _template_source_symbols(source)
+            defaults = cast(
+                list[dict[str, Any]],
+                cast(dict[str, Any], roles["defaults"]["payload"])["symbol_values"],
+            )
+            golden = cast(dict[str, Any], roles["golden"]["payload"])
+            values = {row["symbol"]: row["value"] for row in defaults}
+            if (
+                len(values) != len(defaults)
+                or any(
+                    name not in symbols
+                    or value < symbols[name]["domain"]["minimum"]
+                    or value > symbols[name]["domain"]["maximum"]
+                    for name, value in values.items()
+                )
+                or golden["symbol"] not in symbols
+                or golden["value"] != values.get(golden["symbol"])
+            ):
+                return refuse(
+                    "/members/defaults",
+                    "Template defaults and Golden Scenario are not admitted source values",
+                )
+
+        elif operator == "close-coverage":
+            coverage = cast(dict[str, Any], roles["coverage"]["payload"])
+            experiment = cast(dict[str, Any], roles["experiment"]["payload"])
+            golden = cast(dict[str, Any], roles["golden"]["payload"])
+            negative = cast(dict[str, Any], roles["negative-vector"]["payload"])
+            boundary = cast(dict[str, Any], roles["boundary-vector"]["payload"])
+            known_capabilities = {
+                row["id"]
+                for row in cast(list[dict[str, Any]], language["capabilities"])
+            }
+            known_operations = {
+                row["id"] for row in cast(list[dict[str, Any]], language["operations"])
+            }
+            known_packages = {
+                row["id"] for row in cast(list[dict[str, Any]], language["packages"])
+            }
+            known_observables = {
+                row["id"] for row in cast(list[dict[str, Any]], experiment["metrics"])
+            }
+            rows = cast(list[dict[str, Any]], coverage["rows"])
+            row_ids = [row["id"] for row in rows]
+            vector_ids: set[str] = set()
+            observable_ids: set[str] = set()
+            for row in rows:
+                vector_ids.update(cast(list[str], row["vectors"]))
+                observable_ids.update(cast(list[str], row["observables"]))
+                repeated = any(
+                    len(values) != len(set(values))
+                    for values in (
+                        cast(list[str], row["capabilities"]),
+                        cast(list[str], row["operations"]),
+                        cast(list[str], row["packages"]),
+                        cast(list[str], row["vectors"]),
+                        cast(list[str], row["observables"]),
+                    )
+                )
+                if (
+                    repeated
+                    or not set(cast(list[str], row["capabilities"]))
+                    <= known_capabilities
+                    or not set(cast(list[str], row["operations"])) <= known_operations
+                    or not set(cast(list[str], row["packages"])) <= known_packages
+                    or not set(cast(list[str], row["observables"])) <= known_observables
+                    or row["experiment"] != experiment["id"]
+                    or row["golden_scenario"] != golden["id"]
+                ):
+                    return refuse(
+                        "/members/coverage-matrix",
+                        "Every Template coverage row must resolve through the exact LDB and Experiment",
+                    )
+            if (
+                len(row_ids) != len(set(row_ids))
+                or vector_ids != {negative["id"], boundary["id"]}
+                or observable_ids != known_observables
+            ):
+                return refuse(
+                    "/members/coverage-matrix",
+                    "Template coverage does not close its unique evidence vectors",
+                )
+
+        elif operator == "execute-negative-vectors":
+            vector = cast(dict[str, Any], roles["negative-vector"]["payload"])
+            mutation = cast(dict[str, Any], vector["mutation"])
+            mutated = _apply_template_vector(
+                source,
+                cast(str, mutation["pointer"]),
+                cast(JsonValue, mutation["value"]),
+            )
+            result = check_model_source_value(mutated) if mutated is not None else None
+            if (
+                not isinstance(result, Schema2RefusalReport)
+                or len(result.diagnostics) != 1
+                or result.diagnostics[0].code != vector["diagnostic"]
+            ):
+                return refuse(
+                    "/members/negative-vector",
+                    "Template negative vector does not produce its declared LDB refusal",
+                )
+
+        elif operator == "execute-boundary-vectors":
+            vector = cast(dict[str, Any], roles["boundary-vector"]["payload"])
+            mutated = _apply_template_vector(
+                source,
+                cast(str, vector["pointer"]),
+                cast(JsonValue, vector["value"]),
+            )
+            result = check_model_source_value(mutated) if mutated is not None else None
+            if vector["expected"] != "accepted" or not isinstance(result, CheckedModel):
+                return refuse(
+                    "/members/boundary-vector",
+                    "Template boundary vector does not produce its declared admitted outcome",
+                )
+        else:
+            return refuse(
+                "/members",
+                f"Template admission law has no host implementation: {operator}",
+            )
+
+    if checked_source is None:
+        return refuse(
+            "/members/starter-model-source",
+            "Template admission profile did not admit its starter source",
+        )
+    return None
+
+
 def _validate_template_release(
     release: dict[str, JsonValue],
     kernel: dict[str, JsonValue],
@@ -331,114 +711,7 @@ def _validate_template_release(
             "/language_bundle_identity",
             "Template release is incompatible with the admitted LDB",
         )
-
-    members_by_name = {
-        cast(str, member["logical_name"]): member
-        for member in cast(list[dict[str, JsonValue]], release["members"])
-    }
-    packages = {
-        (
-            item["id"],
-            item["version"],
-            item["content_identity"],
-        )
-        for item in cast(list[dict[str, JsonValue]], language["packages"])
-    }
-    dependencies = cast(
-        dict[str, JsonValue],
-        members_by_name["declared-package-dependencies"]["payload"],
-    )
-    declared = {
-        (
-            item["id"],
-            item["version"],
-            item["content_identity"],
-        )
-        for item in cast(list[dict[str, JsonValue]], dependencies["packages"])
-    }
-    if not declared <= packages:
-        return _template_refusal(
-            "language.package_version_unavailable",
-            "resolution",
-            release_identity,
-            "/members/declared-package-dependencies",
-            "Template release declares an unavailable package release",
-        )
-    compatibility = cast(
-        dict[str, JsonValue], members_by_name["compatibility"]["payload"]
-    )
-    if (
-        compatibility["kernel_identity"] != kernel["content_identity"]
-        or compatibility["language_bundle_identity"]
-        != language_bundle["content_identity"]
-    ):
-        return _template_refusal(
-            "language.package_version_unavailable",
-            "resolution",
-            release_identity,
-            "/members/compatibility",
-            "Template compatibility member does not bind the admitted authorities",
-        )
-
-    starter = cast(
-        dict[str, JsonValue],
-        members_by_name["starter-model-source"]["payload"],
-    )
-    starter_identity = content_identity("model-source-package-v2", starter)
-    experiment = cast(
-        dict[str, JsonValue],
-        members_by_name["experiment-specification"]["payload"],
-    )
-    if (
-        experiment["kernel_identity"] != kernel["content_identity"]
-        or experiment["language_bundle_identity"] != language_bundle["content_identity"]
-        or experiment["model_source_identity"] != starter_identity
-    ):
-        return _template_contract_refusal(
-            release,
-            "/members/experiment-specification",
-            "Template Experiment is not bound to its exact authorities and starter",
-        )
-
-    coverage = cast(
-        dict[str, JsonValue],
-        cast(
-            list[dict[str, JsonValue]],
-            cast(
-                dict[str, JsonValue],
-                members_by_name["coverage-matrix"]["payload"],
-            )["rows"],
-        )[0],
-    )
-    golden = cast(dict[str, JsonValue], members_by_name["golden-scenario"]["payload"])
-    negative = cast(dict[str, JsonValue], members_by_name["negative-vector"]["payload"])
-    boundary = cast(dict[str, JsonValue], members_by_name["boundary-vector"]["payload"])
-    known_operations = {
-        cast(str, item["id"])
-        for item in cast(list[dict[str, JsonValue]], language["operations"])
-    }
-    known_diagnostics = {
-        cast(str, item["code"])
-        for item in cast(list[dict[str, JsonValue]], language_bundle["diagnostics"])
-    }
-    semantic_links_hold = (
-        set(cast(list[str], coverage["operations"])) <= known_operations
-        and coverage["experiment"] == experiment["id"]
-        and coverage["golden_scenario"] == golden["id"]
-        and set(cast(list[str], coverage["vectors"]))
-        == {cast(str, negative["id"]), cast(str, boundary["id"])}
-        and golden["experiment"] == experiment["id"]
-        and golden["model_source_identity"] == starter_identity
-        and golden["id"] in cast(list[str], experiment["scenarios"])
-        and cast(str, negative["diagnostic"]) in known_diagnostics
-    )
-    if not semantic_links_hold:
-        return _template_contract_refusal(
-            release,
-            "/members",
-            "Template companion evidence is not semantically closed over the exact LDB",
-        )
-    return None
+    return _validate_template_semantics(release, kernel, language_bundle)
 
 
 def _minimal_release() -> dict[str, JsonValue]:
@@ -569,10 +842,13 @@ def _minimal_release() -> dict[str, JsonValue]:
                     {
                         "id": "template.quantity.tracer",
                         "requirement": "An editable Quantity source builds through model build.",
+                        "capabilities": ["quantity.declare", "quantity.lower"],
                         "operations": ["quantity.identity"],
+                        "packages": ["core.quantity"],
                         "experiment": experiment_id,
                         "golden_scenario": golden_id,
                         "vectors": [negative_id, boundary_id],
+                        "observables": ["value"],
                     }
                 ],
             },
@@ -934,7 +1210,13 @@ TEMPLATE_GET = CommandDescriptor(
             "standard.quantity-minimal",
             "--version",
             "2.0.0",
-        )
+        ),
+        refusing_args=(
+            "--id",
+            "missing.template",
+            "--version",
+            "2.0.0",
+        ),
     ),
     schema_major=2,
     structured_params=True,
@@ -961,7 +1243,15 @@ TEMPLATE_INSTANTIATE = CommandDescriptor(
             "2.0.0",
             "--package-id",
             "example.instantiated",
-        )
+        ),
+        refusing_args=(
+            "--id",
+            "missing.template",
+            "--version",
+            "2.0.0",
+            "--package-id",
+            "example.instantiated",
+        ),
     ),
     artifact_set=_TEMPLATE_INSTANTIATE_ARTIFACT_SET,
     schema_major=2,

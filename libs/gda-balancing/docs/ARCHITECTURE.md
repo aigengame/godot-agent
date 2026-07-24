@@ -463,6 +463,10 @@ upgrade path.
 Templates are not Standard Schema instances, runtime profiles, language authorities, or privileged
 compiler inputs. Genre behavior exists only through admitted operations and Domain packages. A
 template may make a good model easy to start; it may not make otherwise invalid semantics valid.
+The Kernel defines the closed generic operations for template-release admission, and the LDB selects
+a versioned profile that maps exact member roles and orders those judgments. Admission reuses the
+ordinary Model Source checker and executes the release's negative and boundary vectors; structural
+JSON Schema validation or host-only companion checks cannot substitute for that semantic path.
 
 Coverage claims are evidence-backed and granular. A `Tracer` row requires a public vertical path;
 broader RPG or Roguelike support requires its own Golden scenarios, vectors, and acceptance evidence.

@@ -1,18 +1,67 @@
 """Public Template release and instantiation tracer for Standard Schema 2.0 (#553)."""
 
 import json
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 
 import jsonschema
+import pytest
 from gda_balancing.commands.template import (
     TEMPLATE_GET,
     TEMPLATE_INSTANTIATE,
     template_get_handler,
     template_instantiate_handler,
 )
-from gda_balancing.schema2.canonical import content_identity
+from gda_balancing.schema2.canonical import canonical_bytes, content_identity
+
+
+def _reidentify_release(release):
+    release["manifest"] = []
+    for member in release["members"]:
+        member["content_identity"] = content_identity(
+            "template-member-v2",
+            {key: value for key, value in member.items() if key != "content_identity"},
+        )
+        release["manifest"].append(
+            {
+                key: member[key]
+                for key in (
+                    "logical_name",
+                    "member_kind",
+                    "member_schema_identity",
+                    "content_identity",
+                )
+            }
+        )
+    release["content_identity"] = content_identity(
+        "template-release-v2",
+        {key: value for key, value in release.items() if key != "content_identity"},
+    )
+    return release
+
+
+def _template_invocation_directory(invocation_key):
+    matches = list(
+        (Path(os.environ["GDA_BALANCING_STORE_DIR"]) / "invocations").glob(
+            f"*/{invocation_key}"
+        )
+    )
+    assert len(matches) == 1
+    return matches[0]
+
+
+def _template_anchor_path(invocation_key):
+    matches = list(
+        (Path(os.environ["GDA_BALANCING_STORE_DIR"]) / "anchors").glob(
+            f"*/{invocation_key}.json"
+        )
+    )
+    assert len(matches) == 1
+    return matches[0]
 
 
 def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
@@ -26,7 +75,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.0.0",
                 "content_identity": (
-                    "sha256:44cadc6a5659007bbce23220a986ba0bfdc2c3157285eb26c9ca20bc2246cc2c"
+                    "sha256:a084070dd49bb4911206d36c1d7759183aa1f68f1a7b04607c6375bd2d54d3f1"
                 ),
             }
         ]
@@ -138,8 +187,15 @@ def test_every_template_member_is_admitted_by_the_exact_kernel_and_ldb(
     assert experiment["model_source_identity"] == starter_identity
 
     coverage = members["coverage-matrix"]["payload"]["rows"][0]
+    assert set(coverage["capabilities"]) <= {
+        item["id"] for item in language["capabilities"]
+    }
     known_operations = {item["id"] for item in language["operations"]}
     assert set(coverage["operations"]) <= known_operations
+    assert set(coverage["packages"]) <= {item["id"] for item in language["packages"]}
+    assert set(coverage["observables"]) <= {
+        item["id"] for item in experiment["metrics"]
+    }
     assert coverage["experiment"] == experiment["id"]
 
     golden = members["golden-scenario"]["payload"]
@@ -343,6 +399,109 @@ def test_template_get_refuses_semantically_unbound_companion_evidence(run_cli):
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
     assert error["diagnostics"][0]["code"] == ("language.source_contract_mismatch")
+
+
+def test_template_get_refuses_every_reidentified_semantic_admission_mutation(
+    run_cli,
+):
+    pristine = json.loads(
+        run_cli(
+            [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ]
+        )[1]
+    )
+
+    def member(release, name):
+        return next(
+            item for item in release["members"] if item["logical_name"] == name
+        )["payload"]
+
+    mutations = []
+
+    missing_operation = deepcopy(pristine)
+    extra_row = deepcopy(member(missing_operation, "coverage-matrix")["rows"][0])
+    extra_row["id"] = "template.quantity.unbound"
+    extra_row["operations"] = ["missing.operation"]
+    member(missing_operation, "coverage-matrix")["rows"].append(extra_row)
+    mutations.append(missing_operation)
+
+    missing_pointer = deepcopy(pristine)
+    member(missing_pointer, "boundary-vector")["pointer"] = "/does/not/exist"
+    mutations.append(missing_pointer)
+
+    false_negative = deepcopy(pristine)
+    member(false_negative, "negative-vector")["mutation"]["value"] = {
+        "minimum": 0,
+        "maximum": 100,
+    }
+    mutations.append(false_negative)
+
+    unavailable_source_package = deepcopy(pristine)
+    starter = member(unavailable_source_package, "starter-model-source")
+    starter["package_requirements"][0]["version"] = "9.9.9"
+    starter["modules"][0]["imports"][0]["version"] = "9.9.9"
+    mutated_source_identity = content_identity("model-source-package-v2", starter)
+    member(unavailable_source_package, "experiment-specification")[
+        "model_source_identity"
+    ] = mutated_source_identity
+    member(unavailable_source_package, "golden-scenario")["model_source_identity"] = (
+        mutated_source_identity
+    )
+    mutations.append(unavailable_source_package)
+
+    missing_role = deepcopy(pristine)
+    missing_role["members"] = [
+        item
+        for item in missing_role["members"]
+        if item["logical_name"] != "documentation"
+    ]
+    mutations.append(missing_role)
+
+    unknown_metric_unit = deepcopy(pristine)
+    member(unknown_metric_unit, "experiment-specification")["metrics"][0]["unit"] = (
+        "missing-unit"
+    )
+    mutations.append(unknown_metric_unit)
+
+    invalid_default = deepcopy(pristine)
+    member(invalid_default, "defaults")["symbol_values"][0]["value"] = 101
+    mutations.append(invalid_default)
+
+    unbound_dependency = deepcopy(pristine)
+    member(unbound_dependency, "declared-package-dependencies")["packages"][0][
+        "content_identity"
+    ] = "sha256:" + "f" * 64
+    mutations.append(unbound_dependency)
+
+    for release in mutations:
+        descriptor = replace(
+            TEMPLATE_GET,
+            handler=template_get_handler(
+                lambda release=_reidentify_release(release): release
+            ),
+        )
+        exit_code, stdout, stderr = run_cli(
+            [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ],
+            registry=(descriptor,),
+        )
+        assert (exit_code, stderr) == (2, "")
+        assert json.loads(stdout)["error"]["diagnostics"][0]["code"] in {
+            "language.source_contract_mismatch",
+            "language.package_version_unavailable",
+        }
 
 
 def test_template_instantiate_publishes_a_new_editable_model_source_identity(
@@ -571,3 +730,231 @@ def test_template_instantiation_is_atomic_retry_safe_and_input_bound(tmp_path, r
     assert (conflict[0], conflict[1]) == (3, "")
     assert json.loads(conflict[2])["error"]["code"] == ("invocation_key_conflict")
     assert not conflict_out.exists()
+
+
+@pytest.mark.parametrize(
+    "publication_fault",
+    (
+        "after-member-write",
+        "before-commit",
+        "before-anchor-commit",
+        "after-commit",
+    ),
+)
+def test_every_template_publication_fault_is_all_or_nothing_and_retryable(
+    publication_fault, tmp_path, run_cli
+):
+    release = json.loads(
+        run_cli(
+            [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ]
+        )[1]
+    )
+    invocation_key = {
+        "after-member-write": "5",
+        "before-commit": "6",
+        "before-anchor-commit": "7",
+        "after-commit": "8",
+    }[publication_fault] * 64
+    argv = [
+        "template",
+        "instantiate",
+        "--id",
+        "standard.quantity-minimal",
+        "--version",
+        "2.0.0",
+        "--package-id",
+        f"example.{publication_fault}",
+        "--out",
+        str(tmp_path / "failed.json"),
+        "--invocation-key",
+        invocation_key,
+    ]
+    faulting = replace(
+        TEMPLATE_INSTANTIATE,
+        handler=template_instantiate_handler(
+            lambda: release,
+            publication_fault=publication_fault,
+        ),
+    )
+
+    exit_code, stdout, stderr = run_cli(argv, registry=(faulting,))
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+    assert not (tmp_path / "failed.json").exists()
+    invocation_matches = list(
+        (Path(os.environ["GDA_BALANCING_STORE_DIR"]) / "invocations").glob(
+            f"*/{invocation_key}"
+        )
+    )
+    anchor_matches = list(
+        (Path(os.environ["GDA_BALANCING_STORE_DIR"]) / "anchors").glob(
+            f"*/{invocation_key}.json"
+        )
+    )
+    if publication_fault == "after-commit":
+        assert len(invocation_matches) == len(anchor_matches) == 1
+    else:
+        assert invocation_matches == []
+        assert anchor_matches == []
+
+    recovered_out = tmp_path / "recovered.json"
+    recovered = run_cli(
+        [
+            *argv[:-4],
+            "--out",
+            str(recovered_out),
+            "--invocation-key",
+            invocation_key,
+        ]
+    )
+    assert (recovered[0], recovered[2]) == (0, "")
+    assert recovered_out.is_file()
+
+
+def test_template_publication_rejects_output_symlinks(tmp_path, run_cli):
+    target = tmp_path / "target.json"
+    target.write_text("unchanged", encoding="utf-8")
+    alias = tmp_path / "alias.json"
+    alias.symlink_to(target)
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "template",
+            "instantiate",
+            "--id",
+            "standard.quantity-minimal",
+            "--version",
+            "2.0.0",
+            "--package-id",
+            "example.alias",
+            "--out",
+            str(alias),
+            "--invocation-key",
+            "9" * 64,
+        ]
+    )
+
+    assert (exit_code, stdout) == (3, "")
+    assert json.loads(stderr)["error"]["code"] == "argument_conflict"
+    assert target.read_text(encoding="utf-8") == "unchanged"
+
+
+def test_template_recovery_rejects_a_coherently_reidentified_anchor_rewrite(
+    tmp_path, run_cli
+):
+    invocation_key = "a" * 64
+    argv = [
+        "template",
+        "instantiate",
+        "--id",
+        "standard.quantity-minimal",
+        "--version",
+        "2.0.0",
+        "--package-id",
+        "example.anchor-rewrite",
+        "--out",
+        str(tmp_path / "first.json"),
+        "--invocation-key",
+        invocation_key,
+    ]
+    first = run_cli(argv)
+    assert first[0] == 0
+    invocation = _template_invocation_directory(invocation_key)
+    index_path = invocation / "publication-index.json"
+    index = json.loads(index_path.read_text())
+    index["command_input_identity"] = "sha256:" + "f" * 64
+    index["content_identity"] = content_identity(
+        "publication-index-v2",
+        {key: value for key, value in index.items() if key != "content_identity"},
+    )
+    index_path.write_bytes(canonical_bytes(index))
+    anchor_path = _template_anchor_path(invocation_key)
+    anchor = json.loads(anchor_path.read_text())
+    anchor["publication_index"] = index
+    anchor_path.unlink()
+    anchor_path.write_bytes(canonical_bytes(anchor))
+    anchor_path.chmod(0o444)
+    (tmp_path / "first.json").unlink()
+
+    exit_code, stdout, stderr = run_cli(argv)
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+
+
+def test_template_recovery_rejects_a_symlinked_committed_member(tmp_path, run_cli):
+    invocation_key = "b" * 64
+    argv = [
+        "template",
+        "instantiate",
+        "--id",
+        "standard.quantity-minimal",
+        "--version",
+        "2.0.0",
+        "--package-id",
+        "example.member-alias",
+        "--out",
+        str(tmp_path / "first.json"),
+        "--invocation-key",
+        invocation_key,
+    ]
+    first = run_cli(argv)
+    assert first[0] == 0
+    invocation = _template_invocation_directory(invocation_key)
+    member = invocation / "model-source-package.json"
+    preserved = tmp_path / "preserved-member.json"
+    preserved.write_bytes(member.read_bytes())
+    member.unlink()
+    member.symlink_to(preserved)
+    (tmp_path / "first.json").unlink()
+
+    exit_code, stdout, stderr = run_cli(argv)
+
+    assert (exit_code, stdout) == (3, "")
+    assert json.loads(stderr)["error"]["code"] == "argument_conflict"
+
+
+def test_concurrent_template_retries_recover_one_committed_set(tmp_path, run_cli):
+    invocation_key = "c" * 64
+    barrier = threading.Barrier(2)
+
+    def instantiate(name):
+        barrier.wait(timeout=10)
+        return run_cli(
+            [
+                "template",
+                "instantiate",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+                "--package-id",
+                "example.concurrent",
+                "--out",
+                str(tmp_path / f"{name}.json"),
+                "--invocation-key",
+                invocation_key,
+            ]
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(instantiate, "first")
+        second = executor.submit(instantiate, "second")
+        first_result = first.result(timeout=20)
+        second_result = second.result(timeout=20)
+
+    assert (first_result[0], first_result[2]) == (0, "")
+    assert (second_result[0], second_result[2]) == (0, "")
+    assert json.loads(first_result[1]) == json.loads(second_result[1])
+    assert (tmp_path / "first.json").read_bytes() == (
+        tmp_path / "second.json"
+    ).read_bytes()
+    assert _template_anchor_path(invocation_key).is_file()

@@ -1,7 +1,7 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:97468f52ce6d86bcdb59123b3e745b2da85b47aaf10f8828004f8821b99b9912",
+  "content_identity": "sha256:2b7fabc914a0bd53941897221e53cc01c02602b1d38dada51a53c0d00a77f390",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
@@ -18,7 +18,7 @@
     {"code": "language.source_parse_failure", "stage": "parse"},
     {"code": "language.source_too_large", "stage": "ingress"}
   ],
-  "kernel_identity": "sha256:f7292a80ae07b695d0caec14432352f24584c3cd405fd79b11661cfac958109a",
+  "kernel_identity": "sha256:dec04c51d45fc39cdcebdb29ba5b5b39e18ce76b4f4779663013017c4db59c5f",
   "language": {
     "artifact_contracts": [
       {"artifact_kind": "artifact-set-manifest", "identity_domain": "artifact-set-manifest-v2", "schema_kind": "artifact-set-manifest", "wire_schema_identity_domain": "artifact-set-manifest-wire-schema-v2", "identity_excluded_members": []},
@@ -272,12 +272,15 @@
                 "properties": {
                   "id": {"type": "string", "minLength": 1},
                   "requirement": {"type": "string", "minLength": 1},
+                  "capabilities": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
                   "operations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "packages": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
                   "experiment": {"type": "string", "minLength": 1},
                   "golden_scenario": {"type": "string", "minLength": 1},
-                  "vectors": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+                  "vectors": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "observables": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
                 },
-                "required": ["id", "requirement", "operations", "experiment", "golden_scenario", "vectors"],
+                "required": ["id", "requirement", "capabilities", "operations", "packages", "experiment", "golden_scenario", "vectors", "observables"],
                 "unevaluatedProperties": false
               }
             }
@@ -1336,6 +1339,34 @@
       }
     ],
     "runtime_profiles": [{"effects": [], "evaluation": "declaration-only", "id": "compile.exact-int64", "numeric_policy": "exact-int64", "resource_bounds": {"max_steps": 4096}, "version": "2.0.0"}],
+    "template_admission_profiles": [
+      {
+        "id": "standard-template-release-v1",
+        "source_identity_domain": "model-source-package-v2",
+        "member_roles": [
+          {"role": "source", "logical_name": "starter-model-source", "member_kind": "model-source-package"},
+          {"role": "experiment", "logical_name": "experiment-specification", "member_kind": "experiment-specification"},
+          {"role": "dependencies", "logical_name": "declared-package-dependencies", "member_kind": "declared-package-dependencies"},
+          {"role": "defaults", "logical_name": "defaults", "member_kind": "template-defaults"},
+          {"role": "compatibility", "logical_name": "compatibility", "member_kind": "template-compatibility"},
+          {"role": "documentation", "logical_name": "documentation", "member_kind": "template-documentation"},
+          {"role": "coverage", "logical_name": "coverage-matrix", "member_kind": "genre-coverage-matrix"},
+          {"role": "golden", "logical_name": "golden-scenario", "member_kind": "golden-scenario"},
+          {"role": "negative-vector", "logical_name": "negative-vector", "member_kind": "negative-vector"},
+          {"role": "boundary-vector", "logical_name": "boundary-vector", "member_kind": "boundary-vector"}
+        ],
+        "judgment_chain": [
+          {"id": "template.require-exact-member-roles", "operation": "require-exact-member-roles"},
+          {"id": "template.admit-starter-model-source", "operation": "admit-starter-model-source"},
+          {"id": "template.bind-authorities-and-source", "operation": "bind-authorities-and-source"},
+          {"id": "template.close-package-dependencies", "operation": "close-package-dependencies"},
+          {"id": "template.admit-defaults", "operation": "admit-defaults"},
+          {"id": "template.close-coverage", "operation": "close-coverage"},
+          {"id": "template.execute-negative-vectors", "operation": "execute-negative-vectors"},
+          {"id": "template.execute-boundary-vectors", "operation": "execute-boundary-vectors"}
+        ]
+      }
+    ],
     "wire_schemas": [
       {
         "artifact_kind": "model-source-package",

@@ -60,6 +60,10 @@ class ConformanceFixtures:
     command path itself is derived from the descriptor by every harness row,
     so fixture and identity cannot drift apart.
 
+    ``refusing_args`` is the complete argument tail of one invocation that
+    reaches a stable domain refusal without requiring a document fixture.
+    Artifact-set sinks and invocation keys remain harness-projected.
+
     ``valid_document`` and ``refusing_document`` are the Design-document
     fixtures for a document-taking command, given as **JSON document content,
     never a file path**: the harness materializes each to a tmp file and
@@ -71,6 +75,7 @@ class ConformanceFixtures:
     """
 
     valid_args: tuple[str, ...] = ()
+    refusing_args: tuple[str, ...] = ()
     valid_document: str | None = None
     refusing_document: str | None = None
 

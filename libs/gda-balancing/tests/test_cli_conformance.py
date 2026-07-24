@@ -138,20 +138,27 @@ class TestPerDescriptorRows:
         assert _assert_envelope(stderr, "internal")["code"] == "internal_error"
 
     def test_refusal_row(self, descriptor, run_cli, invocation):
-        # Document-taking commands only: the registered refusing document must
-        # yield a `refusal` envelope on stdout / exit 2, and every entry code
-        # must resolve against the funnel's namespace — the CLI can never grow
-        # a second refusal-code registry (bADR-0011).
-        if descriptor.fixtures.refusing_document is None:
-            pytest.skip("no refusing document: not a document-taking command")
+        # A descriptor-owned refusing document or argument tail must yield the
+        # command's declared stable refusal envelope on stdout / exit 2.
+        if (
+            descriptor.fixtures.refusing_document is None
+            and not descriptor.fixtures.refusing_args
+        ):
+            pytest.skip("no descriptor-owned refusing fixture")
         exit_code, stdout, stderr = run_cli(invocation(descriptor, refusing=True))
         assert (exit_code, stderr) == (2, "")
         payload = json.loads(stdout)
-        jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
         assert payload["error"]["category"] == "refusal"
-        namespace = refusal_code_namespace()
-        for entry in payload["error"]["refusals"]:
-            assert entry["code"] in namespace
+        if descriptor.schema_major == 2:
+            jsonschema.validate(payload, schema2_error_envelope_schema(descriptor))
+            catalog = {code for code, _stage in descriptor.refusal_catalog}
+            for entry in payload["error"]["diagnostics"]:
+                assert entry["code"] in catalog
+        else:
+            jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
+            namespace = refusal_code_namespace()
+            for entry in payload["error"]["refusals"]:
+                assert entry["code"] in namespace
 
     def test_input_immutability_row(self, descriptor, run_cli, invocation):
         # A document-taking command never rewrites its input (bADR-0011).

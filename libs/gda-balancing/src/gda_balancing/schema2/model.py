@@ -777,6 +777,21 @@ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
     except OSError as err:
         raise UnreadableInputError(f"cannot read input document: {path}") from err
 
+    return _check_model_source_bytes(data)
+
+
+def check_model_source_value(
+    source: dict[str, Any],
+) -> CheckedModel | Schema2RefusalReport:
+    """Admit an in-memory Model Source through the same authority path as a file."""
+    try:
+        data = canonical_bytes(cast(JsonValue, source))
+    except (TypeError, ValueError, UnicodeEncodeError):
+        data = b"null\n"
+    return _check_model_source_bytes(data)
+
+
+def _check_model_source_bytes(data: bytes) -> CheckedModel | Schema2RefusalReport:
     kernel, ldb = load_authorities()
     admission = admit_authorities(kernel, ldb)
     if not admission.admitted:

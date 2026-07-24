@@ -17,7 +17,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:f7292a80ae07b695d0caec14432352f24584c3cd405fd79b11661cfac958109a"
+    "sha256:dec04c51d45fc39cdcebdb29ba5b5b39e18ce76b4f4779663013017c4db59c5f"
 )
 
 
@@ -3807,6 +3807,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         "package_release",
         "resolution_judgment",
         "runtime_projection",
+        "template_admission",
     }
     resolution = meta_format["resolution_judgment"]
     assert resolution["closed"] is True
@@ -3840,6 +3841,43 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         and item["resources"]
         for item in resolution["operations"]
     )
+    template_admission = meta_format["template_admission"]
+    profile = authority["language_bundle"]["language"]["template_admission_profiles"][0]
+    assert template_admission["closed"] is True
+    assert [item["operation"] for item in profile["judgment_chain"]] == [
+        item["id"] for item in template_admission["operations"]
+    ]
+    assert all(
+        set(item)
+        == {
+            "effects",
+            "id",
+            "input",
+            "law",
+            "refusals",
+            "resources",
+            "result",
+        }
+        and item["input"] == {"fact_kind": "template-release"}
+        and item["result"] == {"fact_kind": "template-release"}
+        and item["effects"] == []
+        and item["refusals"] == ["reason-bound-diagnostic"]
+        and item["resources"]
+        and item["law"] == {"operator": item["id"]}
+        for item in template_admission["operations"]
+    )
+    assert {item["role"] for item in profile["member_roles"]} == {
+        "source",
+        "experiment",
+        "dependencies",
+        "defaults",
+        "compatibility",
+        "documentation",
+        "coverage",
+        "golden",
+        "negative-vector",
+        "boundary-vector",
+    }
     assert {item["tag"] for item in meta_format["term"]["constructors"]} == {
         "literal",
         "variable",
@@ -3849,6 +3887,24 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         assert rule["phase"] in meta_format["rule"]["phases"]
         assert rule["premises"]
         assert set(rule["conclusion"]) == {"fact_kind", "fields"}
+
+
+@pytest.mark.parametrize("member", ("member_roles", "judgment_chain"))
+def test_two_consumers_refuse_an_incomplete_template_admission_profile(member):
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    ldb["language"]["template_admission_profiles"][0][member].pop()
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(
+        stage == "static" and code == "kernel.vector_mismatch"
+        for stage, code, _subject in first["diagnostics"]
+    )
 
 
 def test_resolution_profile_symbol_mapping_must_name_the_declared_semantic_fact():
