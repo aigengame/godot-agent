@@ -1,7 +1,7 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:62d749915bdac27115ac2c7557fae066f201115db503121df23d75e987ba6c7b",
+  "content_identity": "sha256:97468f52ce6d86bcdb59123b3e745b2da85b47aaf10f8828004f8821b99b9912",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
@@ -31,9 +31,322 @@
       {"artifact_kind": "publication-index", "identity_domain": "publication-index-v2", "schema_kind": "publication-index", "wire_schema_identity_domain": "publication-index-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "resolution-receipt", "identity_domain": "resolution-receipt-v2", "schema_kind": "resolution-receipt", "wire_schema_identity_domain": "resolution-receipt-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "resolved-model", "identity_domain": "resolved-model-v2", "schema_kind": "resolved-model", "wire_schema_identity_domain": "resolved-model-wire-schema-v2", "identity_excluded_members": []},
-      {"artifact_kind": "rir-semantic-payload", "identity_domain": "rir-semantic-payload-v2", "schema_kind": "rir-semantic-payload", "wire_schema_identity_domain": "rir-semantic-payload-wire-schema-v2", "identity_excluded_members": []}
+      {"artifact_kind": "rir-semantic-payload", "identity_domain": "rir-semantic-payload-v2", "schema_kind": "rir-semantic-payload", "wire_schema_identity_domain": "rir-semantic-payload-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "template-release", "identity_domain": "template-release-v2", "schema_kind": "template-release", "wire_schema_identity_domain": "template-release-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "template-instantiate-command-input", "identity_domain": "template-instantiate-command-input-v2", "schema_kind": "template-instantiate-command-input", "wire_schema_identity_domain": "template-instantiate-command-input-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "template-instantiation-receipt", "identity_domain": "template-instantiation-receipt-v2", "schema_kind": "template-instantiation-receipt", "wire_schema_identity_domain": "template-instantiation-receipt-wire-schema-v2", "identity_excluded_members": []}
     ],
     "artifact_wire_schemas": [
+      {
+        "artifact_kind": "template-instantiate-command-input",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "artifact_kind": {"const": "template-instantiate-command-input"},
+            "artifact_version": {"const": "2.0.0"},
+            "wire_schema_identity": {"type": "string", "minLength": 1},
+            "template_identity": {"type": "string", "minLength": 1},
+            "package_id": {"type": "string", "minLength": 1},
+            "kernel_identity": {"type": "string", "minLength": 1},
+            "language_bundle_identity": {"type": "string", "minLength": 1},
+            "content_identity": {"type": "string", "minLength": 1}
+          },
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "template_identity", "package_id", "kernel_identity", "language_bundle_identity", "content_identity"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "template-instantiation-receipt",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "artifact_kind": {"const": "template-instantiation-receipt"},
+            "artifact_version": {"const": "2.0.0"},
+            "wire_schema_identity": {"type": "string", "minLength": 1},
+            "template_identity": {"type": "string", "minLength": 1},
+            "starter_identity": {"type": "string", "minLength": 1},
+            "model_source_identity": {"type": "string", "minLength": 1},
+            "package_id": {"type": "string", "minLength": 1},
+            "kernel_identity": {"type": "string", "minLength": 1},
+            "language_bundle_identity": {"type": "string", "minLength": 1},
+            "content_identity": {"type": "string", "minLength": 1}
+          },
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "template_identity", "starter_identity", "model_source_identity", "package_id", "kernel_identity", "language_bundle_identity", "content_identity"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "template-release",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "artifact_kind": {"const": "template-release"},
+            "artifact_version": {"const": "2.0.0"},
+            "wire_schema_identity": {"type": "string", "minLength": 1},
+            "id": {"type": "string", "minLength": 1},
+            "version": {"type": "string", "minLength": 1},
+            "kernel_identity": {"type": "string", "minLength": 1},
+            "language_bundle_identity": {"type": "string", "minLength": 1},
+            "manifest": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "logical_name": {"type": "string", "minLength": 1},
+                  "member_kind": {"type": "string", "minLength": 1},
+                  "member_schema_identity": {"type": "string", "minLength": 1},
+                  "content_identity": {"type": "string", "minLength": 1}
+                },
+                "required": ["logical_name", "member_kind", "member_schema_identity", "content_identity"],
+                "unevaluatedProperties": false
+              }
+            },
+            "members": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "logical_name": {"type": "string", "minLength": 1},
+                  "member_kind": {"type": "string", "minLength": 1},
+                  "member_schema_identity": {"type": "string", "minLength": 1},
+                  "payload": {},
+                  "content_identity": {"type": "string", "minLength": 1}
+                },
+                "required": ["logical_name", "member_kind", "member_schema_identity", "payload", "content_identity"],
+                "unevaluatedProperties": false
+              }
+            },
+            "content_identity": {"type": "string", "minLength": 1}
+          },
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "id", "version", "kernel_identity", "language_bundle_identity", "manifest", "members", "content_identity"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "experiment-specification",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "schema_version": {"const": "2.0.0"},
+            "id": {"type": "string", "minLength": 1},
+            "version": {"type": "string", "minLength": 1},
+            "kernel_identity": {"type": "string", "minLength": 1},
+            "language_bundle_identity": {"type": "string", "minLength": 1},
+            "model_source_identity": {"type": "string", "minLength": 1},
+            "scenarios": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            "metrics": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string", "minLength": 1},
+                  "kind": {"const": "scalar"},
+                  "unit": {"type": "string", "minLength": 1},
+                  "target": {
+                    "type": "object",
+                    "properties": {"minimum": {"type": "integer"}, "maximum": {"type": "integer"}},
+                    "required": ["minimum", "maximum"],
+                    "unevaluatedProperties": false
+                  }
+                },
+                "required": ["id", "kind", "unit", "target"],
+                "unevaluatedProperties": false
+              }
+            }
+          },
+          "required": ["schema_version", "id", "version", "kernel_identity", "language_bundle_identity", "model_source_identity", "scenarios", "metrics"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "declared-package-dependencies",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "schema_version": {"const": "2.0.0"},
+            "packages": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string", "minLength": 1},
+                  "version": {"type": "string", "minLength": 1},
+                  "content_identity": {"type": "string", "minLength": 1}
+                },
+                "required": ["id", "version", "content_identity"],
+                "unevaluatedProperties": false
+              }
+            }
+          },
+          "required": ["schema_version", "packages"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "template-defaults",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "schema_version": {"const": "2.0.0"},
+            "symbol_values": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "symbol": {"type": "string", "minLength": 1},
+                  "value": {"type": "integer"}
+                },
+                "required": ["symbol", "value"],
+                "unevaluatedProperties": false
+              }
+            }
+          },
+          "required": ["schema_version", "symbol_values"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "template-compatibility",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "schema_version": {"const": "2.0.0"},
+            "kernel_identity": {"type": "string", "minLength": 1},
+            "language_bundle_identity": {"type": "string", "minLength": 1},
+            "packages": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string", "minLength": 1},
+                  "version": {"type": "string", "minLength": 1}
+                },
+                "required": ["id", "version"],
+                "unevaluatedProperties": false
+              }
+            }
+          },
+          "required": ["schema_version", "kernel_identity", "language_bundle_identity", "packages"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "template-documentation",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "schema_version": {"const": "2.0.0"},
+            "media_type": {"const": "text/markdown"},
+            "text": {"type": "string", "minLength": 1}
+          },
+          "required": ["schema_version", "media_type", "text"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "genre-coverage-matrix",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "schema_version": {"const": "2.0.0"},
+            "rows": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string", "minLength": 1},
+                  "requirement": {"type": "string", "minLength": 1},
+                  "operations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                  "experiment": {"type": "string", "minLength": 1},
+                  "golden_scenario": {"type": "string", "minLength": 1},
+                  "vectors": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+                },
+                "required": ["id", "requirement", "operations", "experiment", "golden_scenario", "vectors"],
+                "unevaluatedProperties": false
+              }
+            }
+          },
+          "required": ["schema_version", "rows"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "golden-scenario",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "schema_version": {"const": "2.0.0"},
+            "id": {"type": "string", "minLength": 1},
+            "experiment": {"type": "string", "minLength": 1},
+            "model_source_identity": {"type": "string", "minLength": 1},
+            "symbol": {"type": "string", "minLength": 1},
+            "value": {"type": "integer"}
+          },
+          "required": ["schema_version", "id", "experiment", "model_source_identity", "symbol", "value"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "negative-vector",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "schema_version": {"const": "2.0.0"},
+            "id": {"type": "string", "minLength": 1},
+            "diagnostic": {"type": "string", "minLength": 1},
+            "mutation": {
+              "type": "object",
+              "properties": {
+                "pointer": {"type": "string", "minLength": 1},
+                "value": {
+                  "type": "object",
+                  "properties": {"minimum": {"type": "integer"}, "maximum": {"type": "integer"}},
+                  "required": ["minimum", "maximum"],
+                  "unevaluatedProperties": false
+                }
+              },
+              "required": ["pointer", "value"],
+              "unevaluatedProperties": false
+            }
+          },
+          "required": ["schema_version", "id", "diagnostic", "mutation"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "boundary-vector",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "schema_version": {"const": "2.0.0"},
+            "id": {"type": "string", "minLength": 1},
+            "pointer": {"type": "string", "minLength": 1},
+            "value": {"type": "integer"},
+            "expected": {"const": "accepted"}
+          },
+          "required": ["schema_version", "id", "pointer", "value", "expected"],
+          "unevaluatedProperties": false
+        }
+      },
       {
         "artifact_kind": "artifact-set-manifest",
         "schema": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"artifact_kind": {"const": "artifact-set-manifest"}, "artifact_version": {"const": "2.0.0"}, "wire_schema_identity": {"type": "string", "minLength": 1}, "frame": {"const": "typed-logical-member-map-v1"}, "members": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"logical_name": {"type": "string", "minLength": 1}, "artifact_kind": {"type": "string", "minLength": 1}, "wire_schema_identity": {"type": "string", "minLength": 1}, "content_identity": {"type": "string", "minLength": 1}}, "required": ["logical_name", "artifact_kind", "wire_schema_identity", "content_identity"], "unevaluatedProperties": false}}, "content_identity": {"type": "string", "minLength": 1}}, "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "frame", "members", "content_identity"], "unevaluatedProperties": false}
@@ -1031,7 +1344,7 @@
           "type": "object",
           "properties": {
             "schema_version": {"const": "2.0.0"},
-            "manifest": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "entry_module": {"type": "string", "minLength": 1}}, "required": ["id", "version", "entry_module"], "unevaluatedProperties": false},
+            "manifest": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}, "entry_module": {"type": "string", "minLength": 1}, "template_provenance": {"type": "object", "properties": {"template_id": {"type": "string", "minLength": 1}, "template_version": {"type": "string", "minLength": 1}, "template_identity": {"type": "string", "minLength": 1}, "starter_identity": {"type": "string", "minLength": 1}}, "required": ["template_id", "template_version", "template_identity", "starter_identity"], "unevaluatedProperties": false}}, "required": ["id", "version", "entry_module"], "unevaluatedProperties": false},
             "package_requirements": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "minLength": 1}}, "required": ["id", "version"], "unevaluatedProperties": false}},
             "modules": {
               "type": "array",

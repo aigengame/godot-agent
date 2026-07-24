@@ -4,16 +4,16 @@ This directory holds acceptance artifacts for the Standard Schema 2.0 specificat
 PRD #534. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) is the human-readable macro architecture
 authority; bADR-0012…0022 own the binding detailed decisions; and PRD #534 owns requirements,
 acceptance criteria, and live completion status. These documents do not by themselves make the 2.0
-language, runtime, CLI, or genre templates implemented. Issue #538 now supplies the first permanent
-machine authority and public discovery slice described below; all broader delivery claims remain
-bounded by PRD #534 and the coverage matrix.
+language, runtime, CLI, or genre templates implemented. Issues #538, #539, and #553 now supply the
+permanent authority, Model-build tracer, and first minimal Template release described below; all
+broader delivery claims remain bounded by PRD #534 and the coverage matrix.
 
 The current artifact is [`genre-coverage.md`](genre-coverage.md): the open RPG/Roguelike
 requirements-to-operations matrix used to judge the future Language Definition Bundle and vertical
 tracer. Every row is open. It is a completeness contract, not evidence that the package operations,
 Golden scenarios, or vectors already exist.
 
-## Permanent authority foundation (#538)
+## Permanent delivered slices (#538, #539, #553)
 
 The first production foundation replaces the disposable authority mechanism for one admitted
 Quantity slice:
@@ -38,10 +38,21 @@ Quantity slice:
   and `--params-json <json|->` expose the admitted slice through the descriptor-owned 2.x surface.
   Admission failures use bounded, ordered, deduplicated, stage-aware Diagnostics.
 
-This foundation proves only its admitted authority and command loop. It publishes no Model, Package
-Lock, RIR, Resolved Model, Runtime profile, Experiment, Metric, Replay, Evidence, template, or Genre
-success artifact, and it closes no Genre row. Issue #539 is the first consumer that may extend the
-same permanent authority into a Model-build vertical slice.
+Issue #539 extends that authority through `model check|build`: one authored Quantity Model Source
+resolves to an exact Package Lock, canonical RIR, Resolved Model, provenance companions, and one
+authenticated atomic publication. Issue #553 adds `template list|get|instantiate` and publishes
+`standard.quantity-minimal@2.0.0`, whose content identity fixes its exact Kernel/LDB, starter
+source, package dependency, defaults, compatibility, documentation, Experiment, coverage row,
+Golden scenario, and negative/boundary vectors. Every companion payload binds an LDB-projected
+wire schema and is structurally and semantically re-admitted before the release can be listed,
+retrieved, or instantiated.
+
+Instantiation publishes a newly identified editable Model Source plus an instantiation receipt.
+The source records explicit template provenance, the release remains immutable, retries are
+invocation-key bound, and the resulting source can be edited and rebuilt through #539. This closes
+only the minimal Quantity Template-distribution tracer: it delivers no evaluation run, Metric,
+Replay, Evidence, complete RPG/Roguelike template, or Genre support claim, and it closes no row in
+the normative RPG/Roguelike coverage matrix.
 
 ## Prototype evidence
 
@@ -127,13 +138,11 @@ decision introduces a new semantic root, open host extension, or cross-artifact 
 
 ## Next validation gates
 
-1. The bounded disposable authority mechanism has been replaced for #538's admitted Quantity
-   foundation by permanent versioned Kernel/LDB artifacts and normative bootstrap/rule/reason
-   vectors. Disposable code remains non-authoritative and closes no acceptance criterion.
-2. Issue #539 must consume that exact foundation to build one Model Source through selected Lock,
-   canonical RIR, Resolved Model, independent lowerers, and atomic public artifact publication.
-   Later tracers extend the same authorities with Operation, Experiment, audit, comparison, and
-   Evidence contracts only when their vertical paths exercise them.
+1. The bounded disposable authority mechanism has been replaced by #538's permanent Kernel/LDB,
+   #539's Model-build tracer, and #553's minimal content-addressed Template release. Disposable code
+   remains non-authoritative and closes no acceptance criterion by itself.
+2. Issue #554 must audit the delivered 2.0 surface against PRD #534 and the exact-head conformance
+   evidence, without treating the narrow Quantity/Template tracers as whole-Schema completion.
 3. A production RPG tracer must then close its required
    vertical coverage rows and public artifact path.
 4. A Roguelike cross-genre tracer follows only after those gates pass; it must reuse the same kernel,
