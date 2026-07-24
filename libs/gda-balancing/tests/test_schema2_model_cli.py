@@ -436,6 +436,30 @@ def test_model_build_rejects_invalid_anchor_authentication_configuration_before_
     assert not store.exists()
 
 
+def test_model_build_validates_anchor_configuration_before_reading_source(
+    tmp_path, run_cli, monkeypatch
+):
+    source = tmp_path / "missing-model-source.json"
+    out = tmp_path / "published-model"
+    monkeypatch.delenv("GDA_BALANCING_ANCHOR_KEY", raising=False)
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+
+    assert (exit_code, stdout) == (3, "")
+    assert json.loads(stderr)["error"]["code"] == "invalid_argument"
+    assert not out.exists()
+
+
 def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
     tmp_path, run_cli
 ):
@@ -955,6 +979,32 @@ def test_model_build_rejects_direct_and_symlink_input_output_aliases(tmp_path, r
         assert (exit_code, stdout) == (3, "")
         assert json.loads(stderr)["error"]["code"] == "argument_conflict"
         assert source.read_bytes() == before
+
+
+def test_model_publisher_rejects_a_known_source_alias_after_the_source_disappears(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    source.unlink()
+    store = tmp_path / "store"
+    monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(store))
+
+    with pytest.raises(model_module.UsageError) as caught:
+        model_module.publish_model_artifacts(
+            checked,
+            str(source),
+            str(source),
+            "e" * 64,
+            descriptor_identity(model_command_module.MODEL_BUILD),
+            model_command_module.MODEL_BUILD.artifact_set,
+        )
+
+    assert caught.value.code == "argument_conflict"
+    assert not source.exists()
+    assert not store.exists()
 
 
 def test_model_build_rejects_a_symlinked_store_ancestor(tmp_path, run_cli, monkeypatch):

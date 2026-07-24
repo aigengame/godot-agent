@@ -16,6 +16,7 @@ from gda_balancing.schema2.model import (
     admit_resolved_model,
     check_model_source,
     lower_checked_model,
+    publication_authentication_key,
     publish_model_artifacts,
 )
 from gda_balancing.schema2.surface import descriptor_identity
@@ -106,6 +107,7 @@ def model_build_handler(
         raise ValueError("unknown publication fault")
 
     def _run(inp: ModelBuildInput) -> ModelBuildResult | Schema2RefusalReport:
+        authentication_key = publication_authentication_key()
         checked = check_model_source(inp.source)
         if isinstance(checked, Schema2RefusalReport):
             return checked
@@ -117,6 +119,7 @@ def model_build_handler(
             descriptor_identity(MODEL_BUILD),
             MODEL_BUILD.artifact_set,
             publication_fault,
+            authentication_key=authentication_key,
         )
         return ModelBuildResult.model_validate(receipt)
 

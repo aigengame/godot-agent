@@ -2158,7 +2158,7 @@ def _store_lock_path(descriptor_identity: str, invocation_key: str) -> Path:
     return _store_root() / "locks" / descriptor_key / f"{invocation_key}.lock"
 
 
-def _anchor_authentication_key() -> bytes:
+def publication_authentication_key() -> bytes:
     encoded = os.environ.get(_ANCHOR_KEY_ENV)
     if (
         encoded is None
@@ -2521,9 +2521,14 @@ def publish_model_artifacts(
     descriptor_identity: str,
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
     publication_fault: str | None = None,
+    *,
+    authentication_key: bytes | None = None,
 ) -> dict[str, JsonValue]:
     """Serialize one invocation key before inspecting or changing its publication."""
-    authentication_key = _anchor_authentication_key()
+    if authentication_key is None:
+        authentication_key = publication_authentication_key()
+    out_path = _normalized_absolute_path(out)
+    reject_input_aliasing(out_path, source_path, input_is_known_path=True)
     lock_path = _store_lock_path(descriptor_identity, invocation_key)
     _ensure_directory_chain(lock_path.parent)
     if lock_path.is_symlink():
@@ -2533,8 +2538,7 @@ def publish_model_artifacts(
     with _invocation_lock(lock_path):
         return _publish_model_artifacts_locked(
             checked,
-            source_path,
-            out,
+            out_path,
             invocation_key,
             descriptor_identity,
             artifact_set,
@@ -2545,8 +2549,7 @@ def publish_model_artifacts(
 
 def _publish_model_artifacts_locked(
     checked: CheckedModel,
-    source_path: str,
-    out: str,
+    out_path: Path,
     invocation_key: str,
     descriptor_identity: str,
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
@@ -2554,8 +2557,6 @@ def _publish_model_artifacts_locked(
     publication_fault: str | None = None,
 ) -> dict[str, JsonValue]:
     """Atomically publish one complete build set while its invocation lock is held."""
-    out_path = _normalized_absolute_path(out)
-    reject_input_aliasing(out_path, source_path)
     invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
     anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
     if (
@@ -2570,7 +2571,9 @@ def _publish_model_artifacts_locked(
     parent = out_path.parent
     _assert_ancestor_chain_without_symlink(parent)
     if parent.is_symlink() or not parent.is_dir():
-        raise UsageError("unwritable_output", f"cannot write output directory: {out}")
+        raise UsageError(
+            "unwritable_output", f"cannot write output directory: {out_path}"
+        )
     if out_path.is_symlink():
         raise UsageError("argument_conflict", "--out must not be a symlink")
     command_input = _identified_artifact(
