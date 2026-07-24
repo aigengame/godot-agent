@@ -17,6 +17,7 @@ import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.commands.schema as schema_command_module
 from gda_balancing.commands.manifest import MANIFEST
+from gda_balancing.commands.model import MODEL_BUILD, MODEL_CHECK
 from gda_balancing.commands.schema import SCHEMA_GET, schema_get_handler
 from gda_balancing.schema2.canonical import content_identity
 from gda_balancing.schema2.diagnostics import (
@@ -150,6 +151,17 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
     )
     schemas = {item["artifact_kind"]: item["schema"] for item in projection["schemas"]}
     assert set(schemas) == {
+        "artifact-set-manifest",
+        "artifact-set-receipt",
+        "build-receipt",
+        "capability-manifest",
+        "debug-map",
+        "model-build-command-input",
+        "package-lock",
+        "publication-index",
+        "resolution-receipt",
+        "resolved-model",
+        "rir-semantic-payload",
         "schema-major-kernel",
         "language-definition-bundle",
         "model-source-package",
@@ -167,21 +179,22 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "output",
         "random",
     ):
-        jsonschema.validate(
+        source = json.loads(MODEL_CHECK.fixtures.valid_document or "{}")
+        source["modules"][0]["symbols"] = [
             {
-                "schema_version": "2.0.0",
-                "symbols": [
-                    {
-                        "symbol": role,
-                        "role": role,
-                        "representation": "Int",
-                        "kind": "scalar",
-                        "unit": "1",
-                        "domain": {"minimum": 0, "maximum": 100},
-                        "numeric_policy": "exact-int64",
-                    }
-                ],
-            },
+                "symbol": role,
+                "type": "quantity",
+                "role": role,
+                "representation": "Int",
+                "kind": "scalar",
+                "unit": "1",
+                "domain_kind": "closed-interval",
+                "domain": {"minimum": 0, "maximum": 100},
+                "numeric_policy": "exact-int64",
+            }
+        ]
+        jsonschema.validate(
+            source,
             schemas["model-source-package"],
         )
 
@@ -208,7 +221,9 @@ def test_diagnostic_catalog_is_reverse_closed_over_kernel_and_ldb(run_cli):
     assert len({entry["code"] for entry in catalog["entries"]}) == len(expected)
 
 
-def test_manifest_and_per_command_schema_are_one_descriptor_projection(run_cli):
+def test_manifest_and_per_command_schema_are_one_descriptor_projection(
+    run_cli, tmp_path
+):
     exit_code, stdout, stderr = run_cli(["manifest"])
 
     assert (exit_code, stderr) == (0, "")
@@ -222,7 +237,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(run_cli):
         " ".join(filter(None, (row["group"], row["command"]))): row
         for row in manifest["commands"]
     }
-    assert set(commands) == {"schema get", "manifest"}
+    assert set(commands) == {"schema get", "manifest", "model check", "model build"}
 
     for path, row in commands.items():
         schema_exit, schema_stdout, schema_stderr = run_cli([*path.split(), "--schema"])
@@ -238,11 +253,26 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(run_cli):
             "profile_identity",
             "success",
         }
-        invocation = (
-            ["schema", "get", "language-bundle"]
-            if path == "schema get"
-            else ["manifest"]
-        )
+        if path == "schema get":
+            invocation = ["schema", "get", "language-bundle"]
+        elif path == "manifest":
+            invocation = ["manifest"]
+        else:
+            descriptor = MODEL_BUILD if path == "model build" else MODEL_CHECK
+            source = tmp_path / f"{path.replace(' ', '-')}.json"
+            source.write_text(
+                descriptor.fixtures.valid_document or "", encoding="utf-8"
+            )
+            invocation = ["model", path.split()[1], str(source)]
+            if descriptor.artifact_set:
+                invocation.extend(
+                    [
+                        "--out",
+                        str(tmp_path / "manifest-build-output"),
+                        "--invocation-key",
+                        "a" * 64,
+                    ]
+                )
         result_exit, result_stdout, result_stderr = run_cli(invocation)
         assert (result_exit, result_stderr) == (0, "")
         jsonschema.validate(json.loads(result_stdout), row["schema"]["success"])

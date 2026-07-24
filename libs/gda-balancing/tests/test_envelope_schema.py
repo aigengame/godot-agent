@@ -221,6 +221,7 @@ def test_the_registry_is_the_usage_family_plus_the_fixed_internal_code():
         "unknown_argument",
         "argument_conflict",
         "invalid_argument",
+        "invocation_key_conflict",
         "unreadable_input",
         "unwritable_output",
     }

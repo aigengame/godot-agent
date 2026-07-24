@@ -22,6 +22,7 @@ scan (``src/`` only) never sees it, and it names no game identity.
 """
 
 import io
+import itertools
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -35,6 +36,15 @@ from gda_balancing.dispatch import dispatch
 RunResult = tuple[int, str, str]
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture(autouse=True)
+def isolated_schema2_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give each test one explicit local-store trust boundary."""
+    monkeypatch.setenv(
+        "GDA_BALANCING_STORE_DIR", str(tmp_path / ".gda-balancing-store-v2")
+    )
+    monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", "a5" * 32)
 
 
 @pytest.fixture
@@ -76,7 +86,7 @@ def doc_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture
-def invocation(doc_dir: Path) -> Callable[..., list[str]]:
+def invocation(doc_dir: Path, tmp_path: Path) -> Callable[..., list[str]]:
     """Build a descriptor's full invocation argv.
 
     The command path is derived from the descriptor (identity cannot drift);
@@ -85,10 +95,22 @@ def invocation(doc_dir: Path) -> Callable[..., list[str]]:
     under ``doc_dir`` and its path appended after ``valid_args``.
     """
 
+    sequence = itertools.count(1)
+
     def _build(descriptor: CommandDescriptor, *, refusing: bool = False) -> list[str]:
         fixtures = descriptor.fixtures
         content = fixtures.refusing_document if refusing else fixtures.valid_document
         tail = list(fixtures.valid_args)
+        if descriptor.artifact_set:
+            token = next(sequence)
+            tail.extend(
+                [
+                    "--out",
+                    str(tmp_path / f"artifact-set-{token}"),
+                    "--invocation-key",
+                    f"{token:064x}",
+                ]
+            )
         if content is not None:
             label = "refusing" if refusing else "valid"
             name = "-".join([*_command_path(descriptor), label]) + ".json"

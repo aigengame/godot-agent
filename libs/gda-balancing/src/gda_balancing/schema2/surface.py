@@ -194,6 +194,25 @@ def _schema_document(name: str, raw: dict[str, Any]) -> dict[str, JsonValue]:
     }
 
 
+def _artifact_membership(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
+    """Project the descriptor-owned artifact behavior and complete member set."""
+    return {
+        "artifact_behavior": (
+            "atomic-artifact-set"
+            if descriptor.artifact_sink or descriptor.artifact_set
+            else "stdout-only"
+        ),
+        "artifact_set": [
+            {
+                "logical_name": member.logical_name,
+                "artifact_kind": member.artifact_kind,
+                "role": member.role,
+            }
+            for member in descriptor.artifact_set
+        ],
+    }
+
+
 def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
     profile = command_schema_profile()
     success_schema = (
@@ -225,9 +244,7 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             ],
             "usage_codes": list(descriptor.usage_codes),
         },
-        "artifact_behavior": "atomic-artifact-set"
-        if descriptor.artifact_sink
-        else "stdout-only",
+        **_artifact_membership(descriptor),
     }
 
 
@@ -326,6 +343,19 @@ def surface_manifest_success_schema() -> dict[str, object]:
             "schema": command_schema,
             "execution": execution,
             "artifact_behavior": {"enum": ["stdout-only", "atomic-artifact-set"]},
+            "artifact_set": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "logical_name": {"type": "string", "minLength": 1},
+                        "artifact_kind": {"type": "string", "minLength": 1},
+                        "role": {"enum": ["primary", "companion"]},
+                    },
+                    "required": ["logical_name", "artifact_kind", "role"],
+                    "unevaluatedProperties": False,
+                },
+            },
         },
         "required": [
             "group",
@@ -335,6 +365,7 @@ def surface_manifest_success_schema() -> dict[str, object]:
             "schema",
             "execution",
             "artifact_behavior",
+            "artifact_set",
         ],
         "unevaluatedProperties": False,
     }
@@ -383,9 +414,7 @@ def surface_manifest(
                     ],
                     "usage_codes": list(descriptor.usage_codes),
                 },
-                "artifact_behavior": (
-                    "atomic-artifact-set" if descriptor.artifact_sink else "stdout-only"
-                ),
+                **_artifact_membership(descriptor),
             }
         )
     rows.sort(

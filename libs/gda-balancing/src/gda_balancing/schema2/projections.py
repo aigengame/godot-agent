@@ -32,10 +32,12 @@ def _closed_authority_schema(
 
 
 def _identified_ldb_schema(
-    artifact_kind: str, schema: dict[str, JsonValue]
+    artifact_kind: str,
+    schema: dict[str, JsonValue],
+    identity_domain: str,
 ) -> dict[str, JsonValue]:
     body = {key: value for key, value in schema.items() if key != "$id"}
-    digest = content_identity(f"{artifact_kind}-wire-schema-v2", cast(JsonValue, body))
+    digest = content_identity(identity_domain, cast(JsonValue, body))
     return {
         "$id": f"urn:gda-balancing:schema2:wire:{digest.removeprefix('sha256:')}",
         **body,
@@ -60,16 +62,28 @@ def wire_schema_projection(
         },
     ]
     language = cast(dict[str, JsonValue], ldb["language"])
-    for raw in cast(list[JsonValue], language.get("wire_schemas", [])):
-        item = cast(dict[str, JsonValue], raw)
-        artifact_kind = cast(str, item["artifact_kind"])
-        schema = cast(dict[str, JsonValue], item["schema"])
-        schemas.append(
-            {
-                "artifact_kind": artifact_kind,
-                "schema": _identified_ldb_schema(artifact_kind, schema),
-            }
+    artifact_contracts = {
+        cast(str, cast(dict[str, JsonValue], raw)["artifact_kind"]): cast(
+            str, cast(dict[str, JsonValue], raw)["wire_schema_identity_domain"]
         )
+        for raw in cast(list[JsonValue], language.get("artifact_contracts", []))
+    }
+    for collection in ("wire_schemas", "artifact_wire_schemas"):
+        for raw in cast(list[JsonValue], language.get(collection, [])):
+            item = cast(dict[str, JsonValue], raw)
+            artifact_kind = cast(str, item["artifact_kind"])
+            schema = cast(dict[str, JsonValue], item["schema"])
+            identity_domain = artifact_contracts.get(
+                artifact_kind, f"{artifact_kind}-wire-schema-v2"
+            )
+            schemas.append(
+                {
+                    "artifact_kind": artifact_kind,
+                    "schema": _identified_ldb_schema(
+                        artifact_kind, schema, identity_domain
+                    ),
+                }
+            )
     schemas.sort(
         key=lambda raw: cast(str, cast(dict[str, JsonValue], raw)["artifact_kind"])
     )
