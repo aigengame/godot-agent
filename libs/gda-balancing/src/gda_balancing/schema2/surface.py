@@ -194,6 +194,25 @@ def _schema_document(name: str, raw: dict[str, Any]) -> dict[str, JsonValue]:
     }
 
 
+def _artifact_membership(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
+    """Project the descriptor-owned artifact behavior and complete member set."""
+    return {
+        "artifact_behavior": (
+            "atomic-artifact-set"
+            if descriptor.artifact_sink or descriptor.artifact_set
+            else "stdout-only"
+        ),
+        "artifact_set": [
+            {
+                "logical_name": member.logical_name,
+                "artifact_kind": member.artifact_kind,
+                "role": member.role,
+            }
+            for member in descriptor.artifact_set
+        ],
+    }
+
+
 def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
     profile = command_schema_profile()
     success_schema = (
@@ -225,17 +244,7 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             ],
             "usage_codes": list(descriptor.usage_codes),
         },
-        "artifact_behavior": "atomic-artifact-set"
-        if descriptor.artifact_sink or descriptor.artifact_set
-        else "stdout-only",
-        "artifact_set": [
-            {
-                "logical_name": member.logical_name,
-                "artifact_kind": member.artifact_kind,
-                "role": member.role,
-            }
-            for member in descriptor.artifact_set
-        ],
+        **_artifact_membership(descriptor),
     }
 
 
@@ -405,19 +414,7 @@ def surface_manifest(
                     ],
                     "usage_codes": list(descriptor.usage_codes),
                 },
-                "artifact_behavior": (
-                    "atomic-artifact-set"
-                    if descriptor.artifact_sink or descriptor.artifact_set
-                    else "stdout-only"
-                ),
-                "artifact_set": [
-                    {
-                        "logical_name": member.logical_name,
-                        "artifact_kind": member.artifact_kind,
-                        "role": member.role,
-                    }
-                    for member in descriptor.artifact_set
-                ],
+                **_artifact_membership(descriptor),
             }
         )
     rows.sort(

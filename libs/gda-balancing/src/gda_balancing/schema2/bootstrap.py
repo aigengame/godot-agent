@@ -946,6 +946,9 @@ def _reference_contracts_close(
             targets, dict
         ):
             return False
+        # Reference contracts quantify the rows that exist. A declared empty
+        # owner collection is closed by construction; optional language
+        # collections such as Conversions must not require a fabricated row.
         for owner in owners:
             if not isinstance(owner, dict):
                 return False

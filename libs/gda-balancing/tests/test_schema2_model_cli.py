@@ -396,6 +396,46 @@ def test_model_check_reports_wire_decode_failure_at_parse(tmp_path, run_cli):
     assert error["diagnostics"][0]["code"] == "language.source_parse_failure"
 
 
+@pytest.mark.parametrize("anchor_key", [None, "A5" * 32, "a5" * 31, "not-hex"])
+def test_model_build_rejects_invalid_anchor_authentication_configuration_before_publication(
+    tmp_path, run_cli, monkeypatch, anchor_key
+):
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(_model_source()), encoding="utf-8")
+    out = tmp_path / "published-model"
+    store = tmp_path / "store"
+    monkeypatch.setenv("GDA_BALANCING_STORE_DIR", str(store))
+    if anchor_key is None:
+        monkeypatch.delenv("GDA_BALANCING_ANCHOR_KEY", raising=False)
+    else:
+        monkeypatch.setenv("GDA_BALANCING_ANCHOR_KEY", anchor_key)
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+
+    assert (exit_code, stdout) == (3, "")
+    error = json.loads(stderr)["error"]
+    assert error == {
+        "category": "usage",
+        "code": "invalid_argument",
+        "message": (
+            "GDA_BALANCING_ANCHOR_KEY must contain exactly 64 lowercase "
+            "hexadecimal digits"
+        ),
+    }
+    assert not out.exists()
+    assert not store.exists()
+
+
 def test_model_build_atomically_publishes_a_framed_typed_artifact_set(
     tmp_path, run_cli
 ):
@@ -1153,6 +1193,7 @@ def test_publication_anchor_fsync_covers_read_only_mode(tmp_path, monkeypatch):
             dict[str, JsonValue],
             {"content_identity": "sha256:" + "1" * 64},
         ),
+        bytes.fromhex(os.environ["GDA_BALANCING_ANCHOR_KEY"]),
     )
 
     assert observed == [("fchmod", 0o444), ("fsync", 0o444)]
@@ -1172,7 +1213,7 @@ def test_same_invocation_key_concurrent_writers_recover_one_committed_set(
     calls = 0
     calls_guard = threading.Lock()
 
-    def pause_first_anchor(path, artifact, **kwargs):
+    def pause_first_anchor(path, artifact, authentication_key, **kwargs):
         nonlocal calls
         with calls_guard:
             calls += 1
@@ -1180,7 +1221,7 @@ def test_same_invocation_key_concurrent_writers_recover_one_committed_set(
         if current == 1:
             entered_anchor.set()
             assert release_anchor.wait(timeout=10)
-        return real_write_anchor(path, artifact, **kwargs)
+        return real_write_anchor(path, artifact, authentication_key, **kwargs)
 
     monkeypatch.setattr(model_module, "_write_anchor_exclusive", pause_first_anchor)
     key = "6" * 64

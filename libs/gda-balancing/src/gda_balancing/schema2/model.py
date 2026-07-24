@@ -17,6 +17,7 @@ from typing import Any, Iterator, TypeAlias, cast
 import jsonschema
 
 from gda_balancing.envelope import UnreadableInputError, UsageError
+from gda_balancing.path_contracts import reject_input_aliasing
 from gda_balancing.descriptors import ArtifactSetMemberSpec
 from gda_balancing.schema2.authority import load_authorities
 from gda_balancing.schema2.bootstrap import BOOTSTRAP_REFUSAL_CATALOG, admit_authorities
@@ -48,16 +49,19 @@ def _normalized_absolute_path(value: str) -> Path:
     return path
 
 
-def _model_refusal_catalog() -> tuple[tuple[str, str], ...]:
-    """Project the post-admission catalog from the LDB; do not mirror it in host code."""
-    _, language_bundle = load_authorities()
+def _refusal_catalog(
+    language_bundle: dict[str, Any] | None = None,
+) -> tuple[tuple[str, str], ...]:
+    """Project the complete refusal catalog; do not mirror it in host code."""
+    if language_bundle is None:
+        _, language_bundle = load_authorities()
     return BOOTSTRAP_REFUSAL_CATALOG + tuple(
         (cast(str, item["code"]), cast(str, item["stage"]))
         for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
     )
 
 
-MODEL_REFUSAL_CATALOG = _model_refusal_catalog()
+MODEL_REFUSAL_CATALOG = _refusal_catalog()
 
 
 @dataclass(frozen=True)
@@ -139,10 +143,7 @@ def _refusal(
     message: str,
     language_bundle: dict[str, Any],
 ) -> Schema2RefusalReport:
-    catalog = BOOTSTRAP_REFUSAL_CATALOG + tuple(
-        (cast(str, item["code"]), cast(str, item["stage"]))
-        for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
-    )
+    catalog = _refusal_catalog(language_bundle)
     stage = dict(catalog)[code]
     return Schema2RefusalReport(
         stage=cast(Any, stage),
@@ -161,10 +162,7 @@ def _bounded_refusal(
     diagnostics: Iterable[Schema2Diagnostic],
     language_bundle: dict[str, Any],
 ) -> Schema2RefusalReport | None:
-    catalog = BOOTSTRAP_REFUSAL_CATALOG + tuple(
-        (cast(str, item["code"]), cast(str, item["stage"]))
-        for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
-    )
+    catalog = _refusal_catalog(language_bundle)
     stages = dict(catalog)
     unique: dict[
         tuple[str, ArtifactLocation, tuple[ArtifactLocation, ...]], Schema2Diagnostic
@@ -1989,30 +1987,8 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
             "diagnostics": [],
         },
     )
-    capability_manifest = _identified_artifact(
-        checked.language_bundle,
-        "capability-manifest",
-        {
-            "resolved_model_identity": resolved["content_identity"],
-            "package_lock_identity": lock["content_identity"],
-            "rir_identity": rir["content_identity"],
-            "packages": [
-                {
-                    "id": item["id"],
-                    "version": item["version"],
-                    "content_identity": item["content_identity"],
-                }
-                for item in cast(list[dict[str, str]], lock["packages"])
-            ],
-            "capability_bindings": cast(JsonValue, lock["capability_bindings"]),
-            "types": cast(JsonValue, lock["types"]),
-            "components": cast(JsonValue, lock["components"]),
-            "conversions": cast(JsonValue, lock["conversions"]),
-            "operations": cast(JsonValue, lock["operations"]),
-            "numeric_profiles": cast(JsonValue, lock["numeric_profiles"]),
-            "runtime_profiles": cast(JsonValue, lock["runtime_profiles"]),
-            "language_rules": cast(JsonValue, lock["language_rules"]),
-        },
+    capability_manifest = _capability_manifest(
+        lock, rir, resolved, checked.language_bundle
     )
     build_receipt = _identified_artifact(
         checked.language_bundle,
@@ -2115,7 +2091,7 @@ def _assert_directory_without_symlink(path: Path) -> None:
         raise RuntimeError(f"publication path is not a directory: {path}")
 
 
-def _expected_capability_manifest(
+def _capability_manifest(
     lock: dict[str, Any],
     rir: dict[str, Any],
     resolved: dict[str, Any],
@@ -2190,17 +2166,19 @@ def _anchor_authentication_key() -> bytes:
         or encoded.lower() != encoded
         or any(character not in "0123456789abcdef" for character in encoded)
     ):
-        raise RuntimeError(
-            f"{_ANCHOR_KEY_ENV} must contain exactly 64 lowercase hexadecimal digits"
+        raise UsageError(
+            "invalid_argument",
+            f"{_ANCHOR_KEY_ENV} must contain exactly 64 lowercase hexadecimal digits",
         )
     return bytes.fromhex(encoded)
 
 
 def _authenticated_anchor(
     index: dict[str, JsonValue],
+    authentication_key: bytes,
 ) -> dict[str, JsonValue]:
     authentication = hmac.new(
-        _anchor_authentication_key(),
+        authentication_key,
         canonical_bytes(cast(JsonValue, index)),
         hashlib.sha256,
     ).hexdigest()
@@ -2212,7 +2190,7 @@ def _authenticated_anchor(
     }
 
 
-def _verified_anchor(path: Path) -> dict[str, Any]:
+def _verified_anchor(path: Path, authentication_key: bytes) -> dict[str, Any]:
     envelope = _read_canonical_artifact(path)
     if set(envelope) != {
         "anchor_kind",
@@ -2231,7 +2209,7 @@ def _verified_anchor(path: Path) -> dict[str, Any]:
     ):
         raise RuntimeError("committed publication anchor envelope is malformed")
     expected = hmac.new(
-        _anchor_authentication_key(),
+        authentication_key,
         canonical_bytes(cast(JsonValue, index)),
         hashlib.sha256,
     ).hexdigest()
@@ -2243,10 +2221,13 @@ def _verified_anchor(path: Path) -> dict[str, Any]:
 def _write_anchor_exclusive(
     path: Path,
     artifact: dict[str, JsonValue],
+    authentication_key: bytes,
     *,
     before_commit: bool = False,
 ) -> None:
-    data = canonical_bytes(cast(JsonValue, _authenticated_anchor(artifact)))
+    data = canonical_bytes(
+        cast(JsonValue, _authenticated_anchor(artifact, authentication_key))
+    )
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{path.name}.", dir=path.parent
     )
@@ -2378,8 +2359,10 @@ def _recover_publication(
     descriptor_identity: str,
     command_input_identity: str,
     source_identity: str,
+    kernel: dict[str, Any],
     language_bundle: dict[str, Any],
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    authentication_key: bytes,
 ) -> dict[str, JsonValue]:
     member_files = {
         member.logical_name: f"{member.logical_name}.json" for member in artifact_set
@@ -2400,7 +2383,7 @@ def _recover_publication(
         or stat.S_IMODE(anchor_metadata.st_mode) & 0o222
     ):
         raise RuntimeError("committed publication anchor trust boundary is invalid")
-    anchor = _verified_anchor(anchor_path)
+    anchor = _verified_anchor(anchor_path, authentication_key)
     index = _read_canonical_artifact(invocation_path / "publication-index.json")
     if not _verify_artifact(index, language_bundle) or index != anchor:
         raise RuntimeError("committed publication index identity is invalid")
@@ -2482,7 +2465,7 @@ def _recover_publication(
     lock = artifacts["package-lock"]
     rir = artifacts["rir-semantic-payload"]
     resolved = artifacts["resolved-model"]
-    if artifacts["capability-manifest"] != _expected_capability_manifest(
+    if artifacts["capability-manifest"] != _capability_manifest(
         lock, rir, resolved, language_bundle
     ):
         raise RuntimeError("committed Capability manifest is not an exact projection")
@@ -2493,10 +2476,11 @@ def _recover_publication(
     profile = _resolution_profile(
         language_bundle, cast(str, lowering["resolution_profile"])
     )
+    kernel_identity = kernel["content_identity"]
     expected_build_bindings = {
         "compiler": _LOWERER_IMPLEMENTATION_IDENTITY,
         "source_identity": source_identity,
-        "kernel_identity": load_authorities()[0]["content_identity"],
+        "kernel_identity": kernel_identity,
         "language_bundle_identity": language_bundle["content_identity"],
         "package_lock_identity": lock["content_identity"],
         "rir_identity": rir["content_identity"],
@@ -2518,8 +2502,7 @@ def _recover_publication(
         or resolution_receipt.get("resolver") != _RESOLVER_IMPLEMENTATION_IDENTITY
         or resolution_receipt.get("resolution_profile") != profile["id"]
         or resolution_receipt.get("source_identity") != source_identity
-        or resolution_receipt.get("kernel_identity")
-        != load_authorities()[0]["content_identity"]
+        or resolution_receipt.get("kernel_identity") != kernel_identity
         or resolution_receipt.get("language_bundle_identity")
         != language_bundle["content_identity"]
         or resolution_receipt.get("package_lock_identity") != lock["content_identity"]
@@ -2540,6 +2523,7 @@ def publish_model_artifacts(
     publication_fault: str | None = None,
 ) -> dict[str, JsonValue]:
     """Serialize one invocation key before inspecting or changing its publication."""
+    authentication_key = _anchor_authentication_key()
     lock_path = _store_lock_path(descriptor_identity, invocation_key)
     _ensure_directory_chain(lock_path.parent)
     if lock_path.is_symlink():
@@ -2554,6 +2538,7 @@ def publish_model_artifacts(
             invocation_key,
             descriptor_identity,
             artifact_set,
+            authentication_key,
             publication_fault,
         )
 
@@ -2565,14 +2550,12 @@ def _publish_model_artifacts_locked(
     invocation_key: str,
     descriptor_identity: str,
     artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    authentication_key: bytes,
     publication_fault: str | None = None,
 ) -> dict[str, JsonValue]:
     """Atomically publish one complete build set while its invocation lock is held."""
     out_path = _normalized_absolute_path(out)
-    if os.path.realpath(source_path) == os.path.realpath(out_path):
-        raise UsageError(
-            "argument_conflict", "--out must not resolve to the input path"
-        )
+    reject_input_aliasing(out_path, source_path)
     invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
     anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
     if (
@@ -2617,8 +2600,10 @@ def _publish_model_artifacts_locked(
             descriptor_identity,
             command_input_identity,
             checked.source_identity,
+            checked.kernel,
             checked.language_bundle,
             artifact_set,
+            authentication_key,
         )
     if out_path.exists():
         raise UsageError("unwritable_output", f"output already exists: {out_path}")
@@ -2752,6 +2737,7 @@ def _publish_model_artifacts_locked(
         _write_anchor_exclusive(
             anchor_path,
             index,
+            authentication_key,
             before_commit=publication_fault == "before-anchor-commit",
         )
         anchored = True

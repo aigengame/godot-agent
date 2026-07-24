@@ -43,6 +43,7 @@ from gda_balancing.envelope import (
     refusal_envelope,
     usage_envelope,
 )
+from gda_balancing.path_contracts import reject_input_aliasing
 from gda_balancing.schema2.diagnostics import (
     Schema2RefusalReport,
     refusal_envelope as schema2_refusal_envelope,
@@ -250,10 +251,10 @@ def _bind(
     model values and the ``--out`` sink path (``None`` when absent).
 
     Every option is valued (``--name value`` or ``--name=value``); no v1 input
-    model declares a boolean flag. ``--debug`` is the dispatch-owned global flag
-    and ``--out`` the dispatch-owned artifact sink (bADR-0009) — both are read
-    here, never bound as model fields. ``--out`` is accepted only for an
-    ``artifact_sink`` command; anywhere else it is an unknown argument.
+    model declares a boolean flag. ``--debug`` is dispatch-owned. For a legacy
+    ``artifact_sink`` command, ``--out`` is also dispatch-owned and returned
+    separately; for an ``artifact_set`` command it is an ordinary descriptor
+    input field and is bound through ``option_bindings``.
     """
     structured = _structured_params(descriptor, tail, stdin)
     if structured is not None:
@@ -313,7 +314,7 @@ def _bind(
         values[descriptor.positional_field] = positionals[0]
 
     if out is not None and descriptor.positional_field is not None:
-        _reject_input_aliasing(out, values.get(descriptor.positional_field))
+        reject_input_aliasing(out, values.get(descriptor.positional_field))
     return values, out
 
 
@@ -372,26 +373,6 @@ def _structured_params(
     if not isinstance(value, dict):
         raise _UsageError("invalid_argument", "--params-json must contain an object")
     return value
-
-
-def _reject_input_aliasing(out: str, input_path: str | None) -> None:
-    """No command writes to its input path (bADR-0009): an ``--out`` resolving
-    to the input document — directly or through a symlink alias — is a usage
-    `argument_conflict`.
-
-    The guard treats the positional as an *input path* only when it names an
-    existing filesystem entry: a command whose positional is a read document
-    (``design format``) always has one, while a command whose positional is an
-    enum name (such as ``schema get``'s artifact selector) has no input file to
-    alias, so it is exempt. ``realpath`` resolves symlinks on both sides, so the
-    check catches an aliased sink as well as a directly-named one.
-    """
-    if input_path is None or not os.path.exists(input_path):
-        return
-    if os.path.realpath(out) == os.path.realpath(input_path):
-        raise _UsageError(
-            "argument_conflict", "--out must not resolve to the input path"
-        )
 
 
 def _write_artifact(descriptor: CommandDescriptor, out: str, body: str) -> BaseModel:
