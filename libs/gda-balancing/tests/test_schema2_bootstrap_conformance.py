@@ -2580,7 +2580,8 @@ def _consumer_b_template_admission_is_closed(
             return (
                 isinstance(value, dict)
                 and set(value) == {"name", "path", "root"}
-                and value.get("root") in roots
+                and isinstance(value.get("root"), str)
+                and value["root"] in roots
                 and isinstance(value.get("name"), str)
                 and isinstance(value.get("path"), list)
                 and all(isinstance(part, str) and part for part in value["path"])
@@ -2624,7 +2625,8 @@ def _consumer_b_template_admission_is_closed(
                 and all(
                     isinstance(binding, dict)
                     and set(binding) == {"result", "source"}
-                    and binding.get("source") in result_members
+                    and isinstance(binding.get("source"), str)
+                    and binding["source"] in result_members
                     and isinstance(binding.get("result"), str)
                     and bool(binding["result"])
                     and binding["result"] not in produced
@@ -4593,15 +4595,29 @@ def test_two_consumers_refuse_an_incomplete_template_primitive_spec(
     )
 
 
-def test_two_consumers_execute_template_primitive_argument_types():
+@pytest.mark.parametrize(
+    "mutation",
+    ("empty-non-empty-string", "selector-root-list", "binding-source-list"),
+)
+def test_two_consumers_execute_template_primitive_argument_types(mutation):
     authority = authority_set()
     ldb = authority["language_bundle"]
-    judgment = next(
-        row
-        for row in ldb["language"]["template_admission_profiles"][0]["judgments"]
-        if row["id"] == "template.metric-target-interval"
-    )
-    judgment["arguments"]["minimum_member"] = ""
+    judgments = ldb["language"]["template_admission_profiles"][0]["judgments"]
+    if mutation == "empty-non-empty-string":
+        judgment = next(
+            row for row in judgments if row["id"] == "template.metric-target-interval"
+        )
+        judgment["arguments"]["minimum_member"] = ""
+    elif mutation == "selector-root-list":
+        judgment = next(
+            row for row in judgments if row["id"] == "template.derive-source-identity"
+        )
+        judgment["arguments"]["selector"]["root"] = []
+    else:
+        judgment = next(
+            row for row in judgments if row["id"] == "template.admit-source"
+        )
+        judgment["arguments"]["fact_bindings"][0]["source"] = []
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
     first = _consumer_a(authority["kernel"], ldb)

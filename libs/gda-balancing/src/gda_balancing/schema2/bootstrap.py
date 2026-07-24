@@ -2512,7 +2512,8 @@ def _template_selector_is_closed(
     if (
         not isinstance(value, dict)
         or set(value) != {"root", "name", "path"}
-        or value.get("root") not in roots
+        or not isinstance(value.get("root"), str)
+        or value["root"] not in roots
         or not isinstance(value.get("name"), str)
         or not isinstance(value.get("path"), list)
         or not all(isinstance(part, str) and part for part in value["path"])
@@ -2574,31 +2575,18 @@ def _template_primitive_argument_is_closed(
         return (
             isinstance(value, list)
             and (contract.get("cardinality") != "one-or-more" or bool(value))
-            and len(
-                {
-                    binding.get("source")
-                    for binding in value
-                    if isinstance(binding, dict)
-                }
-            )
-            == len(value)
-            and len(
-                {
-                    binding.get("result")
-                    for binding in value
-                    if isinstance(binding, dict)
-                }
-            )
-            == len(value)
             and all(
                 isinstance(binding, dict)
                 and set(binding) == {"result", "source"}
-                and binding.get("source") in result_members
+                and isinstance(binding.get("source"), str)
+                and binding["source"] in result_members
                 and isinstance(binding.get("result"), str)
                 and bool(binding["result"])
                 and binding["result"] not in produced_derived
                 for binding in value
             )
+            and len({binding["source"] for binding in value}) == len(value)
+            and len({binding["result"] for binding in value}) == len(value)
         )
     if kind == "enum":
         return value in contract.get("values", [])

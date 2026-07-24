@@ -656,7 +656,8 @@ def _template_argument_is_typed(
         return (
             isinstance(value, dict)
             and set(value) == {"root", "name", "path"}
-            and value.get("root") in admitted_roots
+            and isinstance(value.get("root"), str)
+            and value["root"] in admitted_roots
             and isinstance(value.get("name"), str)
             and isinstance(value.get("path"), list)
             and all(isinstance(part, str) and part for part in value["path"])
@@ -705,7 +706,8 @@ def _template_argument_is_typed(
             and all(
                 isinstance(binding, dict)
                 and set(binding) == {"result", "source"}
-                and binding.get("source") in result_members
+                and isinstance(binding.get("source"), str)
+                and binding["source"] in result_members
                 and isinstance(binding.get("result"), str)
                 and bool(binding["result"])
                 and binding["result"] not in state.derived
