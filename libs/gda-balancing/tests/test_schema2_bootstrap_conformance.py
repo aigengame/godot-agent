@@ -13,6 +13,7 @@ from typing import Any
 import jsonschema
 import pytest
 
+import gda_balancing.schema2.bootstrap as production_bootstrap
 from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
@@ -2243,6 +2244,24 @@ def _consumer_b_template_admission_is_closed(
         return False
     assert isinstance(role_contract, dict)
     role_cardinalities = role_contract["cardinalities"]
+    expected_argument_types = [
+        {"id": "selector", "kind": "selector"},
+        {"id": "selector-list", "item": "selector", "kind": "non-empty-list"},
+        {"id": "role", "kind": "role-name"},
+        {"empty": True, "id": "path", "kind": "string-list"},
+        {"empty": False, "id": "non-empty-string", "kind": "string"},
+        {"fresh": True, "id": "fresh-derived-name", "kind": "derived-name"},
+        {
+            "cardinality": "one-or-more",
+            "id": "fact-bindings",
+            "kind": "model-fact-bindings",
+        },
+        {"id": "relation", "kind": "enum", "values": ["equal", "subset"]},
+        {"id": "outcome", "kind": "enum", "values": ["admitted", "refused"]},
+        {"id": "json-value", "kind": "canonical-json"},
+    ]
+    if primitive_spec["argument_types"] != expected_argument_types:
+        return False
     argument_types = {
         row.get("id"): row
         for row in primitive_spec["argument_types"]
@@ -2266,107 +2285,138 @@ def _consumer_b_template_admission_is_closed(
     ):
         return False
     charge_events = {row["event"] for row in accounting["charge_rules"]}
-    expected_evaluation_members = {
+    expected_evaluations = {
         "content-identity": {
-            "kind",
-            "selector",
-            "selection_cardinality",
-            "domain",
-            "result",
-            "canonical_encoding",
+            "kind": "content-identity",
+            "selector": "selector",
+            "selection_cardinality": "exactly-one",
+            "domain": "identity_domain",
+            "result": "result",
+            "canonical_encoding": "kernel.canonical_encoding",
         },
-        "concatenate-selections": {"kind", "selectors", "order", "result"},
+        "concatenate-selections": {
+            "kind": "concatenate-selections",
+            "selectors": "selectors",
+            "order": "selector-order-then-member-order",
+            "result": "result",
+        },
         "model-source-admission": {
-            "kind",
-            "role",
-            "role_cardinality",
-            "authority",
-            "bindings",
+            "kind": "model-source-admission",
+            "role": "role",
+            "role_cardinality": "exactly-one",
+            "authority": "exact-caller-pair",
+            "bindings": "fact_bindings",
         },
         "canonical-unique": {
-            "kind",
-            "selector",
-            "selection_cardinality",
-            "equality",
+            "kind": "canonical-unique",
+            "selector": "selector",
+            "selection_cardinality": "one-or-more",
+            "equality": "kernel-canonical-bytes",
         },
         "canonical-inventory": {
-            "kind",
-            "selector",
-            "selection_cardinality",
-            "inventory",
-            "relation",
-            "equality",
+            "kind": "canonical-inventory",
+            "selector": "selector",
+            "selection_cardinality": "one-or-more",
+            "inventory": "inventory",
+            "relation": "subset",
+            "equality": "kernel-canonical-bytes",
         },
         "canonical-set-relation": {
-            "kind",
-            "left",
-            "right",
-            "relation",
-            "relations",
-            "equality",
+            "kind": "canonical-set-relation",
+            "left": "left",
+            "right": "right",
+            "relation": "relation",
+            "relations": ["equal", "subset"],
+            "equality": "kernel-canonical-bytes",
         },
         "canonical-scoped-relation": {
-            "kind",
-            "source",
-            "source_scope_path",
-            "source_values_path",
-            "target",
-            "target_scope_path",
-            "target_values_path",
-            "row_scope_cardinality",
-            "row_values_cardinality",
-            "relation",
-            "relations",
-            "equality",
+            "kind": "canonical-scoped-relation",
+            "source": "source",
+            "source_scope_path": "source_scope_path",
+            "source_values_path": "source_values_path",
+            "target": "target",
+            "target_scope_path": "target_scope_path",
+            "target_values_path": "target_values_path",
+            "row_scope_cardinality": "exactly-one",
+            "row_values_cardinality": "one-or-more",
+            "relation": "relation",
+            "relations": ["equal", "subset"],
+            "equality": "kernel-canonical-bytes",
         },
         "canonical-scoped-unique": {
-            "kind",
-            "selector",
-            "scope_path",
-            "values_path",
-            "row_scope_cardinality",
-            "row_values_cardinality",
-            "equality",
+            "kind": "canonical-scoped-unique",
+            "selector": "selector",
+            "scope_path": "scope_path",
+            "values_path": "values_path",
+            "row_scope_cardinality": "exactly-one",
+            "row_values_cardinality": "one-or-more",
+            "equality": "kernel-canonical-bytes",
         },
         "closed-int64-interval": {
-            "kind",
-            "selector",
-            "selection_cardinality",
-            "minimum_member",
-            "maximum_member",
-            "integer_domain",
+            "kind": "closed-int64-interval",
+            "selector": "selector",
+            "selection_cardinality": "one-or-more",
+            "minimum_member": "minimum_member",
+            "maximum_member": "maximum_member",
+            "integer_domain": "signed-int64-excluding-boolean",
         },
         "closed-int64-interval-join": {
-            "kind",
-            "source",
-            "source_key_path",
-            "source_value_path",
-            "target",
-            "target_key_path",
-            "target_interval_path",
-            "target_key_cardinality",
-            "target_interval_cardinality",
-            "source_key_cardinality",
-            "source_value_cardinality",
-            "minimum_member",
-            "maximum_member",
-            "integer_domain",
-            "key_equality",
+            "kind": "closed-int64-interval-join",
+            "source": "source",
+            "source_key_path": "source_key_path",
+            "source_value_path": "source_value_path",
+            "target": "target",
+            "target_key_path": "target_key_path",
+            "target_interval_path": "target_interval_path",
+            "target_key_cardinality": "exactly-one",
+            "target_interval_cardinality": "exactly-one",
+            "source_key_cardinality": "exactly-one",
+            "source_value_cardinality": "exactly-one",
+            "minimum_member": "minimum_member",
+            "maximum_member": "maximum_member",
+            "integer_domain": "signed-int64-excluding-boolean",
+            "key_equality": "kernel-canonical-bytes",
         },
         "model-source-vector": {
-            "kind",
-            "role",
-            "pointer_path",
-            "value_path",
-            "outcome",
-            "diagnostic_path",
-            "expected_path",
-            "expected_value",
-            "pointer_encoding",
-            "mutation",
-            "admission",
-            "refused_diagnostic_cardinality",
+            "kind": "model-source-vector",
+            "role": "role",
+            "pointer_path": "pointer_path",
+            "value_path": "value_path",
+            "outcome": "outcome",
+            "diagnostic_path": "diagnostic_path",
+            "expected_path": "expected_path",
+            "expected_value": "expected_value",
+            "pointer_encoding": "RFC6901-existing-target",
+            "mutation": "deep-copy-single-replacement",
+            "admission": "exact-caller-pair",
+            "refused_diagnostic_cardinality": "exactly-one",
         },
+    }
+    expected_effects = {
+        "content-identity": "bind-derived",
+        "concatenate-selections": "bind-derived",
+        "model-source-admission": "bind-model-facts",
+        "canonical-unique": "preserve-graph",
+        "canonical-inventory": "preserve-graph",
+        "canonical-set-relation": "preserve-graph",
+        "canonical-scoped-relation": "preserve-graph",
+        "canonical-scoped-unique": "preserve-graph",
+        "closed-int64-interval": "preserve-graph",
+        "closed-int64-interval-join": "preserve-graph",
+        "model-source-vector": "preserve-graph",
+    }
+    expected_charges = {
+        "content-identity": ["judgment", "selected-value"],
+        "concatenate-selections": ["judgment", "selected-value"],
+        "model-source-admission": ["judgment"],
+        "canonical-unique": ["judgment", "selected-value"],
+        "canonical-inventory": ["judgment", "selected-value"],
+        "canonical-set-relation": ["judgment", "selected-value"],
+        "canonical-scoped-relation": ["judgment", "selected-value", "scoped-row"],
+        "canonical-scoped-unique": ["judgment", "selected-value", "scoped-row"],
+        "closed-int64-interval": ["judgment", "selected-value"],
+        "closed-int64-interval-join": ["judgment", "selected-value"],
+        "model-source-vector": ["judgment", "selected-value", "vector-execution"],
     }
     primitives: dict[str, dict[str, Any]] = {}
     found_kinds: set[str] = set()
@@ -2389,8 +2439,8 @@ def _consumer_b_template_admission_is_closed(
             or primitive_id in primitives
             or set(primitive) not in (base_members, base_members | {"result_members"})
             or not isinstance(evaluation, dict)
-            or evaluation.get("kind") not in expected_evaluation_members
-            or set(evaluation) != expected_evaluation_members[evaluation["kind"]]
+            or evaluation.get("kind") not in expected_evaluations
+            or evaluation != expected_evaluations[evaluation["kind"]]
             or evaluation["kind"] in found_kinds
             or not isinstance(primitive.get("argument_members"), list)
             or not primitive["argument_members"]
@@ -2404,11 +2454,18 @@ def _consumer_b_template_admission_is_closed(
             or not isinstance(primitive.get("charges"), list)
             or "judgment" not in primitive["charges"]
             or not set(primitive["charges"]) <= charge_events
+            or primitive.get("result_effect") != expected_effects[evaluation["kind"]]
+            or primitive["charges"] != expected_charges[evaluation["kind"]]
+            or (
+                evaluation["kind"] == "model-source-admission"
+                and primitive.get("result_members")
+                != ["root_requirements", "resolved_packages", "source_symbols"]
+            )
         ):
             return False
         primitives[primitive_id] = primitive
         found_kinds.add(evaluation["kind"])
-    if found_kinds != set(expected_evaluation_members):
+    if found_kinds != set(expected_evaluations):
         return False
     operations: dict[str, dict[str, Any]] = {}
     for row in operation_rows:
@@ -2511,6 +2568,81 @@ def _consumer_b_template_admission_is_closed(
     produced: set[str] = set()
     selector_members = {"inventory", "left", "right", "selector", "source", "target"}
     roots = set(selector["roots"])
+
+    def argument_is_typed(
+        value: Any,
+        contract: dict[str, Any],
+        *,
+        result_members: set[str],
+    ) -> bool:
+        kind = contract["kind"]
+        if kind == "selector":
+            return (
+                isinstance(value, dict)
+                and set(value) == {"name", "path", "root"}
+                and value.get("root") in roots
+                and isinstance(value.get("name"), str)
+                and isinstance(value.get("path"), list)
+                and all(isinstance(part, str) and part for part in value["path"])
+                and (value["root"] != "role" or value["name"] in role_names)
+            )
+        if kind == "non-empty-list":
+            item_contract = argument_types.get(contract.get("item"))
+            return (
+                isinstance(value, list)
+                and bool(value)
+                and item_contract is not None
+                and all(
+                    argument_is_typed(
+                        item, item_contract, result_members=result_members
+                    )
+                    for item in value
+                )
+            )
+        if kind == "role-name":
+            return isinstance(value, str) and value in role_names
+        if kind == "string-list":
+            return (
+                isinstance(value, list)
+                and (contract.get("empty") is True or bool(value))
+                and all(isinstance(part, str) and part for part in value)
+            )
+        if kind == "string":
+            return isinstance(value, str) and (
+                contract.get("empty") is True or bool(value)
+            )
+        if kind == "derived-name":
+            return (
+                isinstance(value, str)
+                and bool(value)
+                and (contract.get("fresh") is not True or value not in produced)
+            )
+        if kind == "model-fact-bindings":
+            return (
+                isinstance(value, list)
+                and (contract.get("cardinality") != "one-or-more" or bool(value))
+                and all(
+                    isinstance(binding, dict)
+                    and set(binding) == {"result", "source"}
+                    and binding.get("source") in result_members
+                    and isinstance(binding.get("result"), str)
+                    and bool(binding["result"])
+                    and binding["result"] not in produced
+                    for binding in value
+                )
+                and len({binding["source"] for binding in value}) == len(value)
+                and len({binding["result"] for binding in value}) == len(value)
+            )
+        if kind == "enum":
+            return value in contract.get("values", [])
+        if kind == "canonical-json":
+            try:
+                _encoded(value)
+            except (TypeError, ValueError, UnicodeEncodeError):
+                return False
+            return True
+        return False
+
     for judgment in judgments:
         if (
             not isinstance(judgment, dict)
@@ -2525,7 +2657,14 @@ def _consumer_b_template_admission_is_closed(
         arguments = judgment["arguments"]
         law = operations[judgment["operation"]]["law"]
         primitive = primitives[law["primitive"]]
-        if set(arguments) != set(primitive["argument_members"]):
+        if set(arguments) != set(primitive["argument_members"]) or any(
+            not argument_is_typed(
+                arguments[name],
+                argument_types[type_id],
+                result_members=set(primitive.get("result_members", [])),
+            )
+            for name, type_id in primitive["argument_types"].items()
+        ):
             return False
         selected: list[dict[str, Any]] = []
         for name, value in arguments.items():
@@ -4404,9 +4543,16 @@ def test_two_consumers_refuse_an_incomplete_template_admission_profile(member):
         "unknown-argument-type",
         "missing-charge",
         "unknown-operation-primitive",
+        "semantic-value",
+        "wrong-result-effect",
+        "wrong-failure",
+        "wrong-charge-law",
+        "argument-type-law",
     ),
 )
-def test_two_consumers_refuse_an_incomplete_template_primitive_spec(mutation):
+def test_two_consumers_refuse_an_incomplete_template_primitive_spec(
+    mutation, monkeypatch
+):
     authority = authority_set()
     kernel = authority["kernel"]
     primitive_spec = kernel["meta_format"]["template_admission"]["primitive_spec"]
@@ -4416,14 +4562,50 @@ def test_two_consumers_refuse_an_incomplete_template_primitive_spec(mutation):
         primitive_spec["primitives"][0]["argument_types"]["selector"] = "host-object"
     elif mutation == "missing-charge":
         primitive_spec["primitives"][0]["charges"].remove("judgment")
-    else:
+    elif mutation == "unknown-operation-primitive":
         kernel["meta_format"]["template_admission"]["operations"][0]["law"][
             "primitive"
         ] = "host-only"
+    elif mutation == "semantic-value":
+        primitive_spec["primitives"][0]["evaluation"]["canonical_encoding"] = "host.foo"
+    elif mutation == "wrong-result-effect":
+        primitive_spec["primitives"][0]["result_effect"] = "preserve-graph"
+    elif mutation == "wrong-failure":
+        primitive_spec["primitives"][0]["failure"]["short_circuit"] = False
+    elif mutation == "wrong-charge-law":
+        primitive_spec["primitives"][0]["charges"] = ["judgment"]
+    else:
+        primitive_spec["argument_types"][4]["empty"] = True
     _reidentify(kernel, authority["language_bundle"])
+    kernel_identity = kernel["content_identity"]
+    monkeypatch.setattr(
+        production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel_identity
+    )
+    monkeypatch.setitem(globals(), "_SUPPORTED_KERNEL_IDENTITY", kernel_identity)
 
     first = _consumer_a(kernel, authority["language_bundle"])
     second = _consumer_b(kernel, authority["language_bundle"])
+
+    assert first == second
+    assert first["admitted"] is False
+    assert not _consumer_b_template_admission_is_closed(
+        kernel["meta_format"], authority["language_bundle"]
+    )
+
+
+def test_two_consumers_execute_template_primitive_argument_types():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    judgment = next(
+        row
+        for row in ldb["language"]["template_admission_profiles"][0]["judgments"]
+        if row["id"] == "template.metric-target-interval"
+    )
+    judgment["arguments"]["minimum_member"] = ""
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["admitted"] is False

@@ -2521,6 +2521,128 @@ def _template_selector_is_closed(
     return value["root"] != "role" or value["name"] in roles
 
 
+def _template_primitive_argument_is_closed(
+    value: Any,
+    contract: dict[str, Any],
+    *,
+    argument_types: dict[str, dict[str, Any]],
+    roots: set[str],
+    roles: set[str],
+    produced_derived: set[str],
+    result_members: set[str],
+) -> bool:
+    kind = contract["kind"]
+    if kind == "selector":
+        return _template_selector_is_closed(value, roots, roles)
+    if kind == "non-empty-list":
+        item = contract.get("item")
+        item_contract = argument_types.get(item) if isinstance(item, str) else None
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and item_contract is not None
+            and all(
+                _template_primitive_argument_is_closed(
+                    item,
+                    item_contract,
+                    argument_types=argument_types,
+                    roots=roots,
+                    roles=roles,
+                    produced_derived=produced_derived,
+                    result_members=result_members,
+                )
+                for item in value
+            )
+        )
+    if kind == "role-name":
+        return isinstance(value, str) and value in roles
+    if kind == "string-list":
+        return (
+            isinstance(value, list)
+            and (contract.get("empty") is True or bool(value))
+            and all(isinstance(part, str) and part for part in value)
+        )
+    if kind == "string":
+        return isinstance(value, str) and (contract.get("empty") is True or bool(value))
+    if kind == "derived-name":
+        return (
+            isinstance(value, str)
+            and bool(value)
+            and (contract.get("fresh") is not True or value not in produced_derived)
+        )
+    if kind == "model-fact-bindings":
+        return (
+            isinstance(value, list)
+            and (contract.get("cardinality") != "one-or-more" or bool(value))
+            and len(
+                {
+                    binding.get("source")
+                    for binding in value
+                    if isinstance(binding, dict)
+                }
+            )
+            == len(value)
+            and len(
+                {
+                    binding.get("result")
+                    for binding in value
+                    if isinstance(binding, dict)
+                }
+            )
+            == len(value)
+            and all(
+                isinstance(binding, dict)
+                and set(binding) == {"result", "source"}
+                and binding.get("source") in result_members
+                and isinstance(binding.get("result"), str)
+                and bool(binding["result"])
+                and binding["result"] not in produced_derived
+                for binding in value
+            )
+        )
+    if kind == "enum":
+        return value in contract.get("values", [])
+    if kind == "canonical-json":
+        try:
+            canonical_bytes(cast(JsonValue, value))
+        except (TypeError, ValueError, UnicodeEncodeError):
+            return False
+        return True
+    return False
+
+
+def _template_primitive_arguments_are_closed(
+    arguments: dict[str, Any],
+    primitive: dict[str, Any],
+    argument_types: dict[str, dict[str, Any]],
+    *,
+    roots: set[str],
+    roles: set[str],
+    produced_derived: set[str],
+) -> bool:
+    declared = primitive.get("argument_types")
+    result_members = primitive.get("result_members", [])
+    return (
+        isinstance(declared, dict)
+        and isinstance(result_members, list)
+        and set(arguments) == set(primitive.get("argument_members", []))
+        and all(
+            isinstance(type_id, str)
+            and type_id in argument_types
+            and _template_primitive_argument_is_closed(
+                arguments[name],
+                argument_types[type_id],
+                argument_types=argument_types,
+                roots=roots,
+                roles=roles,
+                produced_derived=produced_derived,
+                result_members=set(result_members),
+            )
+            for name, type_id in declared.items()
+        )
+    )
+
+
 def _template_primitive_evaluation_is_closed(
     primitive: dict[str, Any],
 ) -> bool:
@@ -2726,6 +2848,23 @@ def _template_admission_profiles_are_closed(
     ):
         return False
     argument_type_rows = cast(list[Any], primitive_spec["argument_types"])
+    if argument_type_rows != [
+        {"id": "selector", "kind": "selector"},
+        {"id": "selector-list", "item": "selector", "kind": "non-empty-list"},
+        {"id": "role", "kind": "role-name"},
+        {"empty": True, "id": "path", "kind": "string-list"},
+        {"empty": False, "id": "non-empty-string", "kind": "string"},
+        {"fresh": True, "id": "fresh-derived-name", "kind": "derived-name"},
+        {
+            "cardinality": "one-or-more",
+            "id": "fact-bindings",
+            "kind": "model-fact-bindings",
+        },
+        {"id": "relation", "kind": "enum", "values": ["equal", "subset"]},
+        {"id": "outcome", "kind": "enum", "values": ["admitted", "refused"]},
+        {"id": "json-value", "kind": "canonical-json"},
+    ]:
+        return False
     argument_types: dict[str, dict[str, Any]] = {}
     allowed_type_members = {
         "cardinality",
@@ -2765,6 +2904,32 @@ def _template_admission_profiles_are_closed(
     primitive_rows = cast(list[Any], primitive_spec["primitives"])
     primitives_by_id: dict[str, dict[str, Any]] = {}
     evaluation_kinds: set[str] = set()
+    expected_effects = {
+        "content-identity": "bind-derived",
+        "concatenate-selections": "bind-derived",
+        "model-source-admission": "bind-model-facts",
+        "canonical-unique": "preserve-graph",
+        "canonical-inventory": "preserve-graph",
+        "canonical-set-relation": "preserve-graph",
+        "canonical-scoped-relation": "preserve-graph",
+        "canonical-scoped-unique": "preserve-graph",
+        "closed-int64-interval": "preserve-graph",
+        "closed-int64-interval-join": "preserve-graph",
+        "model-source-vector": "preserve-graph",
+    }
+    expected_charges = {
+        "content-identity": ["judgment", "selected-value"],
+        "concatenate-selections": ["judgment", "selected-value"],
+        "model-source-admission": ["judgment"],
+        "canonical-unique": ["judgment", "selected-value"],
+        "canonical-inventory": ["judgment", "selected-value"],
+        "canonical-set-relation": ["judgment", "selected-value"],
+        "canonical-scoped-relation": ["judgment", "selected-value", "scoped-row"],
+        "canonical-scoped-unique": ["judgment", "selected-value", "scoped-row"],
+        "closed-int64-interval": ["judgment", "selected-value"],
+        "closed-int64-interval-join": ["judgment", "selected-value"],
+        "model-source-vector": ["judgment", "selected-value", "vector-execution"],
+    }
     for primitive in primitive_rows:
         if (
             not isinstance(primitive, dict)
@@ -2818,17 +2983,27 @@ def _template_admission_profiles_are_closed(
         ):
             return False
         result_members = primitive.get("result_members")
-        if (primitive["result_effect"] == "bind-model-facts") != (
-            result_members is not None
-        ) or (
-            result_members is not None
-            and (
-                not isinstance(result_members, list)
-                or not result_members
-                or len(result_members) != len(set(result_members))
-                or not all(
-                    isinstance(member, str) and member for member in result_members
+        evaluation_kind = primitive["evaluation"]["kind"]
+        if (
+            (primitive["result_effect"] == "bind-model-facts")
+            != (result_members is not None)
+            or (
+                result_members is not None
+                and (
+                    not isinstance(result_members, list)
+                    or not result_members
+                    or len(result_members) != len(set(result_members))
+                    or not all(
+                        isinstance(member, str) and member for member in result_members
+                    )
                 )
+            )
+            or primitive["result_effect"] != expected_effects.get(evaluation_kind)
+            or primitive["charges"] != expected_charges.get(evaluation_kind)
+            or (
+                evaluation_kind == "model-source-admission"
+                and result_members
+                != ["root_requirements", "resolved_packages", "source_symbols"]
             )
         ):
             return False
@@ -2966,7 +3141,14 @@ def _template_admission_profiles_are_closed(
         law = cast(dict[str, Any], operation["law"])
         primitive = primitives_by_id[law["primitive"]]
         arguments = cast(dict[str, Any], judgment["arguments"])
-        if set(arguments) != set(cast(list[str], primitive["argument_members"])):
+        if not _template_primitive_arguments_are_closed(
+            arguments,
+            primitive,
+            argument_types,
+            roots=roots,
+            roles=roles,
+            produced_derived=produced_derived,
+        ):
             return False
         selectors: list[dict[str, Any]] = []
         for name, value in arguments.items():

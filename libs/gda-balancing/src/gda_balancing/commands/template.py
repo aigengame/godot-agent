@@ -144,6 +144,126 @@ _TEMPLATE_MEMBER_SCHEMA_IDENTITIES = {
         "sha256:44f936f697540095b7587035ad4999366dbae29b140cbef8bd2d77b611428bb2"
     ),
 }
+_TEMPLATE_EXECUTION_LAWS: dict[str, dict[str, JsonValue]] = {
+    "content-identity": {
+        "kind": "content-identity",
+        "selector": "selector",
+        "selection_cardinality": "exactly-one",
+        "domain": "identity_domain",
+        "result": "result",
+        "canonical_encoding": "kernel.canonical_encoding",
+    },
+    "concatenate-selections": {
+        "kind": "concatenate-selections",
+        "selectors": "selectors",
+        "order": "selector-order-then-member-order",
+        "result": "result",
+    },
+    "model-source-admission": {
+        "kind": "model-source-admission",
+        "role": "role",
+        "role_cardinality": "exactly-one",
+        "authority": "exact-caller-pair",
+        "bindings": "fact_bindings",
+    },
+    "canonical-unique": {
+        "kind": "canonical-unique",
+        "selector": "selector",
+        "selection_cardinality": "one-or-more",
+        "equality": "kernel-canonical-bytes",
+    },
+    "canonical-inventory": {
+        "kind": "canonical-inventory",
+        "selector": "selector",
+        "selection_cardinality": "one-or-more",
+        "inventory": "inventory",
+        "relation": "subset",
+        "equality": "kernel-canonical-bytes",
+    },
+    "canonical-set-relation": {
+        "kind": "canonical-set-relation",
+        "left": "left",
+        "right": "right",
+        "relation": "relation",
+        "relations": ["equal", "subset"],
+        "equality": "kernel-canonical-bytes",
+    },
+    "canonical-scoped-relation": {
+        "kind": "canonical-scoped-relation",
+        "source": "source",
+        "source_scope_path": "source_scope_path",
+        "source_values_path": "source_values_path",
+        "target": "target",
+        "target_scope_path": "target_scope_path",
+        "target_values_path": "target_values_path",
+        "row_scope_cardinality": "exactly-one",
+        "row_values_cardinality": "one-or-more",
+        "relation": "relation",
+        "relations": ["equal", "subset"],
+        "equality": "kernel-canonical-bytes",
+    },
+    "canonical-scoped-unique": {
+        "kind": "canonical-scoped-unique",
+        "selector": "selector",
+        "scope_path": "scope_path",
+        "values_path": "values_path",
+        "row_scope_cardinality": "exactly-one",
+        "row_values_cardinality": "one-or-more",
+        "equality": "kernel-canonical-bytes",
+    },
+    "closed-int64-interval": {
+        "kind": "closed-int64-interval",
+        "selector": "selector",
+        "selection_cardinality": "one-or-more",
+        "minimum_member": "minimum_member",
+        "maximum_member": "maximum_member",
+        "integer_domain": "signed-int64-excluding-boolean",
+    },
+    "closed-int64-interval-join": {
+        "kind": "closed-int64-interval-join",
+        "source": "source",
+        "source_key_path": "source_key_path",
+        "source_value_path": "source_value_path",
+        "target": "target",
+        "target_key_path": "target_key_path",
+        "target_interval_path": "target_interval_path",
+        "target_key_cardinality": "exactly-one",
+        "target_interval_cardinality": "exactly-one",
+        "source_key_cardinality": "exactly-one",
+        "source_value_cardinality": "exactly-one",
+        "minimum_member": "minimum_member",
+        "maximum_member": "maximum_member",
+        "integer_domain": "signed-int64-excluding-boolean",
+        "key_equality": "kernel-canonical-bytes",
+    },
+    "model-source-vector": {
+        "kind": "model-source-vector",
+        "role": "role",
+        "pointer_path": "pointer_path",
+        "value_path": "value_path",
+        "outcome": "outcome",
+        "diagnostic_path": "diagnostic_path",
+        "expected_path": "expected_path",
+        "expected_value": "expected_value",
+        "pointer_encoding": "RFC6901-existing-target",
+        "mutation": "deep-copy-single-replacement",
+        "admission": "exact-caller-pair",
+        "refused_diagnostic_cardinality": "exactly-one",
+    },
+}
+_TEMPLATE_PRIMITIVE_CHARGES = {
+    "content-identity": ["judgment", "selected-value"],
+    "concatenate-selections": ["judgment", "selected-value"],
+    "model-source-admission": ["judgment"],
+    "canonical-unique": ["judgment", "selected-value"],
+    "canonical-inventory": ["judgment", "selected-value"],
+    "canonical-set-relation": ["judgment", "selected-value"],
+    "canonical-scoped-relation": ["judgment", "selected-value", "scoped-row"],
+    "canonical-scoped-unique": ["judgment", "selected-value", "scoped-row"],
+    "closed-int64-interval": ["judgment", "selected-value"],
+    "closed-int64-interval-join": ["judgment", "selected-value"],
+    "model-source-vector": ["judgment", "selected-value", "vector-execution"],
+}
 _TEMPLATE_INSTANTIATE_ARTIFACT_SET = (
     ArtifactSetMemberSpec(
         "model-source-package",
@@ -490,6 +610,151 @@ class _TemplateGraphState:
     derived: dict[str, JsonValue]
     source: dict[str, Any] | None = None
     checked_source: CheckedModel | None = None
+
+
+def _template_primitive_execution_is_supported(
+    primitive: dict[str, JsonValue],
+) -> bool:
+    evaluation = primitive.get("evaluation")
+    if not isinstance(evaluation, dict):
+        return False
+    kind = evaluation.get("kind")
+    expected_effect = (
+        "bind-derived"
+        if kind in {"content-identity", "concatenate-selections"}
+        else "bind-model-facts"
+        if kind == "model-source-admission"
+        else "preserve-graph"
+    )
+    return (
+        isinstance(kind, str)
+        and evaluation == _TEMPLATE_EXECUTION_LAWS.get(kind)
+        and primitive.get("result_effect") == expected_effect
+        and primitive.get("failure")
+        == {"mode": "judgment-diagnostic", "short_circuit": True}
+        and primitive.get("charges") == _TEMPLATE_PRIMITIVE_CHARGES.get(kind)
+        and (
+            kind != "model-source-admission"
+            or primitive.get("result_members")
+            == ["root_requirements", "resolved_packages", "source_symbols"]
+        )
+    )
+
+
+def _template_argument_is_typed(
+    value: Any,
+    contract: dict[str, JsonValue],
+    *,
+    argument_types: dict[str, dict[str, JsonValue]],
+    roles: dict[str, list[dict[str, JsonValue]]],
+    state: _TemplateGraphState,
+    admitted_roots: set[str],
+    result_members: set[str],
+) -> bool:
+    kind = contract["kind"]
+    if kind == "selector":
+        return (
+            isinstance(value, dict)
+            and set(value) == {"root", "name", "path"}
+            and value.get("root") in admitted_roots
+            and isinstance(value.get("name"), str)
+            and isinstance(value.get("path"), list)
+            and all(isinstance(part, str) and part for part in value["path"])
+            and (value["root"] != "role" or value["name"] in roles)
+            and (value["root"] != "derived" or value["name"] in state.derived)
+        )
+    if kind == "non-empty-list":
+        item_contract = argument_types.get(cast(str, contract.get("item")))
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and item_contract is not None
+            and all(
+                _template_argument_is_typed(
+                    item,
+                    item_contract,
+                    argument_types=argument_types,
+                    roles=roles,
+                    state=state,
+                    admitted_roots=admitted_roots,
+                    result_members=result_members,
+                )
+                for item in value
+            )
+        )
+    if kind == "role-name":
+        return isinstance(value, str) and value in roles
+    if kind == "string-list":
+        return (
+            isinstance(value, list)
+            and (contract.get("empty") is True or bool(value))
+            and all(isinstance(part, str) and part for part in value)
+        )
+    if kind == "string":
+        return isinstance(value, str) and (contract.get("empty") is True or bool(value))
+    if kind == "derived-name":
+        return (
+            isinstance(value, str)
+            and bool(value)
+            and (contract.get("fresh") is not True or value not in state.derived)
+        )
+    if kind == "model-fact-bindings":
+        return (
+            isinstance(value, list)
+            and (contract.get("cardinality") != "one-or-more" or bool(value))
+            and all(
+                isinstance(binding, dict)
+                and set(binding) == {"result", "source"}
+                and binding.get("source") in result_members
+                and isinstance(binding.get("result"), str)
+                and bool(binding["result"])
+                and binding["result"] not in state.derived
+                for binding in value
+            )
+            and len({binding["source"] for binding in value}) == len(value)
+            and len({binding["result"] for binding in value}) == len(value)
+        )
+    if kind == "enum":
+        return value in cast(list[JsonValue], contract.get("values", []))
+    if kind == "canonical-json":
+        try:
+            canonical_bytes(cast(JsonValue, value))
+        except (TypeError, ValueError, UnicodeEncodeError):
+            return False
+        return True
+    return False
+
+
+def _template_arguments_are_typed(
+    arguments: dict[str, JsonValue],
+    primitive: dict[str, JsonValue],
+    argument_types: dict[str, dict[str, JsonValue]],
+    *,
+    roles: dict[str, list[dict[str, JsonValue]]],
+    state: _TemplateGraphState,
+    admitted_roots: set[str],
+) -> bool:
+    declared = primitive.get("argument_types")
+    result_members = primitive.get("result_members", [])
+    return (
+        isinstance(declared, dict)
+        and isinstance(result_members, list)
+        and set(arguments) == set(cast(list[str], primitive["argument_members"]))
+        and all(
+            isinstance(type_id, str)
+            and type_id in argument_types
+            and _template_argument_is_typed(
+                arguments[name],
+                argument_types[type_id],
+                argument_types=argument_types,
+                roles=roles,
+                state=state,
+                admitted_roots=admitted_roots,
+                result_members=set(cast(list[str], result_members)),
+            )
+            for name, type_id in declared.items()
+        )
+    )
 
 
 def _execute_template_derivation(
@@ -889,6 +1154,13 @@ def _validate_template_semantics(
             primitive_spec["primitives"],
         )
     }
+    kernel_argument_types = {
+        cast(str, row["id"]): row
+        for row in cast(
+            list[dict[str, JsonValue]],
+            primitive_spec["argument_types"],
+        )
+    }
     state = _TemplateGraphState(derived={})
     admitted_roots = set(cast(list[str], selector_contract["roots"]))
 
@@ -925,7 +1197,9 @@ def _validate_template_semantics(
             operator = cast(str, law["operator"])
             primitive_id = cast(str, law["primitive"])
             primitive = kernel_primitives.get(primitive_id)
-            if primitive is None:
+            if primitive is None or not _template_primitive_execution_is_supported(
+                primitive
+            ):
                 raise ValueError(f"unknown Kernel Template primitive: {primitive_id}")
             evaluation = cast(dict[str, JsonValue], primitive["evaluation"])
             kind = cast(str, evaluation["kind"])
@@ -933,10 +1207,18 @@ def _validate_template_semantics(
             budget.begin(charges)
             budget.consume("judgment")
             arguments = cast(dict[str, JsonValue], judgment["arguments"])
-            if operator != operation_id or set(arguments) != set(
-                cast(list[str], primitive["argument_members"])
+            if operator != operation_id or not _template_arguments_are_typed(
+                arguments,
+                primitive,
+                kernel_argument_types,
+                roles=roles,
+                state=state,
+                admitted_roots=admitted_roots,
             ):
-                raise ValueError("LDB Template judgment arguments do not match its law")
+                raise ValueError(
+                    "LDB Template judgment arguments do not match its typed law"
+                )
+            derived_before = set(state.derived)
             holds = True
             if kind in {
                 "content-identity",
@@ -988,6 +1270,25 @@ def _validate_template_semantics(
                     f"Template primitive has no Schema-major interpreter: {kind}"
                 )
 
+            added_derived = set(state.derived) - derived_before
+            result_effect = primitive["result_effect"]
+            if (
+                result_effect == "preserve-graph"
+                and added_derived
+                or result_effect == "bind-derived"
+                and added_derived != {cast(str, arguments["result"])}
+                or result_effect == "bind-model-facts"
+                and added_derived
+                != {
+                    cast(str, binding["result"])
+                    for binding in cast(
+                        list[dict[str, JsonValue]], arguments["fact_bindings"]
+                    )
+                }
+            ):
+                raise ValueError(
+                    "Template primitive violated its declared result effect"
+                )
             if not holds:
                 return _template_judgment_refusal(
                     release,
