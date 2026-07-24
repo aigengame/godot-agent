@@ -1,7 +1,7 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:a7d529cf7eafc9ac5dfcd2fe3f524dced694fa065eeab22829f5c58f748a1f95",
+  "content_identity": "sha256:334f0c8a9b1e65193d68f65ec93d36a62bebbf234475b0ecefb4d818619b1e78",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
@@ -18,7 +18,7 @@
     {"code": "language.source_parse_failure", "stage": "parse"},
     {"code": "language.source_too_large", "stage": "ingress"}
   ],
-  "kernel_identity": "sha256:7c2cfe51a841317c36dfdebebbc0028624e123c13ff198c89efacbb01ced2638",
+  "kernel_identity": "sha256:14e0beab3a25ae79b51c2fd922d8372143a7ede77284491820b54689c12dab74",
   "language": {
     "artifact_contracts": [
       {"artifact_kind": "artifact-set-manifest", "identity_domain": "artifact-set-manifest-v2", "schema_kind": "artifact-set-manifest", "wire_schema_identity_domain": "artifact-set-manifest-wire-schema-v2", "identity_excluded_members": []},
@@ -1362,7 +1362,7 @@
           {"id": "template.derive-vector-ids", "operation": "derive-concatenation", "diagnostic": "language.source_contract_mismatch", "arguments": {"selectors": [{"root": "role", "name": "negative-vector", "path": ["id"]}, {"root": "role", "name": "boundary-vector", "path": ["id"]}], "result": "vector_ids"}},
           {"id": "template.admit-source", "operation": "admit-model-source", "diagnostic": "language.source_contract_mismatch", "arguments": {"role": "source", "fact_bindings": [{"source": "root_requirements", "result": "root_requirements"}, {"source": "resolved_packages", "result": "resolved_packages"}, {"source": "source_symbols", "result": "source_symbols"}]}},
           {"id": "template.unique-experiment", "operation": "require-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "experiment", "path": ["id"]}}},
-          {"id": "template.unique-metric", "operation": "require-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "experiment", "path": ["metrics", "*", "id"]}}},
+          {"id": "template.unique-metric", "operation": "require-scoped-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "experiment", "path": []}, "scope_path": ["id"], "values_path": ["metrics", "*", "id"]}},
           {"id": "template.unique-golden", "operation": "require-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "golden", "path": ["id"]}}},
           {"id": "template.unique-negative", "operation": "require-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "negative-vector", "path": ["id"]}}},
           {"id": "template.unique-boundary", "operation": "require-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "boundary-vector", "path": ["id"]}}},

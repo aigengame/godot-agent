@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any, cast
 
 import jsonschema
@@ -100,10 +101,10 @@ class TemplateInstantiateResult(BaseModel):
 TEMPLATE_REFUSAL_CATALOG = MODEL_REFUSAL_CATALOG
 TemplateProvider = Callable[[], dict[str, JsonValue]]
 _TEMPLATE_KERNEL_IDENTITY = (
-    "sha256:7c2cfe51a841317c36dfdebebbc0028624e123c13ff198c89efacbb01ced2638"
+    "sha256:14e0beab3a25ae79b51c2fd922d8372143a7ede77284491820b54689c12dab74"
 )
 _TEMPLATE_LDB_IDENTITY = (
-    "sha256:a7d529cf7eafc9ac5dfcd2fe3f524dced694fa065eeab22829f5c58f748a1f95"
+    "sha256:334f0c8a9b1e65193d68f65ec93d36a62bebbf234475b0ecefb4d818619b1e78"
 )
 _TEMPLATE_PACKAGE_IDENTITY = (
     "sha256:bfbd3e228fde85773b8804e7c632cca4f2771bc896aa4a54ab59efed52c99a58"
@@ -247,12 +248,33 @@ class _TemplateAdmissionExhausted(Exception):
 
 
 class _TemplateAdmissionBudget:
-    def __init__(self, limit: int) -> None:
+    def __init__(self, limit: int, charge_rules: list[dict[str, JsonValue]]) -> None:
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValueError("Template admission budget must be a positive integer")
+        self._rules = {
+            cast(str, row["event"]): cast(str, row["amount"]) for row in charge_rules
+        }
+        if len(self._rules) != len(charge_rules):
+            raise ValueError("Template admission charge events must be unique")
+        self._allowed = {"member-role"}
         self._remaining = limit
 
-    def consume(self, amount: int = 1) -> None:
+    def begin(self, charges: list[str]) -> None:
+        if (
+            not charges
+            or "judgment" not in charges
+            or not set(charges) <= set(self._rules)
+        ):
+            raise ValueError("Template primitive declares unknown charge events")
+        self._allowed = set(charges)
+
+    def consume(self, event: str, amount: int = 1) -> None:
+        if event not in self._allowed or event not in self._rules:
+            raise ValueError(
+                f"Template primitive did not declare charge event: {event}"
+            )
+        if isinstance(amount, bool) or not isinstance(amount, int) or amount < 0:
+            raise ValueError("Template admission charge must be a natural number")
         self._remaining -= amount
         if self._remaining < 0:
             raise _TemplateAdmissionExhausted
@@ -278,7 +300,7 @@ def _template_members_by_role(
         raise ValueError("Template member kinds must map to unique roles")
     result = {cast(str, row["role"]): [] for row in role_specs}
     for member in cast(list[dict[str, JsonValue]], release["members"]):
-        budget.consume()
+        budget.consume("member-role")
         spec = by_kind.get(cast(str, member["member_kind"]))
         if spec is None:
             raise ValueError("Template release contains an undeclared member kind")
@@ -343,7 +365,7 @@ def _project_template_path(
             for value in projected:
                 if not isinstance(value, list):
                     raise ValueError("Template selector wildcard requires a list")
-                budget.consume(len(value))
+                budget.consume("selected-value", len(value))
                 next_values.extend(value)
         else:
             for value in projected:
@@ -351,7 +373,7 @@ def _project_template_path(
                     raise ValueError(
                         f"Template selector cannot resolve member: {segment}"
                     )
-                budget.consume()
+                budget.consume("selected-value")
                 next_values.append(value[segment])
         projected = next_values
     return projected
@@ -410,7 +432,7 @@ def _template_scoped_values(
 ) -> dict[bytes, set[bytes]]:
     groups: dict[bytes, set[bytes]] = {}
     for row in rows:
-        budget.consume()
+        budget.consume("scoped-row")
         scopes = _project_template_path([row], scope_path, budget)
         values = _project_template_path([row], values_path, budget)
         if len(scopes) != 1 or not values:
@@ -463,6 +485,315 @@ def _template_judgment_refusal(
     )
 
 
+@dataclass
+class _TemplateGraphState:
+    derived: dict[str, JsonValue]
+    source: dict[str, Any] | None = None
+    checked_source: CheckedModel | None = None
+
+
+def _execute_template_derivation(
+    kind: str,
+    evaluation: dict[str, JsonValue],
+    primitive: dict[str, JsonValue],
+    arguments: dict[str, JsonValue],
+    state: _TemplateGraphState,
+    roles: dict[str, list[dict[str, JsonValue]]],
+    select: Callable[[Any], list[Any]],
+    kernel: dict[str, JsonValue],
+    language_bundle: dict[str, JsonValue],
+) -> Schema2RefusalReport | None:
+    if kind == "content-identity":
+        values = select(arguments[cast(str, evaluation["selector"])])
+        result = cast(str, arguments[cast(str, evaluation["result"])])
+        identity_domain = cast(str, arguments[cast(str, evaluation["domain"])])
+        if (
+            len(values) != 1
+            or not identity_domain
+            or not result
+            or result in state.derived
+        ):
+            raise ValueError("Template content-identity derivation is ambiguous")
+        state.derived[result] = content_identity(
+            identity_domain, cast(JsonValue, values[0])
+        )
+        return None
+    if kind == "concatenate-selections":
+        selectors = cast(
+            list[JsonValue],
+            arguments[cast(str, evaluation["selectors"])],
+        )
+        result = cast(str, arguments[cast(str, evaluation["result"])])
+        if not selectors or not result or result in state.derived:
+            raise ValueError("Template concatenation derivation is ambiguous")
+        values: list[Any] = []
+        for selector in selectors:
+            values.extend(select(selector))
+        state.derived[result] = cast(JsonValue, values)
+        return None
+    role = cast(str, arguments[cast(str, evaluation["role"])])
+    if role not in roles or len(roles[role]) != 1:
+        raise ValueError("Model Source judgment requires one role member")
+    state.source = cast(dict[str, Any], roles[role][0]["payload"])
+    checked = check_model_source_value(
+        state.source,
+        kernel=cast(dict[str, Any], kernel),
+        language_bundle=cast(dict[str, Any], language_bundle),
+    )
+    if isinstance(checked, Schema2RefusalReport):
+        return checked
+    state.checked_source = checked
+    facts = checked_model_template_facts(checked)
+    result_members = primitive.get("result_members")
+    if not isinstance(result_members, list) or set(facts) != set(
+        cast(list[str], result_members)
+    ):
+        raise ValueError("Model Source result does not match the Kernel Template law")
+    bindings = cast(
+        list[dict[str, JsonValue]],
+        arguments[cast(str, evaluation["bindings"])],
+    )
+    if not bindings:
+        raise ValueError("Model Source fact bindings cannot be empty")
+    for binding in bindings:
+        source_name = cast(str, binding["source"])
+        result_name = cast(str, binding["result"])
+        if (
+            set(binding) != {"result", "source"}
+            or source_name not in facts
+            or not result_name
+            or result_name in state.derived
+        ):
+            raise ValueError("Model Source fact binding is not closed")
+        state.derived[result_name] = cast(JsonValue, facts[source_name])
+    return None
+
+
+def _execute_template_relation(
+    kind: str,
+    evaluation: dict[str, JsonValue],
+    arguments: dict[str, JsonValue],
+    select: Callable[[Any], list[Any]],
+    budget: _TemplateAdmissionBudget,
+) -> bool:
+    if kind == "canonical-unique":
+        selected_values = select(arguments[cast(str, evaluation["selector"])])
+        return bool(selected_values) and len(selected_values) == len(
+            _canonical_value_set(selected_values)
+        )
+    if kind == "canonical-inventory":
+        selected_keys = _canonical_value_set(
+            select(arguments[cast(str, evaluation["selector"])])
+        )
+        inventory = _canonical_value_set(
+            select(arguments[cast(str, evaluation["inventory"])])
+        )
+        return bool(selected_keys) and selected_keys <= inventory
+    if kind == "canonical-set-relation":
+        return _template_relation_holds(
+            _canonical_value_set(select(arguments[cast(str, evaluation["left"])])),
+            _canonical_value_set(select(arguments[cast(str, evaluation["right"])])),
+            arguments[cast(str, evaluation["relation"])],
+        )
+    if kind == "canonical-scoped-relation":
+        source_groups = _template_scoped_values(
+            select(arguments[cast(str, evaluation["source"])]),
+            cast(
+                list[str],
+                arguments[cast(str, evaluation["source_scope_path"])],
+            ),
+            cast(
+                list[str],
+                arguments[cast(str, evaluation["source_values_path"])],
+            ),
+            budget,
+        )
+        target_groups = _template_scoped_values(
+            select(arguments[cast(str, evaluation["target"])]),
+            cast(
+                list[str],
+                arguments[cast(str, evaluation["target_scope_path"])],
+            ),
+            cast(
+                list[str],
+                arguments[cast(str, evaluation["target_values_path"])],
+            ),
+            budget,
+        )
+        relation = arguments[cast(str, evaluation["relation"])]
+        if relation == "equal":
+            return source_groups == target_groups
+        if relation == "subset":
+            return set(source_groups) <= set(target_groups) and all(
+                source_groups[key] <= target_groups[key] for key in source_groups
+            )
+        raise ValueError("unknown Template scoped relation")
+    groups: dict[bytes, list[bytes]] = {}
+    for row in select(arguments[cast(str, evaluation["selector"])]):
+        budget.consume("scoped-row")
+        scopes = _project_template_path(
+            [row],
+            cast(list[str], arguments[cast(str, evaluation["scope_path"])]),
+            budget,
+        )
+        values = _project_template_path(
+            [row],
+            cast(list[str], arguments[cast(str, evaluation["values_path"])]),
+            budget,
+        )
+        if len(scopes) != 1 or not values:
+            raise ValueError("Template scoped uniqueness has an empty or ambiguous row")
+        groups.setdefault(canonical_bytes(cast(JsonValue, scopes[0])), []).extend(
+            canonical_bytes(cast(JsonValue, value)) for value in values
+        )
+    return bool(groups) and all(
+        len(values) == len(set(values)) for values in groups.values()
+    )
+
+
+def _execute_template_interval(
+    kind: str,
+    evaluation: dict[str, JsonValue],
+    arguments: dict[str, JsonValue],
+    select: Callable[[Any], list[Any]],
+    budget: _TemplateAdmissionBudget,
+) -> bool:
+    minimum_member = cast(str, arguments[cast(str, evaluation["minimum_member"])])
+    maximum_member = cast(str, arguments[cast(str, evaluation["maximum_member"])])
+    if kind == "closed-int64-interval":
+        intervals = select(arguments[cast(str, evaluation["selector"])])
+        return bool(intervals) and all(
+            isinstance(interval, dict)
+            and set(interval) == {minimum_member, maximum_member}
+            and not isinstance(interval[minimum_member], bool)
+            and isinstance(interval[minimum_member], int)
+            and not isinstance(interval[maximum_member], bool)
+            and isinstance(interval[maximum_member], int)
+            and interval[minimum_member] <= interval[maximum_member]
+            for interval in intervals
+        )
+    targets: dict[bytes, Any] = {}
+    for row in select(arguments[cast(str, evaluation["target"])]):
+        keys = _project_template_path(
+            [row],
+            cast(list[str], arguments[cast(str, evaluation["target_key_path"])]),
+            budget,
+        )
+        intervals = _project_template_path(
+            [row],
+            cast(
+                list[str],
+                arguments[cast(str, evaluation["target_interval_path"])],
+            ),
+            budget,
+        )
+        if len(keys) != 1 or len(intervals) != 1:
+            raise ValueError("Template interval target is ambiguous")
+        key = canonical_bytes(cast(JsonValue, keys[0]))
+        if key in targets:
+            raise ValueError("Template interval target key is duplicate")
+        targets[key] = intervals[0]
+    for row in select(arguments[cast(str, evaluation["source"])]):
+        keys = _project_template_path(
+            [row],
+            cast(list[str], arguments[cast(str, evaluation["source_key_path"])]),
+            budget,
+        )
+        values = _project_template_path(
+            [row],
+            cast(list[str], arguments[cast(str, evaluation["source_value_path"])]),
+            budget,
+        )
+        if len(keys) != 1 or len(values) != 1:
+            raise ValueError("Template interval source is ambiguous")
+        interval = targets.get(canonical_bytes(cast(JsonValue, keys[0])))
+        value = values[0]
+        if (
+            not isinstance(interval, dict)
+            or minimum_member not in interval
+            or maximum_member not in interval
+            or isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < interval[minimum_member]
+            or value > interval[maximum_member]
+        ):
+            return False
+    return True
+
+
+def _execute_template_vector(
+    evaluation: dict[str, JsonValue],
+    arguments: dict[str, JsonValue],
+    state: _TemplateGraphState,
+    roles: dict[str, list[dict[str, JsonValue]]],
+    budget: _TemplateAdmissionBudget,
+    kernel: dict[str, JsonValue],
+    language_bundle: dict[str, JsonValue],
+) -> bool:
+    role = cast(str, arguments[cast(str, evaluation["role"])])
+    if state.source is None:
+        raise ValueError("Template vector execution precedes Model Source admission")
+    for member in roles[role]:
+        budget.consume("vector-execution")
+        vector = cast(dict[str, Any], member["payload"])
+        pointer = _project_template_path(
+            [vector],
+            cast(list[str], arguments[cast(str, evaluation["pointer_path"])]),
+            budget,
+        )
+        values = _project_template_path(
+            [vector],
+            cast(list[str], arguments[cast(str, evaluation["value_path"])]),
+            budget,
+        )
+        expected_path = cast(
+            list[str], arguments[cast(str, evaluation["expected_path"])]
+        )
+        if expected_path and _project_template_path(
+            [vector], expected_path, budget
+        ) != [arguments[cast(str, evaluation["expected_value"])]]:
+            return False
+        if len(pointer) != 1 or len(values) != 1:
+            raise ValueError("Template vector mutation is ambiguous")
+        mutated = _apply_template_vector(
+            state.source, cast(str, pointer[0]), cast(JsonValue, values[0])
+        )
+        result = (
+            check_model_source_value(
+                mutated,
+                kernel=cast(dict[str, Any], kernel),
+                language_bundle=cast(dict[str, Any], language_bundle),
+            )
+            if mutated is not None
+            else None
+        )
+        outcome = arguments[cast(str, evaluation["outcome"])]
+        if outcome == "admitted":
+            holds = isinstance(result, CheckedModel)
+        elif outcome == "refused":
+            expected_diagnostic = _project_template_path(
+                [
+                    vector,
+                ],
+                cast(
+                    list[str],
+                    arguments[cast(str, evaluation["diagnostic_path"])],
+                ),
+                budget,
+            )
+            holds = (
+                len(expected_diagnostic) == 1
+                and isinstance(result, Schema2RefusalReport)
+                and len(result.diagnostics) == 1
+                and result.diagnostics[0].code == expected_diagnostic[0]
+            )
+        else:
+            raise ValueError("unknown Template vector outcome")
+        if not holds:
+            return False
+    return True
+
+
 def _validate_template_semantics(
     release: dict[str, JsonValue],
     kernel: dict[str, JsonValue],
@@ -476,6 +807,7 @@ def _validate_template_semantics(
             cast(dict[str, JsonValue], kernel["meta_format"])["template_admission"],
         )
         accounting = cast(dict[str, JsonValue], meta["resource_accounting"])
+        primitive_spec = cast(dict[str, JsonValue], meta["primitive_spec"])
         selector_contract = cast(dict[str, JsonValue], meta["selector"])
         if (
             selector_contract
@@ -492,23 +824,42 @@ def _validate_template_semantics(
             }
             or accounting
             != {
-                "charged_events": [
-                    "member-role",
-                    "judgment",
-                    "selected-value",
-                    "scoped-row",
-                    "vector-execution",
+                "charge_rules": [
+                    {"amount": "one-per-member", "event": "member-role"},
+                    {"amount": "one-per-judgment", "event": "judgment"},
+                    {
+                        "amount": "one-per-projected-value",
+                        "event": "selected-value",
+                    },
+                    {"amount": "one-per-input-row", "event": "scoped-row"},
+                    {"amount": "one-per-vector", "event": "vector-execution"},
                 ],
                 "counter_scope": "per-template-release-admission",
                 "exhaustion_diagnostic": "language.resource_exhausted",
                 "limit_path": "resources.max_template_admission_steps",
             }
+            or set(primitive_spec)
+            != {
+                "argument_types",
+                "canonical_equality",
+                "closed",
+                "evaluation_order",
+                "primitives",
+                "version",
+            }
+            or primitive_spec["closed"] is not True
+            or primitive_spec["version"] != "template-graph-primitives-v1"
+            or primitive_spec["evaluation_order"] != "profile-order-first-failure"
+            or primitive_spec["canonical_equality"] != "kernel-canonical-bytes"
             or profile["max_steps_path"] != accounting["limit_path"]
             or profile["resource_diagnostic"] != accounting["exhaustion_diagnostic"]
         ):
             raise ValueError("Template admission resource contract is not exact")
         limit = _dotted_value(language_bundle, cast(str, profile["max_steps_path"]))
-        budget = _TemplateAdmissionBudget(cast(int, limit))
+        budget = _TemplateAdmissionBudget(
+            cast(int, limit),
+            cast(list[dict[str, JsonValue]], accounting["charge_rules"]),
+        )
         roles = _template_members_by_role(release, profile, budget)
     except _TemplateAdmissionExhausted:
         return _template_judgment_refusal(
@@ -531,9 +882,14 @@ def _validate_template_semantics(
             meta["operations"],
         )
     }
-    source: dict[str, Any] | None = None
-    derived: dict[str, JsonValue] = {}
-    checked_source: CheckedModel | None = None
+    kernel_primitives = {
+        cast(str, row["id"]): row
+        for row in cast(
+            list[dict[str, JsonValue]],
+            primitive_spec["primitives"],
+        )
+    }
+    state = _TemplateGraphState(derived={})
     admitted_roots = set(cast(list[str], selector_contract["roots"]))
 
     def select(selector: Any) -> list[Any]:
@@ -543,14 +899,13 @@ def _validate_template_semantics(
             language_bundle=language_bundle,
             release=release,
             roles=roles,
-            derived=derived,
+            derived=state.derived,
             admitted_roots=admitted_roots,
             budget=budget,
         )
 
     try:
         for judgment in cast(list[dict[str, JsonValue]], profile["judgments"]):
-            budget.consume()
             judgment_id = cast(str, judgment["id"])
             diagnostic = cast(str, judgment["diagnostic"])
             operation_id = cast(str, judgment["operation"])
@@ -568,239 +923,70 @@ def _validate_template_semantics(
                 raise ValueError("Kernel Template operation contract is incomplete")
             law = cast(dict[str, JsonValue], operation["law"])
             operator = cast(str, law["operator"])
+            primitive_id = cast(str, law["primitive"])
+            primitive = kernel_primitives.get(primitive_id)
+            if primitive is None:
+                raise ValueError(f"unknown Kernel Template primitive: {primitive_id}")
+            evaluation = cast(dict[str, JsonValue], primitive["evaluation"])
+            kind = cast(str, evaluation["kind"])
+            charges = cast(list[str], primitive["charges"])
+            budget.begin(charges)
+            budget.consume("judgment")
             arguments = cast(dict[str, JsonValue], judgment["arguments"])
             if operator != operation_id or set(arguments) != set(
-                cast(list[str], law["argument_members"])
+                cast(list[str], primitive["argument_members"])
             ):
                 raise ValueError("LDB Template judgment arguments do not match its law")
             holds = True
-
-            if operator == "derive-content-identity":
-                values = select(arguments["selector"])
-                result = cast(str, arguments["result"])
-                identity_domain = cast(str, arguments["identity_domain"])
-                if (
-                    len(values) != 1
-                    or not identity_domain
-                    or not result
-                    or result in derived
-                ):
-                    raise ValueError(
-                        "Template content-identity derivation is ambiguous"
-                    )
-                derived[result] = content_identity(
-                    identity_domain, cast(JsonValue, values[0])
+            if kind in {
+                "content-identity",
+                "concatenate-selections",
+                "model-source-admission",
+            }:
+                refusal = _execute_template_derivation(
+                    kind,
+                    evaluation,
+                    primitive,
+                    arguments,
+                    state,
+                    roles,
+                    select,
+                    kernel,
+                    language_bundle,
                 )
-
-            elif operator == "derive-concatenation":
-                selectors = cast(list[JsonValue], arguments["selectors"])
-                result = cast(str, arguments["result"])
-                if not selectors or not result or result in derived:
-                    raise ValueError("Template concatenation derivation is ambiguous")
-                values: list[Any] = []
-                for selector in selectors:
-                    values.extend(select(selector))
-                derived[result] = cast(JsonValue, values)
-
-            elif operator == "admit-model-source":
-                role = cast(str, arguments["role"])
-                if role not in roles or len(roles[role]) != 1:
-                    raise ValueError("Model Source judgment requires one role member")
-                source = cast(dict[str, Any], roles[role][0]["payload"])
-                checked = check_model_source_value(
-                    source,
-                    kernel=cast(dict[str, Any], kernel),
-                    language_bundle=cast(dict[str, Any], language_bundle),
+                if refusal is not None:
+                    return refusal
+            elif kind in {
+                "canonical-unique",
+                "canonical-inventory",
+                "canonical-set-relation",
+                "canonical-scoped-relation",
+                "canonical-scoped-unique",
+            }:
+                holds = _execute_template_relation(
+                    kind, evaluation, arguments, select, budget
                 )
-                if isinstance(checked, Schema2RefusalReport):
-                    return checked
-                checked_source = checked
-                facts = checked_model_template_facts(checked)
-                result_members = law.get("result_members")
-                if not isinstance(result_members, list) or set(facts) != set(
-                    cast(list[str], result_members)
-                ):
-                    raise ValueError(
-                        "Model Source result does not match the Kernel Template law"
-                    )
-                bindings = cast(list[dict[str, JsonValue]], arguments["fact_bindings"])
-                if not bindings:
-                    raise ValueError("Model Source fact bindings cannot be empty")
-                for binding in bindings:
-                    source_name = cast(str, binding["source"])
-                    result_name = cast(str, binding["result"])
-                    if (
-                        set(binding) != {"result", "source"}
-                        or source_name not in facts
-                        or not result_name
-                        or result_name in derived
-                    ):
-                        raise ValueError("Model Source fact binding is not closed")
-                    derived[result_name] = cast(JsonValue, facts[source_name])
-
-            elif operator == "require-unique":
-                selected_values = select(arguments["selector"])
-                holds = bool(selected_values) and len(selected_values) == len(
-                    _canonical_value_set(selected_values)
+            elif kind in {
+                "closed-int64-interval",
+                "closed-int64-interval-join",
+            }:
+                holds = _execute_template_interval(
+                    kind, evaluation, arguments, select, budget
                 )
-
-            elif operator == "require-inventory":
-                selected_keys = _canonical_value_set(select(arguments["selector"]))
-                inventory = _canonical_value_set(select(arguments["inventory"]))
-                holds = bool(selected_keys) and selected_keys <= inventory
-
-            elif operator == "require-set-relation":
-                holds = _template_relation_holds(
-                    _canonical_value_set(select(arguments["left"])),
-                    _canonical_value_set(select(arguments["right"])),
-                    arguments["relation"],
-                )
-
-            elif operator == "require-scoped-relation":
-                source_rows = select(arguments["source"])
-                target_rows = select(arguments["target"])
-                source_groups = _template_scoped_values(
-                    source_rows,
-                    cast(list[str], arguments["source_scope_path"]),
-                    cast(list[str], arguments["source_values_path"]),
+            elif kind == "model-source-vector":
+                holds = _execute_template_vector(
+                    evaluation,
+                    arguments,
+                    state,
+                    roles,
                     budget,
+                    kernel,
+                    language_bundle,
                 )
-                target_groups = _template_scoped_values(
-                    target_rows,
-                    cast(list[str], arguments["target_scope_path"]),
-                    cast(list[str], arguments["target_values_path"]),
-                    budget,
-                )
-                relation = arguments["relation"]
-                if relation == "equal":
-                    holds = source_groups == target_groups
-                elif relation == "subset":
-                    holds = set(source_groups) <= set(target_groups) and all(
-                        source_groups[key] <= target_groups[key]
-                        for key in source_groups
-                    )
-                else:
-                    raise ValueError("unknown Template scoped relation")
-
-            elif operator == "require-interval":
-                minimum_member = cast(str, arguments["minimum_member"])
-                maximum_member = cast(str, arguments["maximum_member"])
-                intervals = select(arguments["selector"])
-                holds = bool(intervals)
-                for interval in intervals:
-                    budget.consume()
-                    if (
-                        not isinstance(interval, dict)
-                        or set(interval) != {minimum_member, maximum_member}
-                        or isinstance(interval[minimum_member], bool)
-                        or not isinstance(interval[minimum_member], int)
-                        or isinstance(interval[maximum_member], bool)
-                        or not isinstance(interval[maximum_member], int)
-                        or interval[minimum_member] > interval[maximum_member]
-                    ):
-                        holds = False
-                        break
-
-            elif operator == "require-interval-join":
-                source_rows = select(arguments["source"])
-                target_rows = select(arguments["target"])
-                targets: dict[bytes, Any] = {}
-                for row in target_rows:
-                    keys = _project_template_path(
-                        [row], cast(list[str], arguments["target_key_path"]), budget
-                    )
-                    intervals = _project_template_path(
-                        [row],
-                        cast(list[str], arguments["target_interval_path"]),
-                        budget,
-                    )
-                    if len(keys) != 1 or len(intervals) != 1:
-                        raise ValueError("Template interval target is ambiguous")
-                    key = canonical_bytes(cast(JsonValue, keys[0]))
-                    if key in targets:
-                        raise ValueError("Template interval target key is duplicate")
-                    targets[key] = intervals[0]
-                minimum_member = cast(str, arguments["minimum_member"])
-                maximum_member = cast(str, arguments["maximum_member"])
-                for row in source_rows:
-                    keys = _project_template_path(
-                        [row], cast(list[str], arguments["source_key_path"]), budget
-                    )
-                    values = _project_template_path(
-                        [row], cast(list[str], arguments["source_value_path"]), budget
-                    )
-                    if len(keys) != 1 or len(values) != 1:
-                        raise ValueError("Template interval source is ambiguous")
-                    interval = targets.get(canonical_bytes(cast(JsonValue, keys[0])))
-                    value = values[0]
-                    if (
-                        not isinstance(interval, dict)
-                        or minimum_member not in interval
-                        or maximum_member not in interval
-                        or isinstance(value, bool)
-                        or not isinstance(value, int)
-                        or value < interval[minimum_member]
-                        or value > interval[maximum_member]
-                    ):
-                        holds = False
-                        break
-
-            elif operator == "execute-model-source-vector":
-                role = cast(str, arguments["role"])
-                if source is None:
-                    raise ValueError(
-                        "Template vector execution precedes Model Source admission"
-                    )
-                for member in roles[role]:
-                    budget.consume()
-                    vector = cast(dict[str, Any], member["payload"])
-                    pointer = _project_template_path(
-                        [vector], cast(list[str], arguments["pointer_path"]), budget
-                    )
-                    values = _project_template_path(
-                        [vector], cast(list[str], arguments["value_path"]), budget
-                    )
-                    expected_path = cast(list[str], arguments["expected_path"])
-                    if expected_path:
-                        expected = _project_template_path(
-                            [vector], expected_path, budget
-                        )
-                        if expected != [arguments["expected_value"]]:
-                            holds = False
-                            break
-                    if len(pointer) != 1 or len(values) != 1:
-                        raise ValueError("Template vector mutation is ambiguous")
-                    mutated = _apply_template_vector(
-                        source, cast(str, pointer[0]), cast(JsonValue, values[0])
-                    )
-                    result = (
-                        check_model_source_value(
-                            mutated,
-                            kernel=cast(dict[str, Any], kernel),
-                            language_bundle=cast(dict[str, Any], language_bundle),
-                        )
-                        if mutated is not None
-                        else None
-                    )
-                    if arguments["outcome"] == "admitted":
-                        holds = isinstance(result, CheckedModel)
-                    elif arguments["outcome"] == "refused":
-                        diagnostic_path = cast(list[str], arguments["diagnostic_path"])
-                        expected_diagnostic = _project_template_path(
-                            [vector], diagnostic_path, budget
-                        )
-                        holds = (
-                            len(expected_diagnostic) == 1
-                            and isinstance(result, Schema2RefusalReport)
-                            and len(result.diagnostics) == 1
-                            and result.diagnostics[0].code == expected_diagnostic[0]
-                        )
-                    else:
-                        raise ValueError("unknown Template vector outcome")
-                    if not holds:
-                        break
             else:
-                raise ValueError(f"Template law has no generic interpreter: {operator}")
+                raise ValueError(
+                    f"Template primitive has no Schema-major interpreter: {kind}"
+                )
 
             if not holds:
                 return _template_judgment_refusal(
@@ -826,7 +1012,7 @@ def _validate_template_semantics(
             "template.program",
             str(err),
         )
-    if checked_source is None:
+    if state.checked_source is None:
         return _template_judgment_refusal(
             release,
             language_bundle,

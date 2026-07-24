@@ -36,7 +36,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:7c2cfe51a841317c36dfdebebbc0028624e123c13ff198c89efacbb01ced2638"
+    "sha256:14e0beab3a25ae79b51c2fd922d8372143a7ede77284491820b54689c12dab74"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -2521,6 +2521,123 @@ def _template_selector_is_closed(
     return value["root"] != "role" or value["name"] in roles
 
 
+def _template_primitive_evaluation_is_closed(
+    primitive: dict[str, Any],
+) -> bool:
+    """Close the Schema-major host primitive vocabulary without owning profiles."""
+    evaluations: dict[str, dict[str, Any]] = {
+        "content-identity": {
+            "kind": "content-identity",
+            "selector": "selector",
+            "selection_cardinality": "exactly-one",
+            "domain": "identity_domain",
+            "result": "result",
+            "canonical_encoding": "kernel.canonical_encoding",
+        },
+        "concatenate-selections": {
+            "kind": "concatenate-selections",
+            "selectors": "selectors",
+            "order": "selector-order-then-member-order",
+            "result": "result",
+        },
+        "model-source-admission": {
+            "kind": "model-source-admission",
+            "role": "role",
+            "role_cardinality": "exactly-one",
+            "authority": "exact-caller-pair",
+            "bindings": "fact_bindings",
+        },
+        "canonical-unique": {
+            "kind": "canonical-unique",
+            "selector": "selector",
+            "selection_cardinality": "one-or-more",
+            "equality": "kernel-canonical-bytes",
+        },
+        "canonical-inventory": {
+            "kind": "canonical-inventory",
+            "selector": "selector",
+            "selection_cardinality": "one-or-more",
+            "inventory": "inventory",
+            "relation": "subset",
+            "equality": "kernel-canonical-bytes",
+        },
+        "canonical-set-relation": {
+            "kind": "canonical-set-relation",
+            "left": "left",
+            "right": "right",
+            "relation": "relation",
+            "relations": ["equal", "subset"],
+            "equality": "kernel-canonical-bytes",
+        },
+        "canonical-scoped-relation": {
+            "kind": "canonical-scoped-relation",
+            "source": "source",
+            "source_scope_path": "source_scope_path",
+            "source_values_path": "source_values_path",
+            "target": "target",
+            "target_scope_path": "target_scope_path",
+            "target_values_path": "target_values_path",
+            "row_scope_cardinality": "exactly-one",
+            "row_values_cardinality": "one-or-more",
+            "relation": "relation",
+            "relations": ["equal", "subset"],
+            "equality": "kernel-canonical-bytes",
+        },
+        "canonical-scoped-unique": {
+            "kind": "canonical-scoped-unique",
+            "selector": "selector",
+            "scope_path": "scope_path",
+            "values_path": "values_path",
+            "row_scope_cardinality": "exactly-one",
+            "row_values_cardinality": "one-or-more",
+            "equality": "kernel-canonical-bytes",
+        },
+        "closed-int64-interval": {
+            "kind": "closed-int64-interval",
+            "selector": "selector",
+            "selection_cardinality": "one-or-more",
+            "minimum_member": "minimum_member",
+            "maximum_member": "maximum_member",
+            "integer_domain": "signed-int64-excluding-boolean",
+        },
+        "closed-int64-interval-join": {
+            "kind": "closed-int64-interval-join",
+            "source": "source",
+            "source_key_path": "source_key_path",
+            "source_value_path": "source_value_path",
+            "target": "target",
+            "target_key_path": "target_key_path",
+            "target_interval_path": "target_interval_path",
+            "target_key_cardinality": "exactly-one",
+            "target_interval_cardinality": "exactly-one",
+            "source_key_cardinality": "exactly-one",
+            "source_value_cardinality": "exactly-one",
+            "minimum_member": "minimum_member",
+            "maximum_member": "maximum_member",
+            "integer_domain": "signed-int64-excluding-boolean",
+            "key_equality": "kernel-canonical-bytes",
+        },
+        "model-source-vector": {
+            "kind": "model-source-vector",
+            "role": "role",
+            "pointer_path": "pointer_path",
+            "value_path": "value_path",
+            "outcome": "outcome",
+            "diagnostic_path": "diagnostic_path",
+            "expected_path": "expected_path",
+            "expected_value": "expected_value",
+            "pointer_encoding": "RFC6901-existing-target",
+            "mutation": "deep-copy-single-replacement",
+            "admission": "exact-caller-pair",
+            "refused_diagnostic_cardinality": "exactly-one",
+        },
+    }
+    primitive_id = primitive.get("id")
+    return isinstance(primitive_id, str) and primitive.get(
+        "evaluation"
+    ) == evaluations.get(primitive_id)
+
+
 def _template_admission_profiles_are_closed(
     language_bundle: dict[str, Any],
     meta_format: dict[str, Any],
@@ -2534,6 +2651,7 @@ def _template_admission_profiles_are_closed(
         != {
             "closed",
             "operations",
+            "primitive_spec",
             "resource_accounting",
             "role_contract",
             "selector",
@@ -2545,6 +2663,7 @@ def _template_admission_profiles_are_closed(
     accounting = contract.get("resource_accounting")
     operations = contract.get("operations")
     role_contract = contract.get("role_contract")
+    primitive_spec = contract.get("primitive_spec")
     if (
         not isinstance(selector_contract, dict)
         or selector_contract
@@ -2562,12 +2681,15 @@ def _template_admission_profiles_are_closed(
         or not isinstance(accounting, dict)
         or accounting
         != {
-            "charged_events": [
-                "member-role",
-                "judgment",
-                "selected-value",
-                "scoped-row",
-                "vector-execution",
+            "charge_rules": [
+                {"amount": "one-per-member", "event": "member-role"},
+                {"amount": "one-per-judgment", "event": "judgment"},
+                {
+                    "amount": "one-per-projected-value",
+                    "event": "selected-value",
+                },
+                {"amount": "one-per-input-row", "event": "scoped-row"},
+                {"amount": "one-per-vector", "event": "vector-execution"},
             ],
             "counter_scope": "per-template-release-admission",
             "exhaustion_diagnostic": "language.resource_exhausted",
@@ -2575,6 +2697,7 @@ def _template_admission_profiles_are_closed(
         }
         or not isinstance(operations, list)
         or not operations
+        or not isinstance(primitive_spec, dict)
         or role_contract
         != {
             "cardinalities": ["exactly-one", "one-or-more"],
@@ -2584,6 +2707,135 @@ def _template_admission_profiles_are_closed(
         return False
     role_cardinalities = cast(dict[str, Any], role_contract)["cardinalities"]
     roots = set(cast(list[str], selector_contract["roots"]))
+    if (
+        set(primitive_spec)
+        != {
+            "argument_types",
+            "canonical_equality",
+            "closed",
+            "evaluation_order",
+            "primitives",
+            "version",
+        }
+        or primitive_spec.get("closed") is not True
+        or primitive_spec.get("version") != "template-graph-primitives-v1"
+        or primitive_spec.get("evaluation_order") != "profile-order-first-failure"
+        or primitive_spec.get("canonical_equality") != "kernel-canonical-bytes"
+        or not isinstance(primitive_spec.get("argument_types"), list)
+        or not isinstance(primitive_spec.get("primitives"), list)
+    ):
+        return False
+    argument_type_rows = cast(list[Any], primitive_spec["argument_types"])
+    argument_types: dict[str, dict[str, Any]] = {}
+    allowed_type_members = {
+        "cardinality",
+        "empty",
+        "fresh",
+        "id",
+        "item",
+        "kind",
+        "values",
+    }
+    for row in argument_type_rows:
+        if (
+            not isinstance(row, dict)
+            or not set(row) <= allowed_type_members
+            or set(row) < {"id", "kind"}
+            or not isinstance(row.get("id"), str)
+            or not row["id"]
+            or row["id"] in argument_types
+            or row.get("kind")
+            not in {
+                "canonical-json",
+                "derived-name",
+                "enum",
+                "model-fact-bindings",
+                "non-empty-list",
+                "role-name",
+                "selector",
+                "string",
+                "string-list",
+            }
+        ):
+            return False
+        argument_types[row["id"]] = row
+    charge_events = {
+        row["event"] for row in cast(list[dict[str, str]], accounting["charge_rules"])
+    }
+    primitive_rows = cast(list[Any], primitive_spec["primitives"])
+    primitives_by_id: dict[str, dict[str, Any]] = {}
+    evaluation_kinds: set[str] = set()
+    for primitive in primitive_rows:
+        if (
+            not isinstance(primitive, dict)
+            or set(primitive)
+            not in (
+                {
+                    "argument_members",
+                    "argument_types",
+                    "charges",
+                    "evaluation",
+                    "failure",
+                    "id",
+                    "result_effect",
+                },
+                {
+                    "argument_members",
+                    "argument_types",
+                    "charges",
+                    "evaluation",
+                    "failure",
+                    "id",
+                    "result_effect",
+                    "result_members",
+                },
+            )
+            or not isinstance(primitive.get("id"), str)
+            or not primitive["id"]
+            or primitive["id"] in primitives_by_id
+            or not isinstance(primitive.get("argument_members"), list)
+            or not primitive["argument_members"]
+            or len(primitive["argument_members"])
+            != len(set(primitive["argument_members"]))
+            or not isinstance(primitive.get("argument_types"), dict)
+            or set(primitive["argument_types"]) != set(primitive["argument_members"])
+            or any(
+                type_id not in argument_types
+                for type_id in primitive["argument_types"].values()
+            )
+            or primitive.get("result_effect")
+            not in {"bind-derived", "bind-model-facts", "preserve-graph"}
+            or primitive.get("failure")
+            != {"mode": "judgment-diagnostic", "short_circuit": True}
+            or not isinstance(primitive.get("charges"), list)
+            or "judgment" not in primitive["charges"]
+            or len(primitive["charges"]) != len(set(primitive["charges"]))
+            or not set(primitive["charges"]) <= charge_events
+            or not isinstance(primitive.get("evaluation"), dict)
+            or not isinstance(primitive["evaluation"].get("kind"), str)
+            or primitive["evaluation"]["kind"] in evaluation_kinds
+            or not _template_primitive_evaluation_is_closed(primitive)
+        ):
+            return False
+        result_members = primitive.get("result_members")
+        if (primitive["result_effect"] == "bind-model-facts") != (
+            result_members is not None
+        ) or (
+            result_members is not None
+            and (
+                not isinstance(result_members, list)
+                or not result_members
+                or len(result_members) != len(set(result_members))
+                or not all(
+                    isinstance(member, str) and member for member in result_members
+                )
+            )
+        ):
+            return False
+        primitives_by_id[primitive["id"]] = primitive
+        evaluation_kinds.add(primitive["evaluation"]["kind"])
+    if not primitives_by_id:
+        return False
     operations_by_id: dict[str, dict[str, Any]] = {}
     for operation in operations:
         if (
@@ -2611,32 +2863,9 @@ def _template_admission_profiles_are_closed(
         law = operation.get("law")
         if (
             not isinstance(law, dict)
-            or set(law)
-            not in (
-                {"argument_members", "operator"},
-                {"argument_members", "operator", "result_members"},
-            )
+            or set(law) != {"operator", "primitive"}
             or law.get("operator") != operation["id"]
-            or not isinstance(law.get("argument_members"), list)
-            or len(law["argument_members"]) != len(set(law["argument_members"]))
-            or not all(
-                isinstance(member, str) and member for member in law["argument_members"]
-            )
-        ):
-            return False
-        result_members = law.get("result_members")
-        if (operation["id"] == "admit-model-source") != (
-            result_members is not None
-        ) or (
-            result_members is not None
-            and (
-                not isinstance(result_members, list)
-                or not result_members
-                or len(result_members) != len(set(result_members))
-                or not all(
-                    isinstance(member, str) and member for member in result_members
-                )
-            )
+            or law.get("primitive") not in primitives_by_id
         ):
             return False
         operations_by_id[operation["id"]] = operation
@@ -2717,6 +2946,7 @@ def _template_admission_profiles_are_closed(
         return False
     judgment_ids: set[str] = set()
     consulted_operations: set[str] = set()
+    consulted_primitives: set[str] = set()
     role_operations: set[tuple[str, str]] = set()
     produced_derived: set[str] = set()
     selector_members = {"inventory", "left", "right", "selector", "source", "target"}
@@ -2734,8 +2964,9 @@ def _template_admission_profiles_are_closed(
             return False
         operation = operations_by_id[judgment["operation"]]
         law = cast(dict[str, Any], operation["law"])
+        primitive = primitives_by_id[law["primitive"]]
         arguments = cast(dict[str, Any], judgment["arguments"])
-        if set(arguments) != set(cast(list[str], law["argument_members"])):
+        if set(arguments) != set(cast(list[str], primitive["argument_members"])):
             return False
         selectors: list[dict[str, Any]] = []
         for name, value in arguments.items():
@@ -2776,9 +3007,10 @@ def _template_admission_profiles_are_closed(
             if not isinstance(role, str) or role not in roles:
                 return False
             role_operations.add((role, judgment["operation"]))
-        if judgment["operation"] == "admit-model-source":
+        evaluation = cast(dict[str, Any], primitive["evaluation"])
+        if evaluation["kind"] == "model-source-admission":
             bindings = arguments.get("fact_bindings")
-            result_members = law.get("result_members")
+            result_members = primitive.get("result_members")
             if (
                 not isinstance(bindings, list)
                 or not bindings
@@ -2797,9 +3029,9 @@ def _template_admission_profiles_are_closed(
             ):
                 return False
             produced_derived.update(binding["result"] for binding in bindings)
-        if judgment["operation"] in {
-            "derive-concatenation",
-            "derive-content-identity",
+        if evaluation["kind"] in {
+            "concatenate-selections",
+            "content-identity",
         }:
             result = arguments.get("result")
             if (
@@ -2807,7 +3039,7 @@ def _template_admission_profiles_are_closed(
                 or not result
                 or result in produced_derived
                 or (
-                    judgment["operation"] == "derive-content-identity"
+                    evaluation["kind"] == "content-identity"
                     and (
                         not isinstance(arguments.get("identity_domain"), str)
                         or not arguments["identity_domain"]
@@ -2818,6 +3050,7 @@ def _template_admission_profiles_are_closed(
             produced_derived.add(result)
         judgment_ids.add(judgment["id"])
         consulted_operations.add(judgment["operation"])
+        consulted_primitives.add(law["primitive"])
     required_role_operations = {
         (row["role"], operation)
         for row in role_rows
@@ -2826,6 +3059,7 @@ def _template_admission_profiles_are_closed(
     }
     return (
         consulted_operations == set(operations_by_id)
+        and consulted_primitives == set(primitives_by_id)
         and required_role_operations <= role_operations
     )
 

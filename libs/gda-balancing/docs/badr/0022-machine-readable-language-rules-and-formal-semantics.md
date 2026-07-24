@@ -31,6 +31,11 @@ structured formal judgments, and an honest proof/conformance boundary.
   Kernel-law calls. An inventory of node names plus prose-like law
   strings is not an executable Kernel Specification.
 
+  Template release admission applies the same rule at the distribution boundary: its Schema-major
+  primitive specification fixes typed arguments/result effects, evaluation and failure laws,
+  canonical comparison/identity behavior, and charge events. LDB-facing operation names only bind
+  to those primitives; they do not authorize a host `if` branch with undeclared semantics.
+
 - **The Language Definition Bundle is a canonical, content-addressed language-content artifact.**
   Its manifest binds the exact Schema line, Kernel-Specification identity, bundle format,
   grammar/AST definitions, core type constructors, Language rules, Operation specifications,

@@ -41,17 +41,22 @@ distribution contract and a falsifiable definition of genre completeness.
   different authority and compatibility semantics.
 
 - **Template-release admission is Kernel-defined and LDB-selected.** The Kernel owns the closed
-  generic artifact-graph operation vocabulary; the LDB owns one versioned admission program. That
-  program maps release-member kinds to role collections with explicit cardinality and
+  Schema-major artifact-graph primitive specification: typed arguments and result effects,
+  evaluation law and order, failure behavior, canonical comparison/identity consequences, and
+  resource-charge events. Stable operations bind LDB-facing names to those primitives; the LDB owns
+  one versioned admission program. That program maps release-member kinds to role collections with
+  explicit cardinality and
   required-operation obligations, derives named graph facts through declared selectors/bindings,
   and runs under a bounded per-release step budget. A consumer must admit the starter through the
   ordinary Model Source path, close authority/source/package/default/Experiment/coverage bindings,
   and execute every declared negative and boundary vector. Multiple Experiments, Golden scenarios,
-  and vectors remain ordered members rather than host-selected singletons. The Kernel owns only a
-  generic role identifier/cardinality contract; concrete role names and member kinds stay in the
-  LDB, allowing a genre to add them without a core change. JSON Schema validation or host-selected
-  companion checks alone cannot admit a release. The admission program does not make the template
-  a language authority: it defines how the existing authorities judge the distribution container.
+  and vectors remain ordered members rather than host-selected singletons. Metric identifiers are
+  unique within their owning Experiment, not globally across independent Experiments. The Kernel
+  owns only a generic role identifier/cardinality contract; concrete role names and member kinds
+  stay in the LDB, allowing a genre to add them without a core change. JSON Schema validation, a
+  named host primitive without its complete machine law, or host-selected companion checks alone
+  cannot admit a release. The admission program does not make the template a language authority:
+  it defines how the existing authorities judge the distribution container.
 
 - **The initial game-domain package boundaries are:**
 

@@ -45,13 +45,16 @@ authenticated atomic publication. Issue #553 adds `template list|get|instantiate
 source, package dependency, defaults, compatibility, documentation, Experiment, coverage row,
 Golden scenario, and negative/boundary vectors. Every companion payload binds an LDB-projected
 wire schema and is structurally and semantically re-admitted before the release can be listed,
-retrieved, or instantiated. The Kernel defines the closed Template-admission operations, the LDB
-selects a bounded artifact-graph program over ordered role collections, every derived identity or
-Model Source fact is explicitly bound, every coverage row resolves capability/operation/package and
-observable identities, and every negative/boundary vector executes through the ordinary Model
-Source checker. The same program admits multiple Experiments, Golden scenarios, and vectors without
-host-selected singleton roles. Concrete role names remain LDB content, so genre extensions do not
-change the Kernel role contract.
+retrieved, or instantiated. The Kernel defines a closed Schema-major Template primitive
+specification—typed arguments/result effects, evaluation and failure laws, canonical
+comparison/identity behavior, and resource-charge rules—and binds LDB-facing operations to those
+primitives. The LDB selects a bounded artifact-graph program over ordered role collections, every
+derived identity or Model Source fact is explicitly bound, every coverage row resolves
+capability/operation/package and observable identities, and every negative/boundary vector executes
+through the ordinary Model Source checker. The same program admits multiple Experiments, Golden
+scenarios, and vectors without host-selected singleton roles; metric identifiers are scoped to
+their owning Experiment. Concrete role names remain LDB content, so genre extensions do not change
+the Kernel role contract.
 
 Instantiation publishes a newly identified editable Model Source plus an instantiation receipt.
 The source records explicit template provenance, the release remains immutable, retries are

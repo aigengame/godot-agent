@@ -17,7 +17,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:7c2cfe51a841317c36dfdebebbc0028624e123c13ff198c89efacbb01ced2638"
+    "sha256:14e0beab3a25ae79b51c2fd922d8372143a7ede77284491820b54689c12dab74"
 )
 
 
@@ -2173,12 +2173,14 @@ def _consumer_b_template_admission_is_closed(
     selector = contract.get("selector")
     accounting = contract.get("resource_accounting")
     operation_rows = contract.get("operations")
+    primitive_spec = contract.get("primitive_spec")
     role_contract = contract.get("role_contract")
     if (
         set(contract)
         != {
             "closed",
             "operations",
+            "primitive_spec",
             "resource_accounting",
             "role_contract",
             "selector",
@@ -2202,12 +2204,15 @@ def _consumer_b_template_admission_is_closed(
         != {
             "limit_path": "resources.max_template_admission_steps",
             "counter_scope": "per-template-release-admission",
-            "charged_events": [
-                "member-role",
-                "judgment",
-                "selected-value",
-                "scoped-row",
-                "vector-execution",
+            "charge_rules": [
+                {"amount": "one-per-member", "event": "member-role"},
+                {"amount": "one-per-judgment", "event": "judgment"},
+                {
+                    "amount": "one-per-projected-value",
+                    "event": "selected-value",
+                },
+                {"amount": "one-per-input-row", "event": "scoped-row"},
+                {"amount": "one-per-vector", "event": "vector-execution"},
             ],
             "exhaustion_diagnostic": "language.resource_exhausted",
         }
@@ -2218,10 +2223,193 @@ def _consumer_b_template_admission_is_closed(
         }
         or not isinstance(operation_rows, list)
         or not operation_rows
+        or not isinstance(primitive_spec, dict)
+        or set(primitive_spec)
+        != {
+            "argument_types",
+            "canonical_equality",
+            "closed",
+            "evaluation_order",
+            "primitives",
+            "version",
+        }
+        or primitive_spec.get("closed") is not True
+        or primitive_spec.get("version") != "template-graph-primitives-v1"
+        or primitive_spec.get("evaluation_order") != "profile-order-first-failure"
+        or primitive_spec.get("canonical_equality") != "kernel-canonical-bytes"
+        or not isinstance(primitive_spec.get("argument_types"), list)
+        or not isinstance(primitive_spec.get("primitives"), list)
     ):
         return False
     assert isinstance(role_contract, dict)
     role_cardinalities = role_contract["cardinalities"]
+    argument_types = {
+        row.get("id"): row
+        for row in primitive_spec["argument_types"]
+        if isinstance(row, dict) and isinstance(row.get("id"), str)
+    }
+    if len(argument_types) != len(primitive_spec["argument_types"]) or any(
+        set(row) < {"id", "kind"}
+        or row.get("kind")
+        not in {
+            "canonical-json",
+            "derived-name",
+            "enum",
+            "model-fact-bindings",
+            "non-empty-list",
+            "role-name",
+            "selector",
+            "string",
+            "string-list",
+        }
+        for row in argument_types.values()
+    ):
+        return False
+    charge_events = {row["event"] for row in accounting["charge_rules"]}
+    expected_evaluation_members = {
+        "content-identity": {
+            "kind",
+            "selector",
+            "selection_cardinality",
+            "domain",
+            "result",
+            "canonical_encoding",
+        },
+        "concatenate-selections": {"kind", "selectors", "order", "result"},
+        "model-source-admission": {
+            "kind",
+            "role",
+            "role_cardinality",
+            "authority",
+            "bindings",
+        },
+        "canonical-unique": {
+            "kind",
+            "selector",
+            "selection_cardinality",
+            "equality",
+        },
+        "canonical-inventory": {
+            "kind",
+            "selector",
+            "selection_cardinality",
+            "inventory",
+            "relation",
+            "equality",
+        },
+        "canonical-set-relation": {
+            "kind",
+            "left",
+            "right",
+            "relation",
+            "relations",
+            "equality",
+        },
+        "canonical-scoped-relation": {
+            "kind",
+            "source",
+            "source_scope_path",
+            "source_values_path",
+            "target",
+            "target_scope_path",
+            "target_values_path",
+            "row_scope_cardinality",
+            "row_values_cardinality",
+            "relation",
+            "relations",
+            "equality",
+        },
+        "canonical-scoped-unique": {
+            "kind",
+            "selector",
+            "scope_path",
+            "values_path",
+            "row_scope_cardinality",
+            "row_values_cardinality",
+            "equality",
+        },
+        "closed-int64-interval": {
+            "kind",
+            "selector",
+            "selection_cardinality",
+            "minimum_member",
+            "maximum_member",
+            "integer_domain",
+        },
+        "closed-int64-interval-join": {
+            "kind",
+            "source",
+            "source_key_path",
+            "source_value_path",
+            "target",
+            "target_key_path",
+            "target_interval_path",
+            "target_key_cardinality",
+            "target_interval_cardinality",
+            "source_key_cardinality",
+            "source_value_cardinality",
+            "minimum_member",
+            "maximum_member",
+            "integer_domain",
+            "key_equality",
+        },
+        "model-source-vector": {
+            "kind",
+            "role",
+            "pointer_path",
+            "value_path",
+            "outcome",
+            "diagnostic_path",
+            "expected_path",
+            "expected_value",
+            "pointer_encoding",
+            "mutation",
+            "admission",
+            "refused_diagnostic_cardinality",
+        },
+    }
+    primitives: dict[str, dict[str, Any]] = {}
+    found_kinds: set[str] = set()
+    for primitive in primitive_spec["primitives"]:
+        if not isinstance(primitive, dict):
+            return False
+        primitive_id = primitive.get("id")
+        evaluation = primitive.get("evaluation")
+        base_members = {
+            "argument_members",
+            "argument_types",
+            "charges",
+            "evaluation",
+            "failure",
+            "id",
+            "result_effect",
+        }
+        if (
+            not isinstance(primitive_id, str)
+            or primitive_id in primitives
+            or set(primitive) not in (base_members, base_members | {"result_members"})
+            or not isinstance(evaluation, dict)
+            or evaluation.get("kind") not in expected_evaluation_members
+            or set(evaluation) != expected_evaluation_members[evaluation["kind"]]
+            or evaluation["kind"] in found_kinds
+            or not isinstance(primitive.get("argument_members"), list)
+            or not primitive["argument_members"]
+            or len(primitive["argument_members"])
+            != len(set(primitive["argument_members"]))
+            or not isinstance(primitive.get("argument_types"), dict)
+            or set(primitive["argument_types"]) != set(primitive["argument_members"])
+            or not set(primitive["argument_types"].values()) <= set(argument_types)
+            or primitive.get("failure")
+            != {"mode": "judgment-diagnostic", "short_circuit": True}
+            or not isinstance(primitive.get("charges"), list)
+            or "judgment" not in primitive["charges"]
+            or not set(primitive["charges"]) <= charge_events
+        ):
+            return False
+        primitives[primitive_id] = primitive
+        found_kinds.add(evaluation["kind"])
+    if found_kinds != set(expected_evaluation_members):
+        return False
     operations: dict[str, dict[str, Any]] = {}
     for row in operation_rows:
         if (
@@ -2249,27 +2437,9 @@ def _consumer_b_template_admission_is_closed(
         law = row.get("law")
         if (
             not isinstance(law, dict)
-            or set(law)
-            not in (
-                {"argument_members", "operator"},
-                {"argument_members", "operator", "result_members"},
-            )
+            or set(law) != {"operator", "primitive"}
             or law.get("operator") != row["id"]
-            or not isinstance(law.get("argument_members"), list)
-            or len(law["argument_members"]) != len(set(law["argument_members"]))
-            or not all(
-                isinstance(member, str) and member for member in law["argument_members"]
-            )
-        ):
-            return False
-        results = law.get("result_members")
-        if (row["id"] == "admit-model-source") != (results is not None) or (
-            results is not None
-            and (
-                not isinstance(results, list)
-                or not results
-                or len(results) != len(set(results))
-            )
+            or law.get("primitive") not in primitives
         ):
             return False
         operations[row["id"]] = row
@@ -2336,6 +2506,7 @@ def _consumer_b_template_admission_is_closed(
 
     judgment_ids: set[str] = set()
     used_operations: set[str] = set()
+    used_primitives: set[str] = set()
     role_operations: set[tuple[str, str]] = set()
     produced: set[str] = set()
     selector_members = {"inventory", "left", "right", "selector", "source", "target"}
@@ -2353,7 +2524,8 @@ def _consumer_b_template_admission_is_closed(
             return False
         arguments = judgment["arguments"]
         law = operations[judgment["operation"]]["law"]
-        if set(arguments) != set(law["argument_members"]):
+        primitive = primitives[law["primitive"]]
+        if set(arguments) != set(primitive["argument_members"]):
             return False
         selected: list[dict[str, Any]] = []
         for name, value in arguments.items():
@@ -2408,9 +2580,10 @@ def _consumer_b_template_admission_is_closed(
             if not isinstance(role, str) or role not in role_names:
                 return False
             role_operations.add((role, judgment["operation"]))
-        if judgment["operation"] == "admit-model-source":
+        kind = primitive["evaluation"]["kind"]
+        if kind == "model-source-admission":
             bindings = arguments.get("fact_bindings")
-            result_members = law.get("result_members")
+            result_members = primitive.get("result_members")
             if (
                 not isinstance(bindings, list)
                 or not bindings
@@ -2428,17 +2601,14 @@ def _consumer_b_template_admission_is_closed(
             ):
                 return False
             produced.update(binding["result"] for binding in bindings)
-        if judgment["operation"] in {
-            "derive-concatenation",
-            "derive-content-identity",
-        }:
+        if kind in {"concatenate-selections", "content-identity"}:
             result = arguments.get("result")
             if (
                 not isinstance(result, str)
                 or not result
                 or result in produced
                 or (
-                    judgment["operation"] == "derive-content-identity"
+                    kind == "content-identity"
                     and (
                         not isinstance(arguments.get("identity_domain"), str)
                         or not arguments["identity_domain"]
@@ -2449,13 +2619,18 @@ def _consumer_b_template_admission_is_closed(
             produced.add(result)
         judgment_ids.add(judgment["id"])
         used_operations.add(judgment["operation"])
+        used_primitives.add(law["primitive"])
     required_pairs = {
         (row["role"], operation)
         for row in roles
         if isinstance(row, dict)
         for operation in row["required_operations"]
     }
-    return used_operations == set(operations) and required_pairs <= role_operations
+    return (
+        used_operations == set(operations)
+        and used_primitives == set(primitives)
+        and required_pairs <= role_operations
+    )
 
 
 def _consumer_b_language_definitions_are_closed(
@@ -4033,6 +4208,10 @@ def test_two_consumers_refuse_reidentified_authority_paths_without_typed_closure
 
     assert first == second
     assert first["admitted"] is False
+    assert any(
+        stage == "static" and code == "kernel.vector_mismatch"
+        for stage, code, _subject in first["diagnostics"]
+    )
     assert (
         "static",
         "kernel.vector_mismatch",
@@ -4170,9 +4349,17 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         and item["refusals"] == ["reason-bound-diagnostic"]
         and item["resources"]
         and item["law"]["operator"] == item["id"]
-        and item["law"]["argument_members"]
+        and item["law"]["primitive"]
+        in {
+            primitive["id"]
+            for primitive in template_admission["primitive_spec"]["primitives"]
+        }
         for item in template_admission["operations"]
     )
+    assert {item["law"]["primitive"] for item in template_admission["operations"]} == {
+        primitive["id"]
+        for primitive in template_admission["primitive_spec"]["primitives"]
+    }
     assert {item["role"] for item in profile["member_roles"]} == {
         "source",
         "experiment",
@@ -4208,10 +4395,38 @@ def test_two_consumers_refuse_an_incomplete_template_admission_profile(member):
 
     assert first == second
     assert first["admitted"] is False
-    assert any(
-        stage == "static" and code == "kernel.vector_mismatch"
-        for stage, code, _subject in first["diagnostics"]
-    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "missing-evaluation-field",
+        "unknown-argument-type",
+        "missing-charge",
+        "unknown-operation-primitive",
+    ),
+)
+def test_two_consumers_refuse_an_incomplete_template_primitive_spec(mutation):
+    authority = authority_set()
+    kernel = authority["kernel"]
+    primitive_spec = kernel["meta_format"]["template_admission"]["primitive_spec"]
+    if mutation == "missing-evaluation-field":
+        primitive_spec["primitives"][0]["evaluation"].pop("canonical_encoding")
+    elif mutation == "unknown-argument-type":
+        primitive_spec["primitives"][0]["argument_types"]["selector"] = "host-object"
+    elif mutation == "missing-charge":
+        primitive_spec["primitives"][0]["charges"].remove("judgment")
+    else:
+        kernel["meta_format"]["template_admission"]["operations"][0]["law"][
+            "primitive"
+        ] = "host-only"
+    _reidentify(kernel, authority["language_bundle"])
+
+    first = _consumer_a(kernel, authority["language_bundle"])
+    second = _consumer_b(kernel, authority["language_bundle"])
+
+    assert first == second
+    assert first["admitted"] is False
 
 
 @pytest.mark.parametrize(

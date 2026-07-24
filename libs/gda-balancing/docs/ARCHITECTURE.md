@@ -463,16 +463,20 @@ upgrade path.
 Templates are not Standard Schema instances, runtime profiles, language authorities, or privileged
 compiler inputs. Genre behavior exists only through admitted operations and Domain packages. A
 template may make a good model easy to start; it may not make otherwise invalid semantics valid.
-The Kernel defines a closed set of generic artifact-graph operations for template-release
-admission: graph projection and derivation, uniqueness/inventory/set/scoped/interval relations,
-ordinary Model Source admission, and Model Source vector execution. The LDB orders a versioned
-program over those operations, maps member kinds to role collections with explicit cardinality and
-required-operation obligations, declares every derived-fact binding, and fixes a per-release step
-budget. Admission therefore supports multiple Experiments, Golden scenarios, and vectors without
-host-selected singleton roles. The Kernel defines only the generic role identifier/cardinality
-contract—not a role-name inventory—so an LDB may add genre-specific member roles and schemas
-without a core change. Structural JSON Schema validation or host-only companion checks cannot
-substitute for that semantic path.
+The Kernel defines a closed Schema-major machine specification for generic artifact-graph
+primitives used by template-release admission: graph projection and derivation,
+uniqueness/inventory/set/scoped/interval relations, ordinary Model Source admission, and Model
+Source vector execution. Each primitive fixes typed arguments and result effects, evaluation law
+and order, exact failure behavior, canonical comparison/identity consequences, and resource-charge
+events. Kernel operations bind stable LDB-facing names to those primitives; the LDB orders a
+versioned program over the operations, maps member kinds to role collections with explicit
+cardinality and required-operation obligations, declares every derived-fact binding, and fixes a
+per-release step budget. Admission therefore supports multiple Experiments, Golden scenarios, and
+vectors without host-selected singleton roles, and metric identifiers are unique within their
+owning Experiment rather than globally across the release. The Kernel defines only the generic role
+identifier/cardinality contract—not a role-name inventory—so an LDB may add genre-specific member
+roles and schemas without a core change. Structural JSON Schema validation, named host callbacks,
+or host-only companion checks cannot substitute for that semantic path.
 
 Coverage claims are evidence-backed and granular. A `Tracer` row requires a public vertical path;
 broader RPG or Roguelike support requires its own Golden scenarios, vectors, and acceptance evidence.

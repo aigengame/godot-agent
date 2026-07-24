@@ -199,7 +199,10 @@ Roguelike (metroidvania-like, survivors-like, deckbuilder-like) (bADR-0017).
 _Avoid_: preset, profile
 
 **Template admission profile**:
-An LDB-owned, versioned artifact-graph program over Kernel-defined generic operations. It maps
+An LDB-owned, versioned artifact-graph program over Kernel-defined Schema-major primitives. The
+Kernel machine specification closes each primitive's typed arguments and result effect, evaluation
+law and order, failure mode, canonical comparison, and resource-charge events; operations bind
+stable LDB-facing names to those primitives. The profile maps
 member kinds to ordered role collections with explicit cardinality and role-operation obligations,
 derives named graph facts through declared selectors and bindings, and runs under a bounded
 per-release step budget. Role names and member kinds are LDB content rather than a Kernel
