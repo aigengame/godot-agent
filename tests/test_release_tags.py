@@ -12,6 +12,15 @@ REAL_CONFIG = json.loads((ROOT / "release-please-config.json").read_text())
 REAL_MANIFEST = json.loads((ROOT / ".release-please-manifest.json").read_text())
 
 
+def expected_live_tags():
+    """Project the live manifest without hard-coding its current versions."""
+    return [
+        release_tags.derive_tag(REAL_CONFIG, path, version)
+        for path, version in REAL_MANIFEST.items()
+        if version != release_tags.PLACEHOLDER
+    ]
+
+
 def test_root_package_tag_matches_release_please_v_prefix():
     assert release_tags.derive_tag(REAL_CONFIG, ".", "0.8.1") == "v0.8.1"
 
@@ -98,10 +107,9 @@ def test_required_tags_covers_every_released_package():
 
 def test_the_real_config_and_manifest_derive_without_error():
     # Drift alarm: the shipped config must stay inside the supported contract.
-    for path, version in REAL_MANIFEST.items():
-        release_tags.derive_tag(REAL_CONFIG, path, version)
-
-    assert release_tags.required_tags(REAL_CONFIG, REAL_MANIFEST) == ["v0.8.1"]
+    assert (
+        release_tags.required_tags(REAL_CONFIG, REAL_MANIFEST) == expected_live_tags()
+    )
 
 
 CONFIG_ARGS = [
@@ -116,7 +124,7 @@ def test_main_prints_one_required_tag_per_line(capsys):
     exit_code = release_tags.main([*CONFIG_ARGS, "--required-tags"])
 
     assert exit_code == 0
-    assert capsys.readouterr().out.split() == ["v0.8.1"]
+    assert capsys.readouterr().out.split() == expected_live_tags()
 
 
 def test_main_prints_a_single_derived_tag(capsys):
