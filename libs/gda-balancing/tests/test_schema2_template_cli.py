@@ -7,12 +7,16 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+from typing import Any, cast
 
 import jsonschema
 import pytest
+import gda_balancing.commands.template as template_command_module
+import gda_balancing.schema2.model as schema2_model
 from gda_balancing.commands.template import (
     TEMPLATE_GET,
     TEMPLATE_INSTANTIATE,
+    _minimal_release,
     template_get_handler,
     template_instantiate_handler,
 )
@@ -49,6 +53,14 @@ def _reidentify_release(release):
         {key: value for key, value in release.items() if key != "content_identity"},
     )
     return release
+
+
+def _replace_json_value(value: Any, old: Any, new: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _replace_json_value(item, old, new) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replace_json_value(item, old, new) for item in value]
+    return new if value == old else value
 
 
 class _ReferenceBudgetExhausted(Exception):
@@ -771,6 +783,46 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
     assert result["templates"][0]["content_identity"].startswith("sha256:")
 
 
+def test_minimal_release_derives_every_authority_identity_from_its_inputs():
+    authority = authority_set()
+    kernel = authority["kernel"]
+    language_bundle = authority["language_bundle"]
+    language = cast(Any, language_bundle["language"])
+    kernel["content_identity"] = "sha256:" + "a" * 64
+    language_bundle["content_identity"] = "sha256:" + "b" * 64
+    package = language["packages"][0]
+    package["content_identity"] = "sha256:" + "c" * 64
+    schema = next(
+        row["schema"]
+        for collection in ("wire_schemas", "artifact_wire_schemas")
+        for row in language[collection]
+        if row["artifact_kind"] == "boundary-vector"
+    )
+    schema["title"] = "Changed boundary vector schema"
+
+    release = cast(Any, _minimal_release(kernel, language_bundle))
+
+    assert release["kernel_identity"] == kernel["content_identity"]
+    assert release["language_bundle_identity"] == language_bundle["content_identity"]
+    dependencies = next(
+        member
+        for member in release["members"]
+        if member["member_kind"] == "declared-package-dependencies"
+    )
+    assert (
+        dependencies["payload"]["packages"][0]["content_identity"]
+        == (package["content_identity"])
+    )
+    boundary = next(
+        member
+        for member in release["members"]
+        if member["member_kind"] == "boundary-vector"
+    )
+    assert boundary["member_schema_identity"] == content_identity(
+        "boundary-vector-wire-schema-v2", schema
+    )
+
+
 def test_template_get_returns_the_complete_content_addressed_release(run_cli):
     exit_code, stdout, stderr = run_cli(
         [
@@ -953,7 +1005,7 @@ def test_template_get_refuses_a_release_for_an_incompatible_ldb(run_cli):
     )
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda: release),
+        handler=template_get_handler(lambda _kernel, _ldb: release),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1012,7 +1064,7 @@ def test_template_get_refuses_a_member_outside_its_ldb_wire_schema(run_cli):
     )
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda: release),
+        handler=template_get_handler(lambda _kernel, _ldb: release),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1068,7 +1120,7 @@ def test_template_get_refuses_semantically_unbound_companion_evidence(run_cli):
     )
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda: release),
+        handler=template_get_handler(lambda _kernel, _ldb: release),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1171,7 +1223,7 @@ def test_template_get_refuses_every_reidentified_semantic_admission_mutation(
         descriptor = replace(
             TEMPLATE_GET,
             handler=template_get_handler(
-                lambda release=_reidentify_release(release): release
+                lambda _kernel, _ldb, release=_reidentify_release(release): release
             ),
         )
         exit_code, stdout, stderr = run_cli(
@@ -1211,7 +1263,7 @@ def test_template_admission_accepts_multiple_experiments_scenarios_and_vectors(
     release = _with_secondary_vertical_slice(release)
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda: release),
+        handler=template_get_handler(lambda _kernel, _ldb: release),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1249,7 +1301,7 @@ def test_metric_identifiers_are_unique_within_each_experiment_not_globally(
     release = _with_secondary_vertical_slice(release, metric_id="value")
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda: release),
+        handler=template_get_handler(lambda _kernel, _ldb: release),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1292,7 +1344,9 @@ def test_template_admission_refuses_resource_exhaustion_from_coverage_rows(
     ]
     descriptor = replace(
         TEMPLATE_GET,
-        handler=template_get_handler(lambda: _reidentify_release(release)),
+        handler=template_get_handler(
+            lambda _kernel, _ldb: _reidentify_release(release)
+        ),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1375,7 +1429,9 @@ def test_independent_template_graph_interpreter_agrees_on_admission_and_refusal(
         )
         descriptor = replace(
             TEMPLATE_GET,
-            handler=template_get_handler(lambda release=release: release),
+            handler=template_get_handler(
+                lambda _kernel, _ldb, release=release: release
+            ),
         )
         exit_code, stdout, stderr = run_cli(
             [
@@ -1532,7 +1588,7 @@ def test_template_instantiation_selects_the_starter_by_admitted_role_not_name(
     _reidentify_release(release)
     descriptor = replace(
         TEMPLATE_INSTANTIATE,
-        handler=template_instantiate_handler(lambda: release),
+        handler=template_instantiate_handler(lambda _kernel, _ldb: release),
     )
 
     exit_code, stdout, stderr = run_cli(
@@ -1554,6 +1610,189 @@ def test_template_instantiation_selects_the_starter_by_admitted_role_not_name(
     )
 
     assert (exit_code, stderr) == (0, ""), stdout
+
+
+def test_template_instantiation_uses_the_ldb_owned_source_role_name(
+    tmp_path, run_cli, monkeypatch
+):
+    authority = authority_set()
+    kernel = authority["kernel"]
+    language_bundle = authority["language_bundle"]
+    profile = language_bundle["language"]["template_admission_profiles"][0]
+    source_role = next(
+        row for row in profile["member_roles"] if row["role"] == "source"
+    )
+    source_role["role"] = "starter"
+    profile["judgments"] = _replace_json_value(
+        profile["judgments"], "source", "starter"
+    )
+    old_ldb_identity = language_bundle["content_identity"]
+    language_bundle["content_identity"] = content_identity(
+        "language-definition-bundle-v2",
+        {
+            key: value
+            for key, value in language_bundle.items()
+            if key != "content_identity"
+        },
+    )
+    release = json.loads(
+        run_cli(
+            [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ]
+        )[1]
+    )
+    release = _replace_json_value(
+        release, old_ldb_identity, language_bundle["content_identity"]
+    )
+    _reidentify_release(release)
+    monkeypatch.setattr(
+        template_command_module,
+        "load_authorities",
+        lambda: (deepcopy(kernel), deepcopy(language_bundle)),
+    )
+    descriptor = replace(
+        TEMPLATE_INSTANTIATE,
+        handler=template_instantiate_handler(lambda _kernel, _ldb: deepcopy(release)),
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "template",
+            "instantiate",
+            "--id",
+            "standard.quantity-minimal",
+            "--version",
+            "2.0.0",
+            "--package-id",
+            "example.renamed-role",
+            "--out",
+            str(tmp_path / "renamed-role.json"),
+            "--invocation-key",
+            "a" * 64,
+        ],
+        registry=(descriptor,),
+    )
+
+    assert (exit_code, stderr) == (0, ""), (stdout, stderr)
+
+
+def test_template_vector_expected_value_uses_canonical_equality(run_cli, monkeypatch):
+    authority = authority_set()
+    kernel = authority["kernel"]
+    language_bundle = authority["language_bundle"]
+    profile = language_bundle["language"]["template_admission_profiles"][0]
+    judgment = next(
+        row for row in profile["judgments"] if row["id"] == "template.boundary-vectors"
+    )
+    judgment["arguments"]["expected_path"] = ["value"]
+    judgment["arguments"]["expected_value"] = True
+    old_ldb_identity = language_bundle["content_identity"]
+    language_bundle["content_identity"] = content_identity(
+        "language-definition-bundle-v2",
+        {
+            key: value
+            for key, value in language_bundle.items()
+            if key != "content_identity"
+        },
+    )
+    release = json.loads(
+        run_cli(
+            [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ]
+        )[1]
+    )
+    release = _replace_json_value(
+        release, old_ldb_identity, language_bundle["content_identity"]
+    )
+    boundary = next(
+        member
+        for member in release["members"]
+        if member["member_kind"] == "boundary-vector"
+    )
+    boundary["payload"]["value"] = 1
+    _reidentify_release(release)
+    monkeypatch.setattr(
+        template_command_module,
+        "load_authorities",
+        lambda: (deepcopy(kernel), deepcopy(language_bundle)),
+    )
+    descriptor = replace(
+        TEMPLATE_GET,
+        handler=template_get_handler(lambda _kernel, _ldb: deepcopy(release)),
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "template",
+            "get",
+            "--id",
+            "standard.quantity-minimal",
+            "--version",
+            "2.0.0",
+        ],
+        registry=(descriptor,),
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    assert json.loads(stdout)["error"]["diagnostics"][0]["code"] == (
+        "language.source_contract_mismatch"
+    )
+
+
+@pytest.mark.parametrize("array_index", ("00", "０"))
+def test_template_vector_refuses_non_rfc6901_array_indexes(array_index, run_cli):
+    release = json.loads(
+        run_cli(
+            [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ]
+        )[1]
+    )
+    boundary = next(
+        member
+        for member in release["members"]
+        if member["member_kind"] == "boundary-vector"
+    )
+    boundary["payload"]["pointer"] = f"/modules/{array_index}/symbols/0/domain/maximum"
+    _reidentify_release(release)
+    descriptor = replace(
+        TEMPLATE_GET,
+        handler=template_get_handler(lambda _kernel, _ldb: deepcopy(release)),
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "template",
+            "get",
+            "--id",
+            "standard.quantity-minimal",
+            "--version",
+            "2.0.0",
+        ],
+        registry=(descriptor,),
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    assert json.loads(stdout)["error"]["diagnostics"][0]["code"] == (
+        "language.source_contract_mismatch"
+    )
 
 
 def test_instantiated_source_can_be_edited_and_built_without_a_toolkit_fork(
@@ -1631,7 +1870,7 @@ def test_template_instantiation_is_atomic_retry_safe_and_input_bound(tmp_path, r
     faulting = replace(
         TEMPLATE_INSTANTIATE,
         handler=template_instantiate_handler(
-            lambda: release,
+            lambda _kernel, _ldb: release,
             publication_fault="before-anchor-commit",
         ),
     )
@@ -1724,7 +1963,7 @@ def test_every_template_publication_fault_is_all_or_nothing_and_retryable(
     faulting = replace(
         TEMPLATE_INSTANTIATE,
         handler=template_instantiate_handler(
-            lambda: release,
+            lambda _kernel, _ldb: release,
             publication_fault=publication_fault,
         ),
     )
@@ -1761,6 +2000,63 @@ def test_every_template_publication_fault_is_all_or_nothing_and_retryable(
         ]
     )
     assert (recovered[0], recovered[2]) == (0, "")
+    assert recovered_out.is_file()
+
+
+def test_template_publication_recovers_when_anchor_directory_fsync_fails(
+    tmp_path, run_cli, monkeypatch
+):
+    store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+    real_fsync_directory = schema2_model._fsync_directory
+    injected = False
+
+    def fail_after_anchor_link(path):
+        nonlocal injected
+        if (
+            not injected
+            and store / "anchors" in (path, *path.parents)
+            and list(path.glob("*.json"))
+        ):
+            injected = True
+            raise OSError("injected anchor directory fsync failure")
+        real_fsync_directory(path)
+
+    monkeypatch.setattr(schema2_model, "_fsync_directory", fail_after_anchor_link)
+    invocation_key = "b" * 64
+    argv = [
+        "template",
+        "instantiate",
+        "--id",
+        "standard.quantity-minimal",
+        "--version",
+        "2.0.0",
+        "--package-id",
+        "example.anchor-fsync",
+        "--out",
+        str(tmp_path / "first.json"),
+        "--invocation-key",
+        invocation_key,
+    ]
+
+    failed_exit, failed_stdout, failed_stderr = run_cli(argv)
+
+    assert (failed_exit, failed_stdout) == (4, "")
+    assert json.loads(failed_stderr)["error"]["code"] == "internal_error"
+    assert injected
+
+    recovered_out = tmp_path / "recovered.json"
+    recovered_exit, recovered_stdout, recovered_stderr = run_cli(
+        [
+            *argv[:-4],
+            "--out",
+            str(recovered_out),
+            "--invocation-key",
+            invocation_key,
+        ]
+    )
+
+    assert (recovered_exit, recovered_stderr) == (0, "")
+    assert json.loads(recovered_stdout)["invocation_key"] == invocation_key
     assert recovered_out.is_file()
 
 

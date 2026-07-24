@@ -36,6 +36,12 @@ from gda_balancing.schema2.model import (
     verify_artifact,
 )
 from gda_balancing.schema2.surface import descriptor_identity
+from gda_balancing.schema2.template_contract import (
+    TEMPLATE_PRIMITIVE_CHARGES,
+    TEMPLATE_PRIMITIVE_EVALUATIONS,
+    TEMPLATE_RESOURCE_ACCOUNTING,
+    TEMPLATE_SELECTOR_CONTRACT,
+)
 
 
 class TemplateListInput(BaseModel):
@@ -99,171 +105,10 @@ class TemplateInstantiateResult(BaseModel):
 
 
 TEMPLATE_REFUSAL_CATALOG = MODEL_REFUSAL_CATALOG
-TemplateProvider = Callable[[], dict[str, JsonValue]]
-_TEMPLATE_KERNEL_IDENTITY = (
-    "sha256:14e0beab3a25ae79b51c2fd922d8372143a7ede77284491820b54689c12dab74"
-)
-_TEMPLATE_LDB_IDENTITY = (
-    "sha256:334f0c8a9b1e65193d68f65ec93d36a62bebbf234475b0ecefb4d818619b1e78"
-)
-_TEMPLATE_PACKAGE_IDENTITY = (
-    "sha256:bfbd3e228fde85773b8804e7c632cca4f2771bc896aa4a54ab59efed52c99a58"
-)
-_TEMPLATE_MEMBER_SCHEMA_IDENTITIES = {
-    "boundary-vector": (
-        "sha256:fe2760287e98d687b19228a6ed998cb61c0439fbe2b25e51f033ede81ed981ac"
-    ),
-    "declared-package-dependencies": (
-        "sha256:6968a0aeb190221b4ace0b023a0974bce350aa03b6d060e19f0cb4a2a365b2bf"
-    ),
-    "experiment-specification": (
-        "sha256:98272c6c0ee29ea45f3a9f1a3d5ed1e668b5d94d8eb58cabbbc709e03497deda"
-    ),
-    "genre-coverage-matrix": (
-        "sha256:90ca0e184ed384a95c1401e8865252a1fc47ada82c75385472dfc1087b5c6c17"
-    ),
-    "golden-scenario": (
-        "sha256:be1c523755066def1500c813be49461e8b25a0714fd3ae6c496cab677c8bdbe4"
-    ),
-    "model-source-package": (
-        "sha256:f847b949b31a052f73ac3618c767b62cbc629d13bb16d7ce2b2d68510c5cfd14"
-    ),
-    "negative-vector": (
-        "sha256:d6341070227307e4960e44ab8400a9b639242db417d0576227d5cc6ae0b5290e"
-    ),
-    "template-compatibility": (
-        "sha256:57f17f8e50e8ad2ea93f6a3146ed23b394fb68abcbd18a1418f650771ac177e7"
-    ),
-    "template-defaults": (
-        "sha256:c14c61d257f2bc211e6cdc0c5c0c805cc5fbb28f88756f9fa2fdd94f62b05eea"
-    ),
-    "template-documentation": (
-        "sha256:7ace33c84f9cfe98376cefdced5798bcd7af9e064b827c06a1cfca20be333a43"
-    ),
-    "template-release": (
-        "sha256:44f936f697540095b7587035ad4999366dbae29b140cbef8bd2d77b611428bb2"
-    ),
-}
-_TEMPLATE_EXECUTION_LAWS: dict[str, dict[str, JsonValue]] = {
-    "content-identity": {
-        "kind": "content-identity",
-        "selector": "selector",
-        "selection_cardinality": "exactly-one",
-        "domain": "identity_domain",
-        "result": "result",
-        "canonical_encoding": "kernel.canonical_encoding",
-    },
-    "concatenate-selections": {
-        "kind": "concatenate-selections",
-        "selectors": "selectors",
-        "order": "selector-order-then-member-order",
-        "result": "result",
-    },
-    "model-source-admission": {
-        "kind": "model-source-admission",
-        "role": "role",
-        "role_cardinality": "exactly-one",
-        "authority": "exact-caller-pair",
-        "bindings": "fact_bindings",
-    },
-    "canonical-unique": {
-        "kind": "canonical-unique",
-        "selector": "selector",
-        "selection_cardinality": "one-or-more",
-        "equality": "kernel-canonical-bytes",
-    },
-    "canonical-inventory": {
-        "kind": "canonical-inventory",
-        "selector": "selector",
-        "selection_cardinality": "one-or-more",
-        "inventory": "inventory",
-        "relation": "subset",
-        "equality": "kernel-canonical-bytes",
-    },
-    "canonical-set-relation": {
-        "kind": "canonical-set-relation",
-        "left": "left",
-        "right": "right",
-        "relation": "relation",
-        "relations": ["equal", "subset"],
-        "equality": "kernel-canonical-bytes",
-    },
-    "canonical-scoped-relation": {
-        "kind": "canonical-scoped-relation",
-        "source": "source",
-        "source_scope_path": "source_scope_path",
-        "source_values_path": "source_values_path",
-        "target": "target",
-        "target_scope_path": "target_scope_path",
-        "target_values_path": "target_values_path",
-        "row_scope_cardinality": "exactly-one",
-        "row_values_cardinality": "one-or-more",
-        "relation": "relation",
-        "relations": ["equal", "subset"],
-        "equality": "kernel-canonical-bytes",
-    },
-    "canonical-scoped-unique": {
-        "kind": "canonical-scoped-unique",
-        "selector": "selector",
-        "scope_path": "scope_path",
-        "values_path": "values_path",
-        "row_scope_cardinality": "exactly-one",
-        "row_values_cardinality": "one-or-more",
-        "equality": "kernel-canonical-bytes",
-    },
-    "closed-int64-interval": {
-        "kind": "closed-int64-interval",
-        "selector": "selector",
-        "selection_cardinality": "one-or-more",
-        "minimum_member": "minimum_member",
-        "maximum_member": "maximum_member",
-        "integer_domain": "signed-int64-excluding-boolean",
-    },
-    "closed-int64-interval-join": {
-        "kind": "closed-int64-interval-join",
-        "source": "source",
-        "source_key_path": "source_key_path",
-        "source_value_path": "source_value_path",
-        "target": "target",
-        "target_key_path": "target_key_path",
-        "target_interval_path": "target_interval_path",
-        "target_key_cardinality": "exactly-one",
-        "target_interval_cardinality": "exactly-one",
-        "source_key_cardinality": "exactly-one",
-        "source_value_cardinality": "exactly-one",
-        "minimum_member": "minimum_member",
-        "maximum_member": "maximum_member",
-        "integer_domain": "signed-int64-excluding-boolean",
-        "key_equality": "kernel-canonical-bytes",
-    },
-    "model-source-vector": {
-        "kind": "model-source-vector",
-        "role": "role",
-        "pointer_path": "pointer_path",
-        "value_path": "value_path",
-        "outcome": "outcome",
-        "diagnostic_path": "diagnostic_path",
-        "expected_path": "expected_path",
-        "expected_value": "expected_value",
-        "pointer_encoding": "RFC6901-existing-target",
-        "mutation": "deep-copy-single-replacement",
-        "admission": "exact-caller-pair",
-        "refused_diagnostic_cardinality": "exactly-one",
-    },
-}
-_TEMPLATE_PRIMITIVE_CHARGES = {
-    "content-identity": ["judgment", "selected-value"],
-    "concatenate-selections": ["judgment", "selected-value"],
-    "model-source-admission": ["judgment"],
-    "canonical-unique": ["judgment", "selected-value"],
-    "canonical-inventory": ["judgment", "selected-value"],
-    "canonical-set-relation": ["judgment", "selected-value"],
-    "canonical-scoped-relation": ["judgment", "selected-value", "scoped-row"],
-    "canonical-scoped-unique": ["judgment", "selected-value", "scoped-row"],
-    "closed-int64-interval": ["judgment", "selected-value"],
-    "closed-int64-interval-join": ["judgment", "selected-value"],
-    "model-source-vector": ["judgment", "selected-value", "vector-execution"],
-}
+TemplateProvider = Callable[
+    [dict[str, JsonValue], dict[str, JsonValue]],
+    dict[str, JsonValue],
+]
 _TEMPLATE_INSTANTIATE_ARTIFACT_SET = (
     ArtifactSetMemberSpec(
         "model-source-package",
@@ -363,6 +208,52 @@ def _template_admission_profile(
     return profiles[0]
 
 
+def _template_model_source_member_kind(
+    kernel: dict[str, JsonValue],
+    profile: dict[str, JsonValue],
+) -> str:
+    template_contract = cast(
+        dict[str, JsonValue],
+        cast(dict[str, JsonValue], kernel["meta_format"])["template_admission"],
+    )
+    primitives = {
+        cast(str, primitive["id"]): primitive
+        for primitive in cast(
+            list[dict[str, JsonValue]],
+            cast(dict[str, JsonValue], template_contract["primitive_spec"])[
+                "primitives"
+            ],
+        )
+    }
+    operations = {
+        cast(str, operation["id"]): operation
+        for operation in cast(
+            list[dict[str, JsonValue]], template_contract["operations"]
+        )
+    }
+    role_specs = {
+        cast(str, spec["role"]): spec
+        for spec in cast(list[dict[str, JsonValue]], profile["member_roles"])
+    }
+    member_kinds: list[str] = []
+    for judgment in cast(list[dict[str, JsonValue]], profile["judgments"]):
+        operation = operations[cast(str, judgment["operation"])]
+        primitive = primitives[
+            cast(str, cast(dict[str, JsonValue], operation["law"])["primitive"])
+        ]
+        evaluation = cast(dict[str, JsonValue], primitive["evaluation"])
+        if evaluation["kind"] != "model-source-admission":
+            continue
+        role_argument = cast(str, evaluation["role"])
+        role = cast(
+            str, cast(dict[str, JsonValue], judgment["arguments"])[role_argument]
+        )
+        member_kinds.append(cast(str, role_specs[role]["member_kind"]))
+    if len(member_kinds) != 1:
+        raise ValueError("Template profile must declare one Model Source admission")
+    return member_kinds[0]
+
+
 class _TemplateAdmissionExhausted(Exception):
     pass
 
@@ -453,9 +344,9 @@ def _apply_template_vector(
     for part in parts[:-1]:
         if isinstance(current, dict) and part in current:
             current = current[part]
-        elif isinstance(current, list) and part.isdecimal():
-            index = int(part)
-            if index >= len(current):
+        elif isinstance(current, list):
+            index = _json_pointer_array_index(part)
+            if index is None or index >= len(current):
                 return None
             current = current[index]
         else:
@@ -463,14 +354,27 @@ def _apply_template_vector(
     final = parts[-1]
     if isinstance(current, dict) and final in current:
         current[final] = value
-    elif isinstance(current, list) and final.isdecimal():
-        index = int(final)
-        if index >= len(current):
+    elif isinstance(current, list):
+        index = _json_pointer_array_index(final)
+        if index is None or index >= len(current):
             return None
         current[index] = value
     else:
         return None
     return mutated
+
+
+def _json_pointer_array_index(token: str) -> int | None:
+    """Parse the RFC 6901 array-index grammar without Unicode coercion."""
+    if token == "0":
+        return 0
+    if (
+        not token
+        or token[0] not in "123456789"
+        or any(character not in "0123456789" for character in token[1:])
+    ):
+        return None
+    return int(token)
 
 
 def _project_template_path(
@@ -628,11 +532,11 @@ def _template_primitive_execution_is_supported(
     )
     return (
         isinstance(kind, str)
-        and evaluation == _TEMPLATE_EXECUTION_LAWS.get(kind)
+        and evaluation == TEMPLATE_PRIMITIVE_EVALUATIONS.get(kind)
         and primitive.get("result_effect") == expected_effect
         and primitive.get("failure")
         == {"mode": "judgment-diagnostic", "short_circuit": True}
-        and primitive.get("charges") == _TEMPLATE_PRIMITIVE_CHARGES.get(kind)
+        and primitive.get("charges") == TEMPLATE_PRIMITIVE_CHARGES.get(kind)
         and (
             kind != "model-source-admission"
             or primitive.get("result_members")
@@ -1016,10 +920,13 @@ def _execute_template_vector(
         expected_path = cast(
             list[str], arguments[cast(str, evaluation["expected_path"])]
         )
-        if expected_path and _project_template_path(
-            [vector], expected_path, budget
-        ) != [arguments[cast(str, evaluation["expected_value"])]]:
-            return False
+        if expected_path:
+            expected = _project_template_path([vector], expected_path, budget)
+            declared = arguments[cast(str, evaluation["expected_value"])]
+            if len(expected) != 1 or canonical_bytes(
+                cast(JsonValue, expected[0])
+            ) != canonical_bytes(declared):
+                return False
         if len(pointer) != 1 or len(values) != 1:
             raise ValueError("Template vector mutation is ambiguous")
         mutated = _apply_template_vector(
@@ -1077,34 +984,8 @@ def _validate_template_semantics(
         primitive_spec = cast(dict[str, JsonValue], meta["primitive_spec"])
         selector_contract = cast(dict[str, JsonValue], meta["selector"])
         if (
-            selector_contract
-            != {
-                "path_semantics": "ordered-flatten",
-                "roots": [
-                    "kernel",
-                    "language-bundle",
-                    "release",
-                    "role",
-                    "derived",
-                ],
-                "wildcard_segment": "*",
-            }
-            or accounting
-            != {
-                "charge_rules": [
-                    {"amount": "one-per-member", "event": "member-role"},
-                    {"amount": "one-per-judgment", "event": "judgment"},
-                    {
-                        "amount": "one-per-projected-value",
-                        "event": "selected-value",
-                    },
-                    {"amount": "one-per-input-row", "event": "scoped-row"},
-                    {"amount": "one-per-vector", "event": "vector-execution"},
-                ],
-                "counter_scope": "per-template-release-admission",
-                "exhaustion_diagnostic": "language.resource_exhausted",
-                "limit_path": "resources.max_template_admission_steps",
-            }
+            selector_contract != TEMPLATE_SELECTOR_CONTRACT
+            or accounting != TEMPLATE_RESOURCE_ACCOUNTING
             or set(primitive_spec)
             != {
                 "argument_types",
@@ -1428,9 +1309,21 @@ def _validate_template_release(
     return _validate_template_semantics(release, kernel, language_bundle)
 
 
-def _minimal_release() -> dict[str, JsonValue]:
-    kernel_identity = _TEMPLATE_KERNEL_IDENTITY
-    language_bundle_identity = _TEMPLATE_LDB_IDENTITY
+def _minimal_release(
+    kernel: dict[str, JsonValue],
+    language_bundle: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    kernel_identity = cast(str, kernel["content_identity"])
+    language_bundle_identity = cast(str, language_bundle["content_identity"])
+    language = cast(dict[str, JsonValue], language_bundle["language"])
+    package_matches = [
+        package
+        for package in cast(list[dict[str, JsonValue]], language["packages"])
+        if (package.get("id"), package.get("version")) == ("core.quantity", "2.0.0")
+    ]
+    if len(package_matches) != 1:
+        raise ValueError("minimal Template package is unavailable or ambiguous")
+    package_identity = cast(str, package_matches[0]["content_identity"])
     starter: dict[str, JsonValue] = {
         "schema_version": "2.0.0",
         "manifest": {
@@ -1471,7 +1364,7 @@ def _minimal_release() -> dict[str, JsonValue]:
     golden_id = "standard.quantity-minimal.golden"
     negative_id = "standard.quantity-minimal.invalid-domain"
     boundary_id = "standard.quantity-minimal.maximum-boundary"
-    schema_identities = _TEMPLATE_MEMBER_SCHEMA_IDENTITIES
+    schema_identities = _member_schema_identities(language_bundle)
     members = [
         _member(
             "starter-model-source",
@@ -1511,7 +1404,7 @@ def _minimal_release() -> dict[str, JsonValue]:
                     {
                         "id": "core.quantity",
                         "version": "2.0.0",
-                        "content_identity": _TEMPLATE_PACKAGE_IDENTITY,
+                        "content_identity": package_identity,
                     }
                 ],
             },
@@ -1636,20 +1529,48 @@ def _minimal_release() -> dict[str, JsonValue]:
     }
 
 
+@dataclass(frozen=True)
+class _AdmittedTemplate:
+    release: dict[str, JsonValue]
+    kernel: dict[str, JsonValue]
+    language_bundle: dict[str, JsonValue]
+    profile: dict[str, JsonValue]
+    schema_identities: dict[str, str]
+
+
+def _load_admitted_template(
+    provider: TemplateProvider,
+) -> _AdmittedTemplate | Schema2RefusalReport:
+    kernel, language_bundle = load_authorities()
+    admission = admit_authorities(kernel, language_bundle)
+    if not admission.admitted:
+        return bootstrap_refusal(admission)
+    release = provider(
+        cast(dict[str, JsonValue], kernel),
+        cast(dict[str, JsonValue], language_bundle),
+    )
+    refusal = _validate_template_release(release, kernel, language_bundle)
+    if refusal is not None:
+        return refusal
+    return _AdmittedTemplate(
+        release=release,
+        kernel=cast(dict[str, JsonValue], kernel),
+        language_bundle=cast(dict[str, JsonValue], language_bundle),
+        profile=_template_admission_profile(language_bundle),
+        schema_identities=_member_schema_identities(language_bundle),
+    )
+
+
 def template_list_handler(
     provider: TemplateProvider,
 ) -> Callable[[TemplateListInput], TemplateListResult | Schema2RefusalReport]:
     def _run(
         _inp: TemplateListInput,
     ) -> TemplateListResult | Schema2RefusalReport:
-        release = provider()
-        kernel, language_bundle = load_authorities()
-        admission = admit_authorities(kernel, language_bundle)
-        if not admission.admitted:
-            return bootstrap_refusal(admission)
-        refusal = _validate_template_release(release, kernel, language_bundle)
-        if refusal is not None:
-            return refusal
+        admitted = _load_admitted_template(provider)
+        if isinstance(admitted, Schema2RefusalReport):
+            return admitted
+        release = admitted.release
         return TemplateListResult(
             templates=[
                 TemplateSummary(
@@ -1672,14 +1593,10 @@ def template_get_handler(
     def _run(
         inp: TemplateGetInput,
     ) -> TemplateReleaseResult | Schema2RefusalReport:
-        release = provider()
-        kernel, language_bundle = load_authorities()
-        admission = admit_authorities(kernel, language_bundle)
-        if not admission.admitted:
-            return bootstrap_refusal(admission)
-        refusal = _validate_template_release(release, kernel, language_bundle)
-        if refusal is not None:
-            return refusal
+        admitted = _load_admitted_template(provider)
+        if isinstance(admitted, Schema2RefusalReport):
+            return admitted
+        release = admitted.release
         if (inp.id, inp.version) != (release["id"], release["version"]):
             return _template_refusal(
                 "language.package_version_unavailable",
@@ -1709,14 +1626,12 @@ def template_instantiate_handler(
     def _run(
         inp: TemplateInstantiateInput,
     ) -> TemplateInstantiateResult | Schema2RefusalReport:
-        release = provider()
-        kernel, language_bundle = load_authorities()
-        admission = admit_authorities(kernel, language_bundle)
-        if not admission.admitted:
-            return bootstrap_refusal(admission)
-        refusal = _validate_template_release(release, kernel, language_bundle)
-        if refusal is not None:
-            return refusal
+        admitted = _load_admitted_template(provider)
+        if isinstance(admitted, Schema2RefusalReport):
+            return admitted
+        release = admitted.release
+        kernel = admitted.kernel
+        language_bundle = admitted.language_bundle
         if (inp.id, inp.version) != (release["id"], release["version"]):
             return _template_refusal(
                 "language.package_version_unavailable",
@@ -1726,17 +1641,19 @@ def template_instantiate_handler(
                 f"Template release {inp.id}@{inp.version} is unavailable",
             )
 
-        profile = _template_admission_profile(language_bundle)
-        source_kind = next(
-            cast(str, row["member_kind"])
-            for row in cast(list[dict[str, JsonValue]], profile["member_roles"])
-            if row["role"] == "source"
-        )
-        starter_member = next(
+        source_kind = _template_model_source_member_kind(kernel, admitted.profile)
+        starter_members = [
             member
             for member in cast(list[dict[str, JsonValue]], release["members"])
             if member["member_kind"] == source_kind
-        )
+        ]
+        if len(starter_members) != 1:
+            return _template_contract_refusal(
+                release,
+                "/members",
+                "Template release must contain one LDB-profiled Model Source member",
+            )
+        starter_member = starter_members[0]
         starter = cast(
             dict[str, JsonValue],
             starter_member["payload"],
@@ -1752,7 +1669,7 @@ def template_instantiate_handler(
             "starter_identity": starter_identity,
         }
         source_identity = content_identity("model-source-package-v2", source)
-        schema_identities = _member_schema_identities(language_bundle)
+        schema_identities = admitted.schema_identities
         command_input = identified_artifact(
             language_bundle,
             "template-instantiate-command-input",

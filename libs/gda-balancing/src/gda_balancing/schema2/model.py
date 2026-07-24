@@ -2915,6 +2915,8 @@ def _commit_generic_publication(
         _fsync_directory(stage)
         if publication_fault == "before-commit":
             raise RuntimeError("injected publication fault before commit")
+        if invocation_path.exists() or invocation_path.is_symlink():
+            raise RuntimeError("Invocation-key publication appeared before commit")
         os.replace(stage, invocation_path)
         committed = True
         _fsync_directory(descriptor_parent)
@@ -2932,7 +2934,12 @@ def _commit_generic_publication(
     except Exception:
         if stage.exists():
             shutil.rmtree(stage)
-        if committed and not anchored and invocation_path.exists():
+        if (
+            committed
+            and not anchored
+            and invocation_path.exists()
+            and not anchor_path.exists()
+        ):
             shutil.rmtree(invocation_path)
             _fsync_directory(invocation_path.parent)
         for directory in reversed(created_directories):
@@ -3065,134 +3072,26 @@ def _publish_model_artifacts_locked(
         for artifact in artifacts.values()
     ):
         raise RuntimeError("lowerer output failed artifact-schema admission")
-    descriptor_parent = invocation_path.parent
-    store_root = _store_root()
-    store_invocations = store_root / "invocations"
-    store_anchors = store_root / "anchors"
-    anchor_parent = anchor_path.parent
-    created_directories: list[Path] = []
-    for directory in (
-        store_root,
-        store_invocations,
-        descriptor_parent,
-        store_anchors,
-        anchor_parent,
-    ):
-        existed = directory.exists()
-        _ensure_directory_chain(directory)
-        if not existed:
-            created_directories.append(directory)
-
-    members = [
-        {
-            "logical_name": member.logical_name,
-            "artifact_kind": member.artifact_kind,
-            "wire_schema_identity": cast(
-                str, artifacts[member.logical_name]["wire_schema_identity"]
-            ),
-            "content_identity": cast(
-                str, artifacts[member.logical_name]["content_identity"]
-            ),
-        }
-        for member in artifact_set
-    ]
-    member_locators = [
-        {
-            "logical_name": member.logical_name,
-            "locator": str(
-                (invocation_path / f"{member.logical_name}.json").absolute()
-            ),
-        }
-        for member in artifact_set
-    ]
-    manifest = _identified_artifact(
-        checked.language_bundle,
-        "artifact-set-manifest",
-        {
-            "frame": "typed-logical-member-map-v1",
-            "members": cast(JsonValue, members),
-        },
-    )
-    manifest_locator = str((invocation_path / "artifact-set-manifest.json").absolute())
-    receipt = _identified_artifact(
-        checked.language_bundle,
-        "artifact-set-receipt",
-        {
-            "descriptor_identity": descriptor_identity,
-            "invocation_key": invocation_key,
-            "manifest_identity": manifest["content_identity"],
-            "manifest_locator": manifest_locator,
-            "member_locators": cast(JsonValue, member_locators),
-        },
-    )
-    index = _identified_artifact(
-        checked.language_bundle,
-        "publication-index",
-        {
-            "adapter": "local-filesystem-directory-rename-v1",
-            "descriptor_identity": descriptor_identity,
-            "invocation_key": invocation_key,
-            "command_input_identity": command_input_identity,
-            "receipt_identity": receipt["content_identity"],
-        },
-    )
-
-    stage = Path(tempfile.mkdtemp(prefix=f".{invocation_key}.", dir=descriptor_parent))
-    anchored = False
-    committed_by_this_attempt = False
-    try:
-        for member_index, member in enumerate(artifact_set):
-            name = member.logical_name
-            _write_json(stage / f"{name}.json", artifacts[name])
-            if publication_fault == "after-member-write" and member_index == 0:
-                raise RuntimeError("injected publication fault after member write")
-        _write_json(stage / "artifact-set-manifest.json", manifest)
-        _write_json(stage / "artifact-set-receipt.json", receipt)
-        _write_json(stage / "publication-index.json", index)
-        for artifact_name, artifact in {
-            **artifacts,
-            "artifact-set-manifest": manifest,
-            "artifact-set-receipt": receipt,
-            "publication-index": index,
-        }.items():
-            staged = _read_canonical_artifact(stage / f"{artifact_name}.json")
-            if staged != artifact or not _verify_artifact(
-                staged, checked.language_bundle
-            ):
-                raise RuntimeError("staged artifact verification failed")
-        _fsync_directory(stage)
-        if publication_fault == "before-commit":
-            raise RuntimeError("injected publication fault before commit")
-        if invocation_path.exists() or invocation_path.is_symlink():
-            raise RuntimeError("Invocation-key publication appeared before commit")
-        os.replace(stage, invocation_path)
-        committed_by_this_attempt = True
-        _fsync_directory(descriptor_parent)
-        _write_anchor_exclusive(
-            anchor_path,
-            index,
-            authentication_key,
-            before_commit=publication_fault == "before-anchor-commit",
+    publication_artifacts = {
+        name: PublicationMember(
+            value=cast(dict[str, Any], artifact),
+            artifact_kind=cast(str, artifact["artifact_kind"]),
+            wire_schema_identity=cast(str, artifact["wire_schema_identity"]),
+            content_identity=cast(str, artifact["content_identity"]),
         )
-        anchored = True
-        if publication_fault == "after-commit":
-            raise RuntimeError("injected publication fault after commit")
-        _materialize_primary(out_path, artifacts[_primary_artifact_name(artifact_set)])
-    except Exception:
-        if stage.exists():
-            shutil.rmtree(stage)
-        if (
-            committed_by_this_attempt
-            and not anchored
-            and invocation_path.exists()
-            and not anchor_path.exists()
-        ):
-            shutil.rmtree(invocation_path)
-            _fsync_directory(invocation_path.parent)
-        for directory in reversed(created_directories):
-            try:
-                directory.rmdir()
-            except OSError:
-                pass
-        raise
-    return receipt
+        for name, artifact in artifacts.items()
+    }
+    return _commit_generic_publication(
+        invocation_path,
+        anchor_path,
+        out_path,
+        invocation_key,
+        descriptor_identity,
+        command_input_identity,
+        checked.language_bundle,
+        artifact_set,
+        publication_artifacts,
+        lambda _name, value: _verify_artifact(value, checked.language_bundle),
+        authentication_key,
+        publication_fault,
+    )
