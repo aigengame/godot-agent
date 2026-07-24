@@ -1,7 +1,7 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:2b7fabc914a0bd53941897221e53cc01c02602b1d38dada51a53c0d00a77f390",
+  "content_identity": "sha256:a7d529cf7eafc9ac5dfcd2fe3f524dced694fa065eeab22829f5c58f748a1f95",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
@@ -18,7 +18,7 @@
     {"code": "language.source_parse_failure", "stage": "parse"},
     {"code": "language.source_too_large", "stage": "ingress"}
   ],
-  "kernel_identity": "sha256:dec04c51d45fc39cdcebdb29ba5b5b39e18ce76b4f4779663013017c4db59c5f",
+  "kernel_identity": "sha256:7c2cfe51a841317c36dfdebebbc0028624e123c13ff198c89efacbb01ced2638",
   "language": {
     "artifact_contracts": [
       {"artifact_kind": "artifact-set-manifest", "identity_domain": "artifact-set-manifest-v2", "schema_kind": "artifact-set-manifest", "wire_schema_identity_domain": "artifact-set-manifest-wire-schema-v2", "identity_excluded_members": []},
@@ -1342,28 +1342,58 @@
     "template_admission_profiles": [
       {
         "id": "standard-template-release-v1",
-        "source_identity_domain": "model-source-package-v2",
+        "max_steps_path": "resources.max_template_admission_steps",
+        "resource_diagnostic": "language.resource_exhausted",
+        "structural_diagnostic": "language.source_contract_mismatch",
         "member_roles": [
-          {"role": "source", "logical_name": "starter-model-source", "member_kind": "model-source-package"},
-          {"role": "experiment", "logical_name": "experiment-specification", "member_kind": "experiment-specification"},
-          {"role": "dependencies", "logical_name": "declared-package-dependencies", "member_kind": "declared-package-dependencies"},
-          {"role": "defaults", "logical_name": "defaults", "member_kind": "template-defaults"},
-          {"role": "compatibility", "logical_name": "compatibility", "member_kind": "template-compatibility"},
-          {"role": "documentation", "logical_name": "documentation", "member_kind": "template-documentation"},
-          {"role": "coverage", "logical_name": "coverage-matrix", "member_kind": "genre-coverage-matrix"},
-          {"role": "golden", "logical_name": "golden-scenario", "member_kind": "golden-scenario"},
-          {"role": "negative-vector", "logical_name": "negative-vector", "member_kind": "negative-vector"},
-          {"role": "boundary-vector", "logical_name": "boundary-vector", "member_kind": "boundary-vector"}
+          {"role": "source", "member_kind": "model-source-package", "cardinality": "exactly-one", "required_operations": ["derive-content-identity", "admit-model-source"]},
+          {"role": "experiment", "member_kind": "experiment-specification", "cardinality": "one-or-more", "required_operations": ["require-unique"]},
+          {"role": "dependencies", "member_kind": "declared-package-dependencies", "cardinality": "exactly-one", "required_operations": ["require-set-relation"]},
+          {"role": "defaults", "member_kind": "template-defaults", "cardinality": "exactly-one", "required_operations": ["require-unique"]},
+          {"role": "compatibility", "member_kind": "template-compatibility", "cardinality": "exactly-one", "required_operations": ["require-set-relation"]},
+          {"role": "documentation", "member_kind": "template-documentation", "cardinality": "exactly-one", "required_operations": []},
+          {"role": "coverage", "member_kind": "genre-coverage-matrix", "cardinality": "exactly-one", "required_operations": ["require-unique"]},
+          {"role": "golden", "member_kind": "golden-scenario", "cardinality": "one-or-more", "required_operations": ["require-unique"]},
+          {"role": "negative-vector", "member_kind": "negative-vector", "cardinality": "one-or-more", "required_operations": ["require-unique", "execute-model-source-vector"]},
+          {"role": "boundary-vector", "member_kind": "boundary-vector", "cardinality": "one-or-more", "required_operations": ["require-unique", "execute-model-source-vector"]}
         ],
-        "judgment_chain": [
-          {"id": "template.require-exact-member-roles", "operation": "require-exact-member-roles"},
-          {"id": "template.admit-starter-model-source", "operation": "admit-starter-model-source"},
-          {"id": "template.bind-authorities-and-source", "operation": "bind-authorities-and-source"},
-          {"id": "template.close-package-dependencies", "operation": "close-package-dependencies"},
-          {"id": "template.admit-defaults", "operation": "admit-defaults"},
-          {"id": "template.close-coverage", "operation": "close-coverage"},
-          {"id": "template.execute-negative-vectors", "operation": "execute-negative-vectors"},
-          {"id": "template.execute-boundary-vectors", "operation": "execute-boundary-vectors"}
+        "judgments": [
+          {"id": "template.derive-source-identity", "operation": "derive-content-identity", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "source", "path": []}, "identity_domain": "model-source-package-v2", "result": "source_identity"}},
+          {"id": "template.derive-vector-ids", "operation": "derive-concatenation", "diagnostic": "language.source_contract_mismatch", "arguments": {"selectors": [{"root": "role", "name": "negative-vector", "path": ["id"]}, {"root": "role", "name": "boundary-vector", "path": ["id"]}], "result": "vector_ids"}},
+          {"id": "template.admit-source", "operation": "admit-model-source", "diagnostic": "language.source_contract_mismatch", "arguments": {"role": "source", "fact_bindings": [{"source": "root_requirements", "result": "root_requirements"}, {"source": "resolved_packages", "result": "resolved_packages"}, {"source": "source_symbols", "result": "source_symbols"}]}},
+          {"id": "template.unique-experiment", "operation": "require-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "experiment", "path": ["id"]}}},
+          {"id": "template.unique-metric", "operation": "require-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "experiment", "path": ["metrics", "*", "id"]}}},
+          {"id": "template.unique-golden", "operation": "require-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "golden", "path": ["id"]}}},
+          {"id": "template.unique-negative", "operation": "require-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "negative-vector", "path": ["id"]}}},
+          {"id": "template.unique-boundary", "operation": "require-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "boundary-vector", "path": ["id"]}}},
+          {"id": "template.unique-coverage-row", "operation": "require-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "coverage", "path": ["rows", "*", "id"]}}},
+          {"id": "template.unique-default-symbol", "operation": "require-unique", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "defaults", "path": ["symbol_values", "*", "symbol"]}}},
+          {"id": "template.metric-kind-inventory", "operation": "require-inventory", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "experiment", "path": ["metrics", "*", "kind"]}, "inventory": {"root": "language-bundle", "name": "", "path": ["language", "quantity", "kinds", "*"]}}},
+          {"id": "template.metric-unit-inventory", "operation": "require-inventory", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "experiment", "path": ["metrics", "*", "unit"]}, "inventory": {"root": "language-bundle", "name": "", "path": ["language", "quantity", "units", "*", "id"]}}},
+          {"id": "template.coverage-capability-inventory", "operation": "require-inventory", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "coverage", "path": ["rows", "*", "capabilities", "*"]}, "inventory": {"root": "language-bundle", "name": "", "path": ["language", "capabilities", "*", "id"]}}},
+          {"id": "template.coverage-operation-inventory", "operation": "require-inventory", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "coverage", "path": ["rows", "*", "operations", "*"]}, "inventory": {"root": "language-bundle", "name": "", "path": ["language", "operations", "*", "id"]}}},
+          {"id": "template.coverage-package-inventory", "operation": "require-inventory", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "coverage", "path": ["rows", "*", "packages", "*"]}, "inventory": {"root": "language-bundle", "name": "", "path": ["language", "packages", "*", "id"]}}},
+          {"id": "template.negative-diagnostic-inventory", "operation": "require-inventory", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "negative-vector", "path": ["diagnostic"]}, "inventory": {"root": "language-bundle", "name": "", "path": ["diagnostics", "*", "code"]}}},
+          {"id": "template.experiment-kernel", "operation": "require-set-relation", "diagnostic": "language.source_contract_mismatch", "arguments": {"left": {"root": "role", "name": "experiment", "path": ["kernel_identity"]}, "right": {"root": "kernel", "name": "", "path": ["content_identity"]}, "relation": "equal"}},
+          {"id": "template.experiment-ldb", "operation": "require-set-relation", "diagnostic": "language.source_contract_mismatch", "arguments": {"left": {"root": "role", "name": "experiment", "path": ["language_bundle_identity"]}, "right": {"root": "language-bundle", "name": "", "path": ["content_identity"]}, "relation": "equal"}},
+          {"id": "template.experiment-source", "operation": "require-set-relation", "diagnostic": "language.source_contract_mismatch", "arguments": {"left": {"root": "role", "name": "experiment", "path": ["model_source_identity"]}, "right": {"root": "derived", "name": "source_identity", "path": []}, "relation": "equal"}},
+          {"id": "template.golden-source", "operation": "require-set-relation", "diagnostic": "language.source_contract_mismatch", "arguments": {"left": {"root": "role", "name": "golden", "path": ["model_source_identity"]}, "right": {"root": "derived", "name": "source_identity", "path": []}, "relation": "equal"}},
+          {"id": "template.compatibility-kernel", "operation": "require-set-relation", "diagnostic": "language.package_version_unavailable", "arguments": {"left": {"root": "role", "name": "compatibility", "path": ["kernel_identity"]}, "right": {"root": "kernel", "name": "", "path": ["content_identity"]}, "relation": "equal"}},
+          {"id": "template.compatibility-ldb", "operation": "require-set-relation", "diagnostic": "language.package_version_unavailable", "arguments": {"left": {"root": "role", "name": "compatibility", "path": ["language_bundle_identity"]}, "right": {"root": "language-bundle", "name": "", "path": ["content_identity"]}, "relation": "equal"}},
+          {"id": "template.dependencies", "operation": "require-set-relation", "diagnostic": "language.package_version_unavailable", "arguments": {"left": {"root": "role", "name": "dependencies", "path": ["packages", "*"]}, "right": {"root": "derived", "name": "resolved_packages", "path": ["*"]}, "relation": "equal"}},
+          {"id": "template.compatible-packages", "operation": "require-set-relation", "diagnostic": "language.package_version_unavailable", "arguments": {"left": {"root": "role", "name": "compatibility", "path": ["packages", "*"]}, "right": {"root": "derived", "name": "root_requirements", "path": ["*"]}, "relation": "equal"}},
+          {"id": "template.default-symbols", "operation": "require-set-relation", "diagnostic": "language.source_contract_mismatch", "arguments": {"left": {"root": "role", "name": "defaults", "path": ["symbol_values", "*", "symbol"]}, "right": {"root": "derived", "name": "source_symbols", "path": ["*", "id"]}, "relation": "subset"}},
+          {"id": "template.coverage-experiments", "operation": "require-set-relation", "diagnostic": "language.source_contract_mismatch", "arguments": {"left": {"root": "role", "name": "coverage", "path": ["rows", "*", "experiment"]}, "right": {"root": "role", "name": "experiment", "path": ["id"]}, "relation": "equal"}},
+          {"id": "template.coverage-goldens", "operation": "require-set-relation", "diagnostic": "language.source_contract_mismatch", "arguments": {"left": {"root": "role", "name": "coverage", "path": ["rows", "*", "golden_scenario"]}, "right": {"root": "role", "name": "golden", "path": ["id"]}, "relation": "equal"}},
+          {"id": "template.coverage-vectors", "operation": "require-set-relation", "diagnostic": "language.source_contract_mismatch", "arguments": {"left": {"root": "role", "name": "coverage", "path": ["rows", "*", "vectors", "*"]}, "right": {"root": "derived", "name": "vector_ids", "path": ["*"]}, "relation": "equal"}},
+          {"id": "template.experiment-scenarios", "operation": "require-scoped-relation", "diagnostic": "language.source_contract_mismatch", "arguments": {"source": {"root": "role", "name": "experiment", "path": []}, "source_scope_path": ["id"], "source_values_path": ["scenarios", "*"], "target": {"root": "role", "name": "golden", "path": []}, "target_scope_path": ["experiment"], "target_values_path": ["id"], "relation": "equal"}},
+          {"id": "template.coverage-scenarios", "operation": "require-scoped-relation", "diagnostic": "language.source_contract_mismatch", "arguments": {"source": {"root": "role", "name": "coverage", "path": ["rows", "*"]}, "source_scope_path": ["experiment"], "source_values_path": ["golden_scenario"], "target": {"root": "role", "name": "golden", "path": []}, "target_scope_path": ["experiment"], "target_values_path": ["id"], "relation": "equal"}},
+          {"id": "template.coverage-observables", "operation": "require-scoped-relation", "diagnostic": "language.source_contract_mismatch", "arguments": {"source": {"root": "role", "name": "coverage", "path": ["rows", "*"]}, "source_scope_path": ["experiment"], "source_values_path": ["observables", "*"], "target": {"root": "role", "name": "experiment", "path": []}, "target_scope_path": ["id"], "target_values_path": ["metrics", "*", "id"], "relation": "equal"}},
+          {"id": "template.golden-defaults", "operation": "require-scoped-relation", "diagnostic": "language.source_contract_mismatch", "arguments": {"source": {"root": "role", "name": "golden", "path": []}, "source_scope_path": ["symbol"], "source_values_path": ["value"], "target": {"root": "role", "name": "defaults", "path": ["symbol_values", "*"]}, "target_scope_path": ["symbol"], "target_values_path": ["value"], "relation": "subset"}},
+          {"id": "template.metric-target-interval", "operation": "require-interval", "diagnostic": "language.source_contract_mismatch", "arguments": {"selector": {"root": "role", "name": "experiment", "path": ["metrics", "*", "target"]}, "minimum_member": "minimum", "maximum_member": "maximum"}},
+          {"id": "template.default-domain", "operation": "require-interval-join", "diagnostic": "language.source_contract_mismatch", "arguments": {"source": {"root": "role", "name": "defaults", "path": ["symbol_values", "*"]}, "source_key_path": ["symbol"], "source_value_path": ["value"], "target": {"root": "derived", "name": "source_symbols", "path": ["*"]}, "target_key_path": ["id"], "target_interval_path": ["domain"], "minimum_member": "minimum", "maximum_member": "maximum"}},
+          {"id": "template.negative-vectors", "operation": "execute-model-source-vector", "diagnostic": "language.source_contract_mismatch", "arguments": {"role": "negative-vector", "pointer_path": ["mutation", "pointer"], "value_path": ["mutation", "value"], "outcome": "refused", "diagnostic_path": ["diagnostic"], "expected_path": [], "expected_value": ""}},
+          {"id": "template.boundary-vectors", "operation": "execute-model-source-vector", "diagnostic": "language.source_contract_mismatch", "arguments": {"role": "boundary-vector", "pointer_path": ["pointer"], "value_path": ["value"], "outcome": "admitted", "diagnostic_path": [], "expected_path": ["expected"], "expected_value": "accepted"}}
         ]
       }
     ],
@@ -1417,7 +1447,7 @@
       }
     ]
   },
-  "resources": {"max_diagnostics": 1000, "max_rule_match_steps": 65536, "max_source_bytes": 1048576, "max_symbols": 4096, "max_runtime_projection_steps": 65536},
+  "resources": {"max_diagnostics": 1000, "max_rule_match_steps": 65536, "max_source_bytes": 1048576, "max_symbols": 4096, "max_runtime_projection_steps": 65536, "max_template_admission_steps": 1024},
   "schema_major": 2,
   "vectors": [
     {

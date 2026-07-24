@@ -199,10 +199,13 @@ Roguelike (metroidvania-like, survivors-like, deckbuilder-like) (bADR-0017).
 _Avoid_: preset, profile
 
 **Template admission profile**:
-An LDB-owned, versioned selection of Kernel-defined generic judgments that maps the exact member
-roles of a Template release and orders its semantic admission. It requires the starter to pass the
-ordinary Model Source path and executes declared negative/boundary vectors; it does not grant
-language authority to the Template (bADR-0017).
+An LDB-owned, versioned artifact-graph program over Kernel-defined generic operations. It maps
+member kinds to ordered role collections with explicit cardinality and role-operation obligations,
+derives named graph facts through declared selectors and bindings, and runs under a bounded
+per-release step budget. Role names and member kinds are LDB content rather than a Kernel
+inventory, so a genre can add them without changing core. The program requires the starter to pass
+the ordinary Model Source path and every declared negative/boundary vector to execute; it does not
+grant language authority to the Template (bADR-0017).
 _Avoid_: template validator callback, host companion checks, genre runtime profile
 
 **Reference fixture**:

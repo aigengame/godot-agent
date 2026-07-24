@@ -16,7 +16,14 @@ from gda_balancing.commands.template import (
     template_get_handler,
     template_instantiate_handler,
 )
+from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
+from gda_balancing.schema2.diagnostics import Schema2RefusalReport
+from gda_balancing.schema2.model import (
+    CheckedModel,
+    check_model_source_value,
+    checked_model_template_facts,
+)
 
 
 def _reidentify_release(release):
@@ -42,6 +49,365 @@ def _reidentify_release(release):
         {key: value for key, value in release.items() if key != "content_identity"},
     )
     return release
+
+
+class _ReferenceBudgetExhausted(Exception):
+    pass
+
+
+class _ReferenceBudget:
+    def __init__(self, limit):
+        self.remaining = limit
+
+    def charge(self, amount=1):
+        self.remaining -= amount
+        if self.remaining < 0:
+            raise _ReferenceBudgetExhausted
+
+
+def _reference_project(values, path, budget):
+    current = list(values)
+    for segment in path:
+        projected = []
+        for value in current:
+            if segment == "*":
+                if not isinstance(value, list):
+                    raise ValueError("wildcard input is not a list")
+                budget.charge(len(value))
+                projected.extend(value)
+            else:
+                if not isinstance(value, dict) or segment not in value:
+                    raise ValueError("selector path is absent")
+                budget.charge()
+                projected.append(value[segment])
+        current = projected
+    return current
+
+
+def _reference_json_pointer(source, pointer, replacement):
+    if not isinstance(pointer, str) or not pointer.startswith("/") or pointer == "/":
+        return None
+    parts = [
+        part.replace("~1", "/").replace("~0", "~") for part in pointer[1:].split("/")
+    ]
+    result = deepcopy(source)
+    current = result
+    for part in parts[:-1]:
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        elif isinstance(current, list) and part.isdecimal():
+            index = int(part)
+            if index >= len(current):
+                return None
+            current = current[index]
+        else:
+            return None
+    last = parts[-1]
+    if isinstance(current, dict) and last in current:
+        current[last] = replacement
+    elif isinstance(current, list) and last.isdecimal():
+        index = int(last)
+        if index >= len(current):
+            return None
+        current[index] = replacement
+    else:
+        return None
+    return result
+
+
+def _reference_template_admission(release, kernel, language_bundle):
+    """Second Template graph interpreter; imports no production Template helpers."""
+    profile = language_bundle["language"]["template_admission_profiles"][0]
+    meta = kernel["meta_format"]["template_admission"]
+    diagnostics = {row["code"]: row["stage"] for row in language_bundle["diagnostics"]}
+    structural = profile["structural_diagnostic"]
+    resource = profile["resource_diagnostic"]
+    try:
+        limit = language_bundle
+        for part in profile["max_steps_path"].split("."):
+            limit = limit[part]
+        budget = _ReferenceBudget(limit)
+        specifications = {row["member_kind"]: row for row in profile["member_roles"]}
+        roles = {row["role"]: [] for row in profile["member_roles"]}
+        for member in release["members"]:
+            budget.charge()
+            spec = specifications.get(member["member_kind"])
+            if spec is None:
+                raise ValueError("undeclared member kind")
+            roles[spec["role"]].append(member["payload"])
+        for row in profile["member_roles"]:
+            count = len(roles[row["role"]])
+            if (
+                row["cardinality"] == "exactly-one"
+                and count != 1
+                or row["cardinality"] == "one-or-more"
+                and count < 1
+            ):
+                raise ValueError("role cardinality failed")
+
+        derived = {}
+        admitted_source = None
+        checked_source = None
+        operations = {row["id"]: row for row in meta["operations"]}
+
+        def select(selector):
+            root = selector["root"]
+            if root == "kernel":
+                values = [kernel]
+            elif root == "language-bundle":
+                values = [language_bundle]
+            elif root == "release":
+                values = [release]
+            elif root == "role":
+                values = roles[selector["name"]]
+            elif root == "derived":
+                values = [derived[selector["name"]]]
+            else:
+                raise ValueError("unknown selector root")
+            return _reference_project(values, selector["path"], budget)
+
+        def key_set(values):
+            return {canonical_bytes(value) for value in values}
+
+        def scoped(rows, scope_path, values_path):
+            grouped = {}
+            for row in rows:
+                budget.charge()
+                scope = _reference_project([row], scope_path, budget)
+                values = _reference_project([row], values_path, budget)
+                if len(scope) != 1 or not values:
+                    raise ValueError("ambiguous scoped row")
+                grouped.setdefault(canonical_bytes(scope[0]), set()).update(
+                    key_set(values)
+                )
+            return grouped
+
+        for judgment in profile["judgments"]:
+            budget.charge()
+            operation = operations[judgment["operation"]]
+            law = operation["law"]
+            arguments = judgment["arguments"]
+            if law["operator"] != operation["id"] or set(arguments) != set(
+                law["argument_members"]
+            ):
+                raise ValueError("judgment does not instantiate its Kernel law")
+            operator = operation["id"]
+            holds = True
+
+            if operator == "derive-content-identity":
+                selected = select(arguments["selector"])
+                if len(selected) != 1 or arguments["result"] in derived:
+                    raise ValueError("ambiguous identity derivation")
+                derived[arguments["result"]] = content_identity(
+                    arguments["identity_domain"], selected[0]
+                )
+            elif operator == "derive-concatenation":
+                if arguments["result"] in derived:
+                    raise ValueError("duplicate derived result")
+                concatenated = []
+                for selector in arguments["selectors"]:
+                    concatenated.extend(select(selector))
+                derived[arguments["result"]] = concatenated
+            elif operator == "admit-model-source":
+                candidates = roles[arguments["role"]]
+                if len(candidates) != 1:
+                    raise ValueError("ambiguous Model Source")
+                admitted_source = candidates[0]
+                result = check_model_source_value(
+                    admitted_source,
+                    kernel=kernel,
+                    language_bundle=language_bundle,
+                )
+                if isinstance(result, Schema2RefusalReport):
+                    return False, result.diagnostics[0].code
+                checked_source = result
+                facts = checked_model_template_facts(result)
+                if set(facts) != set(law["result_members"]):
+                    raise ValueError("Model Source result shape drifted")
+                for binding in arguments["fact_bindings"]:
+                    if binding["result"] in derived:
+                        raise ValueError("duplicate Model Source result binding")
+                    derived[binding["result"]] = facts[binding["source"]]
+            elif operator == "require-unique":
+                values = select(arguments["selector"])
+                holds = bool(values) and len(values) == len(key_set(values))
+            elif operator == "require-inventory":
+                values = key_set(select(arguments["selector"]))
+                holds = bool(values) and values <= key_set(
+                    select(arguments["inventory"])
+                )
+            elif operator == "require-set-relation":
+                left = key_set(select(arguments["left"]))
+                right = key_set(select(arguments["right"]))
+                holds = (
+                    left == right if arguments["relation"] == "equal" else left <= right
+                )
+            elif operator == "require-scoped-relation":
+                left = scoped(
+                    select(arguments["source"]),
+                    arguments["source_scope_path"],
+                    arguments["source_values_path"],
+                )
+                right = scoped(
+                    select(arguments["target"]),
+                    arguments["target_scope_path"],
+                    arguments["target_values_path"],
+                )
+                holds = (
+                    left == right
+                    if arguments["relation"] == "equal"
+                    else set(left) <= set(right)
+                    and all(left[key] <= right[key] for key in left)
+                )
+            elif operator == "require-interval":
+                intervals = select(arguments["selector"])
+                minimum = arguments["minimum_member"]
+                maximum = arguments["maximum_member"]
+                holds = bool(intervals)
+                for interval in intervals:
+                    budget.charge()
+                    holds = holds and (
+                        isinstance(interval, dict)
+                        and set(interval) == {minimum, maximum}
+                        and isinstance(interval[minimum], int)
+                        and not isinstance(interval[minimum], bool)
+                        and isinstance(interval[maximum], int)
+                        and not isinstance(interval[maximum], bool)
+                        and interval[minimum] <= interval[maximum]
+                    )
+            elif operator == "require-interval-join":
+                targets = {}
+                for row in select(arguments["target"]):
+                    key = _reference_project(
+                        [row], arguments["target_key_path"], budget
+                    )
+                    interval = _reference_project(
+                        [row], arguments["target_interval_path"], budget
+                    )
+                    if len(key) != 1 or len(interval) != 1:
+                        raise ValueError("ambiguous interval target")
+                    encoded = canonical_bytes(key[0])
+                    if encoded in targets:
+                        raise ValueError("duplicate interval target")
+                    targets[encoded] = interval[0]
+                minimum = arguments["minimum_member"]
+                maximum = arguments["maximum_member"]
+                for row in select(arguments["source"]):
+                    key = _reference_project(
+                        [row], arguments["source_key_path"], budget
+                    )
+                    value = _reference_project(
+                        [row], arguments["source_value_path"], budget
+                    )
+                    if len(key) != 1 or len(value) != 1:
+                        raise ValueError("ambiguous interval source")
+                    interval = targets.get(canonical_bytes(key[0]))
+                    holds = holds and (
+                        isinstance(interval, dict)
+                        and isinstance(value[0], int)
+                        and not isinstance(value[0], bool)
+                        and interval[minimum] <= value[0] <= interval[maximum]
+                    )
+            elif operator == "execute-model-source-vector":
+                if admitted_source is None:
+                    raise ValueError("vectors precede Model Source admission")
+                for vector in roles[arguments["role"]]:
+                    budget.charge()
+                    pointer = _reference_project(
+                        [vector], arguments["pointer_path"], budget
+                    )
+                    value = _reference_project(
+                        [vector], arguments["value_path"], budget
+                    )
+                    if arguments["expected_path"] and _reference_project(
+                        [vector], arguments["expected_path"], budget
+                    ) != [arguments["expected_value"]]:
+                        holds = False
+                        break
+                    if len(pointer) != 1 or len(value) != 1:
+                        raise ValueError("ambiguous vector")
+                    mutated = _reference_json_pointer(
+                        admitted_source, pointer[0], value[0]
+                    )
+                    outcome = (
+                        check_model_source_value(
+                            mutated,
+                            kernel=kernel,
+                            language_bundle=language_bundle,
+                        )
+                        if mutated is not None
+                        else None
+                    )
+                    if arguments["outcome"] == "admitted":
+                        holds = isinstance(outcome, CheckedModel)
+                    else:
+                        expected = _reference_project(
+                            [vector], arguments["diagnostic_path"], budget
+                        )
+                        holds = (
+                            len(expected) == 1
+                            and isinstance(outcome, Schema2RefusalReport)
+                            and len(outcome.diagnostics) == 1
+                            and outcome.diagnostics[0].code == expected[0]
+                        )
+                    if not holds:
+                        break
+            else:
+                raise ValueError("unknown Template operation")
+
+            if not holds:
+                return False, judgment["diagnostic"]
+        if checked_source is None:
+            return False, structural
+        return True, None
+    except _ReferenceBudgetExhausted:
+        return False, resource
+    except (KeyError, TypeError, ValueError):
+        assert diagnostics[structural] == "static"
+        return False, structural
+
+
+def _with_secondary_vertical_slice(release):
+    def original(name):
+        return next(item for item in release["members"] if item["logical_name"] == name)
+
+    experiment = deepcopy(original("experiment-specification"))
+    experiment["logical_name"] = "experiment-secondary"
+    experiment["payload"]["id"] = "standard.quantity-minimal.experiment.secondary"
+    experiment["payload"]["scenarios"] = ["standard.quantity-minimal.golden.secondary"]
+    experiment["payload"]["metrics"][0]["id"] = "secondary-value"
+    golden = deepcopy(original("golden-scenario"))
+    golden["logical_name"] = "golden-secondary"
+    golden["payload"]["id"] = "standard.quantity-minimal.golden.secondary"
+    golden["payload"]["experiment"] = experiment["payload"]["id"]
+    negative = deepcopy(original("negative-vector"))
+    negative["logical_name"] = "negative-secondary"
+    negative["payload"]["id"] = "standard.quantity-minimal.invalid-domain.secondary"
+    negative["payload"]["mutation"] = {
+        "pointer": "/modules/0/symbols/0/domain",
+        "value": {"minimum": 2, "maximum": 1},
+    }
+    boundary = deepcopy(original("boundary-vector"))
+    boundary["logical_name"] = "boundary-secondary"
+    boundary["payload"]["id"] = "standard.quantity-minimal.minimum-boundary"
+    boundary["payload"]["pointer"] = "/modules/0/symbols/0/domain/minimum"
+    boundary["payload"]["value"] = 0
+    release["members"].extend((experiment, golden, negative, boundary))
+    coverage = original("coverage-matrix")["payload"]["rows"]
+    coverage.append(
+        {
+            "id": "template.quantity.secondary",
+            "requirement": "A second Experiment closes independently.",
+            "capabilities": ["quantity.declare", "quantity.lower"],
+            "operations": ["quantity.identity"],
+            "packages": ["core.quantity"],
+            "experiment": experiment["payload"]["id"],
+            "golden_scenario": golden["payload"]["id"],
+            "vectors": [negative["payload"]["id"], boundary["payload"]["id"]],
+            "observables": ["secondary-value"],
+        }
+    )
+    return _reidentify_release(release)
 
 
 def _template_invocation_directory(invocation_key):
@@ -75,7 +441,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.0.0",
                 "content_identity": (
-                    "sha256:a084070dd49bb4911206d36c1d7759183aa1f68f1a7b04607c6375bd2d54d3f1"
+                    "sha256:ffe790873e3adfd37b4fbb3529bb4ce495420b5f8f4470cc02bcdfec39fc7216"
                 ),
             }
         ]
@@ -504,6 +870,179 @@ def test_template_get_refuses_every_reidentified_semantic_admission_mutation(
         }
 
 
+def test_template_admission_accepts_multiple_experiments_scenarios_and_vectors(
+    run_cli,
+):
+    release = json.loads(
+        run_cli(
+            [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ]
+        )[1]
+    )
+
+    release = _with_secondary_vertical_slice(release)
+    descriptor = replace(
+        TEMPLATE_GET,
+        handler=template_get_handler(lambda: release),
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "template",
+            "get",
+            "--id",
+            "standard.quantity-minimal",
+            "--version",
+            "2.0.0",
+        ],
+        registry=(descriptor,),
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
+    admitted = json.loads(stdout)
+    assert len(admitted["members"]) == 14
+
+
+def test_template_admission_refuses_resource_exhaustion_from_coverage_rows(
+    run_cli,
+):
+    release = json.loads(
+        run_cli(
+            [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ]
+        )[1]
+    )
+    coverage = next(
+        item for item in release["members"] if item["logical_name"] == "coverage-matrix"
+    )["payload"]["rows"]
+    prototype = coverage[0]
+    coverage[:] = [
+        {**deepcopy(prototype), "id": f"template.quantity.row-{index:03d}"}
+        for index in range(300)
+    ]
+    descriptor = replace(
+        TEMPLATE_GET,
+        handler=template_get_handler(lambda: _reidentify_release(release)),
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "template",
+            "get",
+            "--id",
+            "standard.quantity-minimal",
+            "--version",
+            "2.0.0",
+        ],
+        registry=(descriptor,),
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    refusal = json.loads(stdout)
+    assert refusal["error"]["diagnostics"][0]["code"] == "language.resource_exhausted"
+
+
+def test_independent_template_graph_interpreter_agrees_on_admission_and_refusal(
+    run_cli,
+):
+    pristine = json.loads(
+        run_cli(
+            [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ]
+        )[1]
+    )
+
+    def payload(release, kind):
+        return next(
+            member["payload"]
+            for member in release["members"]
+            if member["member_kind"] == kind
+        )
+
+    multiple = _with_secondary_vertical_slice(deepcopy(pristine))
+
+    invalid_unit = deepcopy(pristine)
+    payload(invalid_unit, "experiment-specification")["metrics"][0]["unit"] = (
+        "missing-unit"
+    )
+    _reidentify_release(invalid_unit)
+
+    false_negative = deepcopy(pristine)
+    payload(false_negative, "negative-vector")["mutation"]["value"] = {
+        "minimum": 0,
+        "maximum": 100,
+    }
+    _reidentify_release(false_negative)
+
+    exhausted = deepcopy(pristine)
+    coverage = payload(exhausted, "genre-coverage-matrix")["rows"]
+    row = coverage[0]
+    coverage[:] = [
+        {**deepcopy(row), "id": f"template.quantity.reference-{index:03d}"}
+        for index in range(300)
+    ]
+    _reidentify_release(exhausted)
+
+    authority = authority_set()
+    cases = (
+        (pristine, (True, None)),
+        (multiple, (True, None)),
+        (invalid_unit, (False, "language.source_contract_mismatch")),
+        (false_negative, (False, "language.source_contract_mismatch")),
+        (exhausted, (False, "language.resource_exhausted")),
+    )
+    for release, expected in cases:
+        reference = _reference_template_admission(
+            release,
+            authority["kernel"],
+            authority["language_bundle"],
+        )
+        descriptor = replace(
+            TEMPLATE_GET,
+            handler=template_get_handler(lambda release=release: release),
+        )
+        exit_code, stdout, stderr = run_cli(
+            [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ],
+            registry=(descriptor,),
+        )
+        production = (
+            (True, None)
+            if exit_code == 0
+            else (
+                False,
+                json.loads(stdout)["error"]["diagnostics"][0]["code"],
+            )
+        )
+
+        assert stderr == ""
+        assert reference == production == expected
+
+
 def test_template_instantiate_publishes_a_new_editable_model_source_identity(
     tmp_path, run_cli
 ):
@@ -609,6 +1148,54 @@ def test_template_instantiate_publishes_a_new_editable_model_source_identity(
         )
         == starter
     )
+
+
+def test_template_instantiation_selects_the_starter_by_admitted_role_not_name(
+    tmp_path, run_cli
+):
+    release = json.loads(
+        run_cli(
+            [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ]
+        )[1]
+    )
+    starter = next(
+        member
+        for member in release["members"]
+        if member["member_kind"] == "model-source-package"
+    )
+    starter["logical_name"] = "renamed-starter"
+    _reidentify_release(release)
+    descriptor = replace(
+        TEMPLATE_INSTANTIATE,
+        handler=template_instantiate_handler(lambda: release),
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "template",
+            "instantiate",
+            "--id",
+            "standard.quantity-minimal",
+            "--version",
+            "2.0.0",
+            "--package-id",
+            "example.role-selected",
+            "--out",
+            str(tmp_path / "role-selected.json"),
+            "--invocation-key",
+            "0" * 64,
+        ],
+        registry=(descriptor,),
+    )
+
+    assert (exit_code, stderr) == (0, ""), stdout
 
 
 def test_instantiated_source_can_be_edited_and_built_without_a_toolkit_fork(

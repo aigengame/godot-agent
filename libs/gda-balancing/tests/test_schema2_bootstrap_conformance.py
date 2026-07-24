@@ -17,7 +17,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:dec04c51d45fc39cdcebdb29ba5b5b39e18ce76b4f4779663013017c4db59c5f"
+    "sha256:7c2cfe51a841317c36dfdebebbc0028624e123c13ff198c89efacbb01ced2638"
 )
 
 
@@ -2161,6 +2161,303 @@ def _consumer_b_runtime_projection_is_closed(
     return True
 
 
+def _consumer_b_template_admission_is_closed(
+    meta: dict[str, Any],
+    ldb: dict[str, Any],
+) -> bool:
+    """Independently close the Kernel/LDB Template program surface."""
+    contract = meta.get("template_admission")
+    language = ldb.get("language")
+    if not isinstance(contract, dict) or not isinstance(language, dict):
+        return False
+    selector = contract.get("selector")
+    accounting = contract.get("resource_accounting")
+    operation_rows = contract.get("operations")
+    role_contract = contract.get("role_contract")
+    if (
+        set(contract)
+        != {
+            "closed",
+            "operations",
+            "resource_accounting",
+            "role_contract",
+            "selector",
+        }
+        or contract.get("closed") is not True
+        or not isinstance(selector, dict)
+        or selector
+        != {
+            "roots": [
+                "kernel",
+                "language-bundle",
+                "release",
+                "role",
+                "derived",
+            ],
+            "wildcard_segment": "*",
+            "path_semantics": "ordered-flatten",
+        }
+        or not isinstance(accounting, dict)
+        or accounting
+        != {
+            "limit_path": "resources.max_template_admission_steps",
+            "counter_scope": "per-template-release-admission",
+            "charged_events": [
+                "member-role",
+                "judgment",
+                "selected-value",
+                "scoped-row",
+                "vector-execution",
+            ],
+            "exhaustion_diagnostic": "language.resource_exhausted",
+        }
+        or role_contract
+        != {
+            "identifier": "non-empty-string",
+            "cardinalities": ["exactly-one", "one-or-more"],
+        }
+        or not isinstance(operation_rows, list)
+        or not operation_rows
+    ):
+        return False
+    assert isinstance(role_contract, dict)
+    role_cardinalities = role_contract["cardinalities"]
+    operations: dict[str, dict[str, Any]] = {}
+    for row in operation_rows:
+        if (
+            not isinstance(row, dict)
+            or set(row)
+            != {
+                "effects",
+                "id",
+                "input",
+                "law",
+                "refusals",
+                "resources",
+                "result",
+            }
+            or not isinstance(row.get("id"), str)
+            or row["id"] in operations
+            or row.get("input") != {"fact_kind": "template-graph"}
+            or row.get("result") != {"fact_kind": "template-graph"}
+            or row.get("effects") != []
+            or row.get("refusals") != ["reason-bound-diagnostic"]
+            or not isinstance(row.get("resources"), list)
+            or "max_template_admission_steps" not in row["resources"]
+        ):
+            return False
+        law = row.get("law")
+        if (
+            not isinstance(law, dict)
+            or set(law)
+            not in (
+                {"argument_members", "operator"},
+                {"argument_members", "operator", "result_members"},
+            )
+            or law.get("operator") != row["id"]
+            or not isinstance(law.get("argument_members"), list)
+            or len(law["argument_members"]) != len(set(law["argument_members"]))
+            or not all(
+                isinstance(member, str) and member for member in law["argument_members"]
+            )
+        ):
+            return False
+        results = law.get("result_members")
+        if (row["id"] == "admit-model-source") != (results is not None) or (
+            results is not None
+            and (
+                not isinstance(results, list)
+                or not results
+                or len(results) != len(set(results))
+            )
+        ):
+            return False
+        operations[row["id"]] = row
+
+    profiles = language.get("template_admission_profiles")
+    diagnostics = {
+        row.get("code") for row in ldb.get("diagnostics", []) if isinstance(row, dict)
+    }
+    if not isinstance(profiles, list) or len(profiles) != 1:
+        return False
+    profile = profiles[0]
+    if not isinstance(profile, dict) or set(profile) != {
+        "id",
+        "judgments",
+        "max_steps_path",
+        "member_roles",
+        "resource_diagnostic",
+        "structural_diagnostic",
+    }:
+        return False
+    roles = profile.get("member_roles")
+    judgments = profile.get("judgments")
+    role_names = {row.get("role") for row in roles or [] if isinstance(row, dict)}
+    schema_kinds = {
+        row.get("artifact_kind")
+        for collection in ("wire_schemas", "artifact_wire_schemas")
+        for row in language.get(collection, [])
+        if isinstance(row, dict)
+    }
+    if (
+        not isinstance(roles, list)
+        or not roles
+        or len(roles) != len(role_names)
+        or any(
+            not isinstance(row, dict)
+            or set(row) != {"cardinality", "member_kind", "required_operations", "role"}
+            or row.get("cardinality") not in role_cardinalities
+            or not isinstance(row.get("role"), str)
+            or not row["role"]
+            or not isinstance(row.get("member_kind"), str)
+            or row["member_kind"] not in schema_kinds
+            or not isinstance(row.get("required_operations"), list)
+            or any(
+                operation not in operations
+                for operation in row.get("required_operations", [])
+            )
+            or len(row.get("required_operations", []))
+            != len(set(row.get("required_operations", [])))
+            for row in roles
+        )
+        or len({row.get("member_kind") for row in roles if isinstance(row, dict)})
+        != len(roles)
+        or not isinstance(judgments, list)
+        or not judgments
+        or profile.get("max_steps_path") != accounting["limit_path"]
+        or profile.get("resource_diagnostic") != accounting["exhaustion_diagnostic"]
+        or profile.get("resource_diagnostic") not in diagnostics
+        or profile.get("structural_diagnostic") not in diagnostics
+    ):
+        return False
+    found, limit = _consumer_b_exact_path(ldb, profile["max_steps_path"])
+    if not found or isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        return False
+
+    judgment_ids: set[str] = set()
+    used_operations: set[str] = set()
+    role_operations: set[tuple[str, str]] = set()
+    produced: set[str] = set()
+    selector_members = {"inventory", "left", "right", "selector", "source", "target"}
+    roots = set(selector["roots"])
+    for judgment in judgments:
+        if (
+            not isinstance(judgment, dict)
+            or set(judgment) != {"arguments", "diagnostic", "id", "operation"}
+            or not isinstance(judgment.get("id"), str)
+            or judgment["id"] in judgment_ids
+            or judgment.get("diagnostic") not in diagnostics
+            or judgment.get("operation") not in operations
+            or not isinstance(judgment.get("arguments"), dict)
+        ):
+            return False
+        arguments = judgment["arguments"]
+        law = operations[judgment["operation"]]["law"]
+        if set(arguments) != set(law["argument_members"]):
+            return False
+        selected: list[dict[str, Any]] = []
+        for name, value in arguments.items():
+            if name in selector_members:
+                if (
+                    not isinstance(value, dict)
+                    or set(value) != {"name", "path", "root"}
+                    or value.get("root") not in roots
+                    or not isinstance(value.get("name"), str)
+                    or not isinstance(value.get("path"), list)
+                    or not all(isinstance(part, str) and part for part in value["path"])
+                    or (value["root"] == "role" and value["name"] not in role_names)
+                ):
+                    return False
+                selected.append(value)
+            if name == "selectors":
+                if not isinstance(value, list) or not value:
+                    return False
+                for item in value:
+                    if (
+                        not isinstance(item, dict)
+                        or set(item) != {"name", "path", "root"}
+                        or item.get("root") not in roots
+                        or not isinstance(item.get("name"), str)
+                        or not isinstance(item.get("path"), list)
+                        or not all(
+                            isinstance(part, str) and part for part in item["path"]
+                        )
+                        or (item["root"] == "role" and item["name"] not in role_names)
+                    ):
+                        return False
+                    selected.append(item)
+            if name.endswith("_path") and (
+                not isinstance(value, list)
+                or not all(isinstance(part, str) and part for part in value)
+            ):
+                return False
+        for selected_value in selected:
+            if selected_value["root"] == "role":
+                role_operations.add((selected_value["name"], judgment["operation"]))
+            if (
+                selected_value["root"] == "derived"
+                and selected_value["name"] not in produced
+            ):
+                return False
+        if arguments.get("relation") not in {None, "equal", "subset"}:
+            return False
+        if arguments.get("outcome") not in {None, "admitted", "refused"}:
+            return False
+        role = arguments.get("role")
+        if role is not None:
+            if not isinstance(role, str) or role not in role_names:
+                return False
+            role_operations.add((role, judgment["operation"]))
+        if judgment["operation"] == "admit-model-source":
+            bindings = arguments.get("fact_bindings")
+            result_members = law.get("result_members")
+            if (
+                not isinstance(bindings, list)
+                or not bindings
+                or not isinstance(result_members, list)
+                or any(
+                    not isinstance(binding, dict)
+                    or set(binding) != {"result", "source"}
+                    or binding.get("source") not in result_members
+                    or not isinstance(binding.get("result"), str)
+                    or binding["result"] in produced
+                    for binding in bindings
+                )
+                or len({binding["source"] for binding in bindings}) != len(bindings)
+                or len({binding["result"] for binding in bindings}) != len(bindings)
+            ):
+                return False
+            produced.update(binding["result"] for binding in bindings)
+        if judgment["operation"] in {
+            "derive-concatenation",
+            "derive-content-identity",
+        }:
+            result = arguments.get("result")
+            if (
+                not isinstance(result, str)
+                or not result
+                or result in produced
+                or (
+                    judgment["operation"] == "derive-content-identity"
+                    and (
+                        not isinstance(arguments.get("identity_domain"), str)
+                        or not arguments["identity_domain"]
+                    )
+                )
+            ):
+                return False
+            produced.add(result)
+        judgment_ids.add(judgment["id"])
+        used_operations.add(judgment["operation"])
+    required_pairs = {
+        (row["role"], operation)
+        for row in roles
+        if isinstance(row, dict)
+        for operation in row["required_operations"]
+    }
+    return used_operations == set(operations) and required_pairs <= role_operations
+
+
 def _consumer_b_language_definitions_are_closed(
     ldb: dict[str, Any], meta: dict[str, Any]
 ) -> bool:
@@ -2218,6 +2515,8 @@ def _consumer_b_language_definitions_are_closed(
             _consumer_b_definition_is_closed(value, contract, ldb) for value in values
         ):
             return False
+    if not _consumer_b_template_admission_is_closed(meta, ldb):
+        return False
     fact_schemas = _consumer_b_fact_schemas(meta)
     rules = language.get("rules")
     lowerings = language.get("model_lowerings")
@@ -3844,9 +4143,16 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
     template_admission = meta_format["template_admission"]
     profile = authority["language_bundle"]["language"]["template_admission_profiles"][0]
     assert template_admission["closed"] is True
-    assert [item["operation"] for item in profile["judgment_chain"]] == [
+    assert template_admission["role_contract"] == {
+        "identifier": "non-empty-string",
+        "cardinalities": ["exactly-one", "one-or-more"],
+    }
+    assert _consumer_b_template_admission_is_closed(
+        meta_format, authority["language_bundle"]
+    )
+    assert {item["operation"] for item in profile["judgments"]} == {
         item["id"] for item in template_admission["operations"]
-    ]
+    }
     assert all(
         set(item)
         == {
@@ -3858,12 +4164,13 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
             "resources",
             "result",
         }
-        and item["input"] == {"fact_kind": "template-release"}
-        and item["result"] == {"fact_kind": "template-release"}
+        and item["input"] == {"fact_kind": "template-graph"}
+        and item["result"] == {"fact_kind": "template-graph"}
         and item["effects"] == []
         and item["refusals"] == ["reason-bound-diagnostic"]
         and item["resources"]
-        and item["law"] == {"operator": item["id"]}
+        and item["law"]["operator"] == item["id"]
+        and item["law"]["argument_members"]
         for item in template_admission["operations"]
     )
     assert {item["role"] for item in profile["member_roles"]} == {
@@ -3889,7 +4196,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         assert set(rule["conclusion"]) == {"fact_kind", "fields"}
 
 
-@pytest.mark.parametrize("member", ("member_roles", "judgment_chain"))
+@pytest.mark.parametrize("member", ("member_roles", "judgments"))
 def test_two_consumers_refuse_an_incomplete_template_admission_profile(member):
     authority = authority_set()
     ldb = authority["language_bundle"]
@@ -3905,6 +4212,65 @@ def test_two_consumers_refuse_an_incomplete_template_admission_profile(member):
         stage == "static" and code == "kernel.vector_mismatch"
         for stage, code, _subject in first["diagnostics"]
     )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "unknown-selector-root",
+        "unknown-model-fact",
+        "duplicate-derived-result",
+        "derived-use-before-production",
+        "invalid-resource-limit",
+    ),
+)
+def test_two_consumers_refuse_malformed_template_graph_programs(mutation):
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    profile = ldb["language"]["template_admission_profiles"][0]
+    if mutation == "unknown-selector-root":
+        profile["judgments"][0]["arguments"]["selector"]["root"] = "host"
+    elif mutation == "unknown-model-fact":
+        profile["judgments"][2]["arguments"]["fact_bindings"][0]["source"] = "host"
+    elif mutation == "duplicate-derived-result":
+        profile["judgments"][1]["arguments"]["result"] = "source_identity"
+    elif mutation == "derived-use-before-production":
+        profile["judgments"].append(profile["judgments"].pop(0))
+    else:
+        ldb["resources"]["max_template_admission_steps"] = 0
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    expected = (
+        ("ingress", "kernel.member_set_mismatch")
+        if mutation == "invalid-resource-limit"
+        else ("static", "kernel.vector_mismatch")
+    )
+    assert any(
+        (stage, code) == expected for stage, code, _subject in first["diagnostics"]
+    )
+
+
+def test_template_role_names_are_ldb_owned_without_a_kernel_change():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    documentation = next(
+        row
+        for row in ldb["language"]["template_admission_profiles"][0]["member_roles"]
+        if row["role"] == "documentation"
+    )
+    documentation["role"] = "genre-extension"
+    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is True
 
 
 def test_resolution_profile_symbol_mapping_must_name_the_declared_semantic_fact():

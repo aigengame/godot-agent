@@ -35,7 +35,7 @@
             {"keys": ["id"], "path": "language_bundle.language.resolution_profiles", "subject": "language.resolution_profiles"},
             {"keys": ["id"], "path": "language_bundle.language.resolution_profiles.judgment_chain", "subject": "language.resolution_profiles.judgment_chain"},
             {"keys": ["id"], "path": "language_bundle.language.template_admission_profiles", "subject": "language.template_admission_profiles"},
-            {"keys": ["id"], "path": "language_bundle.language.template_admission_profiles.judgment_chain", "subject": "language.template_admission_profiles.judgment_chain"},
+            {"keys": ["id"], "path": "language_bundle.language.template_admission_profiles.judgments", "subject": "language.template_admission_profiles.judgments"},
             {"keys": ["id"], "path": "language_bundle.language.rules", "subject": "language.rules"},
             {"keys": ["id"], "path": "language_bundle.language.runtime_profiles", "subject": "language.runtime_profiles"},
             {"keys": ["artifact_kind"], "path": "language_bundle.language.wire_schemas", "subject": "language.wire_schemas"},
@@ -67,8 +67,7 @@
           "correlations": [{"owner_value_member": "rule", "owners": "language_bundle.language.operations", "references_member": "vectors", "target_key_member": "id", "target_value_member": "rule", "targets": "language_bundle.vectors"}, {"equal_members": ["phase", "judgment"], "owner_key_member": "rule", "owners": "language_bundle.language.model_lowerings.rule_chain", "target_key_member": "id", "targets": "language_bundle.language.rules"}],
           "equalities": [
             {"left": "language_bundle.language.model_source_schema_versions", "mode": "set", "right": "language_bundle.language.wire_schemas.schema.properties.schema_version.const"},
-            {"left": "kernel.meta_format.template_admission.operations.id", "mode": "set", "right": "language_bundle.language.template_admission_profiles.judgment_chain.operation"},
-            {"left": "kernel.meta_format.template_admission.roles", "mode": "set", "right": "language_bundle.language.template_admission_profiles.member_roles.role"},
+            {"left": "kernel.meta_format.template_admission.operations.id", "mode": "set", "right": "language_bundle.language.template_admission_profiles.judgments.operation"},
             {"left": "language_bundle.language.quantity.kinds", "mode": "set", "profile": {"owners": "language_bundle.language.model_lowerings", "owner_profile_member": "resolution_profile", "profiles": "language_bundle.language.resolution_profiles", "profile_key_member": "id"}, "right_template": ["language_bundle", "language", "wire_schemas", "schema", "properties", {"profile_member": "modules_member"}, "items", "properties", {"profile_member": "symbols_member"}, "items", "properties", "kind", "const"]},
             {
               "left": "language_bundle.language.quantity.numeric_policies.id",
@@ -99,7 +98,7 @@
             {"owners": "language_bundle.language.model_lowerings", "targets": {"admission_reason": "language_bundle.language.reasons.id", "initial_fact_kind": "kernel.meta_format.fact.schemas.kind", "resolution_profile": "language_bundle.language.resolution_profiles.id", "rule_chain.rule": "language_bundle.language.rules.id"}},
             {"owners": "language_bundle.language.resolution_profiles", "targets": {"model_lowering": "language_bundle.language.model_lowerings.id", "structural_reason": "language_bundle.language.reasons.id"}},
             {"owners": "language_bundle.language.resolution_profiles.judgment_chain", "targets": {"reason": "language_bundle.language.reasons.id"}},
-            {"owners": "language_bundle.language.template_admission_profiles.judgment_chain", "targets": {"operation": "kernel.meta_format.template_admission.operations.id"}},
+            {"owners": "language_bundle.language.template_admission_profiles.judgments", "targets": {"diagnostic": "language_bundle.diagnostics.code", "operation": "kernel.meta_format.template_admission.operations.id"}},
             {"owners": "language_bundle.language.operations", "targets": {"inputs.type": "language_bundle.language.packages.exports.types.id", "numeric_policy": "language_bundle.language.quantity.numeric_policies.id", "result": "language_bundle.language.packages.exports.types.id", "rule": "language_bundle.language.rules.id", "runtime_profile": "language_bundle.language.runtime_profiles.id", "vectors": "language_bundle.vectors.id"}},
             {"owners": "language_bundle.language.runtime_profiles", "targets": {"numeric_policy": "language_bundle.language.quantity.numeric_policies.id"}},
             {
@@ -189,7 +188,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:dec04c51d45fc39cdcebdb29ba5b5b39e18ce76b4f4779663013017c4db59c5f",
+  "content_identity": "sha256:7c2cfe51a841317c36dfdebebbc0028624e123c13ff198c89efacbb01ced2638",
   "diagnostics": [{"code": "kernel.identity_mismatch", "stage": "ingress"}, {"code": "kernel.binding_mismatch", "stage": "ingress"}, {"code": "kernel.member_set_mismatch", "stage": "ingress"}, {"code": "kernel.duplicate_identifier", "stage": "static"}, {"code": "kernel.unknown_operation", "stage": "static"}, {"code": "kernel.vector_mismatch", "stage": "static"}, {"code": "kernel.diagnostic_closure", "stage": "static"}, {"code": "kernel.resource_exhausted", "stage": "ingress"}],
   "meta_format": {
     "fact": {
@@ -245,16 +244,20 @@
     },
     "template_admission": {
       "closed": true,
-      "roles": ["source", "experiment", "dependencies", "defaults", "compatibility", "documentation", "coverage", "golden", "negative-vector", "boundary-vector"],
+      "role_contract": {"identifier": "non-empty-string", "cardinalities": ["exactly-one", "one-or-more"]},
+      "selector": {"roots": ["kernel", "language-bundle", "release", "role", "derived"], "wildcard_segment": "*", "path_semantics": "ordered-flatten"},
+      "resource_accounting": {"limit_path": "resources.max_template_admission_steps", "counter_scope": "per-template-release-admission", "charged_events": ["member-role", "judgment", "selected-value", "scoped-row", "vector-execution"], "exhaustion_diagnostic": "language.resource_exhausted"},
       "operations": [
-        {"effects": [], "id": "require-exact-member-roles", "input": {"fact_kind": "template-release"}, "law": {"operator": "require-exact-member-roles"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_members"], "result": {"fact_kind": "template-release"}},
-        {"effects": [], "id": "admit-starter-model-source", "input": {"fact_kind": "template-release"}, "law": {"operator": "admit-starter-model-source"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_source_bytes", "max_symbols"], "result": {"fact_kind": "template-release"}},
-        {"effects": [], "id": "bind-authorities-and-source", "input": {"fact_kind": "template-release"}, "law": {"operator": "bind-authorities-and-source"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_members"], "result": {"fact_kind": "template-release"}},
-        {"effects": [], "id": "close-package-dependencies", "input": {"fact_kind": "template-release"}, "law": {"operator": "close-package-dependencies"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_members"], "result": {"fact_kind": "template-release"}},
-        {"effects": [], "id": "admit-defaults", "input": {"fact_kind": "template-release"}, "law": {"operator": "admit-defaults"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_symbols"], "result": {"fact_kind": "template-release"}},
-        {"effects": [], "id": "close-coverage", "input": {"fact_kind": "template-release"}, "law": {"operator": "close-coverage"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_members"], "result": {"fact_kind": "template-release"}},
-        {"effects": [], "id": "execute-negative-vectors", "input": {"fact_kind": "template-release"}, "law": {"operator": "execute-negative-vectors"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_source_bytes", "max_symbols"], "result": {"fact_kind": "template-release"}},
-        {"effects": [], "id": "execute-boundary-vectors", "input": {"fact_kind": "template-release"}, "law": {"operator": "execute-boundary-vectors"}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_source_bytes", "max_symbols"], "result": {"fact_kind": "template-release"}}
+        {"effects": [], "id": "derive-content-identity", "input": {"fact_kind": "template-graph"}, "law": {"operator": "derive-content-identity", "argument_members": ["selector", "identity_domain", "result"]}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_template_admission_steps"], "result": {"fact_kind": "template-graph"}},
+        {"effects": [], "id": "derive-concatenation", "input": {"fact_kind": "template-graph"}, "law": {"operator": "derive-concatenation", "argument_members": ["selectors", "result"]}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_template_admission_steps"], "result": {"fact_kind": "template-graph"}},
+        {"effects": [], "id": "admit-model-source", "input": {"fact_kind": "template-graph"}, "law": {"operator": "admit-model-source", "argument_members": ["role", "fact_bindings"], "result_members": ["root_requirements", "resolved_packages", "source_symbols"]}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_source_bytes", "max_symbols", "max_template_admission_steps"], "result": {"fact_kind": "template-graph"}},
+        {"effects": [], "id": "require-unique", "input": {"fact_kind": "template-graph"}, "law": {"operator": "require-unique", "argument_members": ["selector"]}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_template_admission_steps"], "result": {"fact_kind": "template-graph"}},
+        {"effects": [], "id": "require-inventory", "input": {"fact_kind": "template-graph"}, "law": {"operator": "require-inventory", "argument_members": ["selector", "inventory"]}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_template_admission_steps"], "result": {"fact_kind": "template-graph"}},
+        {"effects": [], "id": "require-set-relation", "input": {"fact_kind": "template-graph"}, "law": {"operator": "require-set-relation", "argument_members": ["left", "right", "relation"]}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_template_admission_steps"], "result": {"fact_kind": "template-graph"}},
+        {"effects": [], "id": "require-scoped-relation", "input": {"fact_kind": "template-graph"}, "law": {"operator": "require-scoped-relation", "argument_members": ["source", "source_scope_path", "source_values_path", "target", "target_scope_path", "target_values_path", "relation"]}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_template_admission_steps"], "result": {"fact_kind": "template-graph"}},
+        {"effects": [], "id": "require-interval", "input": {"fact_kind": "template-graph"}, "law": {"operator": "require-interval", "argument_members": ["selector", "minimum_member", "maximum_member"]}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_template_admission_steps"], "result": {"fact_kind": "template-graph"}},
+        {"effects": [], "id": "require-interval-join", "input": {"fact_kind": "template-graph"}, "law": {"operator": "require-interval-join", "argument_members": ["source", "source_key_path", "source_value_path", "target", "target_key_path", "target_interval_path", "minimum_member", "maximum_member"]}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_template_admission_steps"], "result": {"fact_kind": "template-graph"}},
+        {"effects": [], "id": "execute-model-source-vector", "input": {"fact_kind": "template-graph"}, "law": {"operator": "execute-model-source-vector", "argument_members": ["role", "pointer_path", "value_path", "outcome", "diagnostic_path", "expected_path", "expected_value"]}, "refusals": ["reason-bound-diagnostic"], "resources": ["max_source_bytes", "max_symbols", "max_template_admission_steps"], "result": {"fact_kind": "template-graph"}}
       ]
     },
     "language_bundle": {
@@ -262,7 +265,7 @@
       "diagnostic": {"field_types": {"code": {"type": "non-empty-string"}, "stage": {"type": "refusal-stage"}}, "required_members": ["code", "stage"]},
       "member_types": {"artifact_kind": {"const": "language-definition-bundle"}, "artifact_version": {"const": "2.0.0"}, "content_identity": {"type": "non-empty-string"}, "diagnostics": {"type": "list"}, "kernel_identity": {"type": "non-empty-string"}, "language": {"type": "object"}, "resources": {"type": "object"}, "schema_major": {"const": 2}, "vectors": {"type": "list"}},
       "required_members": ["artifact_kind", "artifact_version", "schema_major", "kernel_identity", "content_identity", "language", "diagnostics", "resources", "vectors"],
-      "resources": {"field_types": {"max_diagnostics": {"type": "positive-signed-int64"}, "max_rule_match_steps": {"type": "positive-signed-int64"}, "max_source_bytes": {"type": "positive-signed-int64"}, "max_symbols": {"type": "positive-signed-int64"}, "max_runtime_projection_steps": {"type": "positive-signed-int64"}}, "required_members": ["max_diagnostics", "max_rule_match_steps", "max_runtime_projection_steps", "max_source_bytes", "max_symbols"]}
+      "resources": {"field_types": {"max_diagnostics": {"type": "positive-signed-int64"}, "max_rule_match_steps": {"type": "positive-signed-int64"}, "max_source_bytes": {"type": "positive-signed-int64"}, "max_symbols": {"type": "positive-signed-int64"}, "max_runtime_projection_steps": {"type": "positive-signed-int64"}, "max_template_admission_steps": {"type": "positive-signed-int64"}}, "required_members": ["max_diagnostics", "max_rule_match_steps", "max_runtime_projection_steps", "max_source_bytes", "max_symbols", "max_template_admission_steps"]}
     },
     "language_definitions": {
       "collections": {
@@ -384,32 +387,37 @@
         "template_admission_profiles": {
           "field_types": {
             "id": {"type": "non-empty-string"},
-            "source_identity_domain": {"type": "non-empty-string"},
+            "max_steps_path": {"type": "non-empty-string"},
+            "resource_diagnostic": {"type": "non-empty-string"},
+            "structural_diagnostic": {"type": "non-empty-string"},
             "member_roles": {
               "items": {
                 "field_types": {
-                  "role": {"enum": ["source", "experiment", "dependencies", "defaults", "compatibility", "documentation", "coverage", "golden", "negative-vector", "boundary-vector"]},
-                  "logical_name": {"type": "non-empty-string"},
-                  "member_kind": {"type": "non-empty-string"}
+                  "role": {"type": "non-empty-string"},
+                  "member_kind": {"type": "non-empty-string"},
+                  "cardinality": {"enum": ["exactly-one", "one-or-more"]},
+                  "required_operations": {"type": "string-list"}
                 },
-                "required_members": ["role", "logical_name", "member_kind"],
+                "required_members": ["role", "member_kind", "cardinality", "required_operations"],
                 "type": "closed-object"
               },
               "type": "list-of"
             },
-            "judgment_chain": {
+            "judgments": {
               "items": {
                 "field_types": {
                   "id": {"type": "non-empty-string"},
-                  "operation": {"enum": ["require-exact-member-roles", "admit-starter-model-source", "bind-authorities-and-source", "close-package-dependencies", "admit-defaults", "close-coverage", "execute-negative-vectors", "execute-boundary-vectors"]}
+                  "operation": {"enum": ["derive-content-identity", "derive-concatenation", "admit-model-source", "require-unique", "require-inventory", "require-set-relation", "require-scoped-relation", "require-interval", "require-interval-join", "execute-model-source-vector"]},
+                  "diagnostic": {"type": "non-empty-string"},
+                  "arguments": {"type": "object"}
                 },
-                "required_members": ["id", "operation"],
+                "required_members": ["id", "operation", "diagnostic", "arguments"],
                 "type": "closed-object"
               },
               "type": "list-of"
             }
           },
-          "required_members": ["id", "source_identity_domain", "member_roles", "judgment_chain"]
+          "required_members": ["id", "max_steps_path", "resource_diagnostic", "structural_diagnostic", "member_roles", "judgments"]
         },
         "runtime_profiles": {"field_types": {"effects": {"type": "string-list"}, "evaluation": {"const": "declaration-only"}, "id": {"type": "non-empty-string"}, "numeric_policy": {"type": "non-empty-string"}, "resource_bounds": {"field_types": {"max_steps": {"type": "positive-signed-int64"}}, "required_members": ["max_steps"], "type": "closed-object"}, "version": {"type": "non-empty-string"}}, "required_members": ["id", "version", "numeric_policy", "evaluation", "effects", "resource_bounds"]},
         "wire_schemas": {

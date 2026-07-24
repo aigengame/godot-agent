@@ -483,6 +483,14 @@ def _renamed_reason_authorities(
         for judgment in profile["judgment_chain"]:
             if judgment["reason"] == reason_id:
                 judgment["reason"] = renamed_reason
+    for profile in language["template_admission_profiles"]:
+        if profile["resource_diagnostic"] == diagnostic:
+            profile["resource_diagnostic"] = renamed_diagnostic
+        if profile["structural_diagnostic"] == diagnostic:
+            profile["structural_diagnostic"] = renamed_diagnostic
+        for judgment in profile["judgments"]:
+            if judgment["diagnostic"] == diagnostic:
+                judgment["diagnostic"] = renamed_diagnostic
     for lowering in language["model_lowerings"]:
         if lowering["admission_reason"] == reason_id:
             lowering["admission_reason"] = renamed_reason

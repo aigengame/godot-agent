@@ -16,7 +16,7 @@ from gda_balancing.schema2.authority import load_authorities
 from gda_balancing.schema2.bootstrap import (
     admit_authorities,
 )
-from gda_balancing.schema2.canonical import JsonValue, content_identity
+from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
@@ -28,6 +28,7 @@ from gda_balancing.schema2.model import (
     CheckedModel,
     PublicationMember,
     check_model_source_value,
+    checked_model_template_facts,
     identified_artifact,
     publication_authentication_key,
     publish_artifact_set,
@@ -99,10 +100,10 @@ class TemplateInstantiateResult(BaseModel):
 TEMPLATE_REFUSAL_CATALOG = MODEL_REFUSAL_CATALOG
 TemplateProvider = Callable[[], dict[str, JsonValue]]
 _TEMPLATE_KERNEL_IDENTITY = (
-    "sha256:dec04c51d45fc39cdcebdb29ba5b5b39e18ce76b4f4779663013017c4db59c5f"
+    "sha256:7c2cfe51a841317c36dfdebebbc0028624e123c13ff198c89efacbb01ced2638"
 )
 _TEMPLATE_LDB_IDENTITY = (
-    "sha256:2b7fabc914a0bd53941897221e53cc01c02602b1d38dada51a53c0d00a77f390"
+    "sha256:a7d529cf7eafc9ac5dfcd2fe3f524dced694fa065eeab22829f5c58f748a1f95"
 )
 _TEMPLATE_PACKAGE_IDENTITY = (
     "sha256:bfbd3e228fde85773b8804e7c632cca4f2771bc896aa4a54ab59efed52c99a58"
@@ -241,21 +242,56 @@ def _template_admission_profile(
     return profiles[0]
 
 
+class _TemplateAdmissionExhausted(Exception):
+    pass
+
+
+class _TemplateAdmissionBudget:
+    def __init__(self, limit: int) -> None:
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("Template admission budget must be a positive integer")
+        self._remaining = limit
+
+    def consume(self, amount: int = 1) -> None:
+        self._remaining -= amount
+        if self._remaining < 0:
+            raise _TemplateAdmissionExhausted
+
+
+def _dotted_value(root: Any, path: str) -> Any:
+    current = root
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            raise ValueError(f"undeclared Template admission path: {path}")
+        current = current[part]
+    return current
+
+
 def _template_members_by_role(
     release: dict[str, JsonValue],
     profile: dict[str, JsonValue],
-) -> dict[str, dict[str, JsonValue]]:
-    members = {
-        cast(str, member["logical_name"]): member
-        for member in cast(list[dict[str, JsonValue]], release["members"])
-    }
-    result: dict[str, dict[str, JsonValue]] = {}
-    for row in cast(list[dict[str, JsonValue]], profile["member_roles"]):
-        logical_name = cast(str, row["logical_name"])
-        member = members.get(logical_name)
-        if member is None or member["member_kind"] != row["member_kind"]:
-            raise ValueError(f"missing exact Template member role: {row['role']}")
-        result[cast(str, row["role"])] = member
+    budget: _TemplateAdmissionBudget,
+) -> dict[str, list[dict[str, JsonValue]]]:
+    role_specs = cast(list[dict[str, JsonValue]], profile["member_roles"])
+    by_kind = {cast(str, row["member_kind"]): row for row in role_specs}
+    if len(by_kind) != len(role_specs):
+        raise ValueError("Template member kinds must map to unique roles")
+    result = {cast(str, row["role"]): [] for row in role_specs}
+    for member in cast(list[dict[str, JsonValue]], release["members"]):
+        budget.consume()
+        spec = by_kind.get(cast(str, member["member_kind"]))
+        if spec is None:
+            raise ValueError("Template release contains an undeclared member kind")
+        result[cast(str, spec["role"])].append(member)
+    for spec in role_specs:
+        count = len(result[cast(str, spec["role"])])
+        cardinality = spec["cardinality"]
+        if (cardinality == "exactly-one" and count != 1) or (
+            cardinality == "one-or-more" and count < 1
+        ):
+            raise ValueError(
+                f"Template member role violates {cardinality}: {spec['role']}"
+            )
     return result
 
 
@@ -295,12 +331,136 @@ def _apply_template_vector(
     return mutated
 
 
-def _template_source_symbols(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {
-        f"{module['id']}.{symbol['symbol']}": symbol
-        for module in cast(list[dict[str, Any]], source["modules"])
-        for symbol in cast(list[dict[str, Any]], module["symbols"])
-    }
+def _project_template_path(
+    values: list[Any],
+    path: list[str],
+    budget: _TemplateAdmissionBudget,
+) -> list[Any]:
+    projected = values
+    for segment in path:
+        next_values: list[Any] = []
+        if segment == "*":
+            for value in projected:
+                if not isinstance(value, list):
+                    raise ValueError("Template selector wildcard requires a list")
+                budget.consume(len(value))
+                next_values.extend(value)
+        else:
+            for value in projected:
+                if not isinstance(value, dict) or segment not in value:
+                    raise ValueError(
+                        f"Template selector cannot resolve member: {segment}"
+                    )
+                budget.consume()
+                next_values.append(value[segment])
+        projected = next_values
+    return projected
+
+
+def _template_selector_values(
+    selector: Any,
+    *,
+    kernel: dict[str, JsonValue],
+    language_bundle: dict[str, JsonValue],
+    release: dict[str, JsonValue],
+    roles: dict[str, list[dict[str, JsonValue]]],
+    derived: dict[str, JsonValue],
+    admitted_roots: set[str],
+    budget: _TemplateAdmissionBudget,
+) -> list[Any]:
+    if (
+        not isinstance(selector, dict)
+        or set(selector) != {"root", "name", "path"}
+        or selector.get("root") not in admitted_roots
+        or not isinstance(selector.get("name"), str)
+        or not isinstance(selector.get("path"), list)
+        or not all(isinstance(part, str) and part for part in selector["path"])
+    ):
+        raise ValueError("Template selector is outside the Kernel selector contract")
+    root = selector["root"]
+    name = selector["name"]
+    if root == "kernel":
+        initial: list[Any] = [kernel]
+    elif root == "language-bundle":
+        initial = [language_bundle]
+    elif root == "release":
+        initial = [release]
+    elif root == "role":
+        if name not in roles:
+            raise ValueError(f"Template selector names unknown role: {name}")
+        initial = [
+            cast(dict[str, JsonValue], member["payload"]) for member in roles[name]
+        ]
+    else:
+        if name not in derived:
+            raise ValueError(f"Template selector names unknown derived fact: {name}")
+        initial = [derived[name]]
+    return _project_template_path(initial, selector["path"], budget)
+
+
+def _canonical_value_set(values: list[Any]) -> set[bytes]:
+    return {canonical_bytes(cast(JsonValue, value)) for value in values}
+
+
+def _template_scoped_values(
+    rows: list[Any],
+    scope_path: list[str],
+    values_path: list[str],
+    budget: _TemplateAdmissionBudget,
+) -> dict[bytes, set[bytes]]:
+    groups: dict[bytes, set[bytes]] = {}
+    for row in rows:
+        budget.consume()
+        scopes = _project_template_path([row], scope_path, budget)
+        values = _project_template_path([row], values_path, budget)
+        if len(scopes) != 1 or not values:
+            raise ValueError("Template scoped relation has an empty or ambiguous row")
+        key = canonical_bytes(cast(JsonValue, scopes[0]))
+        groups.setdefault(key, set()).update(_canonical_value_set(values))
+    return groups
+
+
+def _template_relation_holds(
+    left: set[bytes],
+    right: set[bytes],
+    relation: Any,
+) -> bool:
+    if relation == "equal":
+        return left == right
+    if relation == "subset":
+        return left <= right
+    raise ValueError(f"unknown Template set relation: {relation}")
+
+
+def _template_diagnostic_stage(
+    language_bundle: dict[str, JsonValue],
+    code: str,
+) -> str:
+    matches = [
+        cast(str, row["stage"])
+        for row in cast(list[dict[str, JsonValue]], language_bundle["diagnostics"])
+        if row["code"] == code
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"Template judgment diagnostic is not unique: {code}")
+    return matches[0]
+
+
+def _template_judgment_refusal(
+    release: dict[str, JsonValue],
+    language_bundle: dict[str, JsonValue],
+    code: str,
+    judgment_id: str,
+    message: str,
+) -> Schema2RefusalReport:
+    identity = release.get("content_identity", "unidentified")
+    return _template_refusal(
+        code,
+        _template_diagnostic_stage(language_bundle, code),
+        identity if isinstance(identity, str) else "unidentified",
+        "/members",
+        f"Template admission judgment {judgment_id} failed: {message}",
+    )
 
 
 def _validate_template_semantics(
@@ -308,306 +468,371 @@ def _validate_template_semantics(
     kernel: dict[str, JsonValue],
     language_bundle: dict[str, JsonValue],
 ) -> Schema2RefusalReport | None:
-    """Execute the LDB-selected Template judgments defined by the Kernel."""
+    """Interpret the LDB Template artifact-graph program under Kernel primitives."""
     try:
         profile = _template_admission_profile(language_bundle)
-        roles = _template_members_by_role(release, profile)
+        meta = cast(
+            dict[str, JsonValue],
+            cast(dict[str, JsonValue], kernel["meta_format"])["template_admission"],
+        )
+        accounting = cast(dict[str, JsonValue], meta["resource_accounting"])
+        selector_contract = cast(dict[str, JsonValue], meta["selector"])
+        if (
+            selector_contract
+            != {
+                "path_semantics": "ordered-flatten",
+                "roots": [
+                    "kernel",
+                    "language-bundle",
+                    "release",
+                    "role",
+                    "derived",
+                ],
+                "wildcard_segment": "*",
+            }
+            or accounting
+            != {
+                "charged_events": [
+                    "member-role",
+                    "judgment",
+                    "selected-value",
+                    "scoped-row",
+                    "vector-execution",
+                ],
+                "counter_scope": "per-template-release-admission",
+                "exhaustion_diagnostic": "language.resource_exhausted",
+                "limit_path": "resources.max_template_admission_steps",
+            }
+            or profile["max_steps_path"] != accounting["limit_path"]
+            or profile["resource_diagnostic"] != accounting["exhaustion_diagnostic"]
+        ):
+            raise ValueError("Template admission resource contract is not exact")
+        limit = _dotted_value(language_bundle, cast(str, profile["max_steps_path"]))
+        budget = _TemplateAdmissionBudget(cast(int, limit))
+        roles = _template_members_by_role(release, profile, budget)
+    except _TemplateAdmissionExhausted:
+        return _template_judgment_refusal(
+            release,
+            language_bundle,
+            cast(str, profile["resource_diagnostic"]),
+            "template.resource-accounting",
+            "declared step budget was exhausted",
+        )
     except (KeyError, TypeError, ValueError) as err:
         return _template_contract_refusal(
             release,
             "/members",
             f"Template release cannot satisfy its LDB member-role profile: {err}",
         )
-    language = cast(dict[str, JsonValue], language_bundle["language"])
     kernel_operations = {
         cast(str, row["id"]): row
         for row in cast(
             list[dict[str, JsonValue]],
-            cast(
-                dict[str, JsonValue],
-                cast(dict[str, JsonValue], kernel["meta_format"])["template_admission"],
-            )["operations"],
+            meta["operations"],
         )
     }
-    source = cast(dict[str, Any], roles["source"]["payload"])
-    source_identity = content_identity(
-        cast(str, profile["source_identity_domain"]),
-        cast(JsonValue, source),
-    )
+    source: dict[str, Any] | None = None
+    derived: dict[str, JsonValue] = {}
     checked_source: CheckedModel | None = None
+    admitted_roots = set(cast(list[str], selector_contract["roots"]))
 
-    def refuse(pointer: str, message: str) -> Schema2RefusalReport:
-        return _template_contract_refusal(release, pointer, message)
+    def select(selector: Any) -> list[Any]:
+        return _template_selector_values(
+            selector,
+            kernel=kernel,
+            language_bundle=language_bundle,
+            release=release,
+            roles=roles,
+            derived=derived,
+            admitted_roots=admitted_roots,
+            budget=budget,
+        )
 
-    for judgment in cast(list[dict[str, JsonValue]], profile["judgment_chain"]):
-        operation_id = cast(str, judgment["operation"])
-        operation = kernel_operations.get(operation_id)
-        if operation is None:
-            return refuse(
-                "/members",
-                f"Template admission judgment uses unknown Kernel operation: {operation_id}",
-            )
-        law = cast(dict[str, JsonValue], operation["law"])
-        operator = cast(str, law["operator"])
-
-        if operator == "require-exact-member-roles":
-            expected = {
-                (row["logical_name"], row["member_kind"])
-                for row in cast(list[dict[str, JsonValue]], profile["member_roles"])
-            }
-            actual = {
-                (member["logical_name"], member["member_kind"])
-                for member in cast(list[dict[str, JsonValue]], release["members"])
-            }
-            if actual != expected or len(actual) != len(expected):
-                return refuse(
-                    "/members",
-                    "Template release does not contain the exact LDB member roles",
-                )
-
-        elif operator == "admit-starter-model-source":
-            checked = check_model_source_value(source)
-            if isinstance(checked, Schema2RefusalReport):
-                return checked
+    try:
+        for judgment in cast(list[dict[str, JsonValue]], profile["judgments"]):
+            budget.consume()
+            judgment_id = cast(str, judgment["id"])
+            diagnostic = cast(str, judgment["diagnostic"])
+            operation_id = cast(str, judgment["operation"])
+            operation = kernel_operations.get(operation_id)
+            if operation is None:
+                raise ValueError(f"unknown Kernel Template operation: {operation_id}")
             if (
-                checked.kernel["content_identity"] != kernel["content_identity"]
-                or checked.language_bundle["content_identity"]
-                != language_bundle["content_identity"]
+                operation.get("input") != {"fact_kind": "template-graph"}
+                or operation.get("result") != {"fact_kind": "template-graph"}
+                or operation.get("effects") != []
+                or operation.get("refusals") != ["reason-bound-diagnostic"]
+                or "max_template_admission_steps"
+                not in cast(list[str], operation.get("resources", []))
             ):
-                return refuse(
-                    "/members/starter-model-source",
-                    "Template starter was admitted by different authorities",
-                )
-            checked_source = checked
-
-        elif operator == "bind-authorities-and-source":
-            experiment = cast(dict[str, Any], roles["experiment"]["payload"])
-            golden = cast(dict[str, Any], roles["golden"]["payload"])
-            metrics = cast(list[dict[str, Any]], experiment["metrics"])
-            quantity = cast(dict[str, JsonValue], language["quantity"])
-            known_kinds = set(cast(list[str], quantity["kinds"]))
-            known_units = {
-                cast(str, row["id"])
-                for row in cast(
-                    list[dict[str, JsonValue]],
-                    quantity["units"],
-                )
-            }
-            metric_ids = [cast(str, row["id"]) for row in metrics]
-            if (
-                experiment["kernel_identity"] != kernel["content_identity"]
-                or experiment["language_bundle_identity"]
-                != language_bundle["content_identity"]
-                or experiment["model_source_identity"] != source_identity
-                or golden["experiment"] != experiment["id"]
-                or golden["model_source_identity"] != source_identity
-                or cast(list[str], experiment["scenarios"]) != [golden["id"]]
-                or len(metric_ids) != len(set(metric_ids))
-                or any(
-                    row["kind"] not in known_kinds
-                    or row["unit"] not in known_units
-                    or row["target"]["minimum"] > row["target"]["maximum"]
-                    for row in metrics
-                )
+                raise ValueError("Kernel Template operation contract is incomplete")
+            law = cast(dict[str, JsonValue], operation["law"])
+            operator = cast(str, law["operator"])
+            arguments = cast(dict[str, JsonValue], judgment["arguments"])
+            if operator != operation_id or set(arguments) != set(
+                cast(list[str], law["argument_members"])
             ):
-                return refuse(
-                    "/members/experiment-specification",
-                    "Template Experiment and Golden Scenario are not closed over the exact authorities and source",
-                )
+                raise ValueError("LDB Template judgment arguments do not match its law")
+            holds = True
 
-        elif operator == "close-package-dependencies":
-            dependencies = cast(dict[str, Any], roles["dependencies"]["payload"])
-            compatibility = cast(dict[str, Any], roles["compatibility"]["payload"])
-            available = {
-                (row["id"], row["version"]): row
-                for row in cast(list[dict[str, Any]], language["packages"])
-            }
-            requirements = {
-                (row["id"], row["version"])
-                for row in cast(list[dict[str, Any]], source["package_requirements"])
-            }
-            declared = {
-                (row["id"], row["version"]): row
-                for row in cast(list[dict[str, Any]], dependencies["packages"])
-            }
-            compatible = {
-                (row["id"], row["version"])
-                for row in cast(list[dict[str, Any]], compatibility["packages"])
-            }
-            expected = set(requirements)
-            pending = list(requirements)
-            while pending:
-                package_key = pending.pop()
-                package = available.get(package_key)
-                if package is None:
-                    return _template_refusal(
-                        "language.package_version_unavailable",
-                        "resolution",
-                        cast(str, release["content_identity"]),
-                        "/members/declared-package-dependencies",
-                        "Template starter requires an unavailable package release",
-                    )
-                for dependency_id in cast(
-                    list[str], package["dependencies"]["required"]
-                ):
-                    matches = [key for key in available if key[0] == dependency_id]
-                    if len(matches) != 1:
-                        return _template_refusal(
-                            "language.package_version_unavailable",
-                            "resolution",
-                            cast(str, release["content_identity"]),
-                            "/members/declared-package-dependencies",
-                            "Template dependency closure is not exact",
-                        )
-                    if matches[0] not in expected:
-                        expected.add(matches[0])
-                        pending.append(matches[0])
-            if (
-                set(declared) != expected
-                or compatible != requirements
-                or compatibility["kernel_identity"] != kernel["content_identity"]
-                or compatibility["language_bundle_identity"]
-                != language_bundle["content_identity"]
-                or any(
-                    declared[key]["content_identity"]
-                    != available[key]["content_identity"]
-                    for key in declared
-                )
-            ):
-                return _template_refusal(
-                    "language.package_version_unavailable",
-                    "resolution",
-                    cast(str, release["content_identity"]),
-                    "/members/declared-package-dependencies",
-                    "Template package declarations are not the exact source dependency closure",
-                )
-
-        elif operator == "admit-defaults":
-            symbols = _template_source_symbols(source)
-            defaults = cast(
-                list[dict[str, Any]],
-                cast(dict[str, Any], roles["defaults"]["payload"])["symbol_values"],
-            )
-            golden = cast(dict[str, Any], roles["golden"]["payload"])
-            values = {row["symbol"]: row["value"] for row in defaults}
-            if (
-                len(values) != len(defaults)
-                or any(
-                    name not in symbols
-                    or value < symbols[name]["domain"]["minimum"]
-                    or value > symbols[name]["domain"]["maximum"]
-                    for name, value in values.items()
-                )
-                or golden["symbol"] not in symbols
-                or golden["value"] != values.get(golden["symbol"])
-            ):
-                return refuse(
-                    "/members/defaults",
-                    "Template defaults and Golden Scenario are not admitted source values",
-                )
-
-        elif operator == "close-coverage":
-            coverage = cast(dict[str, Any], roles["coverage"]["payload"])
-            experiment = cast(dict[str, Any], roles["experiment"]["payload"])
-            golden = cast(dict[str, Any], roles["golden"]["payload"])
-            negative = cast(dict[str, Any], roles["negative-vector"]["payload"])
-            boundary = cast(dict[str, Any], roles["boundary-vector"]["payload"])
-            known_capabilities = {
-                row["id"]
-                for row in cast(list[dict[str, Any]], language["capabilities"])
-            }
-            known_operations = {
-                row["id"] for row in cast(list[dict[str, Any]], language["operations"])
-            }
-            known_packages = {
-                row["id"] for row in cast(list[dict[str, Any]], language["packages"])
-            }
-            known_observables = {
-                row["id"] for row in cast(list[dict[str, Any]], experiment["metrics"])
-            }
-            rows = cast(list[dict[str, Any]], coverage["rows"])
-            row_ids = [row["id"] for row in rows]
-            vector_ids: set[str] = set()
-            observable_ids: set[str] = set()
-            for row in rows:
-                vector_ids.update(cast(list[str], row["vectors"]))
-                observable_ids.update(cast(list[str], row["observables"]))
-                repeated = any(
-                    len(values) != len(set(values))
-                    for values in (
-                        cast(list[str], row["capabilities"]),
-                        cast(list[str], row["operations"]),
-                        cast(list[str], row["packages"]),
-                        cast(list[str], row["vectors"]),
-                        cast(list[str], row["observables"]),
-                    )
-                )
+            if operator == "derive-content-identity":
+                values = select(arguments["selector"])
+                result = cast(str, arguments["result"])
+                identity_domain = cast(str, arguments["identity_domain"])
                 if (
-                    repeated
-                    or not set(cast(list[str], row["capabilities"]))
-                    <= known_capabilities
-                    or not set(cast(list[str], row["operations"])) <= known_operations
-                    or not set(cast(list[str], row["packages"])) <= known_packages
-                    or not set(cast(list[str], row["observables"])) <= known_observables
-                    or row["experiment"] != experiment["id"]
-                    or row["golden_scenario"] != golden["id"]
+                    len(values) != 1
+                    or not identity_domain
+                    or not result
+                    or result in derived
                 ):
-                    return refuse(
-                        "/members/coverage-matrix",
-                        "Every Template coverage row must resolve through the exact LDB and Experiment",
+                    raise ValueError(
+                        "Template content-identity derivation is ambiguous"
                     )
-            if (
-                len(row_ids) != len(set(row_ids))
-                or vector_ids != {negative["id"], boundary["id"]}
-                or observable_ids != known_observables
-            ):
-                return refuse(
-                    "/members/coverage-matrix",
-                    "Template coverage does not close its unique evidence vectors",
+                derived[result] = content_identity(
+                    identity_domain, cast(JsonValue, values[0])
                 )
 
-        elif operator == "execute-negative-vectors":
-            vector = cast(dict[str, Any], roles["negative-vector"]["payload"])
-            mutation = cast(dict[str, Any], vector["mutation"])
-            mutated = _apply_template_vector(
-                source,
-                cast(str, mutation["pointer"]),
-                cast(JsonValue, mutation["value"]),
-            )
-            result = check_model_source_value(mutated) if mutated is not None else None
-            if (
-                not isinstance(result, Schema2RefusalReport)
-                or len(result.diagnostics) != 1
-                or result.diagnostics[0].code != vector["diagnostic"]
-            ):
-                return refuse(
-                    "/members/negative-vector",
-                    "Template negative vector does not produce its declared LDB refusal",
+            elif operator == "derive-concatenation":
+                selectors = cast(list[JsonValue], arguments["selectors"])
+                result = cast(str, arguments["result"])
+                if not selectors or not result or result in derived:
+                    raise ValueError("Template concatenation derivation is ambiguous")
+                values: list[Any] = []
+                for selector in selectors:
+                    values.extend(select(selector))
+                derived[result] = cast(JsonValue, values)
+
+            elif operator == "admit-model-source":
+                role = cast(str, arguments["role"])
+                if role not in roles or len(roles[role]) != 1:
+                    raise ValueError("Model Source judgment requires one role member")
+                source = cast(dict[str, Any], roles[role][0]["payload"])
+                checked = check_model_source_value(
+                    source,
+                    kernel=cast(dict[str, Any], kernel),
+                    language_bundle=cast(dict[str, Any], language_bundle),
+                )
+                if isinstance(checked, Schema2RefusalReport):
+                    return checked
+                checked_source = checked
+                facts = checked_model_template_facts(checked)
+                result_members = law.get("result_members")
+                if not isinstance(result_members, list) or set(facts) != set(
+                    cast(list[str], result_members)
+                ):
+                    raise ValueError(
+                        "Model Source result does not match the Kernel Template law"
+                    )
+                bindings = cast(list[dict[str, JsonValue]], arguments["fact_bindings"])
+                if not bindings:
+                    raise ValueError("Model Source fact bindings cannot be empty")
+                for binding in bindings:
+                    source_name = cast(str, binding["source"])
+                    result_name = cast(str, binding["result"])
+                    if (
+                        set(binding) != {"result", "source"}
+                        or source_name not in facts
+                        or not result_name
+                        or result_name in derived
+                    ):
+                        raise ValueError("Model Source fact binding is not closed")
+                    derived[result_name] = cast(JsonValue, facts[source_name])
+
+            elif operator == "require-unique":
+                selected_values = select(arguments["selector"])
+                holds = bool(selected_values) and len(selected_values) == len(
+                    _canonical_value_set(selected_values)
                 )
 
-        elif operator == "execute-boundary-vectors":
-            vector = cast(dict[str, Any], roles["boundary-vector"]["payload"])
-            mutated = _apply_template_vector(
-                source,
-                cast(str, vector["pointer"]),
-                cast(JsonValue, vector["value"]),
-            )
-            result = check_model_source_value(mutated) if mutated is not None else None
-            if vector["expected"] != "accepted" or not isinstance(result, CheckedModel):
-                return refuse(
-                    "/members/boundary-vector",
-                    "Template boundary vector does not produce its declared admitted outcome",
-                )
-        else:
-            return refuse(
-                "/members",
-                f"Template admission law has no host implementation: {operator}",
-            )
+            elif operator == "require-inventory":
+                selected_keys = _canonical_value_set(select(arguments["selector"]))
+                inventory = _canonical_value_set(select(arguments["inventory"]))
+                holds = bool(selected_keys) and selected_keys <= inventory
 
+            elif operator == "require-set-relation":
+                holds = _template_relation_holds(
+                    _canonical_value_set(select(arguments["left"])),
+                    _canonical_value_set(select(arguments["right"])),
+                    arguments["relation"],
+                )
+
+            elif operator == "require-scoped-relation":
+                source_rows = select(arguments["source"])
+                target_rows = select(arguments["target"])
+                source_groups = _template_scoped_values(
+                    source_rows,
+                    cast(list[str], arguments["source_scope_path"]),
+                    cast(list[str], arguments["source_values_path"]),
+                    budget,
+                )
+                target_groups = _template_scoped_values(
+                    target_rows,
+                    cast(list[str], arguments["target_scope_path"]),
+                    cast(list[str], arguments["target_values_path"]),
+                    budget,
+                )
+                relation = arguments["relation"]
+                if relation == "equal":
+                    holds = source_groups == target_groups
+                elif relation == "subset":
+                    holds = set(source_groups) <= set(target_groups) and all(
+                        source_groups[key] <= target_groups[key]
+                        for key in source_groups
+                    )
+                else:
+                    raise ValueError("unknown Template scoped relation")
+
+            elif operator == "require-interval":
+                minimum_member = cast(str, arguments["minimum_member"])
+                maximum_member = cast(str, arguments["maximum_member"])
+                intervals = select(arguments["selector"])
+                holds = bool(intervals)
+                for interval in intervals:
+                    budget.consume()
+                    if (
+                        not isinstance(interval, dict)
+                        or set(interval) != {minimum_member, maximum_member}
+                        or isinstance(interval[minimum_member], bool)
+                        or not isinstance(interval[minimum_member], int)
+                        or isinstance(interval[maximum_member], bool)
+                        or not isinstance(interval[maximum_member], int)
+                        or interval[minimum_member] > interval[maximum_member]
+                    ):
+                        holds = False
+                        break
+
+            elif operator == "require-interval-join":
+                source_rows = select(arguments["source"])
+                target_rows = select(arguments["target"])
+                targets: dict[bytes, Any] = {}
+                for row in target_rows:
+                    keys = _project_template_path(
+                        [row], cast(list[str], arguments["target_key_path"]), budget
+                    )
+                    intervals = _project_template_path(
+                        [row],
+                        cast(list[str], arguments["target_interval_path"]),
+                        budget,
+                    )
+                    if len(keys) != 1 or len(intervals) != 1:
+                        raise ValueError("Template interval target is ambiguous")
+                    key = canonical_bytes(cast(JsonValue, keys[0]))
+                    if key in targets:
+                        raise ValueError("Template interval target key is duplicate")
+                    targets[key] = intervals[0]
+                minimum_member = cast(str, arguments["minimum_member"])
+                maximum_member = cast(str, arguments["maximum_member"])
+                for row in source_rows:
+                    keys = _project_template_path(
+                        [row], cast(list[str], arguments["source_key_path"]), budget
+                    )
+                    values = _project_template_path(
+                        [row], cast(list[str], arguments["source_value_path"]), budget
+                    )
+                    if len(keys) != 1 or len(values) != 1:
+                        raise ValueError("Template interval source is ambiguous")
+                    interval = targets.get(canonical_bytes(cast(JsonValue, keys[0])))
+                    value = values[0]
+                    if (
+                        not isinstance(interval, dict)
+                        or minimum_member not in interval
+                        or maximum_member not in interval
+                        or isinstance(value, bool)
+                        or not isinstance(value, int)
+                        or value < interval[minimum_member]
+                        or value > interval[maximum_member]
+                    ):
+                        holds = False
+                        break
+
+            elif operator == "execute-model-source-vector":
+                role = cast(str, arguments["role"])
+                if source is None:
+                    raise ValueError(
+                        "Template vector execution precedes Model Source admission"
+                    )
+                for member in roles[role]:
+                    budget.consume()
+                    vector = cast(dict[str, Any], member["payload"])
+                    pointer = _project_template_path(
+                        [vector], cast(list[str], arguments["pointer_path"]), budget
+                    )
+                    values = _project_template_path(
+                        [vector], cast(list[str], arguments["value_path"]), budget
+                    )
+                    expected_path = cast(list[str], arguments["expected_path"])
+                    if expected_path:
+                        expected = _project_template_path(
+                            [vector], expected_path, budget
+                        )
+                        if expected != [arguments["expected_value"]]:
+                            holds = False
+                            break
+                    if len(pointer) != 1 or len(values) != 1:
+                        raise ValueError("Template vector mutation is ambiguous")
+                    mutated = _apply_template_vector(
+                        source, cast(str, pointer[0]), cast(JsonValue, values[0])
+                    )
+                    result = (
+                        check_model_source_value(
+                            mutated,
+                            kernel=cast(dict[str, Any], kernel),
+                            language_bundle=cast(dict[str, Any], language_bundle),
+                        )
+                        if mutated is not None
+                        else None
+                    )
+                    if arguments["outcome"] == "admitted":
+                        holds = isinstance(result, CheckedModel)
+                    elif arguments["outcome"] == "refused":
+                        diagnostic_path = cast(list[str], arguments["diagnostic_path"])
+                        expected_diagnostic = _project_template_path(
+                            [vector], diagnostic_path, budget
+                        )
+                        holds = (
+                            len(expected_diagnostic) == 1
+                            and isinstance(result, Schema2RefusalReport)
+                            and len(result.diagnostics) == 1
+                            and result.diagnostics[0].code == expected_diagnostic[0]
+                        )
+                    else:
+                        raise ValueError("unknown Template vector outcome")
+                    if not holds:
+                        break
+            else:
+                raise ValueError(f"Template law has no generic interpreter: {operator}")
+
+            if not holds:
+                return _template_judgment_refusal(
+                    release,
+                    language_bundle,
+                    diagnostic,
+                    judgment_id,
+                    "declared relation did not hold",
+                )
+    except _TemplateAdmissionExhausted:
+        return _template_judgment_refusal(
+            release,
+            language_bundle,
+            cast(str, profile["resource_diagnostic"]),
+            "template.resource-accounting",
+            "declared step budget was exhausted",
+        )
+    except (KeyError, TypeError, ValueError) as err:
+        return _template_judgment_refusal(
+            release,
+            language_bundle,
+            cast(str, profile["structural_diagnostic"]),
+            "template.program",
+            str(err),
+        )
     if checked_source is None:
-        return refuse(
-            "/members/starter-model-source",
-            "Template admission profile did not admit its starter source",
+        return _template_judgment_refusal(
+            release,
+            language_bundle,
+            cast(str, profile["structural_diagnostic"]),
+            "template.admit-source",
+            "program did not admit a Model Source",
         )
     return None
 
@@ -1012,13 +1237,20 @@ def template_instantiate_handler(
                 f"Template release {inp.id}@{inp.version} is unavailable",
             )
 
-        members = {
-            cast(str, member["logical_name"]): member
+        profile = _template_admission_profile(language_bundle)
+        source_kind = next(
+            cast(str, row["member_kind"])
+            for row in cast(list[dict[str, JsonValue]], profile["member_roles"])
+            if row["role"] == "source"
+        )
+        starter_member = next(
+            member
             for member in cast(list[dict[str, JsonValue]], release["members"])
-        }
+            if member["member_kind"] == source_kind
+        )
         starter = cast(
             dict[str, JsonValue],
-            members["starter-model-source"]["payload"],
+            starter_member["payload"],
         )
         source = cast(dict[str, JsonValue], deepcopy(starter))
         starter_identity = content_identity("model-source-package-v2", starter)

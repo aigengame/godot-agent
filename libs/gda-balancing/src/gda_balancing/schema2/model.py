@@ -782,17 +782,33 @@ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
 
 def check_model_source_value(
     source: dict[str, Any],
+    *,
+    kernel: dict[str, Any] | None = None,
+    language_bundle: dict[str, Any] | None = None,
 ) -> CheckedModel | Schema2RefusalReport:
     """Admit an in-memory Model Source through the same authority path as a file."""
     try:
         data = canonical_bytes(cast(JsonValue, source))
     except (TypeError, ValueError, UnicodeEncodeError):
         data = b"null\n"
-    return _check_model_source_bytes(data)
+    return _check_model_source_bytes(
+        data,
+        kernel=kernel,
+        language_bundle=language_bundle,
+    )
 
 
-def _check_model_source_bytes(data: bytes) -> CheckedModel | Schema2RefusalReport:
-    kernel, ldb = load_authorities()
+def _check_model_source_bytes(
+    data: bytes,
+    *,
+    kernel: dict[str, Any] | None = None,
+    language_bundle: dict[str, Any] | None = None,
+) -> CheckedModel | Schema2RefusalReport:
+    if (kernel is None) != (language_bundle is None):
+        raise ValueError("Kernel and LDB must be supplied together")
+    if kernel is None or language_bundle is None:
+        kernel, language_bundle = load_authorities()
+    ldb = language_bundle
     admission = admit_authorities(kernel, ldb)
     if not admission.admitted:
         return bootstrap_refusal(admission)
@@ -918,6 +934,49 @@ def _check_model_source_bytes(data: bytes) -> CheckedModel | Schema2RefusalRepor
             ldb,
         )
     return checked
+
+
+def checked_model_template_facts(checked: CheckedModel) -> dict[str, JsonValue]:
+    """Project generic graph facts consumed by Template admission profiles."""
+    lowering = _model_lowering(checked.language_bundle)
+    profile = _resolution_profile(
+        checked.language_bundle, cast(str, lowering["resolution_profile"])
+    )
+    requirements_member = cast(str, profile["requirements_member"])
+    requirement_package_member = cast(str, profile["requirement_package_member"])
+    requirement_version_member = cast(str, profile["requirement_version_member"])
+    root_requirements = [
+        {
+            "id": item[requirement_package_member],
+            "version": item[requirement_version_member],
+        }
+        for item in cast(list[dict[str, str]], checked.source[requirements_member])
+    ]
+    lock = _package_lock(checked)
+    resolved_packages = [
+        {
+            "id": item["id"],
+            "version": item["version"],
+            "content_identity": item["content_identity"],
+        }
+        for item in cast(list[dict[str, JsonValue]], lock["packages"])
+    ]
+    source_symbols = []
+    for fields, _pointer in _resolved_source_symbols(
+        checked.source, checked.language_bundle
+    ):
+        resolved = cast(dict[str, str], fields["resolved_symbol"])
+        source_symbols.append(
+            {
+                **fields,
+                "id": f"{resolved['module']}.{resolved['name']}",
+            }
+        )
+    return {
+        "root_requirements": cast(JsonValue, root_requirements),
+        "resolved_packages": cast(JsonValue, resolved_packages),
+        "source_symbols": cast(JsonValue, source_symbols),
+    }
 
 
 def _artifact_contract(

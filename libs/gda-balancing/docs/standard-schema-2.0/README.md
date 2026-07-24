@@ -46,9 +46,12 @@ source, package dependency, defaults, compatibility, documentation, Experiment, 
 Golden scenario, and negative/boundary vectors. Every companion payload binds an LDB-projected
 wire schema and is structurally and semantically re-admitted before the release can be listed,
 retrieved, or instantiated. The Kernel defines the closed Template-admission operations, the LDB
-selects their member-role judgment chain, every coverage row resolves capability/operation/package
-and observable identities, and the negative/boundary vectors execute through the ordinary Model
-Source checker.
+selects a bounded artifact-graph program over ordered role collections, every derived identity or
+Model Source fact is explicitly bound, every coverage row resolves capability/operation/package and
+observable identities, and every negative/boundary vector executes through the ordinary Model
+Source checker. The same program admits multiple Experiments, Golden scenarios, and vectors without
+host-selected singleton roles. Concrete role names remain LDB content, so genre extensions do not
+change the Kernel role contract.
 
 Instantiation publishes a newly identified editable Model Source plus an instantiation receipt.
 The source records explicit template provenance, the release remains immutable, retries are
