@@ -188,7 +188,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:14e0beab3a25ae79b51c2fd922d8372143a7ede77284491820b54689c12dab74",
+  "content_identity": "sha256:87125b0d62997effb17c8aeb8128be567ebcaee836e4b6e82297d69051d2bbe9",
   "diagnostics": [{"code": "kernel.identity_mismatch", "stage": "ingress"}, {"code": "kernel.binding_mismatch", "stage": "ingress"}, {"code": "kernel.member_set_mismatch", "stage": "ingress"}, {"code": "kernel.duplicate_identifier", "stage": "static"}, {"code": "kernel.unknown_operation", "stage": "static"}, {"code": "kernel.vector_mismatch", "stage": "static"}, {"code": "kernel.diagnostic_closure", "stage": "static"}, {"code": "kernel.resource_exhausted", "stage": "ingress"}],
   "meta_format": {
     "fact": {
@@ -217,7 +217,7 @@
     "binding_substitution": {"binding": "premise-bind maps variable names to source fact field names", "conflicting_duplicate_binding": "kernel.vector_mismatch", "duplicate_binding": "require-equal", "substitution": "evaluate every conclusion field term in the complete binding", "unbound_variable": "kernel.vector_mismatch"},
     "diagnostic_reason": {
       "closed": true,
-      "member_types": {"diagnostic": {"type": "non-empty-string"}, "id": {"type": "non-empty-string"}, "stage": {"enum": ["ingress", "parse", "static", "resolution"]}},
+      "member_types": {"diagnostic": {"type": "non-empty-string"}, "id": {"type": "non-empty-string"}, "stage": {"enum": ["ingress", "parse", "static", "resolution", "runtime", "evaluation", "migration", "approval"]}},
       "predicate_operations": ["not-member", "has-duplicate", "greater-than", "invalid-interval", "not-equal"],
       "predicate_schemas": [
         {"input_member_types": {"value": {"type": "canonical-scalar"}}, "input_members": ["value"], "member_types": {"inventory_path": {"type": "inventory-list-path"}, "member_field": {"type": "non-empty-string"}, "operation": {"const": "not-member"}}, "operation": "not-member", "optional_members": ["member_field"], "required_members": ["operation", "inventory_path"]},
@@ -229,7 +229,7 @@
       "required_members": ["id", "diagnostic", "stage", "predicate"],
       "scalar_equality": "type-and-canonical-value",
       "vector_coverage": {"greater-than": "limit-and-successor", "has-duplicate": "both-outcomes", "invalid-interval": "both-outcomes", "not-equal": "both-outcomes", "not-member": "every-inventory-member-and-one-non-member"},
-      "vector_member_types": {"diagnostic": {"type": "non-empty-string"}, "id": {"type": "non-empty-string"}, "matched": {"type": "boolean"}, "reason": {"type": "non-empty-string"}, "stage": {"enum": ["ingress", "parse", "static", "resolution"]}},
+      "vector_member_types": {"diagnostic": {"type": "non-empty-string"}, "id": {"type": "non-empty-string"}, "matched": {"type": "boolean"}, "reason": {"type": "non-empty-string"}, "stage": {"enum": ["ingress", "parse", "static", "resolution", "runtime", "evaluation", "migration", "approval"]}},
       "vector_required_members": ["id", "reason", "diagnostic", "stage", "input", "matched"]
     },
     "model_program_vector": {

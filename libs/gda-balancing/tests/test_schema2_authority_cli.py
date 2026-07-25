@@ -17,7 +17,7 @@ import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.commands.schema as schema_command_module
 from gda_balancing.commands.manifest import MANIFEST
-from gda_balancing.commands.model import MODEL_BUILD, MODEL_CHECK
+from gda_balancing.commands.model import MODEL_BUILD, MODEL_CHECK, MODEL_MIGRATE
 from gda_balancing.commands.schema import SCHEMA_GET, schema_get_handler
 from gda_balancing.schema2.canonical import content_identity
 from gda_balancing.schema2.diagnostics import (
@@ -161,7 +161,9 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "experiment-specification",
         "genre-coverage-matrix",
         "golden-scenario",
+        "migration-report",
         "model-build-command-input",
+        "model-migrate-command-input",
         "package-lock",
         "publication-index",
         "negative-vector",
@@ -254,6 +256,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         "manifest",
         "model check",
         "model build",
+        "model migrate",
         "template list",
         "template get",
         "template instantiate",
@@ -304,7 +307,11 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "b" * 64,
             ]
         else:
-            descriptor = MODEL_BUILD if path == "model build" else MODEL_CHECK
+            descriptor = {
+                "model build": MODEL_BUILD,
+                "model check": MODEL_CHECK,
+                "model migrate": MODEL_MIGRATE,
+            }[path]
             source = tmp_path / f"{path.replace(' ', '-')}.json"
             source.write_text(
                 descriptor.fixtures.valid_document or "", encoding="utf-8"
@@ -314,9 +321,9 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 invocation.extend(
                     [
                         "--out",
-                        str(tmp_path / "manifest-build-output"),
+                        str(tmp_path / f"manifest-{path.replace(' ', '-')}-output"),
                         "--invocation-key",
-                        "a" * 64,
+                        ("a" if path == "model build" else "c") * 64,
                     ]
                 )
         result_exit, result_stdout, result_stderr = run_cli(invocation)

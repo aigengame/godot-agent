@@ -1013,12 +1013,30 @@ def _artifact_schema(
 def _wire_schema_identity_for_kind(
     language_bundle: dict[str, Any], artifact_kind: str
 ) -> str:
-    contract = _artifact_contract(language_bundle, artifact_kind)
-    schema = _artifact_schema(language_bundle, artifact_kind)
-    body = {key: value for key, value in schema.items() if key != "$id"}
-    return content_identity(
-        cast(str, contract["wire_schema_identity_domain"]), cast(JsonValue, body)
+    language = _language(language_bundle)
+    schemas = [
+        item["schema"]
+        for collection in ("wire_schemas", "artifact_wire_schemas")
+        for item in cast(list[dict[str, Any]], language[collection])
+        if item["artifact_kind"] == artifact_kind
+    ]
+    if len(schemas) != 1:
+        raise ValueError(f"wire schema is not unique: {artifact_kind}")
+    contracts = [
+        item
+        for item in cast(list[dict[str, Any]], language["artifact_contracts"])
+        if item["artifact_kind"] == artifact_kind
+    ]
+    if len(contracts) > 1:
+        raise ValueError(f"artifact contract is not unique: {artifact_kind}")
+    domain = (
+        cast(str, contracts[0]["wire_schema_identity_domain"])
+        if contracts
+        else f"{artifact_kind}-wire-schema-v2"
     )
+    schema = cast(dict[str, Any], schemas[0])
+    body = {key: value for key, value in schema.items() if key != "$id"}
+    return content_identity(domain, cast(JsonValue, body))
 
 
 def _identified_artifact(
@@ -1089,6 +1107,11 @@ def identified_artifact(
 def verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> bool:
     """Re-admit one content-addressed artifact against the exact LDB."""
     return _verify_artifact(value, language_bundle)
+
+
+def wire_schema_identity(language_bundle: dict[str, Any], artifact_kind: str) -> str:
+    """Derive one artifact's wire-schema identity from the exact LDB."""
+    return _wire_schema_identity_for_kind(language_bundle, artifact_kind)
 
 
 def _resolved_source_symbols(

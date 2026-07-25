@@ -18,7 +18,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:14e0beab3a25ae79b51c2fd922d8372143a7ede77284491820b54689c12dab74"
+    "sha256:87125b0d62997effb17c8aeb8128be567ebcaee836e4b6e82297d69051d2bbe9"
 )
 
 
@@ -4281,12 +4281,42 @@ def _reidentify(kernel: dict[str, Any], ldb: dict[str, Any]) -> None:
 
 
 def _refresh_package_closure_and_reidentify(ldb: dict[str, Any]) -> None:
+    kernel = authority_set()["kernel"]
+    projections = kernel["meta_format"]["package_release"]["semantic_closure"][
+        "projections"
+    ]
+
+    def path_values(root: Any, dotted: str) -> list[Any]:
+        values = [root]
+        for segment in dotted.split("."):
+            selected: list[Any] = []
+            for value in values:
+                if not isinstance(value, dict) or segment not in value:
+                    continue
+                child = value[segment]
+                selected.extend(child if isinstance(child, list) else [child])
+            values = selected
+        return values
+
     for package in ldb["language"]["packages"]:
-        for entry in package["semantic_closure"]:
-            value: Any = ldb
-            for segment in entry["authority_path"].split("."):
-                value = value[segment]
-            entry["definitions"] = deepcopy(value)
+        for entry, projection in zip(
+            package["semantic_closure"], projections, strict=True
+        ):
+            definitions = path_values(ldb, entry["authority_path"])
+            owners = path_values(package, projection["owners_path"])
+            key_member = projection["key_member"]
+            entry["definitions"] = deepcopy(
+                [
+                    definition
+                    for definition in definitions
+                    if (
+                        definition.get(key_member)
+                        if key_member is not None and isinstance(definition, dict)
+                        else definition
+                    )
+                    in owners
+                ]
+            )
         _reidentify_package_release(package)
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 

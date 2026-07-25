@@ -1,7 +1,7 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:334f0c8a9b1e65193d68f65ec93d36a62bebbf234475b0ecefb4d818619b1e78",
+  "content_identity": "sha256:c2156c171130d4e9e82583c2a430d8ad20062c5b23378b48fb19da4c7689fa18",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
@@ -16,9 +16,12 @@
     {"code": "language.name_ambiguity", "stage": "static"},
     {"code": "language.source_contract_mismatch", "stage": "static"},
     {"code": "language.source_parse_failure", "stage": "parse"},
-    {"code": "language.source_too_large", "stage": "ingress"}
+    {"code": "language.source_too_large", "stage": "ingress"},
+    {"code": "migration.deprecated_construct", "stage": "migration"},
+    {"code": "migration.no_mappable_construct", "stage": "migration"},
+    {"code": "migration.source_invalid", "stage": "migration"}
   ],
-  "kernel_identity": "sha256:14e0beab3a25ae79b51c2fd922d8372143a7ede77284491820b54689c12dab74",
+  "kernel_identity": "sha256:87125b0d62997effb17c8aeb8128be567ebcaee836e4b6e82297d69051d2bbe9",
   "language": {
     "artifact_contracts": [
       {"artifact_kind": "artifact-set-manifest", "identity_domain": "artifact-set-manifest-v2", "schema_kind": "artifact-set-manifest", "wire_schema_identity_domain": "artifact-set-manifest-wire-schema-v2", "identity_excluded_members": []},
@@ -26,6 +29,8 @@
       {"artifact_kind": "build-receipt", "identity_domain": "build-receipt-v2", "schema_kind": "build-receipt", "wire_schema_identity_domain": "build-receipt-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "capability-manifest", "identity_domain": "capability-manifest-v2", "schema_kind": "capability-manifest", "wire_schema_identity_domain": "capability-manifest-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "debug-map", "identity_domain": "debug-map-v2", "schema_kind": "debug-map", "wire_schema_identity_domain": "debug-map-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "migration-report", "identity_domain": "migration-report-v2", "schema_kind": "migration-report", "wire_schema_identity_domain": "migration-report-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "model-migrate-command-input", "identity_domain": "model-migrate-command-input-v2", "schema_kind": "model-migrate-command-input", "wire_schema_identity_domain": "model-migrate-command-input-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "model-build-command-input", "identity_domain": "model-build-command-input-v2", "schema_kind": "model-build-command-input", "wire_schema_identity_domain": "model-build-command-input-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "package-lock", "identity_domain": "package-lock-v2", "schema_kind": "package-lock", "wire_schema_identity_domain": "package-lock-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "publication-index", "identity_domain": "publication-index-v2", "schema_kind": "publication-index", "wire_schema_identity_domain": "publication-index-wire-schema-v2", "identity_excluded_members": []},
@@ -37,6 +42,90 @@
       {"artifact_kind": "template-instantiation-receipt", "identity_domain": "template-instantiation-receipt-v2", "schema_kind": "template-instantiation-receipt", "wire_schema_identity_domain": "template-instantiation-receipt-wire-schema-v2", "identity_excluded_members": []}
     ],
     "artifact_wire_schemas": [
+      {
+        "artifact_kind": "migration-report",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "artifact_kind": {"const": "migration-report"},
+            "artifact_version": {"const": "2.0.0"},
+            "wire_schema_identity": {"type": "string", "minLength": 1},
+            "status": {"const": "migrated"},
+            "input_identity": {"type": "string", "minLength": 1},
+            "source_schema_version": {"const": "1.0.0"},
+            "target_schema_version": {"const": "2.0.0"},
+            "converter_identity": {"type": "string", "minLength": 1},
+            "kernel_identity": {"type": "string", "minLength": 1},
+            "language_bundle_identity": {"type": "string", "minLength": 1},
+            "output_identity": {"type": "string", "minLength": 1},
+            "mappings": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "source_pointer": {"type": "string"},
+                  "destination_pointer": {"type": "string"},
+                  "mapping": {"type": "string", "minLength": 1}
+                },
+                "required": ["source_pointer", "destination_pointer", "mapping"],
+                "unevaluatedProperties": false
+              }
+            },
+            "defaults": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "destination_pointer": {"type": "string"},
+                  "value": {"type": "string"},
+                  "reason": {"type": "string", "minLength": 1}
+                },
+                "required": ["destination_pointer", "value", "reason"],
+                "unevaluatedProperties": false
+              }
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {"type": "string", "minLength": 1},
+                  "source_pointer": {"type": "string"},
+                  "message": {"type": "string", "minLength": 1}
+                },
+                "required": ["code", "source_pointer", "message"],
+                "unevaluatedProperties": false
+              }
+            },
+            "deprecated_constructs": {"const": []},
+            "refusals": {"const": []},
+            "content_identity": {"type": "string", "minLength": 1}
+          },
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "status", "input_identity", "source_schema_version", "target_schema_version", "converter_identity", "kernel_identity", "language_bundle_identity", "output_identity", "mappings", "defaults", "warnings", "deprecated_constructs", "refusals", "content_identity"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "model-migrate-command-input",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "artifact_kind": {"const": "model-migrate-command-input"},
+            "artifact_version": {"const": "2.0.0"},
+            "wire_schema_identity": {"type": "string", "minLength": 1},
+            "input_identity": {"type": "string", "minLength": 1},
+            "converter_identity": {"type": "string", "minLength": 1},
+            "kernel_identity": {"type": "string", "minLength": 1},
+            "language_bundle_identity": {"type": "string", "minLength": 1},
+            "content_identity": {"type": "string", "minLength": 1}
+          },
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "input_identity", "converter_identity", "kernel_identity", "language_bundle_identity", "content_identity"],
+          "unevaluatedProperties": false
+        }
+      },
       {
         "artifact_kind": "template-instantiate-command-input",
         "schema": {
@@ -1183,6 +1272,91 @@
           {"diagnostic": "language.unknown_unit", "id": "quantity.refuse.unit", "input": {"value": "missing-unit"}, "matched": true, "reason": "quantity.reason.unknown-unit", "stage": "static"}
         ],
         "runtime_semantic_paths": ["language.components", "language.constructors", "language.conversions", "language.operations", "language.quantity.domains", "language.quantity.kinds", "language.quantity.numeric_policies", "language.quantity.representations", "language.quantity.symbol_roles", "language.quantity.units", "language.runtime_profiles"]
+      },
+      {
+        "artifact_kind": "domain-package-release",
+        "capabilities": {"provided": [], "required": []},
+        "content_identity": "sha256:21f463aaf013be569bd0197cc890c19abeaa5208e92e7cc1116624253cbbdccf",
+        "dependencies": {"optional": [], "required": []},
+        "exports": {
+          "components": [],
+          "conversions": [],
+          "diagnostics": [
+            "migration.deprecated_construct",
+            "migration.no_mappable_construct",
+            "migration.source_invalid"
+          ],
+          "domains": [],
+          "kinds": [],
+          "language_rules": [],
+          "model_checks": [],
+          "model_lowerings": [],
+          "operations": [],
+          "reasons": [
+            "migration.reason.deprecated-construct",
+            "migration.reason.no-mappable-construct",
+            "migration.reason.source-invalid"
+          ],
+          "representations": [],
+          "symbol_roles": [],
+          "types": [],
+          "units": []
+        },
+        "id": "tooling.migration",
+        "profiles": {"numeric": [], "resolution": [], "runtime": []},
+        "semantic_closure": [
+          {"authority_path": "language.capabilities", "definitions": []},
+          {"authority_path": "language.components", "definitions": []},
+          {"authority_path": "language.constructors", "definitions": []},
+          {"authority_path": "language.conversions", "definitions": []},
+          {"authority_path": "language.model_checks", "definitions": []},
+          {"authority_path": "language.model_lowerings", "definitions": []},
+          {"authority_path": "language.operations", "definitions": []},
+          {"authority_path": "language.quantity.domains", "definitions": []},
+          {"authority_path": "language.quantity.kinds", "definitions": []},
+          {"authority_path": "language.quantity.numeric_policies", "definitions": []},
+          {"authority_path": "language.quantity.representations", "definitions": []},
+          {"authority_path": "language.quantity.symbol_roles", "definitions": []},
+          {"authority_path": "language.quantity.units", "definitions": []},
+          {
+            "authority_path": "language.reasons",
+            "definitions": [
+              {"diagnostic": "migration.deprecated_construct", "id": "migration.reason.deprecated-construct", "predicate": {"operation": "not-equal"}, "stage": "migration"},
+              {"diagnostic": "migration.no_mappable_construct", "id": "migration.reason.no-mappable-construct", "predicate": {"operation": "not-equal"}, "stage": "migration"},
+              {"diagnostic": "migration.source_invalid", "id": "migration.reason.source-invalid", "predicate": {"operation": "not-equal"}, "stage": "migration"}
+            ]
+          },
+          {"authority_path": "language.resolution_profiles", "definitions": []},
+          {"authority_path": "language.rules", "definitions": []},
+          {"authority_path": "language.runtime_profiles", "definitions": []},
+          {
+            "authority_path": "diagnostics",
+            "definitions": [
+              {"code": "migration.deprecated_construct", "stage": "migration"},
+              {"code": "migration.no_mappable_construct", "stage": "migration"},
+              {"code": "migration.source_invalid", "stage": "migration"}
+            ]
+          }
+        ],
+        "semantic_identity": "sha256:a0731d46d16ff80bae555367b1864225aa734d58d3cbc287c8c8702afd1faa2d",
+        "vector_definitions": [
+          {"diagnostic": "migration.deprecated_construct", "id": "migration.accept.deprecated-construct", "input": {"actual": "migratable", "expected": "migratable"}, "matched": false, "reason": "migration.reason.deprecated-construct", "stage": "migration"},
+          {"diagnostic": "migration.no_mappable_construct", "id": "migration.accept.no-mappable-construct", "input": {"actual": "non-empty", "expected": "non-empty"}, "matched": false, "reason": "migration.reason.no-mappable-construct", "stage": "migration"},
+          {"diagnostic": "migration.source_invalid", "id": "migration.accept.source-invalid", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "migration.reason.source-invalid", "stage": "migration"},
+          {"diagnostic": "migration.deprecated_construct", "id": "migration.refuse.deprecated-construct", "input": {"actual": "deprecated", "expected": "migratable"}, "matched": true, "reason": "migration.reason.deprecated-construct", "stage": "migration"},
+          {"diagnostic": "migration.no_mappable_construct", "id": "migration.refuse.no-mappable-construct", "input": {"actual": "empty", "expected": "non-empty"}, "matched": true, "reason": "migration.reason.no-mappable-construct", "stage": "migration"},
+          {"diagnostic": "migration.source_invalid", "id": "migration.refuse.source-invalid", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "migration.reason.source-invalid", "stage": "migration"}
+        ],
+        "vectors": [
+          "migration.accept.deprecated-construct",
+          "migration.accept.no-mappable-construct",
+          "migration.accept.source-invalid",
+          "migration.refuse.deprecated-construct",
+          "migration.refuse.no-mappable-construct",
+          "migration.refuse.source-invalid"
+        ],
+        "version": "1.0.0",
+        "runtime_semantic_paths": ["language.reasons", "diagnostics"]
       }
     ],
     "quantity": {"domains": ["closed-interval"], "kinds": ["scalar"], "numeric_policies": [{"id": "exact-int64", "overflow": "refuse", "rounding": "none"}], "representations": ["Int"], "symbol_roles": ["constant", "parameter", "input", "state", "derived", "output", "random"], "units": [{"dimension": "dimensionless", "id": "1"}]},
@@ -1198,6 +1372,9 @@
       {"diagnostic": "language.source_parse_failure", "id": "model.reason.source-parse-failure", "predicate": {"operation": "not-equal"}, "stage": "parse"},
       {"diagnostic": "language.source_too_large", "id": "model.reason.source-too-large", "predicate": {"operation": "greater-than", "limit_path": "resources.max_source_bytes"}, "stage": "ingress"},
       {"diagnostic": "language.unresolved_name", "id": "model.reason.unresolved-name", "predicate": {"operation": "not-equal"}, "stage": "static"},
+      {"diagnostic": "migration.deprecated_construct", "id": "migration.reason.deprecated-construct", "predicate": {"operation": "not-equal"}, "stage": "migration"},
+      {"diagnostic": "migration.no_mappable_construct", "id": "migration.reason.no-mappable-construct", "predicate": {"operation": "not-equal"}, "stage": "migration"},
+      {"diagnostic": "migration.source_invalid", "id": "migration.reason.source-invalid", "predicate": {"operation": "not-equal"}, "stage": "migration"},
       {"diagnostic": "language.duplicate_symbol", "id": "quantity.reason.duplicate-symbol", "predicate": {"operation": "has-duplicate"}, "stage": "static"},
       {"diagnostic": "language.invalid_domain", "id": "quantity.reason.invalid-domain", "predicate": {"operation": "invalid-interval"}, "stage": "static"},
       {"diagnostic": "language.resource_exhausted", "id": "quantity.reason.resource-exhausted", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "static"},
@@ -1490,6 +1667,12 @@
     {"diagnostic": "language.name_ambiguity", "id": "model.accept.name-ambiguity", "input": {"actual": "one", "expected": "one"}, "matched": false, "reason": "model.reason.name-ambiguity", "stage": "static"},
     {"diagnostic": "language.unresolved_name", "id": "model.refuse.unresolved-name", "input": {"actual": "unbound", "expected": "bound"}, "matched": true, "reason": "model.reason.unresolved-name", "stage": "static"},
     {"diagnostic": "language.unresolved_name", "id": "model.accept.unresolved-name", "input": {"actual": "bound", "expected": "bound"}, "matched": false, "reason": "model.reason.unresolved-name", "stage": "static"},
+    {"diagnostic": "migration.deprecated_construct", "id": "migration.refuse.deprecated-construct", "input": {"actual": "deprecated", "expected": "migratable"}, "matched": true, "reason": "migration.reason.deprecated-construct", "stage": "migration"},
+    {"diagnostic": "migration.deprecated_construct", "id": "migration.accept.deprecated-construct", "input": {"actual": "migratable", "expected": "migratable"}, "matched": false, "reason": "migration.reason.deprecated-construct", "stage": "migration"},
+    {"diagnostic": "migration.no_mappable_construct", "id": "migration.refuse.no-mappable-construct", "input": {"actual": "empty", "expected": "non-empty"}, "matched": true, "reason": "migration.reason.no-mappable-construct", "stage": "migration"},
+    {"diagnostic": "migration.no_mappable_construct", "id": "migration.accept.no-mappable-construct", "input": {"actual": "non-empty", "expected": "non-empty"}, "matched": false, "reason": "migration.reason.no-mappable-construct", "stage": "migration"},
+    {"diagnostic": "migration.source_invalid", "id": "migration.refuse.source-invalid", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "migration.reason.source-invalid", "stage": "migration"},
+    {"diagnostic": "migration.source_invalid", "id": "migration.accept.source-invalid", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "migration.reason.source-invalid", "stage": "migration"},
     {
       "category": "positive",
       "expect": {
