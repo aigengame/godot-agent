@@ -758,6 +758,97 @@ def _consumer_b_closed_json_schema(value: Any, contract: dict[str, Any]) -> bool
     return walk(value)
 
 
+def _consumer_b_embedded_artifact_bindings_are_closed(ldb: dict[str, Any]) -> bool:
+    language = ldb.get("language")
+    if not isinstance(language, dict):
+        return False
+    contracts = language.get("artifact_contracts")
+    entries = language.get("artifact_wire_schemas")
+    if not isinstance(contracts, list) or not isinstance(entries, list):
+        return False
+    contract_index = {
+        item.get("artifact_kind"): item for item in contracts if isinstance(item, dict)
+    }
+    schema_index = {
+        item.get("artifact_kind"): item.get("schema")
+        for item in entries
+        if isinstance(item, dict)
+    }
+    if len(contract_index) != len(contracts) or len(schema_index) != len(entries):
+        return False
+
+    observed: dict[str, bytes] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("schema"), dict):
+            return False
+        properties = entry["schema"].get("properties")
+        if not isinstance(properties, dict):
+            continue
+        for property_schema in properties.values():
+            candidate = (
+                property_schema.get("const")
+                if isinstance(property_schema, dict)
+                else None
+            )
+            if not isinstance(candidate, dict) or "artifact_kind" not in candidate:
+                continue
+            kind = candidate.get("artifact_kind")
+            identity = candidate.get("content_identity")
+            wire_identity = candidate.get("wire_schema_identity")
+            if (
+                not isinstance(kind, str)
+                or not isinstance(identity, str)
+                or not isinstance(wire_identity, str)
+            ):
+                return False
+            if (
+                sum(
+                    isinstance(value, dict) and value.get("const") == identity
+                    for value in properties.values()
+                )
+                != 1
+            ):
+                return False
+            contract = contract_index.get(kind)
+            if not isinstance(contract, dict):
+                return False
+            artifact_schema = schema_index.get(contract.get("schema_kind"))
+            excluded = contract.get("identity_excluded_members")
+            if not isinstance(artifact_schema, dict) or not isinstance(excluded, list):
+                return False
+            try:
+                jsonschema.Draft202012Validator(artifact_schema).validate(candidate)
+                schema_body = {
+                    key: value for key, value in artifact_schema.items() if key != "$id"
+                }
+                expected_wire = _identity(
+                    contract["wire_schema_identity_domain"], schema_body
+                )
+                identity_body = {
+                    key: value
+                    for key, value in candidate.items()
+                    if key != "content_identity" and key not in excluded
+                }
+                expected_identity = _identity(
+                    contract["identity_domain"], identity_body
+                )
+                encoded = _encoded(candidate)
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+                UnicodeEncodeError,
+                jsonschema.ValidationError,
+            ):
+                return False
+            if wire_identity != expected_wire or identity != expected_identity:
+                return False
+            if kind in observed and observed[kind] != encoded:
+                return False
+            observed[kind] = encoded
+    return True
+
+
 def _consumer_b_value_matches(value: Any, contract: Any, ldb: dict[str, Any]) -> bool:
     if not isinstance(contract, dict):
         return False
@@ -3787,6 +3878,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     meta = kernel["meta_format"]
     if not _consumer_b_language_definitions_are_closed(ldb, meta):
         refuse("kernel.vector_mismatch", "static", "language.definitions")
+    if not _consumer_b_embedded_artifact_bindings_are_closed(ldb):
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "language.embedded-artifact-bindings",
+        )
     raw_vectors = ldb.get("vectors")
     valid_vectors: list[dict[str, Any]] = []
     if not isinstance(raw_vectors, list):
@@ -4334,6 +4431,51 @@ def test_two_independent_consumers_admit_the_exact_authority_and_inventories():
     assert first["law_ids"]
     assert first["rule_ids"] == ["quantity.declare", "quantity.lower"]
     assert ldb["language"]["model_source_schema_versions"] == ["2.0.0"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "identity-only",
+        "reidentified-specification",
+        "artifact-schema",
+    ),
+)
+def test_two_consumers_refuse_unilateral_embedded_artifact_binding_drift(mutation):
+    authority = authority_set()
+    kernel = authority["kernel"]
+    ldb = authority["language_bundle"]
+    schemas = {
+        entry["artifact_kind"]: entry["schema"]
+        for entry in ldb["language"]["artifact_wire_schemas"]
+    }
+    refusal_schema = schemas["migration-refusal-report"]
+    properties = refusal_schema["properties"]
+    if mutation == "identity-only":
+        properties["converter_identity"]["const"] = "sha256:" + "0" * 64
+    elif mutation == "reidentified-specification":
+        specification = properties["converter_specification"]["const"]
+        specification["mapping_rules"][0]["report_mapping"] = "unilateral drift"
+        specification["content_identity"] = _identity(
+            "source-converter-specification-v1", specification
+        )
+        properties["converter_identity"]["const"] = specification["content_identity"]
+    else:
+        schemas["source-converter-specification"]["properties"]["mapping_rules"][
+            "minItems"
+        ] = 5
+    _reidentify(kernel, ldb)
+
+    first = _consumer_a(kernel, ldb)
+    second = _consumer_b(kernel, ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "static",
+        "kernel.vector_mismatch",
+        "language.embedded-artifact-bindings",
+    ) in first["diagnostics"]
 
 
 @pytest.mark.parametrize(
