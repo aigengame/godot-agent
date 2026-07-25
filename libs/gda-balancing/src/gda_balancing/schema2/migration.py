@@ -302,26 +302,34 @@ def migrate_design_source(
 
     source: dict[str, JsonValue] = {
         "schema_version": "2.0.0",
-        "manifest": {
-            "id": outcome.meta.name,
-            "version": "1.0.0",
-            "entry_module": "main",
-        },
-        "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
-        "modules": [
+        "manifest": cast(
+            JsonValue,
             {
-                "id": "main",
-                "imports": [
-                    {
-                        "alias": "quantity",
-                        "package": "core.quantity",
-                        "version": "2.0.0",
-                        "symbol": "Quantity",
-                    }
-                ],
-                "symbols": symbols,
-            }
-        ],
+                "id": outcome.meta.name,
+                "version": "1.0.0",
+                "entry_module": "main",
+            },
+        ),
+        "package_requirements": cast(
+            JsonValue, [{"id": "core.quantity", "version": "2.0.0"}]
+        ),
+        "modules": cast(
+            JsonValue,
+            [
+                {
+                    "id": "main",
+                    "imports": [
+                        {
+                            "alias": "quantity",
+                            "package": "core.quantity",
+                            "version": "2.0.0",
+                            "symbol": "Quantity",
+                        }
+                    ],
+                    "symbols": symbols,
+                }
+            ],
+        ),
     }
     return MigrationSuccess(
         input_identity=input_identity,
@@ -372,11 +380,14 @@ def _migration_failure(
     refusal: Schema2RefusalReport,
 ) -> MigrationFailure:
     deprecated_constructs = tuple(
-        {
-            "source_pointer": diagnostic.primary.pointer,
-            "diagnostic_code": diagnostic.code,
-            "remediation": "Re-author or remove this construct before migration",
-        }
+        cast(
+            dict[str, JsonValue],
+            {
+                "source_pointer": diagnostic.primary.pointer,
+                "diagnostic_code": diagnostic.code,
+                "remediation": "Re-author or remove this construct before migration",
+            },
+        )
         for diagnostic in refusal.diagnostics
         if diagnostic.code == "migration.deprecated_construct"
     )

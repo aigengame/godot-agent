@@ -25,7 +25,7 @@ class VersionResult(BaseModel):
 
 
 def run_version(_: VersionInput) -> VersionResult:
-    _, language_bundle = load_authorities()
+    _kernel, language_bundle = load_authorities()
     versions = cast(
         list[str],
         cast(dict[str, Any], language_bundle["language"])[
