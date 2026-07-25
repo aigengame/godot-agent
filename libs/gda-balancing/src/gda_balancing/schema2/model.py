@@ -8,7 +8,7 @@ import os
 import shutil
 import stat
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -76,6 +76,16 @@ class CheckedModel:
 class ResolvedModelAdmission:
     admitted: bool
     diagnostics: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PublicationMember:
+    """One pre-admitted value and its descriptor-visible artifact metadata."""
+
+    value: dict[str, Any]
+    artifact_kind: str
+    wire_schema_identity: str
+    content_identity: str
 
 
 class _ResolutionResourceExhausted(Exception):
@@ -767,7 +777,38 @@ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
     except OSError as err:
         raise UnreadableInputError(f"cannot read input document: {path}") from err
 
-    kernel, ldb = load_authorities()
+    return _check_model_source_bytes(data)
+
+
+def check_model_source_value(
+    source: dict[str, Any],
+    *,
+    kernel: dict[str, Any] | None = None,
+    language_bundle: dict[str, Any] | None = None,
+) -> CheckedModel | Schema2RefusalReport:
+    """Admit an in-memory Model Source through the same authority path as a file."""
+    try:
+        data = canonical_bytes(cast(JsonValue, source))
+    except (TypeError, ValueError, UnicodeEncodeError):
+        data = b"null\n"
+    return _check_model_source_bytes(
+        data,
+        kernel=kernel,
+        language_bundle=language_bundle,
+    )
+
+
+def _check_model_source_bytes(
+    data: bytes,
+    *,
+    kernel: dict[str, Any] | None = None,
+    language_bundle: dict[str, Any] | None = None,
+) -> CheckedModel | Schema2RefusalReport:
+    if (kernel is None) != (language_bundle is None):
+        raise ValueError("Kernel and LDB must be supplied together")
+    if kernel is None or language_bundle is None:
+        kernel, language_bundle = load_authorities()
+    ldb = language_bundle
     admission = admit_authorities(kernel, ldb)
     if not admission.admitted:
         return bootstrap_refusal(admission)
@@ -895,6 +936,49 @@ def check_model_source(path: str) -> CheckedModel | Schema2RefusalReport:
     return checked
 
 
+def checked_model_template_facts(checked: CheckedModel) -> dict[str, JsonValue]:
+    """Project generic graph facts consumed by Template admission profiles."""
+    lowering = _model_lowering(checked.language_bundle)
+    profile = _resolution_profile(
+        checked.language_bundle, cast(str, lowering["resolution_profile"])
+    )
+    requirements_member = cast(str, profile["requirements_member"])
+    requirement_package_member = cast(str, profile["requirement_package_member"])
+    requirement_version_member = cast(str, profile["requirement_version_member"])
+    root_requirements = [
+        {
+            "id": item[requirement_package_member],
+            "version": item[requirement_version_member],
+        }
+        for item in cast(list[dict[str, str]], checked.source[requirements_member])
+    ]
+    lock = _package_lock(checked)
+    resolved_packages = [
+        {
+            "id": item["id"],
+            "version": item["version"],
+            "content_identity": item["content_identity"],
+        }
+        for item in cast(list[dict[str, JsonValue]], lock["packages"])
+    ]
+    source_symbols = []
+    for fields, _pointer in _resolved_source_symbols(
+        checked.source, checked.language_bundle
+    ):
+        resolved = cast(dict[str, str], fields["resolved_symbol"])
+        source_symbols.append(
+            {
+                **fields,
+                "id": f"{resolved['module']}.{resolved['name']}",
+            }
+        )
+    return {
+        "root_requirements": cast(JsonValue, root_requirements),
+        "resolved_packages": cast(JsonValue, resolved_packages),
+        "source_symbols": cast(JsonValue, source_symbols),
+    }
+
+
 def _artifact_contract(
     language_bundle: dict[str, Any], artifact_kind: str
 ) -> dict[str, Any]:
@@ -991,6 +1075,20 @@ def _verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> 
     return value.get("content_identity") == content_identity(
         cast(str, contract["identity_domain"]), cast(JsonValue, body)
     )
+
+
+def identified_artifact(
+    language_bundle: dict[str, Any],
+    artifact_kind: str,
+    payload: dict[str, JsonValue],
+) -> dict[str, JsonValue]:
+    """Construct and schema-admit one LDB-owned content-addressed artifact."""
+    return _identified_artifact(language_bundle, artifact_kind, payload)
+
+
+def verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> bool:
+    """Re-admit one content-addressed artifact against the exact LDB."""
+    return _verify_artifact(value, language_bundle)
 
 
 def _resolved_source_symbols(
@@ -2513,6 +2611,346 @@ def _recover_publication(
     return cast(dict[str, JsonValue], receipt)
 
 
+def publish_artifact_set(
+    artifacts: dict[str, PublicationMember],
+    out: str,
+    invocation_key: str,
+    descriptor_identity: str,
+    command_input_identity: str,
+    language_bundle: dict[str, Any],
+    artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    member_validator: Callable[[str, dict[str, Any]], bool],
+    publication_fault: str | None = None,
+    *,
+    authentication_key: bytes | None = None,
+) -> dict[str, JsonValue]:
+    """Atomically publish a pre-admitted heterogeneous Schema 2.x artifact set.
+
+    Model build owns its semantic recovery audit separately.  This entry point
+    serves descriptor-owned sets whose primary value is not itself a runtime
+    artifact, while retaining the same invocation lock, authenticated anchor,
+    immutable manifest, retry, and all-or-nothing publication protocol.
+    """
+    if publication_fault not in {
+        None,
+        "after-member-write",
+        "before-commit",
+        "before-anchor-commit",
+        "after-commit",
+    }:
+        raise ValueError("unknown publication fault")
+    if authentication_key is None:
+        authentication_key = publication_authentication_key()
+    declared = {member.logical_name: member.artifact_kind for member in artifact_set}
+    if set(artifacts) != set(declared) or any(
+        artifacts[name].artifact_kind != kind for name, kind in declared.items()
+    ):
+        raise RuntimeError("prepared output does not match the descriptor artifact set")
+    if not all(member_validator(name, artifacts[name].value) for name in artifacts):
+        raise RuntimeError("prepared output failed artifact-schema admission")
+
+    out_path = _normalized_absolute_path(out)
+    lock_path = _store_lock_path(descriptor_identity, invocation_key)
+    _ensure_directory_chain(lock_path.parent)
+    if lock_path.is_symlink():
+        raise UsageError(
+            "argument_conflict", "Invocation-key lock must not be a symlink"
+        )
+    with _invocation_lock(lock_path):
+        invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
+        anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
+        if (
+            out_path == invocation_path
+            or invocation_path in out_path.parents
+            or out_path in invocation_path.parents
+        ):
+            raise UsageError(
+                "argument_conflict",
+                "--out must not overlap the Invocation-key publication path",
+            )
+        parent = out_path.parent
+        _assert_ancestor_chain_without_symlink(parent)
+        if parent.is_symlink() or not parent.is_dir():
+            raise UsageError(
+                "unwritable_output", f"cannot write output directory: {out_path}"
+            )
+        if out_path.is_symlink():
+            raise UsageError("argument_conflict", "--out must not be a symlink")
+        _assert_ancestor_chain_without_symlink(invocation_path)
+        if invocation_path.is_symlink():
+            raise UsageError(
+                "argument_conflict",
+                "Invocation-key publication must not be a symlink",
+            )
+        if invocation_path.exists() and not anchor_path.exists():
+            _assert_directory_without_symlink(invocation_path)
+            shutil.rmtree(invocation_path)
+            _fsync_directory(invocation_path.parent)
+        if invocation_path.exists():
+            return _recover_generic_publication(
+                invocation_path,
+                out_path,
+                invocation_key,
+                descriptor_identity,
+                command_input_identity,
+                language_bundle,
+                artifact_set,
+                artifacts,
+                member_validator,
+                authentication_key,
+            )
+        if out_path.exists():
+            raise UsageError("unwritable_output", f"output already exists: {out_path}")
+        return _commit_generic_publication(
+            invocation_path,
+            anchor_path,
+            out_path,
+            invocation_key,
+            descriptor_identity,
+            command_input_identity,
+            language_bundle,
+            artifact_set,
+            artifacts,
+            member_validator,
+            authentication_key,
+            publication_fault,
+        )
+
+
+def _recover_generic_publication(
+    invocation_path: Path,
+    out_path: Path,
+    invocation_key: str,
+    descriptor_identity: str,
+    command_input_identity: str,
+    language_bundle: dict[str, Any],
+    artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    expected_artifacts: dict[str, PublicationMember],
+    member_validator: Callable[[str, dict[str, Any]], bool],
+    authentication_key: bytes,
+) -> dict[str, JsonValue]:
+    """Authenticate and re-admit every member before replaying a committed set."""
+    _assert_directory_without_symlink(invocation_path)
+    anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
+    _assert_ancestor_chain_without_symlink(anchor_path)
+    try:
+        anchor_metadata = anchor_path.lstat()
+    except OSError as err:
+        raise RuntimeError("committed publication anchor is unavailable") from err
+    if (
+        not stat.S_ISREG(anchor_metadata.st_mode)
+        or stat.S_IMODE(anchor_metadata.st_mode) & 0o222
+    ):
+        raise RuntimeError("committed publication anchor trust boundary is invalid")
+    anchor = _verified_anchor(anchor_path, authentication_key)
+    index = _read_canonical_artifact(invocation_path / "publication-index.json")
+    if (
+        not _verify_artifact(index, language_bundle)
+        or index != anchor
+        or index.get("descriptor_identity") != descriptor_identity
+        or index.get("invocation_key") != invocation_key
+    ):
+        raise RuntimeError("committed publication index identity is invalid")
+    if index.get("command_input_identity") != command_input_identity:
+        raise UsageError(
+            "invocation_key_conflict",
+            "Invocation key is already bound to a different canonical input",
+        )
+
+    receipt = _read_canonical_artifact(invocation_path / "artifact-set-receipt.json")
+    manifest = _read_canonical_artifact(invocation_path / "artifact-set-manifest.json")
+    if (
+        not _verify_artifact(receipt, language_bundle)
+        or receipt.get("content_identity") != index.get("receipt_identity")
+        or not _verify_artifact(manifest, language_bundle)
+        or manifest.get("content_identity") != receipt.get("manifest_identity")
+    ):
+        raise RuntimeError("committed artifact-set framing failed revalidation")
+    expected_names = [member.logical_name for member in artifact_set]
+    members = manifest.get("members")
+    if (
+        not isinstance(members, list)
+        or [item.get("logical_name") for item in members if isinstance(item, dict)]
+        != expected_names
+    ):
+        raise RuntimeError("committed artifact-set manifest is incomplete")
+    for row in members:
+        if not isinstance(row, dict):
+            raise RuntimeError("committed artifact-set manifest member is malformed")
+        name = row.get("logical_name")
+        if not isinstance(name, str) or name not in expected_artifacts:
+            raise RuntimeError("committed artifact-set manifest member is unknown")
+        expected = expected_artifacts[name]
+        artifact = _read_canonical_artifact(invocation_path / f"{name}.json")
+        if (
+            artifact != expected.value
+            or not member_validator(name, artifact)
+            or row.get("artifact_kind") != expected.artifact_kind
+            or row.get("wire_schema_identity") != expected.wire_schema_identity
+            or row.get("content_identity") != expected.content_identity
+        ):
+            raise RuntimeError("committed artifact-set member failed revalidation")
+    expected_locators = [
+        {
+            "logical_name": name,
+            "locator": str((invocation_path / f"{name}.json").absolute()),
+        }
+        for name in expected_names
+    ]
+    if (
+        receipt.get("descriptor_identity") != descriptor_identity
+        or receipt.get("invocation_key") != invocation_key
+        or receipt.get("manifest_locator")
+        != str((invocation_path / "artifact-set-manifest.json").absolute())
+        or receipt.get("member_locators") != expected_locators
+    ):
+        raise RuntimeError("committed artifact-set receipt has invalid bindings")
+    primary = _primary_artifact_name(artifact_set)
+    _materialize_primary(out_path, expected_artifacts[primary].value)
+    return cast(dict[str, JsonValue], receipt)
+
+
+def _commit_generic_publication(
+    invocation_path: Path,
+    anchor_path: Path,
+    out_path: Path,
+    invocation_key: str,
+    descriptor_identity: str,
+    command_input_identity: str,
+    language_bundle: dict[str, Any],
+    artifact_set: tuple[ArtifactSetMemberSpec, ...],
+    artifacts: dict[str, PublicationMember],
+    member_validator: Callable[[str, dict[str, Any]], bool],
+    authentication_key: bytes,
+    publication_fault: str | None,
+) -> dict[str, JsonValue]:
+    descriptor_parent = invocation_path.parent
+    store_root = _store_root()
+    created_directories: list[Path] = []
+    for directory in (
+        store_root,
+        store_root / "invocations",
+        descriptor_parent,
+        store_root / "anchors",
+        anchor_path.parent,
+    ):
+        existed = directory.exists()
+        _ensure_directory_chain(directory)
+        if not existed:
+            created_directories.append(directory)
+    members = [
+        {
+            "logical_name": member.logical_name,
+            "artifact_kind": artifacts[member.logical_name].artifact_kind,
+            "wire_schema_identity": artifacts[member.logical_name].wire_schema_identity,
+            "content_identity": artifacts[member.logical_name].content_identity,
+        }
+        for member in artifact_set
+    ]
+    member_locators = [
+        {
+            "logical_name": member.logical_name,
+            "locator": str(
+                (invocation_path / f"{member.logical_name}.json").absolute()
+            ),
+        }
+        for member in artifact_set
+    ]
+    manifest = _identified_artifact(
+        language_bundle,
+        "artifact-set-manifest",
+        {
+            "frame": "typed-logical-member-map-v1",
+            "members": cast(JsonValue, members),
+        },
+    )
+    receipt = _identified_artifact(
+        language_bundle,
+        "artifact-set-receipt",
+        {
+            "descriptor_identity": descriptor_identity,
+            "invocation_key": invocation_key,
+            "manifest_identity": manifest["content_identity"],
+            "manifest_locator": str(
+                (invocation_path / "artifact-set-manifest.json").absolute()
+            ),
+            "member_locators": cast(JsonValue, member_locators),
+        },
+    )
+    index = _identified_artifact(
+        language_bundle,
+        "publication-index",
+        {
+            "adapter": "local-filesystem-directory-rename-v1",
+            "descriptor_identity": descriptor_identity,
+            "invocation_key": invocation_key,
+            "command_input_identity": command_input_identity,
+            "receipt_identity": receipt["content_identity"],
+        },
+    )
+    stage = Path(tempfile.mkdtemp(prefix=f".{invocation_key}.", dir=descriptor_parent))
+    anchored = False
+    committed = False
+    try:
+        for index_value, member in enumerate(artifact_set):
+            name = member.logical_name
+            _write_json(stage / f"{name}.json", artifacts[name].value)
+            if publication_fault == "after-member-write" and index_value == 0:
+                raise RuntimeError("injected publication fault after member write")
+        framing = {
+            "artifact-set-manifest": manifest,
+            "artifact-set-receipt": receipt,
+            "publication-index": index,
+        }
+        for name, artifact in framing.items():
+            _write_json(stage / f"{name}.json", artifact)
+        for name, member in artifacts.items():
+            staged = _read_canonical_artifact(stage / f"{name}.json")
+            if staged != member.value or not member_validator(name, staged):
+                raise RuntimeError("staged artifact verification failed")
+        for name, artifact in framing.items():
+            staged = _read_canonical_artifact(stage / f"{name}.json")
+            if staged != artifact or not _verify_artifact(staged, language_bundle):
+                raise RuntimeError("staged artifact verification failed")
+        _fsync_directory(stage)
+        if publication_fault == "before-commit":
+            raise RuntimeError("injected publication fault before commit")
+        if invocation_path.exists() or invocation_path.is_symlink():
+            raise RuntimeError("Invocation-key publication appeared before commit")
+        os.replace(stage, invocation_path)
+        committed = True
+        _fsync_directory(descriptor_parent)
+        _write_anchor_exclusive(
+            anchor_path,
+            index,
+            authentication_key,
+            before_commit=publication_fault == "before-anchor-commit",
+        )
+        anchored = True
+        if publication_fault == "after-commit":
+            raise RuntimeError("injected publication fault after commit")
+        primary = _primary_artifact_name(artifact_set)
+        _materialize_primary(out_path, artifacts[primary].value)
+    except Exception:
+        if stage.exists():
+            shutil.rmtree(stage)
+        if (
+            committed
+            and not anchored
+            and invocation_path.exists()
+            and not anchor_path.exists()
+        ):
+            shutil.rmtree(invocation_path)
+            _fsync_directory(invocation_path.parent)
+        for directory in reversed(created_directories):
+            try:
+                directory.rmdir()
+            except OSError:
+                pass
+        raise
+    return receipt
+
+
 def publish_model_artifacts(
     checked: CheckedModel,
     source_path: str,
@@ -2634,134 +3072,26 @@ def _publish_model_artifacts_locked(
         for artifact in artifacts.values()
     ):
         raise RuntimeError("lowerer output failed artifact-schema admission")
-    descriptor_parent = invocation_path.parent
-    store_root = _store_root()
-    store_invocations = store_root / "invocations"
-    store_anchors = store_root / "anchors"
-    anchor_parent = anchor_path.parent
-    created_directories: list[Path] = []
-    for directory in (
-        store_root,
-        store_invocations,
-        descriptor_parent,
-        store_anchors,
-        anchor_parent,
-    ):
-        existed = directory.exists()
-        _ensure_directory_chain(directory)
-        if not existed:
-            created_directories.append(directory)
-
-    members = [
-        {
-            "logical_name": member.logical_name,
-            "artifact_kind": member.artifact_kind,
-            "wire_schema_identity": cast(
-                str, artifacts[member.logical_name]["wire_schema_identity"]
-            ),
-            "content_identity": cast(
-                str, artifacts[member.logical_name]["content_identity"]
-            ),
-        }
-        for member in artifact_set
-    ]
-    member_locators = [
-        {
-            "logical_name": member.logical_name,
-            "locator": str(
-                (invocation_path / f"{member.logical_name}.json").absolute()
-            ),
-        }
-        for member in artifact_set
-    ]
-    manifest = _identified_artifact(
-        checked.language_bundle,
-        "artifact-set-manifest",
-        {
-            "frame": "typed-logical-member-map-v1",
-            "members": cast(JsonValue, members),
-        },
-    )
-    manifest_locator = str((invocation_path / "artifact-set-manifest.json").absolute())
-    receipt = _identified_artifact(
-        checked.language_bundle,
-        "artifact-set-receipt",
-        {
-            "descriptor_identity": descriptor_identity,
-            "invocation_key": invocation_key,
-            "manifest_identity": manifest["content_identity"],
-            "manifest_locator": manifest_locator,
-            "member_locators": cast(JsonValue, member_locators),
-        },
-    )
-    index = _identified_artifact(
-        checked.language_bundle,
-        "publication-index",
-        {
-            "adapter": "local-filesystem-directory-rename-v1",
-            "descriptor_identity": descriptor_identity,
-            "invocation_key": invocation_key,
-            "command_input_identity": command_input_identity,
-            "receipt_identity": receipt["content_identity"],
-        },
-    )
-
-    stage = Path(tempfile.mkdtemp(prefix=f".{invocation_key}.", dir=descriptor_parent))
-    anchored = False
-    committed_by_this_attempt = False
-    try:
-        for member_index, member in enumerate(artifact_set):
-            name = member.logical_name
-            _write_json(stage / f"{name}.json", artifacts[name])
-            if publication_fault == "after-member-write" and member_index == 0:
-                raise RuntimeError("injected publication fault after member write")
-        _write_json(stage / "artifact-set-manifest.json", manifest)
-        _write_json(stage / "artifact-set-receipt.json", receipt)
-        _write_json(stage / "publication-index.json", index)
-        for artifact_name, artifact in {
-            **artifacts,
-            "artifact-set-manifest": manifest,
-            "artifact-set-receipt": receipt,
-            "publication-index": index,
-        }.items():
-            staged = _read_canonical_artifact(stage / f"{artifact_name}.json")
-            if staged != artifact or not _verify_artifact(
-                staged, checked.language_bundle
-            ):
-                raise RuntimeError("staged artifact verification failed")
-        _fsync_directory(stage)
-        if publication_fault == "before-commit":
-            raise RuntimeError("injected publication fault before commit")
-        if invocation_path.exists() or invocation_path.is_symlink():
-            raise RuntimeError("Invocation-key publication appeared before commit")
-        os.replace(stage, invocation_path)
-        committed_by_this_attempt = True
-        _fsync_directory(descriptor_parent)
-        _write_anchor_exclusive(
-            anchor_path,
-            index,
-            authentication_key,
-            before_commit=publication_fault == "before-anchor-commit",
+    publication_artifacts = {
+        name: PublicationMember(
+            value=cast(dict[str, Any], artifact),
+            artifact_kind=cast(str, artifact["artifact_kind"]),
+            wire_schema_identity=cast(str, artifact["wire_schema_identity"]),
+            content_identity=cast(str, artifact["content_identity"]),
         )
-        anchored = True
-        if publication_fault == "after-commit":
-            raise RuntimeError("injected publication fault after commit")
-        _materialize_primary(out_path, artifacts[_primary_artifact_name(artifact_set)])
-    except Exception:
-        if stage.exists():
-            shutil.rmtree(stage)
-        if (
-            committed_by_this_attempt
-            and not anchored
-            and invocation_path.exists()
-            and not anchor_path.exists()
-        ):
-            shutil.rmtree(invocation_path)
-            _fsync_directory(invocation_path.parent)
-        for directory in reversed(created_directories):
-            try:
-                directory.rmdir()
-            except OSError:
-                pass
-        raise
-    return receipt
+        for name, artifact in artifacts.items()
+    }
+    return _commit_generic_publication(
+        invocation_path,
+        anchor_path,
+        out_path,
+        invocation_key,
+        descriptor_identity,
+        command_input_identity,
+        checked.language_bundle,
+        artifact_set,
+        publication_artifacts,
+        lambda _name, value: _verify_artifact(value, checked.language_bundle),
+        authentication_key,
+        publication_fault,
+    )

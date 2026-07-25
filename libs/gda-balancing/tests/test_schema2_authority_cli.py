@@ -153,18 +153,30 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
     assert set(schemas) == {
         "artifact-set-manifest",
         "artifact-set-receipt",
+        "boundary-vector",
         "build-receipt",
         "capability-manifest",
         "debug-map",
+        "declared-package-dependencies",
+        "experiment-specification",
+        "genre-coverage-matrix",
+        "golden-scenario",
         "model-build-command-input",
         "package-lock",
         "publication-index",
+        "negative-vector",
         "resolution-receipt",
         "resolved-model",
         "rir-semantic-payload",
         "schema-major-kernel",
         "language-definition-bundle",
         "model-source-package",
+        "template-compatibility",
+        "template-defaults",
+        "template-documentation",
+        "template-instantiate-command-input",
+        "template-instantiation-receipt",
+        "template-release",
     }
     jsonschema.validate(authority["kernel"], schemas["schema-major-kernel"])
     jsonschema.validate(
@@ -237,7 +249,15 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         " ".join(filter(None, (row["group"], row["command"]))): row
         for row in manifest["commands"]
     }
-    assert set(commands) == {"schema get", "manifest", "model check", "model build"}
+    assert set(commands) == {
+        "schema get",
+        "manifest",
+        "model check",
+        "model build",
+        "template list",
+        "template get",
+        "template instantiate",
+    }
 
     for path, row in commands.items():
         schema_exit, schema_stdout, schema_stderr = run_cli([*path.split(), "--schema"])
@@ -257,6 +277,32 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             invocation = ["schema", "get", "language-bundle"]
         elif path == "manifest":
             invocation = ["manifest"]
+        elif path == "template list":
+            invocation = ["template", "list"]
+        elif path == "template get":
+            invocation = [
+                "template",
+                "get",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+            ]
+        elif path == "template instantiate":
+            invocation = [
+                "template",
+                "instantiate",
+                "--id",
+                "standard.quantity-minimal",
+                "--version",
+                "2.0.0",
+                "--package-id",
+                "example.manifest-projection",
+                "--out",
+                str(tmp_path / "manifest-template-output"),
+                "--invocation-key",
+                "b" * 64,
+            ]
         else:
             descriptor = MODEL_BUILD if path == "model build" else MODEL_CHECK
             source = tmp_path / f"{path.replace(' ', '-')}.json"
