@@ -74,6 +74,12 @@ inline, LDB-validated `migration-refusal-report`; it publishes no command succes
 partial Model Source. This adds no 1.x runtime, reverse path, save/replay/ruleset adapter, gray
 rollout, or Schema/toolkit version coupling.
 
+The converter binding is the complete embedded `source-converter-specification` artifact, not an
+opaque digest; the report consumer can validate and rehash it against the exact LDB artifact
+contract. Exact byte identity is limited to regular files no larger than the specification's
+16 MiB observation cap. Non-regular or larger inputs fail at usage ingress before any identity or
+migration report is claimed.
+
 ## Prototype evidence
 
 The first disposable RPG tracer recorded on PRD #534 demonstrated local connectivity across

@@ -3,6 +3,8 @@
 import hashlib
 import json
 import math
+import os
+import stat
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -11,7 +13,7 @@ from gda_balancing.schema.funnel import validate
 from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.model.document import DesignDocument
 from gda_balancing.schema.model.formula import DirectBase
-from gda_balancing.schema2.canonical import JsonValue, content_identity
+from gda_balancing.schema2.canonical import JsonValue
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
@@ -21,6 +23,7 @@ from gda_balancing.schema2.diagnostics import (
 _INT64_MIN = -(2**63)
 _INT64_MAX = 2**63 - 1
 _SOURCE_IDENTITY_PREFIX = b"gda-balancing:design-document-source-v1:"
+MAX_SOURCE_OBSERVATION_BYTES = 16 * 1024 * 1024
 
 _CONVERTER_DEFAULTS: tuple[dict[str, JsonValue], ...] = (
     {
@@ -99,9 +102,8 @@ _CONVERTER_MAPPING_RULES: tuple[dict[str, JsonValue], ...] = (
         ),
     },
 )
-_CONVERTER_SPECIFICATION_BODY: dict[str, JsonValue] = {
-    "artifact_kind": "source-converter-specification",
-    "artifact_version": "1.0.0",
+_CONVERTER_SPECIFICATION_PAYLOAD: dict[str, JsonValue] = {
+    "converter_version": "1.0.0",
     "input_identity_domain": "design-document-source-v1",
     "source_schema_line": "1.0",
     "target_schema_version": "2.0.0",
@@ -114,6 +116,11 @@ _CONVERTER_SPECIFICATION_BODY: dict[str, JsonValue] = {
         "the complete Standard Schema 1.0 boundary funnel must admit the bounded "
         "source observation before any mapping is claimed"
     ),
+    "source_observation": {
+        "regular_file_only": True,
+        "max_bytes": MAX_SOURCE_OBSERVATION_BYTES,
+        "parse_prefix_bytes": MAX_DOCUMENT_BYTES + 1,
+    },
     "report_contract": {
         "defaults": [dict(item) for item in _CONVERTER_DEFAULTS],
         "warnings": [dict(item) for item in _CONVERTER_WARNING_RULES],
@@ -132,13 +139,19 @@ _CONVERTER_SPECIFICATION_BODY: dict[str, JsonValue] = {
         "effects and stacking types",
     ],
 }
-CONVERTER_IDENTITY = content_identity(
-    "source-converter-specification-v1", _CONVERTER_SPECIFICATION_BODY
-)
-CONVERTER_SPECIFICATION: dict[str, JsonValue] = {
-    **_CONVERTER_SPECIFICATION_BODY,
-    "content_identity": CONVERTER_IDENTITY,
-}
+
+
+def converter_specification(
+    language_bundle: dict[str, Any],
+) -> dict[str, JsonValue]:
+    """Build the LDB-validated, independently rehashable converter artifact."""
+    from gda_balancing.schema2.model import identified_artifact
+
+    return identified_artifact(
+        language_bundle,
+        "source-converter-specification",
+        _CONVERTER_SPECIFICATION_PAYLOAD,
+    )
 
 
 @dataclass(frozen=True)
@@ -172,15 +185,40 @@ def load_design_source_observation(path: str) -> tuple[bytes, str]:
     digest = hashlib.sha256()
     digest.update(_SOURCE_IDENTITY_PREFIX)
     bounded = bytearray()
+    descriptor: int | None = None
     try:
-        with open(path, "rb") as handle:
-            while chunk := handle.read(64 * 1024):
-                digest.update(chunk)
-                remaining = MAX_DOCUMENT_BYTES + 1 - len(bounded)
-                if remaining > 0:
-                    bounded.extend(chunk[:remaining])
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise UnreadableInputError(f"input document is not a regular file: {path}")
+        if metadata.st_size > MAX_SOURCE_OBSERVATION_BYTES:
+            raise UnreadableInputError(
+                "input document exceeds the "
+                f"{MAX_SOURCE_OBSERVATION_BYTES}-byte observation cap: {path}"
+            )
+        observed = 0
+        while observed <= MAX_SOURCE_OBSERVATION_BYTES:
+            chunk = os.read(
+                descriptor,
+                min(64 * 1024, MAX_SOURCE_OBSERVATION_BYTES + 1 - observed),
+            )
+            if not chunk:
+                break
+            observed += len(chunk)
+            if observed > MAX_SOURCE_OBSERVATION_BYTES:
+                raise UnreadableInputError(
+                    "input document grew beyond the "
+                    f"{MAX_SOURCE_OBSERVATION_BYTES}-byte observation cap: {path}"
+                )
+            digest.update(chunk)
+            remaining = MAX_DOCUMENT_BYTES + 1 - len(bounded)
+            if remaining > 0:
+                bounded.extend(chunk[:remaining])
     except OSError as err:
         raise UnreadableInputError(f"cannot read input document: {path}") from err
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
     return bytes(bounded), "sha256:" + digest.hexdigest()
 
 

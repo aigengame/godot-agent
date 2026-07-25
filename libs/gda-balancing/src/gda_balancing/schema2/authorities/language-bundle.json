@@ -1,7 +1,7 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:e588b49c85c8788690b9d96259ee4d28943eb5b0e9f5d9d1d1614876ab721153",
+  "content_identity": "sha256:05d1d695692698408deacdaf5ff6ce8a06a908d9a48d47135492005a51775e0f",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
@@ -32,6 +32,7 @@
       {"artifact_kind": "debug-map", "identity_domain": "debug-map-v2", "schema_kind": "debug-map", "wire_schema_identity_domain": "debug-map-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "migration-report", "identity_domain": "migration-report-v2", "schema_kind": "migration-report", "wire_schema_identity_domain": "migration-report-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "migration-refusal-report", "identity_domain": "migration-refusal-report-v2", "schema_kind": "migration-refusal-report", "wire_schema_identity_domain": "migration-refusal-report-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "source-converter-specification", "identity_domain": "source-converter-specification-v1", "schema_kind": "source-converter-specification", "wire_schema_identity_domain": "source-converter-specification-wire-schema-v1", "identity_excluded_members": []},
       {"artifact_kind": "model-migrate-command-input", "identity_domain": "model-migrate-command-input-v2", "schema_kind": "model-migrate-command-input", "wire_schema_identity_domain": "model-migrate-command-input-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "model-build-command-input", "identity_domain": "model-build-command-input-v2", "schema_kind": "model-build-command-input", "wire_schema_identity_domain": "model-build-command-input-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "package-lock", "identity_domain": "package-lock-v2", "schema_kind": "package-lock", "wire_schema_identity_domain": "package-lock-wire-schema-v2", "identity_excluded_members": []},
@@ -44,6 +45,115 @@
       {"artifact_kind": "template-instantiation-receipt", "identity_domain": "template-instantiation-receipt-v2", "schema_kind": "template-instantiation-receipt", "wire_schema_identity_domain": "template-instantiation-receipt-wire-schema-v2", "identity_excluded_members": []}
     ],
     "artifact_wire_schemas": [
+      {
+        "artifact_kind": "source-converter-specification",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "artifact_kind": {"const": "source-converter-specification"},
+            "artifact_version": {"const": "2.0.0"},
+            "wire_schema_identity": {"type": "string", "minLength": 1},
+            "converter_version": {"const": "1.0.0"},
+            "input_identity_domain": {"const": "design-document-source-v1"},
+            "source_schema_line": {"const": "1.0"},
+            "target_schema_version": {"const": "2.0.0"},
+            "mapping_rules": {
+              "type": "array",
+              "minItems": 4,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string", "minLength": 1},
+                  "source": {"type": "string", "minLength": 1},
+                  "target": {"type": "string", "minLength": 1},
+                  "report_mapping": {"type": "string", "minLength": 1}
+                },
+                "required": ["id", "source", "target", "report_mapping"],
+                "unevaluatedProperties": false
+              }
+            },
+            "ordering": {"type": "string", "minLength": 1},
+            "source_admission": {"type": "string", "minLength": 1},
+            "source_observation": {
+              "type": "object",
+              "properties": {
+                "regular_file_only": {"const": true},
+                "max_bytes": {"const": 16777216},
+                "parse_prefix_bytes": {"const": 10485761}
+              },
+              "required": ["regular_file_only", "max_bytes", "parse_prefix_bytes"],
+              "unevaluatedProperties": false
+            },
+            "report_contract": {
+              "type": "object",
+              "properties": {
+                "defaults": {
+                  "type": "array",
+                  "minItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "destination_pointer": {"type": "string"},
+                      "value": {"type": "string"},
+                      "reason": {"type": "string", "minLength": 1}
+                    },
+                    "required": ["destination_pointer", "value", "reason"],
+                    "unevaluatedProperties": false
+                  }
+                },
+                "warnings": {
+                  "type": "array",
+                  "minItems": 2,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "trigger": {
+                        "type": "object",
+                        "properties": {
+                          "source_pointer": {"type": "string"},
+                          "condition": {"type": "string", "minLength": 1}
+                        },
+                        "required": ["source_pointer", "condition"],
+                        "unevaluatedProperties": false
+                      },
+                      "report": {
+                        "type": "object",
+                        "properties": {
+                          "code": {"type": "string", "minLength": 1},
+                          "source_pointer": {"type": "string"},
+                          "message": {"type": "string", "minLength": 1}
+                        },
+                        "required": ["code", "source_pointer", "message"],
+                        "unevaluatedProperties": false
+                      }
+                    },
+                    "required": ["trigger", "report"],
+                    "unevaluatedProperties": false
+                  }
+                },
+                "refusal_policy": {"type": "string", "minLength": 1},
+                "success_policy": {"type": "string", "minLength": 1}
+              },
+              "required": ["defaults", "warnings", "refusal_policy", "success_policy"],
+              "unevaluatedProperties": false
+            },
+            "target_limits": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string", "minLength": 1}
+            },
+            "unsupported": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string", "minLength": 1}
+            },
+            "content_identity": {"type": "string", "minLength": 1}
+          },
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "converter_version", "input_identity_domain", "source_schema_line", "target_schema_version", "mapping_rules", "ordering", "source_admission", "source_observation", "report_contract", "target_limits", "unsupported", "content_identity"],
+          "unevaluatedProperties": false
+        }
+      },
       {
         "artifact_kind": "migration-report",
         "schema": {
@@ -58,6 +168,7 @@
             "source_schema_version": {"type": "string", "minLength": 1},
             "target_schema_version": {"const": "2.0.0"},
             "converter_identity": {"type": "string", "minLength": 1},
+            "converter_specification": {},
             "kernel_identity": {"type": "string", "minLength": 1},
             "language_bundle_identity": {"type": "string", "minLength": 1},
             "output_identity": {"type": "string", "minLength": 1},
@@ -105,7 +216,7 @@
             "refusals": {"const": []},
             "content_identity": {"type": "string", "minLength": 1}
           },
-          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "status", "input_identity", "source_schema_version", "target_schema_version", "converter_identity", "kernel_identity", "language_bundle_identity", "output_identity", "mappings", "defaults", "warnings", "deprecated_constructs", "refusals", "content_identity"],
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "status", "input_identity", "source_schema_version", "target_schema_version", "converter_identity", "converter_specification", "kernel_identity", "language_bundle_identity", "output_identity", "mappings", "defaults", "warnings", "deprecated_constructs", "refusals", "content_identity"],
           "unevaluatedProperties": false
         }
       },
@@ -123,6 +234,7 @@
             "source_schema_version": {"type": "string", "minLength": 1},
             "target_schema_version": {"const": "2.0.0"},
             "converter_identity": {"type": "string", "minLength": 1},
+            "converter_specification": {},
             "kernel_identity": {"type": "string", "minLength": 1},
             "language_bundle_identity": {"type": "string", "minLength": 1},
             "mappings": {
@@ -216,7 +328,7 @@
             },
             "content_identity": {"type": "string", "minLength": 1}
           },
-          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "status", "input_identity", "target_schema_version", "converter_identity", "kernel_identity", "language_bundle_identity", "mappings", "defaults", "warnings", "deprecated_constructs", "truncated", "refusals", "content_identity"],
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "status", "input_identity", "target_schema_version", "converter_identity", "converter_specification", "kernel_identity", "language_bundle_identity", "mappings", "defaults", "warnings", "deprecated_constructs", "truncated", "refusals", "content_identity"],
           "unevaluatedProperties": false
         }
       },

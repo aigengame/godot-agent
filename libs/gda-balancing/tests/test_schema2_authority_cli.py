@@ -172,6 +172,7 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "resolved-model",
         "rir-semantic-payload",
         "schema-major-kernel",
+        "source-converter-specification",
         "language-definition-bundle",
         "model-source-package",
         "template-compatibility",

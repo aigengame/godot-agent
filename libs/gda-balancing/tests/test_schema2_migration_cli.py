@@ -2,6 +2,10 @@
 
 import hashlib
 import json
+import os
+import subprocess
+import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
 
@@ -13,10 +17,10 @@ from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
 from gda_balancing.schema2.canonical import content_identity
 from gda_balancing.schema2.migration import (
-    CONVERTER_IDENTITY,
-    CONVERTER_SPECIFICATION,
+    MAX_SOURCE_OBSERVATION_BYTES,
     source_bytes_identity,
 )
+from gda_balancing.schema2.model import verify_artifact
 
 
 def _member(receipt: dict, logical_name: str) -> dict:
@@ -112,14 +116,18 @@ def test_model_migrate_publishes_a_buildable_source_and_audit_report(
     assert report["source_schema_version"] == "1.0.0"
     assert report["target_schema_version"] == "2.0.0"
     assert report["output_identity"] == source_member["content_identity"]
-    assert report["converter_identity"] == CONVERTER_IDENTITY
+    converter = report["converter_specification"]
+    assert report["converter_identity"] == converter["content_identity"]
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     assert report["kernel_identity"] == authority["kernel"]["content_identity"]
     assert (
         report["language_bundle_identity"]
         == authority["language_bundle"]["content_identity"]
     )
-    assert report["converter_identity"] == CONVERTER_IDENTITY
+    assert verify_artifact(
+        cast(dict[str, Any], converter),
+        authority["language_bundle"],
+    )
     assert report["mappings"] == [
         {
             "source_pointer": "/schema_version",
@@ -351,6 +359,12 @@ def test_model_migrate_refusal_emits_an_auditable_report_without_a_source(
     assert (
         report["language_bundle_identity"]
         == authority["language_bundle"]["content_identity"]
+    )
+    converter = report["converter_specification"]
+    assert report["converter_identity"] == converter["content_identity"]
+    assert verify_artifact(
+        cast(dict[str, Any], converter),
+        authority["language_bundle"],
     )
     assert output.exists() is False
 
@@ -757,16 +771,6 @@ def test_migration_diagnostics_are_reachable_only_from_model_migrate(run_cli) ->
 def test_converter_identity_covers_the_reported_defaults_and_warnings(
     tmp_path: Path, run_cli
 ) -> None:
-    body = {
-        key: value
-        for key, value in CONVERTER_SPECIFICATION.items()
-        if key != "content_identity"
-    }
-    assert CONVERTER_SPECIFICATION["content_identity"] == content_identity(
-        "source-converter-specification-v1", body
-    )
-    assert CONVERTER_IDENTITY == CONVERTER_SPECIFICATION["content_identity"]
-
     source = tmp_path / "legacy-converter-contract.json"
     source.write_text(
         json.dumps(
@@ -797,13 +801,56 @@ def test_converter_identity_covers_the_reported_defaults_and_warnings(
 
     assert (exit_code, stderr) == (0, "")
     report = _member(json.loads(stdout), "migration-report")
-    report_contract = cast(dict[str, Any], CONVERTER_SPECIFICATION["report_contract"])
+    specification = cast(dict[str, Any], report["converter_specification"])
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    contract = next(
+        item
+        for item in authority["language_bundle"]["language"]["artifact_contracts"]
+        if item["artifact_kind"] == "source-converter-specification"
+    )
+    identity_body = {
+        key: value
+        for key, value in specification.items()
+        if key != "content_identity"
+        and key not in contract["identity_excluded_members"]
+    }
+    assert specification["content_identity"] == content_identity(
+        contract["identity_domain"], identity_body
+    )
+    assert report["converter_identity"] == specification["content_identity"]
+    assert verify_artifact(specification, authority["language_bundle"])
+    assert verify_artifact(report, authority["language_bundle"])
+    assert specification["source_observation"] == {
+        "regular_file_only": True,
+        "max_bytes": MAX_SOURCE_OBSERVATION_BYTES,
+        "parse_prefix_bytes": MAX_DOCUMENT_BYTES + 1,
+    }
+    tampered_report = deepcopy(report)
+    tampered_report["converter_specification"]["mapping_rules"][0]["report_mapping"] = (
+        "forged mapping"
+    )
+    report_artifact_contract = next(
+        item
+        for item in authority["language_bundle"]["language"]["artifact_contracts"]
+        if item["artifact_kind"] == "migration-report"
+    )
+    tampered_report["content_identity"] = content_identity(
+        report_artifact_contract["identity_domain"],
+        {
+            key: value
+            for key, value in tampered_report.items()
+            if key != "content_identity"
+            and key not in report_artifact_contract["identity_excluded_members"]
+        },
+    )
+    assert verify_artifact(tampered_report, authority["language_bundle"]) is False
+    report_contract = cast(dict[str, Any], specification["report_contract"])
     assert report["defaults"] == report_contract["defaults"]
     assert report["warnings"] == [
         item["report"]
         for item in cast(list[dict[str, Any]], report_contract["warnings"])
     ]
-    mapping_rules = cast(list[dict[str, Any]], CONVERTER_SPECIFICATION["mapping_rules"])
+    mapping_rules = cast(list[dict[str, Any]], specification["mapping_rules"])
     assert {item["mapping"] for item in report["mappings"]} <= {
         item["report_mapping"] for item in mapping_rules
     }
@@ -816,3 +863,67 @@ def test_refusal_detail_extension_is_closed_to_the_migration_report() -> None:
             field_name=cast(Any, "ambient_extension"),
             schema=lambda: {},
         )
+
+
+@pytest.mark.parametrize("special_source", ("device", "fifo"))
+def test_model_migrate_rejects_non_regular_sources_without_blocking(
+    tmp_path: Path,
+    special_source: str,
+) -> None:
+    if special_source == "device":
+        source = Path("/dev/zero")
+        if not source.exists():
+            pytest.skip("/dev/zero is unavailable")
+    else:
+        source = tmp_path / "legacy.fifo"
+        os.mkfifo(source)
+    output = tmp_path / f"{special_source}.output"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gda_balancing",
+            "model",
+            "migrate",
+            str(source),
+            "--out",
+            str(output),
+            "--invocation-key",
+            hashlib.sha256(special_source.encode()).hexdigest(),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=1,
+    )
+
+    assert (completed.returncode, completed.stdout) == (3, "")
+    assert json.loads(completed.stderr)["error"]["code"] == "unreadable_input"
+    assert output.exists() is False
+
+
+def test_model_migrate_rejects_a_regular_file_beyond_the_observation_cap(
+    tmp_path: Path,
+    run_cli,
+) -> None:
+    source = tmp_path / "too-large-to-observe.json"
+    with source.open("wb") as handle:
+        handle.truncate(MAX_SOURCE_OBSERVATION_BYTES + 1)
+    output = tmp_path / "must-not-exist.json"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "migrate",
+            str(source),
+            "--out",
+            str(output),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+
+    assert (exit_code, stdout) == (3, "")
+    assert json.loads(stderr)["error"]["code"] == "unreadable_input"
+    assert output.exists() is False

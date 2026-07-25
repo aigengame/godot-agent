@@ -20,9 +20,9 @@ from gda_balancing.schema2.diagnostics import (
     bootstrap_refusal,
 )
 from gda_balancing.schema2.migration import (
-    CONVERTER_IDENTITY,
     MigrationFailure,
     MigrationSuccess,
+    converter_specification,
     load_design_source_observation,
     migrate_design_source,
 )
@@ -198,6 +198,8 @@ def run_model_migrate(
     admission = admit_authorities(kernel, language_bundle)
     if not admission.admitted:
         return bootstrap_refusal(admission)
+    converter = converter_specification(language_bundle)
+    converter_identity = cast(str, converter["content_identity"])
 
     migrated = migrate_design_source(
         data,
@@ -209,7 +211,8 @@ def run_model_migrate(
             "status": "refused",
             "input_identity": migrated.input_identity,
             "target_schema_version": "2.0.0",
-            "converter_identity": CONVERTER_IDENTITY,
+            "converter_identity": converter_identity,
+            "converter_specification": cast(JsonValue, converter),
             "kernel_identity": cast(str, kernel["content_identity"]),
             "language_bundle_identity": cast(str, language_bundle["content_identity"]),
             "mappings": cast(JsonValue, list(migrated.mappings)),
@@ -250,7 +253,6 @@ def run_model_migrate(
         raise RuntimeError("migrated Model Source failed exact-authority admission")
     assert isinstance(checked, CheckedModel)
 
-    converter_identity = CONVERTER_IDENTITY
     report = identified_artifact(
         language_bundle,
         "migration-report",
@@ -260,6 +262,7 @@ def run_model_migrate(
             "source_schema_version": migrated.source_schema_version,
             "target_schema_version": "2.0.0",
             "converter_identity": converter_identity,
+            "converter_specification": cast(JsonValue, converter),
             "kernel_identity": cast(str, kernel["content_identity"]),
             "language_bundle_identity": cast(str, language_bundle["content_identity"]),
             "output_identity": checked.source_identity,
