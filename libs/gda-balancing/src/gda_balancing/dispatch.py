@@ -219,11 +219,11 @@ def _invoke_descriptor(
             for detail in descriptor.refusal_details
             if detail.stage == outcome.stage
         }
-        observed_details = (
-            {"migration_report": outcome.migration_report}
-            if outcome.migration_report is not None
-            else {}
-        )
+        observed_details = {
+            name: value
+            for name in expected_details
+            if (value := getattr(outcome, name)) is not None
+        }
         if set(observed_details) != set(expected_details):
             raise TypeError(
                 "handler returned Schema 2.x refusal details absent from its descriptor"

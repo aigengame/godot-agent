@@ -50,6 +50,9 @@ only a narrow, semantics-preserving source-conversion opportunity.
   and files beyond the observation cap fail as `unreadable_input` before any exact input identity
   or migration report is claimed. A source above the 1.x 10 MiB document cap but within the
   observation cap still receives the normal typed migration refusal bound to its exact bytes.
+  The generated candidate is canonicalized before success and must fit both LDB target bounds:
+  `max_source_bytes` and `max_symbols`. Exceeding either is a typed migration refusal, never an
+  internal error or partial Model Source publication.
 
 - **Migration never mutates input or invents provenance.** A successful conversion emits a new
   Model Source Package identity plus its Migration report. Original source remains byte-identical.

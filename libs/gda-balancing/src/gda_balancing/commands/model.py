@@ -1,6 +1,7 @@
 """Schema 2.0 Model Source checking and build commands."""
 
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -184,8 +185,14 @@ _MODEL_MIGRATE_ARTIFACT_SET = (
 MIGRATION_REFUSAL_CATALOG = refusal_catalog_for_stages(frozenset({"migration"}))
 
 
+@lru_cache(maxsize=1)
+def _migration_authorities() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load the immutable packaged migration authorities once per process."""
+    return load_authorities()
+
+
 def _migration_report_schema() -> dict[str, object]:
-    _, language_bundle = load_authorities()
+    _, language_bundle = _migration_authorities()
     return artifact_wire_schema(language_bundle, "migration-refusal-report")
 
 
@@ -194,7 +201,7 @@ def run_model_migrate(
 ) -> ModelMigrateResult | Schema2RefusalReport:
     reject_input_aliasing(inp.out, inp.source, input_is_known_path=True)
     data, input_identity = load_design_source_observation(inp.source)
-    kernel, language_bundle = load_authorities()
+    kernel, language_bundle = _migration_authorities()
     admission = admit_authorities(kernel, language_bundle)
     if not admission.admitted:
         return bootstrap_refusal(admission)
@@ -248,6 +255,7 @@ def run_model_migrate(
         cast(dict[str, Any], migrated.source),
         kernel=kernel,
         language_bundle=language_bundle,
+        authority_admission=admission,
     )
     if isinstance(checked, Schema2RefusalReport):
         raise RuntimeError("migrated Model Source failed exact-authority admission")
@@ -307,6 +315,7 @@ def run_model_migrate(
             value,
             kernel=kernel,
             language_bundle=language_bundle,
+            authority_admission=admission,
         )
         return (
             isinstance(admitted, CheckedModel)

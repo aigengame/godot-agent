@@ -21,13 +21,19 @@ from gda_balancing.envelope import UnreadableInputError, UsageError
 from gda_balancing.path_contracts import reject_input_aliasing
 from gda_balancing.descriptors import ArtifactSetMemberSpec
 from gda_balancing.schema2.authority import load_authorities
-from gda_balancing.schema2.bootstrap import BOOTSTRAP_REFUSAL_CATALOG, admit_authorities
+from gda_balancing.schema2.bootstrap import (
+    BOOTSTRAP_REFUSAL_CATALOG,
+    BootstrapAdmission,
+    admit_authorities,
+)
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
+    bound_diagnostics,
     bootstrap_refusal,
+    reason_by_id,
 )
 
 _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
@@ -178,33 +184,19 @@ def _bounded_refusal(
 ) -> Schema2RefusalReport | None:
     catalog = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES, language_bundle)
     stages = dict(catalog)
-    unique: dict[
-        tuple[str, ArtifactLocation, tuple[ArtifactLocation, ...]], Schema2Diagnostic
-    ] = {}
-    for diagnostic in diagnostics:
-        key = (diagnostic.code, diagnostic.primary, diagnostic.related)
-        unique.setdefault(key, diagnostic)
-    ordered = sorted(
-        unique.values(),
-        key=lambda item: (
-            item.primary.pointer,
-            item.code,
-            item.primary.content_identity,
-            tuple(
-                (related.pointer, related.content_identity) for related in item.related
-            ),
-        ),
+    ordered, truncated = bound_diagnostics(
+        diagnostics,
+        cast(int, language_bundle["resources"]["max_diagnostics"]),
     )
     if not ordered:
         return None
     stage = stages[ordered[0].code]
     if any(stages[item.code] != stage for item in ordered):
         raise ValueError("one refusal report cannot cross refusal stages")
-    limit = cast(int, language_bundle["resources"]["max_diagnostics"])
     return Schema2RefusalReport(
         stage=cast(Any, stage),
-        diagnostics=tuple(ordered[:limit]),
-        truncated=len(ordered) > limit,
+        diagnostics=ordered,
+        truncated=truncated,
     )
 
 
@@ -363,17 +355,6 @@ def _unique_reason(
     return matches[0]
 
 
-def _reason_by_id(language_bundle: dict[str, Any], reason_id: str) -> dict[str, Any]:
-    matches = [
-        reason
-        for reason in cast(list[dict[str, Any]], _language(language_bundle)["reasons"])
-        if reason["id"] == reason_id
-    ]
-    if len(matches) != 1:
-        raise ValueError(f"admitted reason is not unique: {reason_id}")
-    return matches[0]
-
-
 def _model_check_diagnostics(
     source: dict[str, Any],
     source_identity: str,
@@ -471,7 +452,7 @@ def _schema_error_code(
         profile = _resolution_profile(language_bundle)
         return cast(
             str,
-            _reason_by_id(
+            reason_by_id(
                 language_bundle,
                 cast(str, profile["structural_reason"]),
             )["diagnostic"],
@@ -495,7 +476,7 @@ def _schema_error_code(
             return cast(str, reasons[check["reason"]]["diagnostic"])
     return cast(
         str,
-        _reason_by_id(
+        reason_by_id(
             language_bundle,
             cast(str, _resolution_profile(language_bundle)["structural_reason"]),
         )["diagnostic"],
@@ -789,6 +770,7 @@ def check_model_source_value(
     *,
     kernel: dict[str, Any] | None = None,
     language_bundle: dict[str, Any] | None = None,
+    authority_admission: BootstrapAdmission | None = None,
 ) -> CheckedModel | Schema2RefusalReport:
     """Admit an in-memory Model Source through the same authority path as a file."""
     try:
@@ -799,6 +781,7 @@ def check_model_source_value(
         data,
         kernel=kernel,
         language_bundle=language_bundle,
+        authority_admission=authority_admission,
     )
 
 
@@ -807,13 +790,18 @@ def _check_model_source_bytes(
     *,
     kernel: dict[str, Any] | None = None,
     language_bundle: dict[str, Any] | None = None,
+    authority_admission: BootstrapAdmission | None = None,
 ) -> CheckedModel | Schema2RefusalReport:
     if (kernel is None) != (language_bundle is None):
         raise ValueError("Kernel and LDB must be supplied together")
     if kernel is None or language_bundle is None:
         kernel, language_bundle = load_authorities()
     ldb = language_bundle
-    admission = admit_authorities(kernel, ldb)
+    admission = authority_admission or admit_authorities(kernel, ldb)
+    if admission.kernel_identity != kernel.get(
+        "content_identity"
+    ) or admission.language_bundle_identity != ldb.get("content_identity"):
+        raise ValueError("authority admission belongs to another Kernel/LDB pair")
     if not admission.admitted:
         return bootstrap_refusal(admission)
     source_size_reason = _unique_reason(
@@ -898,7 +886,7 @@ def _check_model_source_bytes(
     try:
         _resolved_source_symbols(source, ldb)
     except (KeyError, TypeError, ValueError) as err:
-        source_contract_reason = _reason_by_id(
+        source_contract_reason = reason_by_id(
             ldb,
             cast(str, profile["structural_reason"]),
         )
@@ -1909,7 +1897,7 @@ def admit_resolved_model(
     diagnostic = (
         cast(
             str,
-            _reason_by_id(
+            reason_by_id(
                 ldb,
                 cast(str, lowering["admission_reason"]),
             )["diagnostic"],

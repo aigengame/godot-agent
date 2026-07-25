@@ -13,11 +13,13 @@ from gda_balancing.schema.funnel import validate
 from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.model.document import DesignDocument
 from gda_balancing.schema.model.formula import DirectBase
-from gda_balancing.schema2.canonical import JsonValue
+from gda_balancing.schema2.canonical import JsonValue, canonical_bytes
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
+    bound_diagnostics,
+    reason_by_id,
 )
 
 _INT64_MIN = -(2**63)
@@ -132,7 +134,10 @@ _CONVERTER_SPECIFICATION_PAYLOAD: dict[str, JsonValue] = {
             "publish one admitted Model Source Package and its migration report"
         ),
     },
-    "target_limits": ["language-bundle.resources.max_symbols"],
+    "target_limits": [
+        "language-bundle.resources.max_source_bytes",
+        "language-bundle.resources.max_symbols",
+    ],
     "unsupported": [
         "fractional, negative-zero, or out-of-Int64 parameters",
         "attribute tiers, formulas, mutation channels, bounds, categories, and tiers",
@@ -173,11 +178,6 @@ class MigrationFailure:
     warnings: tuple[dict[str, JsonValue], ...]
     deprecated_constructs: tuple[dict[str, JsonValue], ...]
     refusal: Schema2RefusalReport
-
-
-def source_bytes_identity(data: bytes) -> str:
-    """Bind the exact input bytes, not only their parsed semantic value."""
-    return "sha256:" + hashlib.sha256(_SOURCE_IDENTITY_PREFIX + data).hexdigest()
 
 
 def load_design_source_observation(path: str) -> tuple[bytes, str]:
@@ -244,6 +244,7 @@ def migrate_design_source(
 
     diagnostics: list[Schema2Diagnostic] = []
     symbols: list[dict[str, JsonValue]] = []
+    max_source_bytes = cast(int, language_bundle["resources"]["max_source_bytes"])
     max_symbols = cast(int, language_bundle["resources"]["max_symbols"])
     mappings: list[dict[str, JsonValue]] = [
         _mapping(
@@ -255,23 +256,9 @@ def migrate_design_source(
     defaults = tuple(dict(item) for item in _CONVERTER_DEFAULTS)
     warnings: list[dict[str, JsonValue]] = []
     if outcome.meta.description is not None:
-        warnings.append(
-            dict(
-                cast(
-                    dict[str, JsonValue],
-                    _CONVERTER_WARNING_RULES[0]["report"],
-                )
-            )
-        )
+        warnings.append(_warning_report("metadata.omitted"))
     if "$schema" in raw:
-        warnings.append(
-            dict(
-                cast(
-                    dict[str, JsonValue],
-                    _CONVERTER_WARNING_RULES[1]["report"],
-                )
-            )
-        )
+        warnings.append(_warning_report("schema-reference.replaced"))
 
     if not outcome.meta.name:
         diagnostics.append(
@@ -465,6 +452,26 @@ def migrate_design_source(
             ],
         ),
     }
+    if len(canonical_bytes(source)) > max_source_bytes:
+        return _migration_failure(
+            input_identity,
+            outcome.schema_version,
+            tuple(mappings),
+            defaults,
+            tuple(warnings),
+            _bounded_refusal(
+                [
+                    _diagnostic(
+                        language_bundle,
+                        "migration.reason.target-limit-exceeded",
+                        input_identity,
+                        "",
+                        "The migrated source would exceed the admitted 2.x byte limit",
+                    )
+                ],
+                language_bundle,
+            ),
+        )
     return MigrationSuccess(
         input_identity=input_identity,
         source_schema_version=outcome.schema_version,
@@ -506,6 +513,17 @@ def _mapping_report_text(rule_id: str) -> str:
     if len(matches) != 1:
         raise ValueError(f"exact converter mapping rule unavailable: {rule_id}")
     return matches[0]
+
+
+def _warning_report(code: str) -> dict[str, JsonValue]:
+    matches = [
+        cast(dict[str, JsonValue], rule["report"])
+        for rule in _CONVERTER_WARNING_RULES
+        if cast(dict[str, JsonValue], rule["report"]).get("code") == code
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"exact converter warning rule unavailable: {code}")
+    return dict(matches[0])
 
 
 def _is_exact_int64(value: float) -> bool:
@@ -552,14 +570,8 @@ def _escape(value: str) -> str:
 
 
 def _reason(language_bundle: dict[str, Any], reason_id: str) -> tuple[str, str]:
-    matches = [
-        reason
-        for reason in cast(list[dict[str, Any]], language_bundle["language"]["reasons"])
-        if reason.get("id") == reason_id
-    ]
-    if len(matches) != 1:
-        raise ValueError(f"exact migration reason unavailable: {reason_id}")
-    return cast(str, matches[0]["diagnostic"]), cast(str, matches[0]["stage"])
+    reason = reason_by_id(language_bundle, reason_id)
+    return cast(str, reason["diagnostic"]), cast(str, reason["stage"])
 
 
 def _diagnostic(
@@ -609,21 +621,12 @@ def _bounded_refusal(
     *,
     truncated: bool = False,
 ) -> Schema2RefusalReport:
-    unique = {
-        (item.code, item.primary.pointer, item.primary.content_identity): item
-        for item in diagnostics
-    }
-    ordered = sorted(
-        unique.values(),
-        key=lambda item: (
-            item.primary.pointer,
-            item.code,
-            item.primary.content_identity,
-        ),
+    ordered, bounded = bound_diagnostics(
+        diagnostics,
+        cast(int, language_bundle["resources"]["max_diagnostics"]),
     )
-    limit = cast(int, language_bundle["resources"]["max_diagnostics"])
     return Schema2RefusalReport(
         stage="migration",
-        diagnostics=tuple(ordered[:limit]),
-        truncated=truncated or len(ordered) > limit,
+        diagnostics=ordered,
+        truncated=truncated or bounded,
     )

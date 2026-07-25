@@ -941,6 +941,9 @@ defaults, warnings, and refusals. A concept without a safe mapping is declared
 deprecated/unsupported and refused. Exact input identity is claimed only for regular files whose
 complete stream fits the converter's 16 MiB observation cap; non-regular or larger inputs fail at
 usage ingress without a fabricated identity.
+Before success, the converter canonicalizes the candidate Model Source and applies the LDB's
+`max_source_bytes` as well as `max_symbols`; either target-bound overflow is a typed migration
+refusal and publishes no partial Source.
 
 Successful conversion atomically publishes the new Model Source Package and a separately typed
 `migration-report`. A pre-runtime conversion refusal publishes no command success artifact; its

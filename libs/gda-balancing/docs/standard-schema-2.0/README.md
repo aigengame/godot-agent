@@ -73,6 +73,8 @@ publishes the new `model-source-package` with a `migration-report`, and that sou
 inline, LDB-validated `migration-refusal-report`; it publishes no command success artifact and no
 partial Model Source. This adds no 1.x runtime, reverse path, save/replay/ruleset adapter, gray
 rollout, or Schema/toolkit version coupling.
+The target Model Source is canonicalized before success and must fit the LDB's
+`max_source_bytes` and `max_symbols` bounds; either overflow follows the same typed refusal path.
 
 The converter binding is the complete embedded `source-converter-specification` artifact, not an
 opaque digest; the report consumer can validate and rehash it against the exact LDB artifact

@@ -118,6 +118,29 @@ def test_model_check_accepts_all_quantity_roles_without_publishing(tmp_path, run
     assert set(tmp_path.iterdir()) == before
 
 
+def test_in_memory_model_check_reuses_only_a_matching_authority_admission():
+    kernel, language_bundle = model_module.load_authorities()
+    admission = admit_authorities(kernel, language_bundle)
+
+    checked = model_module.check_model_source_value(
+        _model_source(),
+        kernel=kernel,
+        language_bundle=language_bundle,
+        authority_admission=admission,
+    )
+
+    assert isinstance(checked, model_module.CheckedModel)
+    mismatched_ldb = deepcopy(language_bundle)
+    mismatched_ldb["content_identity"] = "sha256:" + "0" * 64
+    with pytest.raises(ValueError, match="another Kernel/LDB pair"):
+        model_module.check_model_source_value(
+            _model_source(),
+            kernel=kernel,
+            language_bundle=mismatched_ldb,
+            authority_admission=admission,
+        )
+
+
 def test_model_check_runs_the_same_lowering_and_admission_front_end(
     tmp_path, run_cli, monkeypatch
 ):

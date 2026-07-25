@@ -16,10 +16,7 @@ from gda_balancing.descriptors import RefusalDetailSpec
 from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
 from gda_balancing.schema2.canonical import content_identity
-from gda_balancing.schema2.migration import (
-    MAX_SOURCE_OBSERVATION_BYTES,
-    source_bytes_identity,
-)
+from gda_balancing.schema2.migration import MAX_SOURCE_OBSERVATION_BYTES
 from gda_balancing.schema2.model import verify_artifact
 
 
@@ -30,6 +27,13 @@ def _member(receipt: dict, logical_name: str) -> dict:
         if item["logical_name"] == logical_name
     )
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _source_bytes_identity(data: bytes) -> str:
+    return (
+        "sha256:"
+        + hashlib.sha256(b"gda-balancing:design-document-source-v1:" + data).hexdigest()
+    )
 
 
 def _reidentify_artifact(artifact: dict[str, Any], language_bundle: dict) -> None:
@@ -291,6 +295,46 @@ def test_model_migrate_refuses_the_target_symbol_limit_without_partial_artifacts
     assert [item["code"] for item in error["diagnostics"]] == [
         "migration.target_limit_exceeded"
     ]
+    assert output.exists() is False
+
+
+def test_model_migrate_refuses_an_oversized_target_without_internal_error(
+    tmp_path: Path, run_cli
+) -> None:
+    legacy = tmp_path / "legacy-target-too-large.json"
+    legacy.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "meta": {"name": "legacy.target-too-large"},
+                "parameters": {
+                    f"parameter_{index:04d}_{'x' * 180}": index for index in range(3000)
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "must-not-exist.json"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "migrate",
+            str(legacy),
+            "--out",
+            str(output),
+            "--invocation-key",
+            "d" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "migration"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "migration.target_limit_exceeded"
+    ]
+    assert error["migration_report"]["status"] == "refused"
     assert output.exists() is False
 
 
@@ -657,6 +701,37 @@ def test_model_migrate_emits_typed_negative_vectors_without_partial_output(
     assert output.exists() is False
 
 
+def test_model_migrate_preserves_the_first_source_refusal_at_a_shared_path(
+    tmp_path: Path, run_cli
+) -> None:
+    source = tmp_path / "legacy-shared-refusal-path.json"
+    source.write_text(
+        '{"schema_version":"1.0.0","meta":{"name":"legacy.shared-path"},'
+        '"parameters":{"\\ud800":1,"\\ud800":2}}',
+        encoding="utf-8",
+    )
+    output = tmp_path / "must-not-exist.json"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "migrate",
+            str(source),
+            "--out",
+            str(output),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostics = json.loads(stdout)["error"]["diagnostics"]
+    assert len(diagnostics) == 1
+    assert diagnostics[0]["primary"]["pointer"] == "/parameters"
+    assert "duplicate_object_key" in diagnostics[0]["message"]
+    assert output.exists() is False
+
+
 def test_model_migrate_reports_the_exact_accepted_1x_patch_version(
     tmp_path: Path, run_cli
 ) -> None:
@@ -767,7 +842,7 @@ def test_oversized_input_identity_hashes_the_complete_source_not_its_bounded_pre
         )
         assert (exit_code, stderr) == (2, "")
         reports.append(json.loads(stdout)["error"]["migration_report"])
-        assert reports[-1]["input_identity"] == source_bytes_identity(source_bytes)
+        assert reports[-1]["input_identity"] == _source_bytes_identity(source_bytes)
         assert output.exists() is False
 
     assert reports[0]["input_identity"] != reports[1]["input_identity"]
@@ -854,6 +929,10 @@ def test_converter_identity_covers_the_reported_defaults_and_warnings(
         "max_bytes": MAX_SOURCE_OBSERVATION_BYTES,
         "parse_prefix_bytes": MAX_DOCUMENT_BYTES + 1,
     }
+    assert specification["target_limits"] == [
+        "language-bundle.resources.max_source_bytes",
+        "language-bundle.resources.max_symbols",
+    ]
     tampered_report = deepcopy(report)
     tampered_report["converter_specification"]["mapping_rules"][0]["report_mapping"] = (
         "forged mapping"
@@ -874,6 +953,10 @@ def test_converter_identity_covers_the_reported_defaults_and_warnings(
         }
     report_contract = cast(dict[str, Any], specification["report_contract"])
     assert report["defaults"] == report_contract["defaults"]
+    assert [warning["code"] for warning in report["warnings"]] == [
+        "metadata.omitted",
+        "schema-reference.replaced",
+    ]
     assert report["warnings"] == [
         item["report"]
         for item in cast(list[dict[str, Any]], report_contract["warnings"])
