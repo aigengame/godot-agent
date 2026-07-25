@@ -8,6 +8,7 @@ from typing import Any, cast
 from gda_balancing.envelope import RefusalReport
 from gda_balancing.schema.funnel import validate
 from gda_balancing.schema.model.document import DesignDocument
+from gda_balancing.schema.model.formula import DirectBase
 from gda_balancing.schema2.canonical import JsonValue, content_identity
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
@@ -28,7 +29,14 @@ CONVERTER_SPECIFICATION: dict[str, JsonValue] = {
         {
             "source": "parameters.<id>: integral finite scalar",
             "target": "Quantity parameter with an equal singleton Int64 domain",
-        }
+        },
+        {
+            "source": (
+                "attributes.items.<id>: integral direct number with no mutation, "
+                "bounds, category, or tier facets"
+            ),
+            "target": "Quantity constant with an equal singleton Int64 domain",
+        },
     ],
     "defaults": [
         {"destination": "manifest.version", "value": "1.0.0"},
@@ -36,9 +44,10 @@ CONVERTER_SPECIFICATION: dict[str, JsonValue] = {
         {"destination": "package_requirements", "value": "core.quantity@2.0.0"},
         {"destination": "module.imports", "value": "quantity=core.quantity@2.0.0"},
     ],
+    "target_limits": ["language-bundle.resources.max_symbols"],
     "unsupported": [
         "fractional or out-of-Int64 parameters",
-        "attribute tiers and declarations",
+        "attribute tiers, formulas, mutation channels, bounds, categories, and tiers",
         "effects and stacking types",
     ],
 }
@@ -50,6 +59,7 @@ CONVERTER_IDENTITY = content_identity(
 @dataclass(frozen=True)
 class MigrationSuccess:
     input_identity: str
+    source_schema_version: str
     source: dict[str, JsonValue]
     mappings: tuple[dict[str, JsonValue], ...]
     defaults: tuple[dict[str, JsonValue], ...]
@@ -74,6 +84,7 @@ def migrate_design_source(
 
     diagnostics: list[Schema2Diagnostic] = []
     symbols: list[dict[str, JsonValue]] = []
+    max_symbols = cast(int, language_bundle["resources"]["max_symbols"])
     mappings: list[dict[str, JsonValue]] = [
         _mapping("/schema_version", "/schema_version", "schema-major migration"),
         _mapping("/meta/name", "/manifest/id", "preserve authored document name"),
@@ -106,6 +117,17 @@ def migrate_design_source(
             )
             continue
         integer = int(value)
+        if len(symbols) >= max_symbols:
+            diagnostics.append(
+                _diagnostic(
+                    language_bundle,
+                    "migration.reason.target-limit-exceeded",
+                    input_identity,
+                    pointer,
+                    "The migrated source would exceed the admitted 2.x symbol limit",
+                )
+            )
+            continue
         index = len(symbols)
         symbols.append(_quantity_symbol(f"parameter.{name}", "parameter", integer))
         mappings.append(
@@ -116,23 +138,63 @@ def migrate_design_source(
             )
         )
 
-    attributes = raw.get("attributes", {})
-    if isinstance(attributes, dict):
-        for collection in ("tiers", "items"):
-            values = attributes.get(collection, {})
-            if not isinstance(values, dict):
-                continue
-            for name in sorted(values, key=lambda item: item.encode("utf-8")):
-                diagnostics.append(
-                    _diagnostic(
-                        language_bundle,
-                        "migration.reason.deprecated-construct",
-                        input_identity,
-                        f"/attributes/{collection}/{_escape(name)}",
-                        "The current 2.x tracer has no semantics-preserving mapping "
-                        f"for 1.x attribute {collection}",
-                    )
+    for name in sorted(outcome.attributes.tiers, key=lambda item: item.encode("utf-8")):
+        diagnostics.append(
+            _diagnostic(
+                language_bundle,
+                "migration.reason.deprecated-construct",
+                input_identity,
+                f"/attributes/tiers/{_escape(name)}",
+                "A 1.x attribute tier has no semantics-preserving 2.x mapping",
+            )
+        )
+    for name in sorted(outcome.attributes.items, key=lambda item: item.encode("utf-8")):
+        attribute = outcome.attributes.items[name]
+        pointer = f"/attributes/items/{_escape(name)}"
+        direct = (
+            attribute.base.direct if isinstance(attribute.base, DirectBase) else None
+        )
+        if (
+            direct is None
+            or attribute.domain != "number"
+            or attribute.accepts
+            or attribute.bounds is not None
+            or attribute.category is not None
+            or attribute.tier is not None
+            or not direct.is_integer()
+            or not _INT64_MIN <= direct <= _INT64_MAX
+        ):
+            diagnostics.append(
+                _diagnostic(
+                    language_bundle,
+                    "migration.reason.deprecated-construct",
+                    input_identity,
+                    pointer,
+                    "Only an unmodified integral direct number attribute has an "
+                    "exact mapping in the current 2.x Quantity package",
                 )
+            )
+            continue
+        if len(symbols) >= max_symbols:
+            diagnostics.append(
+                _diagnostic(
+                    language_bundle,
+                    "migration.reason.target-limit-exceeded",
+                    input_identity,
+                    pointer,
+                    "The migrated source would exceed the admitted 2.x symbol limit",
+                )
+            )
+            continue
+        index = len(symbols)
+        symbols.append(_quantity_symbol(f"attribute.{name}", "constant", int(direct)))
+        mappings.append(
+            _mapping(
+                pointer,
+                f"/modules/0/symbols/{index}",
+                "unmodified integral direct attribute to constant singleton Quantity",
+            )
+        )
     effects = raw.get("effects", {})
     if isinstance(effects, dict):
         for collection in ("stacking_types", "items"):
@@ -224,6 +286,7 @@ def migrate_design_source(
         )
     return MigrationSuccess(
         input_identity=input_identity,
+        source_schema_version=outcome.schema_version,
         source=source,
         mappings=tuple(mappings),
         defaults=defaults,
@@ -286,12 +349,15 @@ def _diagnostic(
     code, stage = _reason(language_bundle, reason_id)
     if stage != "migration":
         raise ValueError("migration reason belongs to the wrong refusal stage")
+    normalized_pointer = (
+        pointer if pointer.startswith("/") else f"/{pointer}" if pointer else "/"
+    )
     return Schema2Diagnostic(
         code=code,
         message=message,
         primary=ArtifactLocation(
             content_identity=input_identity,
-            pointer=pointer,
+            pointer=normalized_pointer,
         ),
     )
 

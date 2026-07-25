@@ -1,10 +1,9 @@
-"""The `design` command group — Design-document operations (bADR-0007).
+"""Unregistered Standard Schema 1.x source-input regression adapters.
 
-``design validate`` is the first document-taking command: it runs a Design
-document through the boundary funnel (bADR-0004) and reports the outcome as the
-invocation-result contract's two normative shapes (bADR-0008/0011) — the typed
-:class:`ValidationResult` on a document that passes, or the funnel's
-:class:`RefusalReport` on one that is refused.
+These descriptors are deliberately absent from the production command registry:
+Schema 2.0 exposes ``model migrate`` as the only 1.x entrypoint. Tests retain
+them as adapters over the exact 1.x funnel so conversion-input behavior remains
+covered without making the superseded ``design`` group public.
 
 ``design format`` runs the *same* funnel and, on success, emits the **validated**
 document in canonical form (bADR-0005; V11): the model dump materializes every

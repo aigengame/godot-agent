@@ -253,6 +253,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
     }
     assert set(commands) == {
         "schema get",
+        "version",
         "manifest",
         "model check",
         "model build",
@@ -278,6 +279,8 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         }
         if path == "schema get":
             invocation = ["schema", "get", "language-bundle"]
+        elif path == "version":
+            invocation = ["version"]
         elif path == "manifest":
             invocation = ["manifest"]
         elif path == "template list":

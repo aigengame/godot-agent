@@ -214,7 +214,7 @@ def run_model_migrate(
         {
             "status": "migrated",
             "input_identity": migrated.input_identity,
-            "source_schema_version": "1.0.0",
+            "source_schema_version": migrated.source_schema_version,
             "target_schema_version": "2.0.0",
             "converter_identity": converter_identity,
             "kernel_identity": cast(str, kernel["content_identity"]),

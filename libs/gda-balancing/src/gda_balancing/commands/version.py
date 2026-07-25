@@ -1,20 +1,12 @@
-"""The `version` meta command — the first registered command (bADR-0007).
-
-`version` self-describes both authorities as distinct fields, never a single
-conflated string (bADR-0009): the toolkit package version and the supported
-Standard Schema line (bADR-0001's major.minor line, e.g. ``"1.0"``). Now that
-#504 lands the first validatable Standard Schema implementation,
-``supported_schema_line`` reports the current (newest) line — the newest
-registered bundle's line (:func:`~gda_balancing.schema.bundle.current_bundle`) —
-never ``null``.
-"""
+"""The Schema 2.0 `version` meta command."""
 
 from importlib.metadata import version as package_version
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
-from gda_balancing.schema.bundle import current_bundle
+from gda_balancing.schema2.authority import load_authorities
 
 
 class VersionInput(BaseModel):
@@ -24,11 +16,7 @@ class VersionInput(BaseModel):
 
 
 class VersionResult(BaseModel):
-    """The two never-conflated authorities (bADR-0009). Both are required,
-    typed strings: ``supported_schema_line`` is no longer nullable now that #504
-    lands the first validatable Standard Schema — optional≠nullable applies to
-    the surface's own results too, so it is always present and always a string,
-    never ``null`` (PR #527 multi#4)."""
+    """The independently versioned toolkit and current forward Schema line."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -37,9 +25,20 @@ class VersionResult(BaseModel):
 
 
 def run_version(_: VersionInput) -> VersionResult:
+    _, language_bundle = load_authorities()
+    versions = cast(
+        list[str],
+        cast(dict[str, Any], language_bundle["language"])[
+            "model_source_schema_versions"
+        ],
+    )
+    parsed = [tuple(int(part) for part in version.split(".")) for version in versions]
+    if not parsed or any(len(version) != 3 for version in parsed):
+        raise ValueError("LDB model source version inventory is not semantic versioned")
+    newest = max(parsed)
     return VersionResult(
         toolkit_version=package_version("gda-balancing"),
-        supported_schema_line=current_bundle().line,
+        supported_schema_line=f"{newest[0]}.{newest[1]}",
     )
 
 
@@ -54,4 +53,11 @@ VERSION = CommandDescriptor(
     output_model=VersionResult,
     handler=run_version,
     fixtures=ConformanceFixtures(valid_args=()),
+    schema_major=2,
+    structured_params=True,
+    usage_codes=(
+        "argument_conflict",
+        "invalid_argument",
+        "unknown_argument",
+    ),
 )

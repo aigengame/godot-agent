@@ -1,7 +1,7 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:c2156c171130d4e9e82583c2a430d8ad20062c5b23378b48fb19da4c7689fa18",
+  "content_identity": "sha256:e6f6dc780ca91cc6e097d6f51cb30033fd0efef25c466b54a61c680d2213c720",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
@@ -19,7 +19,8 @@
     {"code": "language.source_too_large", "stage": "ingress"},
     {"code": "migration.deprecated_construct", "stage": "migration"},
     {"code": "migration.no_mappable_construct", "stage": "migration"},
-    {"code": "migration.source_invalid", "stage": "migration"}
+    {"code": "migration.source_invalid", "stage": "migration"},
+    {"code": "migration.target_limit_exceeded", "stage": "migration"}
   ],
   "kernel_identity": "sha256:87125b0d62997effb17c8aeb8128be567ebcaee836e4b6e82297d69051d2bbe9",
   "language": {
@@ -53,7 +54,7 @@
             "wire_schema_identity": {"type": "string", "minLength": 1},
             "status": {"const": "migrated"},
             "input_identity": {"type": "string", "minLength": 1},
-            "source_schema_version": {"const": "1.0.0"},
+            "source_schema_version": {"type": "string", "minLength": 1},
             "target_schema_version": {"const": "2.0.0"},
             "converter_identity": {"type": "string", "minLength": 1},
             "kernel_identity": {"type": "string", "minLength": 1},
@@ -1276,7 +1277,7 @@
       {
         "artifact_kind": "domain-package-release",
         "capabilities": {"provided": [], "required": []},
-        "content_identity": "sha256:21f463aaf013be569bd0197cc890c19abeaa5208e92e7cc1116624253cbbdccf",
+        "content_identity": "sha256:a0241cd308551e430b4341aa09a8186d300de3ae9f8566fe8fe7958d8ab539b6",
         "dependencies": {"optional": [], "required": []},
         "exports": {
           "components": [],
@@ -1284,7 +1285,8 @@
           "diagnostics": [
             "migration.deprecated_construct",
             "migration.no_mappable_construct",
-            "migration.source_invalid"
+            "migration.source_invalid",
+            "migration.target_limit_exceeded"
           ],
           "domains": [],
           "kinds": [],
@@ -1295,7 +1297,8 @@
           "reasons": [
             "migration.reason.deprecated-construct",
             "migration.reason.no-mappable-construct",
-            "migration.reason.source-invalid"
+            "migration.reason.source-invalid",
+            "migration.reason.target-limit-exceeded"
           ],
           "representations": [],
           "symbol_roles": [],
@@ -1323,7 +1326,8 @@
             "definitions": [
               {"diagnostic": "migration.deprecated_construct", "id": "migration.reason.deprecated-construct", "predicate": {"operation": "not-equal"}, "stage": "migration"},
               {"diagnostic": "migration.no_mappable_construct", "id": "migration.reason.no-mappable-construct", "predicate": {"operation": "not-equal"}, "stage": "migration"},
-              {"diagnostic": "migration.source_invalid", "id": "migration.reason.source-invalid", "predicate": {"operation": "not-equal"}, "stage": "migration"}
+              {"diagnostic": "migration.source_invalid", "id": "migration.reason.source-invalid", "predicate": {"operation": "not-equal"}, "stage": "migration"},
+              {"diagnostic": "migration.target_limit_exceeded", "id": "migration.reason.target-limit-exceeded", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "migration"}
             ]
           },
           {"authority_path": "language.resolution_profiles", "definitions": []},
@@ -1334,26 +1338,31 @@
             "definitions": [
               {"code": "migration.deprecated_construct", "stage": "migration"},
               {"code": "migration.no_mappable_construct", "stage": "migration"},
-              {"code": "migration.source_invalid", "stage": "migration"}
+              {"code": "migration.source_invalid", "stage": "migration"},
+              {"code": "migration.target_limit_exceeded", "stage": "migration"}
             ]
           }
         ],
-        "semantic_identity": "sha256:a0731d46d16ff80bae555367b1864225aa734d58d3cbc287c8c8702afd1faa2d",
+        "semantic_identity": "sha256:a7bfd9e194f2d1aab7f401afe15fb73742d4bd65bb82a5f4cdb40f13ca5fb5f6",
         "vector_definitions": [
           {"diagnostic": "migration.deprecated_construct", "id": "migration.accept.deprecated-construct", "input": {"actual": "migratable", "expected": "migratable"}, "matched": false, "reason": "migration.reason.deprecated-construct", "stage": "migration"},
           {"diagnostic": "migration.no_mappable_construct", "id": "migration.accept.no-mappable-construct", "input": {"actual": "non-empty", "expected": "non-empty"}, "matched": false, "reason": "migration.reason.no-mappable-construct", "stage": "migration"},
           {"diagnostic": "migration.source_invalid", "id": "migration.accept.source-invalid", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "migration.reason.source-invalid", "stage": "migration"},
+          {"diagnostic": "migration.target_limit_exceeded", "id": "migration.accept.target-limit", "input": {"value": 4096}, "matched": false, "reason": "migration.reason.target-limit-exceeded", "stage": "migration"},
           {"diagnostic": "migration.deprecated_construct", "id": "migration.refuse.deprecated-construct", "input": {"actual": "deprecated", "expected": "migratable"}, "matched": true, "reason": "migration.reason.deprecated-construct", "stage": "migration"},
           {"diagnostic": "migration.no_mappable_construct", "id": "migration.refuse.no-mappable-construct", "input": {"actual": "empty", "expected": "non-empty"}, "matched": true, "reason": "migration.reason.no-mappable-construct", "stage": "migration"},
-          {"diagnostic": "migration.source_invalid", "id": "migration.refuse.source-invalid", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "migration.reason.source-invalid", "stage": "migration"}
+          {"diagnostic": "migration.source_invalid", "id": "migration.refuse.source-invalid", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "migration.reason.source-invalid", "stage": "migration"},
+          {"diagnostic": "migration.target_limit_exceeded", "id": "migration.refuse.target-limit", "input": {"value": 4097}, "matched": true, "reason": "migration.reason.target-limit-exceeded", "stage": "migration"}
         ],
         "vectors": [
           "migration.accept.deprecated-construct",
           "migration.accept.no-mappable-construct",
           "migration.accept.source-invalid",
+          "migration.accept.target-limit",
           "migration.refuse.deprecated-construct",
           "migration.refuse.no-mappable-construct",
-          "migration.refuse.source-invalid"
+          "migration.refuse.source-invalid",
+          "migration.refuse.target-limit"
         ],
         "version": "1.0.0",
         "runtime_semantic_paths": ["language.reasons", "diagnostics"]
@@ -1375,6 +1384,7 @@
       {"diagnostic": "migration.deprecated_construct", "id": "migration.reason.deprecated-construct", "predicate": {"operation": "not-equal"}, "stage": "migration"},
       {"diagnostic": "migration.no_mappable_construct", "id": "migration.reason.no-mappable-construct", "predicate": {"operation": "not-equal"}, "stage": "migration"},
       {"diagnostic": "migration.source_invalid", "id": "migration.reason.source-invalid", "predicate": {"operation": "not-equal"}, "stage": "migration"},
+      {"diagnostic": "migration.target_limit_exceeded", "id": "migration.reason.target-limit-exceeded", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "migration"},
       {"diagnostic": "language.duplicate_symbol", "id": "quantity.reason.duplicate-symbol", "predicate": {"operation": "has-duplicate"}, "stage": "static"},
       {"diagnostic": "language.invalid_domain", "id": "quantity.reason.invalid-domain", "predicate": {"operation": "invalid-interval"}, "stage": "static"},
       {"diagnostic": "language.resource_exhausted", "id": "quantity.reason.resource-exhausted", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "static"},
@@ -1673,6 +1683,8 @@
     {"diagnostic": "migration.no_mappable_construct", "id": "migration.accept.no-mappable-construct", "input": {"actual": "non-empty", "expected": "non-empty"}, "matched": false, "reason": "migration.reason.no-mappable-construct", "stage": "migration"},
     {"diagnostic": "migration.source_invalid", "id": "migration.refuse.source-invalid", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "migration.reason.source-invalid", "stage": "migration"},
     {"diagnostic": "migration.source_invalid", "id": "migration.accept.source-invalid", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "migration.reason.source-invalid", "stage": "migration"},
+    {"diagnostic": "migration.target_limit_exceeded", "id": "migration.refuse.target-limit", "input": {"value": 4097}, "matched": true, "reason": "migration.reason.target-limit-exceeded", "stage": "migration"},
+    {"diagnostic": "migration.target_limit_exceeded", "id": "migration.accept.target-limit", "input": {"value": 4096}, "matched": false, "reason": "migration.reason.target-limit-exceeded", "stage": "migration"},
     {
       "category": "positive",
       "expect": {
