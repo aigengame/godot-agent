@@ -12,21 +12,25 @@ extends `gda`; its CLI follows the family's interface conventions.
 - Requirements: [PRD #501](https://github.com/aigengame/godot-agent/issues/501)
 - Milestones: [Phase 1 — Schema 2.0 language & model foundation](https://github.com/aigengame/godot-agent/milestone/8) ·
   [Phase 2 — runtime, evidence & genre closure](https://github.com/aigengame/godot-agent/milestone/9)
-- Status: Phase 1 in progress. The first permanent Schema 2.0 Kernel/LDB authority and command
-  discovery slice ships alongside the transitional 1.x Design commands. Model compilation,
-  runtime, evidence, and Genre/template closure are still ahead; the package is **not published
-  to PyPI yet**.
+- Status: Phase 1's permanent Schema 2.0 surface includes the Kernel/LDB authority, command
+  discovery, one typed-Quantity Model build, one minimal Template release, and limited
+  semantics-preserving 1.x source migration. Runtime, evidence, and complete RPG/Roguelike
+  Template closure remain ahead; the package is **not published to PyPI yet**.
 
 ## Commands
 
 ```bash
-gda-balancing design validate <document>   # validate through the boundary funnel
-gda-balancing design format <document>     # emit the validated document, canonically
 gda-balancing schema get language-bundle   # admitted Kernel/LDB authority pair
 gda-balancing schema get wire-schema       # exact generated wire-schema projection
 gda-balancing schema get diagnostic-catalog # exact generated Diagnostic projection
-gda-balancing manifest                     # delivered Schema 2.0 command surface
-gda-balancing version                      # package version + supported Schema line
+gda-balancing model check <source>         # admit a Schema 2.0 Model Source
+gda-balancing model build <source> [...]   # build and atomically publish a Model
+gda-balancing model migrate <source> [...] # migrate only the safe Schema 1.x source subset
+gda-balancing template list                # list admitted Template releases
+gda-balancing template get [...]           # retrieve an exact Template release
+gda-balancing template instantiate [...]   # publish a new editable Model Source
+gda-balancing manifest                     # live Schema 2.0 command surface
+gda-balancing version                      # toolkit version + supported Schema line
 ```
 
 Every command emits one JSON document: the typed result on stdout at exit 0, or an error
@@ -35,6 +39,9 @@ envelope — `refusal` (exit 2, on stdout), `usage` (exit 3) or `internal` (exit
 artifact-emitting command to write the artifact to a file and get a receipt on stdout. Every
 Schema 2.0 command also accepts `--params-json <json | ->`; `-` reads the same descriptor-owned
 input object from stdin, and structured input is mutually exclusive with individual argv fields.
+`model migrate` is the only 1.x public entrypoint: success atomically publishes a new 2.0 Model
+Source and its Migration report; an unsupported or lossy construct returns an auditable migration
+refusal and publishes neither a partial Source nor a compatibility artifact.
 
 ## Development
 

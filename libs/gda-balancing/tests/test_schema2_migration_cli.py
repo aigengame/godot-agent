@@ -7,6 +7,8 @@ from pathlib import Path
 import jsonschema
 import pytest
 
+from gda_balancing.schema2.migration import CONVERTER_IDENTITY
+
 
 def _member(receipt: dict, logical_name: str) -> dict:
     path = next(
@@ -91,17 +93,24 @@ def test_model_migrate_publishes_a_buildable_source_and_audit_report(
         ],
     }
     report = _member(receipt, "migration-report")
+    manifest = json.loads(Path(receipt["manifest_locator"]).read_text(encoding="utf-8"))
+    source_member = next(
+        item
+        for item in manifest["members"]
+        if item["logical_name"] == "model-source-package"
+    )
     assert report["artifact_kind"] == "migration-report"
     assert report["source_schema_version"] == "1.0.0"
     assert report["target_schema_version"] == "2.0.0"
-    assert report["output_identity"].startswith("sha256:")
-    assert report["converter_identity"].startswith("sha256:")
+    assert report["output_identity"] == source_member["content_identity"]
+    assert report["converter_identity"] == CONVERTER_IDENTITY
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     assert report["kernel_identity"] == authority["kernel"]["content_identity"]
     assert (
         report["language_bundle_identity"]
         == authority["language_bundle"]["content_identity"]
     )
+    assert report["converter_identity"] == CONVERTER_IDENTITY
     assert report["mappings"] == [
         {
             "source_pointer": "/schema_version",

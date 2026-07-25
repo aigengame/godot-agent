@@ -37,7 +37,10 @@ only a narrow, semantics-preserving source-conversion opportunity.
   that binds input identity, converter and Language Definition Bundle identities, successful
   mappings, deprecated constructs, stable diagnostics, and remediation text. If any construct is
   deprecated, it emits no authoritative 2.x Model Source Package. The user re-authors/removes the
-  construct and runs normal 2.x validation.
+  construct and runs normal 2.x validation. The successful `migration-report` and Model Source are
+  one atomic success artifact set. The refusal form is a separately typed, LDB-validated
+  `migration-refusal-report` carried in the exit-2 envelope; it is not a command success artifact,
+  partial Source, or post-runtime terminal-audit set.
 
 - **Migration never mutates input or invents provenance.** A successful conversion emits a new
   Model Source Package identity plus its Migration report. Original source remains byte-identical.

@@ -939,6 +939,12 @@ auditable. It emits a migration report binding the input identity, converter/LDB
 successful mappings, defaults, warnings, and refusals. A concept without a safe mapping is declared
 deprecated/unsupported and refused.
 
+Successful conversion atomically publishes the new Model Source Package and a separately typed
+`migration-report`. A pre-runtime conversion refusal publishes no command success artifact; its
+exit-2 envelope carries an LDB-validated `migration-refusal-report` that binds the attempted safe
+mappings and the complete bounded refusal evidence. The refusal report is auditable evidence of
+the failed attempt, not a partial Source, success receipt, or terminal-audit artifact set.
+
 There is no dual 1.x/2.x semantic stack, gray runtime rollout, reverse migration, or compatibility
 promise for saves, replays, runtime behavior, rulesets, or partial Evidence. Standard Schema 1.x
 remains design history and conversion input, not a constraint that can weaken 2.0 invariants.
