@@ -30,7 +30,7 @@ from pathlib import Path
 import pytest
 
 from gda_balancing.commands import REGISTRY
-from gda_balancing.commands.design import DESIGN_FORMAT, DESIGN_VALIDATE
+from _legacy_design_adapters import DESIGN_FORMAT, DESIGN_VALIDATE
 from gda_balancing.descriptors import CommandDescriptor
 from gda_balancing.dispatch import dispatch
 

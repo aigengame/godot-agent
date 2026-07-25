@@ -41,7 +41,7 @@ class Schema2RefusalReport(BaseModel):
     stage: RefusalStage
     diagnostics: tuple[Schema2Diagnostic, ...] = Field(min_length=1)
     truncated: bool
-    details: dict[str, Any] = Field(default_factory=dict)
+    migration_report: dict[str, Any] | None = None
 
 
 def bootstrap_refusal(admission: BootstrapAdmission) -> Schema2RefusalReport:
@@ -109,7 +109,8 @@ def refusal_envelope(report: Schema2RefusalReport) -> dict[str, object]:
         "diagnostics": [item.model_dump(mode="json") for item in report.diagnostics],
         "truncated": report.truncated,
     }
-    if set(error) & set(report.details):
-        raise ValueError("refusal details cannot replace the core envelope")
-    error.update(report.details)
+    if report.migration_report is not None:
+        if report.stage != "migration":
+            raise ValueError("a migration report belongs only to migration refusal")
+        error["migration_report"] = report.migration_report
     return {"error": error}

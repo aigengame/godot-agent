@@ -16,7 +16,7 @@ import pytest
 
 from gda_balancing.emit import canonical_json
 from gda_balancing.envelope import ERROR_ENVELOPE_SCHEMA
-from gda_balancing.formula import evaluate_bases
+from _legacy_formula import evaluate_bases
 from gda_balancing.schema.funnel import validate
 from gda_balancing.schema.model.document import DesignDocument
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID

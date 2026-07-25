@@ -219,12 +219,17 @@ def _invoke_descriptor(
             for detail in descriptor.refusal_details
             if detail.stage == outcome.stage
         }
-        if set(outcome.details) != set(expected_details):
+        observed_details = (
+            {"migration_report": outcome.migration_report}
+            if outcome.migration_report is not None
+            else {}
+        )
+        if set(observed_details) != set(expected_details):
             raise TypeError(
                 "handler returned Schema 2.x refusal details absent from its descriptor"
             )
         for name, detail in expected_details.items():
-            jsonschema.validate(outcome.details[name], detail.schema())
+            jsonschema.validate(observed_details[name], detail.schema())
         envelope = schema2_refusal_envelope(outcome)
         stdout.write(canonical_json(envelope))
         return EXIT_REFUSAL

@@ -2,11 +2,13 @@
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from typing import Any, cast
 
-from gda_balancing.envelope import RefusalReport
+from gda_balancing.envelope import RefusalReport, UnreadableInputError
 from gda_balancing.schema.funnel import validate
+from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.model.document import DesignDocument
 from gda_balancing.schema.model.formula import DirectBase
 from gda_balancing.schema2.canonical import JsonValue, content_identity
@@ -20,40 +22,123 @@ _INT64_MIN = -(2**63)
 _INT64_MAX = 2**63 - 1
 _SOURCE_IDENTITY_PREFIX = b"gda-balancing:design-document-source-v1:"
 
-CONVERTER_SPECIFICATION: dict[str, JsonValue] = {
+_CONVERTER_DEFAULTS: tuple[dict[str, JsonValue], ...] = (
+    {
+        "destination_pointer": "/manifest/version",
+        "value": "1.0.0",
+        "reason": "1.x has no package version",
+    },
+    {
+        "destination_pointer": "/manifest/entry_module",
+        "value": "main",
+        "reason": "1.x has one root document",
+    },
+    {
+        "destination_pointer": "/package_requirements/0",
+        "value": "core.quantity@2.0.0",
+        "reason": "all admitted mappings target the exact Quantity package",
+    },
+    {
+        "destination_pointer": "/modules/0/imports/0",
+        "value": "quantity=core.quantity@2.0.0#Quantity",
+        "reason": "all admitted symbols use the exact Quantity constructor",
+    },
+)
+_CONVERTER_WARNING_RULES: tuple[dict[str, JsonValue], ...] = (
+    {
+        "trigger": {
+            "source_pointer": "/meta/description",
+            "condition": "present",
+        },
+        "report": {
+            "code": "metadata.omitted",
+            "source_pointer": "/meta/description",
+            "message": "1.x descriptive metadata has no semantic 2.x target",
+        },
+    },
+    {
+        "trigger": {
+            "source_pointer": "/$schema",
+            "condition": "present",
+        },
+        "report": {
+            "code": "schema-reference.replaced",
+            "source_pointer": "/$schema",
+            "message": "The 1.x editor schema reference is replaced by 2.x authority",
+        },
+    },
+)
+_CONVERTER_MAPPING_RULES: tuple[dict[str, JsonValue], ...] = (
+    {
+        "id": "schema-major-migration",
+        "source": "schema_version: admitted 1.0 patch version",
+        "target": "schema_version=2.0.0",
+        "report_mapping": "schema-major migration",
+    },
+    {
+        "id": "document-name-to-manifest-id",
+        "source": "meta.name: non-empty string",
+        "target": "manifest.id with the exact authored value",
+        "report_mapping": "preserve authored document name",
+    },
+    {
+        "id": "integral-parameter-to-quantity",
+        "source": ("parameters.<id>: finite, non-negative-zero integral signed-Int64"),
+        "target": "Quantity parameter with an equal singleton Int64 domain",
+        "report_mapping": "integral parameter to equal singleton Quantity domain",
+    },
+    {
+        "id": "direct-attribute-to-quantity",
+        "source": (
+            "attributes.items.<id>: finite, non-negative-zero integral signed-Int64 "
+            "direct number with no mutation, bounds, category, or tier facets"
+        ),
+        "target": "Quantity constant with an equal singleton Int64 domain",
+        "report_mapping": (
+            "unmodified integral direct attribute to constant singleton Quantity"
+        ),
+    },
+)
+_CONVERTER_SPECIFICATION_BODY: dict[str, JsonValue] = {
     "artifact_kind": "source-converter-specification",
     "artifact_version": "1.0.0",
+    "input_identity_domain": "design-document-source-v1",
     "source_schema_line": "1.0",
     "target_schema_version": "2.0.0",
-    "mappings": [
-        {
-            "source": "parameters.<id>: integral finite scalar",
-            "target": "Quantity parameter with an equal singleton Int64 domain",
-        },
-        {
-            "source": (
-                "attributes.items.<id>: integral direct number with no mutation, "
-                "bounds, category, or tier facets"
-            ),
-            "target": "Quantity constant with an equal singleton Int64 domain",
-        },
-    ],
-    "defaults": [
-        {"destination": "manifest.version", "value": "1.0.0"},
-        {"destination": "manifest.entry_module", "value": "main"},
-        {"destination": "package_requirements", "value": "core.quantity@2.0.0"},
-        {"destination": "module.imports", "value": "quantity=core.quantity@2.0.0"},
-    ],
+    "mapping_rules": [dict(item) for item in _CONVERTER_MAPPING_RULES],
+    "ordering": (
+        "parameters then attributes; identifiers ordered by their UTF-8 bytes; "
+        "destination symbol indexes follow that order"
+    ),
+    "source_admission": (
+        "the complete Standard Schema 1.0 boundary funnel must admit the bounded "
+        "source observation before any mapping is claimed"
+    ),
+    "report_contract": {
+        "defaults": [dict(item) for item in _CONVERTER_DEFAULTS],
+        "warnings": [dict(item) for item in _CONVERTER_WARNING_RULES],
+        "refusal_policy": (
+            "report every bounded unsupported construct and publish no "
+            "Model Source Package"
+        ),
+        "success_policy": (
+            "publish one admitted Model Source Package and its migration report"
+        ),
+    },
     "target_limits": ["language-bundle.resources.max_symbols"],
     "unsupported": [
-        "fractional or out-of-Int64 parameters",
+        "fractional, negative-zero, or out-of-Int64 parameters",
         "attribute tiers, formulas, mutation channels, bounds, categories, and tiers",
         "effects and stacking types",
     ],
 }
 CONVERTER_IDENTITY = content_identity(
-    "source-converter-specification-v1", CONVERTER_SPECIFICATION
+    "source-converter-specification-v1", _CONVERTER_SPECIFICATION_BODY
 )
+CONVERTER_SPECIFICATION: dict[str, JsonValue] = {
+    **_CONVERTER_SPECIFICATION_BODY,
+    "content_identity": CONVERTER_IDENTITY,
+}
 
 
 @dataclass(frozen=True)
@@ -82,11 +167,30 @@ def source_bytes_identity(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(_SOURCE_IDENTITY_PREFIX + data).hexdigest()
 
 
+def load_design_source_observation(path: str) -> tuple[bytes, str]:
+    """Read one bounded parse observation while hashing the complete source."""
+    digest = hashlib.sha256()
+    digest.update(_SOURCE_IDENTITY_PREFIX)
+    bounded = bytearray()
+    try:
+        with open(path, "rb") as handle:
+            while chunk := handle.read(64 * 1024):
+                digest.update(chunk)
+                remaining = MAX_DOCUMENT_BYTES + 1 - len(bounded)
+                if remaining > 0:
+                    bounded.extend(chunk[:remaining])
+    except OSError as err:
+        raise UnreadableInputError(f"cannot read input document: {path}") from err
+    return bytes(bounded), "sha256:" + digest.hexdigest()
+
+
 def migrate_design_source(
-    data: bytes, language_bundle: dict[str, Any]
+    data: bytes,
+    language_bundle: dict[str, Any],
+    *,
+    input_identity: str,
 ) -> MigrationSuccess | MigrationFailure:
     """Convert the currently admitted semantics-preserving 1.x subset."""
-    input_identity = source_bytes_identity(data)
     outcome = validate(data)
     if isinstance(outcome, RefusalReport):
         return _migration_failure(
@@ -104,38 +208,31 @@ def migrate_design_source(
     symbols: list[dict[str, JsonValue]] = []
     max_symbols = cast(int, language_bundle["resources"]["max_symbols"])
     mappings: list[dict[str, JsonValue]] = [
-        _mapping("/schema_version", "/schema_version", "schema-major migration"),
+        _mapping(
+            "/schema_version",
+            "/schema_version",
+            _mapping_report_text("schema-major-migration"),
+        ),
     ]
-    defaults = (
-        _default("/manifest/version", "1.0.0", "1.x has no package version"),
-        _default("/manifest/entry_module", "main", "1.x has one root document"),
-        _default(
-            "/package_requirements/0",
-            "core.quantity@2.0.0",
-            "all admitted mappings target the exact Quantity package",
-        ),
-        _default(
-            "/modules/0/imports/0",
-            "quantity=core.quantity@2.0.0#Quantity",
-            "all admitted symbols use the exact Quantity constructor",
-        ),
-    )
+    defaults = tuple(dict(item) for item in _CONVERTER_DEFAULTS)
     warnings: list[dict[str, JsonValue]] = []
     if outcome.meta.description is not None:
         warnings.append(
-            {
-                "code": "metadata.omitted",
-                "source_pointer": "/meta/description",
-                "message": "1.x descriptive metadata has no semantic 2.x target",
-            }
+            dict(
+                cast(
+                    dict[str, JsonValue],
+                    _CONVERTER_WARNING_RULES[0]["report"],
+                )
+            )
         )
     if "$schema" in raw:
         warnings.append(
-            {
-                "code": "schema-reference.replaced",
-                "source_pointer": "/$schema",
-                "message": "The 1.x editor schema reference is replaced by 2.x authority",
-            }
+            dict(
+                cast(
+                    dict[str, JsonValue],
+                    _CONVERTER_WARNING_RULES[1]["report"],
+                )
+            )
         )
 
     if not outcome.meta.name:
@@ -153,14 +250,14 @@ def migrate_design_source(
             _mapping(
                 "/meta/name",
                 "/manifest/id",
-                "preserve authored document name",
+                _mapping_report_text("document-name-to-manifest-id"),
             )
         )
 
     for name in sorted(outcome.parameters, key=lambda item: item.encode("utf-8")):
         value = outcome.parameters[name]
         pointer = f"/parameters/{_escape(name)}"
-        if not value.is_integer() or not _INT64_MIN <= value <= _INT64_MAX:
+        if not _is_exact_int64(value):
             diagnostics.append(
                 _diagnostic(
                     language_bundle,
@@ -190,7 +287,7 @@ def migrate_design_source(
             _mapping(
                 pointer,
                 f"/modules/0/symbols/{index}",
-                "integral parameter to equal singleton Quantity domain",
+                _mapping_report_text("integral-parameter-to-quantity"),
             )
         )
 
@@ -217,8 +314,7 @@ def migrate_design_source(
             or attribute.bounds is not None
             or attribute.category is not None
             or attribute.tier is not None
-            or not direct.is_integer()
-            or not _INT64_MIN <= direct <= _INT64_MAX
+            or not _is_exact_int64(direct)
         ):
             diagnostics.append(
                 _diagnostic(
@@ -248,7 +344,7 @@ def migrate_design_source(
             _mapping(
                 pointer,
                 f"/modules/0/symbols/{index}",
-                "unmodified integral direct attribute to constant singleton Quantity",
+                _mapping_report_text("direct-attribute-to-quantity"),
             )
         )
     effects = raw.get("effects", {})
@@ -363,12 +459,23 @@ def _mapping(source: str, destination: str, rule: str) -> dict[str, JsonValue]:
     }
 
 
-def _default(destination: str, value: str, reason: str) -> dict[str, JsonValue]:
-    return {
-        "destination_pointer": destination,
-        "value": value,
-        "reason": reason,
-    }
+def _mapping_report_text(rule_id: str) -> str:
+    matches = [
+        cast(str, rule["report_mapping"])
+        for rule in _CONVERTER_MAPPING_RULES
+        if rule["id"] == rule_id
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"exact converter mapping rule unavailable: {rule_id}")
+    return matches[0]
+
+
+def _is_exact_int64(value: float) -> bool:
+    return (
+        value.is_integer()
+        and _INT64_MIN <= value <= _INT64_MAX
+        and not (value == 0.0 and math.copysign(1.0, value) < 0.0)
+    )
 
 
 def _migration_failure(

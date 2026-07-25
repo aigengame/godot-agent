@@ -1,12 +1,22 @@
 """The Schema 2.0 `version` meta command."""
 
+from collections.abc import Callable
 from importlib.metadata import version as package_version
 from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
-from gda_balancing.schema2.authority import load_authorities
+from gda_balancing.schema2.authority import AuthorityLoadError, load_authorities
+from gda_balancing.schema2.bootstrap import (
+    BOOTSTRAP_REFUSAL_CATALOG,
+    admit_authorities,
+)
+from gda_balancing.schema2.diagnostics import (
+    Schema2RefusalReport,
+    bootstrap_refusal,
+    ingress_refusal,
+)
 
 
 class VersionInput(BaseModel):
@@ -24,22 +34,45 @@ class VersionResult(BaseModel):
     supported_schema_line: str
 
 
-def run_version(_: VersionInput) -> VersionResult:
-    _kernel, language_bundle = load_authorities()
-    versions = cast(
-        list[str],
-        cast(dict[str, Any], language_bundle["language"])[
-            "model_source_schema_versions"
-        ],
-    )
-    parsed = [tuple(int(part) for part in version.split(".")) for version in versions]
-    if not parsed or any(len(version) != 3 for version in parsed):
-        raise ValueError("LDB model source version inventory is not semantic versioned")
-    newest = max(parsed)
-    return VersionResult(
-        toolkit_version=package_version("gda-balancing"),
-        supported_schema_line=f"{newest[0]}.{newest[1]}",
-    )
+AuthorityProvider = Callable[[], tuple[dict[str, Any], dict[str, Any]]]
+
+
+def version_handler(
+    provider: AuthorityProvider,
+) -> Callable[[VersionInput], VersionResult | Schema2RefusalReport]:
+    """Build the version tracer around one admitted authority provider."""
+
+    def _run(_: VersionInput) -> VersionResult | Schema2RefusalReport:
+        try:
+            kernel, language_bundle = provider()
+        except AuthorityLoadError as err:
+            return ingress_refusal(err.code, err.subject, err.message)
+        admission = admit_authorities(kernel, language_bundle)
+        if not admission.admitted:
+            return bootstrap_refusal(admission)
+        versions = cast(
+            list[str],
+            cast(dict[str, Any], language_bundle["language"])[
+                "model_source_schema_versions"
+            ],
+        )
+        parsed = [
+            tuple(int(part) for part in version.split(".")) for version in versions
+        ]
+        if not parsed or any(len(version) != 3 for version in parsed):
+            raise ValueError(
+                "LDB model source version inventory is not semantic versioned"
+            )
+        newest = max(parsed)
+        return VersionResult(
+            toolkit_version=package_version("gda-balancing"),
+            supported_schema_line=f"{newest[0]}.{newest[1]}",
+        )
+
+    return _run
+
+
+run_version = version_handler(load_authorities)
 
 
 VERSION = CommandDescriptor(
@@ -55,6 +88,7 @@ VERSION = CommandDescriptor(
     fixtures=ConformanceFixtures(valid_args=()),
     schema_major=2,
     structured_params=True,
+    refusal_catalog=BOOTSTRAP_REFUSAL_CATALOG,
     usage_codes=(
         "argument_conflict",
         "invalid_argument",

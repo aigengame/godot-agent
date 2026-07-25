@@ -14,6 +14,7 @@ designation replaces that field's option binding (bADR-0011's binding law).
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -97,22 +98,17 @@ class ArtifactSetMemberSpec:
 
 @dataclass(frozen=True)
 class RefusalDetailSpec:
-    """One descriptor-owned, stage-specific field in a 2.x refusal envelope."""
+    """The one closed, stage-specific detail field admitted in 2.x."""
 
-    stage: str
-    field_name: str
+    stage: Literal["migration"]
+    field_name: Literal["migration_report"]
     schema: Callable[[], dict[str, object]]
 
     def __post_init__(self) -> None:
-        if self.stage not in _SCHEMA2_REFUSAL_STAGES:
-            raise ValueError("invalid Schema 2.x refusal-detail stage")
-        if not self.field_name or self.field_name in {
-            "category",
-            "stage",
-            "diagnostics",
-            "truncated",
-        }:
-            raise ValueError("invalid Schema 2.x refusal-detail field")
+        if self.stage != "migration" or self.field_name != "migration_report":
+            raise ValueError(
+                "the migration-report field is the only Schema 2.x refusal detail"
+            )
 
 
 @dataclass(frozen=True)

@@ -1,9 +1,9 @@
-"""Unregistered Standard Schema 1.x source-input regression adapters.
+"""Test-only Standard Schema 1.x source-input regression adapters.
 
-These descriptors are deliberately absent from the production command registry:
-Schema 2.0 exposes ``model migrate`` as the only 1.x entrypoint. Tests retain
-them as adapters over the exact 1.x funnel so conversion-input behavior remains
-covered without making the superseded ``design`` group public.
+Schema 2.0 exposes ``model migrate`` as the only production 1.x entrypoint.
+These descriptors live outside ``src`` and therefore outside the wheel; legacy
+regression tests retain them over the exact 1.x funnel without shipping the
+superseded ``design`` group as hidden product code.
 
 ``design format`` runs the *same* funnel and, on success, emits the **validated**
 document in canonical form (bADR-0005; V11): the model dump materializes every

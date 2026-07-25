@@ -50,19 +50,22 @@ def _normalized_absolute_path(value: str) -> Path:
     return path
 
 
-def _refusal_catalog(
+def refusal_catalog_for_stages(
+    stages: frozenset[str],
     language_bundle: dict[str, Any] | None = None,
 ) -> tuple[tuple[str, str], ...]:
-    """Project the complete refusal catalog; do not mirror it in host code."""
+    """Project only the LDB refusals reachable by one command family."""
     if language_bundle is None:
         _, language_bundle = load_authorities()
     return BOOTSTRAP_REFUSAL_CATALOG + tuple(
         (cast(str, item["code"]), cast(str, item["stage"]))
         for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
+        if item.get("stage") in stages
     )
 
 
-MODEL_REFUSAL_CATALOG = _refusal_catalog()
+_MODEL_REFUSAL_STAGES = frozenset({"ingress", "parse", "static", "resolution"})
+MODEL_REFUSAL_CATALOG = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES)
 
 
 @dataclass(frozen=True)
@@ -154,7 +157,7 @@ def _refusal(
     message: str,
     language_bundle: dict[str, Any],
 ) -> Schema2RefusalReport:
-    catalog = _refusal_catalog(language_bundle)
+    catalog = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES, language_bundle)
     stage = dict(catalog)[code]
     return Schema2RefusalReport(
         stage=cast(Any, stage),
@@ -173,7 +176,7 @@ def _bounded_refusal(
     diagnostics: Iterable[Schema2Diagnostic],
     language_bundle: dict[str, Any],
 ) -> Schema2RefusalReport | None:
-    catalog = _refusal_catalog(language_bundle)
+    catalog = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES, language_bundle)
     stages = dict(catalog)
     unique: dict[
         tuple[str, ArtifactLocation, tuple[ArtifactLocation, ...]], Schema2Diagnostic

@@ -12,7 +12,6 @@ from gda_balancing.descriptors import (
     RefusalDetailSpec,
 )
 from gda_balancing.path_contracts import reject_input_aliasing
-from gda_balancing.schema.funnel import load as load_design_source
 from gda_balancing.schema2.authority import load_authorities
 from gda_balancing.schema2.bootstrap import admit_authorities
 from gda_balancing.schema2.canonical import JsonValue
@@ -24,6 +23,7 @@ from gda_balancing.schema2.migration import (
     CONVERTER_IDENTITY,
     MigrationFailure,
     MigrationSuccess,
+    load_design_source_observation,
     migrate_design_source,
 )
 from gda_balancing.schema2.model import (
@@ -39,6 +39,7 @@ from gda_balancing.schema2.model import (
     publication_authentication_key,
     publish_artifact_set,
     publish_model_artifacts,
+    refusal_catalog_for_stages,
     verify_artifact,
     wire_schema_identity,
 )
@@ -180,11 +181,7 @@ _MODEL_MIGRATE_ARTIFACT_SET = (
         "model-source-package", "model-source-package", role="primary"
     ),
 )
-MIGRATION_REFUSAL_CATALOG = tuple(
-    (code, stage)
-    for code, stage in MODEL_REFUSAL_CATALOG
-    if code.startswith("kernel.") or stage == "migration"
-)
+MIGRATION_REFUSAL_CATALOG = refusal_catalog_for_stages(frozenset({"migration"}))
 
 
 def _migration_report_schema() -> dict[str, object]:
@@ -196,13 +193,17 @@ def run_model_migrate(
     inp: ModelMigrateInput,
 ) -> ModelMigrateResult | Schema2RefusalReport:
     reject_input_aliasing(inp.out, inp.source, input_is_known_path=True)
-    data = load_design_source(inp.source)
+    data, input_identity = load_design_source_observation(inp.source)
     kernel, language_bundle = load_authorities()
     admission = admit_authorities(kernel, language_bundle)
     if not admission.admitted:
         return bootstrap_refusal(admission)
 
-    migrated = migrate_design_source(data, language_bundle)
+    migrated = migrate_design_source(
+        data,
+        language_bundle,
+        input_identity=input_identity,
+    )
     if isinstance(migrated, MigrationFailure):
         refusal_payload: dict[str, JsonValue] = {
             "status": "refused",
@@ -237,7 +238,7 @@ def run_model_migrate(
             stage=migrated.refusal.stage,
             diagnostics=migrated.refusal.diagnostics,
             truncated=migrated.refusal.truncated,
-            details={"migration_report": cast(JsonValue, report)},
+            migration_report=cast(dict[str, Any], report),
         )
     assert isinstance(migrated, MigrationSuccess)
     checked = check_model_source_value(

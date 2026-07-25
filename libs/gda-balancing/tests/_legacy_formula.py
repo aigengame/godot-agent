@@ -1,12 +1,9 @@
-"""The one public formula seam (bADR-0003).
+"""Test-only executable witness for the historical 1.x formula contract.
 
-This module is the **single sanctioned formula seam** of bADR-0003. It owns
-#504's two **definition-time** evaluators — the named-form interpreter and the
-expression-tree walker — behind one public surface, and #510 **reuses this
-same seam** for runtime magnitude evaluation rather than growing a second
-evaluator. It is also the **authorized external test boundary**: the normative
-numeric vectors (V2/V3/V16) are asserted against this module, not against the
-model classes.
+The clean-forward Schema 2.0 package ships no 1.x evaluator/runtime seam.
+Regression tests keep this implementation outside ``src`` to preserve the
+historical numeric vectors used to judge migration input without making them
+forward product authority.
 
 Numeric contract (bADR-0003, summarized; the bADR is authoritative):
 

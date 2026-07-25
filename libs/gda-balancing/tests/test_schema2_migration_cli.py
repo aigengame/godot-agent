@@ -3,11 +3,20 @@
 import hashlib
 import json
 from pathlib import Path
+from typing import Any, cast
 
 import jsonschema
 import pytest
 
-from gda_balancing.schema2.migration import CONVERTER_IDENTITY
+from gda_balancing.descriptors import RefusalDetailSpec
+from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
+from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
+from gda_balancing.schema2.canonical import content_identity
+from gda_balancing.schema2.migration import (
+    CONVERTER_IDENTITY,
+    CONVERTER_SPECIFICATION,
+    source_bytes_identity,
+)
 
 
 def _member(receipt: dict, logical_name: str) -> dict:
@@ -633,3 +642,177 @@ def test_model_migrate_reports_the_exact_accepted_1x_patch_version(
     assert report["source_schema_version"] == "1.0.999"
     assert report["target_schema_version"] == "2.0.0"
     assert json.loads(output.read_text(encoding="utf-8"))["schema_version"] == "2.0.0"
+
+
+@pytest.mark.parametrize(
+    ("legacy_body", "pointer"),
+    (
+        ({"parameters": {"signed_zero": -0.0}}, "/parameters/signed_zero"),
+        (
+            {
+                "attributes": {
+                    "items": {
+                        "signed_zero": {
+                            "domain": "number",
+                            "base": {"direct": -0.0},
+                        }
+                    }
+                }
+            },
+            "/attributes/items/signed_zero",
+        ),
+    ),
+)
+def test_model_migrate_refuses_negative_zero_without_partial_output(
+    tmp_path: Path, run_cli, legacy_body: dict, pointer: str
+) -> None:
+    source = tmp_path / "legacy-negative-zero.json"
+    source.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "meta": {"name": "legacy.negative-zero"},
+                **legacy_body,
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "must-not-exist.json"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "migrate",
+            str(source),
+            "--out",
+            str(output),
+            "--invocation-key",
+            hashlib.sha256(pointer.encode()).hexdigest(),
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "migration.deprecated_construct"
+    ]
+    assert [item["primary"]["pointer"] for item in error["diagnostics"]] == [pointer]
+    assert output.exists() is False
+
+
+def test_oversized_input_identity_hashes_the_complete_source_not_its_bounded_prefix(
+    tmp_path: Path, run_cli
+) -> None:
+    shared_prefix = b" " * (MAX_DOCUMENT_BYTES + 1)
+    sources = [shared_prefix + suffix for suffix in (b"first-suffix", b"second-suffix")]
+    reports = []
+
+    for index, source_bytes in enumerate(sources, start=1):
+        source = tmp_path / f"oversized-{index}.json"
+        source.write_bytes(source_bytes)
+        output = tmp_path / f"must-not-exist-{index}.json"
+        exit_code, stdout, stderr = run_cli(
+            [
+                "model",
+                "migrate",
+                str(source),
+                "--out",
+                str(output),
+                "--invocation-key",
+                str(index + 3) * 64,
+            ]
+        )
+        assert (exit_code, stderr) == (2, "")
+        reports.append(json.loads(stdout)["error"]["migration_report"])
+        assert reports[-1]["input_identity"] == source_bytes_identity(source_bytes)
+        assert output.exists() is False
+
+    assert reports[0]["input_identity"] != reports[1]["input_identity"]
+    assert reports[0]["content_identity"] != reports[1]["content_identity"]
+
+
+def test_migration_diagnostics_are_reachable_only_from_model_migrate(run_cli) -> None:
+    manifest = json.loads(run_cli(["manifest"])[1])
+    catalogs = {
+        (item["group"], item["command"]): item["execution"]["refusal_catalog"]
+        for item in manifest["commands"]
+    }
+    migration_codes = {
+        item["code"]
+        for item in catalogs[("model", "migrate")]
+        if item["stage"] == "migration"
+    }
+    assert migration_codes == {
+        "migration.deprecated_construct",
+        "migration.no_mappable_construct",
+        "migration.source_invalid",
+        "migration.target_limit_exceeded",
+    }
+    for command, catalog in catalogs.items():
+        if command == ("model", "migrate"):
+            continue
+        assert all(item["stage"] != "migration" for item in catalog)
+
+
+def test_converter_identity_covers_the_reported_defaults_and_warnings(
+    tmp_path: Path, run_cli
+) -> None:
+    body = {
+        key: value
+        for key, value in CONVERTER_SPECIFICATION.items()
+        if key != "content_identity"
+    }
+    assert CONVERTER_SPECIFICATION["content_identity"] == content_identity(
+        "source-converter-specification-v1", body
+    )
+    assert CONVERTER_IDENTITY == CONVERTER_SPECIFICATION["content_identity"]
+
+    source = tmp_path / "legacy-converter-contract.json"
+    source.write_text(
+        json.dumps(
+            {
+                "$schema": STRUCTURAL_SCHEMA_ID,
+                "schema_version": "1.0.0",
+                "meta": {
+                    "name": "legacy.converter-contract",
+                    "description": "omitted",
+                },
+                "parameters": {"power": 10},
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "migrated.json"
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "migrate",
+            str(source),
+            "--out",
+            str(output),
+            "--invocation-key",
+            "f" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    report = _member(json.loads(stdout), "migration-report")
+    report_contract = cast(dict[str, Any], CONVERTER_SPECIFICATION["report_contract"])
+    assert report["defaults"] == report_contract["defaults"]
+    assert report["warnings"] == [
+        item["report"]
+        for item in cast(list[dict[str, Any]], report_contract["warnings"])
+    ]
+    mapping_rules = cast(list[dict[str, Any]], CONVERTER_SPECIFICATION["mapping_rules"])
+    assert {item["mapping"] for item in report["mappings"]} <= {
+        item["report_mapping"] for item in mapping_rules
+    }
+
+
+def test_refusal_detail_extension_is_closed_to_the_migration_report() -> None:
+    with pytest.raises(ValueError, match="migration-report"):
+        RefusalDetailSpec(
+            stage="migration",
+            field_name=cast(Any, "ambient_extension"),
+            schema=lambda: {},
+        )
