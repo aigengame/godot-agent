@@ -59,9 +59,9 @@ detail — on any divergence, it wins.
 
 - **CLI interface style follows `gda`** (adjudicated 2026-07-15, recorded on PRD #501):
   the family's interface conventions and `gda`'s accumulated CLI spec experience are the
-  reference. bADR-0007…0011 are the binding transitional 1.x CLI contract; bADR-0015 and
-  bADR-0021 are the binding Standard Schema 2.x outcome and command-taxonomy contract. Read the
-  parent CLI-contract ADRs as *reference input* only.
+  reference. bADR-0007…0011 preserve the historical 1.x input contract used by `model migrate`;
+  bADR-0015 and bADR-0021 are the binding Standard Schema 2.x outcome and command-taxonomy
+  contract. Read the parent CLI-contract ADRs as *reference input* only.
 - **Engine- and game-agnostic core** — the toolkit names no game identity and imports no
   game or engine code (nor `gda`); agnosticism is enforced by packaging plus an isolation
   gate (landing with #502) at the hardened (recursive, AST-level) standard.

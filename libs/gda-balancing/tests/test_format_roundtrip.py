@@ -24,12 +24,16 @@ def _doc(tmp_path, content, name="doc.json") -> str:
     return str(path)
 
 
-def _format(run_cli, tmp_path, content, name="doc.json"):
-    return run_cli(["design", "format", _doc(tmp_path, content, name)])
+def _format(run_legacy_cli, tmp_path, content, name="doc.json"):
+    return run_legacy_cli(["design", "format", _doc(tmp_path, content, name)])
 
 
-def test_minimal_document_formats_to_canonical_form(run_cli, minimal_design_path):
-    exit_code, stdout, stderr = run_cli(["design", "format", str(minimal_design_path)])
+def test_minimal_document_formats_to_canonical_form(
+    run_legacy_cli, minimal_design_path
+):
+    exit_code, stdout, stderr = run_legacy_cli(
+        ["design", "format", str(minimal_design_path)]
+    )
     assert (exit_code, stderr) == (0, "")
     payload = json.loads(stdout)
     # V11 (post PR #527 multi#4): an optional member is absent-or-typed, so an
@@ -59,11 +63,13 @@ def _has_null(value) -> bool:
     return False
 
 
-def test_formatted_minimal_document_has_no_null_members(run_cli, minimal_design_path):
+def test_formatted_minimal_document_has_no_null_members(
+    run_legacy_cli, minimal_design_path
+):
     # optional≠nullable (PR #527 multi#4): canonical emission omits absent
     # optionals rather than materializing `null`, so NO serialized value is null
     # — while the genuine domain defaults (`accepts`, the empty sections) stay.
-    _, stdout, _ = run_cli(["design", "format", str(minimal_design_path)])
+    _, stdout, _ = run_legacy_cli(["design", "format", str(minimal_design_path)])
     payload = json.loads(stdout)
     assert not _has_null(payload), payload
     # The domain defaults are still materialized, not dropped.
@@ -73,7 +79,7 @@ def test_formatted_minimal_document_has_no_null_members(run_cli, minimal_design_
 
 
 def test_formatted_attribute_materializes_accepts_but_omits_absent_facets(
-    run_cli, tmp_path
+    run_legacy_cli, tmp_path
 ):
     # An attribute declaring only the required facets: `accepts` is a genuine
     # domain default (materialized to `[]`), but the absent optional facets
@@ -83,7 +89,7 @@ def test_formatted_attribute_materializes_accepts_but_omits_absent_facets(
         '"attributes": {"items": {"power": {"domain": "number", '
         '"base": {"direct": 1}}}}}'
     )
-    _, stdout, _ = _format(run_cli, tmp_path, content)
+    _, stdout, _ = _format(run_legacy_cli, tmp_path, content)
     payload = json.loads(stdout)
     assert not _has_null(payload), payload
     attribute = payload["attributes"]["items"]["power"]
@@ -93,13 +99,13 @@ def test_formatted_attribute_materializes_accepts_but_omits_absent_facets(
 
 
 def test_out_writes_the_body_to_the_sink_and_emits_a_receipt(
-    run_cli, tmp_path, minimal_design_path
+    run_legacy_cli, tmp_path, minimal_design_path
 ):
     # The no-`--out` stdout is the artifact body.
-    _, body, _ = run_cli(["design", "format", str(minimal_design_path)])
+    _, body, _ = run_legacy_cli(["design", "format", str(minimal_design_path)])
     sink = tmp_path / "out" / "formatted.json"
     sink.parent.mkdir()
-    exit_code, stdout, stderr = run_cli(
+    exit_code, stdout, stderr = run_legacy_cli(
         ["design", "format", str(minimal_design_path), "--out", str(sink)]
     )
     assert (exit_code, stderr) == (0, "")
@@ -116,7 +122,7 @@ def test_out_writes_the_body_to_the_sink_and_emits_a_receipt(
 # --- V11: absent default ≡ materialized default (bADR-0004a) -----------------
 
 
-def test_v11_absent_accepts_equals_materialized_empty(run_cli, tmp_path):
+def test_v11_absent_accepts_equals_materialized_empty(run_legacy_cli, tmp_path):
     without = (
         '{"schema_version": "1.0.0", "meta": {"name": "v11"}, '
         '"attributes": {"items": {"a": {"domain": "number", "base": {"direct": 1}}}}}'
@@ -126,8 +132,10 @@ def test_v11_absent_accepts_equals_materialized_empty(run_cli, tmp_path):
         '"attributes": {"items": {"a": {"domain": "number", '
         '"base": {"direct": 1}, "accepts": []}}}}'
     )
-    _, out_without, err_a = _format(run_cli, tmp_path, without, "without.json")
-    _, out_declared, err_b = _format(run_cli, tmp_path, declared, "declared.json")
+    _, out_without, err_a = _format(run_legacy_cli, tmp_path, without, "without.json")
+    _, out_declared, err_b = _format(
+        run_legacy_cli, tmp_path, declared, "declared.json"
+    )
     assert err_a == "" and err_b == ""
     # Semantically equal inputs format to byte-identical canonical output.
     assert out_without == out_declared
@@ -228,45 +236,51 @@ _FULL_SURFACE = {
 }
 
 
-def test_full_surface_document_round_trips_and_is_idempotent(run_cli, tmp_path):
+def test_full_surface_document_round_trips_and_is_idempotent(run_legacy_cli, tmp_path):
     content = json.dumps(_FULL_SURFACE)
-    exit_code, formatted, stderr = _format(run_cli, tmp_path, content, "full.json")
+    exit_code, formatted, stderr = _format(
+        run_legacy_cli, tmp_path, content, "full.json"
+    )
     assert (exit_code, stderr) == (0, "")
 
     # Feeding the OUTPUT back through `format` is byte-identical (idempotent
     # canonicalization).
     exit_2, reformatted, stderr_2 = _format(
-        run_cli, tmp_path, formatted, "full-again.json"
+        run_legacy_cli, tmp_path, formatted, "full-again.json"
     )
     assert (exit_2, stderr_2) == (0, "")
     assert reformatted == formatted
 
     # The funnel accepts its own canonical emission.
-    exit_3, stdout_3, stderr_3 = run_cli(
+    exit_3, stdout_3, stderr_3 = run_legacy_cli(
         ["design", "validate", _doc(tmp_path, formatted, "full-validate.json")]
     )
     assert (exit_3, stderr_3) == (0, "")
     assert json.loads(stdout_3) == {"valid": True}
 
 
-def test_reserved_sections_are_never_materialized(run_cli, tmp_path):
-    _, formatted, _ = _format(run_cli, tmp_path, json.dumps(_FULL_SURFACE), "rs.json")
+def test_reserved_sections_are_never_materialized(run_legacy_cli, tmp_path):
+    _, formatted, _ = _format(
+        run_legacy_cli, tmp_path, json.dumps(_FULL_SURFACE), "rs.json"
+    )
     payload = json.loads(formatted)
     for reserved in ("combat", "encounters", "builds", "growth", "economy", "targets"):
         assert reserved not in payload
 
 
-def test_schema_reference_round_trips(run_cli, tmp_path):
-    _, formatted, _ = _format(run_cli, tmp_path, json.dumps(_FULL_SURFACE), "sr.json")
+def test_schema_reference_round_trips(run_legacy_cli, tmp_path):
+    _, formatted, _ = _format(
+        run_legacy_cli, tmp_path, json.dumps(_FULL_SURFACE), "sr.json"
+    )
     # The correct `$schema` survives canonical emission under its alias.
     assert json.loads(formatted)["$schema"] == STRUCTURAL_SCHEMA_ID
 
 
-def test_refusing_document_is_a_refusal_envelope(run_cli, tmp_path):
+def test_refusing_document_is_a_refusal_envelope(run_legacy_cli, tmp_path):
     # A refused document takes the same funnel path as `design validate`:
     # `refusal` envelope on stdout, exit 2 (bADR-0004/0008).
     content = '{"schema_version": "9.0.0", "meta": {"name": "nope"}}'
-    exit_code, stdout, stderr = _format(run_cli, tmp_path, content)
+    exit_code, stdout, stderr = _format(run_legacy_cli, tmp_path, content)
     assert (exit_code, stderr) == (2, "")
     payload = json.loads(stdout)
     jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)

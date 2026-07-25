@@ -160,6 +160,13 @@ def _exact_path(root: Any, dotted: str) -> Any:
 
 
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
+    kernel, _ = load_authorities()
+    projections = kernel["meta_format"]["package_release"]["semantic_closure"][
+        "projections"
+    ]
+    projections_by_path = {
+        projection["authority_path"]: projection for projection in projections
+    }
     for package in language_bundle["language"]["packages"]:
         package["vector_definitions"] = [
             deepcopy(
@@ -172,8 +179,17 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             for vector_id in package["vectors"]
         ]
         for entry in package["semantic_closure"]:
+            projection = projections_by_path[entry["authority_path"]]
+            definitions = _exact_path(language_bundle, entry["authority_path"])
+            owned = _reference_path(package, projection["owners_path"])
+            key_member = projection["key_member"]
             entry["definitions"] = deepcopy(
-                _exact_path(language_bundle, entry["authority_path"])
+                [
+                    definition
+                    for definition in definitions
+                    if (definition if key_member is None else definition[key_member])
+                    in owned
+                ]
             )
         runtime_paths = set(package["runtime_semantic_paths"])
         package["semantic_identity"] = _reference_content_identity(

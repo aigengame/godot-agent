@@ -56,7 +56,7 @@ def _refusals(stdout: str) -> list[dict]:
 # --- Trailing-newline divergence: a refusal (exit 2), never a crash (exit 4) --
 
 
-def test_map_key_trailing_newline_is_a_refusal_not_a_crash(run_cli, tmp_path):
+def test_map_key_trailing_newline_is_a_refusal_not_a_crash(run_legacy_cli, tmp_path):
     # A valid attribute under a map key carrying a trailing newline. Python `re`
     # would let the key match the id patternProperties, so only the
     # propertyNames newline guard catches it — as a structural refusal pointing
@@ -65,7 +65,9 @@ def test_map_key_trailing_newline_is_a_refusal_not_a_crash(run_cli, tmp_path):
         **_VALID_MINIMAL,
         "attributes": {"items": {"ab\n": {"domain": "number", "base": {"direct": 5}}}},
     }
-    exit_code, stdout, _ = run_cli(["design", "validate", _doc(tmp_path, document)])
+    exit_code, stdout, _ = run_legacy_cli(
+        ["design", "validate", _doc(tmp_path, document)]
+    )
     assert exit_code == 2  # specifically NOT 4
     refusals = _refusals(stdout)
     assert len(refusals) == 1
@@ -73,7 +75,7 @@ def test_map_key_trailing_newline_is_a_refusal_not_a_crash(run_cli, tmp_path):
     assert refusals[0]["path"] == "/attributes/items/ab\n"
 
 
-def test_scalar_id_trailing_newline_is_a_refusal_not_a_crash(run_cli, tmp_path):
+def test_scalar_id_trailing_newline_is_a_refusal_not_a_crash(run_legacy_cli, tmp_path):
     # A base-formula `attr` id carrying a trailing newline: the pattern node's
     # sibling newline guard refuses it structurally rather than passing it to a
     # crashing pydantic construction.
@@ -85,7 +87,9 @@ def test_scalar_id_trailing_newline_is_a_refusal_not_a_crash(run_cli, tmp_path):
             }
         },
     }
-    exit_code, stdout, _ = run_cli(["design", "validate", _doc(tmp_path, document)])
+    exit_code, stdout, _ = run_legacy_cli(
+        ["design", "validate", _doc(tmp_path, document)]
+    )
     assert exit_code == 2  # specifically NOT 4
     refusals = _refusals(stdout)
     assert refusals
@@ -123,10 +127,12 @@ _DIVERGENCE_SWEEP = {
 
 
 @pytest.mark.parametrize("document", _DIVERGENCE_SWEEP.values(), ids=_DIVERGENCE_SWEEP)
-def test_divergence_sweep_never_takes_the_internal_path(document, run_cli, tmp_path):
+def test_divergence_sweep_never_takes_the_internal_path(
+    document, run_legacy_cli, tmp_path
+):
     # Every near-miss must resolve as a clean accept (0) or a typed refusal (2);
     # a structural-schema/pydantic disagreement would surface as exit 4.
-    exit_code, _stdout, _stderr = run_cli(
+    exit_code, _stdout, _stderr = run_legacy_cli(
         ["design", "validate", _doc(tmp_path, document)]
     )
     assert exit_code in (0, 2), f"unexpected exit {exit_code} (engine-parity break?)"

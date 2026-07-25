@@ -1,7 +1,7 @@
-"""The public formula seam's contract (bADR-0003, vectors V2/V3/V16).
+"""The historical 1.x formula contract (bADR-0003, vectors V2/V3/V16).
 
-The single-formula tests import ONLY :mod:`gda_balancing.formula` — the one
-authorized external boundary for the definition-time evaluators (bADR-0003).
+The single-formula tests import only the test-local executable witness; Schema
+2.0 ships no 1.x evaluator/runtime seam.
 Formulas are built from JSON-shaped dicts via ``parse_formula`` so the tests
 exercise the same parse path a document funnel would, never the internal model
 classes.
@@ -20,7 +20,7 @@ import math
 import pytest
 from pydantic import ValidationError
 
-from gda_balancing.formula import (
+from _legacy_formula import (
     EvaluationRefusal,
     FormulaEnv,
     clamp_to_attribute,

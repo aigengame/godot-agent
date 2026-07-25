@@ -84,7 +84,7 @@ _FUNNEL_SHADOWED: frozenset[str] = frozenset()
 
 
 @pytest.mark.parametrize(("rule", "index"), _RULE_TEMPLATE_CASES, ids=_CASE_IDS)
-def test_rule_fixture_refuses_end_to_end(rule, index, run_cli, tmp_path) -> None:
+def test_rule_fixture_refuses_end_to_end(rule, index, run_legacy_cli, tmp_path) -> None:
     # The CLI route: an agent submitting the fixture gets exit 2 carrying
     # exactly this rule's code — funnel reachability as an executable
     # invariant, not an assumption the semantic-layer walk leaves open.
@@ -93,7 +93,7 @@ def test_rule_fixture_refuses_end_to_end(rule, index, run_cli, tmp_path) -> None
     template = rule.scope[index]
     doc_path = tmp_path / "fixture.json"
     doc_path.write_text(json.dumps(rule.violation_fixtures[index]), encoding="utf-8")
-    exit_code, stdout, stderr = run_cli(["design", "validate", str(doc_path)])
+    exit_code, stdout, stderr = run_legacy_cli(["design", "validate", str(doc_path)])
     assert (exit_code, stderr) == (2, "")
     refusals = json.loads(stdout)["error"]["refusals"]
     # (a) Exactly this rule's code (a rule owns one code, no cascade).
@@ -215,7 +215,9 @@ def _scope_matches(template: str, path: str) -> bool:
     return all(_token_matches(t, p) for t, p in zip(t_tokens, p_tokens))
 
 
-def test_every_emitted_refusal_path_matches_a_scope_template(run_cli, tmp_path) -> None:
+def test_every_emitted_refusal_path_matches_a_scope_template(
+    run_legacy_cli, tmp_path
+) -> None:
     """Every refusal the funnel emits over the corpus is matched by one of its
     rule's scope templates (see the contract note above). The corpus is **every**
     aligned violation fixture of every rule — which now covers both the
@@ -228,7 +230,9 @@ def test_every_emitted_refusal_path_matches_a_scope_template(run_cli, tmp_path) 
     doc_path = tmp_path / "doc.json"
     for document in corpus:
         doc_path.write_text(json.dumps(document), encoding="utf-8")
-        exit_code, stdout, stderr = run_cli(["design", "validate", str(doc_path)])
+        exit_code, stdout, stderr = run_legacy_cli(
+            ["design", "validate", str(doc_path)]
+        )
         assert (exit_code, stderr) == (2, ""), stdout
         refusals = json.loads(stdout)["error"]["refusals"]
         assert refusals, document

@@ -935,9 +935,21 @@ Adopting Standard Schema 2.0 does not by itself require a `gda-balancing` 2.0.0 
 toolkit release cannot silently change the Schema major, exact Kernel, or LDB identity.
 
 A limited converter may migrate 1.x **source** only when the mapping is semantics-preserving and
-auditable. It emits a migration report binding the input identity, converter/LDB identities,
-successful mappings, defaults, warnings, and refusals. A concept without a safe mapping is declared
-deprecated/unsupported and refused.
+auditable. It emits a migration report binding the input identity, an embedded, independently
+rehashable LDB-validated Source Converter Specification, LDB identity, successful mappings,
+defaults, warnings, and refusals. A concept without a safe mapping is declared
+deprecated/unsupported and refused. Exact input identity is claimed only for regular files whose
+complete stream fits the converter's 16 MiB observation cap; non-regular or larger inputs fail at
+usage ingress without a fabricated identity.
+Before success, the converter canonicalizes the candidate Model Source and applies the LDB's
+`max_source_bytes` as well as `max_symbols`; either target-bound overflow is a typed migration
+refusal and publishes no partial Source.
+
+Successful conversion atomically publishes the new Model Source Package and a separately typed
+`migration-report`. A pre-runtime conversion refusal publishes no command success artifact; its
+exit-2 envelope carries an LDB-validated `migration-refusal-report` that binds the attempted safe
+mappings and the complete bounded refusal evidence. The refusal report is auditable evidence of
+the failed attempt, not a partial Source, success receipt, or terminal-audit artifact set.
 
 There is no dual 1.x/2.x semantic stack, gray runtime rollout, reverse migration, or compatibility
 promise for saves, replays, runtime behavior, rulesets, or partial Evidence. Standard Schema 1.x

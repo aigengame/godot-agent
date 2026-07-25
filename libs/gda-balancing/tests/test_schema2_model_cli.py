@@ -118,6 +118,29 @@ def test_model_check_accepts_all_quantity_roles_without_publishing(tmp_path, run
     assert set(tmp_path.iterdir()) == before
 
 
+def test_in_memory_model_check_reuses_only_a_matching_authority_admission():
+    kernel, language_bundle = model_module.load_authorities()
+    admission = admit_authorities(kernel, language_bundle)
+
+    checked = model_module.check_model_source_value(
+        _model_source(),
+        kernel=kernel,
+        language_bundle=language_bundle,
+        authority_admission=admission,
+    )
+
+    assert isinstance(checked, model_module.CheckedModel)
+    mismatched_ldb = deepcopy(language_bundle)
+    mismatched_ldb["content_identity"] = "sha256:" + "0" * 64
+    with pytest.raises(ValueError, match="another Kernel/LDB pair"):
+        model_module.check_model_source_value(
+            _model_source(),
+            kernel=kernel,
+            language_bundle=mismatched_ldb,
+            authority_admission=admission,
+        )
+
+
 def test_model_check_runs_the_same_lowering_and_admission_front_end(
     tmp_path, run_cli, monkeypatch
 ):
@@ -1613,11 +1636,22 @@ def _reidentify(artifact: dict, domain: str) -> None:
 
 
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
-    def exact_path(dotted: str) -> Any:
-        value: Any = language_bundle
+    kernel, _ = model_module.load_authorities()
+    projections = kernel["meta_format"]["package_release"]["semantic_closure"][
+        "projections"
+    ]
+
+    def path_values(root: Any, dotted: str) -> list[Any]:
+        values = [root]
         for segment in dotted.split("."):
-            value = value[segment]
-        return value
+            selected: list[Any] = []
+            for value in values:
+                if not isinstance(value, dict) or segment not in value:
+                    continue
+                child = value[segment]
+                selected.extend(child if isinstance(child, list) else [child])
+            values = selected
+        return values
 
     for package in language_bundle["language"]["packages"]:
         package["vector_definitions"] = [
@@ -1630,8 +1664,24 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             )
             for vector_id in package["vectors"]
         ]
-        for entry in package["semantic_closure"]:
-            entry["definitions"] = deepcopy(exact_path(entry["authority_path"]))
+        for entry, projection in zip(
+            package["semantic_closure"], projections, strict=True
+        ):
+            definitions = path_values(language_bundle, entry["authority_path"])
+            owners = path_values(package, projection["owners_path"])
+            key_member = projection["key_member"]
+            entry["definitions"] = deepcopy(
+                [
+                    definition
+                    for definition in definitions
+                    if (
+                        definition.get(key_member)
+                        if key_member is not None and isinstance(definition, dict)
+                        else definition
+                    )
+                    in owners
+                ]
+            )
         runtime_paths = set(package["runtime_semantic_paths"])
         package["semantic_identity"] = content_identity(
             "domain-package-semantic-closure-v2",

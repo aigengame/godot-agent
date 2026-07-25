@@ -14,6 +14,7 @@ file and nothing else.
 """
 
 import ast
+import importlib.util
 import re
 from pathlib import Path
 
@@ -136,6 +137,11 @@ def test_toolkit_carries_no_per_game_config() -> None:
         if str(path.relative_to(_PACKAGE_ROOT)) not in machine_authorities
     ]
     assert not stray, "per-game config files inside the toolkit:\n" + "\n".join(stray)
+
+
+def test_clean_forward_package_has_no_legacy_command_or_evaluator_seam() -> None:
+    assert importlib.util.find_spec("gda_balancing.commands.design") is None
+    assert importlib.util.find_spec("gda_balancing.formula") is None
 
 
 @pytest.mark.parametrize("term", _FORBIDDEN_TERMS)

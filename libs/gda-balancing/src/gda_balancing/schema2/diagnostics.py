@@ -1,6 +1,7 @@
 """Stage-aware Schema 2.0 diagnostics and refusal envelopes."""
 
-from typing import Literal, cast
+from collections.abc import Iterable
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,6 +42,41 @@ class Schema2RefusalReport(BaseModel):
     stage: RefusalStage
     diagnostics: tuple[Schema2Diagnostic, ...] = Field(min_length=1)
     truncated: bool
+    migration_report: dict[str, Any] | None = None
+
+
+def bound_diagnostics(
+    diagnostics: Iterable[Schema2Diagnostic],
+    limit: int,
+) -> tuple[tuple[Schema2Diagnostic, ...], bool]:
+    """Deduplicate first-wins, order, and bound one diagnostic collection."""
+    unique: dict[
+        tuple[str, ArtifactLocation, tuple[ArtifactLocation, ...]], Schema2Diagnostic
+    ] = {}
+    for diagnostic in diagnostics:
+        key = (diagnostic.code, diagnostic.primary, diagnostic.related)
+        unique.setdefault(key, diagnostic)
+    ordered = sorted(
+        unique.values(),
+        key=lambda item: (
+            item.primary.pointer,
+            item.code,
+            item.primary.content_identity,
+            tuple(
+                (related.pointer, related.content_identity) for related in item.related
+            ),
+        ),
+    )
+    return tuple(ordered[:limit]), len(ordered) > limit
+
+
+def reason_by_id(language_bundle: dict[str, Any], reason_id: str) -> dict[str, Any]:
+    """Return the one LDB-owned reason with the requested stable identifier."""
+    reasons = cast(list[dict[str, Any]], language_bundle["language"]["reasons"])
+    matches = [reason for reason in reasons if reason.get("id") == reason_id]
+    if len(matches) != 1:
+        raise ValueError(f"admitted reason is not unique: {reason_id}")
+    return matches[0]
 
 
 def bootstrap_refusal(admission: BootstrapAdmission) -> Schema2RefusalReport:
@@ -102,13 +138,14 @@ def ingress_refusal(code: str, subject: str, message: str) -> Schema2RefusalRepo
 
 def refusal_envelope(report: Schema2RefusalReport) -> dict[str, object]:
     """Build the closed Schema 2.0 refusal Error envelope."""
-    return {
-        "error": {
-            "category": "refusal",
-            "stage": report.stage,
-            "diagnostics": [
-                item.model_dump(mode="json") for item in report.diagnostics
-            ],
-            "truncated": report.truncated,
-        }
+    error: dict[str, object] = {
+        "category": "refusal",
+        "stage": report.stage,
+        "diagnostics": [item.model_dump(mode="json") for item in report.diagnostics],
+        "truncated": report.truncated,
     }
+    if report.migration_report is not None:
+        if report.stage != "migration":
+            raise ValueError("a migration report belongs only to migration refusal")
+        error["migration_report"] = report.migration_report
+    return {"error": error}

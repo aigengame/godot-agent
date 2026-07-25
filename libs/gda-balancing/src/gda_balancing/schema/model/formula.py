@@ -13,8 +13,9 @@ names — strictly-increasing ``x``, positivity, entry counts — is a
 semantic-phase rule (bADR-0004), enforced after parameter resolution and
 deliberately **not** encoded here.
 
-The public evaluators and re-exports live in :mod:`gda_balancing.formula`, the
-one sanctioned formula seam (bADR-0003); import the vocabulary from there.
+The clean-forward product retains these models only as the private migration
+input grammar. Historical executable evaluator vectors live under ``tests``;
+Schema 2.0 ships no 1.x evaluator/runtime seam.
 """
 
 from typing import Annotated, Literal, Union

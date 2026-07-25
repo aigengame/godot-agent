@@ -214,7 +214,24 @@ def _invoke_descriptor(
             raise TypeError(
                 "handler returned a Schema 2.x refusal absent from its descriptor"
             )
-        stdout.write(canonical_json(schema2_refusal_envelope(outcome)))
+        expected_details = {
+            detail.field_name: detail
+            for detail in descriptor.refusal_details
+            if detail.stage == outcome.stage
+        }
+        observed_details = {
+            name: value
+            for name in expected_details
+            if (value := getattr(outcome, name)) is not None
+        }
+        if set(observed_details) != set(expected_details):
+            raise TypeError(
+                "handler returned Schema 2.x refusal details absent from its descriptor"
+            )
+        for name, detail in expected_details.items():
+            jsonschema.validate(observed_details[name], detail.schema())
+        envelope = schema2_refusal_envelope(outcome)
+        stdout.write(canonical_json(envelope))
         return EXIT_REFUSAL
     if type(outcome) is not descriptor.output_model:
         # The declared output model is authoritative at runtime, not merely

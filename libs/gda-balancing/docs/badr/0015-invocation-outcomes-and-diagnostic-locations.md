@@ -61,10 +61,13 @@ refusal payload stage-aware and artifact-aware.
 
 - **The 2.x refusal envelope carries Diagnostics rather than 1.x JSON-Pointer-only entries.** The
   closed refusal variant contains `category: refusal`, one `stage`, a non-empty `diagnostics` array,
-  and `truncated`. It may additionally carry `reproduction` after stochastic identity exists and a
-  `terminal_audit` receipt. A `runtime` refusal must carry that receipt once runtime dispatch has
-  begun; other stages cannot fabricate one. It has no envelope-level diagnostic code: stable codes
-  belong to individual entries.
+  and `truncated`. It may additionally carry only the closed, stage-bound fields defined here:
+  `reproduction` after stochastic identity exists, a `terminal_audit` receipt after runtime
+  dispatch has begun, and `migration_report` only for a migration-stage refusal. The migration
+  field is the inline, LDB-validated refusal report: it records attempted mappings and deprecated
+  constructs but never claims or publishes a successful Model Source Package. Other stages cannot
+  fabricate these fields, and no ambient refusal-detail extension bag exists. The envelope has no
+  envelope-level diagnostic code: stable codes belong to individual entries.
 
 - **Every Diagnostic has one stable code, explanatory message, tagged primary location, and zero
   or more related locations.** Primary and related locations use a closed tagged union:

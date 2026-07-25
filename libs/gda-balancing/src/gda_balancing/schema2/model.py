@@ -9,6 +9,7 @@ import shutil
 import stat
 import tempfile
 from collections.abc import Callable, Iterable
+from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,13 +21,19 @@ from gda_balancing.envelope import UnreadableInputError, UsageError
 from gda_balancing.path_contracts import reject_input_aliasing
 from gda_balancing.descriptors import ArtifactSetMemberSpec
 from gda_balancing.schema2.authority import load_authorities
-from gda_balancing.schema2.bootstrap import BOOTSTRAP_REFUSAL_CATALOG, admit_authorities
+from gda_balancing.schema2.bootstrap import (
+    BOOTSTRAP_REFUSAL_CATALOG,
+    BootstrapAdmission,
+    admit_authorities,
+)
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
+    bound_diagnostics,
     bootstrap_refusal,
+    reason_by_id,
 )
 
 _RESOLVER_IMPLEMENTATION_IDENTITY = "gda-balancing.python-exact-resolver-v1"
@@ -49,19 +56,22 @@ def _normalized_absolute_path(value: str) -> Path:
     return path
 
 
-def _refusal_catalog(
+def refusal_catalog_for_stages(
+    stages: frozenset[str],
     language_bundle: dict[str, Any] | None = None,
 ) -> tuple[tuple[str, str], ...]:
-    """Project the complete refusal catalog; do not mirror it in host code."""
+    """Project only the LDB refusals reachable by one command family."""
     if language_bundle is None:
         _, language_bundle = load_authorities()
     return BOOTSTRAP_REFUSAL_CATALOG + tuple(
         (cast(str, item["code"]), cast(str, item["stage"]))
         for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
+        if item.get("stage") in stages
     )
 
 
-MODEL_REFUSAL_CATALOG = _refusal_catalog()
+_MODEL_REFUSAL_STAGES = frozenset({"ingress", "parse", "static", "resolution"})
+MODEL_REFUSAL_CATALOG = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES)
 
 
 @dataclass(frozen=True)
@@ -153,7 +163,7 @@ def _refusal(
     message: str,
     language_bundle: dict[str, Any],
 ) -> Schema2RefusalReport:
-    catalog = _refusal_catalog(language_bundle)
+    catalog = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES, language_bundle)
     stage = dict(catalog)[code]
     return Schema2RefusalReport(
         stage=cast(Any, stage),
@@ -172,35 +182,21 @@ def _bounded_refusal(
     diagnostics: Iterable[Schema2Diagnostic],
     language_bundle: dict[str, Any],
 ) -> Schema2RefusalReport | None:
-    catalog = _refusal_catalog(language_bundle)
+    catalog = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES, language_bundle)
     stages = dict(catalog)
-    unique: dict[
-        tuple[str, ArtifactLocation, tuple[ArtifactLocation, ...]], Schema2Diagnostic
-    ] = {}
-    for diagnostic in diagnostics:
-        key = (diagnostic.code, diagnostic.primary, diagnostic.related)
-        unique.setdefault(key, diagnostic)
-    ordered = sorted(
-        unique.values(),
-        key=lambda item: (
-            item.primary.pointer,
-            item.code,
-            item.primary.content_identity,
-            tuple(
-                (related.pointer, related.content_identity) for related in item.related
-            ),
-        ),
+    ordered, truncated = bound_diagnostics(
+        diagnostics,
+        cast(int, language_bundle["resources"]["max_diagnostics"]),
     )
     if not ordered:
         return None
     stage = stages[ordered[0].code]
     if any(stages[item.code] != stage for item in ordered):
         raise ValueError("one refusal report cannot cross refusal stages")
-    limit = cast(int, language_bundle["resources"]["max_diagnostics"])
     return Schema2RefusalReport(
         stage=cast(Any, stage),
-        diagnostics=tuple(ordered[:limit]),
-        truncated=len(ordered) > limit,
+        diagnostics=ordered,
+        truncated=truncated,
     )
 
 
@@ -359,17 +355,6 @@ def _unique_reason(
     return matches[0]
 
 
-def _reason_by_id(language_bundle: dict[str, Any], reason_id: str) -> dict[str, Any]:
-    matches = [
-        reason
-        for reason in cast(list[dict[str, Any]], _language(language_bundle)["reasons"])
-        if reason["id"] == reason_id
-    ]
-    if len(matches) != 1:
-        raise ValueError(f"admitted reason is not unique: {reason_id}")
-    return matches[0]
-
-
 def _model_check_diagnostics(
     source: dict[str, Any],
     source_identity: str,
@@ -467,7 +452,7 @@ def _schema_error_code(
         profile = _resolution_profile(language_bundle)
         return cast(
             str,
-            _reason_by_id(
+            reason_by_id(
                 language_bundle,
                 cast(str, profile["structural_reason"]),
             )["diagnostic"],
@@ -491,7 +476,7 @@ def _schema_error_code(
             return cast(str, reasons[check["reason"]]["diagnostic"])
     return cast(
         str,
-        _reason_by_id(
+        reason_by_id(
             language_bundle,
             cast(str, _resolution_profile(language_bundle)["structural_reason"]),
         )["diagnostic"],
@@ -785,6 +770,7 @@ def check_model_source_value(
     *,
     kernel: dict[str, Any] | None = None,
     language_bundle: dict[str, Any] | None = None,
+    authority_admission: BootstrapAdmission | None = None,
 ) -> CheckedModel | Schema2RefusalReport:
     """Admit an in-memory Model Source through the same authority path as a file."""
     try:
@@ -795,6 +781,7 @@ def check_model_source_value(
         data,
         kernel=kernel,
         language_bundle=language_bundle,
+        authority_admission=authority_admission,
     )
 
 
@@ -803,13 +790,18 @@ def _check_model_source_bytes(
     *,
     kernel: dict[str, Any] | None = None,
     language_bundle: dict[str, Any] | None = None,
+    authority_admission: BootstrapAdmission | None = None,
 ) -> CheckedModel | Schema2RefusalReport:
     if (kernel is None) != (language_bundle is None):
         raise ValueError("Kernel and LDB must be supplied together")
     if kernel is None or language_bundle is None:
         kernel, language_bundle = load_authorities()
     ldb = language_bundle
-    admission = admit_authorities(kernel, ldb)
+    admission = authority_admission or admit_authorities(kernel, ldb)
+    if admission.kernel_identity != kernel.get(
+        "content_identity"
+    ) or admission.language_bundle_identity != ldb.get("content_identity"):
+        raise ValueError("authority admission belongs to another Kernel/LDB pair")
     if not admission.admitted:
         return bootstrap_refusal(admission)
     source_size_reason = _unique_reason(
@@ -894,7 +886,7 @@ def _check_model_source_bytes(
     try:
         _resolved_source_symbols(source, ldb)
     except (KeyError, TypeError, ValueError) as err:
-        source_contract_reason = _reason_by_id(
+        source_contract_reason = reason_by_id(
             ldb,
             cast(str, profile["structural_reason"]),
         )
@@ -1013,12 +1005,30 @@ def _artifact_schema(
 def _wire_schema_identity_for_kind(
     language_bundle: dict[str, Any], artifact_kind: str
 ) -> str:
-    contract = _artifact_contract(language_bundle, artifact_kind)
-    schema = _artifact_schema(language_bundle, artifact_kind)
-    body = {key: value for key, value in schema.items() if key != "$id"}
-    return content_identity(
-        cast(str, contract["wire_schema_identity_domain"]), cast(JsonValue, body)
+    language = _language(language_bundle)
+    schemas = [
+        item["schema"]
+        for collection in ("wire_schemas", "artifact_wire_schemas")
+        for item in cast(list[dict[str, Any]], language[collection])
+        if item["artifact_kind"] == artifact_kind
+    ]
+    if len(schemas) != 1:
+        raise ValueError(f"wire schema is not unique: {artifact_kind}")
+    contracts = [
+        item
+        for item in cast(list[dict[str, Any]], language["artifact_contracts"])
+        if item["artifact_kind"] == artifact_kind
+    ]
+    if len(contracts) > 1:
+        raise ValueError(f"artifact contract is not unique: {artifact_kind}")
+    domain = (
+        cast(str, contracts[0]["wire_schema_identity_domain"])
+        if contracts
+        else f"{artifact_kind}-wire-schema-v2"
     )
+    schema = cast(dict[str, Any], schemas[0])
+    body = {key: value for key, value in schema.items() if key != "$id"}
+    return content_identity(domain, cast(JsonValue, body))
 
 
 def _identified_artifact(
@@ -1089,6 +1099,20 @@ def identified_artifact(
 def verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> bool:
     """Re-admit one content-addressed artifact against the exact LDB."""
     return _verify_artifact(value, language_bundle)
+
+
+def wire_schema_identity(language_bundle: dict[str, Any], artifact_kind: str) -> str:
+    """Derive one artifact's wire-schema identity from the exact LDB."""
+    return _wire_schema_identity_for_kind(language_bundle, artifact_kind)
+
+
+def artifact_wire_schema(
+    language_bundle: dict[str, Any], artifact_kind: str
+) -> dict[str, object]:
+    """Return an isolated copy of one exact LDB-owned artifact schema."""
+    return cast(
+        dict[str, object], deepcopy(_artifact_schema(language_bundle, artifact_kind))
+    )
 
 
 def _resolved_source_symbols(
@@ -1873,7 +1897,7 @@ def admit_resolved_model(
     diagnostic = (
         cast(
             str,
-            _reason_by_id(
+            reason_by_id(
                 ldb,
                 cast(str, lowering["admission_reason"]),
             )["diagnostic"],

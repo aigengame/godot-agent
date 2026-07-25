@@ -12,8 +12,9 @@ it, with structured output suitable for programmatic consumption. (Requirements:
 The toolkit itself. The `gda-` prefix is the **product-family brand** — this is a sibling
 product of `gda`, not a `gda` component (contrast `gda-mcp` / `gda-daemon`, which are gda's
 own components). It neither depends on nor extends `gda`; its CLI *interface style* follows
-gda's conventions (PRD #501 addendum). bADR-0007…0011 describe the transitional 1.x surface;
-bADR-0015/0021 are the forward Standard Schema 2.x invocation and taxonomy contract.
+gda's conventions (PRD #501 addendum). bADR-0007…0011 preserve the historical 1.x surface contract
+used only to define migration input; bADR-0015/0021 are the forward Standard Schema 2.x invocation
+and taxonomy contract.
 _Avoid_: gda balancing module, balancing plugin
 
 **Standard Schema**:
@@ -396,9 +397,11 @@ _Avoid_: config file, numbers file, design config
 **Migration report**:
 The deterministic result of attempting the limited Standard Schema 1.x source conversion. It binds
 the original Design-document identity, converter/Language Definition Bundle identity, every
-successfully mapped construct, and every explicitly deprecated construct. A report with any
-deprecated construct has no 2.x Model Source Package output; partial or lossy migration is never
-presented as success (bADR-0019).
+successfully mapped construct, explicit default, warning, and every explicitly deprecated
+construct. On success, the `migration-report` and new 2.x Model Source Package are one atomic
+success artifact set. On refusal, an LDB-validated `migration-refusal-report` is carried inside the
+typed exit-2 envelope; it is not a command success artifact and no 2.x Model Source Package is
+published. Partial or lossy migration is never presented as success (bADR-0019/0021).
 _Avoid_: upgrade log, compatibility report, converted file
 
 **Deprecated 1.x construct**:

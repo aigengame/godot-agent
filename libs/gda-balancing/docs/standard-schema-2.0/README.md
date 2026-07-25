@@ -4,16 +4,17 @@ This directory holds acceptance artifacts for the Standard Schema 2.0 specificat
 PRD #534. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) is the human-readable macro architecture
 authority; bADR-0012…0022 own the binding detailed decisions; and PRD #534 owns requirements,
 acceptance criteria, and live completion status. These documents do not by themselves make the 2.0
-language, runtime, CLI, or genre templates implemented. Issues #538, #539, and #553 now supply the
-permanent authority, Model-build tracer, and first minimal Template release described below; all
-broader delivery claims remain bounded by PRD #534 and the coverage matrix.
+language, runtime, CLI, or genre templates implemented. Issues #538, #539, #553, and #554 now
+supply the permanent authority, Model-build tracer, first minimal Template release, and limited
+clean-forward source migration described below; all broader delivery claims remain bounded by PRD
+#534 and the coverage matrix.
 
 The current artifact is [`genre-coverage.md`](genre-coverage.md): the open RPG/Roguelike
 requirements-to-operations matrix used to judge the future Language Definition Bundle and vertical
 tracer. Every row is open. It is a completeness contract, not evidence that the package operations,
 Golden scenarios, or vectors already exist.
 
-## Permanent delivered slices (#538, #539, #553)
+## Permanent delivered slices (#538, #539, #553, #554)
 
 The first production foundation replaces the disposable authority mechanism for one admitted
 Quantity slice:
@@ -62,6 +63,24 @@ invocation-key bound, and the resulting source can be edited and rebuilt through
 only the minimal Quantity Template-distribution tracer: it delivers no evaluation run, Metric,
 Replay, Evidence, complete RPG/Roguelike template, or Genre support claim, and it closes no row in
 the normative RPG/Roguelike coverage matrix.
+
+Issue #554 adds `model migrate` as the sole public Standard Schema 1.x entrypoint. It converts only
+integral signed-Int64 parameters and unmodified integral direct-number attributes into equal
+singleton Quantity domains. The conversion binds the exact input bytes, converter, Kernel, LDB,
+successful mappings, explicit defaults, warnings, and output identity. Success atomically
+publishes the new `model-source-package` with a `migration-report`, and that source builds through
+#539. Any unsupported, lossy, or over-limit construct returns a typed migration refusal with an
+inline, LDB-validated `migration-refusal-report`; it publishes no command success artifact and no
+partial Model Source. This adds no 1.x runtime, reverse path, save/replay/ruleset adapter, gray
+rollout, or Schema/toolkit version coupling.
+The target Model Source is canonicalized before success and must fit the LDB's
+`max_source_bytes` and `max_symbols` bounds; either overflow follows the same typed refusal path.
+
+The converter binding is the complete embedded `source-converter-specification` artifact, not an
+opaque digest; the report consumer can validate and rehash it against the exact LDB artifact
+contract. Exact byte identity is limited to regular files no larger than the specification's
+16 MiB observation cap. Non-regular or larger inputs fail at usage ingress before any identity or
+migration report is claimed.
 
 ## Prototype evidence
 
@@ -148,14 +167,12 @@ decision introduces a new semantic root, open host extension, or cross-artifact 
 ## Next validation gates
 
 1. The bounded disposable authority mechanism has been replaced by #538's permanent Kernel/LDB,
-   #539's Model-build tracer, and #553's minimal content-addressed Template release. Disposable code
-   remains non-authoritative and closes no acceptance criterion by itself.
-2. Issue #554 must implement the limited clean-forward, semantics-preserving 1.x-to-2.x Model Source
-   migration and refuse deprecated, unsupported, or lossy constructs without partial output or a
-   compatibility runtime.
-3. A production RPG tracer must then close its required
+   #539's Model-build tracer, #553's minimal content-addressed Template release, and #554's limited
+   clean-forward source migration. Disposable code remains non-authoritative and closes no
+   acceptance criterion by itself.
+2. A production RPG tracer must next close its required
    vertical coverage rows and public artifact path.
-4. A Roguelike cross-genre tracer follows only after those gates pass; it must reuse the same kernel,
+3. A Roguelike cross-genre tracer follows only after those gates pass; it must reuse the same kernel,
    package, runtime, artifact, and evidence contracts rather than creating parallel semantics.
 
 PRD #534 remains open until a later implementation/specification PR supplies and validates:

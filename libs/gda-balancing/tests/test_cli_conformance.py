@@ -279,7 +279,8 @@ class TestSurfaceLaws:
                 assert actual == canonical_json(
                     schema2_error_envelope_schema(descriptor)
                 )
-        assert legacy_renderings == {canonical_json(ERROR_ENVELOPE_SCHEMA)}
+        assert all(descriptor.schema_major == 2 for descriptor in REGISTRY)
+        assert legacy_renderings == set()
 
     def test_schema2_runtime_rejects_usage_outside_descriptor_catalog(self, run_cli):
         descriptor = next(item for item in REGISTRY if item.schema_major == 2)

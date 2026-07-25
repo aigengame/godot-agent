@@ -34,10 +34,25 @@ only a narrow, semantics-preserving source-conversion opportunity.
   “mostly migrated” success.
 
 - **Unsupported conversion is a typed `migration` refusal.** The converter emits a Migration report
-  that binds input identity, converter and Language Definition Bundle identities, successful
-  mappings, deprecated constructs, stable diagnostics, and remediation text. If any construct is
-  deprecated, it emits no authoritative 2.x Model Source Package. The user re-authors/removes the
-  construct and runs normal 2.x validation.
+  that binds input identity, the complete LDB-validated `source-converter-specification` artifact,
+  Language Definition Bundle identity, successful mappings, deprecated constructs, stable
+  diagnostics, and remediation text. The embedded converter artifact makes its identity
+  independently retrievable and rehashable; an opaque digest is insufficient. If any construct is
+  deprecated, the command emits no authoritative 2.x Model Source Package. The user
+  re-authors/removes the construct and runs normal 2.x validation. The successful
+  `migration-report` and Model Source are one atomic success artifact set. The refusal form is a
+  separately typed, LDB-validated `migration-refusal-report` carried in the exit-2 envelope; it is
+  not a command success artifact, partial Source, or post-runtime terminal-audit set.
+
+- **Exact source identity has an explicit bounded observation contract.** Migration accepts only a
+  regular file whose complete byte stream is at most 16 MiB. One pass hashes that complete stream
+  while retaining only the Standard Schema 1.x funnel's bounded parse prefix. Non-regular inputs
+  and files beyond the observation cap fail as `unreadable_input` before any exact input identity
+  or migration report is claimed. A source above the 1.x 10 MiB document cap but within the
+  observation cap still receives the normal typed migration refusal bound to its exact bytes.
+  The generated candidate is canonicalized before success and must fit both LDB target bounds:
+  `max_source_bytes` and `max_symbols`. Exceeding either is a typed migration refusal, never an
+  internal error or partial Model Source publication.
 
 - **Migration never mutates input or invents provenance.** A successful conversion emits a new
   Model Source Package identity plus its Migration report. Original source remains byte-identical.

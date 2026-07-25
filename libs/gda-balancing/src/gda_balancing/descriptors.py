@@ -14,6 +14,7 @@ designation replaces that field's option binding (bADR-0011's binding law).
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -96,6 +97,21 @@ class ArtifactSetMemberSpec:
 
 
 @dataclass(frozen=True)
+class RefusalDetailSpec:
+    """The one closed, stage-specific detail field admitted in 2.x."""
+
+    stage: Literal["migration"]
+    field_name: Literal["migration_report"]
+    schema: Callable[[], dict[str, object]]
+
+    def __post_init__(self) -> None:
+        if self.stage != "migration" or self.field_name != "migration_report":
+            raise ValueError(
+                "the migration-report field is the only Schema 2.x refusal detail"
+            )
+
+
+@dataclass(frozen=True)
 class CommandDescriptor:
     """Everything the surface needs to run, describe, and test one command."""
 
@@ -137,6 +153,10 @@ class CommandDescriptor:
     # reverse-conformance projection of Kernel/LDB Diagnostics; dispatch and
     # --schema both consume it, so an undeclared stage/code cannot leak.
     refusal_catalog: tuple[tuple[str, str], ...] = field(default=())
+    # Stage-specific refusal fields remain closed and descriptor-owned. Their
+    # schemas are shared by dispatch validation, --schema, manifest, and
+    # descriptor identity; handlers cannot add an ambient details bag.
+    refusal_details: tuple[RefusalDetailSpec, ...] = field(default=())
     usage_codes: tuple[str, ...] = field(default=())
     # A 2.x descriptor may own a closed schema that is more precise than a
     # dynamic RootModel. Dispatch validates its result against this same
@@ -168,7 +188,9 @@ class CommandDescriptor:
                 raise ValueError(
                     "an artifact-producing descriptor must declare exactly one primary member"
                 )
-        if self.schema_major != 2 and (self.refusal_catalog or self.usage_codes):
+        if self.schema_major != 2 and (
+            self.refusal_catalog or self.refusal_details or self.usage_codes
+        ):
             raise ValueError("Schema 2.x error contracts require schema_major=2")
         if len(self.refusal_catalog) != len(set(self.refusal_catalog)):
             raise ValueError("duplicate Schema 2.x refusal catalog entry")
@@ -177,6 +199,16 @@ class CommandDescriptor:
             for code, stage in self.refusal_catalog
         ):
             raise ValueError("invalid Schema 2.x refusal catalog entry")
+        refusal_detail_keys = [
+            (detail.stage, detail.field_name) for detail in self.refusal_details
+        ]
+        if len(refusal_detail_keys) != len(set(refusal_detail_keys)):
+            raise ValueError("duplicate Schema 2.x refusal-detail field")
+        if any(
+            detail.stage not in {stage for _, stage in self.refusal_catalog}
+            for detail in self.refusal_details
+        ):
+            raise ValueError("refusal detail belongs to an unreachable stage")
         if not set(self.usage_codes) <= USAGE_CODES:
             raise ValueError("unknown Schema 2.x usage code")
         if (

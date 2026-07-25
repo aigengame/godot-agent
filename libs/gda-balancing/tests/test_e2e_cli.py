@@ -10,8 +10,8 @@ Two claims, both unprovable in-process:
 * **Packaging** — the installed console script and ``python -m`` entry agree
   and separate their streams (the claim #502 exists to prove).
 * **Key user path** (RULES DoD: automated e2e on the path an agent actually
-  drives) — author a document, validate it, get typed refusals, format
-  canonically with an artifact sink, read the self-description; through the
+  drives) — migrate authored 1.x source, build the resulting 2.x Model Source,
+  get typed migration refusals, and read the self-description; through the
   installed entry point, OS argv/streams, and real files. The in-process
   conformance rows prove the behavior; these prove the same commands survive
   the process boundary.
@@ -65,39 +65,77 @@ class TestEntryPoints:
 
 
 class TestKeyUserPath:
-    def test_validate_key_path(self, minimal_design_path):
-        # The committed minimal-document golden, straight through the installed
-        # console script and the OS file/argv boundary.
-        result = _run("design", "validate", str(minimal_design_path))
-        assert (result.returncode, result.stderr) == (0, "")
-        assert result.stdout == '{"valid": true}\n'
-
-    def test_refusal_key_path(self, tmp_path, minimal_design_path):
-        doc = tmp_path / "doc.json"
-        mutated = minimal_design_path.read_text(encoding="utf-8").replace(
-            "1.0.0", "9.0.0"
+    def test_migrate_then_build_key_path(self, tmp_path):
+        legacy = tmp_path / "legacy.json"
+        legacy.write_text(
+            '{"schema_version":"1.0.0","meta":{"name":"e2e.migration"},'
+            '"parameters":{"health":100}}',
+            encoding="utf-8",
         )
-        doc.write_text(mutated, encoding="utf-8")
-        result = _run("design", "validate", str(doc))
+        migrated = tmp_path / "migrated.json"
+
+        conversion = _run(
+            "model",
+            "migrate",
+            str(legacy),
+            "--out",
+            str(migrated),
+            "--invocation-key",
+            "1" * 64,
+        )
+
+        assert (conversion.returncode, conversion.stderr) == (0, "")
+        receipt = json.loads(conversion.stdout)
+        assert [item["logical_name"] for item in receipt["member_locators"]] == [
+            "migration-report",
+            "model-source-package",
+        ]
+        assert (
+            json.loads(migrated.read_text(encoding="utf-8"))["schema_version"]
+            == "2.0.0"
+        )
+
+        built = _run(
+            "model",
+            "build",
+            str(migrated),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "2" * 64,
+        )
+        assert (built.returncode, built.stderr) == (0, "")
+
+    def test_migration_refusal_key_path(self, tmp_path):
+        legacy = tmp_path / "legacy-lossy.json"
+        legacy.write_text(
+            '{"schema_version":"1.0.0","meta":{"name":"e2e.refusal"},'
+            '"parameters":{"health":1.5}}',
+            encoding="utf-8",
+        )
+        output = tmp_path / "must-not-exist.json"
+
+        result = _run(
+            "model",
+            "migrate",
+            str(legacy),
+            "--out",
+            str(output),
+            "--invocation-key",
+            "3" * 64,
+        )
+
         assert (result.returncode, result.stderr) == (2, "")
         payload = json.loads(result.stdout)
-        jsonschema.validate(payload, ERROR_ENVELOPE_SCHEMA)
+        schema = json.loads(_run("model", "migrate", "--schema").stdout)["error"]
+        jsonschema.validate(payload, schema)
         assert payload["error"]["category"] == "refusal"
-        codes = {r["code"] for r in payload["error"]["refusals"]}
-        assert codes == {"unsupported_schema_version"}
-
-    def test_format_with_sink_key_path(self, tmp_path, minimal_design_path):
-        sink = tmp_path / "canonical.json"
-        bare = _run("design", "format", str(minimal_design_path))
-        sunk = _run("design", "format", str(minimal_design_path), "--out", str(sink))
-        assert (bare.returncode, bare.stderr) == (0, "")
-        assert (sunk.returncode, sunk.stderr) == (0, "")
-        # The sink holds exactly the artifact the bare invocation printed,
-        # and the receipt names it (bADR-0009).
-        assert sink.read_text(encoding="utf-8") == bare.stdout
-        receipt = json.loads(sunk.stdout)["artifact"]
-        assert receipt["path"] == str(sink.resolve())
-        assert receipt["bytes"] == sink.stat().st_size
+        assert payload["error"]["stage"] == "migration"
+        assert [item["code"] for item in payload["error"]["diagnostics"]] == [
+            "migration.deprecated_construct"
+        ]
+        assert payload["error"]["migration_report"]["status"] == "refused"
+        assert output.exists() is False
 
     def test_schema_get_key_path(self):
         result = _run("schema", "get", "language-bundle")

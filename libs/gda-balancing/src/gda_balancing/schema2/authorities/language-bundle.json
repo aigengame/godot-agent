@@ -1,7 +1,7 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:334f0c8a9b1e65193d68f65ec93d36a62bebbf234475b0ecefb4d818619b1e78",
+  "content_identity": "sha256:cabbb87c69ec32af0c8a41296e397036706511707d594e1a85f97a5864e16f37",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
@@ -16,9 +16,13 @@
     {"code": "language.name_ambiguity", "stage": "static"},
     {"code": "language.source_contract_mismatch", "stage": "static"},
     {"code": "language.source_parse_failure", "stage": "parse"},
-    {"code": "language.source_too_large", "stage": "ingress"}
+    {"code": "language.source_too_large", "stage": "ingress"},
+    {"code": "migration.deprecated_construct", "stage": "migration"},
+    {"code": "migration.no_mappable_construct", "stage": "migration"},
+    {"code": "migration.source_invalid", "stage": "migration"},
+    {"code": "migration.target_limit_exceeded", "stage": "migration"}
   ],
-  "kernel_identity": "sha256:14e0beab3a25ae79b51c2fd922d8372143a7ede77284491820b54689c12dab74",
+  "kernel_identity": "sha256:87125b0d62997effb17c8aeb8128be567ebcaee836e4b6e82297d69051d2bbe9",
   "language": {
     "artifact_contracts": [
       {"artifact_kind": "artifact-set-manifest", "identity_domain": "artifact-set-manifest-v2", "schema_kind": "artifact-set-manifest", "wire_schema_identity_domain": "artifact-set-manifest-wire-schema-v2", "identity_excluded_members": []},
@@ -26,6 +30,10 @@
       {"artifact_kind": "build-receipt", "identity_domain": "build-receipt-v2", "schema_kind": "build-receipt", "wire_schema_identity_domain": "build-receipt-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "capability-manifest", "identity_domain": "capability-manifest-v2", "schema_kind": "capability-manifest", "wire_schema_identity_domain": "capability-manifest-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "debug-map", "identity_domain": "debug-map-v2", "schema_kind": "debug-map", "wire_schema_identity_domain": "debug-map-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "migration-report", "identity_domain": "migration-report-v2", "schema_kind": "migration-report", "wire_schema_identity_domain": "migration-report-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "migration-refusal-report", "identity_domain": "migration-refusal-report-v2", "schema_kind": "migration-refusal-report", "wire_schema_identity_domain": "migration-refusal-report-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "source-converter-specification", "identity_domain": "source-converter-specification-v1", "schema_kind": "source-converter-specification", "wire_schema_identity_domain": "source-converter-specification-wire-schema-v1", "identity_excluded_members": []},
+      {"artifact_kind": "model-migrate-command-input", "identity_domain": "model-migrate-command-input-v2", "schema_kind": "model-migrate-command-input", "wire_schema_identity_domain": "model-migrate-command-input-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "model-build-command-input", "identity_domain": "model-build-command-input-v2", "schema_kind": "model-build-command-input", "wire_schema_identity_domain": "model-build-command-input-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "package-lock", "identity_domain": "package-lock-v2", "schema_kind": "package-lock", "wire_schema_identity_domain": "package-lock-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "publication-index", "identity_domain": "publication-index-v2", "schema_kind": "publication-index", "wire_schema_identity_domain": "publication-index-wire-schema-v2", "identity_excluded_members": []},
@@ -37,6 +45,312 @@
       {"artifact_kind": "template-instantiation-receipt", "identity_domain": "template-instantiation-receipt-v2", "schema_kind": "template-instantiation-receipt", "wire_schema_identity_domain": "template-instantiation-receipt-wire-schema-v2", "identity_excluded_members": []}
     ],
     "artifact_wire_schemas": [
+      {
+        "artifact_kind": "source-converter-specification",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "artifact_kind": {"const": "source-converter-specification"},
+            "artifact_version": {"const": "2.0.0"},
+            "wire_schema_identity": {"type": "string", "minLength": 1},
+            "converter_version": {"const": "1.0.0"},
+            "input_identity_domain": {"const": "design-document-source-v1"},
+            "source_schema_line": {"const": "1.0"},
+            "target_schema_version": {"const": "2.0.0"},
+            "mapping_rules": {
+              "type": "array",
+              "minItems": 4,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {"type": "string", "minLength": 1},
+                  "source": {"type": "string", "minLength": 1},
+                  "target": {"type": "string", "minLength": 1},
+                  "report_mapping": {"type": "string", "minLength": 1}
+                },
+                "required": ["id", "source", "target", "report_mapping"],
+                "unevaluatedProperties": false
+              }
+            },
+            "ordering": {"type": "string", "minLength": 1},
+            "source_admission": {"type": "string", "minLength": 1},
+            "source_observation": {
+              "type": "object",
+              "properties": {
+                "regular_file_only": {"const": true},
+                "max_bytes": {"const": 16777216},
+                "parse_prefix_bytes": {"const": 10485761}
+              },
+              "required": ["regular_file_only", "max_bytes", "parse_prefix_bytes"],
+              "unevaluatedProperties": false
+            },
+            "report_contract": {
+              "type": "object",
+              "properties": {
+                "defaults": {
+                  "type": "array",
+                  "minItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "destination_pointer": {"type": "string"},
+                      "value": {"type": "string"},
+                      "reason": {"type": "string", "minLength": 1}
+                    },
+                    "required": ["destination_pointer", "value", "reason"],
+                    "unevaluatedProperties": false
+                  }
+                },
+                "warnings": {
+                  "type": "array",
+                  "minItems": 2,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "trigger": {
+                        "type": "object",
+                        "properties": {
+                          "source_pointer": {"type": "string"},
+                          "condition": {"type": "string", "minLength": 1}
+                        },
+                        "required": ["source_pointer", "condition"],
+                        "unevaluatedProperties": false
+                      },
+                      "report": {
+                        "type": "object",
+                        "properties": {
+                          "code": {"type": "string", "minLength": 1},
+                          "source_pointer": {"type": "string"},
+                          "message": {"type": "string", "minLength": 1}
+                        },
+                        "required": ["code", "source_pointer", "message"],
+                        "unevaluatedProperties": false
+                      }
+                    },
+                    "required": ["trigger", "report"],
+                    "unevaluatedProperties": false
+                  }
+                },
+                "refusal_policy": {"type": "string", "minLength": 1},
+                "success_policy": {"type": "string", "minLength": 1}
+              },
+              "required": ["defaults", "warnings", "refusal_policy", "success_policy"],
+              "unevaluatedProperties": false
+            },
+            "target_limits": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string", "minLength": 1}
+            },
+            "unsupported": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string", "minLength": 1}
+            },
+            "content_identity": {"type": "string", "minLength": 1}
+          },
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "converter_version", "input_identity_domain", "source_schema_line", "target_schema_version", "mapping_rules", "ordering", "source_admission", "source_observation", "report_contract", "target_limits", "unsupported", "content_identity"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "migration-report",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "artifact_kind": {"const": "migration-report"},
+            "artifact_version": {"const": "2.0.0"},
+            "wire_schema_identity": {"type": "string", "minLength": 1},
+            "status": {"const": "migrated"},
+            "input_identity": {"type": "string", "minLength": 1},
+            "source_schema_version": {"type": "string", "minLength": 1},
+            "target_schema_version": {"const": "2.0.0"},
+            "converter_identity": {"const": "sha256:6c46b72a3600db6aec4b6b8b1bd2e12a2ff878c282cbdf48434cbaa959b38c5c"},
+            "converter_specification": {"const": {"artifact_kind":"source-converter-specification","artifact_version":"2.0.0","content_identity":"sha256:6c46b72a3600db6aec4b6b8b1bd2e12a2ff878c282cbdf48434cbaa959b38c5c","converter_version":"1.0.0","input_identity_domain":"design-document-source-v1","mapping_rules":[{"id":"schema-major-migration","report_mapping":"schema-major migration","source":"schema_version: admitted 1.0 patch version","target":"schema_version=2.0.0"},{"id":"document-name-to-manifest-id","report_mapping":"preserve authored document name","source":"meta.name: non-empty string","target":"manifest.id with the exact authored value"},{"id":"integral-parameter-to-quantity","report_mapping":"integral parameter to equal singleton Quantity domain","source":"parameters.<id>: finite, non-negative-zero integral signed-Int64","target":"Quantity parameter with an equal singleton Int64 domain"},{"id":"direct-attribute-to-quantity","report_mapping":"unmodified integral direct attribute to constant singleton Quantity","source":"attributes.items.<id>: finite, non-negative-zero integral signed-Int64 direct number with no mutation, bounds, category, or tier facets","target":"Quantity constant with an equal singleton Int64 domain"}],"ordering":"parameters then attributes; identifiers ordered by their UTF-8 bytes; destination symbol indexes follow that order","report_contract":{"defaults":[{"destination_pointer":"/manifest/version","reason":"1.x has no package version","value":"1.0.0"},{"destination_pointer":"/manifest/entry_module","reason":"1.x has one root document","value":"main"},{"destination_pointer":"/package_requirements/0","reason":"all admitted mappings target the exact Quantity package","value":"core.quantity@2.0.0"},{"destination_pointer":"/modules/0/imports/0","reason":"all admitted symbols use the exact Quantity constructor","value":"quantity=core.quantity@2.0.0#Quantity"}],"refusal_policy":"report every bounded unsupported construct and publish no Model Source Package","success_policy":"publish one admitted Model Source Package and its migration report","warnings":[{"report":{"code":"metadata.omitted","message":"1.x descriptive metadata has no semantic 2.x target","source_pointer":"/meta/description"},"trigger":{"condition":"present","source_pointer":"/meta/description"}},{"report":{"code":"schema-reference.replaced","message":"The 1.x editor schema reference is replaced by 2.x authority","source_pointer":"/$schema"},"trigger":{"condition":"present","source_pointer":"/$schema"}}]},"source_admission":"the complete Standard Schema 1.0 boundary funnel must admit the bounded source observation before any mapping is claimed","source_observation":{"max_bytes":16777216,"parse_prefix_bytes":10485761,"regular_file_only":true},"source_schema_line":"1.0","target_limits":["language-bundle.resources.max_source_bytes","language-bundle.resources.max_symbols"],"target_schema_version":"2.0.0","unsupported":["fractional, negative-zero, or out-of-Int64 parameters","attribute tiers, formulas, mutation channels, bounds, categories, and tiers","effects and stacking types"],"wire_schema_identity":"sha256:69c1c03ce873a3f84f0e009d53756a780334c02a353c04bd44b401d94dcce4ef"}},
+            "kernel_identity": {"type": "string", "minLength": 1},
+            "language_bundle_identity": {"type": "string", "minLength": 1},
+            "output_identity": {"type": "string", "minLength": 1},
+            "mappings": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "source_pointer": {"type": "string"},
+                  "destination_pointer": {"type": "string"},
+                  "mapping": {"type": "string", "minLength": 1}
+                },
+                "required": ["source_pointer", "destination_pointer", "mapping"],
+                "unevaluatedProperties": false
+              }
+            },
+            "defaults": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "destination_pointer": {"type": "string"},
+                  "value": {"type": "string"},
+                  "reason": {"type": "string", "minLength": 1}
+                },
+                "required": ["destination_pointer", "value", "reason"],
+                "unevaluatedProperties": false
+              }
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {"type": "string", "minLength": 1},
+                  "source_pointer": {"type": "string"},
+                  "message": {"type": "string", "minLength": 1}
+                },
+                "required": ["code", "source_pointer", "message"],
+                "unevaluatedProperties": false
+              }
+            },
+            "deprecated_constructs": {"const": []},
+            "refusals": {"const": []},
+            "content_identity": {"type": "string", "minLength": 1}
+          },
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "status", "input_identity", "source_schema_version", "target_schema_version", "converter_identity", "converter_specification", "kernel_identity", "language_bundle_identity", "output_identity", "mappings", "defaults", "warnings", "deprecated_constructs", "refusals", "content_identity"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "migration-refusal-report",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "artifact_kind": {"const": "migration-refusal-report"},
+            "artifact_version": {"const": "2.0.0"},
+            "wire_schema_identity": {"type": "string", "minLength": 1},
+            "status": {"const": "refused"},
+            "input_identity": {"type": "string", "minLength": 1},
+            "source_schema_version": {"type": "string", "minLength": 1},
+            "target_schema_version": {"const": "2.0.0"},
+            "converter_identity": {"const": "sha256:6c46b72a3600db6aec4b6b8b1bd2e12a2ff878c282cbdf48434cbaa959b38c5c"},
+            "converter_specification": {"const": {"artifact_kind":"source-converter-specification","artifact_version":"2.0.0","content_identity":"sha256:6c46b72a3600db6aec4b6b8b1bd2e12a2ff878c282cbdf48434cbaa959b38c5c","converter_version":"1.0.0","input_identity_domain":"design-document-source-v1","mapping_rules":[{"id":"schema-major-migration","report_mapping":"schema-major migration","source":"schema_version: admitted 1.0 patch version","target":"schema_version=2.0.0"},{"id":"document-name-to-manifest-id","report_mapping":"preserve authored document name","source":"meta.name: non-empty string","target":"manifest.id with the exact authored value"},{"id":"integral-parameter-to-quantity","report_mapping":"integral parameter to equal singleton Quantity domain","source":"parameters.<id>: finite, non-negative-zero integral signed-Int64","target":"Quantity parameter with an equal singleton Int64 domain"},{"id":"direct-attribute-to-quantity","report_mapping":"unmodified integral direct attribute to constant singleton Quantity","source":"attributes.items.<id>: finite, non-negative-zero integral signed-Int64 direct number with no mutation, bounds, category, or tier facets","target":"Quantity constant with an equal singleton Int64 domain"}],"ordering":"parameters then attributes; identifiers ordered by their UTF-8 bytes; destination symbol indexes follow that order","report_contract":{"defaults":[{"destination_pointer":"/manifest/version","reason":"1.x has no package version","value":"1.0.0"},{"destination_pointer":"/manifest/entry_module","reason":"1.x has one root document","value":"main"},{"destination_pointer":"/package_requirements/0","reason":"all admitted mappings target the exact Quantity package","value":"core.quantity@2.0.0"},{"destination_pointer":"/modules/0/imports/0","reason":"all admitted symbols use the exact Quantity constructor","value":"quantity=core.quantity@2.0.0#Quantity"}],"refusal_policy":"report every bounded unsupported construct and publish no Model Source Package","success_policy":"publish one admitted Model Source Package and its migration report","warnings":[{"report":{"code":"metadata.omitted","message":"1.x descriptive metadata has no semantic 2.x target","source_pointer":"/meta/description"},"trigger":{"condition":"present","source_pointer":"/meta/description"}},{"report":{"code":"schema-reference.replaced","message":"The 1.x editor schema reference is replaced by 2.x authority","source_pointer":"/$schema"},"trigger":{"condition":"present","source_pointer":"/$schema"}}]},"source_admission":"the complete Standard Schema 1.0 boundary funnel must admit the bounded source observation before any mapping is claimed","source_observation":{"max_bytes":16777216,"parse_prefix_bytes":10485761,"regular_file_only":true},"source_schema_line":"1.0","target_limits":["language-bundle.resources.max_source_bytes","language-bundle.resources.max_symbols"],"target_schema_version":"2.0.0","unsupported":["fractional, negative-zero, or out-of-Int64 parameters","attribute tiers, formulas, mutation channels, bounds, categories, and tiers","effects and stacking types"],"wire_schema_identity":"sha256:69c1c03ce873a3f84f0e009d53756a780334c02a353c04bd44b401d94dcce4ef"}},
+            "kernel_identity": {"type": "string", "minLength": 1},
+            "language_bundle_identity": {"type": "string", "minLength": 1},
+            "mappings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "source_pointer": {"type": "string"},
+                  "destination_pointer": {"type": "string"},
+                  "mapping": {"type": "string", "minLength": 1}
+                },
+                "required": ["source_pointer", "destination_pointer", "mapping"],
+                "unevaluatedProperties": false
+              }
+            },
+            "defaults": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "destination_pointer": {"type": "string"},
+                  "value": {"type": "string"},
+                  "reason": {"type": "string", "minLength": 1}
+                },
+                "required": ["destination_pointer", "value", "reason"],
+                "unevaluatedProperties": false
+              }
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {"type": "string", "minLength": 1},
+                  "source_pointer": {"type": "string"},
+                  "message": {"type": "string", "minLength": 1}
+                },
+                "required": ["code", "source_pointer", "message"],
+                "unevaluatedProperties": false
+              }
+            },
+            "deprecated_constructs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "source_pointer": {"type": "string"},
+                  "diagnostic_code": {"const": "migration.deprecated_construct"},
+                  "remediation": {"type": "string", "minLength": 1}
+                },
+                "required": ["source_pointer", "diagnostic_code", "remediation"],
+                "unevaluatedProperties": false
+              }
+            },
+            "truncated": {"type": "boolean"},
+            "refusals": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {"type": "string", "minLength": 1},
+                  "message": {"type": "string", "minLength": 1},
+                  "primary": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {"const": "artifact"},
+                      "content_identity": {"type": "string", "minLength": 1},
+                      "pointer": {"type": "string", "minLength": 1}
+                    },
+                    "required": ["kind", "content_identity", "pointer"],
+                    "unevaluatedProperties": false
+                  },
+                  "related": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {"const": "artifact"},
+                        "content_identity": {"type": "string", "minLength": 1},
+                        "pointer": {"type": "string", "minLength": 1}
+                      },
+                      "required": ["kind", "content_identity", "pointer"],
+                      "unevaluatedProperties": false
+                    }
+                  }
+                },
+                "required": ["code", "message", "primary", "related"],
+                "unevaluatedProperties": false
+              }
+            },
+            "content_identity": {"type": "string", "minLength": 1}
+          },
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "status", "input_identity", "target_schema_version", "converter_identity", "converter_specification", "kernel_identity", "language_bundle_identity", "mappings", "defaults", "warnings", "deprecated_constructs", "truncated", "refusals", "content_identity"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "model-migrate-command-input",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "artifact_kind": {"const": "model-migrate-command-input"},
+            "artifact_version": {"const": "2.0.0"},
+            "wire_schema_identity": {"type": "string", "minLength": 1},
+            "input_identity": {"type": "string", "minLength": 1},
+            "converter_identity": {"type": "string", "minLength": 1},
+            "kernel_identity": {"type": "string", "minLength": 1},
+            "language_bundle_identity": {"type": "string", "minLength": 1},
+            "content_identity": {"type": "string", "minLength": 1}
+          },
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "input_identity", "converter_identity", "kernel_identity", "language_bundle_identity", "content_identity"],
+          "unevaluatedProperties": false
+        }
+      },
       {
         "artifact_kind": "template-instantiate-command-input",
         "schema": {
@@ -1183,6 +1497,99 @@
           {"diagnostic": "language.unknown_unit", "id": "quantity.refuse.unit", "input": {"value": "missing-unit"}, "matched": true, "reason": "quantity.reason.unknown-unit", "stage": "static"}
         ],
         "runtime_semantic_paths": ["language.components", "language.constructors", "language.conversions", "language.operations", "language.quantity.domains", "language.quantity.kinds", "language.quantity.numeric_policies", "language.quantity.representations", "language.quantity.symbol_roles", "language.quantity.units", "language.runtime_profiles"]
+      },
+      {
+        "artifact_kind": "domain-package-release",
+        "capabilities": {"provided": [], "required": []},
+        "content_identity": "sha256:a0241cd308551e430b4341aa09a8186d300de3ae9f8566fe8fe7958d8ab539b6",
+        "dependencies": {"optional": [], "required": []},
+        "exports": {
+          "components": [],
+          "conversions": [],
+          "diagnostics": [
+            "migration.deprecated_construct",
+            "migration.no_mappable_construct",
+            "migration.source_invalid",
+            "migration.target_limit_exceeded"
+          ],
+          "domains": [],
+          "kinds": [],
+          "language_rules": [],
+          "model_checks": [],
+          "model_lowerings": [],
+          "operations": [],
+          "reasons": [
+            "migration.reason.deprecated-construct",
+            "migration.reason.no-mappable-construct",
+            "migration.reason.source-invalid",
+            "migration.reason.target-limit-exceeded"
+          ],
+          "representations": [],
+          "symbol_roles": [],
+          "types": [],
+          "units": []
+        },
+        "id": "tooling.migration",
+        "profiles": {"numeric": [], "resolution": [], "runtime": []},
+        "semantic_closure": [
+          {"authority_path": "language.capabilities", "definitions": []},
+          {"authority_path": "language.components", "definitions": []},
+          {"authority_path": "language.constructors", "definitions": []},
+          {"authority_path": "language.conversions", "definitions": []},
+          {"authority_path": "language.model_checks", "definitions": []},
+          {"authority_path": "language.model_lowerings", "definitions": []},
+          {"authority_path": "language.operations", "definitions": []},
+          {"authority_path": "language.quantity.domains", "definitions": []},
+          {"authority_path": "language.quantity.kinds", "definitions": []},
+          {"authority_path": "language.quantity.numeric_policies", "definitions": []},
+          {"authority_path": "language.quantity.representations", "definitions": []},
+          {"authority_path": "language.quantity.symbol_roles", "definitions": []},
+          {"authority_path": "language.quantity.units", "definitions": []},
+          {
+            "authority_path": "language.reasons",
+            "definitions": [
+              {"diagnostic": "migration.deprecated_construct", "id": "migration.reason.deprecated-construct", "predicate": {"operation": "not-equal"}, "stage": "migration"},
+              {"diagnostic": "migration.no_mappable_construct", "id": "migration.reason.no-mappable-construct", "predicate": {"operation": "not-equal"}, "stage": "migration"},
+              {"diagnostic": "migration.source_invalid", "id": "migration.reason.source-invalid", "predicate": {"operation": "not-equal"}, "stage": "migration"},
+              {"diagnostic": "migration.target_limit_exceeded", "id": "migration.reason.target-limit-exceeded", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "migration"}
+            ]
+          },
+          {"authority_path": "language.resolution_profiles", "definitions": []},
+          {"authority_path": "language.rules", "definitions": []},
+          {"authority_path": "language.runtime_profiles", "definitions": []},
+          {
+            "authority_path": "diagnostics",
+            "definitions": [
+              {"code": "migration.deprecated_construct", "stage": "migration"},
+              {"code": "migration.no_mappable_construct", "stage": "migration"},
+              {"code": "migration.source_invalid", "stage": "migration"},
+              {"code": "migration.target_limit_exceeded", "stage": "migration"}
+            ]
+          }
+        ],
+        "semantic_identity": "sha256:a7bfd9e194f2d1aab7f401afe15fb73742d4bd65bb82a5f4cdb40f13ca5fb5f6",
+        "vector_definitions": [
+          {"diagnostic": "migration.deprecated_construct", "id": "migration.accept.deprecated-construct", "input": {"actual": "migratable", "expected": "migratable"}, "matched": false, "reason": "migration.reason.deprecated-construct", "stage": "migration"},
+          {"diagnostic": "migration.no_mappable_construct", "id": "migration.accept.no-mappable-construct", "input": {"actual": "non-empty", "expected": "non-empty"}, "matched": false, "reason": "migration.reason.no-mappable-construct", "stage": "migration"},
+          {"diagnostic": "migration.source_invalid", "id": "migration.accept.source-invalid", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "migration.reason.source-invalid", "stage": "migration"},
+          {"diagnostic": "migration.target_limit_exceeded", "id": "migration.accept.target-limit", "input": {"value": 4096}, "matched": false, "reason": "migration.reason.target-limit-exceeded", "stage": "migration"},
+          {"diagnostic": "migration.deprecated_construct", "id": "migration.refuse.deprecated-construct", "input": {"actual": "deprecated", "expected": "migratable"}, "matched": true, "reason": "migration.reason.deprecated-construct", "stage": "migration"},
+          {"diagnostic": "migration.no_mappable_construct", "id": "migration.refuse.no-mappable-construct", "input": {"actual": "empty", "expected": "non-empty"}, "matched": true, "reason": "migration.reason.no-mappable-construct", "stage": "migration"},
+          {"diagnostic": "migration.source_invalid", "id": "migration.refuse.source-invalid", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "migration.reason.source-invalid", "stage": "migration"},
+          {"diagnostic": "migration.target_limit_exceeded", "id": "migration.refuse.target-limit", "input": {"value": 4097}, "matched": true, "reason": "migration.reason.target-limit-exceeded", "stage": "migration"}
+        ],
+        "vectors": [
+          "migration.accept.deprecated-construct",
+          "migration.accept.no-mappable-construct",
+          "migration.accept.source-invalid",
+          "migration.accept.target-limit",
+          "migration.refuse.deprecated-construct",
+          "migration.refuse.no-mappable-construct",
+          "migration.refuse.source-invalid",
+          "migration.refuse.target-limit"
+        ],
+        "version": "1.0.0",
+        "runtime_semantic_paths": ["language.reasons", "diagnostics"]
       }
     ],
     "quantity": {"domains": ["closed-interval"], "kinds": ["scalar"], "numeric_policies": [{"id": "exact-int64", "overflow": "refuse", "rounding": "none"}], "representations": ["Int"], "symbol_roles": ["constant", "parameter", "input", "state", "derived", "output", "random"], "units": [{"dimension": "dimensionless", "id": "1"}]},
@@ -1198,6 +1605,10 @@
       {"diagnostic": "language.source_parse_failure", "id": "model.reason.source-parse-failure", "predicate": {"operation": "not-equal"}, "stage": "parse"},
       {"diagnostic": "language.source_too_large", "id": "model.reason.source-too-large", "predicate": {"operation": "greater-than", "limit_path": "resources.max_source_bytes"}, "stage": "ingress"},
       {"diagnostic": "language.unresolved_name", "id": "model.reason.unresolved-name", "predicate": {"operation": "not-equal"}, "stage": "static"},
+      {"diagnostic": "migration.deprecated_construct", "id": "migration.reason.deprecated-construct", "predicate": {"operation": "not-equal"}, "stage": "migration"},
+      {"diagnostic": "migration.no_mappable_construct", "id": "migration.reason.no-mappable-construct", "predicate": {"operation": "not-equal"}, "stage": "migration"},
+      {"diagnostic": "migration.source_invalid", "id": "migration.reason.source-invalid", "predicate": {"operation": "not-equal"}, "stage": "migration"},
+      {"diagnostic": "migration.target_limit_exceeded", "id": "migration.reason.target-limit-exceeded", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "migration"},
       {"diagnostic": "language.duplicate_symbol", "id": "quantity.reason.duplicate-symbol", "predicate": {"operation": "has-duplicate"}, "stage": "static"},
       {"diagnostic": "language.invalid_domain", "id": "quantity.reason.invalid-domain", "predicate": {"operation": "invalid-interval"}, "stage": "static"},
       {"diagnostic": "language.resource_exhausted", "id": "quantity.reason.resource-exhausted", "predicate": {"limit_path": "resources.max_symbols", "operation": "greater-than"}, "stage": "static"},
@@ -1490,6 +1901,14 @@
     {"diagnostic": "language.name_ambiguity", "id": "model.accept.name-ambiguity", "input": {"actual": "one", "expected": "one"}, "matched": false, "reason": "model.reason.name-ambiguity", "stage": "static"},
     {"diagnostic": "language.unresolved_name", "id": "model.refuse.unresolved-name", "input": {"actual": "unbound", "expected": "bound"}, "matched": true, "reason": "model.reason.unresolved-name", "stage": "static"},
     {"diagnostic": "language.unresolved_name", "id": "model.accept.unresolved-name", "input": {"actual": "bound", "expected": "bound"}, "matched": false, "reason": "model.reason.unresolved-name", "stage": "static"},
+    {"diagnostic": "migration.deprecated_construct", "id": "migration.refuse.deprecated-construct", "input": {"actual": "deprecated", "expected": "migratable"}, "matched": true, "reason": "migration.reason.deprecated-construct", "stage": "migration"},
+    {"diagnostic": "migration.deprecated_construct", "id": "migration.accept.deprecated-construct", "input": {"actual": "migratable", "expected": "migratable"}, "matched": false, "reason": "migration.reason.deprecated-construct", "stage": "migration"},
+    {"diagnostic": "migration.no_mappable_construct", "id": "migration.refuse.no-mappable-construct", "input": {"actual": "empty", "expected": "non-empty"}, "matched": true, "reason": "migration.reason.no-mappable-construct", "stage": "migration"},
+    {"diagnostic": "migration.no_mappable_construct", "id": "migration.accept.no-mappable-construct", "input": {"actual": "non-empty", "expected": "non-empty"}, "matched": false, "reason": "migration.reason.no-mappable-construct", "stage": "migration"},
+    {"diagnostic": "migration.source_invalid", "id": "migration.refuse.source-invalid", "input": {"actual": "invalid", "expected": "valid"}, "matched": true, "reason": "migration.reason.source-invalid", "stage": "migration"},
+    {"diagnostic": "migration.source_invalid", "id": "migration.accept.source-invalid", "input": {"actual": "valid", "expected": "valid"}, "matched": false, "reason": "migration.reason.source-invalid", "stage": "migration"},
+    {"diagnostic": "migration.target_limit_exceeded", "id": "migration.refuse.target-limit", "input": {"value": 4097}, "matched": true, "reason": "migration.reason.target-limit-exceeded", "stage": "migration"},
+    {"diagnostic": "migration.target_limit_exceeded", "id": "migration.accept.target-limit", "input": {"value": 4096}, "matched": false, "reason": "migration.reason.target-limit-exceeded", "stage": "migration"},
     {
       "category": "positive",
       "expect": {
