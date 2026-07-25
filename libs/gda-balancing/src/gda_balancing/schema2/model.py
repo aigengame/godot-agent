@@ -1088,14 +1088,6 @@ def _verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> 
         language_bundle, artifact_kind
     ):
         return False
-    if artifact_kind in {"migration-report", "migration-refusal-report"}:
-        converter = value.get("converter_specification")
-        if (
-            not isinstance(converter, dict)
-            or value.get("converter_identity") != converter.get("content_identity")
-            or not _verify_artifact(converter, language_bundle)
-        ):
-            return False
     excluded = set(cast(list[str], contract["identity_excluded_members"]))
     body = {
         key: item

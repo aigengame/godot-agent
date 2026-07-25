@@ -32,6 +32,23 @@ def _member(receipt: dict, logical_name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _reidentify_artifact(artifact: dict[str, Any], language_bundle: dict) -> None:
+    contract = next(
+        item
+        for item in language_bundle["language"]["artifact_contracts"]
+        if item["artifact_kind"] == artifact["artifact_kind"]
+    )
+    artifact["content_identity"] = content_identity(
+        contract["identity_domain"],
+        {
+            key: value
+            for key, value in artifact.items()
+            if key != "content_identity"
+            and key not in contract["identity_excluded_members"]
+        },
+    )
+
+
 def test_model_migrate_publishes_a_buildable_source_and_audit_report(
     tmp_path: Path, run_cli
 ) -> None:
@@ -128,6 +145,13 @@ def test_model_migrate_publishes_a_buildable_source_and_audit_report(
         cast(dict[str, Any], converter),
         authority["language_bundle"],
     )
+    assert verify_artifact(report, authority["language_bundle"])
+    tampered_report = deepcopy(report)
+    tampered_report["converter_specification"]["mapping_rules"][0]["report_mapping"] = (
+        "forged mapping"
+    )
+    _reidentify_artifact(tampered_report, authority["language_bundle"])
+    assert verify_artifact(tampered_report, authority["language_bundle"]) is False
     assert report["mappings"] == [
         {
             "source_pointer": "/schema_version",
@@ -366,6 +390,11 @@ def test_model_migrate_refusal_emits_an_auditable_report_without_a_source(
         cast(dict[str, Any], converter),
         authority["language_bundle"],
     )
+    assert verify_artifact(report, authority["language_bundle"])
+    tampered_report = deepcopy(report)
+    tampered_report["converter_identity"] = "sha256:" + "0" * 64
+    _reidentify_artifact(tampered_report, authority["language_bundle"])
+    assert verify_artifact(tampered_report, authority["language_bundle"]) is False
     assert output.exists() is False
 
 
@@ -829,21 +858,20 @@ def test_converter_identity_covers_the_reported_defaults_and_warnings(
     tampered_report["converter_specification"]["mapping_rules"][0]["report_mapping"] = (
         "forged mapping"
     )
-    report_artifact_contract = next(
-        item
-        for item in authority["language_bundle"]["language"]["artifact_contracts"]
-        if item["artifact_kind"] == "migration-report"
-    )
-    tampered_report["content_identity"] = content_identity(
-        report_artifact_contract["identity_domain"],
-        {
-            key: value
-            for key, value in tampered_report.items()
-            if key != "content_identity"
-            and key not in report_artifact_contract["identity_excluded_members"]
-        },
-    )
+    _reidentify_artifact(tampered_report, authority["language_bundle"])
     assert verify_artifact(tampered_report, authority["language_bundle"]) is False
+    report_schemas = {
+        item["artifact_kind"]: item["schema"]
+        for item in authority["language_bundle"]["language"]["artifact_wire_schemas"]
+        if item["artifact_kind"] in {"migration-report", "migration-refusal-report"}
+    }
+    for schema in report_schemas.values():
+        assert schema["properties"]["converter_identity"] == {
+            "const": specification["content_identity"]
+        }
+        assert schema["properties"]["converter_specification"] == {
+            "const": specification
+        }
     report_contract = cast(dict[str, Any], specification["report_contract"])
     assert report["defaults"] == report_contract["defaults"]
     assert report["warnings"] == [
