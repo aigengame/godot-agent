@@ -244,6 +244,182 @@ def test_model_migrate_refuses_the_target_symbol_limit_without_partial_artifacts
     assert output.exists() is False
 
 
+def test_model_migrate_refusal_emits_an_auditable_report_without_a_source(
+    tmp_path: Path, run_cli
+) -> None:
+    legacy = tmp_path / "legacy-partial.json"
+    legacy.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "meta": {
+                    "name": "legacy.partial",
+                    "description": "Preserve this omission in the audit",
+                },
+                "parameters": {
+                    "exact": 10,
+                    "lossy": 1.5,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "must-not-exist.json"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "migrate",
+            str(legacy),
+            "--out",
+            str(output),
+            "--invocation-key",
+            "9" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    envelope = json.loads(stdout)
+    error_schema = json.loads(run_cli(["model", "migrate", "--schema"])[1])["error"]
+    jsonschema.validate(envelope, error_schema)
+    error = envelope["error"]
+    report = error["migration_report"]
+    assert report["artifact_kind"] == "migration-refusal-report"
+    assert report["status"] == "refused"
+    assert report["source_schema_version"] == "1.0.0"
+    assert report["target_schema_version"] == "2.0.0"
+    assert "output_identity" not in report
+    assert report["mappings"] == [
+        {
+            "source_pointer": "/schema_version",
+            "destination_pointer": "/schema_version",
+            "mapping": "schema-major migration",
+        },
+        {
+            "source_pointer": "/meta/name",
+            "destination_pointer": "/manifest/id",
+            "mapping": "preserve authored document name",
+        },
+        {
+            "source_pointer": "/parameters/exact",
+            "destination_pointer": "/modules/0/symbols/0",
+            "mapping": "integral parameter to equal singleton Quantity domain",
+        },
+    ]
+    assert len(report["defaults"]) == 4
+    assert report["warnings"] == [
+        {
+            "code": "metadata.omitted",
+            "source_pointer": "/meta/description",
+            "message": "1.x descriptive metadata has no semantic 2.x target",
+        }
+    ]
+    assert report["deprecated_constructs"] == [
+        {
+            "source_pointer": "/parameters/lossy",
+            "diagnostic_code": "migration.deprecated_construct",
+            "remediation": "Re-author or remove this construct before migration",
+        }
+    ]
+    assert report["refusals"] == error["diagnostics"]
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    report_schema = next(
+        item["schema"]
+        for item in authority["language_bundle"]["language"]["artifact_wire_schemas"]
+        if item["artifact_kind"] == "migration-refusal-report"
+    )
+    jsonschema.validate(report, report_schema)
+    assert report["kernel_identity"] == authority["kernel"]["content_identity"]
+    assert (
+        report["language_bundle_identity"]
+        == authority["language_bundle"]["content_identity"]
+    )
+    assert output.exists() is False
+
+
+def test_model_migrate_refusal_report_binds_diagnostic_truncation(
+    tmp_path: Path, run_cli
+) -> None:
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    max_diagnostics = authority["language_bundle"]["resources"]["max_diagnostics"]
+    legacy = tmp_path / "legacy-many-refusals.json"
+    legacy.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "meta": {"name": "legacy.many-refusals"},
+                "parameters": {
+                    f"lossy_{index:04d}": index + 0.5
+                    for index in range(max_diagnostics + 1)
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "must-not-exist.json"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "migrate",
+            str(legacy),
+            "--out",
+            str(output),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    report = error["migration_report"]
+    assert error["truncated"] is True
+    assert report["truncated"] is True
+    assert len(report["refusals"]) == max_diagnostics
+    assert len(report["deprecated_constructs"]) == max_diagnostics
+    assert output.exists() is False
+
+
+def test_model_migrate_refusal_report_never_claims_a_failed_mapping(
+    tmp_path: Path, run_cli
+) -> None:
+    legacy = tmp_path / "legacy-empty-name.json"
+    legacy.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "meta": {"name": ""},
+                "parameters": {"exact": 10},
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "must-not-exist.json"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "model",
+            "migrate",
+            str(legacy),
+            "--out",
+            str(output),
+            "--invocation-key",
+            "b" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    report = json.loads(stdout)["error"]["migration_report"]
+    assert [item["source_pointer"] for item in report["mappings"]] == [
+        "/schema_version",
+        "/parameters/exact",
+    ]
+    assert [item["source_pointer"] for item in report["deprecated_constructs"]] == [
+        "/meta/name"
+    ]
+    assert output.exists() is False
+
+
 def test_clean_forward_surface_exposes_no_1x_or_reverse_authority(
     tmp_path: Path, run_cli
 ) -> None:

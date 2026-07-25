@@ -1,6 +1,6 @@
 """Stage-aware Schema 2.0 diagnostics and refusal envelopes."""
 
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,6 +41,7 @@ class Schema2RefusalReport(BaseModel):
     stage: RefusalStage
     diagnostics: tuple[Schema2Diagnostic, ...] = Field(min_length=1)
     truncated: bool
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 def bootstrap_refusal(admission: BootstrapAdmission) -> Schema2RefusalReport:
@@ -102,13 +103,13 @@ def ingress_refusal(code: str, subject: str, message: str) -> Schema2RefusalRepo
 
 def refusal_envelope(report: Schema2RefusalReport) -> dict[str, object]:
     """Build the closed Schema 2.0 refusal Error envelope."""
-    return {
-        "error": {
-            "category": "refusal",
-            "stage": report.stage,
-            "diagnostics": [
-                item.model_dump(mode="json") for item in report.diagnostics
-            ],
-            "truncated": report.truncated,
-        }
+    error: dict[str, object] = {
+        "category": "refusal",
+        "stage": report.stage,
+        "diagnostics": [item.model_dump(mode="json") for item in report.diagnostics],
+        "truncated": report.truncated,
     }
+    if set(error) & set(report.details):
+        raise ValueError("refusal details cannot replace the core envelope")
+    error.update(report.details)
+    return {"error": error}

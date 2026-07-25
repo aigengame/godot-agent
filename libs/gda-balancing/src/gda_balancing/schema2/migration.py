@@ -66,6 +66,17 @@ class MigrationSuccess:
     warnings: tuple[dict[str, JsonValue], ...]
 
 
+@dataclass(frozen=True)
+class MigrationFailure:
+    input_identity: str
+    source_schema_version: str | None
+    mappings: tuple[dict[str, JsonValue], ...]
+    defaults: tuple[dict[str, JsonValue], ...]
+    warnings: tuple[dict[str, JsonValue], ...]
+    deprecated_constructs: tuple[dict[str, JsonValue], ...]
+    refusal: Schema2RefusalReport
+
+
 def source_bytes_identity(data: bytes) -> str:
     """Bind the exact input bytes, not only their parsed semantic value."""
     return "sha256:" + hashlib.sha256(_SOURCE_IDENTITY_PREFIX + data).hexdigest()
@@ -73,12 +84,19 @@ def source_bytes_identity(data: bytes) -> str:
 
 def migrate_design_source(
     data: bytes, language_bundle: dict[str, Any]
-) -> MigrationSuccess | Schema2RefusalReport:
+) -> MigrationSuccess | MigrationFailure:
     """Convert the currently admitted semantics-preserving 1.x subset."""
     input_identity = source_bytes_identity(data)
     outcome = validate(data)
     if isinstance(outcome, RefusalReport):
-        return _source_refusal(outcome, input_identity, language_bundle)
+        return _migration_failure(
+            input_identity,
+            None,
+            (),
+            (),
+            (),
+            _source_refusal(outcome, input_identity, language_bundle),
+        )
     assert isinstance(outcome, DesignDocument)
     raw = cast(dict[str, Any], json.loads(data))
 
@@ -87,8 +105,38 @@ def migrate_design_source(
     max_symbols = cast(int, language_bundle["resources"]["max_symbols"])
     mappings: list[dict[str, JsonValue]] = [
         _mapping("/schema_version", "/schema_version", "schema-major migration"),
-        _mapping("/meta/name", "/manifest/id", "preserve authored document name"),
     ]
+    defaults = (
+        _default("/manifest/version", "1.0.0", "1.x has no package version"),
+        _default("/manifest/entry_module", "main", "1.x has one root document"),
+        _default(
+            "/package_requirements/0",
+            "core.quantity@2.0.0",
+            "all admitted mappings target the exact Quantity package",
+        ),
+        _default(
+            "/modules/0/imports/0",
+            "quantity=core.quantity@2.0.0#Quantity",
+            "all admitted symbols use the exact Quantity constructor",
+        ),
+    )
+    warnings: list[dict[str, JsonValue]] = []
+    if outcome.meta.description is not None:
+        warnings.append(
+            {
+                "code": "metadata.omitted",
+                "source_pointer": "/meta/description",
+                "message": "1.x descriptive metadata has no semantic 2.x target",
+            }
+        )
+    if "$schema" in raw:
+        warnings.append(
+            {
+                "code": "schema-reference.replaced",
+                "source_pointer": "/$schema",
+                "message": "The 1.x editor schema reference is replaced by 2.x authority",
+            }
+        )
 
     if not outcome.meta.name:
         diagnostics.append(
@@ -98,6 +146,14 @@ def migrate_design_source(
                 input_identity,
                 "/meta/name",
                 "An empty 1.x document name has no valid 2.x manifest identity",
+            )
+        )
+    else:
+        mappings.append(
+            _mapping(
+                "/meta/name",
+                "/manifest/id",
+                "preserve authored document name",
             )
         )
 
@@ -214,20 +270,34 @@ def migrate_design_source(
                 )
 
     if diagnostics:
-        return _bounded_refusal(diagnostics, language_bundle)
+        return _migration_failure(
+            input_identity,
+            outcome.schema_version,
+            tuple(mappings),
+            defaults,
+            tuple(warnings),
+            _bounded_refusal(diagnostics, language_bundle),
+        )
     if not symbols:
-        return _bounded_refusal(
-            [
-                _diagnostic(
-                    language_bundle,
-                    "migration.reason.no-mappable-construct",
-                    input_identity,
-                    "",
-                    "The 1.x source contains no construct that can form a valid "
-                    "2.x Model Source Package",
-                )
-            ],
-            language_bundle,
+        return _migration_failure(
+            input_identity,
+            outcome.schema_version,
+            tuple(mappings),
+            defaults,
+            tuple(warnings),
+            _bounded_refusal(
+                [
+                    _diagnostic(
+                        language_bundle,
+                        "migration.reason.no-mappable-construct",
+                        input_identity,
+                        "",
+                        "The 1.x source contains no construct that can form a valid "
+                        "2.x Model Source Package",
+                    )
+                ],
+                language_bundle,
+            ),
         )
 
     source: dict[str, JsonValue] = {
@@ -253,37 +323,6 @@ def migrate_design_source(
             }
         ],
     }
-    defaults = (
-        _default("/manifest/version", "1.0.0", "1.x has no package version"),
-        _default("/manifest/entry_module", "main", "1.x has one root document"),
-        _default(
-            "/package_requirements/0",
-            "core.quantity@2.0.0",
-            "all admitted mappings target the exact Quantity package",
-        ),
-        _default(
-            "/modules/0/imports/0",
-            "quantity=core.quantity@2.0.0#Quantity",
-            "all admitted symbols use the exact Quantity constructor",
-        ),
-    )
-    warnings: list[dict[str, JsonValue]] = []
-    if outcome.meta.description is not None:
-        warnings.append(
-            {
-                "code": "metadata.omitted",
-                "source_pointer": "/meta/description",
-                "message": "1.x descriptive metadata has no semantic 2.x target",
-            }
-        )
-    if "$schema" in raw:
-        warnings.append(
-            {
-                "code": "schema-reference.replaced",
-                "source_pointer": "/$schema",
-                "message": "The 1.x editor schema reference is replaced by 2.x authority",
-            }
-        )
     return MigrationSuccess(
         input_identity=input_identity,
         source_schema_version=outcome.schema_version,
@@ -322,6 +361,34 @@ def _default(destination: str, value: str, reason: str) -> dict[str, JsonValue]:
         "value": value,
         "reason": reason,
     }
+
+
+def _migration_failure(
+    input_identity: str,
+    source_schema_version: str | None,
+    mappings: tuple[dict[str, JsonValue], ...],
+    defaults: tuple[dict[str, JsonValue], ...],
+    warnings: tuple[dict[str, JsonValue], ...],
+    refusal: Schema2RefusalReport,
+) -> MigrationFailure:
+    deprecated_constructs = tuple(
+        {
+            "source_pointer": diagnostic.primary.pointer,
+            "diagnostic_code": diagnostic.code,
+            "remediation": "Re-author or remove this construct before migration",
+        }
+        for diagnostic in refusal.diagnostics
+        if diagnostic.code == "migration.deprecated_construct"
+    )
+    return MigrationFailure(
+        input_identity=input_identity,
+        source_schema_version=source_schema_version,
+        mappings=mappings,
+        defaults=defaults,
+        warnings=warnings,
+        deprecated_constructs=deprecated_constructs,
+        refusal=refusal,
+    )
 
 
 def _escape(value: str) -> str:

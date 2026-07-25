@@ -94,6 +94,11 @@ def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, An
             for code, declared_stage in descriptor.refusal_catalog
             if declared_stage == stage
         )
+        details = {
+            detail.field_name: deepcopy(detail.schema())
+            for detail in descriptor.refusal_details
+            if detail.stage == stage
+        }
         stage_diagnostic = deepcopy(diagnostic)
         stage_diagnostic["properties"]["code"] = {"enum": codes}
         variants.append(
@@ -108,8 +113,15 @@ def schema2_error_envelope_schema(descriptor: CommandDescriptor) -> dict[str, An
                         "items": stage_diagnostic,
                     },
                     "truncated": {"type": "boolean"},
+                    **details,
                 },
-                "required": ["category", "stage", "diagnostics", "truncated"],
+                "required": [
+                    "category",
+                    "stage",
+                    "diagnostics",
+                    "truncated",
+                    *sorted(details),
+                ],
                 "unevaluatedProperties": False,
             }
         )
@@ -220,6 +232,23 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
         if descriptor.success_schema is not None
         else descriptor.output_model.model_json_schema()
     )
+    refusal_details: list[JsonValue] = [
+        {
+            "stage": detail.stage,
+            "field_name": detail.field_name,
+            "schema": _schema_document(
+                (
+                    f"{descriptor.group or 'meta'}.{descriptor.command}.error."
+                    f"{detail.stage}.{detail.field_name}"
+                ),
+                detail.schema(),
+            ),
+        }
+        for detail in sorted(
+            descriptor.refusal_details,
+            key=lambda item: (item.stage, item.field_name),
+        )
+    ]
     return {
         "group": descriptor.group,
         "command": descriptor.command,
@@ -244,6 +273,7 @@ def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             ],
             "usage_codes": list(descriptor.usage_codes),
         },
+        **({"refusal_details": refusal_details} if refusal_details else {}),
         **_artifact_membership(descriptor),
     }
 

@@ -9,6 +9,7 @@ import shutil
 import stat
 import tempfile
 from collections.abc import Callable, Iterable
+from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -1112,6 +1113,15 @@ def verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> b
 def wire_schema_identity(language_bundle: dict[str, Any], artifact_kind: str) -> str:
     """Derive one artifact's wire-schema identity from the exact LDB."""
     return _wire_schema_identity_for_kind(language_bundle, artifact_kind)
+
+
+def artifact_wire_schema(
+    language_bundle: dict[str, Any], artifact_kind: str
+) -> dict[str, object]:
+    """Return an isolated copy of one exact LDB-owned artifact schema."""
+    return cast(
+        dict[str, object], deepcopy(_artifact_schema(language_bundle, artifact_kind))
+    )
 
 
 def _resolved_source_symbols(

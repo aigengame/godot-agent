@@ -9,6 +9,7 @@ from gda_balancing.descriptors import (
     ArtifactSetMemberSpec,
     CommandDescriptor,
     ConformanceFixtures,
+    RefusalDetailSpec,
 )
 from gda_balancing.path_contracts import reject_input_aliasing
 from gda_balancing.schema.funnel import load as load_design_source
@@ -21,6 +22,7 @@ from gda_balancing.schema2.diagnostics import (
 )
 from gda_balancing.schema2.migration import (
     CONVERTER_IDENTITY,
+    MigrationFailure,
     MigrationSuccess,
     migrate_design_source,
 )
@@ -29,6 +31,7 @@ from gda_balancing.schema2.model import (
     CheckedModel,
     PublicationMember,
     admit_resolved_model,
+    artifact_wire_schema,
     check_model_source,
     check_model_source_value,
     identified_artifact,
@@ -184,6 +187,11 @@ MIGRATION_REFUSAL_CATALOG = tuple(
 )
 
 
+def _migration_report_schema() -> dict[str, object]:
+    _, language_bundle = load_authorities()
+    return artifact_wire_schema(language_bundle, "migration-refusal-report")
+
+
 def run_model_migrate(
     inp: ModelMigrateInput,
 ) -> ModelMigrateResult | Schema2RefusalReport:
@@ -195,8 +203,42 @@ def run_model_migrate(
         return bootstrap_refusal(admission)
 
     migrated = migrate_design_source(data, language_bundle)
-    if isinstance(migrated, Schema2RefusalReport):
-        return migrated
+    if isinstance(migrated, MigrationFailure):
+        refusal_payload: dict[str, JsonValue] = {
+            "status": "refused",
+            "input_identity": migrated.input_identity,
+            "target_schema_version": "2.0.0",
+            "converter_identity": CONVERTER_IDENTITY,
+            "kernel_identity": cast(str, kernel["content_identity"]),
+            "language_bundle_identity": cast(str, language_bundle["content_identity"]),
+            "mappings": cast(JsonValue, list(migrated.mappings)),
+            "defaults": cast(JsonValue, list(migrated.defaults)),
+            "warnings": cast(JsonValue, list(migrated.warnings)),
+            "deprecated_constructs": cast(
+                JsonValue, list(migrated.deprecated_constructs)
+            ),
+            "truncated": migrated.refusal.truncated,
+            "refusals": cast(
+                JsonValue,
+                [
+                    diagnostic.model_dump(mode="json")
+                    for diagnostic in migrated.refusal.diagnostics
+                ],
+            ),
+        }
+        if migrated.source_schema_version is not None:
+            refusal_payload["source_schema_version"] = migrated.source_schema_version
+        report = identified_artifact(
+            language_bundle,
+            "migration-refusal-report",
+            refusal_payload,
+        )
+        return Schema2RefusalReport(
+            stage=migrated.refusal.stage,
+            diagnostics=migrated.refusal.diagnostics,
+            truncated=migrated.refusal.truncated,
+            details={"migration_report": cast(JsonValue, report)},
+        )
     assert isinstance(migrated, MigrationSuccess)
     checked = check_model_source_value(
         cast(dict[str, Any], migrated.source),
@@ -379,6 +421,13 @@ MODEL_MIGRATE = CommandDescriptor(
     schema_major=2,
     structured_params=True,
     refusal_catalog=MIGRATION_REFUSAL_CATALOG,
+    refusal_details=(
+        RefusalDetailSpec(
+            stage="migration",
+            field_name="migration_report",
+            schema=_migration_report_schema,
+        ),
+    ),
     usage_codes=(
         "argument_conflict",
         "invalid_argument",

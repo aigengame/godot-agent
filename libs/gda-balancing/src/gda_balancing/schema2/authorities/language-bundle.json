@@ -1,7 +1,7 @@
 {
   "artifact_kind": "language-definition-bundle",
   "artifact_version": "2.0.0",
-  "content_identity": "sha256:e6f6dc780ca91cc6e097d6f51cb30033fd0efef25c466b54a61c680d2213c720",
+  "content_identity": "sha256:e588b49c85c8788690b9d96259ee4d28943eb5b0e9f5d9d1d1614876ab721153",
   "diagnostics": [
     {"code": "language.unknown_kind", "stage": "static"},
     {"code": "language.unknown_unit", "stage": "static"},
@@ -31,6 +31,7 @@
       {"artifact_kind": "capability-manifest", "identity_domain": "capability-manifest-v2", "schema_kind": "capability-manifest", "wire_schema_identity_domain": "capability-manifest-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "debug-map", "identity_domain": "debug-map-v2", "schema_kind": "debug-map", "wire_schema_identity_domain": "debug-map-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "migration-report", "identity_domain": "migration-report-v2", "schema_kind": "migration-report", "wire_schema_identity_domain": "migration-report-wire-schema-v2", "identity_excluded_members": []},
+      {"artifact_kind": "migration-refusal-report", "identity_domain": "migration-refusal-report-v2", "schema_kind": "migration-refusal-report", "wire_schema_identity_domain": "migration-refusal-report-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "model-migrate-command-input", "identity_domain": "model-migrate-command-input-v2", "schema_kind": "model-migrate-command-input", "wire_schema_identity_domain": "model-migrate-command-input-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "model-build-command-input", "identity_domain": "model-build-command-input-v2", "schema_kind": "model-build-command-input", "wire_schema_identity_domain": "model-build-command-input-wire-schema-v2", "identity_excluded_members": []},
       {"artifact_kind": "package-lock", "identity_domain": "package-lock-v2", "schema_kind": "package-lock", "wire_schema_identity_domain": "package-lock-wire-schema-v2", "identity_excluded_members": []},
@@ -105,6 +106,117 @@
             "content_identity": {"type": "string", "minLength": 1}
           },
           "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "status", "input_identity", "source_schema_version", "target_schema_version", "converter_identity", "kernel_identity", "language_bundle_identity", "output_identity", "mappings", "defaults", "warnings", "deprecated_constructs", "refusals", "content_identity"],
+          "unevaluatedProperties": false
+        }
+      },
+      {
+        "artifact_kind": "migration-refusal-report",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "artifact_kind": {"const": "migration-refusal-report"},
+            "artifact_version": {"const": "2.0.0"},
+            "wire_schema_identity": {"type": "string", "minLength": 1},
+            "status": {"const": "refused"},
+            "input_identity": {"type": "string", "minLength": 1},
+            "source_schema_version": {"type": "string", "minLength": 1},
+            "target_schema_version": {"const": "2.0.0"},
+            "converter_identity": {"type": "string", "minLength": 1},
+            "kernel_identity": {"type": "string", "minLength": 1},
+            "language_bundle_identity": {"type": "string", "minLength": 1},
+            "mappings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "source_pointer": {"type": "string"},
+                  "destination_pointer": {"type": "string"},
+                  "mapping": {"type": "string", "minLength": 1}
+                },
+                "required": ["source_pointer", "destination_pointer", "mapping"],
+                "unevaluatedProperties": false
+              }
+            },
+            "defaults": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "destination_pointer": {"type": "string"},
+                  "value": {"type": "string"},
+                  "reason": {"type": "string", "minLength": 1}
+                },
+                "required": ["destination_pointer", "value", "reason"],
+                "unevaluatedProperties": false
+              }
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {"type": "string", "minLength": 1},
+                  "source_pointer": {"type": "string"},
+                  "message": {"type": "string", "minLength": 1}
+                },
+                "required": ["code", "source_pointer", "message"],
+                "unevaluatedProperties": false
+              }
+            },
+            "deprecated_constructs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "source_pointer": {"type": "string"},
+                  "diagnostic_code": {"const": "migration.deprecated_construct"},
+                  "remediation": {"type": "string", "minLength": 1}
+                },
+                "required": ["source_pointer", "diagnostic_code", "remediation"],
+                "unevaluatedProperties": false
+              }
+            },
+            "truncated": {"type": "boolean"},
+            "refusals": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {"type": "string", "minLength": 1},
+                  "message": {"type": "string", "minLength": 1},
+                  "primary": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {"const": "artifact"},
+                      "content_identity": {"type": "string", "minLength": 1},
+                      "pointer": {"type": "string", "minLength": 1}
+                    },
+                    "required": ["kind", "content_identity", "pointer"],
+                    "unevaluatedProperties": false
+                  },
+                  "related": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {"const": "artifact"},
+                        "content_identity": {"type": "string", "minLength": 1},
+                        "pointer": {"type": "string", "minLength": 1}
+                      },
+                      "required": ["kind", "content_identity", "pointer"],
+                      "unevaluatedProperties": false
+                    }
+                  }
+                },
+                "required": ["code", "message", "primary", "related"],
+                "unevaluatedProperties": false
+              }
+            },
+            "content_identity": {"type": "string", "minLength": 1}
+          },
+          "required": ["artifact_kind", "artifact_version", "wire_schema_identity", "status", "input_identity", "target_schema_version", "converter_identity", "kernel_identity", "language_bundle_identity", "mappings", "defaults", "warnings", "deprecated_constructs", "truncated", "refusals", "content_identity"],
           "unevaluatedProperties": false
         }
       },

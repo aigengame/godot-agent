@@ -161,6 +161,7 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "experiment-specification",
         "genre-coverage-matrix",
         "golden-scenario",
+        "migration-refusal-report",
         "migration-report",
         "model-build-command-input",
         "model-migrate-command-input",
