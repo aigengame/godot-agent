@@ -611,9 +611,8 @@ def runtime_terminal_audit_members(
                 "state_after": _int_rows(outcome.state_after),
             },
             "diagnostic": {
-                "code": diagnostic.code,
+                **diagnostic.model_dump(mode="json"),
                 "stage": "runtime",
-                "message": diagnostic.message,
             },
             "reproduction_receipt_identity": reproduction.content_identity,
         },

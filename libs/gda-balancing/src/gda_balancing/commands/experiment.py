@@ -20,7 +20,6 @@ from gda_balancing.commands.model import (
 )
 from gda_balancing.schema2.canonical import content_identity
 from gda_balancing.schema2.diagnostics import (
-    ArtifactLocation,
     Schema2Diagnostic,
     Schema2RefusalReport,
 )
@@ -209,13 +208,12 @@ def experiment_run_handler(
             return Schema2RefusalReport(
                 stage="runtime",
                 diagnostics=(
-                    Schema2Diagnostic(
-                        code=diagnostic["code"],
-                        message=diagnostic["message"],
-                        primary=ArtifactLocation(
-                            content_identity=checked.content_identity,
-                            pointer="/runtime",
-                        ),
+                    Schema2Diagnostic.model_validate(
+                        {
+                            key: value
+                            for key, value in diagnostic.items()
+                            if key != "stage"
+                        }
                     ),
                 ),
                 truncated=False,

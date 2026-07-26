@@ -4612,6 +4612,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         "model_program_vector",
         "package_release",
         "resolution_judgment",
+        "runtime_program",
         "runtime_projection",
         "template_admission",
     }
@@ -5547,7 +5548,7 @@ def test_reidentified_package_cannot_export_an_open_host_operation_definition():
         for entry in package["semantic_closure"]
         if entry["authority_path"] == "language.operations"
     )
-    operation_entry["definitions"] = deepcopy(language["operations"])
+    operation_entry["definitions"].append(deepcopy(language["operations"][-1]))
     _reidentify_package_release(package)
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 

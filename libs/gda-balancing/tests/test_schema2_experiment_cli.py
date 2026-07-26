@@ -508,7 +508,10 @@ def test_runtime_refusal_publishes_only_complete_terminal_audit_set(tmp_path, ru
     }
     assert audit["rollback"]["committed"] is False
     assert audit["rollback"]["state_before"] == audit["rollback"]["state_after"]
-    assert audit["diagnostic"]["stage"] == "runtime"
+    assert audit["diagnostic"] == {
+        "stage": "runtime",
+        **error["diagnostics"][0],
+    }
     assert out.exists()
 
 
@@ -706,10 +709,22 @@ def test_experiment_precommit_faults_leave_no_visible_or_partial_set(
     assert not (store / "anchors" / descriptor_key / f"{key}.json").exists()
 
 
-def test_postcommit_delivery_failure_recovers_without_rerunning_evaluator(
-    tmp_path, run_cli, monkeypatch
+@pytest.mark.parametrize("outcome", ["success", "verdict", "runtime"])
+def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
+    tmp_path, run_cli, monkeypatch, outcome
 ):
     specification = _write_built_experiment(tmp_path, run_cli)
+    specification_value = json.loads(specification.read_text(encoding="utf-8"))
+    if outcome == "verdict":
+        specification_value["metrics"][0]["target"] = {
+            "minimum": 100,
+            "maximum": 1000,
+        }
+    elif outcome == "runtime":
+        specification_value["runtime"]["required_evaluator"][
+            "instruction_nodes"
+        ].append("host-call")
+    specification.write_text(json.dumps(specification_value), encoding="utf-8")
     out = tmp_path / "recovered-evaluation.json"
     key = "3" * 64
     argv = [
@@ -747,6 +762,25 @@ def test_postcommit_delivery_failure_recovers_without_rerunning_evaluator(
         registry=(experiment_command_module.EXPERIMENT_RUN,),
     )
 
-    assert (recovered_exit, recovered_stderr) == (0, "")
-    assert json.loads(recovered_stdout)["invocation_key"] == key
+    assert recovered_stderr == ""
+    recovered = json.loads(recovered_stdout)
+    if outcome == "success":
+        assert recovered_exit == 0
+        assert recovered["invocation_key"] == key
+    elif outcome == "verdict":
+        assert recovered_exit == 1
+        assert recovered["outcome"] == "rejected"
+        assert recovered["artifact_set"]["invocation_key"] == key
+    else:
+        assert recovered_exit == 2
+        error = recovered["error"]
+        assert error["stage"] == "runtime"
+        assert error["diagnostics"][0]["primary"]["pointer"] == (
+            "/runtime/required_evaluator/instruction_nodes"
+        )
+        audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        assert audit["diagnostic"] == {
+            "stage": "runtime",
+            **error["diagnostics"][0],
+        }
     assert out.exists()
