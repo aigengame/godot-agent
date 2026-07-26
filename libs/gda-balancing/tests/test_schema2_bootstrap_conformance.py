@@ -18,7 +18,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:87125b0d62997effb17c8aeb8128be567ebcaee836e4b6e82297d69051d2bbe9"
+    "sha256:7bac93bc52d765d4d035b08ce53dd3a8671ec28e1d743ea51e2dec2297879ce3"
 )
 
 
@@ -1711,6 +1711,17 @@ def _consumer_b_contract_fits_schema(contract: dict[str, Any], schema: Any) -> b
                 or schema.get("type") == _consumer_b_kind(literal)
             )
         )
+    if isinstance(contract.get("enum"), list) and contract["enum"]:
+        values = contract["enum"]
+        kinds = {_consumer_b_kind(value) for value in values}
+        return (
+            len(kinds) == 1
+            and schema.get("type") in {None, next(iter(kinds))}
+            and (
+                not isinstance(schema.get("enum"), list)
+                or set(values) <= set(schema["enum"])
+            )
+        )
     kind = contract.get("type")
     if kind in {"inventory-member", "non-empty-string", "string"}:
         return schema.get("type") == "string"
@@ -1725,6 +1736,8 @@ def _consumer_b_contract_fits_schema(contract: dict[str, Any], schema: Any) -> b
             and isinstance(items, dict)
             and items.get("type") == "string"
         )
+    if kind == "canonical-value":
+        return True
     if kind == "list-of":
         return (
             schema.get("type") == "array"
@@ -1816,6 +1829,7 @@ def _consumer_b_runtime_projection_is_closed(
                 "declaration_path",
                 "declaration_package_path",
                 "target_path",
+                "same_package",
             ],
             "match": "canonical-equality",
             "cardinality": "at-least-one",
@@ -1969,11 +1983,12 @@ def _consumer_b_runtime_projection_is_closed(
         if not isinstance(seed, dict) or seed.get("operator") not in seeds_allowed:
             return False
         expected = {"operator", "collection", "declaration_package_path"}
-        expected |= {"declaration_path", "target_path"}
+        expected |= {"declaration_path", "target_path", "same_package"}
         if (
             set(seed) != expected
             or seed.get("collection") not in collection_set
             or not valid_path(seed.get("declaration_package_path"))
+            or not isinstance(seed.get("same_package"), bool)
         ):
             return False
         if not valid_path(seed.get("declaration_path")) or not valid_path(

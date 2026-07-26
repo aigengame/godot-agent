@@ -1101,6 +1101,77 @@ def verify_artifact(value: dict[str, Any], language_bundle: dict[str, Any]) -> b
     return _verify_artifact(value, language_bundle)
 
 
+def find_published_artifact(
+    content_identity_value: str,
+    artifact_kind: str,
+    language_bundle: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Resolve one exact artifact through authenticated committed publications.
+
+    Locators remain transport facts: callers bind semantic identities, while
+    this local-store adapter discovers a locator and then revalidates the
+    authenticated publication frame, artifact schema, and content hash.
+    """
+    anchors = _store_root() / "anchors"
+    if not anchors.exists():
+        return None
+    authentication_key = publication_authentication_key()
+    matches: list[dict[str, Any]] = []
+    for anchor_path in sorted(anchors.glob("*/*.json")):
+        if anchor_path.is_symlink() or not anchor_path.is_file():
+            continue
+        try:
+            index = _verified_anchor(anchor_path, authentication_key)
+            if (
+                not _verify_artifact(index, language_bundle)
+                or not isinstance(index.get("descriptor_identity"), str)
+                or not isinstance(index.get("invocation_key"), str)
+            ):
+                continue
+            invocation_path = _store_invocation_path(
+                cast(str, index["descriptor_identity"]),
+                cast(str, index["invocation_key"]),
+            )
+            committed_index = _read_canonical_artifact(
+                invocation_path / "publication-index.json"
+            )
+            if committed_index != index:
+                continue
+            manifest = _read_canonical_artifact(
+                invocation_path / "artifact-set-manifest.json"
+            )
+            if not _verify_artifact(manifest, language_bundle):
+                continue
+            members = manifest.get("members")
+            if not isinstance(members, list):
+                continue
+            for member in members:
+                if (
+                    not isinstance(member, dict)
+                    or member.get("artifact_kind") != artifact_kind
+                    or member.get("content_identity") != content_identity_value
+                    or not isinstance(member.get("logical_name"), str)
+                ):
+                    continue
+                artifact = _read_canonical_artifact(
+                    invocation_path / f"{member['logical_name']}.json"
+                )
+                if (
+                    _verify_artifact(artifact, language_bundle)
+                    and artifact.get("artifact_kind") == artifact_kind
+                    and artifact.get("content_identity") == content_identity_value
+                ):
+                    matches.append(artifact)
+        except (OSError, RuntimeError, UsageError, ValueError):
+            continue
+    if not matches:
+        return None
+    canonical = canonical_bytes(cast(JsonValue, matches[0]))
+    if any(canonical_bytes(cast(JsonValue, item)) != canonical for item in matches[1:]):
+        raise RuntimeError("one content identity resolved to different artifacts")
+    return matches[0]
+
+
 def wire_schema_identity(language_bundle: dict[str, Any], artifact_kind: str) -> str:
     """Derive one artifact's wire-schema identity from the exact LDB."""
     return _wire_schema_identity_for_kind(language_bundle, artifact_kind)
@@ -1536,10 +1607,12 @@ def _runtime_projection(
                     for entry in cast(list[dict[str, Any]], closure["definitions"])
                     if entry["authority_path"] == source["authority_path"]
                 ]
-                if len(entries) != 1:
+                if len(entries) > 1:
                     raise ValueError(
                         "runtime projection semantic-closure source is not unique"
                     )
+                if not entries:
+                    continue
                 for value in cast(list[Any], entries[0]["definitions"]):
                     budget.consume()
                     rows.append(
@@ -1572,7 +1645,7 @@ def _runtime_projection(
                 for index, row in enumerate(catalog)
                 if (
                     budget.consume() is None
-                    and row["package"] == package
+                    and (not seed["same_package"] or row["package"] == package)
                     and canonical_bytes(
                         path_value(
                             row["value"],

@@ -44,7 +44,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:87125b0d62997effb17c8aeb8128be567ebcaee836e4b6e82297d69051d2bbe9"
+    "sha256:7bac93bc52d765d4d035b08ce53dd3a8671ec28e1d743ea51e2dec2297879ce3"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -2052,6 +2052,17 @@ def _contract_assignable_to_schema(contract: dict[str, Any], schema: Any) -> boo
         expected = _canonical_value_kind(value)
         actual = schema.get("type")
         return actual is None or actual == expected
+    if isinstance(contract.get("enum"), list) and contract["enum"]:
+        values = contract["enum"]
+        kinds = {_canonical_value_kind(value) for value in values}
+        return (
+            len(kinds) == 1
+            and schema.get("type") in {None, next(iter(kinds))}
+            and (
+                not isinstance(schema.get("enum"), list)
+                or set(values) <= set(schema["enum"])
+            )
+        )
     value_type = contract.get("type")
     if value_type in {"inventory-member", "non-empty-string", "string"}:
         return schema.get("type") == "string"
@@ -2065,6 +2076,11 @@ def _contract_assignable_to_schema(contract: dict[str, Any], schema: Any) -> boo
             and isinstance(schema.get("items"), dict)
             and schema["items"].get("type") == "string"
         )
+    if value_type == "canonical-value":
+        # The closed wire schema remains the structural authority for the
+        # canonical value. The Kernel contract establishes only that the
+        # language definition is canonically encodable.
+        return True
     if value_type == "list-of":
         item = contract.get("items")
         return (
@@ -2163,6 +2179,7 @@ def _runtime_projection_is_closed(
                 "declaration_path",
                 "declaration_package_path",
                 "target_path",
+                "same_package",
             ],
             "match": "canonical-equality",
             "cardinality": "at-least-one",
@@ -2338,6 +2355,7 @@ def _runtime_projection_is_closed(
             "declaration_path",
             "declaration_package_path",
             "target_path",
+            "same_package",
         }
         if (
             set(seed) != expected
@@ -2345,6 +2363,7 @@ def _runtime_projection_is_closed(
             or not path_is_closed(seed.get("declaration_package_path"))
             or not path_is_closed(seed.get("declaration_path"))
             or not path_is_closed(seed.get("target_path"), empty=True)
+            or not isinstance(seed.get("same_package"), bool)
         ):
             return False
     for edge in edges:
