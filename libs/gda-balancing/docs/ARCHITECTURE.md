@@ -890,6 +890,9 @@ ordering/deduplication, and explicit truncation before aggregation runs.
 
 Implement one production vertical slice through the public CLI and durable artifact path. It must
 close all 12 `Tracer` rows in the genre coverage matrix with Golden scenarios and normative vectors.
+Within this gate, product-feedback slices exercise the public Model/Experiment path before the proof
+infrastructure they expose is hardened. PRD #534 and its linked issues own the live slice sequence
+and acceptance criteria; row closure remains governed by the matrix's closure rules.
 
 ### Gate 4 — full RPG coverage
 
@@ -902,6 +905,9 @@ Close the seven Roguelike-specific rows—including generated effect pools and c
 progression—by reusing the same Kernel, LDB, package, runtime, artifact, and
 evidence contracts. If Roguelike support requires a second language or host dispatch, the
 orthogonality claim fails and the architecture must be revisited.
+An earlier Roguelike-shaped product-feedback slice may challenge these assumptions, but it neither
+advances this gate nor owns the cross-genre claim. Formal Gate 5 validation still begins only after
+Gate 4 closes.
 
 ### Gate 6 — adversarial non-RPG extension witness
 

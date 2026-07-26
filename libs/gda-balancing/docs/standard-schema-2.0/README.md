@@ -170,10 +170,13 @@ decision introduces a new semantic root, open host extension, or cross-artifact 
    #539's Model-build tracer, #553's minimal content-addressed Template release, and #554's limited
    clean-forward source migration. Disposable code remains non-authoritative and closes no
    acceptance criterion by itself.
-2. A production RPG tracer must next close its required
-   vertical coverage rows and public artifact path.
-3. A Roguelike cross-genre tracer follows only after those gates pass; it must reuse the same kernel,
-   package, runtime, artifact, and evidence contracts rather than creating parallel semantics.
+2. Remaining work follows the validation and delivery order in
+   [`ARCHITECTURE.md` §13](../ARCHITECTURE.md#13-validation-and-delivery-plan). PRD #534 and its
+   linked issues own live sequencing and acceptance status, including product-feedback slices
+   within an open architecture gate.
+3. Gate completion and row status remain governed by that architecture plan and
+   [`genre-coverage.md` §Closure rules](genre-coverage.md#closure-rules); this evidence index does
+   not duplicate either contract.
 
 PRD #534 remains open until a later implementation/specification PR supplies and validates:
 
