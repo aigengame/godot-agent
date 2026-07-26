@@ -1,6 +1,8 @@
 """Standard Schema 2.0 Experiment checking and execution commands."""
 
+import json
 from collections.abc import Callable
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,9 +13,20 @@ from gda_balancing.descriptors import (
     RefusalArtifactSetSpec,
     RefusalDetailSpec,
 )
-from gda_balancing.schema2.diagnostics import Schema2RefusalReport
+from gda_balancing.commands.model import (
+    ModelBuildInput,
+    ModelBuildResult,
+    run_model_build,
+)
+from gda_balancing.schema2.canonical import content_identity
+from gda_balancing.schema2.diagnostics import (
+    ArtifactLocation,
+    Schema2Diagnostic,
+    Schema2RefusalReport,
+)
 from gda_balancing.schema2.experiment import (
     CheckedExperiment,
+    RuntimeRefusalOutcome,
     check_experiment,
     evaluate_experiment,
     experiment_input_identity,
@@ -23,6 +36,7 @@ from gda_balancing.schema2.experiment import (
 from gda_balancing.schema2.model import (
     publication_authentication_key,
     publish_artifact_set,
+    recover_committed_artifact_set,
     refusal_catalog_for_stages,
 )
 from gda_balancing.schema2.surface import descriptor_identity
@@ -163,10 +177,53 @@ def experiment_run_handler(
         if isinstance(checked, Schema2RefusalReport):
             return checked
         assert isinstance(checked, CheckedExperiment)
+        recovered = recover_committed_artifact_set(
+            inp.out,
+            inp.invocation_key,
+            descriptor_identity(EXPERIMENT_RUN),
+            experiment_input_identity(checked.value),
+            checked.language_bundle,
+            (
+                EXPERIMENT_RUN.artifact_set,
+                EXPERIMENT_RUN.verdict_artifact_set,
+                *(item.members for item in EXPERIMENT_RUN.refusal_artifact_sets),
+            ),
+            lambda logical_name, value: validate_experiment_member(
+                checked, logical_name, value
+            ),
+            authentication_key=publication_authentication_key(),
+        )
+        if recovered is not None:
+            validated_receipt = ExperimentRunResult.model_validate(recovered.receipt)
+            if recovered.artifact_set == EXPERIMENT_RUN.artifact_set:
+                return validated_receipt
+            if recovered.artifact_set == EXPERIMENT_RUN.verdict_artifact_set:
+                verdict = recovered.artifacts["experiment-verdict"]
+                return ExperimentVerdictResult(
+                    outcome="rejected",
+                    failed_metrics=verdict["failed_metrics"],
+                    artifact_set=validated_receipt,
+                )
+            audit = recovered.artifacts["runtime-terminal-audit"]
+            diagnostic = audit["diagnostic"]
+            return Schema2RefusalReport(
+                stage="runtime",
+                diagnostics=(
+                    Schema2Diagnostic(
+                        code=diagnostic["code"],
+                        message=diagnostic["message"],
+                        primary=ArtifactLocation(
+                            content_identity=checked.content_identity,
+                            pointer="/runtime",
+                        ),
+                    ),
+                ),
+                truncated=False,
+                terminal_audit=recovered.receipt,
+            )
         evaluation = evaluate_experiment(checked)
-        if isinstance(evaluation, Schema2RefusalReport):
-            if evaluation.stage != "runtime":
-                return evaluation
+        if isinstance(evaluation, RuntimeRefusalOutcome):
+            report = evaluation.report
             runtime_set = next(
                 item.members
                 for item in EXPERIMENT_RUN.refusal_artifact_sets
@@ -187,7 +244,9 @@ def experiment_run_handler(
                 publication_fault,
                 authentication_key=publication_authentication_key(),
             )
-            return evaluation.model_copy(update={"terminal_audit": receipt})
+            return report.model_copy(update={"terminal_audit": receipt})
+        if isinstance(evaluation, Schema2RefusalReport):
+            return evaluation
         artifact_set = (
             EXPERIMENT_RUN.artifact_set
             if evaluation.accepted
@@ -220,6 +279,169 @@ def experiment_run_handler(
 
 
 run_experiment_run = experiment_run_handler()
+
+
+def _conformance_rpg_value(name: str, role: str) -> dict[str, object]:
+    return {
+        "symbol": name,
+        "type": "rpg",
+        "role": role,
+        "representation": "Int",
+        "kind": "scalar",
+        "unit": "1",
+        "domain_kind": "closed-interval",
+        "domain": {"minimum": 0, "maximum": 1000},
+        "numeric_policy": "exact-int64",
+    }
+
+
+def _prepare_valid_experiment(root: Path, token: int) -> str:
+    """Materialize the public Model prerequisite for registry conformance."""
+    source_value = {
+        "schema_version": "2.0.0",
+        "manifest": {
+            "id": "conformance.rpg-combat",
+            "version": "1.0.0",
+            "entry_module": "combat",
+        },
+        "package_requirements": [
+            {"id": "core.quantity", "version": "2.0.0"},
+            {"id": "game.rpg", "version": "1.0.0"},
+        ],
+        "modules": [
+            {
+                "id": "combat",
+                "imports": [
+                    {
+                        "alias": "rpg",
+                        "package": "game.rpg",
+                        "version": "1.0.0",
+                        "symbol": "RpgValue",
+                    }
+                ],
+                "symbols": [
+                    _conformance_rpg_value("actor_mana", "state"),
+                    _conformance_rpg_value("action_cost", "parameter"),
+                    _conformance_rpg_value("accuracy", "parameter"),
+                    _conformance_rpg_value("base_damage", "parameter"),
+                    _conformance_rpg_value("critical_threshold", "parameter"),
+                    _conformance_rpg_value("target_defense", "input"),
+                    _conformance_rpg_value("target_health", "state"),
+                ],
+            }
+        ],
+    }
+    source = root / f"experiment-model-{token}.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    built = run_model_build(
+        ModelBuildInput(
+            source=str(source),
+            out=str(root / f"experiment-model-{token}-out.json"),
+            invocation_key=f"{token:064x}",
+        )
+    )
+    if not isinstance(built, ModelBuildResult):
+        raise RuntimeError("Experiment conformance prerequisite was refused")
+    receipt = built.model_dump(mode="json")
+
+    def member(logical_name: str) -> dict[str, object]:
+        locator = next(
+            row["locator"]
+            for row in receipt["member_locators"]
+            if row["logical_name"] == logical_name
+        )
+        return json.loads(Path(locator).read_text(encoding="utf-8"))
+
+    build = member("build-receipt")
+    lock = member("package-lock")
+    resolved = member("resolved-model")
+    rir = member("rir-semantic-payload")
+    specification = {
+        "schema_version": "2.0.0",
+        "id": "conformance.experiment",
+        "version": "1.0.0",
+        "kernel_identity": build["kernel_identity"],
+        "language_bundle_identity": build["language_bundle_identity"],
+        "model": {
+            "source_identity": content_identity(
+                "model-source-package-v2", source_value
+            ),
+            "build_receipt_identity": build["content_identity"],
+            "resolved_model_identity": resolved["content_identity"],
+            "package_lock_identity": lock["content_identity"],
+            "rir_identity": rir["content_identity"],
+        },
+        "runtime": {
+            "profile": "rpg.exact-int64-event-v1",
+            "required_evaluator": {
+                "operation_kinds": ["event-program"],
+                "instruction_nodes": [
+                    "add",
+                    "constant",
+                    "draw",
+                    "if",
+                    "less-than-or-equal",
+                    "maximum",
+                    "multiply",
+                    "precondition-greater-than-or-equal",
+                    "subtract",
+                    "subtract-state",
+                ],
+                "effects": [
+                    "event.commit",
+                    "metric.observe",
+                    "rng.named-stream",
+                    "snapshot.commit",
+                ],
+                "numeric_policies": ["exact-int64"],
+                "rng_algorithms": ["splitmix64-v1"],
+            },
+        },
+        "seed": {"algorithm": "splitmix64-v1", "value": 1},
+        "external_inputs": [],
+        "scenarios": [
+            {
+                "id": "one",
+                "operation": "rpg.combat.cast-v1",
+                "values": [
+                    {"name": "actor_mana", "value": 30},
+                    {"name": "action_cost", "value": 8},
+                    {"name": "accuracy", "value": 85},
+                    {"name": "base_damage", "value": 24},
+                    {"name": "critical_threshold", "value": 0},
+                    {"name": "target_defense", "value": 6},
+                    {"name": "target_health", "value": 100},
+                ],
+                "named_streams": ["critical", "hit"],
+                "terminal_condition": {"kind": "event-count", "maximum": 1},
+            }
+        ],
+        "metrics": [
+            {
+                "id": "damage",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "event",
+                    "name": "cast-resolved",
+                    "member": "damage",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        ],
+        "acceptance": {"policy": "all-metrics-within-target"},
+    }
+    return json.dumps(specification)
+
+
+def _prepare_verdict_experiment(root: Path, token: int) -> str:
+    specification = json.loads(_prepare_valid_experiment(root, token))
+    specification["metrics"][0]["target"] = {
+        "minimum": 1000,
+        "maximum": 1000,
+    }
+    return json.dumps(specification)
+
 
 _VALID_EXPERIMENT = """{
   "schema_version": "2.0.0",
@@ -271,7 +493,10 @@ EXPERIMENT_CHECK = CommandDescriptor(
     input_model=ExperimentCheckInput,
     output_model=ExperimentCheckResult,
     handler=run_experiment_check,
-    fixtures=ConformanceFixtures(valid_document=_VALID_EXPERIMENT),
+    fixtures=ConformanceFixtures(
+        valid_document=_VALID_EXPERIMENT,
+        prepare_valid_document=_prepare_valid_experiment,
+    ),
     positional_field="specification",
     schema_major=2,
     structured_params=True,
@@ -293,7 +518,11 @@ EXPERIMENT_RUN = CommandDescriptor(
     output_model=ExperimentRunResult,
     verdict_model=ExperimentVerdictResult,
     handler=run_experiment_run,
-    fixtures=ConformanceFixtures(valid_document=_VALID_EXPERIMENT),
+    fixtures=ConformanceFixtures(
+        valid_document=_VALID_EXPERIMENT,
+        prepare_valid_document=_prepare_valid_experiment,
+        prepare_verdict_document=_prepare_verdict_experiment,
+    ),
     positional_field="specification",
     artifact_set=_EXPERIMENT_SUCCESS_ARTIFACT_SET,
     verdict_artifact_set=_EXPERIMENT_VERDICT_ARTIFACT_SET,

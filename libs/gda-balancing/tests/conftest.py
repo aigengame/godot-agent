@@ -108,16 +108,33 @@ def invocation(doc_dir: Path, tmp_path: Path) -> Callable[..., list[str]]:
 
     sequence = itertools.count(1)
 
-    def _build(descriptor: CommandDescriptor, *, refusing: bool = False) -> list[str]:
+    def _build(
+        descriptor: CommandDescriptor,
+        *,
+        refusing: bool = False,
+        verdicting: bool = False,
+    ) -> list[str]:
         fixtures = descriptor.fixtures
-        content = fixtures.refusing_document if refusing else fixtures.valid_document
+        token = next(sequence)
+        content = (
+            fixtures.refusing_document
+            if refusing
+            else (
+                fixtures.prepare_verdict_document(tmp_path, token)
+                if verdicting and fixtures.prepare_verdict_document is not None
+                else (
+                    fixtures.prepare_valid_document(tmp_path, token)
+                    if fixtures.prepare_valid_document is not None
+                    else fixtures.valid_document
+                )
+            )
+        )
         tail = list(
             fixtures.refusing_args
             if refusing and fixtures.refusing_args
             else fixtures.valid_args
         )
         if descriptor.artifact_set:
-            token = next(sequence)
             tail.extend(
                 [
                     "--out",
@@ -127,7 +144,9 @@ def invocation(doc_dir: Path, tmp_path: Path) -> Callable[..., list[str]]:
                 ]
             )
         if content is not None:
-            label = "refusing" if refusing else "valid"
+            label = (
+                "refusing" if refusing else ("verdicting" if verdicting else "valid")
+            )
             name = "-".join([*_command_path(descriptor), label]) + ".json"
             path = doc_dir / name
             path.write_text(content, encoding="utf-8")

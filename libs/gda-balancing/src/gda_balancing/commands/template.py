@@ -1374,8 +1374,8 @@ def _minimal_release(
         ),
         _member(
             "experiment-specification",
-            "experiment-specification",
-            schema_identities["experiment-specification"],
+            "experiment-template",
+            schema_identities["experiment-template"],
             {
                 "schema_version": "2.0.0",
                 "id": experiment_id,

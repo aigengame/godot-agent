@@ -98,6 +98,15 @@ class PublicationMember:
     content_identity: str
 
 
+@dataclass(frozen=True)
+class RecoveredArtifactSet:
+    """One authenticated committed outcome recovered without recomputation."""
+
+    receipt: dict[str, JsonValue]
+    artifact_set: tuple[ArtifactSetMemberSpec, ...]
+    artifacts: dict[str, dict[str, Any]]
+
+
 class _ResolutionResourceExhausted(Exception):
     """The admitted resolution-step budget was exhausted."""
 
@@ -2811,6 +2820,93 @@ def publish_artifact_set(
             member_validator,
             authentication_key,
             publication_fault,
+        )
+
+
+def recover_committed_artifact_set(
+    out: str,
+    invocation_key: str,
+    descriptor_identity: str,
+    command_input_identity: str,
+    language_bundle: dict[str, Any],
+    candidate_sets: tuple[tuple[ArtifactSetMemberSpec, ...], ...],
+    member_validator: Callable[[str, dict[str, Any]], bool],
+    *,
+    authentication_key: bytes | None = None,
+) -> RecoveredArtifactSet | None:
+    """Recover one committed producing outcome before its producer reruns."""
+    if authentication_key is None:
+        authentication_key = publication_authentication_key()
+    invocation_path = _store_invocation_path(descriptor_identity, invocation_key)
+    anchor_path = _store_anchor_path(descriptor_identity, invocation_key)
+    if not invocation_path.exists() or not anchor_path.exists():
+        return None
+    out_path = _normalized_absolute_path(out)
+    lock_path = _store_lock_path(descriptor_identity, invocation_key)
+    _ensure_directory_chain(lock_path.parent)
+    with _invocation_lock(lock_path):
+        if not invocation_path.exists() or not anchor_path.exists():
+            return None
+        manifest = _read_canonical_artifact(
+            invocation_path / "artifact-set-manifest.json"
+        )
+        if not _verify_artifact(manifest, language_bundle):
+            raise RuntimeError("committed artifact-set manifest failed revalidation")
+        rows = manifest.get("members")
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            raise RuntimeError("committed artifact-set manifest is malformed")
+        signature = [
+            (row.get("logical_name"), row.get("artifact_kind")) for row in rows
+        ]
+        matching_sets = [
+            candidate
+            for candidate in candidate_sets
+            if signature
+            == [(member.logical_name, member.artifact_kind) for member in candidate]
+        ]
+        if len(matching_sets) != 1:
+            raise RuntimeError(
+                "committed artifact set does not name one descriptor outcome"
+            )
+        artifact_set = matching_sets[0]
+        artifacts: dict[str, dict[str, Any]] = {}
+        expected: dict[str, PublicationMember] = {}
+        for member, row in zip(artifact_set, rows, strict=True):
+            artifact = _read_canonical_artifact(
+                invocation_path / f"{member.logical_name}.json"
+            )
+            if (
+                not _verify_artifact(artifact, language_bundle)
+                or not member_validator(member.logical_name, artifact)
+                or artifact.get("artifact_kind") != member.artifact_kind
+                or artifact.get("content_identity") != row.get("content_identity")
+                or artifact.get("wire_schema_identity")
+                != row.get("wire_schema_identity")
+            ):
+                raise RuntimeError("committed artifact-set member failed revalidation")
+            artifacts[member.logical_name] = artifact
+            expected[member.logical_name] = PublicationMember(
+                value=artifact,
+                artifact_kind=member.artifact_kind,
+                wire_schema_identity=cast(str, artifact["wire_schema_identity"]),
+                content_identity=cast(str, artifact["content_identity"]),
+            )
+        receipt = _recover_generic_publication(
+            invocation_path,
+            out_path,
+            invocation_key,
+            descriptor_identity,
+            command_input_identity,
+            language_bundle,
+            artifact_set,
+            expected,
+            member_validator,
+            authentication_key,
+        )
+        return RecoveredArtifactSet(
+            receipt=receipt,
+            artifact_set=artifact_set,
+            artifacts=artifacts,
         )
 
 

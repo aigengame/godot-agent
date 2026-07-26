@@ -1,10 +1,16 @@
 """Public RPG Experiment tracer for Standard Schema 2.0 (#540)."""
 
 import json
+import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+import gda_balancing.commands.experiment as experiment_command_module
 from gda_balancing.schema2.canonical import content_identity
+from gda_balancing.schema2.surface import descriptor_identity
 
 
 def _rpg_value(name: str, role: str) -> dict[str, Any]:
@@ -163,6 +169,36 @@ def _experiment(
         ],
         "acceptance": {"policy": "all-metrics-within-target"},
     }
+
+
+def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
+    source_value = _rpg_model_source()
+    source = tmp_path / "rpg-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "1" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=base_damage,
+    )
+    spec_path = tmp_path / "experiment.json"
+    spec_path.write_text(json.dumps(specification), encoding="utf-8")
+    return spec_path
 
 
 def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, run_cli):
@@ -473,4 +509,244 @@ def test_runtime_refusal_publishes_only_complete_terminal_audit_set(tmp_path, ru
     assert audit["rollback"]["committed"] is False
     assert audit["rollback"]["state_before"] == audit["rollback"]["state_after"]
     assert audit["diagnostic"]["stage"] == "runtime"
+    assert out.exists()
+
+
+def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli):
+    source_value = _rpg_model_source()
+    base_damage = next(
+        symbol
+        for symbol in source_value["modules"][0]["symbols"]
+        if symbol["symbol"] == "base_damage"
+    )
+    base_damage["domain"]["maximum"] = (1 << 63) - 1
+    source = tmp_path / "rpg-overflow-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-overflow-model.json"),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=1 << 62,
+    )
+    threshold = next(
+        row
+        for row in specification["scenarios"][0]["values"]
+        if row["name"] == "critical_threshold"
+    )
+    threshold["value"] = 100
+    spec_path = tmp_path / "overflow-experiment.json"
+    spec_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(spec_path),
+            "--out",
+            str(tmp_path / "overflow-terminal-audit.json"),
+            "--invocation-key",
+            "b" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "runtime"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "rpg.runtime_numeric_overflow"
+    ]
+    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+    assert audit["committed_trace_prefix"] == []
+    assert audit["refusing_event"]["operation"] == "rpg.combat.cast-v1"
+    assert audit["refusing_event"]["reason"] == "rpg.runtime_numeric_overflow"
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_before"] == [
+        {"name": "actor_mana", "value": 30},
+        {"name": "target_health", "value": 100},
+    ]
+    assert audit["rollback"]["state_after"] == audit["rollback"]["state_before"]
+
+
+def test_gameplay_alternative_is_a_committed_typed_event_not_a_refusal(
+    tmp_path, run_cli
+):
+    source_value = _rpg_model_source()
+    source = tmp_path / "rpg-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "c" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=24,
+    )
+    actor_mana = next(
+        row
+        for row in specification["scenarios"][0]["values"]
+        if row["name"] == "actor_mana"
+    )
+    actor_mana["value"] = 4
+    specification["metrics"] = [
+        {
+            "id": "actor_mana_remaining",
+            "kind": "scalar",
+            "unit": "1",
+            "observation": {
+                "source": "event",
+                "name": "insufficient-resource",
+                "member": "actor_mana",
+            },
+            "target": {"minimum": 4, "maximum": 4},
+        },
+        {
+            "id": "target_health_remaining",
+            "kind": "scalar",
+            "unit": "1",
+            "observation": {
+                "source": "snapshot",
+                "name": "terminal",
+                "member": "target_health",
+            },
+            "target": {"minimum": 100, "maximum": 100},
+        },
+    ]
+    spec_path = tmp_path / "insufficient-resource-experiment.json"
+    spec_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(spec_path),
+            "--out",
+            str(tmp_path / "insufficient-resource-evaluation.json"),
+            "--invocation-key",
+            "d" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    trace = _member(json.loads(stdout), "event-trace")
+    event = trace["events"][0]
+    assert event["outcome"] == "insufficient-resource"
+    assert event["state_before"] == event["state_after"]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "after-member-write",
+        "before-commit",
+        "before-anchor-commit",
+    ],
+)
+def test_experiment_precommit_faults_leave_no_visible_or_partial_set(
+    tmp_path, run_cli, fault
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    out = tmp_path / f"{fault}.json"
+    key = "2" * 64
+    faulting = replace(
+        experiment_command_module.EXPERIMENT_RUN,
+        handler=experiment_command_module.experiment_run_handler(
+            publication_fault=fault
+        ),
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(out),
+            "--invocation-key",
+            key,
+        ],
+        registry=(faulting,),
+    )
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+    assert not out.exists()
+    store = Path(os.environ["GDA_BALANCING_STORE_DIR"])
+    descriptor_key = descriptor_identity(
+        experiment_command_module.EXPERIMENT_RUN
+    ).removeprefix("sha256:")
+    assert not (store / "invocations" / descriptor_key / key).exists()
+    assert not (store / "anchors" / descriptor_key / f"{key}.json").exists()
+
+
+def test_postcommit_delivery_failure_recovers_without_rerunning_evaluator(
+    tmp_path, run_cli, monkeypatch
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    out = tmp_path / "recovered-evaluation.json"
+    key = "3" * 64
+    argv = [
+        "experiment",
+        "run",
+        str(specification),
+        "--out",
+        str(out),
+        "--invocation-key",
+        key,
+    ]
+    faulting = replace(
+        experiment_command_module.EXPERIMENT_RUN,
+        handler=experiment_command_module.experiment_run_handler(
+            publication_fault="after-commit"
+        ),
+    )
+
+    exit_code, stdout, stderr = run_cli(argv, registry=(faulting,))
+
+    assert (exit_code, stdout) == (4, "")
+    assert json.loads(stderr)["error"]["code"] == "internal_error"
+    assert not out.exists()
+
+    def evaluator_must_not_run(_checked):
+        raise AssertionError("Invocation-key recovery reran the evaluator")
+
+    monkeypatch.setattr(
+        experiment_command_module,
+        "evaluate_experiment",
+        evaluator_must_not_run,
+    )
+    recovered_exit, recovered_stdout, recovered_stderr = run_cli(
+        argv,
+        registry=(experiment_command_module.EXPERIMENT_RUN,),
+    )
+
+    assert (recovered_exit, recovered_stderr) == (0, "")
+    assert json.loads(recovered_stdout)["invocation_key"] == key
     assert out.exists()

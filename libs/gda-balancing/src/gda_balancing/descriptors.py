@@ -14,6 +14,7 @@ designation replaces that field's option binding (bADR-0011's binding law).
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -79,6 +80,10 @@ class ConformanceFixtures:
     refusing_args: tuple[str, ...] = ()
     valid_document: str | None = None
     refusing_document: str | None = None
+    # Stateful artifact consumers may prepare their valid document by running
+    # declared public prerequisites inside the isolated conformance store.
+    prepare_valid_document: Callable[[Path, int], str] | None = None
+    prepare_verdict_document: Callable[[Path, int], str] | None = None
 
 
 @dataclass(frozen=True)

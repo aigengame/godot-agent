@@ -775,7 +775,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.0.0",
                 "content_identity": (
-                    "sha256:a2d93ce6237798a3d468c8e89dea9c08598673edf8a7360fb97766533e5f285b"
+                    "sha256:bfcb30a4c43632684a039b84f4a23e8dae1ff831fe23209b2384a50334c088d8"
                 ),
             }
         ]
@@ -1392,9 +1392,7 @@ def test_independent_template_graph_interpreter_agrees_on_admission_and_refusal(
     multiple = _with_secondary_vertical_slice(deepcopy(pristine))
 
     invalid_unit = deepcopy(pristine)
-    payload(invalid_unit, "experiment-specification")["metrics"][0]["unit"] = (
-        "missing-unit"
-    )
+    payload(invalid_unit, "experiment-template")["metrics"][0]["unit"] = "missing-unit"
     _reidentify_release(invalid_unit)
 
     false_negative = deepcopy(pristine)

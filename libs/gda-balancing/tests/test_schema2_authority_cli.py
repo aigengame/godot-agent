@@ -17,6 +17,7 @@ import gda_balancing.schema2.authority as authority_module
 import gda_balancing.schema2.bootstrap as bootstrap_module
 import gda_balancing.commands.schema as schema_command_module
 from gda_balancing.commands.manifest import MANIFEST
+from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
 from gda_balancing.commands.model import MODEL_BUILD, MODEL_CHECK, MODEL_MIGRATE
 from gda_balancing.commands.schema import SCHEMA_GET, schema_get_handler
 from gda_balancing.schema2.canonical import content_identity
@@ -158,9 +159,15 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "capability-manifest",
         "debug-map",
         "declared-package-dependencies",
+        "evaluation-run",
+        "evaluator-capability-manifest",
+        "event-trace",
         "experiment-specification",
+        "experiment-template",
+        "experiment-verdict",
         "genre-coverage-matrix",
         "golden-scenario",
+        "metric-dataset",
         "migration-refusal-report",
         "migration-report",
         "model-build-command-input",
@@ -168,10 +175,14 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "package-lock",
         "publication-index",
         "negative-vector",
+        "reproduction-receipt",
         "resolution-receipt",
         "resolved-model",
+        "resolved-runtime-profile",
         "rir-semantic-payload",
+        "runtime-terminal-audit",
         "schema-major-kernel",
+        "snapshot-series",
         "source-converter-specification",
         "language-definition-bundle",
         "model-source-package",
@@ -238,7 +249,7 @@ def test_diagnostic_catalog_is_reverse_closed_over_kernel_and_ldb(run_cli):
 
 
 def test_manifest_and_per_command_schema_are_one_descriptor_projection(
-    run_cli, tmp_path
+    run_cli, tmp_path, invocation
 ):
     exit_code, stdout, stderr = run_cli(["manifest"])
 
@@ -257,6 +268,8 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         "schema get",
         "version",
         "manifest",
+        "experiment check",
+        "experiment run",
         "model check",
         "model build",
         "model migrate",
@@ -270,7 +283,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         assert (schema_exit, schema_stderr) == (0, "")
         assert json.loads(schema_stdout) == row["schema"]
         assert row["descriptor_identity"].startswith("sha256:")
-        assert set(row["schema"]) == {
+        expected_schema_members = {
             "artifact_kind",
             "content_identity",
             "descriptor_identity",
@@ -279,16 +292,23 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             "profile_identity",
             "success",
         }
+        if path == "experiment run":
+            expected_schema_members.add("verdict")
+        assert set(row["schema"]) == expected_schema_members
         if path == "schema get":
-            invocation = ["schema", "get", "language-bundle"]
+            argv = ["schema", "get", "language-bundle"]
         elif path == "version":
-            invocation = ["version"]
+            argv = ["version"]
         elif path == "manifest":
-            invocation = ["manifest"]
+            argv = ["manifest"]
+        elif path == "experiment check":
+            argv = invocation(EXPERIMENT_CHECK)
+        elif path == "experiment run":
+            argv = invocation(EXPERIMENT_RUN)
         elif path == "template list":
-            invocation = ["template", "list"]
+            argv = ["template", "list"]
         elif path == "template get":
-            invocation = [
+            argv = [
                 "template",
                 "get",
                 "--id",
@@ -297,7 +317,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 "2.0.0",
             ]
         elif path == "template instantiate":
-            invocation = [
+            argv = [
                 "template",
                 "instantiate",
                 "--id",
@@ -321,9 +341,9 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             source.write_text(
                 descriptor.fixtures.valid_document or "", encoding="utf-8"
             )
-            invocation = ["model", path.split()[1], str(source)]
+            argv = ["model", path.split()[1], str(source)]
             if descriptor.artifact_set:
-                invocation.extend(
+                argv.extend(
                     [
                         "--out",
                         str(tmp_path / f"manifest-{path.replace(' ', '-')}-output"),
@@ -331,7 +351,7 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                         ("a" if path == "model build" else "c") * 64,
                     ]
                 )
-        result_exit, result_stdout, result_stderr = run_cli(invocation)
+        result_exit, result_stdout, result_stderr = run_cli(argv)
         assert (result_exit, result_stderr) == (0, "")
         jsonschema.validate(json.loads(result_stdout), row["schema"]["success"])
 

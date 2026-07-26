@@ -59,6 +59,18 @@ class TestPerDescriptorRows:
         # reproduces the bytes — sorted keys, LF, defaults materialized.
         assert stdout == canonical_json(payload)
 
+    def test_verdict_row(self, descriptor, run_cli, invocation):
+        if (
+            descriptor.verdict_model is None
+            or descriptor.fixtures.prepare_verdict_document is None
+        ):
+            pytest.skip("no descriptor-owned Verdict fixture")
+        exit_code, stdout, stderr = run_cli(invocation(descriptor, verdicting=True))
+        assert (exit_code, stderr) == (1, "")
+        payload = json.loads(stdout)
+        jsonschema.validate(payload, descriptor.verdict_model.model_json_schema())
+        assert stdout == canonical_json(payload)
+
     def test_usage_row(self, descriptor, run_cli, invocation):
         argv = [*invocation(descriptor), "--no-such-argument"]
         exit_code, stdout, stderr = run_cli(argv)
@@ -176,7 +188,7 @@ class TestPerDescriptorRows:
         assert (exit_code, stderr) == (0, "")
         payload = json.loads(stdout)
         if descriptor.schema_major == 2:
-            assert sorted(payload) == [
+            expected = [
                 "artifact_kind",
                 "content_identity",
                 "descriptor_identity",
@@ -185,6 +197,9 @@ class TestPerDescriptorRows:
                 "profile_identity",
                 "success",
             ]
+            if descriptor.verdict_model is not None:
+                expected.append("verdict")
+            assert sorted(payload) == sorted(expected)
         else:
             assert sorted(payload) == ["error", "input", "output"]
 
@@ -194,7 +209,7 @@ class TestPerDescriptorRows:
         assert (exit_code, stderr) == (0, "")
 
     def test_seed_row_deterministic_refuses_seed(self, descriptor, run_cli, invocation):
-        assert not descriptor.stochastic  # no v1 command is stochastic
+        # RNG ownership is descriptor input, never a dispatch-level override.
         argv = [*invocation(descriptor), "--seed", "1"]
         exit_code, stdout, stderr = run_cli(argv)
         assert (exit_code, stdout) == (3, "")

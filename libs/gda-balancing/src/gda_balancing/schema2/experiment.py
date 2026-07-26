@@ -55,6 +55,17 @@ class EvaluationArtifacts:
     failed_metrics: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class RuntimeRefusalOutcome:
+    report: Schema2RefusalReport
+    committed_trace_prefix: tuple[dict[str, JsonValue], ...]
+    last_state: dict[str, int]
+    refusing_event_index: int
+    refusing_operation: str
+    state_before: dict[str, int]
+    state_after: dict[str, int]
+
+
 def _raw_identity(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
@@ -568,21 +579,16 @@ def _reproduction_receipt(
 
 def runtime_terminal_audit_members(
     checked: CheckedExperiment,
-    report: Schema2RefusalReport,
+    outcome: RuntimeRefusalOutcome,
 ) -> dict[str, PublicationMember]:
     """Prepare the complete terminal-only artifact set for runtime refusal."""
+    report = outcome.report
     if report.stage != "runtime":
         raise ValueError("terminal audit requires one runtime refusal")
     evaluator = _evaluator_manifest(checked)
     resolved_runtime = _resolved_runtime_profile(checked, evaluator)
     reproduction = _reproduction_receipt(checked, evaluator, resolved_runtime)
     scenario = checked.value["scenarios"][0]
-    declarations = {row["symbol"]: row for row in checked.rir["declarations"]}
-    state = {
-        row["name"]: row["value"]
-        for row in scenario["values"]
-        if declarations[row["name"]]["role"] == "state"
-    }
     diagnostic = report.diagnostics[0]
     audit = _artifact(
         checked,
@@ -592,17 +598,17 @@ def runtime_terminal_audit_members(
             "resolved_runtime_profile_identity": resolved_runtime.content_identity,
             "evaluator_manifest_identity": evaluator.content_identity,
             "scenario": scenario["id"],
-            "committed_trace_prefix": [],
-            "last_snapshot": _int_rows(state),
+            "committed_trace_prefix": list(outcome.committed_trace_prefix),
+            "last_snapshot": _int_rows(outcome.last_state),
             "refusing_event": {
-                "index": 0,
-                "operation": scenario["operation"],
+                "index": outcome.refusing_event_index,
+                "operation": outcome.refusing_operation,
                 "reason": diagnostic.code,
             },
             "rollback": {
                 "committed": False,
-                "state_before": _int_rows(state),
-                "state_after": _int_rows(state),
+                "state_before": _int_rows(outcome.state_before),
+                "state_after": _int_rows(outcome.state_after),
             },
             "diagnostic": {
                 "code": diagnostic.code,
@@ -620,14 +626,69 @@ def runtime_terminal_audit_members(
     }
 
 
+def _scenario_state(
+    scenario: dict[str, Any],
+    declarations: dict[str, dict[str, Any]],
+) -> dict[str, int]:
+    return {
+        row["name"]: row["value"]
+        for row in scenario["values"]
+        if declarations[row["name"]]["role"] == "state"
+    }
+
+
+def _runtime_refusal_outcome(
+    checked: CheckedExperiment,
+    *,
+    code: str,
+    message: str,
+    events: list[dict[str, JsonValue]],
+    operation: str,
+    state_before: dict[str, int],
+) -> RuntimeRefusalOutcome:
+    report = _refusal(
+        stage="runtime",
+        code=code,
+        identity=checked.content_identity,
+        pointer=f"/scenarios/{len(events)}/operation",
+        message=message,
+    )
+    return RuntimeRefusalOutcome(
+        report=report,
+        committed_trace_prefix=tuple(
+            {
+                "index": event["index"],
+                "operation": event["operation"],
+                "outcome": event["outcome"],
+            }
+            for event in events
+        ),
+        last_state=dict(state_before),
+        refusing_event_index=len(events),
+        refusing_operation=operation,
+        state_before=dict(state_before),
+        state_after=dict(state_before),
+    )
+
+
 def evaluate_experiment(
     checked: CheckedExperiment,
-) -> EvaluationArtifacts | Schema2RefusalReport:
+) -> EvaluationArtifacts | RuntimeRefusalOutcome | Schema2RefusalReport:
     """Evaluate one checked deterministic-event Experiment without publishing."""
     evaluator = _evaluator_manifest(checked)
     capability_refusal = _check_evaluator_requirements(checked, evaluator)
     if capability_refusal is not None:
-        return capability_refusal
+        declarations = {row["symbol"]: row for row in checked.rir["declarations"]}
+        scenario = checked.value["scenarios"][0]
+        return RuntimeRefusalOutcome(
+            report=capability_refusal,
+            committed_trace_prefix=(),
+            last_state=_scenario_state(scenario, declarations),
+            refusing_event_index=0,
+            refusing_operation=scenario["operation"],
+            state_before=_scenario_state(scenario, declarations),
+            state_after=_scenario_state(scenario, declarations),
+        )
     resolved_runtime = _resolved_runtime_profile(checked, evaluator)
     operations = {
         row["definition"]["id"]: row["definition"]
@@ -642,11 +703,7 @@ def evaluate_experiment(
     runtime_limit = checked.language_bundle["resources"]["max_runtime_steps"]
     for scenario in checked.value["scenarios"]:
         variables = {row["name"]: row["value"] for row in scenario["values"]}
-        state = {
-            name: value
-            for name, value in variables.items()
-            if declarations[name]["role"] == "state"
-        }
+        state = _scenario_state(scenario, declarations)
         before = dict(state)
         snapshots.append(
             {
@@ -664,12 +721,13 @@ def evaluate_experiment(
                 total_steps > runtime_limit
                 or total_steps > operation["resource_bounds"]["max_steps"]
             ):
-                return _refusal(
-                    stage="runtime",
+                return _runtime_refusal_outcome(
+                    checked,
                     code="rpg.runtime_step_limit_exceeded",
-                    identity=checked.content_identity,
-                    pointer=f"/scenarios/{scenario['id']}",
                     message="Runtime program exhausted its exact step bound",
+                    events=events,
+                    operation=operation["id"],
+                    state_before=before,
                 )
             node = instruction["node"]
             if node == "precondition-greater-than-or-equal":
@@ -707,7 +765,17 @@ def evaluate_experiment(
                     result = left * right
                 else:
                     result = max(left, right)
-                variables[instruction["target"]] = _signed_int64(result)
+                try:
+                    variables[instruction["target"]] = _signed_int64(result)
+                except OverflowError:
+                    return _runtime_refusal_outcome(
+                        checked,
+                        code="rpg.runtime_numeric_overflow",
+                        message="Exact-int64 operation overflowed its numeric domain",
+                        events=events,
+                        operation=operation["id"],
+                        state_before=before,
+                    )
             elif node in {
                 "greater-than-or-equal",
                 "less-than",
@@ -730,21 +798,42 @@ def evaluate_experiment(
                 ]
             elif node == "subtract-state":
                 symbol = instruction["symbol"]
-                state[symbol] = _signed_int64(
-                    state[symbol] - variables[instruction["value"]]
-                )
+                try:
+                    state[symbol] = _signed_int64(
+                        state[symbol] - variables[instruction["value"]]
+                    )
+                except OverflowError:
+                    return _runtime_refusal_outcome(
+                        checked,
+                        code="rpg.runtime_numeric_overflow",
+                        message="Exact-int64 state update overflowed its numeric domain",
+                        events=events,
+                        operation=operation["id"],
+                        state_before=before,
+                    )
                 variables[symbol] = state[symbol]
             elif node == "write-state":
                 symbol = instruction["symbol"]
-                state[symbol] = _signed_int64(variables[instruction["value"]])
+                try:
+                    state[symbol] = _signed_int64(variables[instruction["value"]])
+                except OverflowError:
+                    return _runtime_refusal_outcome(
+                        checked,
+                        code="rpg.runtime_numeric_overflow",
+                        message="Exact-int64 state update overflowed its numeric domain",
+                        events=events,
+                        operation=operation["id"],
+                        state_before=before,
+                    )
                 variables[symbol] = state[symbol]
             else:
-                return _refusal(
-                    stage="runtime",
+                return _runtime_refusal_outcome(
+                    checked,
                     code="rpg.runtime_capability_unsupported",
-                    identity=checked.content_identity,
-                    pointer=f"/scenarios/{scenario['id']}/operation",
                     message=f"Evaluator does not support instruction node {node}",
+                    events=events,
+                    operation=operation["id"],
+                    state_before=before,
                 )
         if outcome != "cast-resolved":
             state = before
