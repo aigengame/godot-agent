@@ -115,7 +115,8 @@ class RefusalDetailSpec:
             ("runtime", "terminal_audit"),
         }:
             raise ValueError(
-                "Schema 2.x refusal detail does not belong to its declared stage"
+                "migration-report and terminal-audit are the only Schema 2.x "
+                "refusal details and each belongs to its declared stage"
             )
 
 

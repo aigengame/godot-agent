@@ -221,26 +221,29 @@ def _artifact_membership(descriptor: CommandDescriptor) -> dict[str, JsonValue]:
             for member in artifact_set
         ]
 
-    return {
-        "artifact_behavior": (
-            "atomic-artifact-set"
-            if (
-                descriptor.artifact_sink
-                or descriptor.artifact_set
-                or descriptor.verdict_artifact_set
-            )
-            else "stdout-only"
-        ),
-        "artifact_set": members(descriptor.artifact_set),
-        "verdict_artifact_set": members(descriptor.verdict_artifact_set),
-        "refusal_artifact_sets": [
-            {
-                "stage": item.stage,
-                "members": members(item.members),
-            }
-            for item in descriptor.refusal_artifact_sets
-        ],
-    }
+    return cast(
+        dict[str, JsonValue],
+        {
+            "artifact_behavior": (
+                "atomic-artifact-set"
+                if (
+                    descriptor.artifact_sink
+                    or descriptor.artifact_set
+                    or descriptor.verdict_artifact_set
+                )
+                else "stdout-only"
+            ),
+            "artifact_set": members(descriptor.artifact_set),
+            "verdict_artifact_set": members(descriptor.verdict_artifact_set),
+            "refusal_artifact_sets": [
+                {
+                    "stage": item.stage,
+                    "members": members(item.members),
+                }
+                for item in descriptor.refusal_artifact_sets
+            ],
+        },
+    )
 
 
 def _descriptor_body(descriptor: CommandDescriptor) -> dict[str, JsonValue]:

@@ -1975,7 +1975,9 @@ def test_lowerers_follow_renamed_ldb_rule_and_judgment_tokens_without_host_chang
     assert production == reference
     selected_semantics = cast(dict[str, Any], production["selected_semantics"])
     operation_projections = cast(list[dict[str, Any]], selected_semantics["operations"])
-    assert operation_projections == []
+    assert [row["definition"]["id"] for row in operation_projections] == [
+        "quantity.identity"
+    ]
     lock_operations = cast(
         list[dict[str, Any]], artifacts["package-lock"]["operations"]
     )

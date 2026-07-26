@@ -1874,7 +1874,9 @@ def test_rir_identity_binds_the_reachable_selected_runtime_semantics(tmp_path):
     mutated_selected = cast(dict[str, Any], mutated_rir["selected_semantics"])
     assert original_selected != original_lock["selected_semantics"]
     assert mutated_selected != mutated_lock["selected_semantics"]
-    assert original_selected["operations"] == []
+    assert [row["definition"]["id"] for row in original_selected["operations"]] == [
+        "quantity.identity"
+    ]
     assert original_selected["conversions"] == []
     original_closures = cast(
         list[dict[str, Any]], original_selected["package_semantic_closures"]
@@ -1930,7 +1932,12 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     assert isinstance(checked, model_module.CheckedModel)
     original = model_module.lower_checked_model(checked)
     candidate_ldb = deepcopy(checked.language_bundle)
-    candidate_ldb["language"]["operations"][0]["resource_bounds"]["max_steps"] += 1
+    unreachable = next(
+        operation
+        for operation in candidate_ldb["language"]["operations"]
+        if operation["id"] == "rpg.combat.cast-v1"
+    )
+    unreachable["resource_bounds"]["max_steps"] += 1
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
     candidate = replace(checked, language_bundle=candidate_ldb)
@@ -1938,7 +1945,7 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     mutated = model_module.lower_checked_model(candidate)
 
     assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
-    assert original["package-lock"] != mutated["package-lock"]
+    assert original["package-lock"] == mutated["package-lock"]
     assert original["resolved-model"] != mutated["resolved-model"]
 
 

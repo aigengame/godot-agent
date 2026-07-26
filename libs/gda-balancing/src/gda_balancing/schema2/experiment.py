@@ -593,29 +593,32 @@ def runtime_terminal_audit_members(
     audit = _artifact(
         checked,
         "runtime-terminal-audit",
-        {
-            "experiment_identity": checked.content_identity,
-            "resolved_runtime_profile_identity": resolved_runtime.content_identity,
-            "evaluator_manifest_identity": evaluator.content_identity,
-            "scenario": scenario["id"],
-            "committed_trace_prefix": list(outcome.committed_trace_prefix),
-            "last_snapshot": _int_rows(outcome.last_state),
-            "refusing_event": {
-                "index": outcome.refusing_event_index,
-                "operation": outcome.refusing_operation,
-                "reason": diagnostic.code,
+        cast(
+            dict[str, JsonValue],
+            {
+                "experiment_identity": checked.content_identity,
+                "resolved_runtime_profile_identity": resolved_runtime.content_identity,
+                "evaluator_manifest_identity": evaluator.content_identity,
+                "scenario": scenario["id"],
+                "committed_trace_prefix": list(outcome.committed_trace_prefix),
+                "last_snapshot": _int_rows(outcome.last_state),
+                "refusing_event": {
+                    "index": outcome.refusing_event_index,
+                    "operation": outcome.refusing_operation,
+                    "reason": diagnostic.code,
+                },
+                "rollback": {
+                    "committed": False,
+                    "state_before": _int_rows(outcome.state_before),
+                    "state_after": _int_rows(outcome.state_after),
+                },
+                "diagnostic": {
+                    **diagnostic.model_dump(mode="json"),
+                    "stage": "runtime",
+                },
+                "reproduction_receipt_identity": reproduction.content_identity,
             },
-            "rollback": {
-                "committed": False,
-                "state_before": _int_rows(outcome.state_before),
-                "state_after": _int_rows(outcome.state_after),
-            },
-            "diagnostic": {
-                **diagnostic.model_dump(mode="json"),
-                "stage": "runtime",
-            },
-            "reproduction_receipt_identity": reproduction.content_identity,
-        },
+        ),
     )
     return {
         "runtime-terminal-audit": audit,
@@ -705,11 +708,14 @@ def evaluate_experiment(
         state = _scenario_state(scenario, declarations)
         before = dict(state)
         snapshots.append(
-            {
-                "index": len(snapshots),
-                "name": f"{scenario['id']}:initial",
-                "values": _int_rows(state),
-            }
+            cast(
+                dict[str, JsonValue],
+                {
+                    "index": len(snapshots),
+                    "name": f"{scenario['id']}:initial",
+                    "values": _int_rows(state),
+                },
+            )
         )
         operation = operations[scenario["operation"]]
         outcome = "cast-resolved"
@@ -838,22 +844,28 @@ def evaluate_experiment(
             state = before
             for name, value in before.items():
                 variables[name] = value
-        event = {
-            "index": len(events),
-            "operation": operation["id"],
-            "outcome": outcome,
-            "facts": _value_rows(variables),
-            "state_before": _int_rows(before),
-            "state_after": _int_rows(state),
-            "rng_draws": draws,
-        }
+        event = cast(
+            dict[str, JsonValue],
+            {
+                "index": len(events),
+                "operation": operation["id"],
+                "outcome": outcome,
+                "facts": _value_rows(variables),
+                "state_before": _int_rows(before),
+                "state_after": _int_rows(state),
+                "rng_draws": draws,
+            },
+        )
         events.append(event)
         snapshots.append(
-            {
-                "index": len(snapshots),
-                "name": f"{scenario['id']}:terminal",
-                "values": _int_rows(state),
-            }
+            cast(
+                dict[str, JsonValue],
+                {
+                    "index": len(snapshots),
+                    "name": f"{scenario['id']}:terminal",
+                    "values": _int_rows(state),
+                },
+            )
         )
         scenario_outputs[scenario["id"]] = (event, state, outcome)
 
@@ -904,31 +916,40 @@ def evaluate_experiment(
     trace = _artifact(
         checked,
         "event-trace",
-        {
-            "experiment_identity": checked.content_identity,
-            "resolved_runtime_profile_identity": resolved_runtime.content_identity,
-            "scenario": ",".join(row["id"] for row in checked.value["scenarios"]),
-            "events": events,
-        },
+        cast(
+            dict[str, JsonValue],
+            {
+                "experiment_identity": checked.content_identity,
+                "resolved_runtime_profile_identity": resolved_runtime.content_identity,
+                "scenario": ",".join(row["id"] for row in checked.value["scenarios"]),
+                "events": events,
+            },
+        ),
     )
     snapshot_series = _artifact(
         checked,
         "snapshot-series",
-        {
-            "experiment_identity": checked.content_identity,
-            "resolved_runtime_profile_identity": resolved_runtime.content_identity,
-            "scenario": ",".join(row["id"] for row in checked.value["scenarios"]),
-            "snapshots": snapshots,
-        },
+        cast(
+            dict[str, JsonValue],
+            {
+                "experiment_identity": checked.content_identity,
+                "resolved_runtime_profile_identity": resolved_runtime.content_identity,
+                "scenario": ",".join(row["id"] for row in checked.value["scenarios"]),
+                "snapshots": snapshots,
+            },
+        ),
     )
     metric_dataset = _artifact(
         checked,
         "metric-dataset",
-        {
-            "experiment_identity": checked.content_identity,
-            "resolved_runtime_profile_identity": resolved_runtime.content_identity,
-            "samples": samples,
-        },
+        cast(
+            dict[str, JsonValue],
+            {
+                "experiment_identity": checked.content_identity,
+                "resolved_runtime_profile_identity": resolved_runtime.content_identity,
+                "samples": samples,
+            },
+        ),
     )
     reproduction = _reproduction_receipt(checked, evaluator, resolved_runtime)
     failed_metrics = tuple(
