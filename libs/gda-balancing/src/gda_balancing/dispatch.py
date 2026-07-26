@@ -36,6 +36,7 @@ from gda_balancing.envelope import (
     EXIT_REFUSAL,
     EXIT_SUCCESS,
     EXIT_USAGE,
+    EXIT_VERDICT_FAIL,
     RefusalReport,
     UnreadableInputError,
     UsageError,
@@ -233,6 +234,15 @@ def _invoke_descriptor(
         envelope = schema2_refusal_envelope(outcome)
         stdout.write(canonical_json(envelope))
         return EXIT_REFUSAL
+    if (
+        descriptor.verdict_model is not None
+        and type(outcome) is descriptor.verdict_model
+    ):
+        payload = model_payload(outcome)
+        if descriptor.verdict_schema is not None:
+            jsonschema.validate(payload, descriptor.verdict_schema())
+        stdout.write(canonical_json(payload))
+        return EXIT_VERDICT_FAIL
     if type(outcome) is not descriptor.output_model:
         # The declared output model is authoritative at runtime, not merely
         # descriptive, and the check is EXACT identity: an isinstance check

@@ -8,6 +8,8 @@ from gda_balancing.descriptors import (
     ArtifactSetMemberSpec,
     CommandDescriptor,
     ConformanceFixtures,
+    RefusalArtifactSetSpec,
+    RefusalDetailSpec,
 )
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.experiment import (
@@ -15,6 +17,7 @@ from gda_balancing.schema2.experiment import (
     check_experiment,
     evaluate_experiment,
     experiment_input_identity,
+    runtime_terminal_audit_members,
     validate_experiment_member,
 )
 from gda_balancing.schema2.model import (
@@ -69,7 +72,18 @@ class ExperimentRunResult(BaseModel):
     content_identity: str
 
 
-EXPERIMENT_REFUSAL_CATALOG = refusal_catalog_for_stages(
+class ExperimentVerdictResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    outcome: str
+    failed_metrics: list[str]
+    artifact_set: ExperimentRunResult
+
+
+EXPERIMENT_CHECK_REFUSAL_CATALOG = refusal_catalog_for_stages(
+    frozenset({"ingress", "parse", "static", "resolution"})
+)
+EXPERIMENT_RUN_REFUSAL_CATALOG = refusal_catalog_for_stages(
     frozenset({"ingress", "parse", "static", "resolution", "runtime", "evaluation"})
 )
 
@@ -85,6 +99,39 @@ _EXPERIMENT_SUCCESS_ARTIFACT_SET = (
         "evaluator-capability-manifest",
     ),
 )
+_EXPERIMENT_VERDICT_ARTIFACT_SET = (
+    ArtifactSetMemberSpec(
+        "experiment-verdict",
+        "experiment-verdict",
+        role="primary",
+    ),
+    ArtifactSetMemberSpec("event-trace", "event-trace"),
+    ArtifactSetMemberSpec("snapshot-series", "snapshot-series"),
+    ArtifactSetMemberSpec("metric-dataset", "metric-dataset"),
+    ArtifactSetMemberSpec("reproduction-receipt", "reproduction-receipt"),
+    ArtifactSetMemberSpec("resolved-runtime-profile", "resolved-runtime-profile"),
+    ArtifactSetMemberSpec(
+        "evaluator-capability-manifest",
+        "evaluator-capability-manifest",
+    ),
+)
+_EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET = (
+    ArtifactSetMemberSpec(
+        "runtime-terminal-audit",
+        "runtime-terminal-audit",
+        role="primary",
+    ),
+    ArtifactSetMemberSpec("reproduction-receipt", "reproduction-receipt"),
+    ArtifactSetMemberSpec("resolved-runtime-profile", "resolved-runtime-profile"),
+    ArtifactSetMemberSpec(
+        "evaluator-capability-manifest",
+        "evaluator-capability-manifest",
+    ),
+)
+
+
+def _terminal_audit_receipt_schema() -> dict[str, object]:
+    return ExperimentRunResult.model_json_schema()
 
 
 def run_experiment_check(
@@ -103,23 +150,49 @@ def run_experiment_check(
 
 def experiment_run_handler(
     *, publication_fault: str | None = None
-) -> Callable[[ExperimentRunInput], ExperimentRunResult | Schema2RefusalReport]:
+) -> Callable[
+    [ExperimentRunInput],
+    ExperimentRunResult | ExperimentVerdictResult | Schema2RefusalReport,
+]:
     """Create the run handler; publication fault injection is test-only."""
 
     def _run(
         inp: ExperimentRunInput,
-    ) -> ExperimentRunResult | Schema2RefusalReport:
+    ) -> ExperimentRunResult | ExperimentVerdictResult | Schema2RefusalReport:
         checked = check_experiment(inp.specification)
         if isinstance(checked, Schema2RefusalReport):
             return checked
         assert isinstance(checked, CheckedExperiment)
         evaluation = evaluate_experiment(checked)
         if isinstance(evaluation, Schema2RefusalReport):
-            return evaluation
-        if not evaluation.accepted:
-            raise RuntimeError(
-                "completed negative Experiment requires the Verdict outcome path"
+            if evaluation.stage != "runtime":
+                return evaluation
+            runtime_set = next(
+                item.members
+                for item in EXPERIMENT_RUN.refusal_artifact_sets
+                if item.stage == "runtime"
             )
+            members = runtime_terminal_audit_members(checked, evaluation)
+            receipt = publish_artifact_set(
+                members,
+                inp.out,
+                inp.invocation_key,
+                descriptor_identity(EXPERIMENT_RUN),
+                experiment_input_identity(checked.value),
+                checked.language_bundle,
+                runtime_set,
+                lambda logical_name, value: validate_experiment_member(
+                    checked, logical_name, value
+                ),
+                publication_fault,
+                authentication_key=publication_authentication_key(),
+            )
+            return evaluation.model_copy(update={"terminal_audit": receipt})
+        artifact_set = (
+            EXPERIMENT_RUN.artifact_set
+            if evaluation.accepted
+            else EXPERIMENT_RUN.verdict_artifact_set
+        )
         receipt = publish_artifact_set(
             evaluation.members,
             inp.out,
@@ -127,14 +200,21 @@ def experiment_run_handler(
             descriptor_identity(EXPERIMENT_RUN),
             experiment_input_identity(checked.value),
             checked.language_bundle,
-            EXPERIMENT_RUN.artifact_set,
+            artifact_set,
             lambda logical_name, value: validate_experiment_member(
                 checked, logical_name, value
             ),
             publication_fault,
             authentication_key=publication_authentication_key(),
         )
-        return ExperimentRunResult.model_validate(receipt)
+        validated_receipt = ExperimentRunResult.model_validate(receipt)
+        if evaluation.accepted:
+            return validated_receipt
+        return ExperimentVerdictResult(
+            outcome="rejected",
+            failed_metrics=list(evaluation.failed_metrics),
+            artifact_set=validated_receipt,
+        )
 
     return _run
 
@@ -195,7 +275,7 @@ EXPERIMENT_CHECK = CommandDescriptor(
     positional_field="specification",
     schema_major=2,
     structured_params=True,
-    refusal_catalog=EXPERIMENT_REFUSAL_CATALOG,
+    refusal_catalog=EXPERIMENT_CHECK_REFUSAL_CATALOG,
     usage_codes=(
         "argument_conflict",
         "invalid_argument",
@@ -211,14 +291,29 @@ EXPERIMENT_RUN = CommandDescriptor(
     description="Run and atomically publish one exact Standard Schema 2.0 Experiment.",
     input_model=ExperimentRunInput,
     output_model=ExperimentRunResult,
+    verdict_model=ExperimentVerdictResult,
     handler=run_experiment_run,
     fixtures=ConformanceFixtures(valid_document=_VALID_EXPERIMENT),
     positional_field="specification",
     artifact_set=_EXPERIMENT_SUCCESS_ARTIFACT_SET,
+    verdict_artifact_set=_EXPERIMENT_VERDICT_ARTIFACT_SET,
+    refusal_artifact_sets=(
+        RefusalArtifactSetSpec(
+            stage="runtime",
+            members=_EXPERIMENT_RUNTIME_REFUSAL_ARTIFACT_SET,
+        ),
+    ),
     schema_major=2,
     structured_params=True,
     stochastic=True,
-    refusal_catalog=EXPERIMENT_REFUSAL_CATALOG,
+    refusal_catalog=EXPERIMENT_RUN_REFUSAL_CATALOG,
+    refusal_details=(
+        RefusalDetailSpec(
+            stage="runtime",
+            field_name="terminal_audit",
+            schema=_terminal_audit_receipt_schema,
+        ),
+    ),
     usage_codes=(
         "argument_conflict",
         "invalid_argument",

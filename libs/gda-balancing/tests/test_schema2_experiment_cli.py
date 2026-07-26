@@ -281,3 +281,196 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         tuned_trace["content_identity"] != first_trace["content_identity"]
         and tuned_metrics["content_identity"] != first_metrics["content_identity"]
     )
+
+
+def test_completed_negative_judgment_publishes_only_typed_verdict_set(
+    tmp_path, run_cli
+):
+    source_value = _rpg_model_source()
+    source = tmp_path / "rpg-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "4" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=24,
+    )
+    specification["metrics"][0]["target"] = {"minimum": 100, "maximum": 1000}
+    spec_path = tmp_path / "negative-experiment.json"
+    spec_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(spec_path),
+            "--out",
+            str(tmp_path / "negative-evaluation.json"),
+            "--invocation-key",
+            "5" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (1, "")
+    result = json.loads(stdout)
+    assert result["outcome"] == "rejected"
+    assert result["failed_metrics"] == ["damage_dealt"]
+    receipt = result["artifact_set"]
+    logical_names = {item["logical_name"] for item in receipt["member_locators"]}
+    assert logical_names == {
+        "evaluator-capability-manifest",
+        "event-trace",
+        "experiment-verdict",
+        "metric-dataset",
+        "reproduction-receipt",
+        "resolved-runtime-profile",
+        "snapshot-series",
+    }
+    assert "evaluation-run" not in logical_names
+    verdict = _member(receipt, "experiment-verdict")
+    assert verdict["outcome"] == "rejected"
+    assert verdict["failed_metrics"] == ["damage_dealt"]
+
+
+def test_evaluation_refusal_publishes_no_completed_outcome_artifacts(tmp_path, run_cli):
+    source_value = _rpg_model_source()
+    source = tmp_path / "rpg-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=24,
+    )
+    specification["metrics"][0]["observation"]["member"] = "missing_damage"
+    spec_path = tmp_path / "unevaluable-experiment.json"
+    spec_path.write_text(json.dumps(specification), encoding="utf-8")
+    out = tmp_path / "must-not-exist.json"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(spec_path),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "7" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "evaluation"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "rpg.evaluation_observation_unavailable"
+    ]
+    assert not out.exists()
+    assert "artifact_set" not in error
+
+
+def test_runtime_refusal_publishes_only_complete_terminal_audit_set(tmp_path, run_cli):
+    source_value = _rpg_model_source()
+    source = tmp_path / "rpg-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "8" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=24,
+    )
+    specification["runtime"]["required_evaluator"]["instruction_nodes"].append(
+        "host-call"
+    )
+    spec_path = tmp_path / "runtime-refusal-experiment.json"
+    spec_path.write_text(json.dumps(specification), encoding="utf-8")
+    out = tmp_path / "runtime-terminal-audit.json"
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(spec_path),
+            "--out",
+            str(out),
+            "--invocation-key",
+            "9" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "runtime"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "rpg.runtime_capability_unsupported"
+    ]
+    receipt = error["terminal_audit"]
+    logical_names = {item["logical_name"] for item in receipt["member_locators"]}
+    assert logical_names == {
+        "evaluator-capability-manifest",
+        "reproduction-receipt",
+        "resolved-runtime-profile",
+        "runtime-terminal-audit",
+    }
+    assert not logical_names & {
+        "evaluation-run",
+        "experiment-verdict",
+        "metric-dataset",
+        "snapshot-series",
+    }
+    audit = _member(receipt, "runtime-terminal-audit")
+    assert audit["committed_trace_prefix"] == []
+    assert audit["refusing_event"] == {
+        "index": 0,
+        "operation": "rpg.combat.cast-v1",
+        "reason": "rpg.runtime_capability_unsupported",
+    }
+    assert audit["rollback"]["committed"] is False
+    assert audit["rollback"]["state_before"] == audit["rollback"]["state_after"]
+    assert audit["diagnostic"]["stage"] == "runtime"
+    assert out.exists()

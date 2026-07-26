@@ -542,6 +542,84 @@ def _check_evaluator_requirements(
     return None
 
 
+def _reproduction_receipt(
+    checked: CheckedExperiment,
+    evaluator: PublicationMember,
+    resolved_runtime: PublicationMember,
+) -> PublicationMember:
+    return _artifact(
+        checked,
+        "reproduction-receipt",
+        {
+            "experiment_identity": checked.content_identity,
+            "kernel_identity": checked.kernel["content_identity"],
+            "language_bundle_identity": checked.language_bundle["content_identity"],
+            "package_lock_identity": checked.package_lock["content_identity"],
+            "resolved_model_identity": checked.resolved_model["content_identity"],
+            "rir_identity": checked.rir["content_identity"],
+            "resolved_runtime_profile_identity": resolved_runtime.content_identity,
+            "evaluator_manifest_identity": evaluator.content_identity,
+            "seed_algorithm": checked.value["seed"]["algorithm"],
+            "seed_value": checked.value["seed"]["value"],
+            "external_inputs": checked.value["external_inputs"],
+        },
+    )
+
+
+def runtime_terminal_audit_members(
+    checked: CheckedExperiment,
+    report: Schema2RefusalReport,
+) -> dict[str, PublicationMember]:
+    """Prepare the complete terminal-only artifact set for runtime refusal."""
+    if report.stage != "runtime":
+        raise ValueError("terminal audit requires one runtime refusal")
+    evaluator = _evaluator_manifest(checked)
+    resolved_runtime = _resolved_runtime_profile(checked, evaluator)
+    reproduction = _reproduction_receipt(checked, evaluator, resolved_runtime)
+    scenario = checked.value["scenarios"][0]
+    declarations = {row["symbol"]: row for row in checked.rir["declarations"]}
+    state = {
+        row["name"]: row["value"]
+        for row in scenario["values"]
+        if declarations[row["name"]]["role"] == "state"
+    }
+    diagnostic = report.diagnostics[0]
+    audit = _artifact(
+        checked,
+        "runtime-terminal-audit",
+        {
+            "experiment_identity": checked.content_identity,
+            "resolved_runtime_profile_identity": resolved_runtime.content_identity,
+            "evaluator_manifest_identity": evaluator.content_identity,
+            "scenario": scenario["id"],
+            "committed_trace_prefix": [],
+            "last_snapshot": _int_rows(state),
+            "refusing_event": {
+                "index": 0,
+                "operation": scenario["operation"],
+                "reason": diagnostic.code,
+            },
+            "rollback": {
+                "committed": False,
+                "state_before": _int_rows(state),
+                "state_after": _int_rows(state),
+            },
+            "diagnostic": {
+                "code": diagnostic.code,
+                "stage": "runtime",
+                "message": diagnostic.message,
+            },
+            "reproduction_receipt_identity": reproduction.content_identity,
+        },
+    )
+    return {
+        "runtime-terminal-audit": audit,
+        "reproduction-receipt": reproduction,
+        "resolved-runtime-profile": resolved_runtime,
+        "evaluator-capability-manifest": evaluator,
+    }
+
+
 def evaluate_experiment(
     checked: CheckedExperiment,
 ) -> EvaluationArtifacts | Schema2RefusalReport:
@@ -764,23 +842,7 @@ def evaluate_experiment(
             "samples": samples,
         },
     )
-    reproduction = _artifact(
-        checked,
-        "reproduction-receipt",
-        {
-            "experiment_identity": checked.content_identity,
-            "kernel_identity": checked.kernel["content_identity"],
-            "language_bundle_identity": checked.language_bundle["content_identity"],
-            "package_lock_identity": checked.package_lock["content_identity"],
-            "resolved_model_identity": checked.resolved_model["content_identity"],
-            "rir_identity": checked.rir["content_identity"],
-            "resolved_runtime_profile_identity": resolved_runtime.content_identity,
-            "evaluator_manifest_identity": evaluator.content_identity,
-            "seed_algorithm": checked.value["seed"]["algorithm"],
-            "seed_value": checked.value["seed"]["value"],
-            "external_inputs": checked.value["external_inputs"],
-        },
-    )
+    reproduction = _reproduction_receipt(checked, evaluator, resolved_runtime)
     failed_metrics = tuple(
         cast(str, sample["metric"])
         for sample in samples

@@ -43,6 +43,7 @@ class Schema2RefusalReport(BaseModel):
     diagnostics: tuple[Schema2Diagnostic, ...] = Field(min_length=1)
     truncated: bool
     migration_report: dict[str, Any] | None = None
+    terminal_audit: dict[str, Any] | None = None
 
 
 def bound_diagnostics(
@@ -148,4 +149,8 @@ def refusal_envelope(report: Schema2RefusalReport) -> dict[str, object]:
         if report.stage != "migration":
             raise ValueError("a migration report belongs only to migration refusal")
         error["migration_report"] = report.migration_report
+    if report.terminal_audit is not None:
+        if report.stage != "runtime":
+            raise ValueError("a terminal audit belongs only to runtime refusal")
+        error["terminal_audit"] = report.terminal_audit
     return {"error": error}
