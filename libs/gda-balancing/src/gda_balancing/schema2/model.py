@@ -26,7 +26,12 @@ from gda_balancing.schema2.bootstrap import (
     BootstrapAdmission,
     admit_authorities,
 )
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.schema2.canonical import (
+    JsonValue,
+    canonical_bytes,
+    content_identity,
+    parse_canonical_object,
+)
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
@@ -138,27 +143,10 @@ class _RuntimeProjectionBudget:
 
 
 def _strict_object(data: bytes) -> dict[str, Any]:
-    def reject_number(_value: str) -> Any:
-        raise ValueError("non-integer number")
-
-    def closed_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        value: dict[str, Any] = {}
-        for key, item in pairs:
-            if key in value:
-                raise ValueError(f"duplicate object key: {key}")
-            value[key] = item
-        return value
-
-    value = json.loads(
-        data.decode("utf-8"),
-        object_pairs_hook=closed_object,
-        parse_float=reject_number,
-        parse_constant=reject_number,
+    return parse_canonical_object(
+        data,
+        artifact_name="Model Source Package",
     )
-    if not isinstance(value, dict):
-        raise ValueError("Model Source Package must be an object")
-    canonical_bytes(cast(JsonValue, value))
-    return value
 
 
 def _location(identity: str, pointer: str) -> ArtifactLocation:

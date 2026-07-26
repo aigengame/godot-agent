@@ -7,7 +7,7 @@ normalisation, and object-order behaviour from their identity.
 
 import hashlib
 import json
-from typing import TypeAlias
+from typing import Any, TypeAlias, cast
 
 JsonScalar: TypeAlias = str | int | bool | None
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -40,6 +40,32 @@ def content_identity(domain: str, value: JsonValue) -> str:
     """Return the domain-separated SHA-256 identity of ``value``."""
     prefix = f"gda-balancing:{domain}:".encode()
     return "sha256:" + hashlib.sha256(prefix + canonical_bytes(value)).hexdigest()
+
+
+def parse_canonical_object(data: bytes, *, artifact_name: str) -> dict[str, Any]:
+    """Decode one closed canonical-JSON object without losing duplicate keys."""
+
+    def reject_number(_value: str) -> Any:
+        raise ValueError("non-integer number")
+
+    def closed_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate object key: {key}")
+            value[key] = item
+        return value
+
+    value = json.loads(
+        data.decode("utf-8"),
+        object_pairs_hook=closed_object,
+        parse_float=reject_number,
+        parse_constant=reject_number,
+    )
+    if not isinstance(value, dict):
+        raise ValueError(f"{artifact_name} must be an object")
+    canonical_bytes(cast(JsonValue, value))
+    return value
 
 
 def _validate(value: JsonValue) -> None:

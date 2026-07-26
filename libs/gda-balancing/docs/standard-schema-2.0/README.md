@@ -95,12 +95,25 @@ publishes one of three descriptor-declared outcomes: Evaluation success, a negat
 Verdict, or a Runtime terminal-audit set. Evaluation refusal publishes no completed outcome, and
 post-commit retry recovers every published outcome by Invocation key without rerunning evaluation.
 The terminal audit retains the complete original Diagnostic location and rolls back the refusing
-Event.
+Event. Evaluator incompatibility is a pre-dispatch `resolution` refusal and publishes no Runtime
+artifact.
 
-This slice confirms one configure/build/check/run/inspect/edit/rerun loop only. It closes no Genre
-coverage row. Its dogfooding observations and the remaining transitive-capability resolution gate
-are recorded in [`ARCHITECTURE.md`](../ARCHITECTURE.md); downstream tracer work remains subject to
-the human product/architecture decision on #540.
+Permanent-slice dogfooding corrected an important prototype blind spot: node/RNG inventories were
+not sufficient machine semantics. The Kernel now closes node fields, operators, results/refusals,
+charges, exact-int64 bounds, and SplitMix64 derivation/sampling/vectors; the LDB closes the selected
+Runtime profile and typed Operation-outcome algebra. Experiment admission requires exact selected
+program closure, the evaluator manifest advertises only the exact profile/operators it implements,
+and a separate reference evaluator consumes the same authorities and agrees on the complete cast
+event. Metric samples/datasets now retain their definition identities, windows, dimensions,
+replication, missing/censoring policy, provenance, data version, partition, ordering, and ingestion
+binding. Canonical duplicate keys and unsupported external inputs refuse rather than being silently
+collapsed or ignored.
+
+This slice confirms one configure/build/check/run/inspect/edit/rerun loop and one independent
+evaluator witness only. It closes no Genre coverage row or general evaluator-conformance claim. Its
+dogfooding observations and the remaining transitive-capability resolution gate are recorded in
+[`ARCHITECTURE.md`](../ARCHITECTURE.md); downstream tracer work remains subject to the human
+product/architecture decision on #540.
 
 ## Prototype evidence
 

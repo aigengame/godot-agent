@@ -848,7 +848,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:7bac93bc52d765d4d035b08ce53dd3a8671ec28e1d743ea51e2dec2297879ce3",
+  "content_identity": "sha256:e0fb03bf16ce7f51d2985c507e0c279506a411aa26d8548ee929045f7f13126e",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2199,8 +2199,10 @@
                 "const",
                 "enum",
                 "items",
+                "maxLength",
                 "minItems",
                 "minLength",
+                "pattern",
                 "properties",
                 "required",
                 "type",
@@ -2225,6 +2227,12 @@
                 ],
                 "unevaluatedProperties": [
                   "object"
+                ],
+                "maxLength": [
+                  "string"
+                ],
+                "pattern": [
+                  "string"
                 ]
               },
               "object_closure_keyword": "unevaluatedProperties",
@@ -2538,6 +2546,12 @@
             },
             "version": {
               "type": "non-empty-string"
+            },
+            "default_outcome": {
+              "type": "non-empty-string"
+            },
+            "outcomes": {
+              "type": "canonical-value"
             }
           },
           "required_members": [
@@ -2558,6 +2572,10 @@
             "body",
             "rule",
             "vectors"
+          ],
+          "optional_members": [
+            "default_outcome",
+            "outcomes"
           ]
         },
         "resolution_profiles": {
@@ -2826,6 +2844,18 @@
             },
             "version": {
               "type": "non-empty-string"
+            },
+            "budget_scopes": {
+              "type": "canonical-value"
+            },
+            "numeric_law": {
+              "type": "non-empty-string"
+            },
+            "rng": {
+              "type": "canonical-value"
+            },
+            "runtime_program_version": {
+              "type": "non-empty-string"
             }
           },
           "required_members": [
@@ -2835,6 +2865,12 @@
             "evaluation",
             "effects",
             "resource_bounds"
+          ],
+          "optional_members": [
+            "runtime_program_version",
+            "numeric_law",
+            "rng",
+            "budget_scopes"
           ]
         },
         "wire_schemas": {
@@ -4082,17 +4118,742 @@
         "draw",
         "precondition-greater-than-or-equal"
       ],
-      "precondition_outcomes": [
-        "insufficient-resource"
-      ],
-      "numeric_domain": "signed-int64",
-      "overflow": "runtime-refusal",
-      "event_atomicity": "rollback-entire-current-event",
+      "event_atomicity": {
+        "rng_draws": "buffered",
+        "runtime_refusal": "rollback-entire-current-event",
+        "state_writes": "buffered",
+        "success": "commit-entire-current-event"
+      },
       "named_rng": {
         "algorithm": "splitmix64-v1",
-        "draw_order": "program-order",
-        "stream_state": "independent-by-name"
-      }
+        "interval_sampling": {
+          "bias_policy": "accepted-modulo-bias-v1",
+          "bounds": "inclusive",
+          "candidates_per_draw": 1,
+          "mapping": "unsigned-modulo-width"
+        },
+        "seed_encoding": "unsigned-modulo-2^64",
+        "state_transition": {
+          "increment_hex": "9e3779b97f4a7c15",
+          "mix_steps": [
+            {
+              "multiply_hex": "bf58476d1ce4e5b9",
+              "xor_shift_right": 30
+            },
+            {
+              "multiply_hex": "94d049bb133111eb",
+              "xor_shift_right": 27
+            },
+            {
+              "xor_shift_right": 31
+            }
+          ]
+        },
+        "stream_derivation": {
+          "byte_order": "big",
+          "combine": "unsigned-add-modulo-2^64",
+          "digest_slice": {
+            "length": 8,
+            "offset": 0
+          },
+          "hash": "sha256"
+        },
+        "stream_name_encoding": "utf-8",
+        "trace_members": [
+          "stream",
+          "index",
+          "candidate_hex",
+          "accepted",
+          "minimum",
+          "maximum",
+          "value"
+        ],
+        "word_bits": 64
+      },
+      "nodes": [
+        {
+          "family": "expression",
+          "id": "add",
+          "refusals": [
+            "numeric-overflow"
+          ],
+          "required_members": [
+            "node",
+            "target",
+            "left",
+            "right"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local"
+          },
+          "semantics": {
+            "operator": "integer-add"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "constant",
+          "refusals": [],
+          "required_members": [
+            "node",
+            "target",
+            "literal"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local"
+          },
+          "semantics": {
+            "operator": "integer-literal"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "copy",
+          "refusals": [],
+          "required_members": [
+            "node",
+            "target",
+            "value"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local"
+          },
+          "semantics": {
+            "operator": "copy-value"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "greater-than-or-equal",
+          "refusals": [],
+          "required_members": [
+            "node",
+            "target",
+            "left",
+            "right"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local"
+          },
+          "semantics": {
+            "comparison": "greater-than-or-equal",
+            "operator": "integer-compare"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "if",
+          "refusals": [],
+          "required_members": [
+            "node",
+            "target",
+            "condition",
+            "when_true",
+            "when_false"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local"
+          },
+          "semantics": {
+            "operator": "select-value"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "less-than",
+          "refusals": [],
+          "required_members": [
+            "node",
+            "target",
+            "left",
+            "right"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local"
+          },
+          "semantics": {
+            "comparison": "less-than",
+            "operator": "integer-compare"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "less-than-or-equal",
+          "refusals": [],
+          "required_members": [
+            "node",
+            "target",
+            "left",
+            "right"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local"
+          },
+          "semantics": {
+            "comparison": "less-than-or-equal",
+            "operator": "integer-compare"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "maximum",
+          "refusals": [
+            "numeric-overflow"
+          ],
+          "required_members": [
+            "node",
+            "target",
+            "left",
+            "right"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local"
+          },
+          "semantics": {
+            "operator": "integer-maximum"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "multiply",
+          "refusals": [
+            "numeric-overflow"
+          ],
+          "required_members": [
+            "node",
+            "target",
+            "left",
+            "right"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local"
+          },
+          "semantics": {
+            "operator": "integer-multiply"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "subtract",
+          "refusals": [
+            "numeric-overflow"
+          ],
+          "required_members": [
+            "node",
+            "target",
+            "left",
+            "right"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local"
+          },
+          "semantics": {
+            "operator": "integer-subtract"
+          }
+        },
+        {
+          "family": "expression",
+          "id": "value",
+          "refusals": [],
+          "required_members": [
+            "node",
+            "target",
+            "value"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "local"
+          },
+          "semantics": {
+            "operator": "copy-value"
+          }
+        },
+        {
+          "family": "effect",
+          "id": "subtract-state",
+          "refusals": [
+            "numeric-overflow"
+          ],
+          "required_members": [
+            "node",
+            "symbol",
+            "value"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "state-write"
+          },
+          "semantics": {
+            "operator": "state-integer-subtract"
+          }
+        },
+        {
+          "family": "effect",
+          "id": "write-state",
+          "refusals": [
+            "numeric-overflow"
+          ],
+          "required_members": [
+            "node",
+            "symbol",
+            "value"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "state-write"
+          },
+          "semantics": {
+            "operator": "state-write"
+          }
+        },
+        {
+          "family": "control",
+          "id": "draw",
+          "refusals": [],
+          "required_members": [
+            "node",
+            "target",
+            "stream",
+            "minimum",
+            "maximum"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "draw"
+          },
+          "semantics": {
+            "operator": "named-integer-draw"
+          }
+        },
+        {
+          "family": "control",
+          "id": "precondition-greater-than-or-equal",
+          "refusals": [],
+          "required_members": [
+            "node",
+            "left",
+            "right",
+            "outcome"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "outcome"
+          },
+          "semantics": {
+            "comparison": "greater-than-or-equal",
+            "operator": "gameplay-precondition"
+          }
+        }
+      ],
+      "numeric": {
+        "id": "signed-int64-v1",
+        "maximum": 9223372036854775807,
+        "minimum": -9223372036854775808,
+        "overflow": "runtime-refusal",
+        "overflow_signal": "numeric-overflow"
+      },
+      "outcome_contract": {
+        "kinds": [
+          "success",
+          "gameplay-alternative"
+        ],
+        "operation_members": [
+          "outcomes",
+          "default_outcome"
+        ],
+        "state_policies": [
+          "commit",
+          "rollback"
+        ]
+      },
+      "vectors": [
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "integer-add",
+            "result_kind": "local"
+          },
+          "id": "runtime.node.add",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "left",
+              "right"
+            ]
+          },
+          "kind": "node",
+          "node": "add"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "integer-literal",
+            "result_kind": "local"
+          },
+          "id": "runtime.node.constant",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "literal"
+            ]
+          },
+          "kind": "node",
+          "node": "constant"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "copy-value",
+            "result_kind": "local"
+          },
+          "id": "runtime.node.copy",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "value"
+            ]
+          },
+          "kind": "node",
+          "node": "copy"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "integer-compare",
+            "result_kind": "local"
+          },
+          "id": "runtime.node.greater-than-or-equal",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "left",
+              "right"
+            ]
+          },
+          "kind": "node",
+          "node": "greater-than-or-equal"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "select-value",
+            "result_kind": "local"
+          },
+          "id": "runtime.node.if",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "condition",
+              "when_true",
+              "when_false"
+            ]
+          },
+          "kind": "node",
+          "node": "if"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "integer-compare",
+            "result_kind": "local"
+          },
+          "id": "runtime.node.less-than",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "left",
+              "right"
+            ]
+          },
+          "kind": "node",
+          "node": "less-than"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "integer-compare",
+            "result_kind": "local"
+          },
+          "id": "runtime.node.less-than-or-equal",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "left",
+              "right"
+            ]
+          },
+          "kind": "node",
+          "node": "less-than-or-equal"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "integer-maximum",
+            "result_kind": "local"
+          },
+          "id": "runtime.node.maximum",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "left",
+              "right"
+            ]
+          },
+          "kind": "node",
+          "node": "maximum"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "integer-multiply",
+            "result_kind": "local"
+          },
+          "id": "runtime.node.multiply",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "left",
+              "right"
+            ]
+          },
+          "kind": "node",
+          "node": "multiply"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "integer-subtract",
+            "result_kind": "local"
+          },
+          "id": "runtime.node.subtract",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "left",
+              "right"
+            ]
+          },
+          "kind": "node",
+          "node": "subtract"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "copy-value",
+            "result_kind": "local"
+          },
+          "id": "runtime.node.value",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "value"
+            ]
+          },
+          "kind": "node",
+          "node": "value"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "state-integer-subtract",
+            "result_kind": "state-write"
+          },
+          "id": "runtime.node.subtract-state",
+          "input": {
+            "contract-probe": [
+              "node",
+              "symbol",
+              "value"
+            ]
+          },
+          "kind": "node",
+          "node": "subtract-state"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "state-write",
+            "result_kind": "state-write"
+          },
+          "id": "runtime.node.write-state",
+          "input": {
+            "contract-probe": [
+              "node",
+              "symbol",
+              "value"
+            ]
+          },
+          "kind": "node",
+          "node": "write-state"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "named-integer-draw",
+            "result_kind": "draw"
+          },
+          "id": "runtime.node.draw",
+          "input": {
+            "contract-probe": [
+              "node",
+              "target",
+              "stream",
+              "minimum",
+              "maximum"
+            ]
+          },
+          "kind": "node",
+          "node": "draw"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "gameplay-precondition",
+            "result_kind": "outcome"
+          },
+          "id": "runtime.node.precondition-greater-than-or-equal",
+          "input": {
+            "contract-probe": [
+              "node",
+              "left",
+              "right",
+              "outcome"
+            ]
+          },
+          "kind": "node",
+          "node": "precondition-greater-than-or-equal"
+        },
+        {
+          "expect": {
+            "accepted": true,
+            "candidate_hex": "8033d7e362210a21",
+            "value": 46
+          },
+          "id": "rng.first-draw",
+          "input": {
+            "index": 0,
+            "maximum": 100,
+            "minimum": 1,
+            "seed": 1,
+            "stream": "hit"
+          },
+          "kind": "rng"
+        },
+        {
+          "expect": {
+            "accepted": true,
+            "candidate_hex": "77b458eef6dda0e7",
+            "value": 84
+          },
+          "id": "rng.multi-draw",
+          "input": {
+            "index": 1,
+            "maximum": 100,
+            "minimum": 1,
+            "seed": 1,
+            "stream": "hit"
+          },
+          "kind": "rng"
+        },
+        {
+          "expect": {
+            "accepted": true,
+            "candidate_hex": "19c829c76124819d",
+            "value": 50
+          },
+          "id": "rng.cross-stream",
+          "input": {
+            "index": 0,
+            "maximum": 100,
+            "minimum": 1,
+            "seed": 1,
+            "stream": "critical"
+          },
+          "kind": "rng"
+        },
+        {
+          "expect": {
+            "accepted": true,
+            "candidate_hex": "8a254e512735893c",
+            "value": 7
+          },
+          "id": "rng.interval-boundary",
+          "input": {
+            "index": 0,
+            "maximum": 7,
+            "minimum": 7,
+            "seed": 0,
+            "stream": "boundary"
+          },
+          "kind": "rng"
+        }
+      ]
     }
   },
   "resources": {

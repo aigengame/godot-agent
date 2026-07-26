@@ -820,13 +820,19 @@ classified by the same vocabulary used above:
 | Refined—adopted | The first Event program exposed `draw` and precondition as control nodes missing from the Kernel program vocabulary, and exact-int64 overflow needed an authoritative rollback refusal. | Kernel runtime-program contract plus LDB Diagnostic/reason/vector; machine authority updated |
 | Refined—adopted | A Template member authored before build and an executable Experiment bound after build had been assigned the same artifact kind. They are now `experiment-template` and `experiment-specification`, respectively. | LDB artifact/member-role contracts and Template distribution; machine authority updated |
 | Refined—adopted | Runtime terminal audit initially copied only Diagnostic code/message and recovery fabricated a broader pointer. The audit now binds the complete original primary/related locations and retry reconstructs that exact Diagnostic without rerunning. | bADR-0015 terminal-audit contract and LDB wire schema; machine authority updated |
+| Refined—adopted | Kernel node and RNG name inventories still left field shapes, operators, results/refusals, charges, exact-int64 bounds, SplitMix64 derivation/constants/sampling/bias, and typed gameplay outcomes in host code. The Kernel now owns those machine contracts and vectors; the LDB Operation owns the exhaustive default/alternative outcome algebra and profile parameters. | Kernel Specification plus LDB Operation/Runtime profile; authority and both consumers updated |
+| Refined—adopted | The evaluator advertised a generic runtime-program version and every Kernel node instead of the exact selected Runtime profile and actually implemented operators. Experiment requirements could therefore appear admitted without proving exact program closure. Requirements now equal the selected program closure, and the manifest reverse-enumerates only its exact profile and implemented operators. | Runtime admission and Evaluator Capability Manifest; implementation/conformance updated |
+| Refined—adopted | Evaluator-capability mismatch happens before Event dispatch, so publishing a Runtime terminal audit or Resolved Runtime profile falsely implied execution. It is now a plain `resolution` refusal with no artifact set; only a refusal after Event dispatch may publish terminal audit. | bADR-0014/0015 staging and command outcome contract; implementation updated |
+| Refined—adopted | The first Metric dataset carried values but not the complete definition, window/time, dimensions, replication, missing/censoring, provenance, data version, partition, ordering, and ingestion binding required by bADR-0018. Those fields and definition identities are now mandatory even in this one-scenario slice. | Experiment Metric contract and Metric-dataset wire schema; machine authority updated |
+| Refined—adopted | Duplicate JSON keys were collapsed by host decoding, non-empty external inputs were silently ignored, a multi-scenario refusal named the first scenario, and an Operation step budget accumulated across scenarios. Canonical ingress now rejects duplicate keys, unsupported external inputs refuse explicitly, terminal audit retains the exact scenario, and per-Event/per-run budgets have separate scopes. | Canonical ingress, Experiment admission, and Runtime accounting; implementation/conformance updated |
+| Confirmed—narrowly | A second evaluator that shares only the Kernel/LDB authorities independently executes the committed cast and agrees exactly on typed outcome, facts, state, and RNG trace. It also consumes every runtime node and RNG vector. | Bounded evaluator-conformance witness for `rpg.combat.cast-v1`; retained as a test, not generalized |
 | Open gate | The current resolver selects the transitive package closure, but capability-provider judgment is still seeded from root requirements. The committed example therefore declares both `game.rpg` and its `core.quantity` dependency explicitly. This is an implementation mismatch with bADR-0016's complete-selected-graph rule, not a reason to weaken that rule. | Model resolution judgment; fix and add a transitive-capability vector before downstream work relies on implicit capability closure |
 | Authored-example only | The chosen cast formula, starting values, targets, and two Metrics make this feedback loop useful; they do not establish that the package inventory or abstraction is RPG-complete. | Example/Experiment; retain without generalizing |
 
 The public outcome algebra is also confirmed for this slice: completed success and negative Verdict
-publish only their declared complete sets, evaluation refusal publishes none, Runtime refusal rolls
-back the current Event and publishes only terminal audit, and post-commit delivery recovery covers
-all three published outcomes without evaluator rerun.
+publish only their declared complete sets, admission/evaluation refusal publishes none, a
+post-dispatch Runtime refusal rolls back the current Event and publishes only terminal audit, and
+post-commit delivery recovery covers all three published outcomes without evaluator rerun.
 
 The human product/architecture gate on #540 must accept, condition, or reopen this path before #585
 or #541–#545 proceeds. In particular, accepting the product loop does not silently waive the open
@@ -834,10 +840,13 @@ transitive-capability resolution gap.
 
 ### 12.6 Architecture consequence
 
-The four rounds validate one RPG vertical path, selected orthogonality/identity mechanisms, and the
-bounded executable Kernel/LDB authority boundary. They remove the known architecture-level hidden-
-host uncertainty for the tested slice. The remaining gaps require permanent specifications,
-normative vectors, durable adapters, and cross-genre verticals; another disposable prototype would
+The four disposable rounds validated one RPG vertical path, selected orthogonality/identity
+mechanisms, and the bounded executable Kernel/LDB authority boundary, but issue #540 overturned the
+inference that they had already removed hidden-host uncertainty. The permanent slice exposed
+host-owned runtime semantics that their shared assumptions did not detect. After moving those laws
+into machine authority, one independent reference evaluator now closes that uncertainty only for
+the committed cast slice. General evaluator conformance, complete package resolution, broader
+Runtime/Effect semantics, and cross-genre verticals remain open; another disposable prototype would
 not close them.
 
 Subsequent research instances mapped representative mechanics from three game families into the

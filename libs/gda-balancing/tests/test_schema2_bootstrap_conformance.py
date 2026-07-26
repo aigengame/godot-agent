@@ -18,7 +18,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:7bac93bc52d765d4d035b08ce53dd3a8671ec28e1d743ea51e2dec2297879ce3"
+    "sha256:e0fb03bf16ce7f51d2985c507e0c279506a411aa26d8548ee929045f7f13126e"
 )
 
 
@@ -1752,15 +1752,18 @@ def _consumer_b_contract_fits_schema(contract: dict[str, Any], schema: Any) -> b
     if not object_contract:
         return False
     required = contract.get("required_members")
+    optional = contract.get("optional_members", [])
     fields = contract.get("field_types")
     properties = schema.get("properties")
     return (
         schema.get("type") == "object"
         and isinstance(required, list)
+        and isinstance(optional, list)
         and isinstance(fields, dict)
         and isinstance(properties, dict)
-        and set(fields) == set(required)
-        and set(properties) == set(required)
+        and not set(required) & set(optional)
+        and set(fields) == set(required) | set(optional)
+        and set(properties) == set(fields)
         and set(schema.get("required", [])) == set(required)
         and schema.get("unevaluatedProperties") is False
         and all(
@@ -3713,6 +3716,137 @@ def _consumer_b_vector_header_is_closed(
     return False
 
 
+def _consumer_b_runtime_authority_is_closed(
+    kernel: dict[str, Any], ldb: dict[str, Any]
+) -> bool:
+    runtime = kernel.get("meta_format", {}).get("runtime_program")
+    if (
+        not isinstance(runtime, dict)
+        or set(runtime)
+        != {
+            "closed",
+            "version",
+            "evaluation_order",
+            "expression_nodes",
+            "effect_nodes",
+            "control_nodes",
+            "nodes",
+            "numeric",
+            "named_rng",
+            "event_atomicity",
+            "outcome_contract",
+            "vectors",
+        }
+        or runtime.get("closed") is not True
+    ):
+        return False
+    nodes = runtime.get("nodes")
+    if not isinstance(nodes, list):
+        return False
+    families = {
+        "expression": "expression_nodes",
+        "effect": "effect_nodes",
+        "control": "control_nodes",
+    }
+    for family, member in families.items():
+        if runtime.get(member) != [
+            node.get("id")
+            for node in nodes
+            if isinstance(node, dict) and node.get("family") == family
+        ]:
+            return False
+    if len({node.get("id") for node in nodes if isinstance(node, dict)}) != len(
+        nodes
+    ) or any(
+        not isinstance(node, dict)
+        or set(node)
+        != {
+            "family",
+            "id",
+            "refusals",
+            "required_members",
+            "resource_charge",
+            "result",
+            "semantics",
+        }
+        or node.get("family") not in families
+        or not isinstance(node.get("required_members"), list)
+        or not node["required_members"]
+        or node["required_members"][0] != "node"
+        or node.get("resource_charge") != {"counter": "event-steps", "amount": 1}
+        or not isinstance(node.get("semantics"), dict)
+        or not isinstance(node["semantics"].get("operator"), str)
+        or not isinstance(node.get("result"), dict)
+        or set(node["result"]) != {"kind"}
+        for node in nodes
+    ):
+        return False
+    rng = runtime.get("named_rng")
+    if (
+        runtime.get("numeric")
+        != {
+            "id": "signed-int64-v1",
+            "minimum": -(1 << 63),
+            "maximum": (1 << 63) - 1,
+            "overflow": "runtime-refusal",
+            "overflow_signal": "numeric-overflow",
+        }
+        or not isinstance(rng, dict)
+        or rng.get("algorithm") != "splitmix64-v1"
+        or rng.get("interval_sampling", {}).get("bias_policy")
+        != "accepted-modulo-bias-v1"
+        or runtime.get("outcome_contract")
+        != {
+            "kinds": ["success", "gameplay-alternative"],
+            "state_policies": ["commit", "rollback"],
+            "operation_members": ["outcomes", "default_outcome"],
+        }
+    ):
+        return False
+    vectors = runtime.get("vectors")
+    if not isinstance(vectors, list) or {
+        item.get("node") for item in vectors if item.get("kind") == "node"
+    } != {node["id"] for node in nodes}:
+        return False
+    for profile in ldb.get("language", {}).get("runtime_profiles", []):
+        if profile.get("evaluation") == runtime.get("version") and (
+            profile.get("runtime_program_version") != runtime.get("version")
+            or profile.get("numeric_law") != runtime["numeric"]["id"]
+            or profile.get("rng", {}).get("algorithm") != rng["algorithm"]
+            or profile.get("budget_scopes")
+            != {
+                "operation_max_steps": "per-event",
+                "runtime_max_steps": "per-run",
+            }
+        ):
+            return False
+    kinds = set(runtime["outcome_contract"]["kinds"])
+    policies = set(runtime["outcome_contract"]["state_policies"])
+    for operation in ldb.get("language", {}).get("operations", []):
+        if operation.get("operation_kind") != "event-program":
+            continue
+        outcomes = operation.get("outcomes")
+        if not isinstance(outcomes, list) or any(
+            set(item) != {"id", "kind", "state_policy"}
+            or item["kind"] not in kinds
+            or item["state_policy"] not in policies
+            for item in outcomes
+        ):
+            return False
+        declared = {item["id"]: item for item in outcomes}
+        default = operation.get("default_outcome")
+        referenced = {
+            item["outcome"] for item in operation["body"] if "outcome" in item
+        }
+        if (
+            default not in declared
+            or declared[default]["kind"] != "success"
+            or referenced != set(declared) - {default}
+        ):
+            return False
+    return True
+
+
 def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     """A separate, deliberately compact Kernel interpreter for cross-checking."""
     diagnostics: set[tuple[str, str, str]] = set()
@@ -3893,6 +4027,8 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
     meta = kernel["meta_format"]
     if not _consumer_b_language_definitions_are_closed(ldb, meta):
         refuse("kernel.vector_mismatch", "static", "language.definitions")
+    if not _consumer_b_runtime_authority_is_closed(kernel, ldb):
+        refuse("kernel.vector_mismatch", "static", "language.runtime")
     if not _consumer_b_embedded_artifact_bindings_are_closed(ldb):
         refuse(
             "kernel.vector_mismatch",
@@ -4724,6 +4860,162 @@ def test_two_consumers_refuse_an_incomplete_template_admission_profile(member):
 
     assert first == second
     assert first["admitted"] is False
+
+
+def test_runtime_program_contract_is_independently_executable_and_profile_bound():
+    authority = authority_set()
+    runtime = authority["kernel"]["meta_format"]["runtime_program"]
+
+    assert set(runtime) == {
+        "closed",
+        "version",
+        "evaluation_order",
+        "expression_nodes",
+        "effect_nodes",
+        "control_nodes",
+        "nodes",
+        "numeric",
+        "named_rng",
+        "event_atomicity",
+        "outcome_contract",
+        "vectors",
+    }
+    nodes = {item["id"]: item for item in runtime["nodes"]}
+    assert set(nodes) == {
+        *runtime["expression_nodes"],
+        *runtime["effect_nodes"],
+        *runtime["control_nodes"],
+    }
+    assert len(nodes) == len(runtime["nodes"])
+    for node_id, node in nodes.items():
+        assert set(node) == {
+            "family",
+            "id",
+            "refusals",
+            "required_members",
+            "resource_charge",
+            "result",
+            "semantics",
+        }
+        assert node["family"] in {"expression", "effect", "control"}
+        assert node_id in runtime[f"{node['family']}_nodes"]
+        assert node["required_members"][0] == "node"
+        assert node["resource_charge"] == {
+            "amount": 1,
+            "counter": "event-steps",
+        }
+        assert isinstance(node["semantics"]["operator"], str)
+        assert node["semantics"]["operator"]
+        assert isinstance(node["result"]["kind"], str)
+        assert node["result"]["kind"]
+
+    assert runtime["numeric"] == {
+        "id": "signed-int64-v1",
+        "minimum": -(1 << 63),
+        "maximum": (1 << 63) - 1,
+        "overflow": "runtime-refusal",
+        "overflow_signal": "numeric-overflow",
+    }
+    assert runtime["named_rng"] == {
+        "algorithm": "splitmix64-v1",
+        "word_bits": 64,
+        "seed_encoding": "unsigned-modulo-2^64",
+        "stream_name_encoding": "utf-8",
+        "stream_derivation": {
+            "hash": "sha256",
+            "digest_slice": {"offset": 0, "length": 8},
+            "byte_order": "big",
+            "combine": "unsigned-add-modulo-2^64",
+        },
+        "state_transition": {
+            "increment_hex": "9e3779b97f4a7c15",
+            "mix_steps": [
+                {"xor_shift_right": 30, "multiply_hex": "bf58476d1ce4e5b9"},
+                {"xor_shift_right": 27, "multiply_hex": "94d049bb133111eb"},
+                {"xor_shift_right": 31},
+            ],
+        },
+        "interval_sampling": {
+            "bounds": "inclusive",
+            "mapping": "unsigned-modulo-width",
+            "bias_policy": "accepted-modulo-bias-v1",
+            "candidates_per_draw": 1,
+        },
+        "trace_members": [
+            "stream",
+            "index",
+            "candidate_hex",
+            "accepted",
+            "minimum",
+            "maximum",
+            "value",
+        ],
+    }
+    assert runtime["event_atomicity"] == {
+        "state_writes": "buffered",
+        "rng_draws": "buffered",
+        "success": "commit-entire-current-event",
+        "runtime_refusal": "rollback-entire-current-event",
+    }
+    assert runtime["outcome_contract"] == {
+        "kinds": ["success", "gameplay-alternative"],
+        "state_policies": ["commit", "rollback"],
+        "operation_members": ["outcomes", "default_outcome"],
+    }
+    node_vectors = {
+        item["node"] for item in runtime["vectors"] if item["kind"] == "node"
+    }
+    assert node_vectors == set(nodes)
+    assert {item["id"] for item in runtime["vectors"] if item["kind"] == "rng"} == {
+        "rng.first-draw",
+        "rng.multi-draw",
+        "rng.cross-stream",
+        "rng.interval-boundary",
+    }
+
+    profile = next(
+        item
+        for item in authority["language_bundle"]["language"]["runtime_profiles"]
+        if item["id"] == "rpg.exact-int64-event-v1"
+    )
+    assert profile["runtime_program_version"] == runtime["version"]
+    assert profile["numeric_law"] == runtime["numeric"]["id"]
+    assert profile["rng"] == {
+        "algorithm": runtime["named_rng"]["algorithm"],
+        "interval_sampling": runtime["named_rng"]["interval_sampling"]["mapping"],
+        "bias_policy": runtime["named_rng"]["interval_sampling"]["bias_policy"],
+    }
+    assert profile["budget_scopes"] == {
+        "operation_max_steps": "per-event",
+        "runtime_max_steps": "per-run",
+    }
+
+
+def test_rpg_operation_declares_its_complete_gameplay_outcome_algebra():
+    authority = authority_set()
+    operation = next(
+        item
+        for item in authority["language_bundle"]["language"]["operations"]
+        if item["id"] == "rpg.combat.cast-v1"
+    )
+
+    assert operation["default_outcome"] == "cast-resolved"
+    assert operation["outcomes"] == [
+        {"id": "cast-resolved", "kind": "success", "state_policy": "commit"},
+        {
+            "id": "insufficient-resource",
+            "kind": "gameplay-alternative",
+            "state_policy": "rollback",
+        },
+        {
+            "id": "miss",
+            "kind": "gameplay-alternative",
+            "state_policy": "rollback",
+        },
+    ]
+    declared = {item["id"] for item in operation["outcomes"]}
+    referenced = {item["outcome"] for item in operation["body"] if "outcome" in item}
+    assert referenced == declared - {operation["default_outcome"]}
 
 
 @pytest.mark.parametrize(

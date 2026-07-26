@@ -164,8 +164,9 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   definition, and requested comparison policy, then binds its identity and validation receipt into
   the Resolved Runtime profile. The manifest cannot admit an operation absent from the LDB, weaken a
   law, or authorize host behavior; it only makes unsupported implementation surface fail before
-  dispatch. It is distinct from bADR-0016's generated Capability manifest, which describes the
-  selected model/package graph rather than evaluator support.
+  dispatch. Such a mismatch is a plain `resolution` refusal: no Resolved Runtime profile, Event, or
+  terminal-audit artifact exists yet. It is distinct from bADR-0016's generated Capability
+  manifest, which describes the selected model/package graph rather than evaluator support.
 
 - **Determinism is scoped by the Resolved Runtime profile.** That artifact plus exact
   Resolved Model, Experiment Specification, external input, and effective seed identities forms the

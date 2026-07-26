@@ -13,7 +13,12 @@ import jsonschema
 
 from gda_balancing.schema2.authority import load_authorities
 from gda_balancing.schema2.bootstrap import admit_authorities
-from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.schema2.canonical import (
+    JsonValue,
+    canonical_bytes,
+    content_identity,
+    parse_canonical_object,
+)
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     Schema2Diagnostic,
@@ -31,9 +36,22 @@ from gda_balancing.schema2.model import (
 
 _EXPERIMENT_IDENTITY_DOMAIN = "experiment-specification-v2"
 _EVALUATOR_IMPLEMENTATION = "gda-balancing.deterministic-event-evaluator-v1"
-_MASK_64 = (1 << 64) - 1
-_MIN_INT64 = -(1 << 63)
-_MAX_INT64 = (1 << 63) - 1
+_SUPPORTED_RUNTIME_OPERATORS = frozenset(
+    {
+        "copy-value",
+        "gameplay-precondition",
+        "integer-add",
+        "integer-compare",
+        "integer-literal",
+        "integer-maximum",
+        "integer-multiply",
+        "integer-subtract",
+        "named-integer-draw",
+        "select-value",
+        "state-integer-subtract",
+        "state-write",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -58,6 +76,8 @@ class EvaluationArtifacts:
 @dataclass(frozen=True)
 class RuntimeRefusalOutcome:
     report: Schema2RefusalReport
+    scenario_id: str
+    scenario_index: int
     committed_trace_prefix: tuple[dict[str, JsonValue], ...]
     last_state: dict[str, int]
     refusing_event_index: int
@@ -147,6 +167,17 @@ def _artifact(
     )
 
 
+def _runtime_contract(checked: CheckedExperiment) -> dict[str, Any]:
+    return cast(dict[str, Any], checked.kernel["meta_format"]["runtime_program"])
+
+
+def _runtime_nodes(checked: CheckedExperiment) -> dict[str, dict[str, Any]]:
+    return {
+        row["id"]: row
+        for row in cast(list[dict[str, Any]], _runtime_contract(checked)["nodes"])
+    }
+
+
 def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
     """Admit one exact Experiment Specification and its model bindings."""
     try:
@@ -170,22 +201,17 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
             message="Experiment Specification exceeds the admitted ingress bound",
         )
     try:
-        value = json.loads(data)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        value = parse_canonical_object(
+            data,
+            artifact_name="Experiment Specification",
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
         return _refusal(
             stage="parse",
             code="language.source_parse_failure",
             identity=observed_identity,
             pointer="",
             message="Experiment Specification is not canonical JSON data",
-        )
-    if not isinstance(value, dict):
-        return _refusal(
-            stage="static",
-            code="language.source_contract_mismatch",
-            identity=observed_identity,
-            pointer="",
-            message="Experiment Specification must be an object",
         )
     experiment_identity = content_identity(
         _EXPERIMENT_IDENTITY_DOMAIN, cast(JsonValue, value)
@@ -222,6 +248,17 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
                 pointer="",
                 message=f"Experiment {member} values must be unique",
             )
+    if value["external_inputs"]:
+        return _refusal(
+            stage="static",
+            code="language.source_contract_mismatch",
+            identity=experiment_identity,
+            pointer="/external_inputs",
+            message=(
+                "The bounded RPG Experiment slice admits no external input "
+                "until an LDB-owned input judgment is selected"
+            ),
+        )
     for scenario_index, scenario in enumerate(value["scenarios"]):
         if (
             not _unique_rows(scenario["values"], "name")
@@ -328,6 +365,11 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
             pointer="/runtime/profile",
             message="Experiment Runtime profile is absent from the selected RIR",
         )
+    required_operation_kinds: set[str] = set()
+    required_instruction_nodes: set[str] = set()
+    required_effects: set[str] = set()
+    required_numeric_policies: set[str] = set()
+    required_rng_algorithms: set[str] = set()
     for scenario_index, scenario in enumerate(value["scenarios"]):
         operation = operations.get(scenario["operation"])
         if operation is None:
@@ -346,6 +388,36 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
                 pointer=f"/scenarios/{scenario_index}/operation",
                 message="Scenario operation requires another Runtime profile",
             )
+        outcomes = {
+            row["id"]: row
+            for row in cast(list[dict[str, Any]], operation.get("outcomes", []))
+            if isinstance(row, dict) and isinstance(row.get("id"), str)
+        }
+        referenced_outcomes = {
+            instruction["outcome"]
+            for instruction in operation["body"]
+            if "outcome" in instruction
+        }
+        if (
+            operation.get("default_outcome") not in outcomes
+            or outcomes[operation["default_outcome"]].get("kind") != "success"
+            or referenced_outcomes != outcomes.keys() - {operation["default_outcome"]}
+        ):
+            return _refusal(
+                stage="resolution",
+                code="language.resolution_binding_mismatch",
+                identity=experiment_identity,
+                pointer=f"/scenarios/{scenario_index}/operation",
+                message="Scenario operation does not close its typed outcome algebra",
+            )
+        required_operation_kinds.add(operation["operation_kind"])
+        required_instruction_nodes.update(
+            instruction["node"] for instruction in operation["body"]
+        )
+        required_effects.update(operation["effects"])
+        required_numeric_policies.add(operation["numeric_policy"])
+        if any(instruction["node"] == "draw" for instruction in operation["body"]):
+            required_rng_algorithms.add(value["seed"]["algorithm"])
         provided = {row["name"] for row in scenario["values"]}
         required = {row["name"] for row in operation["inputs"]}
         if provided != required or not provided <= declarations.keys():
@@ -380,6 +452,27 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
                     pointer=f"/scenarios/{scenario_index}/values",
                     message="Scenario value is outside its declared domain",
                 )
+    expected_requirements = {
+        "operation_kinds": required_operation_kinds,
+        "instruction_nodes": required_instruction_nodes,
+        "effects": required_effects,
+        "numeric_policies": required_numeric_policies,
+        "rng_algorithms": required_rng_algorithms,
+        "runtime_profiles": {required_profile},
+    }
+    required_evaluator = value["runtime"]["required_evaluator"]
+    for member, expected in expected_requirements.items():
+        if set(required_evaluator[member]) != expected:
+            return _refusal(
+                stage="resolution",
+                code="language.resolution_binding_mismatch",
+                identity=experiment_identity,
+                pointer=f"/runtime/required_evaluator/{member}",
+                message=(
+                    f"Experiment required {member} do not exactly close "
+                    "the selected program"
+                ),
+            )
     return CheckedExperiment(
         value=value,
         content_identity=experiment_identity,
@@ -392,36 +485,82 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
     )
 
 
-def _signed_int64(value: int) -> int:
-    if value < _MIN_INT64 or value > _MAX_INT64:
+def _admit_numeric(value: int, numeric: dict[str, Any]) -> int:
+    if value < numeric["minimum"] or value > numeric["maximum"]:
         raise OverflowError("exact-int64 arithmetic overflow")
     return value
 
 
+def _integer_compare(comparison: str, left: int, right: int) -> bool:
+    if comparison == "greater-than-or-equal":
+        return left >= right
+    if comparison == "less-than":
+        return left < right
+    if comparison == "less-than-or-equal":
+        return left <= right
+    raise ValueError("unsupported admitted integer comparison")
+
+
 class _NamedRng:
-    def __init__(self, seed: int) -> None:
-        self._seed = seed & _MASK_64
+    def __init__(self, seed: int, contract: dict[str, Any]) -> None:
+        if (
+            contract["algorithm"] != "splitmix64-v1"
+            or contract["word_bits"] != 64
+            or contract["seed_encoding"] != "unsigned-modulo-2^64"
+        ):
+            raise ValueError("unsupported admitted Named-stream RNG contract")
+        self._contract = contract
+        self._mask = (1 << contract["word_bits"]) - 1
+        self._seed = seed & self._mask
         self._states: dict[str, int] = {}
         self._indices: dict[str, int] = {}
 
-    def draw(self, stream: str, minimum: int, maximum: int) -> tuple[int, int]:
+    def draw(
+        self, stream: str, minimum: int, maximum: int
+    ) -> tuple[int, int, int, bool]:
         if minimum > maximum:
             raise ValueError("invalid deterministic draw interval")
         if stream not in self._states:
+            derivation = self._contract["stream_derivation"]
+            if (
+                derivation["hash"] != "sha256"
+                or self._contract["stream_name_encoding"] != "utf-8"
+                or derivation["combine"] != "unsigned-add-modulo-2^64"
+            ):
+                raise ValueError("unsupported admitted Named-stream derivation")
             digest = hashlib.sha256(stream.encode("utf-8")).digest()
+            digest_slice = derivation["digest_slice"]
+            start = digest_slice["offset"]
+            end = start + digest_slice["length"]
             self._states[stream] = (
-                self._seed + int.from_bytes(digest[:8], "big")
-            ) & _MASK_64
+                self._seed
+                + int.from_bytes(
+                    digest[start:end],
+                    derivation["byte_order"],
+                )
+            ) & self._mask
             self._indices[stream] = 0
-        state = (self._states[stream] + 0x9E3779B97F4A7C15) & _MASK_64
+        transition = self._contract["state_transition"]
+        state = (
+            self._states[stream] + int(transition["increment_hex"], 16)
+        ) & self._mask
         self._states[stream] = state
         mixed = state
-        mixed = ((mixed ^ (mixed >> 30)) * 0xBF58476D1CE4E5B9) & _MASK_64
-        mixed = ((mixed ^ (mixed >> 27)) * 0x94D049BB133111EB) & _MASK_64
-        mixed ^= mixed >> 31
+        for step in transition["mix_steps"]:
+            mixed ^= mixed >> step["xor_shift_right"]
+            if "multiply_hex" in step:
+                mixed = (mixed * int(step["multiply_hex"], 16)) & self._mask
         index = self._indices[stream]
         self._indices[stream] = index + 1
-        return minimum + mixed % (maximum - minimum + 1), index
+        sampling = self._contract["interval_sampling"]
+        if (
+            sampling["bounds"] != "inclusive"
+            or sampling["mapping"] != "unsigned-modulo-width"
+            or sampling["bias_policy"] != "accepted-modulo-bias-v1"
+            or sampling["candidates_per_draw"] != 1
+        ):
+            raise ValueError("unsupported admitted interval-sampling law")
+        return minimum + mixed % (maximum - minimum + 1), index, mixed, True
 
 
 def _value_rows(values: dict[str, Any]) -> list[dict[str, JsonValue]]:
@@ -443,19 +582,59 @@ def _int_rows(values: dict[str, int]) -> list[dict[str, JsonValue]]:
     return [{"name": name, "value": values[name]} for name in sorted(values)]
 
 
+def _metric_definition_identity(metric: dict[str, Any]) -> str:
+    return content_identity(
+        "metric-definition-v2",
+        cast(
+            JsonValue,
+            {
+                name: metric[name]
+                for name in (
+                    "id",
+                    "kind",
+                    "unit",
+                    "dimensions",
+                    "window",
+                    "aggregation",
+                    "replication",
+                    "missing",
+                    "censoring",
+                    "observation",
+                )
+            },
+        ),
+    )
+
+
 def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
-    runtime_contract = checked.kernel["meta_format"]["runtime_program"]
+    runtime_contract = _runtime_contract(checked)
     nodes = sorted(
-        {
-            *runtime_contract["expression_nodes"],
-            *runtime_contract["control_nodes"],
-            *runtime_contract["effect_nodes"],
-        }
+        row["id"]
+        for row in runtime_contract["nodes"]
+        if row["semantics"]["operator"] in _SUPPORTED_RUNTIME_OPERATORS
+    )
+    supported_profiles = sorted(
+        row["id"]
+        for row in checked.rir["selected_semantics"]["runtime_profiles"]
+        if (
+            row.get("runtime_program_version") == runtime_contract["version"]
+            and row.get("numeric_law") == runtime_contract["numeric"]["id"]
+            and row.get("rng", {}).get("algorithm")
+            == runtime_contract["named_rng"]["algorithm"]
+            and set(row["effects"])
+            <= {
+                "event.commit",
+                "metric.observe",
+                "rng.named-stream",
+                "snapshot.commit",
+            }
+        )
     )
     implementation_identity = content_identity(
         "evaluator-implementation-v1",
         {
             "implementation": _EVALUATOR_IMPLEMENTATION,
+            "runtime_program_version": runtime_contract["version"],
             "operation_kinds": ["event-program"],
             "instruction_nodes": nodes,
             "effects": [
@@ -466,7 +645,7 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             ],
             "numeric_policies": ["exact-int64"],
             "rng_algorithms": ["splitmix64-v1"],
-            "runtime_profiles": ["deterministic-event-v1"],
+            "runtime_profiles": supported_profiles,
         },
     )
     return _artifact(
@@ -486,7 +665,7 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             ],
             "numeric_policies": ["exact-int64"],
             "rng_algorithms": ["splitmix64-v1"],
-            "runtime_profiles": ["deterministic-event-v1"],
+            "runtime_profiles": supported_profiles,
         },
     )
 
@@ -516,6 +695,10 @@ def _resolved_runtime_profile(
                 "version": definition["version"],
                 "evaluation": definition["evaluation"],
                 "numeric_policy": definition["numeric_policy"],
+                "runtime_program_version": definition["runtime_program_version"],
+                "numeric_law": definition["numeric_law"],
+                "rng": definition["rng"],
+                "budget_scopes": definition["budget_scopes"],
                 "effects": definition["effects"],
                 "max_steps": definition["resource_bounds"]["max_steps"],
             },
@@ -541,10 +724,11 @@ def _check_evaluator_requirements(
         "effects",
         "numeric_policies",
         "rng_algorithms",
+        "runtime_profiles",
     ):
         if not set(required[member]) <= set(available[member]):
             return _refusal(
-                stage="runtime",
+                stage="resolution",
                 code="rpg.runtime_capability_unsupported",
                 identity=checked.content_identity,
                 pointer=f"/runtime/required_evaluator/{member}",
@@ -588,7 +772,6 @@ def runtime_terminal_audit_members(
     evaluator = _evaluator_manifest(checked)
     resolved_runtime = _resolved_runtime_profile(checked, evaluator)
     reproduction = _reproduction_receipt(checked, evaluator, resolved_runtime)
-    scenario = checked.value["scenarios"][0]
     diagnostic = report.diagnostics[0]
     audit = _artifact(
         checked,
@@ -599,7 +782,7 @@ def runtime_terminal_audit_members(
                 "experiment_identity": checked.content_identity,
                 "resolved_runtime_profile_identity": resolved_runtime.content_identity,
                 "evaluator_manifest_identity": evaluator.content_identity,
-                "scenario": scenario["id"],
+                "scenario": outcome.scenario_id,
                 "committed_trace_prefix": list(outcome.committed_trace_prefix),
                 "last_snapshot": _int_rows(outcome.last_state),
                 "refusing_event": {
@@ -642,6 +825,8 @@ def _scenario_state(
 def _runtime_refusal_outcome(
     checked: CheckedExperiment,
     *,
+    scenario_id: str,
+    scenario_index: int,
     code: str,
     message: str,
     events: list[dict[str, JsonValue]],
@@ -652,11 +837,13 @@ def _runtime_refusal_outcome(
         stage="runtime",
         code=code,
         identity=checked.content_identity,
-        pointer=f"/scenarios/{len(events)}/operation",
+        pointer=f"/scenarios/{scenario_index}/operation",
         message=message,
     )
     return RuntimeRefusalOutcome(
         report=report,
+        scenario_id=scenario_id,
+        scenario_index=scenario_index,
         committed_trace_prefix=tuple(
             {
                 "index": event["index"],
@@ -680,30 +867,26 @@ def evaluate_experiment(
     evaluator = _evaluator_manifest(checked)
     capability_refusal = _check_evaluator_requirements(checked, evaluator)
     if capability_refusal is not None:
-        declarations = {row["symbol"]: row for row in checked.rir["declarations"]}
-        scenario = checked.value["scenarios"][0]
-        return RuntimeRefusalOutcome(
-            report=capability_refusal,
-            committed_trace_prefix=(),
-            last_state=_scenario_state(scenario, declarations),
-            refusing_event_index=0,
-            refusing_operation=scenario["operation"],
-            state_before=_scenario_state(scenario, declarations),
-            state_after=_scenario_state(scenario, declarations),
-        )
+        return capability_refusal
     resolved_runtime = _resolved_runtime_profile(checked, evaluator)
     operations = {
         row["definition"]["id"]: row["definition"]
         for row in checked.rir["selected_semantics"]["operations"]
     }
     declarations = {row["symbol"]: row for row in checked.rir["declarations"]}
-    rng = _NamedRng(checked.value["seed"]["value"])
+    runtime_contract = _runtime_contract(checked)
+    numeric = cast(dict[str, Any], runtime_contract["numeric"])
+    node_contracts = _runtime_nodes(checked)
+    rng = _NamedRng(
+        checked.value["seed"]["value"],
+        cast(dict[str, Any], runtime_contract["named_rng"]),
+    )
     events: list[dict[str, JsonValue]] = []
     snapshots: list[dict[str, JsonValue]] = []
     scenario_outputs: dict[str, tuple[dict[str, Any], dict[str, int], str]] = {}
     total_steps = 0
     runtime_limit = checked.language_bundle["resources"]["max_runtime_steps"]
-    for scenario in checked.value["scenarios"]:
+    for scenario_index, scenario in enumerate(checked.value["scenarios"]):
         variables = {row["name"]: row["value"] for row in scenario["values"]}
         state = _scenario_state(scenario, declarations)
         before = dict(state)
@@ -718,29 +901,41 @@ def evaluate_experiment(
             )
         )
         operation = operations[scenario["operation"]]
-        outcome = "cast-resolved"
+        outcomes = {row["id"]: row for row in operation["outcomes"]}
+        outcome = operation["default_outcome"]
         draws: list[dict[str, JsonValue]] = []
+        event_steps = 0
         for instruction in operation["body"]:
-            total_steps += 1
+            node_contract = node_contracts[instruction["node"]]
+            charge = node_contract["resource_charge"]["amount"]
+            total_steps += charge
+            event_steps += charge
             if (
                 total_steps > runtime_limit
-                or total_steps > operation["resource_bounds"]["max_steps"]
+                or event_steps > operation["resource_bounds"]["max_steps"]
             ):
                 return _runtime_refusal_outcome(
                     checked,
+                    scenario_id=scenario["id"],
+                    scenario_index=scenario_index,
                     code="rpg.runtime_step_limit_exceeded",
                     message="Runtime program exhausted its exact step bound",
                     events=events,
                     operation=operation["id"],
                     state_before=before,
                 )
-            node = instruction["node"]
-            if node == "precondition-greater-than-or-equal":
-                if variables[instruction["left"]] < variables[instruction["right"]]:
+            semantics = node_contract["semantics"]
+            operator = semantics["operator"]
+            if operator == "gameplay-precondition":
+                if not _integer_compare(
+                    semantics["comparison"],
+                    variables[instruction["left"]],
+                    variables[instruction["right"]],
+                ):
                     outcome = instruction["outcome"]
                     break
-            elif node == "draw":
-                value, index = rng.draw(
+            elif operator == "named-integer-draw":
+                value, index, candidate, accepted = rng.draw(
                     instruction["stream"],
                     instruction["minimum"],
                     instruction["maximum"],
@@ -750,50 +945,53 @@ def evaluate_experiment(
                     {
                         "stream": instruction["stream"],
                         "index": index,
+                        "candidate_hex": f"{candidate:016x}",
+                        "accepted": accepted,
                         "minimum": instruction["minimum"],
                         "maximum": instruction["maximum"],
                         "value": value,
                     }
                 )
-            elif node == "constant":
+            elif operator == "integer-literal":
                 variables[instruction["target"]] = instruction["literal"]
-            elif node == "copy":
+            elif operator == "copy-value":
                 variables[instruction["target"]] = variables[instruction["value"]]
-            elif node in {"add", "subtract", "multiply", "maximum"}:
+            elif operator in {
+                "integer-add",
+                "integer-subtract",
+                "integer-multiply",
+                "integer-maximum",
+            }:
                 left = variables[instruction["left"]]
                 right = variables[instruction["right"]]
-                if node == "add":
+                if operator == "integer-add":
                     result = left + right
-                elif node == "subtract":
+                elif operator == "integer-subtract":
                     result = left - right
-                elif node == "multiply":
+                elif operator == "integer-multiply":
                     result = left * right
                 else:
                     result = max(left, right)
                 try:
-                    variables[instruction["target"]] = _signed_int64(result)
+                    variables[instruction["target"]] = _admit_numeric(result, numeric)
                 except OverflowError:
                     return _runtime_refusal_outcome(
                         checked,
+                        scenario_id=scenario["id"],
+                        scenario_index=scenario_index,
                         code="rpg.runtime_numeric_overflow",
                         message="Exact-int64 operation overflowed its numeric domain",
                         events=events,
                         operation=operation["id"],
                         state_before=before,
                     )
-            elif node in {
-                "greater-than-or-equal",
-                "less-than",
-                "less-than-or-equal",
-            }:
+            elif operator == "integer-compare":
                 left = variables[instruction["left"]]
                 right = variables[instruction["right"]]
-                variables[instruction["target"]] = {
-                    "greater-than-or-equal": left >= right,
-                    "less-than": left < right,
-                    "less-than-or-equal": left <= right,
-                }[node]
-            elif node == "if":
+                variables[instruction["target"]] = _integer_compare(
+                    semantics["comparison"], left, right
+                )
+            elif operator == "select-value":
                 variables[instruction["target"]] = variables[
                     instruction[
                         "when_true"
@@ -801,15 +999,18 @@ def evaluate_experiment(
                         else "when_false"
                     ]
                 ]
-            elif node == "subtract-state":
+            elif operator == "state-integer-subtract":
                 symbol = instruction["symbol"]
                 try:
-                    state[symbol] = _signed_int64(
-                        state[symbol] - variables[instruction["value"]]
+                    state[symbol] = _admit_numeric(
+                        state[symbol] - variables[instruction["value"]],
+                        numeric,
                     )
                 except OverflowError:
                     return _runtime_refusal_outcome(
                         checked,
+                        scenario_id=scenario["id"],
+                        scenario_index=scenario_index,
                         code="rpg.runtime_numeric_overflow",
                         message="Exact-int64 state update overflowed its numeric domain",
                         events=events,
@@ -817,13 +1018,18 @@ def evaluate_experiment(
                         state_before=before,
                     )
                 variables[symbol] = state[symbol]
-            elif node == "write-state":
+            elif operator == "state-write":
                 symbol = instruction["symbol"]
                 try:
-                    state[symbol] = _signed_int64(variables[instruction["value"]])
+                    state[symbol] = _admit_numeric(
+                        variables[instruction["value"]],
+                        numeric,
+                    )
                 except OverflowError:
                     return _runtime_refusal_outcome(
                         checked,
+                        scenario_id=scenario["id"],
+                        scenario_index=scenario_index,
                         code="rpg.runtime_numeric_overflow",
                         message="Exact-int64 state update overflowed its numeric domain",
                         events=events,
@@ -832,24 +1038,24 @@ def evaluate_experiment(
                     )
                 variables[symbol] = state[symbol]
             else:
-                return _runtime_refusal_outcome(
-                    checked,
-                    code="rpg.runtime_capability_unsupported",
-                    message=f"Evaluator does not support instruction node {node}",
-                    events=events,
-                    operation=operation["id"],
-                    state_before=before,
+                raise ValueError(
+                    f"admitted evaluator lacks runtime operator {operator}"
                 )
-        if outcome != "cast-resolved":
+        outcome_definition = outcomes[outcome]
+        if outcome_definition["state_policy"] == "rollback":
             state = before
             for name, value in before.items():
                 variables[name] = value
+        typed_outcome = {
+            "id": outcome,
+            "kind": outcome_definition["kind"],
+        }
         event = cast(
             dict[str, JsonValue],
             {
                 "index": len(events),
                 "operation": operation["id"],
-                "outcome": outcome,
+                "outcome": typed_outcome,
                 "facts": _value_rows(variables),
                 "state_before": _int_rows(before),
                 "state_after": _int_rows(state),
@@ -870,7 +1076,10 @@ def evaluate_experiment(
         scenario_outputs[scenario["id"]] = (event, state, outcome)
 
     samples: list[dict[str, JsonValue]] = []
+    metric_definition_identities: list[str] = []
     for metric in checked.value["metrics"]:
+        metric_identity = _metric_definition_identity(metric)
+        metric_definition_identities.append(metric_identity)
         observation = metric["observation"]
         matched: list[tuple[str, int]] = []
         for scenario in checked.value["scenarios"]:
@@ -904,9 +1113,22 @@ def evaluate_experiment(
         samples.append(
             {
                 "metric": metric["id"],
+                "metric_definition_identity": metric_identity,
                 "scenario": scenario_id,
+                "status": "value",
                 "value": value,
                 "unit": metric["unit"],
+                "logical_time": 0,
+                "window": metric["window"]["name"],
+                "dimensions": [],
+                "replication_identity": scenario_id,
+                "source_kind": "simulated",
+                "provenance": {
+                    "scenario": scenario_id,
+                    "observation_source": observation["source"],
+                    "observation_name": observation["name"],
+                    "observation_member": observation["member"],
+                },
                 "within_target": target["minimum"] <= value <= target["maximum"],
                 "source": observation["source"],
                 "member": observation["member"],
@@ -947,6 +1169,21 @@ def evaluate_experiment(
             {
                 "experiment_identity": checked.content_identity,
                 "resolved_runtime_profile_identity": resolved_runtime.content_identity,
+                "metric_definition_identities": metric_definition_identities,
+                "source_provenance": {
+                    "kind": "simulated",
+                    "resolved_model_identity": checked.resolved_model[
+                        "content_identity"
+                    ],
+                    "resolved_runtime_profile_identity": (
+                        resolved_runtime.content_identity
+                    ),
+                    "evaluator_manifest_identity": evaluator.content_identity,
+                },
+                "data_version": "1",
+                "partition": "evaluation",
+                "ordering": ("metric-definition-identity,replication-identity"),
+                "ingestion_transformation_identity": None,
                 "samples": samples,
             },
         ),

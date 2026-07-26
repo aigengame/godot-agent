@@ -89,7 +89,11 @@ structured formal judgments, and an honest proof/conformance boundary.
   or transition effect, refusal behavior, and resource charge. Named-stream `draw` and a
   gameplay-outcome precondition are control nodes: neither is a pure expression nor an
   implementation callback. An LDB Operation body may use only listed nodes, and runtime admission
-  rejects an evaluator that does not implement the complete requested set before dispatch.
+  rejects an evaluator that does not implement the complete requested set before dispatch. The
+  Kernel also fixes the exact Numeric bounds and RNG state/stream derivation, transition constants,
+  sampling/bias policy, trace representation, and positive/multi-draw/cross-stream/boundary vectors.
+  The LDB Operation declares one exhaustive typed outcome algebra with a default outcome and an
+  explicit commit/rollback policy for every alternative; an evaluator may not invent outcome ids.
 
 - **Domain operations are machine-defined compositions whenever possible.** An Operation
   specification may give semantics as a typed kernel AST plus declared effects/resource bounds.

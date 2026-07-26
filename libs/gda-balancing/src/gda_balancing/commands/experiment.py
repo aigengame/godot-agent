@@ -393,6 +393,7 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
                 ],
                 "numeric_policies": ["exact-int64"],
                 "rng_algorithms": ["splitmix64-v1"],
+                "runtime_profiles": ["rpg.exact-int64-event-v1"],
             },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 1},
@@ -419,6 +420,12 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
                 "id": "damage",
                 "kind": "scalar",
                 "unit": "1",
+                "dimensions": [],
+                "window": {"kind": "scenario", "name": "terminal-event"},
+                "aggregation": "single",
+                "replication": {"unit": "scenario"},
+                "missing": "refuse",
+                "censoring": "none",
                 "observation": {
                     "source": "event",
                     "name": "cast-resolved",
@@ -461,7 +468,8 @@ _VALID_EXPERIMENT = """{
       "instruction_nodes": ["constant"],
       "effects": ["event.commit"],
       "numeric_policies": ["exact-int64"],
-      "rng_algorithms": ["splitmix64-v1"]
+      "rng_algorithms": ["splitmix64-v1"],
+      "runtime_profiles": ["rpg.exact-int64-event-v1"]
     }
   },
   "seed": {"algorithm": "splitmix64-v1", "value": 1},
@@ -477,6 +485,12 @@ _VALID_EXPERIMENT = """{
     "id": "value",
     "kind": "scalar",
     "unit": "1",
+    "dimensions": [],
+    "window": {"kind": "scenario", "name": "terminal-event"},
+    "aggregation": "single",
+    "replication": {"unit": "scenario"},
+    "missing": "refuse",
+    "censoring": "none",
     "observation": {"source": "snapshot", "name": "terminal", "member": "value"},
     "target": {"minimum": 0, "maximum": 1}
   }],

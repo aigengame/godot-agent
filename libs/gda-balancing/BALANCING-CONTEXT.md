@@ -758,6 +758,15 @@ host platform, or deployment fact, so it cannot form an identity cycle with its 
 (bADR-0014/0022).
 _Avoid_: environment, evaluator configuration, resolved execution identity
 
+**Runtime program contract**:
+The Schema-major Kernel-owned, closed machine contract for irreducible runtime nodes and laws. It
+enumerates each node's exact fields, operator, result/transition kind, refusals, and resource charge,
+plus Numeric bounds, Named-stream RNG derivation/state/sampling/bias/trace laws, Event atomicity,
+typed outcome requirements, and normative vectors. LDB Operations compose these nodes and own their
+domain-specific typed outcome algebra; evaluator code implements the contract but does not add
+fields, outcomes, constants, or behavior (bADR-0014/0022).
+_Avoid_: node-name registry, evaluator dispatch table, host runtime semantics
+
 **Resolved Runtime profile**:
 The generated, content-addressed admission artifact that resolves one Runtime profile definition
 against an exact Schema-major Kernel Specification, Language Definition Bundle, Package Lock,

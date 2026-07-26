@@ -1,5 +1,6 @@
 """Public RPG Experiment tracer for Standard Schema 2.0 (#540)."""
 
+import hashlib
 import json
 import os
 from dataclasses import replace
@@ -9,10 +10,14 @@ from typing import Any
 import pytest
 
 import gda_balancing.commands.experiment as experiment_command_module
+import gda_balancing.schema2.experiment as experiment_runtime_module
 from gda_balancing.schema2.canonical import content_identity
 from gda_balancing.schema2.surface import descriptor_identity
 
 _EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
+_AUTHORITY_DIR = (
+    Path(__file__).parents[1] / "src" / "gda_balancing" / "schema2" / "authorities"
+)
 
 
 def _rpg_value(name: str, role: str) -> dict[str, Any]:
@@ -66,6 +71,18 @@ def _rpg_model_source() -> dict[str, Any]:
     }
 
 
+def _metric_contract(metric: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **metric,
+        "dimensions": [],
+        "window": {"kind": "scenario", "name": "terminal-event"},
+        "aggregation": "single",
+        "replication": {"unit": "scenario"},
+        "missing": "refuse",
+        "censoring": "none",
+    }
+
+
 def _member(receipt: dict[str, Any], logical_name: str) -> dict[str, Any]:
     locator = next(
         item["locator"]
@@ -73,6 +90,186 @@ def _member(receipt: dict[str, Any], logical_name: str) -> dict[str, Any]:
         if item["logical_name"] == logical_name
     )
     return json.loads(Path(locator).read_text(encoding="utf-8"))
+
+
+def _reference_compare(comparison: str, left: int, right: int) -> bool:
+    if comparison == "greater-than-or-equal":
+        return left >= right
+    if comparison == "less-than":
+        return left < right
+    if comparison == "less-than-or-equal":
+        return left <= right
+    raise AssertionError(f"unsupported comparison in authority: {comparison}")
+
+
+def _reference_rng_draw(
+    contract: dict[str, Any],
+    seed: int,
+    stream: str,
+    minimum: int,
+    maximum: int,
+    states: dict[str, int],
+    indices: dict[str, int],
+) -> dict[str, Any]:
+    mask = (1 << contract["word_bits"]) - 1
+    if stream not in states:
+        derivation = contract["stream_derivation"]
+        digest = hashlib.sha256(
+            stream.encode(contract["stream_name_encoding"])
+        ).digest()
+        digest_slice = derivation["digest_slice"]
+        start = digest_slice["offset"]
+        end = start + digest_slice["length"]
+        states[stream] = (
+            seed
+            + int.from_bytes(
+                digest[start:end],
+                derivation["byte_order"],
+            )
+        ) & mask
+        indices[stream] = 0
+    transition = contract["state_transition"]
+    state = (states[stream] + int(transition["increment_hex"], 16)) & mask
+    states[stream] = state
+    candidate = state
+    for step in transition["mix_steps"]:
+        candidate ^= candidate >> step["xor_shift_right"]
+        if "multiply_hex" in step:
+            candidate = (candidate * int(step["multiply_hex"], 16)) & mask
+    index = indices[stream]
+    indices[stream] = index + 1
+    value = minimum + candidate % (maximum - minimum + 1)
+    return {
+        "stream": stream,
+        "index": index,
+        "candidate_hex": f"{candidate:016x}",
+        "accepted": True,
+        "minimum": minimum,
+        "maximum": maximum,
+        "value": value,
+    }
+
+
+def _reference_fact_rows(values: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for name in sorted(values):
+        value = values[name]
+        if isinstance(value, bool):
+            rows.append({"name": name, "kind": "boolean", "boolean": value})
+        else:
+            rows.append({"name": name, "kind": "integer", "integer": value})
+    return rows
+
+
+def _reference_execute_event(
+    kernel: dict[str, Any],
+    operation: dict[str, Any],
+    scenario: dict[str, Any],
+    *,
+    seed: int,
+    state_names: set[str],
+) -> dict[str, Any]:
+    runtime = kernel["meta_format"]["runtime_program"]
+    numeric = runtime["numeric"]
+    nodes = {row["id"]: row for row in runtime["nodes"]}
+    outcomes = {row["id"]: row for row in operation["outcomes"]}
+    variables = {row["name"]: row["value"] for row in scenario["values"]}
+    state = {name: variables[name] for name in state_names}
+    before = dict(state)
+    outcome = operation["default_outcome"]
+    rng_states: dict[str, int] = {}
+    rng_indices: dict[str, int] = {}
+    draws = []
+
+    def exact(value: int) -> int:
+        assert numeric["minimum"] <= value <= numeric["maximum"]
+        return value
+
+    for instruction in operation["body"]:
+        node = nodes[instruction["node"]]
+        assert set(instruction) == set(node["required_members"])
+        semantics = node["semantics"]
+        operator = semantics["operator"]
+        if operator == "gameplay-precondition":
+            if not _reference_compare(
+                semantics["comparison"],
+                variables[instruction["left"]],
+                variables[instruction["right"]],
+            ):
+                outcome = instruction["outcome"]
+                break
+        elif operator == "named-integer-draw":
+            draw = _reference_rng_draw(
+                runtime["named_rng"],
+                seed,
+                instruction["stream"],
+                instruction["minimum"],
+                instruction["maximum"],
+                rng_states,
+                rng_indices,
+            )
+            draws.append(draw)
+            variables[instruction["target"]] = draw["value"]
+        elif operator == "integer-literal":
+            variables[instruction["target"]] = instruction["literal"]
+        elif operator == "copy-value":
+            variables[instruction["target"]] = variables[instruction["value"]]
+        elif operator in {
+            "integer-add",
+            "integer-subtract",
+            "integer-multiply",
+            "integer-maximum",
+        }:
+            left = variables[instruction["left"]]
+            right = variables[instruction["right"]]
+            result = {
+                "integer-add": lambda: left + right,
+                "integer-subtract": lambda: left - right,
+                "integer-multiply": lambda: left * right,
+                "integer-maximum": lambda: max(left, right),
+            }[operator]()
+            variables[instruction["target"]] = exact(result)
+        elif operator == "integer-compare":
+            variables[instruction["target"]] = _reference_compare(
+                semantics["comparison"],
+                variables[instruction["left"]],
+                variables[instruction["right"]],
+            )
+        elif operator == "select-value":
+            selected = (
+                instruction["when_true"]
+                if variables[instruction["condition"]]
+                else instruction["when_false"]
+            )
+            variables[instruction["target"]] = variables[selected]
+        elif operator == "state-integer-subtract":
+            name = instruction["symbol"]
+            state[name] = exact(state[name] - variables[instruction["value"]])
+            variables[name] = state[name]
+        elif operator == "state-write":
+            name = instruction["symbol"]
+            state[name] = exact(variables[instruction["value"]])
+            variables[name] = state[name]
+        else:
+            raise AssertionError(f"unsupported operator in authority: {operator}")
+
+    outcome_definition = outcomes[outcome]
+    if outcome_definition["state_policy"] == "rollback":
+        state = before
+        variables.update(before)
+    return {
+        "operation": operation["id"],
+        "outcome": {
+            "id": outcome,
+            "kind": outcome_definition["kind"],
+        },
+        "facts": _reference_fact_rows(variables),
+        "state_before": [
+            {"name": name, "value": before[name]} for name in sorted(before)
+        ],
+        "state_after": [{"name": name, "value": state[name]} for name in sorted(state)],
+        "rng_draws": draws,
+    }
 
 
 def _experiment(
@@ -124,6 +321,7 @@ def _experiment(
                 ],
                 "numeric_policies": ["exact-int64"],
                 "rng_algorithms": ["splitmix64-v1"],
+                "runtime_profiles": ["rpg.exact-int64-event-v1"],
             },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 20260726},
@@ -146,28 +344,32 @@ def _experiment(
             }
         ],
         "metrics": [
-            {
-                "id": "damage_dealt",
-                "kind": "scalar",
-                "unit": "1",
-                "observation": {
-                    "source": "event",
-                    "name": "cast-resolved",
-                    "member": "damage",
-                },
-                "target": {"minimum": 1, "maximum": 1000},
-            },
-            {
-                "id": "target_health_remaining",
-                "kind": "scalar",
-                "unit": "1",
-                "observation": {
-                    "source": "snapshot",
-                    "name": "terminal",
-                    "member": "target_health",
-                },
-                "target": {"minimum": 0, "maximum": 99},
-            },
+            _metric_contract(
+                {
+                    "id": "damage_dealt",
+                    "kind": "scalar",
+                    "unit": "1",
+                    "observation": {
+                        "source": "event",
+                        "name": "cast-resolved",
+                        "member": "damage",
+                    },
+                    "target": {"minimum": 1, "maximum": 1000},
+                }
+            ),
+            _metric_contract(
+                {
+                    "id": "target_health_remaining",
+                    "kind": "scalar",
+                    "unit": "1",
+                    "observation": {
+                        "source": "snapshot",
+                        "name": "terminal",
+                        "member": "target_health",
+                    },
+                    "target": {"minimum": 0, "maximum": 99},
+                }
+            ),
         ],
         "acceptance": {"policy": "all-metrics-within-target"},
     }
@@ -272,6 +474,31 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     first_trace = _member(first_receipt, "event-trace")
     first_metrics = _member(first_receipt, "metric-dataset")
     assert first_trace["events"][0]["operation"] == "rpg.combat.cast-v1"
+    kernel = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))
+    ldb = json.loads(
+        (_AUTHORITY_DIR / "language-bundle.json").read_text(encoding="utf-8")
+    )
+    operation = next(
+        row
+        for row in ldb["language"]["operations"]
+        if row["id"] == "rpg.combat.cast-v1"
+    )
+    state_names = {
+        row["symbol"]
+        for module in source_value["modules"]
+        for row in module["symbols"]
+        if row["role"] == "state"
+    }
+    reference_event = _reference_execute_event(
+        kernel,
+        operation,
+        first_spec["scenarios"][0],
+        seed=first_spec["seed"]["value"],
+        state_names=state_names,
+    )
+    assert {
+        key: value for key, value in first_trace["events"][0].items() if key != "index"
+    } == reference_event
     assert (
         next(
             item["integer"]
@@ -329,6 +556,50 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         tuned_trace["content_identity"] != first_trace["content_identity"]
         and tuned_metrics["content_identity"] != first_metrics["content_identity"]
     )
+
+
+def test_kernel_runtime_vectors_execute_in_independent_reference_evaluator():
+    kernel = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))
+    runtime = kernel["meta_format"]["runtime_program"]
+    nodes = {row["id"]: row for row in runtime["nodes"]}
+    node_vectors = [vector for vector in runtime["vectors"] if vector["kind"] == "node"]
+    assert {vector["node"] for vector in node_vectors} == set(nodes)
+    for vector in node_vectors:
+        node = nodes[vector["node"]]
+        assert vector["input"]["contract-probe"] == node["required_members"]
+        assert vector["expect"] == {
+            "operator": node["semantics"]["operator"],
+            "result_kind": node["result"]["kind"],
+            "charge": node["resource_charge"]["amount"],
+        }
+
+    rng_vectors = [vector for vector in runtime["vectors"] if vector["kind"] == "rng"]
+    assert {vector["id"] for vector in rng_vectors} == {
+        "rng.first-draw",
+        "rng.multi-draw",
+        "rng.cross-stream",
+        "rng.interval-boundary",
+    }
+    for vector in rng_vectors:
+        inputs = vector["input"]
+        states: dict[str, int] = {}
+        indices: dict[str, int] = {}
+        draw = {}
+        for _ in range(inputs["index"] + 1):
+            draw = _reference_rng_draw(
+                runtime["named_rng"],
+                inputs["seed"],
+                inputs["stream"],
+                inputs["minimum"],
+                inputs["maximum"],
+                states,
+                indices,
+            )
+        assert {
+            "candidate_hex": draw["candidate_hex"],
+            "accepted": draw["accepted"],
+            "value": draw["value"],
+        } == vector["expect"]
 
 
 def test_completed_negative_judgment_publishes_only_typed_verdict_set(
@@ -447,7 +718,9 @@ def test_evaluation_refusal_publishes_no_completed_outcome_artifacts(tmp_path, r
     assert "artifact_set" not in error
 
 
-def test_runtime_refusal_publishes_only_complete_terminal_audit_set(tmp_path, run_cli):
+def test_predispatch_capability_refusal_publishes_no_terminal_audit(
+    tmp_path, run_cli, monkeypatch
+):
     source_value = _rpg_model_source()
     source = tmp_path / "rpg-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
@@ -472,12 +745,14 @@ def test_runtime_refusal_publishes_only_complete_terminal_audit_set(tmp_path, ru
         build_receipt=build_receipt,
         base_damage=24,
     )
-    specification["runtime"]["required_evaluator"]["instruction_nodes"].append(
-        "host-call"
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "_SUPPORTED_RUNTIME_OPERATORS",
+        experiment_runtime_module._SUPPORTED_RUNTIME_OPERATORS - {"integer-multiply"},
     )
     spec_path = tmp_path / "runtime-refusal-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
-    out = tmp_path / "runtime-terminal-audit.json"
+    out = tmp_path / "must-not-exist.json"
 
     exit_code, stdout, stderr = run_cli(
         [
@@ -493,38 +768,143 @@ def test_runtime_refusal_publishes_only_complete_terminal_audit_set(tmp_path, ru
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
-    assert error["stage"] == "runtime"
+    assert error["stage"] == "resolution"
     assert [item["code"] for item in error["diagnostics"]] == [
         "rpg.runtime_capability_unsupported"
     ]
-    receipt = error["terminal_audit"]
-    logical_names = {item["logical_name"] for item in receipt["member_locators"]}
-    assert logical_names == {
-        "evaluator-capability-manifest",
-        "reproduction-receipt",
-        "resolved-runtime-profile",
-        "runtime-terminal-audit",
-    }
-    assert not logical_names & {
-        "evaluation-run",
-        "experiment-verdict",
-        "metric-dataset",
-        "snapshot-series",
-    }
-    audit = _member(receipt, "runtime-terminal-audit")
-    assert audit["committed_trace_prefix"] == []
-    assert audit["refusing_event"] == {
-        "index": 0,
-        "operation": "rpg.combat.cast-v1",
-        "reason": "rpg.runtime_capability_unsupported",
-    }
-    assert audit["rollback"]["committed"] is False
-    assert audit["rollback"]["state_before"] == audit["rollback"]["state_after"]
-    assert audit["diagnostic"] == {
-        "stage": "runtime",
-        **error["diagnostics"][0],
-    }
-    assert out.exists()
+    assert "terminal_audit" not in error
+    assert not out.exists()
+
+
+def test_experiment_check_refuses_duplicate_json_keys(tmp_path, run_cli):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    text = specification.read_text(encoding="utf-8")
+    specification.write_text(
+        text.replace(
+            '"schema_version": "2.0.0",',
+            '"schema_version": "2.0.0", "schema_version": "2.0.0",',
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "parse"
+    assert [item["code"] for item in error["diagnostics"]] == [
+        "language.source_parse_failure"
+    ]
+
+
+def test_experiment_refuses_nonempty_external_inputs_until_the_slice_consumes_them(
+    tmp_path, run_cli
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    value["external_inputs"] = [{"channel": "player", "index": 0, "value": 1}]
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/external_inputs"
+
+
+def test_required_evaluator_must_exactly_close_the_selected_program(tmp_path, run_cli):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    value["runtime"]["required_evaluator"]["instruction_nodes"].remove("multiply")
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "resolution"
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/runtime/required_evaluator/instruction_nodes"
+    )
+
+
+def test_evaluator_manifest_binds_the_selected_runtime_profile(tmp_path, run_cli):
+    specification = _write_built_experiment(tmp_path, run_cli)
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "evaluation.json"),
+            "--invocation-key",
+            "e" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    receipt = json.loads(stdout)
+    evaluator = _member(receipt, "evaluator-capability-manifest")
+    runtime = _member(receipt, "resolved-runtime-profile")
+    assert evaluator["runtime_profiles"] == ["rpg.exact-int64-event-v1"]
+    assert runtime["runtime_profile"]["id"] in evaluator["runtime_profiles"]
+
+
+def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, run_cli):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    for metric in value["metrics"]:
+        metric.update(
+            {
+                "dimensions": [],
+                "window": {"kind": "scenario", "name": "terminal-event"},
+                "aggregation": "single",
+                "replication": {"unit": "scenario"},
+                "missing": "refuse",
+                "censoring": "none",
+            }
+        )
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "metric-contract.json"),
+            "--invocation-key",
+            "f" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    receipt = json.loads(stdout)
+    dataset = _member(receipt, "metric-dataset")
+    assert dataset["experiment_identity"]
+    assert dataset["metric_definition_identities"]
+    assert dataset["source_provenance"]["kind"] == "simulated"
+    assert dataset["source_provenance"]["resolved_model_identity"]
+    assert dataset["source_provenance"]["resolved_runtime_profile_identity"]
+    assert dataset["data_version"] == "1"
+    assert dataset["partition"] == "evaluation"
+    assert dataset["ordering"] == "metric-definition-identity,replication-identity"
+    assert dataset["ingestion_transformation_identity"] is None
+    for sample in dataset["samples"]:
+        assert (
+            sample["metric_definition_identity"]
+            in (dataset["metric_definition_identities"])
+        )
+        assert sample["status"] == "value"
+        assert sample["logical_time"] == 0
+        assert sample["window"] == "terminal-event"
+        assert sample["dimensions"] == []
+        assert sample["replication_identity"]
+        assert sample["source_kind"] == "simulated"
+        assert sample["provenance"]["scenario"]
 
 
 def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli):
@@ -631,28 +1011,32 @@ def test_gameplay_alternative_is_a_committed_typed_event_not_a_refusal(
     )
     actor_mana["value"] = 4
     specification["metrics"] = [
-        {
-            "id": "actor_mana_remaining",
-            "kind": "scalar",
-            "unit": "1",
-            "observation": {
-                "source": "event",
-                "name": "insufficient-resource",
-                "member": "actor_mana",
-            },
-            "target": {"minimum": 4, "maximum": 4},
-        },
-        {
-            "id": "target_health_remaining",
-            "kind": "scalar",
-            "unit": "1",
-            "observation": {
-                "source": "snapshot",
-                "name": "terminal",
-                "member": "target_health",
-            },
-            "target": {"minimum": 100, "maximum": 100},
-        },
+        _metric_contract(
+            {
+                "id": "actor_mana_remaining",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "event",
+                    "name": "insufficient-resource",
+                    "member": "actor_mana",
+                },
+                "target": {"minimum": 4, "maximum": 4},
+            }
+        ),
+        _metric_contract(
+            {
+                "id": "target_health_remaining",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 100, "maximum": 100},
+            }
+        ),
     ]
     spec_path = tmp_path / "insufficient-resource-experiment.json"
     spec_path.write_text(json.dumps(specification), encoding="utf-8")
@@ -672,8 +1056,183 @@ def test_gameplay_alternative_is_a_committed_typed_event_not_a_refusal(
     assert (exit_code, stderr) == (0, "")
     trace = _member(json.loads(stdout), "event-trace")
     event = trace["events"][0]
-    assert event["outcome"] == "insufficient-resource"
+    assert event["outcome"] == {
+        "id": "insufficient-resource",
+        "kind": "gameplay-alternative",
+    }
     assert event["state_before"] == event["state_after"]
+
+
+def test_gameplay_outcomes_are_closed_and_exhaustively_typed(tmp_path, run_cli):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    scenarios = {
+        "cast-resolved": value,
+        "miss": json.loads(json.dumps(value)),
+        "insufficient-resource": json.loads(json.dumps(value)),
+    }
+    for row in scenarios["miss"]["scenarios"][0]["values"]:
+        if row["name"] == "accuracy":
+            row["value"] = 0
+        elif row["name"] == "target_defense":
+            row["value"] = 1000
+    for row in scenarios["insufficient-resource"]["scenarios"][0]["values"]:
+        if row["name"] == "actor_mana":
+            row["value"] = 0
+    for outcome, scenario in scenarios.items():
+        scenario["metrics"] = [
+            _metric_contract(
+                {
+                    "id": "terminal-health",
+                    "kind": "scalar",
+                    "unit": "1",
+                    "observation": {
+                        "source": "snapshot",
+                        "name": "terminal",
+                        "member": "target_health",
+                    },
+                    "target": {"minimum": 0, "maximum": 1000},
+                }
+            )
+        ]
+        path = tmp_path / f"{outcome}.json"
+        path.write_text(json.dumps(scenario), encoding="utf-8")
+        exit_code, stdout, stderr = run_cli(
+            [
+                "experiment",
+                "run",
+                str(path),
+                "--out",
+                str(tmp_path / f"{outcome}-out.json"),
+                "--invocation-key",
+                {
+                    "cast-resolved": "1",
+                    "miss": "2",
+                    "insufficient-resource": "3",
+                }[outcome]
+                * 64,
+            ]
+        )
+        assert (exit_code, stderr) == (0, "")
+        event = _member(json.loads(stdout), "event-trace")["events"][0]
+        assert event["outcome"] == {
+            "id": outcome,
+            "kind": (
+                "success" if outcome == "cast-resolved" else "gameplay-alternative"
+            ),
+        }
+
+
+def test_operation_step_budget_is_scoped_per_event_not_across_scenarios(
+    tmp_path, run_cli
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    base_scenario = value["scenarios"][0]
+    value["scenarios"] = []
+    for index in range(5):
+        scenario = json.loads(json.dumps(base_scenario))
+        scenario["id"] = f"cast-{index}"
+        value["scenarios"].append(scenario)
+    value["metrics"] = [
+        _metric_contract(
+            {
+                "id": "first-terminal-health",
+                "kind": "scalar",
+                "unit": "1",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "cast-0:terminal",
+                    "member": "target_health",
+                },
+                "target": {"minimum": 0, "maximum": 1000},
+            }
+        )
+    ]
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(specification),
+            "--out",
+            str(tmp_path / "multi-scenario.json"),
+            "--invocation-key",
+            "4" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (0, "")
+    trace = _member(json.loads(stdout), "event-trace")
+    assert len(trace["events"]) == 5
+
+
+def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_cli):
+    source_value = _rpg_model_source()
+    base_damage = next(
+        symbol
+        for symbol in source_value["modules"][0]["symbols"]
+        if symbol["symbol"] == "base_damage"
+    )
+    base_damage["domain"]["maximum"] = (1 << 63) - 1
+    source = tmp_path / "rpg-overflow-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-overflow-model.json"),
+            "--invocation-key",
+            "5" * 64,
+        ]
+    )
+    assert (build_exit, build_stderr) == (0, "")
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    value = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=24,
+    )
+    second = json.loads(json.dumps(value["scenarios"][0]))
+    second["id"] = "overflowing-cast"
+    for row in second["values"]:
+        if row["name"] == "base_damage":
+            row["value"] = 1 << 62
+        elif row["name"] == "critical_threshold":
+            row["value"] = 100
+    value["scenarios"].append(second)
+    path = tmp_path / "second-scenario-overflow.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(path),
+            "--out",
+            str(tmp_path / "second-scenario-audit.json"),
+            "--invocation-key",
+            "6" * 64,
+        ]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+    assert audit["scenario"] == "overflowing-cast"
+    assert audit["committed_trace_prefix"] == [
+        {
+            "index": 0,
+            "operation": "rpg.combat.cast-v1",
+            "outcome": {"id": "cast-resolved", "kind": "success"},
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -733,9 +1292,15 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
             "maximum": 1000,
         }
     elif outcome == "runtime":
-        specification_value["runtime"]["required_evaluator"][
-            "instruction_nodes"
-        ].append("host-call")
+
+        def overflow_at_runtime(_value, _numeric):
+            raise OverflowError
+
+        monkeypatch.setattr(
+            experiment_runtime_module,
+            "_admit_numeric",
+            overflow_at_runtime,
+        )
     specification.write_text(json.dumps(specification_value), encoding="utf-8")
     out = tmp_path / "recovered-evaluation.json"
     key = "3" * 64
@@ -788,7 +1353,7 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
         error = recovered["error"]
         assert error["stage"] == "runtime"
         assert error["diagnostics"][0]["primary"]["pointer"] == (
-            "/runtime/required_evaluator/instruction_nodes"
+            "/scenarios/0/operation"
         )
         audit = _member(error["terminal_audit"], "runtime-terminal-audit")
         assert audit["diagnostic"] == {

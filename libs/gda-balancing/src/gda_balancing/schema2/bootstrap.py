@@ -44,7 +44,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:7bac93bc52d765d4d035b08ce53dd3a8671ec28e1d743ea51e2dec2297879ce3"
+    "sha256:e0fb03bf16ce7f51d2985c507e0c279506a411aa26d8548ee929045f7f13126e"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -2095,16 +2095,19 @@ def _contract_assignable_to_schema(contract: dict[str, Any], schema: Any) -> boo
     )
     if is_object:
         required = contract.get("required_members")
+        optional = contract.get("optional_members", [])
         fields = contract.get("field_types")
         properties = schema.get("properties")
         schema_required = schema.get("required")
         return (
             schema.get("type") == "object"
             and isinstance(required, list)
+            and isinstance(optional, list)
             and isinstance(fields, dict)
             and isinstance(properties, dict)
             and isinstance(schema_required, list)
-            and set(required) == set(fields)
+            and not set(required) & set(optional)
+            and set(required) | set(optional) == set(fields)
             and set(fields) == set(properties)
             and set(schema_required) == set(required)
             and schema.get("unevaluatedProperties") is False
@@ -4042,6 +4045,8 @@ def admit_authorities(
     meta_format = cast(dict[str, Any], kernel.get("meta_format", {}))
     if not _language_definitions_are_closed(language_bundle, meta_format):
         refuse("kernel.vector_mismatch", "static", "language.definitions")
+    if not _runtime_authority_is_closed(kernel, language_bundle):
+        refuse("kernel.vector_mismatch", "static", "language.runtime")
     if not _embedded_artifact_bindings_are_closed(language_bundle):
         refuse(
             "kernel.vector_mismatch",
@@ -4729,6 +4734,213 @@ def _reason_vectors_cover_operands(
             for name in ("actual", "expected")
         )
     return False
+
+
+def _runtime_authority_is_closed(
+    kernel: dict[str, Any],
+    language_bundle: dict[str, Any],
+) -> bool:
+    meta = kernel.get("meta_format")
+    runtime = meta.get("runtime_program") if isinstance(meta, dict) else None
+    if (
+        not isinstance(runtime, dict)
+        or set(runtime)
+        != {
+            "closed",
+            "version",
+            "evaluation_order",
+            "expression_nodes",
+            "effect_nodes",
+            "control_nodes",
+            "nodes",
+            "numeric",
+            "named_rng",
+            "event_atomicity",
+            "outcome_contract",
+            "vectors",
+        }
+        or runtime.get("closed") is not True
+        or not isinstance(runtime.get("version"), str)
+        or not runtime["version"]
+    ):
+        return False
+    family_members = {
+        "expression": "expression_nodes",
+        "effect": "effect_nodes",
+        "control": "control_nodes",
+    }
+    raw_nodes = runtime.get("nodes")
+    if not isinstance(raw_nodes, list):
+        return False
+    nodes: dict[str, dict[str, Any]] = {}
+    for node in raw_nodes:
+        if (
+            not isinstance(node, dict)
+            or set(node)
+            != {
+                "family",
+                "id",
+                "refusals",
+                "required_members",
+                "resource_charge",
+                "result",
+                "semantics",
+            }
+            or node.get("family") not in family_members
+            or not isinstance(node.get("id"), str)
+            or not node["id"]
+            or not isinstance(node.get("required_members"), list)
+            or not node["required_members"]
+            or node["required_members"][0] != "node"
+            or len(node["required_members"]) != len(set(node["required_members"]))
+            or not isinstance(node.get("semantics"), dict)
+            or not isinstance(node["semantics"].get("operator"), str)
+            or not node["semantics"]["operator"]
+            or not isinstance(node.get("result"), dict)
+            or set(node["result"]) != {"kind"}
+            or not isinstance(node["result"]["kind"], str)
+            or not isinstance(node.get("refusals"), list)
+            or node.get("resource_charge") != {"counter": "event-steps", "amount": 1}
+            or node["id"] in nodes
+        ):
+            return False
+        nodes[node["id"]] = node
+    for family, member in family_members.items():
+        inventory = runtime.get(member)
+        if not isinstance(inventory, list) or inventory != [
+            node["id"] for node in raw_nodes if node["family"] == family
+        ]:
+            return False
+    if set(nodes) != {
+        *runtime["expression_nodes"],
+        *runtime["effect_nodes"],
+        *runtime["control_nodes"],
+    }:
+        return False
+    numeric = runtime.get("numeric")
+    rng = runtime.get("named_rng")
+    event = runtime.get("event_atomicity")
+    outcomes = runtime.get("outcome_contract")
+    if (
+        not isinstance(numeric, dict)
+        or numeric
+        != {
+            "id": "signed-int64-v1",
+            "minimum": -(1 << 63),
+            "maximum": (1 << 63) - 1,
+            "overflow": "runtime-refusal",
+            "overflow_signal": "numeric-overflow",
+        }
+        or not isinstance(rng, dict)
+        or set(rng)
+        != {
+            "algorithm",
+            "word_bits",
+            "seed_encoding",
+            "stream_name_encoding",
+            "stream_derivation",
+            "state_transition",
+            "interval_sampling",
+            "trace_members",
+        }
+        or rng.get("algorithm") != "splitmix64-v1"
+        or rng.get("word_bits") != 64
+        or rng.get("seed_encoding") != "unsigned-modulo-2^64"
+        or rng.get("stream_name_encoding") != "utf-8"
+        or not isinstance(rng.get("interval_sampling"), dict)
+        or event
+        != {
+            "state_writes": "buffered",
+            "rng_draws": "buffered",
+            "success": "commit-entire-current-event",
+            "runtime_refusal": "rollback-entire-current-event",
+        }
+        or not isinstance(outcomes, dict)
+        or outcomes
+        != {
+            "kinds": ["success", "gameplay-alternative"],
+            "state_policies": ["commit", "rollback"],
+            "operation_members": ["outcomes", "default_outcome"],
+        }
+    ):
+        return False
+    vectors = runtime.get("vectors")
+    if (
+        not isinstance(vectors, list)
+        or {item.get("node") for item in vectors if item.get("kind") == "node"}
+        != set(nodes)
+        or {item.get("id") for item in vectors if item.get("kind") == "rng"}
+        != {
+            "rng.first-draw",
+            "rng.multi-draw",
+            "rng.cross-stream",
+            "rng.interval-boundary",
+        }
+    ):
+        return False
+    language = language_bundle.get("language")
+    if not isinstance(language, dict):
+        return False
+    profiles = language.get("runtime_profiles")
+    operations = language.get("operations")
+    if not isinstance(profiles, list) or not isinstance(operations, list):
+        return False
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            return False
+        if profile.get("evaluation") == runtime["version"] and (
+            profile.get("runtime_program_version") != runtime["version"]
+            or profile.get("numeric_law") != numeric["id"]
+            or profile.get("rng")
+            != {
+                "algorithm": rng["algorithm"],
+                "interval_sampling": rng["interval_sampling"]["mapping"],
+                "bias_policy": rng["interval_sampling"]["bias_policy"],
+            }
+            or profile.get("budget_scopes")
+            != {
+                "operation_max_steps": "per-event",
+                "runtime_max_steps": "per-run",
+            }
+        ):
+            return False
+    kinds = set(outcomes["kinds"])
+    policies = set(outcomes["state_policies"])
+    for operation in operations:
+        if not isinstance(operation, dict) or operation.get("operation_kind") != (
+            "event-program"
+        ):
+            continue
+        declared = operation.get("outcomes")
+        default = operation.get("default_outcome")
+        if (
+            not isinstance(declared, list)
+            or not declared
+            or not isinstance(default, str)
+            or len({row.get("id") for row in declared}) != len(declared)
+            or any(
+                not isinstance(row, dict)
+                or set(row) != {"id", "kind", "state_policy"}
+                or not isinstance(row.get("id"), str)
+                or row.get("kind") not in kinds
+                or row.get("state_policy") not in policies
+                for row in declared
+            )
+        ):
+            return False
+        by_id = {row["id"]: row for row in declared}
+        referenced = {
+            row["outcome"]
+            for row in operation.get("body", [])
+            if isinstance(row, dict) and "outcome" in row
+        }
+        if (
+            default not in by_id
+            or by_id[default]["kind"] != "success"
+            or referenced != set(by_id) - {default}
+        ):
+            return False
+    return True
 
 
 def _resolve_path(root: dict[str, Any], dotted: Any) -> Any:

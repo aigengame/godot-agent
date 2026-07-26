@@ -2,14 +2,14 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.one-action",
   "version": "1.0.0",
-  "kernel_identity": "sha256:7bac93bc52d765d4d035b08ce53dd3a8671ec28e1d743ea51e2dec2297879ce3",
-  "language_bundle_identity": "sha256:decc5fe26ae072b7ba1f78257bf8e2feda20cc58d7b5bfc8ba78295baf75f192",
+  "kernel_identity": "sha256:e0fb03bf16ce7f51d2985c507e0c279506a411aa26d8548ee929045f7f13126e",
+  "language_bundle_identity": "sha256:8c27e0be9d565ad284db4a5e1741d923cdafbf9f7fbe2d37bd0602ce8a8e99f1",
   "model": {
     "source_identity": "sha256:9b016aa11d2b84656ca01910680e5207c8d94c0f75b08848194246697aed6492",
-    "build_receipt_identity": "sha256:a9306ffe87c6fed608057910b28721f3ebb86693588b9041c02d210bd2357879",
-    "resolved_model_identity": "sha256:dbba31894457edb598bb1109cb4faea0f94423d614b5d534000955407e4a6679",
-    "package_lock_identity": "sha256:ce0882362eba898117dcc9d44d765ec1d75cb07ce11cee74789d2517884130d4",
-    "rir_identity": "sha256:dbd71c5f378845cc45805cc907e2a381b8ab80334421c864093999c8495a7452"
+    "build_receipt_identity": "sha256:b32fe95d171d052917ee95e30b8bf0be5fa1a61404299a0266e73b86f0730bbb",
+    "resolved_model_identity": "sha256:fc3fe2ce6a419fe5dcb98420ca0687f2dd32701e233c755c0f043621268fc353",
+    "package_lock_identity": "sha256:91d45255e2f91aa7ce630696da3151310725c8493a718b7c91dfd27f526d282c",
+    "rir_identity": "sha256:ca7a5b3a44bc110f77d90eb276c78d7e66de36395f43a6284836a36a34d58982"
   },
   "runtime": {
     "profile": "rpg.exact-int64-event-v1",
@@ -40,6 +40,9 @@
       ],
       "rng_algorithms": [
         "splitmix64-v1"
+      ],
+      "runtime_profiles": [
+        "rpg.exact-int64-event-v1"
       ]
     }
   },
@@ -97,6 +100,17 @@
       "id": "damage_dealt",
       "kind": "scalar",
       "unit": "1",
+      "dimensions": [],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
       "observation": {
         "source": "event",
         "name": "cast-resolved",
@@ -111,6 +125,17 @@
       "id": "target_health_remaining",
       "kind": "scalar",
       "unit": "1",
+      "dimensions": [],
+      "window": {
+        "kind": "scenario",
+        "name": "terminal-event"
+      },
+      "aggregation": "single",
+      "replication": {
+        "unit": "scenario"
+      },
+      "missing": "refuse",
+      "censoring": "none",
       "observation": {
         "source": "snapshot",
         "name": "terminal",
