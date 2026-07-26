@@ -558,7 +558,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     )
 
 
-def test_kernel_runtime_vectors_execute_in_independent_reference_evaluator():
+def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator():
     kernel = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))
     runtime = kernel["meta_format"]["runtime_program"]
     nodes = {row["id"]: row for row in runtime["nodes"]}
@@ -853,13 +853,57 @@ def test_evaluator_manifest_binds_the_selected_runtime_profile(tmp_path, run_cli
     assert runtime["runtime_profile"]["id"] in evaluator["runtime_profiles"]
 
 
+def test_evaluator_manifest_is_fixed_build_provenance_not_model_projection(
+    tmp_path, run_cli, monkeypatch
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    checked = experiment_runtime_module.check_experiment(str(specification))
+    assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
+
+    first = experiment_runtime_module._evaluator_manifest(checked)
+    projected_rir = json.loads(json.dumps(checked.rir))
+    projected_rir["selected_semantics"]["runtime_profiles"] = []
+    projected_rir["selected_semantics"]["operations"] = []
+    second = experiment_runtime_module._evaluator_manifest(
+        replace(checked, rir=projected_rir)
+    )
+
+    assert first.content_identity == second.content_identity
+    assert first.value == second.value
+    assert set(first.value["instruction_nodes"]) == {
+        instruction["node"]
+        for operation in checked.language_bundle["language"]["operations"]
+        if operation.get("operation_kind") == "event-program"
+        for instruction in operation["body"]
+    }
+    assert first.value["evaluator_build_identity"] == (
+        experiment_runtime_module._evaluator_build_identity()
+    )
+    monkeypatch.setattr(
+        experiment_runtime_module,
+        "_evaluator_build_identity",
+        lambda: "sha256:" + ("0" * 64),
+    )
+    changed_build = experiment_runtime_module._evaluator_manifest(checked)
+    assert (
+        changed_build.value["implementation_identity"]
+        != (first.value["implementation_identity"])
+    )
+    assert changed_build.content_identity != first.content_identity
+
+
 def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, run_cli):
     specification = _write_built_experiment(tmp_path, run_cli)
     value = json.loads(specification.read_text(encoding="utf-8"))
-    for metric in value["metrics"]:
+    for index, metric in enumerate(value["metrics"]):
         metric.update(
             {
-                "dimensions": [],
+                "dimensions": [
+                    {
+                        "name": "difficulty",
+                        "value": ("hard" if index == 0 else "normal"),
+                    }
+                ],
                 "window": {"kind": "scenario", "name": "terminal-event"},
                 "aggregation": "single",
                 "replication": {"unit": "scenario"},
@@ -893,6 +937,7 @@ def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, r
     assert dataset["partition"] == "evaluation"
     assert dataset["ordering"] == "metric-definition-identity,replication-identity"
     assert dataset["ingestion_transformation_identity"] is None
+    metrics = {metric["id"]: metric for metric in value["metrics"]}
     for sample in dataset["samples"]:
         assert (
             sample["metric_definition_identity"]
@@ -901,7 +946,7 @@ def test_metric_dataset_carries_the_complete_bounded_metric_contract(tmp_path, r
         assert sample["status"] == "value"
         assert sample["logical_time"] == 0
         assert sample["window"] == "terminal-event"
-        assert sample["dimensions"] == []
+        assert sample["dimensions"] == metrics[sample["metric"]]["dimensions"]
         assert sample["replication_identity"]
         assert sample["source_kind"] == "simulated"
         assert sample["provenance"]["scenario"]

@@ -6,6 +6,7 @@ import hashlib
 import json
 import platform
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Any, cast
 
@@ -606,21 +607,60 @@ def _metric_definition_identity(metric: dict[str, Any]) -> str:
     )
 
 
+@cache
+def _evaluator_build_identity(root: Path | None = None) -> str:
+    """Bind evaluator provenance to the installed Python source build."""
+    package_root = root or Path(__file__).parents[1]
+    sources: list[JsonValue] = []
+    for source in sorted(package_root.rglob("*.py")):
+        sources.append(
+            {
+                "path": source.relative_to(package_root).as_posix(),
+                "sha256": "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest(),
+            }
+        )
+    if not sources:
+        raise RuntimeError("evaluator build contains no Python source")
+    return content_identity("evaluator-build-v1", sources)
+
+
 def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
     runtime_contract = _runtime_contract(checked)
+    reachable_nodes = {
+        instruction["node"]
+        for operation in checked.language_bundle["language"]["operations"]
+        if operation.get("operation_kind") == "event-program"
+        for instruction in operation["body"]
+    }
     nodes = sorted(
         row["id"]
         for row in runtime_contract["nodes"]
-        if row["semantics"]["operator"] in _SUPPORTED_RUNTIME_OPERATORS
+        if row["id"] in reachable_nodes
+        and row["semantics"]["operator"] in _SUPPORTED_RUNTIME_OPERATORS
     )
     supported_profiles = sorted(
         row["id"]
-        for row in checked.rir["selected_semantics"]["runtime_profiles"]
+        for row in checked.language_bundle["language"]["runtime_profiles"]
         if (
-            row.get("runtime_program_version") == runtime_contract["version"]
+            row.get("evaluation") == runtime_contract["version"]
+            and row.get("runtime_program_version") == runtime_contract["version"]
+            and row.get("numeric_policy") == "exact-int64"
             and row.get("numeric_law") == runtime_contract["numeric"]["id"]
-            and row.get("rng", {}).get("algorithm")
-            == runtime_contract["named_rng"]["algorithm"]
+            and row.get("rng")
+            == {
+                "algorithm": runtime_contract["named_rng"]["algorithm"],
+                "interval_sampling": runtime_contract["named_rng"]["interval_sampling"][
+                    "mapping"
+                ],
+                "bias_policy": runtime_contract["named_rng"]["interval_sampling"][
+                    "bias_policy"
+                ],
+            }
+            and row.get("budget_scopes")
+            == {
+                "operation_max_steps": "per-event",
+                "runtime_max_steps": "per-run",
+            }
             and set(row["effects"])
             <= {
                 "event.commit",
@@ -630,10 +670,12 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             }
         )
     )
+    build_identity = _evaluator_build_identity()
     implementation_identity = content_identity(
         "evaluator-implementation-v1",
         {
             "implementation": _EVALUATOR_IMPLEMENTATION,
+            "evaluator_build_identity": build_identity,
             "runtime_program_version": runtime_contract["version"],
             "operation_kinds": ["event-program"],
             "instruction_nodes": nodes,
@@ -652,6 +694,7 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
         checked,
         "evaluator-capability-manifest",
         {
+            "evaluator_build_identity": build_identity,
             "implementation_identity": implementation_identity,
             "kernel_identity": checked.kernel["content_identity"],
             "language_bundle_identity": checked.language_bundle["content_identity"],
@@ -1120,7 +1163,7 @@ def evaluate_experiment(
                 "unit": metric["unit"],
                 "logical_time": 0,
                 "window": metric["window"]["name"],
-                "dimensions": [],
+                "dimensions": metric["dimensions"],
                 "replication_identity": scenario_id,
                 "source_kind": "simulated",
                 "provenance": {

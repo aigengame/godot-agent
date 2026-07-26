@@ -102,9 +102,12 @@ Permanent-slice dogfooding corrected an important prototype blind spot: node/RNG
 not sufficient machine semantics. The Kernel now closes node fields, operators, results/refusals,
 charges, exact-int64 bounds, and SplitMix64 derivation/sampling/vectors; the LDB closes the selected
 Runtime profile and typed Operation-outcome algebra. Experiment admission requires exact selected
-program closure, the evaluator manifest advertises only the exact profile/operators it implements,
-and a separate reference evaluator consumes the same authorities and agrees on the complete cast
-event. Metric samples/datasets now retain their definition identities, windows, dimensions,
+program closure, the evaluator manifest binds one source-build identity and advertises only the
+exact authority-reachable profile/operators independently of the current model, and a separate
+reference evaluator consumes the same authorities and agrees on the complete cast event. That
+reference validates every node-contract vector and executes every RNG vector; it does not claim
+independent execution of nodes outside the cast. Metric samples/datasets now retain their definition
+identities, windows, dimensions,
 replication, missing/censoring policy, provenance, data version, partition, ordering, and ingestion
 binding. Canonical duplicate keys and unsupported external inputs refuse rather than being silently
 collapsed or ignored.
