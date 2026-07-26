@@ -84,6 +84,13 @@ structured formal judgments, and an honest proof/conformance boundary.
   Recursion, user-defined loops, unbounded collection traversal, reflection, dynamic operation
   lookup, host callbacks, and ambient state are not kernel features.
 
+- **Runtime-program node families are closed and exhaustive.** The Kernel classifies every admitted
+  node as an expression, effect, or control node and fixes its fields, evaluation position, result
+  or transition effect, refusal behavior, and resource charge. Named-stream `draw` and a
+  gameplay-outcome precondition are control nodes: neither is a pure expression nor an
+  implementation callback. An LDB Operation body may use only listed nodes, and runtime admission
+  rejects an evaluator that does not implement the complete requested set before dispatch.
+
 - **Domain operations are machine-defined compositions whenever possible.** An Operation
   specification may give semantics as a typed kernel AST plus declared effects/resource bounds.
   An operation that cannot be reduced to existing kernel composition is an irreducible kernel
@@ -253,6 +260,10 @@ structured formal judgments, and an honest proof/conformance boundary.
   purity/effects/resource bounds, Quantity support shapes, Experiment selectors, and acceptance.
   Independent consumers must produce the same typed Diagnostic before partial HIR/RIR/Evaluation;
   a reidentified but semantically inconsistent RIR projection must fail runtime admission.
+- Execute at least one expression, effect, and control node, including named draw and a typed
+  precondition outcome. Delete, move between families, or reidentify-mutate each selected node and
+  require the same admission/refusal behavior across independent consumers; host support alone
+  cannot keep the Operation executable.
 - At least two evaluators that share no host primitive implementation execute each other's RIR and
   agree on operation, Numeric, RNG, scheduler, effect, trace, Metric, and refusal vectors under the
   same Runtime profile definition and their honestly distinct evaluator-bound Resolved Runtime

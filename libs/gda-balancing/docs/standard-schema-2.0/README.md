@@ -4,17 +4,17 @@ This directory holds acceptance artifacts for the Standard Schema 2.0 specificat
 PRD #534. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) is the human-readable macro architecture
 authority; bADR-0012…0022 own the binding detailed decisions; and PRD #534 owns requirements,
 acceptance criteria, and live completion status. These documents do not by themselves make the 2.0
-language, runtime, CLI, or genre templates implemented. Issues #538, #539, #553, and #554 now
+language, runtime, CLI, or genre templates implemented. Issues #538, #539, #540, #553, and #554 now
 supply the permanent authority, Model-build tracer, first minimal Template release, and limited
-clean-forward source migration described below; all broader delivery claims remain bounded by PRD
-#534 and the coverage matrix.
+clean-forward source migration described below. Issue #540 adds one bounded RPG product-feedback
+loop; all broader delivery claims remain bounded by PRD #534 and the coverage matrix.
 
 The current artifact is [`genre-coverage.md`](genre-coverage.md): the open RPG/Roguelike
 requirements-to-operations matrix used to judge the future Language Definition Bundle and vertical
 tracer. Every row is open. It is a completeness contract, not evidence that the package operations,
 Golden scenarios, or vectors already exist.
 
-## Permanent delivered slices (#538, #539, #553, #554)
+## Permanent delivered slices (#538, #539, #540, #553, #554)
 
 The first production foundation replaces the disposable authority mechanism for one admitted
 Quantity slice:
@@ -32,9 +32,10 @@ Quantity slice:
   exact identities, law/rule/reason inventories, generated projection identities, positive vectors,
   and old-identity/reidentified deletion/behavior/token mutations. Neither contains a Quantity host
   dispatch fallback.
-- This bounded authority admits the closed Quantity constructor and Model Source wire-schema
-  envelope. Components, Conversions, Operations, and Runtime Profiles remain explicitly empty;
-  admission refuses those definitions until their declarative Kernel contracts are delivered.
+- This foundation admits the closed Quantity constructor and Model Source wire-schema envelope.
+  Issue #540 extends the same authority with one bounded `game.rpg` type/component/operation and
+  Runtime profile; other operation and package families remain absent until a vertical slice
+  delivers their declarative Kernel/LDB contracts.
 - `schema get language-bundle|wire-schema|diagnostic-catalog`, `manifest`, per-command `--schema`,
   and `--params-json <json|->` expose the admitted slice through the descriptor-owned 2.x surface.
   Admission failures use bounded, ordered, deduplicated, stage-aware Diagnostics.
@@ -43,7 +44,8 @@ Issue #539 extends that authority through `model check|build`: one authored Quan
 resolves to an exact Package Lock, canonical RIR, Resolved Model, provenance companions, and one
 authenticated atomic publication. Issue #553 adds `template list|get|instantiate` and publishes
 `standard.quantity-minimal@2.0.0`, whose content identity fixes its exact Kernel/LDB, starter
-source, package dependency, defaults, compatibility, documentation, Experiment, coverage row,
+source, package dependency, defaults, compatibility, documentation, pre-build Experiment template,
+coverage row,
 Golden scenario, and negative/boundary vectors. Every companion payload binds an LDB-projected
 wire schema and is structurally and semantically re-admitted before the release can be listed,
 retrieved, or instantiated. The Kernel defines a closed Schema-major Template primitive
@@ -52,10 +54,12 @@ comparison/identity behavior, and resource-charge rules—and binds LDB-facing o
 primitives. The LDB selects a bounded artifact-graph program over ordered role collections, every
 derived identity or Model Source fact is explicitly bound, every coverage row resolves
 capability/operation/package and observable identities, and every negative/boundary vector executes
-through the ordinary Model Source checker. The same program admits multiple Experiments, Golden
-scenarios, and vectors without host-selected singleton roles; metric identifiers are scoped to
-their owning Experiment. Concrete role names remain LDB content, so genre extensions do not change
-the Kernel role contract.
+through the ordinary Model Source checker. The same program admits multiple pre-build Experiment
+templates, Golden scenarios, and vectors without host-selected singleton roles; metric identifiers
+are scoped to their owning Experiment template. The member kind `experiment-template` is
+intentionally distinct from the exact executable `experiment-specification`, whose
+Model/build/RIR identities exist only after build. Concrete role names remain LDB content, so genre
+extensions do not change the Kernel role contract.
 
 Instantiation publishes a newly identified editable Model Source plus an instantiation receipt.
 The source records explicit template provenance, the release remains immutable, retries are
@@ -81,6 +85,22 @@ opaque digest; the report consumer can validate and rehash it against the exact 
 contract. Exact byte identity is limited to regular files no larger than the specification's
 16 MiB observation cap. Non-regular or larger inputs fail at usage ingress before any identity or
 migration report is claimed.
+
+Issue #540 publishes the exact
+[`rpg-combat-cast` Model Source and Experiment](../../examples/schema2/rpg-combat-cast/) and drives
+them through public `model build`, `experiment check`, and `experiment run`. One authored
+`base_damage` edit changes the exact Experiment identity, trace, and Metric dataset in the expected
+direction. The selected exact-int64 Event program uses named SplitMix64 streams and atomically
+publishes one of three descriptor-declared outcomes: Evaluation success, a negative Experiment
+Verdict, or a Runtime terminal-audit set. Evaluation refusal publishes no completed outcome, and
+post-commit retry recovers every published outcome by Invocation key without rerunning evaluation.
+The terminal audit retains the complete original Diagnostic location and rolls back the refusing
+Event.
+
+This slice confirms one configure/build/check/run/inspect/edit/rerun loop only. It closes no Genre
+coverage row. Its dogfooding observations and the remaining transitive-capability resolution gate
+are recorded in [`ARCHITECTURE.md`](../ARCHITECTURE.md); downstream tracer work remains subject to
+the human product/architecture decision on #540.
 
 ## Prototype evidence
 

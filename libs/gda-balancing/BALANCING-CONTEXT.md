@@ -101,6 +101,14 @@ authored resolution result. It may be compiled into a `Resolved Model`; experime
 facts never become hidden model definitions (bADR-0012).
 _Avoid_: Source Package (unqualified), design bundle, model config
 
+**Experiment template**:
+Editable pre-build scenario, Metric, target, seed, and acceptance intent distributed inside a
+Template release. Its member kind is `experiment-template`; it cannot bind a build receipt,
+Resolved Model, Package Lock, or RIR before those artifacts exist. After build it informs creation
+of a separate exact `Experiment Specification`, but it is never executable under its own identity
+(bADR-0017).
+_Avoid_: Experiment Specification (after build), executable experiment, experiment config
+
 **Experiment Specification**:
 The authored authority for scenarios, Metric definitions, targets, sampling/replication design,
 observation and discrepancy models, calibration policy, train/holdout partition, acceptance rule,
@@ -193,7 +201,7 @@ _Avoid_: resolver identity in Package Lock, semantic resolver build, dependency 
 **Genre template**:
 A versioned template release for a genre's numeric design baseline, never an evaluator code path.
 In Standard Schema 2.x it distributes an instantiable starter Model Source Package, companion
-Experiment Specifications, and a `Genre coverage matrix` while preserving their separate authority
+Experiment templates, and a `Genre coverage matrix` while preserving their separate authority
 domains. Instantiation creates a new model identity with template provenance; later template
 releases never mutate an instantiated game silently. First families: RPG (CRPG/JRPG/ARPG) and
 Roguelike (metroidvania-like, survivors-like, deckbuilder-like) (bADR-0017).

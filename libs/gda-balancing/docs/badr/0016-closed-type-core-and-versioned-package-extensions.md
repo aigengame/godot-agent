@@ -103,6 +103,14 @@ therefore requires a small closed type language and a constrained package extens
   every selected closure member is identical; the exact whole LDB still rebinds the Resolved Model
   under bADR-0013.
 
+- **Runtime projection is a declared join over the selected graph.** Each seed and edge states
+  independently whether a match must remain inside one package (`same_package`) or may resolve a
+  shared definition supplied by the selected closure. This prevents both hard-coded package
+  exceptions and accidental cross-package capture. A selected package may legitimately have no
+  semantic-closure entry for one requested collection; that absence contributes no row. Multiple
+  matching entries or definitions remain an ambiguity and refuse rather than relying on package or
+  host iteration order.
+
 - **Resolver implementation provenance is separate.** Package Lock contains the normative
   resolution algorithm/profile identity and semantic result only. A separately identified
   Resolution receipt binds the resolver tool/build, exact inputs, resulting lock, diagnostics, and
@@ -255,6 +263,13 @@ therefore requires a small closed type language and a constrained package extens
 - Mutate one transitive constraint, capability provider, type, conversion, or operation version and
   assert the lock/manifest/RIR identity changes or resolution refuses; no hidden evaluator registry
   may keep the old build working.
+- Require only a package whose declared dependency supplies a capability and assert provider
+  selection considers the complete selected transitive closure, not only Model Source root
+  requirements. Adding the dependency redundantly as a root must not be necessary to obtain the
+  same provider binding.
+- Exercise runtime-projection seeds and edges with both `same_package` settings, a selected package
+  that contributes no entry for one collection, and duplicate matching definitions. Independent
+  lowerers must agree on the projection or the same ambiguity refusal.
 - Add an unused package without changing the selected closure or introducing resolution ambiguity;
   assert byte-identical Package Lock and RIR semantic payload but changed whole-LDB and Resolved
   Model identities. An LDB-present operation absent from the Lock must refuse at runtime admission.

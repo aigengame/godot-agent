@@ -446,7 +446,7 @@ Two cross-contract protocols close previously implicit ordering:
 A Genre template is a versioned distribution containing:
 
 - an instantiable starter Model Source Package;
-- companion Experiment Specifications with scenarios, metrics, and targets;
+- companion pre-build Experiment templates with scenarios, metrics, and targets;
 - a requirements-to-operations coverage matrix with its Golden scenarios and negative vectors; and
 - a manifest binding template version, compatible LDB/package ranges, and every member's content
   identity.
@@ -471,12 +471,15 @@ and order, exact failure behavior, canonical comparison/identity consequences, a
 events. Kernel operations bind stable LDB-facing names to those primitives; the LDB orders a
 versioned program over the operations, maps member kinds to role collections with explicit
 cardinality and required-operation obligations, declares every derived-fact binding, and fixes a
-per-release step budget. Admission therefore supports multiple Experiments, Golden scenarios, and
-vectors without host-selected singleton roles, and metric identifiers are unique within their
-owning Experiment rather than globally across the release. The Kernel defines only the generic role
-identifier/cardinality contract—not a role-name inventory—so an LDB may add genre-specific member
-roles and schemas without a core change. Structural JSON Schema validation, named host callbacks,
-or host-only companion checks cannot substitute for that semantic path.
+per-release step budget. Admission therefore supports multiple pre-build Experiment templates,
+Golden scenarios, and vectors without host-selected singleton roles, and metric identifiers are
+unique within their owning Experiment template rather than globally across the release. The LDB
+uses the distinct member kind `experiment-template` for this editable pre-build intent; an exact
+executable `experiment-specification` is created only after Model build identities exist. Neither
+may masquerade as the other. The Kernel defines only the generic role identifier/cardinality
+contract—not a role-name inventory—so an LDB may add genre-specific member roles and schemas
+without a core change. Structural JSON Schema validation, named host callbacks, or host-only
+companion checks cannot substitute for that semantic path.
 
 Coverage claims are evidence-backed and granular. A `Tracer` row requires a public vertical path;
 broader RPG or Roguelike support requires its own Golden scenarios, vectors, and acceptance evidence.
@@ -803,7 +806,33 @@ portable publication/crash recovery, independent Evidence issuance, or productio
 abstraction proof, RPG/Roguelike completeness, or production readiness. The evidence commits remain
 on closed, unmerged PR #537; prototype code is not part of this authority branch.
 
-### 12.5 Architecture consequence
+### 12.5 First permanent RPG product-feedback slice
+
+Issue #540 replaced inline architectural confidence with one committed
+[`rpg.combat.cast-v1`](../examples/schema2/rpg-combat-cast/) designer loop. The observations are
+classified by the same vocabulary used above:
+
+| Classification | Observation | Narrowest owner and disposition |
+| --- | --- | --- |
+| Confirmed—narrowly | Public `model build` → `experiment check` → `experiment run` consumes an exact authored Model/Experiment pair; editing one combat value changes the Experiment identity, trace, and Metric in the explainable direction. Exact seed, Runtime requirement, Metrics, and acceptance remain Experiment-owned. | Product/Experiment surface; retained |
+| Refined—adopted | A reusable package type could not reuse core Quantity domains/profiles while runtime-projection seeding assumed every match was package-local. Seed and edge matching now declare `same_package` independently instead of relying on a host/package special case. | Kernel runtime-projection contract plus LDB lowering program; machine authority updated |
+| Refined—adopted | Runtime projection assumed every selected package closure contained every requested semantic path. A selected package may legitimately contribute no row for one collection; absence now contributes nothing, while duplicate matches still refuse. | LDB lowering/runtime-projection judgment; implementation and conformance updated |
+| Refined—adopted | The first Event program exposed `draw` and precondition as control nodes missing from the Kernel program vocabulary, and exact-int64 overflow needed an authoritative rollback refusal. | Kernel runtime-program contract plus LDB Diagnostic/reason/vector; machine authority updated |
+| Refined—adopted | A Template member authored before build and an executable Experiment bound after build had been assigned the same artifact kind. They are now `experiment-template` and `experiment-specification`, respectively. | LDB artifact/member-role contracts and Template distribution; machine authority updated |
+| Refined—adopted | Runtime terminal audit initially copied only Diagnostic code/message and recovery fabricated a broader pointer. The audit now binds the complete original primary/related locations and retry reconstructs that exact Diagnostic without rerunning. | bADR-0015 terminal-audit contract and LDB wire schema; machine authority updated |
+| Open gate | The current resolver selects the transitive package closure, but capability-provider judgment is still seeded from root requirements. The committed example therefore declares both `game.rpg` and its `core.quantity` dependency explicitly. This is an implementation mismatch with bADR-0016's complete-selected-graph rule, not a reason to weaken that rule. | Model resolution judgment; fix and add a transitive-capability vector before downstream work relies on implicit capability closure |
+| Authored-example only | The chosen cast formula, starting values, targets, and two Metrics make this feedback loop useful; they do not establish that the package inventory or abstraction is RPG-complete. | Example/Experiment; retain without generalizing |
+
+The public outcome algebra is also confirmed for this slice: completed success and negative Verdict
+publish only their declared complete sets, evaluation refusal publishes none, Runtime refusal rolls
+back the current Event and publishes only terminal audit, and post-commit delivery recovery covers
+all three published outcomes without evaluator rerun.
+
+The human product/architecture gate on #540 must accept, condition, or reopen this path before #585
+or #541–#545 proceeds. In particular, accepting the product loop does not silently waive the open
+transitive-capability resolution gap.
+
+### 12.6 Architecture consequence
 
 The four rounds validate one RPG vertical path, selected orthogonality/identity mechanisms, and the
 bounded executable Kernel/LDB authority boundary. They remove the known architecture-level hidden-

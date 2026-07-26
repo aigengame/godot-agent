@@ -12,6 +12,8 @@ import gda_balancing.commands.experiment as experiment_command_module
 from gda_balancing.schema2.canonical import content_identity
 from gda_balancing.schema2.surface import descriptor_identity
 
+_EXAMPLE_DIR = Path(__file__).parents[1] / "examples" / "schema2" / "rpg-combat-cast"
+
 
 def _rpg_value(name: str, role: str) -> dict[str, Any]:
     return {
@@ -202,7 +204,9 @@ def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
 
 
 def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, run_cli):
-    source_value = _rpg_model_source()
+    source_value = json.loads(
+        (_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8")
+    )
     source = tmp_path / "rpg-model.json"
     source.write_text(json.dumps(source_value), encoding="utf-8")
     model_out = tmp_path / "resolved-model.json"
@@ -226,13 +230,21 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     build_receipt = json.loads(build_stdout)
     build_record = _member(build_receipt, "build-receipt")
     source_identity = content_identity("model-source-package-v2", source_value)
-    first_spec = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=source_identity,
-        build_receipt=build_receipt,
-        base_damage=24,
+    first_spec = json.loads(
+        (_EXAMPLE_DIR / "experiment.json").read_text(encoding="utf-8")
     )
+    assert first_spec["kernel_identity"] == build_record["kernel_identity"]
+    assert (
+        first_spec["language_bundle_identity"]
+        == (build_record["language_bundle_identity"])
+    )
+    assert first_spec["model"] == {
+        "source_identity": source_identity,
+        "build_receipt_identity": build_record["content_identity"],
+        "resolved_model_identity": build_record["resolved_model_identity"],
+        "package_lock_identity": build_record["package_lock_identity"],
+        "rir_identity": build_record["rir_identity"],
+    }
     first_path = tmp_path / "experiment-24.json"
     first_path.write_text(json.dumps(first_spec), encoding="utf-8")
 
@@ -274,13 +286,13 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         if sample["metric"] == "damage_dealt"
     )
 
-    tuned_spec = _experiment(
-        kernel_identity=build_record["kernel_identity"],
-        language_bundle_identity=build_record["language_bundle_identity"],
-        source_identity=source_identity,
-        build_receipt=build_receipt,
-        base_damage=40,
+    tuned_spec = json.loads(json.dumps(first_spec))
+    base_damage = next(
+        row
+        for row in tuned_spec["scenarios"][0]["values"]
+        if row["name"] == "base_damage"
     )
+    base_damage["value"] = 40
     tuned_path = tmp_path / "experiment-40.json"
     tuned_path.write_text(json.dumps(tuned_spec), encoding="utf-8")
     tuned_exit, tuned_stdout, tuned_stderr = run_cli(

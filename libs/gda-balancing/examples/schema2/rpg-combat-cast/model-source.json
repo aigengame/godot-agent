@@ -1,0 +1,131 @@
+{
+  "schema_version": "2.0.0",
+  "manifest": {
+    "id": "example.rpg-combat-cast",
+    "version": "1.0.0",
+    "entry_module": "combat"
+  },
+  "package_requirements": [
+    {
+      "id": "core.quantity",
+      "version": "2.0.0"
+    },
+    {
+      "id": "game.rpg",
+      "version": "1.0.0"
+    }
+  ],
+  "modules": [
+    {
+      "id": "combat",
+      "imports": [
+        {
+          "alias": "rpg",
+          "package": "game.rpg",
+          "version": "1.0.0",
+          "symbol": "RpgValue"
+        }
+      ],
+      "symbols": [
+        {
+          "symbol": "actor_mana",
+          "type": "rpg",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64"
+        },
+        {
+          "symbol": "action_cost",
+          "type": "rpg",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64"
+        },
+        {
+          "symbol": "accuracy",
+          "type": "rpg",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64"
+        },
+        {
+          "symbol": "base_damage",
+          "type": "rpg",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64"
+        },
+        {
+          "symbol": "critical_threshold",
+          "type": "rpg",
+          "role": "parameter",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64"
+        },
+        {
+          "symbol": "target_defense",
+          "type": "rpg",
+          "role": "input",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64"
+        },
+        {
+          "symbol": "target_health",
+          "type": "rpg",
+          "role": "state",
+          "representation": "Int",
+          "kind": "scalar",
+          "unit": "1",
+          "domain_kind": "closed-interval",
+          "domain": {
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "numeric_policy": "exact-int64"
+        }
+      ]
+    }
+  ]
+}
