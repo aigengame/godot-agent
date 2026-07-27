@@ -2,19 +2,19 @@
 
 This directory holds acceptance artifacts for the Standard Schema 2.0 specification tracked by
 PRD #534. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) is the human-readable macro architecture
-authority; bADR-0012…0022 own the binding detailed decisions; and PRD #534 owns requirements,
+authority; bADR-0012…0023 own the binding detailed decisions; and PRD #534 owns requirements,
 acceptance criteria, and live completion status. These documents do not by themselves make the 2.0
-language, runtime, CLI, or genre templates implemented. Issues #538, #539, #540, #553, and #554 now
-supply the permanent authority, Model-build tracer, first minimal Template release, and limited
-clean-forward source migration described below. Issue #540 adds one bounded RPG product-feedback
-loop; all broader delivery claims remain bounded by PRD #534 and the coverage matrix.
+language, runtime, CLI, or genre templates implemented. Issues #538, #539, #540, #553, #554, and
+#592 now supply the permanent authority, Model-build tracer, first minimal Template release,
+limited clean-forward source migration, sealed LDB graph, and bounded RPG loop described below.
+All broader delivery claims remain bounded by PRD #534 and the coverage matrix.
 
 The current artifact is [`genre-coverage.md`](genre-coverage.md): the open RPG/Roguelike
 requirements-to-operations matrix used to judge the future Language Definition Bundle and vertical
 tracer. Every row is open. It is a completeness contract, not evidence that the package operations,
 Golden scenarios, or vectors already exist.
 
-## Permanent delivered slices (#538, #539, #540, #553, #554)
+## Permanent delivered slices (#538, #539, #540, #553, #554, #592)
 
 The first production foundation replaces the disposable authority mechanism for one admitted
 Quantity slice:
@@ -118,6 +118,13 @@ evaluator witness only. It closes no Genre coverage row or general evaluator-con
 dogfooding observations and the remaining transitive-capability resolution gate are recorded in
 [`ARCHITECTURE.md`](../ARCHITECTURE.md); downstream tracer work remains subject to the human
 product/architecture decision on #540.
+
+The sealed-package conformance suite also adds one non-RPG economy Event package after freezing the
+Kernel and host implementation. The package resolves into the selected Lock and RIR, then the fixed
+evaluator produces its Event trace, terminal Snapshot, and Metric result without a genre-selected
+compiler/evaluator branch. This is a bounded Core Extension Invariance witness for #592. It is not
+the independently validated public Extension Invariance Receipt required to close a genre coverage
+claim.
 
 ## Prototype evidence
 

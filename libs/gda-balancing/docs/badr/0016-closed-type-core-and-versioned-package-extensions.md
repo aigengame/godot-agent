@@ -68,7 +68,8 @@ therefore requires a small closed type language and a constrained package extens
 
 - **Every Domain package release is one complete, immutable artifact in the Language Definition
   Bundle.** Its content identity covers the namespaced package id; semantic version; required and
-  optional dependency ranges;
+  optional dependency coordinates, each with an exact package id and version in the current 2.0
+  contract;
   provided and required capabilities; exported types, components, operations, conversions, and
   diagnostics; supported Numeric/Runtime profiles; complete Operation specifications/bodies; and
   normative vectors. Splitting those facts across peer registries is prohibited. Package contents
@@ -84,7 +85,9 @@ therefore requires a small closed type language and a constrained package extens
   packages by scanning ambient files, and a post-admission flat index is a derived non-authority.
 
 - **Dependency resolution is deterministic and single-version per package id.** A Resolved Model
-  binds one exact version for every package identity. Incompatible majors coexist only under
+  binds one exact version for every package identity. Each package-release dependency names an
+  exact `{id, version}` coordinate; unresolved coordinates refuse rather than floating to another
+  release. Incompatible majors coexist only under
   distinct namespaces or through an explicit adapter package; the resolver never selects two
   ambiguous versions of one id. The generated Package Lock records the exact graph, capabilities,
   and resolver contract. Empty, conflicting, or cyclic invalid solutions are `resolution` refusals

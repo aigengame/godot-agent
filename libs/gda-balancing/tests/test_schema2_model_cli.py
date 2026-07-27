@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import gda_balancing.commands.model as model_command_module
+import gda_balancing.schema2.experiment as experiment_module
 import gda_balancing.schema2.model as model_module
 import jsonschema
 import pytest
@@ -2022,7 +2023,7 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     assert original["resolved-model"] != mutated["resolved-model"]
 
 
-def test_non_rpg_package_is_consumed_without_a_kernel_or_host_extension(
+def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     tmp_path, monkeypatch
 ):
     kernel, baseline_ldb = model_module.load_authorities()
@@ -2035,14 +2036,17 @@ def test_non_rpg_package_is_consumed_without_a_kernel_or_host_extension(
     package["version"] = "1.0.0"
     package["dependencies"] = {
         "optional": [],
-        "required": [{"id": "core.quantity", "version": "2.0.0"}],
+        "required": [
+            {"id": "core.quantity", "version": "2.0.0"},
+            {"id": "standard.runtime", "version": "1.0.0"},
+        ],
     }
     package["capabilities"] = {
-        "provided": ["genre.economy.discount"],
+        "provided": ["genre.economy.purchase"],
         "required": ["quantity.lower"],
     }
     package["exports"] = {name: [] for name in package["exports"]}
-    package["exports"]["operations"] = ["genre.economy.discount-v1"]
+    package["exports"]["operations"] = ["genre.economy.purchase-v1"]
     package["profiles"] = {"numeric": [], "resolution": [], "runtime": []}
     package["runtime_semantic_paths"] = [
         "language.capabilities",
@@ -2053,47 +2057,78 @@ def test_non_rpg_package_is_consumed_without_a_kernel_or_host_extension(
     operation = {
         "body": [
             {
-                "left": "price",
-                "node": "subtract",
-                "right": "discount",
-                "target": "result",
+                "node": "subtract-state",
+                "symbol": "account_balance",
+                "value": "price",
             }
         ],
-        "effects": [],
-        "id": "genre.economy.discount-v1",
+        "default_outcome": "purchase-complete",
+        "effects": [
+            "event.commit",
+            "metric.observe",
+            "snapshot.commit",
+        ],
+        "id": "genre.economy.purchase-v1",
         "inputs": [
+            {"name": "account_balance", "type": "Quantity"},
             {"name": "price", "type": "Quantity"},
-            {"name": "discount", "type": "Quantity"},
         ],
         "kind_rules": {"inputs": "preserve", "result": "preserve"},
         "numeric_policy": "exact-int64",
-        "operation_kind": "pure-expression",
+        "operation_kind": "event-program",
+        "outcomes": [
+            {
+                "id": "purchase-complete",
+                "kind": "success",
+                "state_policy": "commit",
+            }
+        ],
         "owner_type": "Quantity",
-        "purity": "pure",
-        "refusals": [],
+        "purity": "event",
+        "refusals": [
+            "runtime.reason.step-limit",
+            "runtime.reason.numeric-overflow",
+        ],
         "resource_bounds": {"max_steps": 1},
         "result": "Quantity",
         "rule": "quantity.lower",
-        "runtime_profile": "compile.exact-int64",
+        "runtime_profile": "standard.exact-int64-event-v1",
         "unit_rules": {"inputs": "preserve", "result": "preserve"},
-        "vectors": ["genre.economy.discount.body"],
+        "vectors": [
+            "genre.economy.purchase.body",
+            "genre.economy.purchase.effects",
+            "genre.economy.purchase.outcomes",
+            "genre.economy.purchase.resource-bound",
+        ],
         "version": "1.0.0",
     }
-    vector = {
-        "category": "positive",
-        "expect": operation["body"],
-        "id": "genre.economy.discount.body",
-        "kind": "operation-contract",
-        "operation": operation["id"],
-        "probe": {"path": "body"},
-    }
-    package["vectors"] = [vector["id"]]
-    package["vector_definitions"] = [deepcopy(vector)]
+    vectors = [
+        {
+            "category": category,
+            "expect": (
+                operation["resource_bounds"]["max_steps"]
+                if member == "resource_bounds.max_steps"
+                else operation[member]
+            ),
+            "id": f"genre.economy.purchase.{vector_id}",
+            "kind": "operation-contract",
+            "operation": operation["id"],
+            "probe": {"path": member},
+        }
+        for category, vector_id, member in (
+            ("positive", "body", "body"),
+            ("effects", "effects", "effects"),
+            ("outcome", "outcomes", "outcomes"),
+            ("resource", "resource-bound", "resource_bounds.max_steps"),
+        )
+    ]
+    package["vectors"] = [vector["id"] for vector in vectors]
+    package["vector_definitions"] = deepcopy(vectors)
     language["capabilities"].append(
-        {"id": "genre.economy.discount", "rule": "quantity.lower"}
+        {"id": "genre.economy.purchase", "rule": "quantity.lower"}
     )
     language["operations"].append(operation)
-    candidate_ldb["vectors"].append(vector)
+    candidate_ldb["vectors"].extend(vectors)
     language["packages"].append(package)
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(kernel, candidate_ldb).admitted is True
@@ -2104,6 +2139,10 @@ def test_non_rpg_package_is_consumed_without_a_kernel_or_host_extension(
     source_document["package_requirements"] = [
         {"id": "core.quantity", "version": "2.0.0"},
         {"id": "genre.economy", "version": "1.0.0"},
+    ]
+    source_document["modules"][0]["symbols"] = [
+        _quantity_symbol("account_balance", "state"),
+        _quantity_symbol("price", "parameter"),
     ]
     source = tmp_path / "model-source.json"
     source.write_text(json.dumps(source_document), encoding="utf-8")
@@ -2121,17 +2160,101 @@ def test_non_rpg_package_is_consumed_without_a_kernel_or_host_extension(
         "core.quantity",
         "genre.economy",
         "standard.compiler",
+        "standard.runtime",
     ]
     rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
     selected = cast(dict[str, Any], rir["selected_semantics"])
     operations = cast(list[dict[str, Any]], selected["operations"])
     assert any(
-        row["definition"]["id"] == "genre.economy.discount-v1" for row in operations
+        row["definition"]["id"] == "genre.economy.purchase-v1" for row in operations
     )
+    build_receipt = cast(dict[str, Any], artifacts["build-receipt"])
+    resolved_model = cast(dict[str, Any], artifacts["resolved-model"])
+    experiment_value = {
+        "schema_version": "2.0.0",
+        "id": "example.economy.purchase",
+        "version": "1.0.0",
+        "kernel_identity": kernel["content_identity"],
+        "language_bundle_identity": candidate_ldb["content_identity"],
+        "model": {
+            "source_identity": checked.source_identity,
+            "build_receipt_identity": build_receipt["content_identity"],
+            "resolved_model_identity": resolved_model["content_identity"],
+            "package_lock_identity": package_lock["content_identity"],
+            "rir_identity": artifacts["rir-semantic-payload"]["content_identity"],
+        },
+        "runtime": {
+            "profile": "standard.exact-int64-event-v1",
+            "required_evaluator": {
+                "operation_kinds": ["event-program"],
+                "instruction_nodes": ["subtract-state"],
+                "effects": [
+                    "event.commit",
+                    "metric.observe",
+                    "snapshot.commit",
+                ],
+                "numeric_policies": ["exact-int64"],
+                "rng_algorithms": ["splitmix64-v1"],
+                "runtime_profiles": ["standard.exact-int64-event-v1"],
+            },
+        },
+        "seed": {"algorithm": "splitmix64-v1", "value": 20260727},
+        "external_inputs": [],
+        "scenarios": [
+            {
+                "id": "purchase",
+                "operation": "genre.economy.purchase-v1",
+                "values": [
+                    {"name": "account_balance", "value": 100},
+                    {"name": "price", "value": 25},
+                ],
+                "named_streams": [],
+                "terminal_condition": {"kind": "event-count", "maximum": 1},
+            }
+        ],
+        "metrics": [
+            {
+                "id": "remaining_balance",
+                "kind": "scalar",
+                "unit": "1",
+                "dimensions": [],
+                "window": {"kind": "scenario", "name": "terminal-event"},
+                "aggregation": "single",
+                "replication": {"unit": "scenario"},
+                "missing": "refuse",
+                "censoring": "none",
+                "observation": {
+                    "source": "snapshot",
+                    "name": "terminal",
+                    "member": "account_balance",
+                },
+                "target": {"minimum": 75, "maximum": 75},
+            }
+        ],
+        "acceptance": {"policy": "all-metrics-within-target"},
+    }
+    experiment = experiment_module.CheckedExperiment(
+        value=experiment_value,
+        content_identity=experiment_module.experiment_input_identity(experiment_value),
+        kernel=kernel,
+        language_bundle=candidate_ldb,
+        build_receipt=build_receipt,
+        package_lock=package_lock,
+        resolved_model=resolved_model,
+        rir=cast(dict[str, Any], artifacts["rir-semantic-payload"]),
+    )
+    evaluation = experiment_module.evaluate_experiment(experiment)
+    assert isinstance(evaluation, experiment_module.EvaluationArtifacts)
+    event_trace = evaluation.members["event-trace"].value
+    assert event_trace["events"][0]["operation"] == "genre.economy.purchase-v1"
+    assert event_trace["events"][0]["state_after"] == [
+        {"name": "account_balance", "value": 75}
+    ]
+    assert evaluation.members["metric-dataset"].value["samples"][0]["value"] == 75
     host_sources = (
         Path(model_module.__file__),
         Path(model_command_module.__file__),
-        Path(model_module.__file__).with_name("experiment.py"),
+        Path(experiment_module.__file__),
     )
     assert all("genre.economy" not in path.read_text() for path in host_sources)
 

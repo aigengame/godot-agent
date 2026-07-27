@@ -27,7 +27,8 @@ admission boundary.
 
 - **Each child is one complete Domain-package release.** A descriptor binds the child's artifact
   kind, logical package id and version, canonical content identity, and canonical byte size. Every
-  package artifact remains complete under bADR-0016: dependencies, capabilities, types,
+  package artifact remains complete under bADR-0016: exact `{id, version}` dependency coordinates,
+  capabilities, types,
   components, operations, conversions, Diagnostics, profiles, rules/bodies, resources, and
   executable vectors belong to that one release identity.
 
@@ -104,6 +105,11 @@ admission boundary.
   phases, compiler/evaluator dispatch, or host capability code.
 - Run the #540 configure/build/check/run/inspect/edit/rerun loop using the admitted
   `game.resource`, `game.check`, and `game.combat` releases.
+
+The permanent conformance suite's non-RPG economy witness reaches the selected Package Lock,
+canonical RIR, fixed evaluator, Event trace, Snapshot, and Metric result without adding a Kernel
+primitive or genre-selected compiler/evaluator branch. This closes the bounded #592 extension
+witness, not bADR-0016's stronger public Extension Invariance Receipt or a genre-support claim.
 
 ## References
 
