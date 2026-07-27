@@ -29,10 +29,16 @@ from gda_balancing.commands.package import (
     package_list_success_schema,
 )
 from gda_balancing.commands.schema import SCHEMA_GET, schema_get_handler
+from gda_balancing.commands.template import (
+    TEMPLATE_GET,
+    TEMPLATE_INSTANTIATE,
+    TEMPLATE_LIST,
+)
 from gda_balancing.schema2.authority_graph import (
     LanguageBundleGraph,
     derive_language_index,
 )
+from gda_balancing.schema2.bootstrap import BOOTSTRAP_REFUSAL_CATALOG
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
@@ -996,6 +1002,66 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
             result_stderr,
         )
         jsonschema.validate(json.loads(result_stdout), row["schema"]["success"])
+
+
+def test_command_refusal_catalogs_are_exact_and_vector_witnessed(run_cli):
+    bootstrap = set(BOOTSTRAP_REFUSAL_CATALOG)
+    model = {
+        ("language.source_too_large", "ingress"),
+        ("language.source_parse_failure", "parse"),
+        ("language.source_contract_mismatch", "static"),
+        ("language.invalid_domain", "static"),
+        ("language.unknown_kind", "static"),
+        ("language.unknown_unit", "static"),
+        ("language.duplicate_symbol", "static"),
+        ("language.resource_exhausted", "static"),
+        ("language.unresolved_name", "static"),
+        ("language.name_ambiguity", "static"),
+        ("language.package_version_unavailable", "resolution"),
+        ("language.resolution_ambiguity", "resolution"),
+    }
+    experiment_check = {
+        ("language.source_too_large", "ingress"),
+        ("language.source_parse_failure", "parse"),
+        ("language.source_contract_mismatch", "static"),
+        ("language.invalid_domain", "static"),
+        ("language.resolved_authority_mismatch", "resolution"),
+        ("language.resolution_binding_mismatch", "resolution"),
+    }
+    experiment_run_only = {
+        ("runtime.capability_unsupported", "resolution"),
+        ("runtime.step_limit_exceeded", "runtime"),
+        ("runtime.numeric_overflow", "runtime"),
+        ("evaluation.observation_unavailable", "evaluation"),
+    }
+    expected = {
+        MODEL_CHECK: bootstrap | model,
+        MODEL_BUILD: bootstrap | model,
+        TEMPLATE_LIST: bootstrap | model,
+        TEMPLATE_GET: bootstrap | model,
+        TEMPLATE_INSTANTIATE: bootstrap | model,
+        EXPERIMENT_CHECK: bootstrap | experiment_check,
+        EXPERIMENT_RUN: bootstrap | experiment_check | experiment_run_only,
+    }
+    for descriptor, catalog in expected.items():
+        assert set(descriptor.refusal_catalog) == catalog
+
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    witnessed_codes: set[str] = set()
+    for release in authority["package_releases"]:
+        for vector in release["vector_definitions"]:
+            diagnostic = vector.get("diagnostic")
+            if isinstance(diagnostic, str):
+                witnessed_codes.add(diagnostic)
+            expect = vector.get("expect")
+            if isinstance(expect, dict):
+                witnessed_codes.update(
+                    item["code"]
+                    for item in expect.get("diagnostics", [])
+                    if isinstance(item, dict) and isinstance(item.get("code"), str)
+                )
+    for catalog in expected.values():
+        assert {code for code, _stage in catalog - bootstrap} <= witnessed_codes
 
 
 def test_per_command_error_schema_rejects_undeclared_refusal_stages_and_codes(run_cli):

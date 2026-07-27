@@ -36,7 +36,7 @@ from gda_balancing.schema2.model import (
     publication_authentication_key,
     publish_artifact_set,
     recover_committed_artifact_set,
-    refusal_catalog_for_stages,
+    refusal_catalog_for_reasons,
 )
 from gda_balancing.schema2.surface import descriptor_identity
 
@@ -93,11 +93,25 @@ class ExperimentVerdictResult(BaseModel):
     artifact_set: ExperimentRunResult
 
 
-EXPERIMENT_CHECK_REFUSAL_CATALOG = refusal_catalog_for_stages(
-    frozenset({"ingress", "parse", "static", "resolution"})
+_EXPERIMENT_CHECK_REFUSAL_REASONS = (
+    "model.reason.source-too-large",
+    "model.reason.source-parse-failure",
+    "model.reason.source-contract-mismatch",
+    "quantity.reason.invalid-domain",
+    "model.reason.resolved-authority-mismatch",
+    "model.reason.resolution-binding-mismatch",
 )
-EXPERIMENT_RUN_REFUSAL_CATALOG = refusal_catalog_for_stages(
-    frozenset({"ingress", "parse", "static", "resolution", "runtime", "evaluation"})
+_EXPERIMENT_RUN_ONLY_REFUSAL_REASONS = (
+    "runtime.reason.capability-unsupported",
+    "runtime.reason.step-limit",
+    "runtime.reason.numeric-overflow",
+    "evaluation.reason.observation-unavailable",
+)
+EXPERIMENT_CHECK_REFUSAL_CATALOG = refusal_catalog_for_reasons(
+    _EXPERIMENT_CHECK_REFUSAL_REASONS
+)
+EXPERIMENT_RUN_REFUSAL_CATALOG = refusal_catalog_for_reasons(
+    _EXPERIMENT_CHECK_REFUSAL_REASONS + _EXPERIMENT_RUN_ONLY_REFUSAL_REASONS
 )
 
 _EXPERIMENT_SUCCESS_ARTIFACT_SET = (

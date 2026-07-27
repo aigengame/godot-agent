@@ -75,8 +75,64 @@ def refusal_catalog_for_stages(
     )
 
 
-_MODEL_REFUSAL_STAGES = frozenset({"ingress", "parse", "static", "resolution"})
-MODEL_REFUSAL_CATALOG = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES)
+def refusal_catalog_for_reasons(
+    reason_ids: Iterable[str],
+    language_bundle: dict[str, Any] | None = None,
+) -> tuple[tuple[str, str], ...]:
+    """Project one command's reachable semantic reasons through the current LDB."""
+    if language_bundle is None:
+        _, language_bundle = load_authorities()
+    requested = tuple(reason_ids)
+    if len(set(requested)) != len(requested):
+        raise ValueError("a command refusal catalog cannot contain duplicate reasons")
+    reasons = {
+        cast(str, item["id"]): item
+        for item in cast(
+            list[dict[str, Any]], language_bundle["language"]["reasons"]
+        )
+    }
+    diagnostics = {
+        cast(str, item["code"]): cast(str, item["stage"])
+        for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
+    }
+    missing = [reason_id for reason_id in requested if reason_id not in reasons]
+    if missing:
+        raise ValueError(
+            "command refusal catalog references unknown LDB reasons: "
+            + ", ".join(missing)
+        )
+    projected: list[tuple[str, str]] = []
+    for reason_id in requested:
+        reason = reasons[reason_id]
+        code = cast(str, reason["diagnostic"])
+        stage = cast(str, reason["stage"])
+        if diagnostics.get(code) != stage:
+            raise ValueError(
+                f"LDB reason {reason_id} does not match its diagnostic declaration"
+            )
+        pair = (code, stage)
+        if pair not in projected:
+            projected.append(pair)
+    return BOOTSTRAP_REFUSAL_CATALOG + tuple(projected)
+
+
+MODEL_REFUSAL_REASONS = (
+    "model.reason.source-too-large",
+    "model.reason.source-parse-failure",
+    "model.reason.source-contract-mismatch",
+    "quantity.reason.invalid-domain",
+    "quantity.reason.unknown-kind",
+    "quantity.reason.unknown-unit",
+    "model.reason.duplicate-symbol",
+    "quantity.reason.resource-exhausted",
+    "model.reason.resolution-resource-exhausted",
+    "model.reason.runtime-projection-resource-exhausted",
+    "model.reason.unresolved-name",
+    "model.reason.name-ambiguity",
+    "model.reason.package-version-unavailable",
+    "model.reason.resolution-ambiguity",
+)
+MODEL_REFUSAL_CATALOG = refusal_catalog_for_reasons(MODEL_REFUSAL_REASONS)
 
 
 @dataclass(frozen=True)
@@ -153,6 +209,13 @@ def _location(identity: str, pointer: str) -> ArtifactLocation:
     return ArtifactLocation(content_identity=identity, pointer=pointer)
 
 
+def _diagnostic_stages(language_bundle: dict[str, Any]) -> dict[str, str]:
+    return {
+        cast(str, item["code"]): cast(str, item["stage"])
+        for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
+    }
+
+
 def _refusal(
     code: str,
     identity: str,
@@ -160,8 +223,7 @@ def _refusal(
     message: str,
     language_bundle: dict[str, Any],
 ) -> Schema2RefusalReport:
-    catalog = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES, language_bundle)
-    stage = dict(catalog)[code]
+    stage = _diagnostic_stages(language_bundle)[code]
     return Schema2RefusalReport(
         stage=cast(Any, stage),
         diagnostics=(
@@ -179,8 +241,7 @@ def _bounded_refusal(
     diagnostics: Iterable[Schema2Diagnostic],
     language_bundle: dict[str, Any],
 ) -> Schema2RefusalReport | None:
-    catalog = refusal_catalog_for_stages(_MODEL_REFUSAL_STAGES, language_bundle)
-    stages = dict(catalog)
+    stages = _diagnostic_stages(language_bundle)
     ordered, truncated = bound_diagnostics(
         diagnostics,
         cast(int, language_bundle["resources"]["max_diagnostics"]),
