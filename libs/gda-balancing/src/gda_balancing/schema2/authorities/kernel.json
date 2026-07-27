@@ -698,11 +698,9 @@
       "artifact_version",
       "schema_major",
       "kernel_identity",
-      "content_identity",
-      "language",
-      "diagnostics",
       "resources",
-      "vectors"
+      "package_descriptors",
+      "content_identity"
     ],
     "required_language_members": [
       "artifact_contracts",
@@ -848,7 +846,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:c8696d02863adb8cf2b887747960ba56b126c79f4cca8083d9f02204e785ef54",
+  "content_identity": "sha256:613e98782d633d60772ba3850c4caa3049c399b867935399c117d933235c6413",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2071,20 +2069,6 @@
     },
     "language_bundle": {
       "closed": true,
-      "diagnostic": {
-        "field_types": {
-          "code": {
-            "type": "non-empty-string"
-          },
-          "stage": {
-            "type": "refusal-stage"
-          }
-        },
-        "required_members": [
-          "code",
-          "stage"
-        ]
-      },
       "member_types": {
         "artifact_kind": {
           "const": "language-definition-bundle"
@@ -2092,38 +2076,57 @@
         "artifact_version": {
           "const": "2.0.0"
         },
-        "content_identity": {
-          "type": "non-empty-string"
-        },
-        "diagnostics": {
-          "type": "list"
+        "schema_major": {
+          "const": 2
         },
         "kernel_identity": {
           "type": "non-empty-string"
         },
-        "language": {
-          "type": "object"
-        },
         "resources": {
           "type": "object"
         },
-        "schema_major": {
-          "const": 2
-        },
-        "vectors": {
+        "package_descriptors": {
           "type": "list"
+        },
+        "content_identity": {
+          "type": "non-empty-string"
         }
+      },
+      "package_descriptor": {
+        "closed": true,
+        "field_types": {
+          "artifact_kind": {
+            "const": "domain-package-release"
+          },
+          "id": {
+            "type": "non-empty-string"
+          },
+          "version": {
+            "type": "non-empty-string"
+          },
+          "content_identity": {
+            "type": "non-empty-string"
+          },
+          "byte_size": {
+            "type": "positive-signed-int64"
+          }
+        },
+        "required_members": [
+          "artifact_kind",
+          "id",
+          "version",
+          "content_identity",
+          "byte_size"
+        ]
       },
       "required_members": [
         "artifact_kind",
         "artifact_version",
         "schema_major",
         "kernel_identity",
-        "content_identity",
-        "language",
-        "diagnostics",
         "resources",
-        "vectors"
+        "package_descriptors",
+        "content_identity"
       ],
       "resources": {
         "field_types": {
@@ -4899,13 +4902,111 @@
           "kind": "rng"
         }
       ]
+    },
+    "admitted_language_index": {
+      "closed": true,
+      "diagnostic": {
+        "field_types": {
+          "code": {
+            "type": "non-empty-string"
+          },
+          "stage": {
+            "type": "refusal-stage"
+          }
+        },
+        "required_members": [
+          "code",
+          "stage"
+        ]
+      },
+      "member_types": {
+        "artifact_kind": {
+          "const": "language-definition-bundle"
+        },
+        "artifact_version": {
+          "const": "2.0.0"
+        },
+        "content_identity": {
+          "type": "non-empty-string"
+        },
+        "diagnostics": {
+          "type": "list"
+        },
+        "kernel_identity": {
+          "type": "non-empty-string"
+        },
+        "language": {
+          "type": "object"
+        },
+        "resources": {
+          "type": "object"
+        },
+        "schema_major": {
+          "const": 2
+        },
+        "vectors": {
+          "type": "list"
+        }
+      },
+      "required_members": [
+        "artifact_kind",
+        "artifact_version",
+        "schema_major",
+        "kernel_identity",
+        "content_identity",
+        "language",
+        "diagnostics",
+        "resources",
+        "vectors"
+      ],
+      "resources": {
+        "field_types": {
+          "max_diagnostics": {
+            "type": "positive-signed-int64"
+          },
+          "max_rule_match_steps": {
+            "type": "positive-signed-int64"
+          },
+          "max_source_bytes": {
+            "type": "positive-signed-int64"
+          },
+          "max_symbols": {
+            "type": "positive-signed-int64"
+          },
+          "max_runtime_projection_steps": {
+            "type": "positive-signed-int64"
+          },
+          "max_template_admission_steps": {
+            "type": "positive-signed-int64"
+          },
+          "max_runtime_steps": {
+            "type": "positive-signed-int64"
+          }
+        },
+        "required_members": [
+          "max_diagnostics",
+          "max_rule_match_steps",
+          "max_runtime_projection_steps",
+          "max_source_bytes",
+          "max_symbols",
+          "max_template_admission_steps",
+          "max_runtime_steps"
+        ]
+      }
     }
   },
   "resources": {
     "max_authority_bytes": 262144,
     "max_diagnostics": 128,
     "max_members": 256,
-    "max_nesting_depth": 32
+    "max_nesting_depth": 32,
+    "max_ldb_root_bytes": 65536,
+    "max_ldb_child_bytes": 262144,
+    "max_ldb_total_bytes": 4194304,
+    "max_ldb_package_count": 128,
+    "max_ldb_dependency_depth": 32,
+    "max_ldb_dependency_steps": 4096,
+    "max_ldb_admission_work": 1000000
   },
   "schema_major": 2,
   "vectors": [

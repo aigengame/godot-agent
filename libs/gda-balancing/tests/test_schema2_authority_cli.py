@@ -59,10 +59,12 @@ def _reidentify_graph(kernel, ldb):
     root["content_identity"] = content_identity(
         "language-definition-bundle-v2", root_body
     )
+    root_byte_size = len(canonical_bytes(root))
     return derive_language_index(
         root,
         releases,
         kernel["admission"]["required_language_members"],
+        root_byte_size=root_byte_size,
         member_byte_sizes=member_sizes,
     )
 
@@ -194,6 +196,88 @@ def test_language_bundle_returns_the_admitted_sealed_graph(run_cli):
         "kernel_identity": authority["kernel"]["content_identity"],
         "language_bundle_identity": authority["language_bundle"]["content_identity"],
     }
+
+
+def test_package_list_and_exact_get_return_root_declared_children(run_cli):
+    _, authority_stdout, _ = run_cli(["schema", "get", "language-bundle"])
+    authority = json.loads(authority_stdout)
+
+    list_exit, list_stdout, list_stderr = run_cli(["schema", "get", "package-list"])
+    assert (list_exit, list_stderr) == (0, "")
+    listing = json.loads(list_stdout)
+    success_schema = json.loads(run_cli(["schema", "get", "--schema"])[1])[
+        "success"
+    ]
+    jsonschema.validate(listing, success_schema)
+    assert listing == {
+        "language_bundle_identity": authority["language_bundle"]["content_identity"],
+        "packages": authority["language_bundle"]["package_descriptors"],
+    }
+
+    for descriptor, release in zip(
+        listing["packages"], authority["package_releases"], strict=True
+    ):
+        get_exit, get_stdout, get_stderr = run_cli(
+            [
+                "schema",
+                "get",
+                "package",
+                "--package-id",
+                descriptor["id"],
+                "--package-version",
+                descriptor["version"],
+            ]
+        )
+        assert (get_exit, get_stderr) == (0, "")
+        retrieved = json.loads(get_stdout)
+        assert retrieved == release
+        jsonschema.validate(retrieved, success_schema)
+
+
+def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    kernel = authority["kernel"]
+    root_contract = kernel["meta_format"]["language_bundle"]
+
+    assert set(kernel["admission"]["required_ldb_members"]) == {
+        "artifact_kind",
+        "artifact_version",
+        "schema_major",
+        "kernel_identity",
+        "resources",
+        "package_descriptors",
+        "content_identity",
+    }
+    assert set(root_contract["required_members"]) == set(
+        kernel["admission"]["required_ldb_members"]
+    )
+    assert root_contract["package_descriptor"]["required_members"] == [
+        "artifact_kind",
+        "id",
+        "version",
+        "content_identity",
+        "byte_size",
+    ]
+    assert set(kernel["meta_format"]["admitted_language_index"]["required_members"]) == {
+        "artifact_kind",
+        "artifact_version",
+        "schema_major",
+        "kernel_identity",
+        "content_identity",
+        "language",
+        "diagnostics",
+        "resources",
+        "vectors",
+    }
+    assert {
+        "max_ldb_root_bytes",
+        "max_ldb_child_bytes",
+        "max_ldb_total_bytes",
+        "max_ldb_package_count",
+        "max_ldb_dependency_depth",
+        "max_ldb_dependency_steps",
+        "max_ldb_admission_work",
+    } <= set(kernel["resources"])
 
 
 def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli):

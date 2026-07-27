@@ -18,7 +18,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:c8696d02863adb8cf2b887747960ba56b126c79f4cca8083d9f02204e785ef54"
+    "sha256:613e98782d633d60772ba3850c4caa3049c399b867935399c117d933235c6413"
 )
 
 
@@ -3865,10 +3865,12 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         refuse("kernel.identity_mismatch", "ingress", "kernel")
     graph_root = getattr(ldb, "root", None)
     graph_releases = getattr(ldb, "package_releases", None)
+    graph_root_size = getattr(ldb, "root_byte_size", None)
     graph_member_sizes = getattr(ldb, "member_byte_sizes", None)
     is_graph = (
         isinstance(graph_root, dict)
         and isinstance(graph_releases, list)
+        and isinstance(graph_root_size, int)
         and isinstance(graph_member_sizes, tuple)
     )
     identity_source = graph_root if is_graph else ldb
@@ -4013,7 +4015,9 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             "truncated": len(ordered) > cap,
         }
 
-    expected_members = set(kernel["admission"]["required_ldb_members"])
+    expected_members = set(
+        kernel["meta_format"]["admitted_language_index"]["required_members"]
+    )
     if set(ldb) != expected_members:
         refuse("kernel.member_set_mismatch", "ingress", "language-bundle")
     expected_language_members = set(kernel["admission"]["required_language_members"])
@@ -4027,7 +4031,9 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             "language-bundle.language",
         )
     meta = kernel.get("meta_format")
-    ldb_contract = meta.get("language_bundle") if isinstance(meta, dict) else None
+    ldb_contract = (
+        meta.get("admitted_language_index") if isinstance(meta, dict) else None
+    )
     if not _consumer_b_ldb_is_closed(
         ldb, ldb_contract, kernel["admission"].get("refusal_stages")
     ):
@@ -4652,6 +4658,7 @@ def _reidentify(kernel: dict[str, Any], ldb: dict[str, Any]) -> None:
         graph_root["content_identity"] = _identity(
             "language-definition-bundle-v2", graph_root
         )
+        ldb.root_byte_size = len(_encoded(graph_root))
         ldb["kernel_identity"] = graph_root["kernel_identity"]
         ldb["content_identity"] = graph_root["content_identity"]
         return
@@ -4716,6 +4723,7 @@ def _refresh_package_closure_and_reidentify(ldb: dict[str, Any]) -> None:
         )
         ldb.root = deepcopy(graph_root)
         ldb.package_releases = packages
+        ldb.root_byte_size = len(_encoded(graph_root))
         ldb.member_byte_sizes = tuple(sizes)
         ldb["content_identity"] = graph_root["content_identity"]
         return

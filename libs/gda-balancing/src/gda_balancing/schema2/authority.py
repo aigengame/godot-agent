@@ -96,7 +96,9 @@ def _decode_authority(text: str, name: str, subject: str) -> dict[str, Any]:
     return value
 
 
-def _load(name: str, subject: str) -> tuple[dict[str, Any], int]:
+def _load(
+    name: str, subject: str, *, max_bytes: int = _BOOTSTRAP_MAX_AUTHORITY_BYTES
+) -> tuple[dict[str, Any], int]:
     resource = files(_AUTHORITY_PACKAGE).joinpath(*name.split("/"))
     try:
         data = resource.read_bytes()
@@ -107,7 +109,7 @@ def _load(name: str, subject: str) -> tuple[dict[str, Any], int]:
             message=f"packaged authority {name} is unreadable: {err}",
         ) from err
     if (
-        len(data) > _BOOTSTRAP_MAX_AUTHORITY_BYTES
+        len(data) > max_bytes
         or _raw_nesting_depth(data) > _BOOTSTRAP_MAX_NESTING_DEPTH
     ):
         raise AuthorityLoadError(
@@ -146,10 +148,35 @@ def _package_resource_name(descriptor: dict[str, Any]) -> str:
 def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
     """Load the exact graph and return its fresh, derived consumer index."""
     kernel, _kernel_size = _load("kernel.json", "kernel")
-    root, _root_size = _load("language-bundle.json", "language-bundle")
+    resources = kernel.get("resources")
+    if not isinstance(resources, dict):
+        raise AuthorityLoadError(
+            code="kernel.member_set_mismatch",
+            subject="kernel.resources",
+            message="kernel resource bounds are absent",
+        )
+    root_limit = resources.get("max_ldb_root_bytes")
+    child_limit = resources.get("max_ldb_child_bytes")
+    package_limit = resources.get("max_ldb_package_count")
+    if not all(
+        isinstance(value, int) and value > 0
+        for value in (root_limit, child_limit, package_limit)
+    ):
+        raise AuthorityLoadError(
+            code="kernel.resource_exhausted",
+            subject="kernel.resources",
+            message="kernel graph resource bounds are invalid",
+        )
+    root, root_size = _load(
+        "language-bundle.json",
+        "language-bundle",
+        max_bytes=root_limit,
+    )
     descriptors = root.get("package_descriptors")
     if not isinstance(descriptors, list) or not (
-        1 <= len(descriptors) <= _BOOTSTRAP_MAX_PACKAGE_MEMBERS
+        1
+        <= len(descriptors)
+        <= min(package_limit, _BOOTSTRAP_MAX_PACKAGE_MEMBERS)
     ):
         raise AuthorityLoadError(
             code="kernel.resource_exhausted",
@@ -167,7 +194,9 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
             )
         name = _package_resource_name(descriptor)
         release, byte_size = _load(
-            name, f"language-bundle.package_descriptors.{index}"
+            name,
+            f"language-bundle.package_descriptors.{index}",
+            max_bytes=child_limit,
         )
         releases.append(release)
         member_byte_sizes.append(byte_size)
@@ -187,6 +216,7 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
             root,
             releases,
             required_language_members,
+            root_byte_size=root_size,
             member_byte_sizes=member_byte_sizes,
         )
     except ValueError as err:

@@ -45,7 +45,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:c8696d02863adb8cf2b887747960ba56b126c79f4cca8083d9f02204e785ef54"
+    "sha256:613e98782d633d60772ba3850c4caa3049c399b867935399c117d933235c6413"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -242,6 +242,20 @@ def _resource_shape(value: Any) -> tuple[int, int]:
             maximum_members = max(maximum_members, len(current))
             stack.extend((item, depth + 1) for item in current)
     return maximum_depth, maximum_members
+
+
+def _resource_work(value: Any) -> int:
+    """Count deterministic observation work as visited canonical JSON nodes."""
+    work = 0
+    stack = [value]
+    while stack:
+        current = stack.pop()
+        work += 1
+        if isinstance(current, dict):
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+    return work
 
 
 def _package_is_closed(
@@ -3846,10 +3860,12 @@ def admit_authorities(
     kernel_identity = kernel.get("content_identity")
     graph_root = getattr(language_bundle, "root", None)
     graph_releases = getattr(language_bundle, "package_releases", None)
+    graph_root_size = getattr(language_bundle, "root_byte_size", None)
     graph_member_sizes = getattr(language_bundle, "member_byte_sizes", None)
     is_graph = (
         isinstance(graph_root, dict)
         and isinstance(graph_releases, list)
+        and isinstance(graph_root_size, int)
         and isinstance(graph_member_sizes, tuple)
     )
     identity_source = graph_root if is_graph else language_bundle
@@ -3986,12 +4002,98 @@ def admit_authorities(
                 visited.add(package_id)
                 return has_cycle
 
-            if any(cyclic(package_id) for package_id in sorted(dependency_graph)):
+            has_dependency_cycle = any(
+                cyclic(package_id) for package_id in sorted(dependency_graph)
+            )
+            if has_dependency_cycle:
                 refuse(
                     "kernel.binding_mismatch",
                     "ingress",
                     "language-bundle.package-dependencies",
                 )
+            graph_resources = kernel.get("resources")
+            graph_limit_names = (
+                "max_ldb_root_bytes",
+                "max_ldb_child_bytes",
+                "max_ldb_total_bytes",
+                "max_ldb_package_count",
+                "max_ldb_dependency_depth",
+                "max_ldb_dependency_steps",
+                "max_ldb_admission_work",
+            )
+            graph_limits = (
+                {
+                    name: graph_resources.get(name)
+                    for name in graph_limit_names
+                }
+                if isinstance(graph_resources, dict)
+                else {}
+            )
+            if set(graph_limits) != set(graph_limit_names) or not all(
+                isinstance(value, int) and value > 0
+                for value in graph_limits.values()
+            ):
+                refuse(
+                    "kernel.resource_exhausted",
+                    "ingress",
+                    "kernel.resources",
+                )
+            else:
+                dependency_steps = sum(
+                    len(dependencies)
+                    for dependencies in dependency_graph.values()
+                )
+                dependency_depth = 0
+                if not has_dependency_cycle:
+                    depth_by_package: dict[str, int] = {}
+
+                    def dependency_depth_of(package_id: str) -> int:
+                        known = depth_by_package.get(package_id)
+                        if known is not None:
+                            return known
+                        depth = 1 + max(
+                            (
+                                dependency_depth_of(dependency)
+                                for dependency in sorted(
+                                    dependency_graph.get(package_id, set())
+                                )
+                            ),
+                            default=0,
+                        )
+                        depth_by_package[package_id] = depth
+                        return depth
+
+                    dependency_depth = max(
+                        (
+                            dependency_depth_of(package_id)
+                            for package_id in sorted(dependency_graph)
+                        ),
+                        default=0,
+                    )
+                graph_work = _resource_work(graph_root) + sum(
+                    _resource_work(release) for release in graph_releases
+                )
+                if (
+                    graph_root_size > graph_limits["max_ldb_root_bytes"]
+                    or any(
+                        size > graph_limits["max_ldb_child_bytes"]
+                        for size in graph_member_sizes
+                    )
+                    or graph_root_size + sum(graph_member_sizes)
+                    > graph_limits["max_ldb_total_bytes"]
+                    or len(graph_releases)
+                    > graph_limits["max_ldb_package_count"]
+                    or dependency_depth
+                    > graph_limits["max_ldb_dependency_depth"]
+                    or dependency_steps
+                    > graph_limits["max_ldb_dependency_steps"]
+                    or graph_work > graph_limits["max_ldb_admission_work"]
+                ):
+                    refuse(
+                        "kernel.resource_exhausted",
+                        "ingress",
+                        "language-bundle",
+                    )
             required_language_members = kernel.get("admission", {}).get(
                 "required_language_members"
             )
@@ -4001,6 +4103,7 @@ def admit_authorities(
                         graph_root,
                         graph_releases,
                         required_language_members,
+                        root_byte_size=graph_root_size,
                         member_byte_sizes=list(graph_member_sizes),
                     )
                 except ValueError:
@@ -4029,7 +4132,20 @@ def admit_authorities(
         )
 
     admission = cast(dict[str, Any], kernel.get("admission", {}))
-    expected_members = set(cast(list[str], admission.get("required_ldb_members", [])))
+    raw_meta_format = kernel.get("meta_format")
+    admitted_index_contract = (
+        raw_meta_format.get("admitted_language_index")
+        if isinstance(raw_meta_format, dict)
+        else None
+    )
+    expected_members = set(
+        cast(
+            list[str],
+            admitted_index_contract.get("required_members", [])
+            if isinstance(admitted_index_contract, dict)
+            else [],
+        )
+    )
     if set(language_bundle) != expected_members:
         refuse("kernel.member_set_mismatch", "ingress", "language-bundle")
     raw_language = language_bundle.get("language")
@@ -4045,15 +4161,9 @@ def admit_authorities(
             "ingress",
             "language-bundle.language",
         )
-    raw_meta_format = kernel.get("meta_format")
     refusal_stages = admission.get("refusal_stages")
-    language_bundle_contract = (
-        raw_meta_format.get("language_bundle")
-        if isinstance(raw_meta_format, dict)
-        else None
-    )
     if not _language_bundle_is_closed(
-        language_bundle, language_bundle_contract, refusal_stages
+        language_bundle, admitted_index_contract, refusal_stages
     ):
         refuse("kernel.member_set_mismatch", "ingress", "language-bundle")
 
