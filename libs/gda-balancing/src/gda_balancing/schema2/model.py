@@ -12,7 +12,6 @@ from collections.abc import Callable, Iterable
 from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import dataclass
-from functools import cache
 from pathlib import Path
 from typing import Any, Iterator, TypeAlias, cast
 
@@ -21,7 +20,10 @@ import jsonschema
 from gda_balancing.envelope import UnreadableInputError, UsageError
 from gda_balancing.path_contracts import reject_input_aliasing
 from gda_balancing.descriptors import ArtifactSetMemberSpec
-from gda_balancing.schema2.authority import load_authorities
+from gda_balancing.schema2.authority import (
+    load_authorities,
+    load_descriptor_authorities,
+)
 from gda_balancing.schema2.authority_graph import LanguageBundleIndex
 from gda_balancing.schema2.bootstrap import (
     BOOTSTRAP_REFUSAL_CATALOG,
@@ -50,10 +52,9 @@ _ANCHOR_KEY_ENV = "GDA_BALANCING_ANCHOR_KEY"
 _RelationBindings: TypeAlias = dict[str, tuple[Any, tuple[object, ...] | None]]
 
 
-@cache
 def _descriptor_language_bundle() -> LanguageBundleIndex:
     """Admit the packaged graph once while assembling static command descriptors."""
-    _, language_bundle = load_authorities()
+    _, language_bundle = load_descriptor_authorities()
     return language_bundle
 
 

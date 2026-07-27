@@ -8,6 +8,7 @@ cannot silently add a law, rule, diagnostic, or package to the language.
 import json
 import re
 from copy import deepcopy
+from functools import cache
 from importlib.resources import files
 from typing import Any, cast
 
@@ -247,6 +248,12 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
         descriptor_order=descriptor_order,
     )
     return kernel, index
+
+
+@cache
+def load_descriptor_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
+    """Share one admitted projection while assembling static command descriptors."""
+    return load_authorities()
 
 
 def authority_set() -> dict[str, Any]:

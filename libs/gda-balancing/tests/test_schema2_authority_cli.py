@@ -402,6 +402,35 @@ def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
     )
 
 
+def test_package_get_schema_rejects_values_forbidden_by_kernel_meta_format(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    release = authority["package_releases"][0]
+    schema = package_get_success_schema()
+    invalid_releases = []
+
+    invalid_list = deepcopy(release)
+    invalid_list["runtime_semantic_paths"] = None
+    invalid_releases.append(invalid_list)
+
+    invalid_nested_list = deepcopy(release)
+    invalid_nested_list["exports"]["diagnostics"] = None
+    invalid_releases.append(invalid_nested_list)
+
+    invalid_dependency = deepcopy(release)
+    invalid_dependency["dependencies"]["required"] = [{"id": None, "version": "2.0.0"}]
+    invalid_releases.append(invalid_dependency)
+
+    open_dependency = deepcopy(release)
+    open_dependency["dependencies"]["required"] = [
+        {"id": "core.quantity", "version": "2.0.0", "peer": True}
+    ]
+    invalid_releases.append(open_dependency)
+
+    for invalid_release in invalid_releases:
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(invalid_release, schema)
+
+
 def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
     tmp_path, run_cli
 ):

@@ -146,7 +146,9 @@ def test_model_check_refuses_conflicting_transitive_dependency_versions(
     candidate_ldb = deepcopy(baseline_ldb)
     language = candidate_ldb["language"]
     seed = next(
-        package for package in language["packages"] if package["id"] == "standard.compiler"
+        package
+        for package in language["packages"]
+        if package["id"] == "standard.compiler"
     )
 
     def empty_package(

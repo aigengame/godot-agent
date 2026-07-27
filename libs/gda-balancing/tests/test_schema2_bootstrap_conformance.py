@@ -4334,9 +4334,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             graph_releases = [
                 deepcopy(release) for _descriptor, release, _size in members
             ]
-            graph_member_sizes = tuple(
-                size for _descriptor, _release, size in members
-            )
+            graph_member_sizes = tuple(size for _descriptor, _release, size in members)
     identity_source = graph_root if is_graph else ldb
     if ldb.get("content_identity") != _identity_from_kernel(
         kernel, "language-definition-bundle-v2", identity_source

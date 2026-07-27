@@ -4289,8 +4289,10 @@ def admit_authorities(
         .get("package_descriptor", {})
         .get("canonical_order")
     )
-    if is_graph and isinstance(descriptor_order, list) and all(
-        isinstance(item, str) for item in descriptor_order
+    if (
+        is_graph
+        and isinstance(descriptor_order, list)
+        and all(isinstance(item, str) for item in descriptor_order)
     ):
         graph_root, graph_releases, normalized_sizes = canonical_graph_members(
             graph_root,

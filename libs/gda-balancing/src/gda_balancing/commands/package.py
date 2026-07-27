@@ -6,7 +6,11 @@ from typing import Any, cast
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
-from gda_balancing.schema2.authority import AuthorityLoadError, load_authorities
+from gda_balancing.schema2.authority import (
+    AuthorityLoadError,
+    load_authorities,
+    load_descriptor_authorities,
+)
 from gda_balancing.schema2.bootstrap import BOOTSTRAP_REFUSAL_CATALOG, admit_authorities
 from gda_balancing.schema2.diagnostics import (
     Schema2RefusalReport,
@@ -31,55 +35,6 @@ class PackageArtifact(RootModel[dict[str, Any]]):
 
 
 AuthorityProvider = Callable[[], tuple[dict[str, Any], dict[str, Any]]]
-
-PACKAGE_DESCRIPTOR_MEMBERS = (
-    "artifact_kind",
-    "byte_size",
-    "content_identity",
-    "id",
-    "version",
-)
-PACKAGE_RELEASE_MEMBERS = (
-    "artifact_kind",
-    "capabilities",
-    "content_identity",
-    "dependencies",
-    "exports",
-    "id",
-    "profiles",
-    "runtime_semantic_paths",
-    "semantic_closure",
-    "semantic_identity",
-    "vector_definitions",
-    "vectors",
-    "version",
-)
-PACKAGE_RELEASE_NESTED_MEMBERS = {
-    "capabilities": ("provided", "required"),
-    "dependencies": ("optional", "required"),
-    "exports": (
-        "artifact_contracts",
-        "artifact_wire_schemas",
-        "components",
-        "conversions",
-        "diagnostics",
-        "domains",
-        "kinds",
-        "language_rules",
-        "model_checks",
-        "model_lowerings",
-        "model_source_schema_versions",
-        "operations",
-        "reasons",
-        "representations",
-        "symbol_roles",
-        "template_admission_profiles",
-        "types",
-        "units",
-        "wire_schemas",
-    ),
-    "profiles": ("numeric", "resolution", "runtime"),
-}
 
 
 def _admitted_package_graph(
@@ -141,36 +96,102 @@ def package_get_handler(
     return _run
 
 
-def package_list_success_schema() -> dict[str, object]:
-    identity = {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
-    descriptor_properties = {
-        name: (
-            {"const": "domain-package-release"}
-            if name == "artifact_kind"
-            else (
-                {"type": "integer", "minimum": 1}
-                if name == "byte_size"
-                else (
-                    identity
-                    if name == "content_identity"
-                    else {"type": "string", "minLength": 1}
-                )
-            )
-        )
-        for name in PACKAGE_DESCRIPTOR_MEMBERS
+def _contract_schema(contract: dict[str, Any]) -> dict[str, object]:
+    if "const" in contract:
+        return {"const": contract["const"]}
+    value_type = contract.get("type")
+    if value_type == "non-empty-string":
+        return {"type": "string", "minLength": 1}
+    if value_type == "positive-signed-int64":
+        return {"type": "integer", "minimum": 1, "maximum": 2**63 - 1}
+    if value_type == "signed-int64":
+        return {"type": "integer", "minimum": -(2**63), "maximum": 2**63 - 1}
+    if value_type == "string-list":
+        return {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "uniqueItems": True,
+        }
+    if value_type == "list":
+        return {"type": "array"}
+    if value_type == "list-of":
+        items = contract.get("items")
+        if not isinstance(items, dict):
+            raise ValueError("Kernel list-of contract has no item contract")
+        return {"type": "array", "items": _contract_schema(items)}
+    if value_type == "closed-object":
+        return _closed_contract_schema(contract)
+    raise ValueError(f"unsupported Kernel package contract type: {value_type!r}")
+
+
+def _closed_contract_schema(contract: dict[str, Any]) -> dict[str, object]:
+    required = contract.get("required_members")
+    field_types = contract.get("field_types", {})
+    nested_members = contract.get("nested_members", {})
+    nested_field_types = contract.get("nested_field_types", {})
+    if (
+        contract.get("closed") is not True
+        or not isinstance(required, list)
+        or not all(isinstance(member, str) for member in required)
+        or not isinstance(field_types, dict)
+        or not isinstance(nested_members, dict)
+        or not isinstance(nested_field_types, dict)
+        or set(field_types) | set(nested_members) != set(required)
+        or set(nested_members) != set(nested_field_types)
+    ):
+        raise ValueError("Kernel package object contract is incomplete")
+    properties = {
+        name: _contract_schema(cast(dict[str, Any], member_contract))
+        for name, member_contract in field_types.items()
     }
+    for name, members in nested_members.items():
+        member_types = nested_field_types.get(name)
+        if (
+            not isinstance(members, list)
+            or not all(isinstance(member, str) for member in members)
+            or not isinstance(member_types, dict)
+            or set(member_types) != set(members)
+        ):
+            raise ValueError(f"Kernel nested package contract is incomplete: {name}")
+        properties[name] = {
+            "type": "object",
+            "properties": {
+                member: _contract_schema(cast(dict[str, Any], member_types[member]))
+                for member in members
+            },
+            "required": members,
+            "unevaluatedProperties": False,
+        }
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "unevaluatedProperties": False,
+    }
+
+
+def _package_contracts() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    kernel, _language_bundle = load_descriptor_authorities()
+    meta_format = cast(dict[str, Any], kernel["meta_format"])
+    language_bundle_contract = cast(dict[str, Any], meta_format["language_bundle"])
+    return (
+        cast(
+            dict[str, Any], language_bundle_contract["member_types"]["content_identity"]
+        ),
+        cast(dict[str, Any], language_bundle_contract["package_descriptor"]),
+        cast(dict[str, Any], meta_format["package_release"]),
+    )
+
+
+def package_list_success_schema() -> dict[str, object]:
+    identity_contract, descriptor_contract, _release_contract = _package_contracts()
     return {
         "type": "object",
         "properties": {
-            "language_bundle_identity": identity,
+            "language_bundle_identity": _contract_schema(identity_contract),
             "packages": {
                 "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": descriptor_properties,
-                    "required": list(PACKAGE_DESCRIPTOR_MEMBERS),
-                    "unevaluatedProperties": False,
-                },
+                "items": _closed_contract_schema(descriptor_contract),
             },
         },
         "required": ["language_bundle_identity", "packages"],
@@ -179,20 +200,8 @@ def package_list_success_schema() -> dict[str, object]:
 
 
 def package_get_success_schema() -> dict[str, object]:
-    properties: dict[str, object] = {name: {} for name in PACKAGE_RELEASE_MEMBERS}
-    for field, members in PACKAGE_RELEASE_NESTED_MEMBERS.items():
-        properties[field] = {
-            "type": "object",
-            "properties": {name: {} for name in members},
-            "required": list(members),
-            "unevaluatedProperties": False,
-        }
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": list(PACKAGE_RELEASE_MEMBERS),
-        "unevaluatedProperties": False,
-    }
+    _identity_contract, _descriptor_contract, release_contract = _package_contracts()
+    return _closed_contract_schema(release_contract)
 
 
 PACKAGE_LIST = CommandDescriptor(
