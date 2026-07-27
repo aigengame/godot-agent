@@ -820,7 +820,7 @@
           "\u001d",
           "\u001e",
           "\u001f",
-          ""
+          "\u007f"
         ]
       },
       {
@@ -856,7 +856,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:d8f392593fdfff1bb8d131014409e2bdbcf9e72f94f9702674c1fd1ff10de810",
+  "content_identity": "sha256:91c865a4de1a07cb97c3bb09456ce406f0bd148529267b544073a9a26335d2a4",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3789,7 +3789,7 @@
           "stage": "resolution",
           "law": {
             "operator": "require-single-value",
-            "relation": "requirements",
+            "relation": "selected_packages",
             "scope": [],
             "group": [
               "package"
@@ -3964,6 +3964,14 @@
           "fields": [
             "package",
             "capability"
+          ],
+          "pointer_fields": []
+        },
+        {
+          "id": "selected_packages",
+          "fields": [
+            "package",
+            "version"
           ],
           "pointer_fields": []
         }

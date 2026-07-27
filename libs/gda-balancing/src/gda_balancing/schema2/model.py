@@ -600,7 +600,7 @@ def _resolution_relations(
     by_coordinate = {
         (package["id"], package["version"]): package for package in available_packages
     }
-    selected_packages: dict[str, dict[str, Any]] = {}
+    selected_packages: dict[tuple[str, str], dict[str, Any]] = {}
     pending = [
         (
             requirement[requirement_package_member],
@@ -611,15 +611,15 @@ def _resolution_relations(
     while pending:
         coordinate = pending.pop(0)
         package = by_coordinate.get(coordinate)
-        if package is None or package["id"] in selected_packages:
+        if package is None or coordinate in selected_packages:
             continue
-        selected_packages[package["id"]] = package
+        selected_packages[coordinate] = package
         for dependency in cast(
             list[dict[str, str]], package["dependencies"]["required"]
         ):
             pending.append((dependency["id"], dependency["version"]))
     selected_package_values = [
-        selected_packages[package_id] for package_id in sorted(selected_packages)
+        selected_packages[coordinate] for coordinate in sorted(selected_packages)
     ]
 
     def evaluate_term(

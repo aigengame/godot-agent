@@ -139,6 +139,75 @@ def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     assert json.loads(stdout)["checked"] is True
 
 
+def test_model_check_refuses_conflicting_transitive_dependency_versions(
+    tmp_path, monkeypatch
+):
+    kernel, baseline_ldb = model_module.load_authorities()
+    candidate_ldb = deepcopy(baseline_ldb)
+    language = candidate_ldb["language"]
+    seed = next(
+        package for package in language["packages"] if package["id"] == "standard.compiler"
+    )
+
+    def empty_package(
+        package_id: str,
+        version: str,
+        dependencies: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        package = deepcopy(seed)
+        package["id"] = package_id
+        package["version"] = version
+        package["dependencies"] = {"optional": [], "required": dependencies}
+        package["capabilities"] = {"provided": [], "required": []}
+        package["exports"] = {name: [] for name in package["exports"]}
+        package["profiles"] = {"numeric": [], "resolution": [], "runtime": []}
+        package["runtime_semantic_paths"] = ["language.capabilities"]
+        for entry in package["semantic_closure"]:
+            entry["definitions"] = []
+        package["vectors"] = []
+        package["vector_definitions"] = []
+        return package
+
+    language["packages"].extend(
+        [
+            empty_package("shared.rules", "1.0.0", []),
+            empty_package("shared.rules", "2.0.0", []),
+            empty_package(
+                "genre.parent-a",
+                "1.0.0",
+                [{"id": "shared.rules", "version": "1.0.0"}],
+            ),
+            empty_package(
+                "genre.parent-b",
+                "1.0.0",
+                [{"id": "shared.rules", "version": "2.0.0"}],
+            ),
+        ]
+    )
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted is True
+    monkeypatch.setattr(
+        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
+    )
+    source_document = _model_source()
+    source_document["package_requirements"].extend(
+        [
+            {"id": "genre.parent-a", "version": "1.0.0"},
+            {"id": "genre.parent-b", "version": "1.0.0"},
+        ]
+    )
+    source = tmp_path / "conflicting-transitive-versions.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    result = model_module.check_model_source(str(source))
+
+    assert isinstance(result, model_module.Schema2RefusalReport)
+    assert result.stage == "resolution"
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "language.resolution_ambiguity"
+    ]
+
+
 def test_in_memory_model_check_reuses_only_a_matching_authority_admission():
     kernel, language_bundle = model_module.load_authorities()
     admission = admit_authorities(kernel, language_bundle)
