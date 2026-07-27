@@ -20,7 +20,7 @@ Admitted Experiment Specification
 Event trace + Snapshots + Metrics + Evaluation run
 ```
 
-The example models one `rpg.combat.cast-v1` event. A character spends mana, rolls for hit and
+The example models one `game.combat.cast-v1` event. A character spends mana, rolls for hit and
 critical outcome, deals damage after defense, and updates the target's health. The files are:
 
 - [`model-source.json`](model-source.json): the editable numeric model. It declares symbols such
@@ -91,16 +91,15 @@ jq . examples/schema2/rpg-combat-cast/model-source.json
 
 The source requires two Domain packages:
 
-- `core.quantity@2.0.0` supplies the numeric foundation;
-- `game.rpg@1.0.0` supplies `RpgValue`, the RPG runtime profile, and
-  `rpg.combat.cast-v1`.
+- `core.quantity@2.0.0` supplies the generic `Quantity` constructor imported by the source;
+- `game.combat@1.0.0` supplies the composed `game.combat.cast-v1` operation.
 
-`game.rpg` declares `core.quantity` as a dependency, but the current resolver's
-capability-provider judgment is still seeded from the Model Source's root requirements rather than
-the complete selected package graph. This example therefore lists `core.quantity` explicitly as a
-temporary implementation workaround. Keep both requirements until the open transitive-capability
-resolution gate is closed; the intended architecture still requires capability selection over the
-complete selected graph.
+`game.combat` declares `game.resource`, `game.check`, and `standard.runtime` as required
+dependencies. Resolution closes that transitive graph and selects capability providers from the
+whole selected closure, so the Model Source does not repeat those indirect dependencies. The
+mechanics remain independently owned: resource spending belongs to `game.resource`, hit and
+critical checks belong to `game.check`, and damage plus cast composition belong to `game.combat`.
+No RPG-wide value constructor or genre umbrella is involved.
 
 Its symbols demonstrate three lifecycle roles:
 
@@ -161,7 +160,7 @@ export RIR_PATH="$(
 )"
 
 jq '.selected_semantics.operations[]
-  | select(.definition.id == "rpg.combat.cast-v1")
+  | select(.definition.id == "game.combat.cast-v1")
   | .definition' "$RIR_PATH"
 ```
 
@@ -181,7 +180,7 @@ actor_mana = actor_mana - action_cost
 The companion [`experiment.json`](experiment.json) binds the exact source, Build receipt,
 Resolved Model, Package Lock, and RIR identities produced by the build. It also owns:
 
-- the `rpg.exact-int64-event-v1` Runtime profile request;
+- the `standard.exact-int64-event-v1` Runtime profile request;
 - the effective RNG algorithm and seed;
 - the `one-cast` scenario values and Named random streams;
 - the `damage_dealt` and `target_health_remaining` Metrics;
@@ -202,7 +201,7 @@ A successful check reports:
   "checked": true,
   "experiment_identity": "sha256:...",
   "resolved_model_identity": "sha256:...",
-  "runtime_profile": "rpg.exact-int64-event-v1"
+  "runtime_profile": "standard.exact-int64-event-v1"
 }
 ```
 
@@ -448,7 +447,7 @@ The tutorial crosses several Standard Schema 2.0 boundaries:
 | Schema-major Kernel Specification | The small, versioned foundation: canonical identity, irreducible numeric/RNG laws, Event-transition primitives, and rules for admitting an LDB |
 | Language Definition Bundle (LDB) | The complete language content under that Kernel: schemas, types, packages, operations, profiles, diagnostics, and machine-readable rules |
 | Model Source Package | Your editable game numeric definitions and dependency requirements |
-| Package Lock | The exact selected package dependency closure and the capability, operation, and profile bindings recorded for this build; the current transitive-capability limitation is noted above |
+| Package Lock | The exact selected package dependency closure and the capability, operation, and profile bindings recorded for this build |
 | RIR semantic payload | The canonical executable meaning of the selected, reachable model semantics |
 | Resolved Model | The immutable execution authority binding Kernel, LDB, Lock, and RIR identities |
 | Experiment Specification | The scenario and evaluation authority: exact Model bindings, inputs, seed, Metrics, targets, and acceptance |
@@ -459,7 +458,8 @@ The tutorial crosses several Standard Schema 2.0 boundaries:
 The authority split matters:
 
 - the Kernel defines how the language and irreducible runtime laws are interpreted;
-- the LDB defines available language and Domain behavior, including `game.rpg`;
+- the sealed LDB root defines exact membership, while its child releases define standard and
+  Domain behavior such as `game.resource`, `game.check`, and `game.combat`;
 - the Model Source defines this game's numeric vocabulary;
 - the Experiment defines what scenario to run and what evidence counts as acceptable;
 - the Python host implementation executes those authorities but does not redefine them.
