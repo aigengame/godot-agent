@@ -25,7 +25,10 @@ from gda_balancing.commands.manifest import MANIFEST
 from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
 from gda_balancing.commands.model import MODEL_BUILD, MODEL_CHECK, MODEL_MIGRATE
 from gda_balancing.commands.schema import SCHEMA_GET, schema_get_handler
-from gda_balancing.schema2.authority_graph import derive_language_index
+from gda_balancing.schema2.authority_graph import (
+    LanguageBundleGraph,
+    derive_language_index,
+)
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
@@ -75,6 +78,57 @@ def _reidentify_graph(kernel, ldb):
             "canonical_order"
         ],
     )
+
+
+def test_loader_admits_raw_graph_before_returning_derived_index(monkeypatch):
+    events: list[str] = []
+    production_admit = authority_module.admit_authorities
+    production_derive = authority_module.derive_language_index
+
+    def observed_admit(kernel, graph):
+        events.append("admit:start")
+        assert "language" not in graph
+        result = production_admit(kernel, graph)
+        events.append("admit:complete")
+        assert result.admitted
+        return result
+
+    def observed_derive(*args, **kwargs):
+        events.append("derive")
+        return production_derive(*args, **kwargs)
+
+    monkeypatch.setattr(authority_module, "admit_authorities", observed_admit)
+    monkeypatch.setattr(authority_module, "derive_language_index", observed_derive)
+
+    _kernel, language_bundle = authority_module.load_authorities()
+
+    assert "language" in language_bundle
+    assert events == ["admit:start", "admit:complete", "derive"]
+
+
+def test_invalid_raw_graph_never_constructs_a_derived_index(monkeypatch):
+    kernel, admitted = authority_module.load_authorities()
+    releases = deepcopy(admitted.package_releases)
+    releases[0]["content_identity"] = "sha256:" + "0" * 64
+    candidate = LanguageBundleGraph(
+        root=admitted.root,
+        package_releases=releases,
+        root_byte_size=admitted.root_byte_size,
+        member_byte_sizes=list(admitted.member_byte_sizes),
+    )
+
+    def fail_if_derived(*_args, **_kwargs):
+        raise AssertionError("invalid graph reached derived-index construction")
+
+    monkeypatch.setattr(bootstrap_module, "derive_language_index", fail_if_derived)
+
+    admission = bootstrap_module.admit_authorities(kernel, candidate)
+
+    assert admission.admitted is False
+    assert {item.code for item in admission.diagnostics} == {
+        "kernel.binding_mismatch"
+    }
+    assert "language" not in candidate
 
 
 def test_packaged_authority_loader_refuses_duplicate_object_keys(monkeypatch, run_cli):

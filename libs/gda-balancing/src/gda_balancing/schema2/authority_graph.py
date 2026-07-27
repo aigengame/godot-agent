@@ -42,8 +42,36 @@ def _canonical_graph_members(
     )
 
 
-class LanguageBundleIndex(dict[str, Any]):
-    """A derived lookup view carrying its exact non-authoritative graph source."""
+class LanguageBundleGraph(dict[str, Any]):
+    """One decoded sealed graph candidate with no derived language projection."""
+
+    def __init__(
+        self,
+        *,
+        root: dict[str, Any],
+        package_releases: list[dict[str, Any]],
+        root_byte_size: int,
+        member_byte_sizes: list[int],
+    ) -> None:
+        super().__init__(deepcopy(root))
+        self.root = deepcopy(root)
+        self.package_releases = deepcopy(package_releases)
+        self.root_byte_size = root_byte_size
+        self.member_byte_sizes = tuple(member_byte_sizes)
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "LanguageBundleGraph":
+        duplicate = LanguageBundleGraph(
+            root=deepcopy(self.root, memo),
+            package_releases=deepcopy(self.package_releases, memo),
+            root_byte_size=self.root_byte_size,
+            member_byte_sizes=list(self.member_byte_sizes),
+        )
+        memo[id(self)] = duplicate
+        return duplicate
+
+
+class LanguageBundleIndex(LanguageBundleGraph):
+    """A derived lookup view carrying its exact admitted graph source."""
 
     def __init__(
         self,
@@ -54,11 +82,14 @@ class LanguageBundleIndex(dict[str, Any]):
         root_byte_size: int,
         member_byte_sizes: list[int],
     ) -> None:
-        super().__init__(projection)
-        self.root = deepcopy(root)
-        self.package_releases = deepcopy(package_releases)
-        self.root_byte_size = root_byte_size
-        self.member_byte_sizes = tuple(member_byte_sizes)
+        super().__init__(
+            root=root,
+            package_releases=package_releases,
+            root_byte_size=root_byte_size,
+            member_byte_sizes=member_byte_sizes,
+        )
+        self.clear()
+        self.update(projection)
 
     def __deepcopy__(self, memo: dict[int, Any]) -> "LanguageBundleIndex":
         duplicate = LanguageBundleIndex(

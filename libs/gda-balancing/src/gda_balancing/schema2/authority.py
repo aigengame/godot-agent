@@ -12,6 +12,7 @@ from importlib.resources import files
 from typing import Any, cast
 
 from gda_balancing.schema2.authority_graph import (
+    LanguageBundleGraph,
     LanguageBundleIndex,
     derive_language_index,
 )
@@ -143,7 +144,7 @@ def _package_resource_name(descriptor: dict[str, Any]) -> str:
 
 
 def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
-    """Load the exact graph and return its fresh, derived consumer index."""
+    """Load and admit the exact graph before returning a derived consumer index."""
     kernel, _kernel_size = _load("kernel.json", "kernel")
     resources = kernel.get("resources")
     if not isinstance(resources, dict):
@@ -223,21 +224,28 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
             subject="kernel.meta_format.language_bundle.package_descriptor",
             message="kernel does not declare the package descriptor order",
         )
-    try:
-        index = derive_language_index(
-            root,
-            releases,
-            required_language_members,
-            root_byte_size=root_size,
-            member_byte_sizes=member_byte_sizes,
-            descriptor_order=descriptor_order,
-        )
-    except ValueError as err:
+    graph = LanguageBundleGraph(
+        root=root,
+        package_releases=releases,
+        root_byte_size=root_size,
+        member_byte_sizes=member_byte_sizes,
+    )
+    admission = admit_authorities(kernel, graph)
+    if not admission.admitted:
+        diagnostic = admission.diagnostics[0]
         raise AuthorityLoadError(
-            code="kernel.member_set_mismatch",
-            subject="language-bundle.package_descriptors",
-            message=str(err),
-        ) from err
+            code=diagnostic.code,
+            subject=diagnostic.subject,
+            message="packaged authority graph failed atomic admission",
+        )
+    index = derive_language_index(
+        root,
+        releases,
+        required_language_members,
+        root_byte_size=root_size,
+        member_byte_sizes=member_byte_sizes,
+        descriptor_order=descriptor_order,
+    )
     return kernel, index
 
 

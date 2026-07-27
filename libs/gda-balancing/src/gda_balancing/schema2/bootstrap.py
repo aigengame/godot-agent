@@ -12,7 +12,11 @@ from typing import Any, cast
 import jsonschema
 
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
-from gda_balancing.schema2.authority_graph import derive_language_index
+from gda_balancing.schema2.authority_graph import (
+    LanguageBundleGraph,
+    LanguageBundleIndex,
+    derive_language_index,
+)
 from gda_balancing.schema2.template_contract import (
     TEMPLATE_ARGUMENT_TYPES,
     TEMPLATE_PRIMITIVE_CHARGES,
@@ -4259,6 +4263,9 @@ def admit_authorities(
         found.add(AdmissionDiagnostic(code=code, stage=stage, subject=subject))
 
     kernel_identity = kernel.get("content_identity")
+    raw_graph_candidate = isinstance(
+        language_bundle, LanguageBundleGraph
+    ) and not isinstance(language_bundle, LanguageBundleIndex)
     raw_graph_root = getattr(language_bundle, "root", None)
     raw_graph_releases = getattr(language_bundle, "package_releases", None)
     raw_graph_root_size = getattr(language_bundle, "root_byte_size", None)
@@ -4513,6 +4520,18 @@ def admit_authorities(
                 .get("package_descriptor", {})
                 .get("canonical_order")
             )
+            if raw_graph_candidate and found:
+                return _result(
+                    found,
+                    128,
+                    kernel_identity if isinstance(kernel_identity, str) else None,
+                    ldb_identity if isinstance(ldb_identity, str) else None,
+                    (),
+                    (),
+                    (),
+                    (),
+                    (),
+                )
             if (
                 isinstance(required_language_members, list)
                 and all(isinstance(item, str) for item in required_language_members)
@@ -4530,14 +4549,38 @@ def admit_authorities(
                     )
                 except ValueError:
                     expected_index = None
-                if expected_index is None or dict(expected_index) != dict(
-                    language_bundle
-                ):
+                if expected_index is None:
                     refuse(
                         "kernel.identity_mismatch",
                         "ingress",
                         "language-bundle.admitted-index",
                     )
+                elif raw_graph_candidate:
+                    language_bundle = expected_index
+                elif dict(expected_index) != dict(language_bundle):
+                    refuse(
+                        "kernel.identity_mismatch",
+                        "ingress",
+                        "language-bundle.admitted-index",
+                    )
+            else:
+                refuse(
+                    "kernel.member_set_mismatch",
+                    "ingress",
+                    "kernel.meta_format.admitted_language_index",
+                )
+            if raw_graph_candidate and found:
+                return _result(
+                    found,
+                    128,
+                    kernel_identity if isinstance(kernel_identity, str) else None,
+                    ldb_identity if isinstance(ldb_identity, str) else None,
+                    (),
+                    (),
+                    (),
+                    (),
+                    (),
+                )
     if set(kernel) != _KERNEL_MEMBERS:
         refuse("kernel.member_set_mismatch", "ingress", "kernel")
     if any(item.subject == "kernel" for item in found):
