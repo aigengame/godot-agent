@@ -45,7 +45,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:613e98782d633d60772ba3850c4caa3049c399b867935399c117d933235c6413"
+    "sha256:7dbc5ee11d19cddbcd21198b44ef115b6d4dda1f186beed35e0c4e2adfc3ef0e"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -1379,7 +1379,7 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
         }
         or recipe_format.get("closed") is not True
         or recipe_format.get("binding_source_roots")
-        != ["source", "language", "binding"]
+        != ["source", "language", "selected-packages", "binding"]
         or recipe_format.get("term_roots") != ["source", "language", "binding"]
         or recipe_format.get("predicate_operators") != ["equal"]
         or recipe_format.get("binding")
@@ -1413,6 +1413,7 @@ def _resolution_judgment_is_closed(contract: Any) -> bool:
         != {
             "source": "model-source-wire-schema",
             "language": "kernel-declared-language-contracts",
+            "selected-packages": "required-transitive-package-closure",
             "binding": "expanded-binding-item",
         }
         or not isinstance(routing_equivalences, list)
@@ -1763,6 +1764,10 @@ def _relation_recipe_paths_are_typed(
             shape: tuple[str, Any, str] = ("schema", source_schema, "source")
         elif root == "language":
             if term["path"] != ["packages"]:
+                return None
+            return ("contract-list", package_release_contract, "language")
+        elif root == "selected-packages":
+            if term["path"]:
                 return None
             return ("contract-list", package_release_contract, "language")
         elif root == "binding" and term.get("binding") in bindings:
@@ -3537,6 +3542,7 @@ def _reason_is_closed(
     if not isinstance(contract, dict) or not isinstance(reason, dict):
         return False
     required = contract.get("required_members")
+    optional = contract.get("optional_members", [])
     member_types = contract.get("member_types")
     schemas = contract.get("predicate_schemas")
     predicate = reason.get("predicate")
@@ -3544,12 +3550,14 @@ def _reason_is_closed(
         contract.get("closed") is not True
         or contract.get("scalar_equality") != "type-and-canonical-value"
         or not isinstance(required, list)
-        or set(reason) != set(required)
+        or not isinstance(optional, list)
+        or not set(required) <= set(reason)
+        or not set(reason) <= set(required) | set(optional)
         or not isinstance(member_types, dict)
-        or set(member_types) != set(required) - {"predicate"}
+        or set(member_types) != (set(required) | set(optional)) - {"predicate"}
         or not all(
             _value_matches_contract(reason[name], member_types[name], language_bundle)
-            for name in member_types
+            for name in set(reason) - {"predicate"}
         )
         or not isinstance(predicate, dict)
         or not isinstance(schemas, list)
@@ -3929,8 +3937,7 @@ def admit_authorities(
                     not isinstance(descriptor, dict)
                     or set(descriptor) != descriptor_members
                     or not isinstance(release, dict)
-                    or descriptor.get("artifact_kind")
-                    != release.get("artifact_kind")
+                    or descriptor.get("artifact_kind") != release.get("artifact_kind")
                     or descriptor.get("id") != release.get("id")
                     or descriptor.get("version") != release.get("version")
                     or descriptor.get("content_identity")
@@ -3967,8 +3974,15 @@ def admit_authorities(
                     if isinstance(dependencies, dict)
                     else None
                 )
-                if not isinstance(required, list) or not all(
-                    isinstance(item, str) for item in required
+                optional = (
+                    dependencies.get("optional")
+                    if isinstance(dependencies, dict)
+                    else None
+                )
+                if (
+                    not isinstance(required, list)
+                    or not isinstance(optional, list)
+                    or not all(isinstance(item, str) for item in [*required, *optional])
                 ):
                     refuse(
                         "kernel.member_set_mismatch",
@@ -3977,7 +3991,7 @@ def admit_authorities(
                     )
                     continue
                 dependency_graph[package_id] = set(required)
-                if not set(required) <= available:
+                if not set([*required, *optional]) <= available:
                     refuse(
                         "kernel.binding_mismatch",
                         "ingress",
@@ -4022,16 +4036,12 @@ def admit_authorities(
                 "max_ldb_admission_work",
             )
             graph_limits = (
-                {
-                    name: graph_resources.get(name)
-                    for name in graph_limit_names
-                }
+                {name: graph_resources.get(name) for name in graph_limit_names}
                 if isinstance(graph_resources, dict)
                 else {}
             )
             if set(graph_limits) != set(graph_limit_names) or not all(
-                isinstance(value, int) and value > 0
-                for value in graph_limits.values()
+                isinstance(value, int) and value > 0 for value in graph_limits.values()
             ):
                 refuse(
                     "kernel.resource_exhausted",
@@ -4040,8 +4050,7 @@ def admit_authorities(
                 )
             else:
                 dependency_steps = sum(
-                    len(dependencies)
-                    for dependencies in dependency_graph.values()
+                    len(dependencies) for dependencies in dependency_graph.values()
                 )
                 dependency_depth = 0
                 if not has_dependency_cycle:
@@ -4081,12 +4090,9 @@ def admit_authorities(
                     )
                     or graph_root_size + sum(graph_member_sizes)
                     > graph_limits["max_ldb_total_bytes"]
-                    or len(graph_releases)
-                    > graph_limits["max_ldb_package_count"]
-                    or dependency_depth
-                    > graph_limits["max_ldb_dependency_depth"]
-                    or dependency_steps
-                    > graph_limits["max_ldb_dependency_steps"]
+                    or len(graph_releases) > graph_limits["max_ldb_package_count"]
+                    or dependency_depth > graph_limits["max_ldb_dependency_depth"]
+                    or dependency_steps > graph_limits["max_ldb_dependency_steps"]
                     or graph_work > graph_limits["max_ldb_admission_work"]
                 ):
                     refuse(
@@ -5173,10 +5179,59 @@ def _runtime_authority_is_closed(
             return False
     kinds = set(outcomes["kinds"])
     policies = set(outcomes["state_policies"])
+    operations_by_id = {
+        operation.get("id"): operation
+        for operation in operations
+        if isinstance(operation, dict) and isinstance(operation.get("id"), str)
+    }
+
+    def operation_outcomes(
+        operation: dict[str, Any], visiting: set[str]
+    ) -> set[str] | None:
+        operation_id = str(operation.get("id", ""))
+        if operation_id in visiting:
+            return None
+        visiting.add(operation_id)
+        referenced: set[str] = set()
+        body = operation.get("body")
+        if not isinstance(body, list):
+            visiting.remove(operation_id)
+            return None
+        for instruction in body:
+            if not isinstance(instruction, dict):
+                visiting.remove(operation_id)
+                return None
+            node = nodes.get(str(instruction.get("node", "")))
+            if node is None or set(instruction) != set(node["required_members"]):
+                visiting.remove(operation_id)
+                return None
+            if "outcome" in instruction:
+                referenced.add(str(instruction["outcome"]))
+            if node["semantics"]["operator"] == "invoke-operation":
+                invoked = operations_by_id.get(instruction.get("operation"))
+                if not isinstance(invoked, dict):
+                    visiting.remove(operation_id)
+                    return None
+                nested = operation_outcomes(invoked, visiting)
+                if nested is None:
+                    visiting.remove(operation_id)
+                    return None
+                referenced.update(nested)
+        visiting.remove(operation_id)
+        return referenced
+
     for operation in operations:
-        if not isinstance(operation, dict) or operation.get("operation_kind") != (
-            "event-program"
-        ):
+        if not isinstance(operation, dict):
+            return False
+        operation_kind = operation.get("operation_kind")
+        if operation_kind not in {"event-program", "event-fragment"}:
+            continue
+        referenced = operation_outcomes(operation, set())
+        if referenced is None:
+            return False
+        if operation_kind == "event-fragment":
+            if "outcomes" in operation or "default_outcome" in operation:
+                return False
             continue
         declared = operation.get("outcomes")
         default = operation.get("default_outcome")
@@ -5196,11 +5251,6 @@ def _runtime_authority_is_closed(
         ):
             return False
         by_id = {row["id"]: row for row in declared}
-        referenced = {
-            row["outcome"]
-            for row in operation.get("body", [])
-            if isinstance(row, dict) and "outcome" in row
-        }
         if (
             default not in by_id
             or by_id[default]["kind"] != "success"

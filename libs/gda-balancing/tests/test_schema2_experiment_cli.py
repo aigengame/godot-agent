@@ -23,7 +23,7 @@ _AUTHORITY_DIR = (
 def _rpg_value(name: str, role: str) -> dict[str, Any]:
     return {
         "symbol": name,
-        "type": "rpg",
+        "type": "quantity",
         "role": role,
         "representation": "Int",
         "kind": "scalar",
@@ -44,17 +44,17 @@ def _rpg_model_source() -> dict[str, Any]:
         },
         "package_requirements": [
             {"id": "core.quantity", "version": "2.0.0"},
-            {"id": "game.rpg", "version": "1.0.0"},
+            {"id": "game.combat", "version": "1.0.0"},
         ],
         "modules": [
             {
                 "id": "combat",
                 "imports": [
                     {
-                        "alias": "rpg",
-                        "package": "game.rpg",
-                        "version": "1.0.0",
-                        "symbol": "RpgValue",
+                        "alias": "quantity",
+                        "package": "core.quantity",
+                        "version": "2.0.0",
+                        "symbol": "Quantity",
                     }
                 ],
                 "symbols": [
@@ -164,6 +164,7 @@ def _reference_fact_rows(values: dict[str, Any]) -> list[dict[str, Any]]:
 def _reference_execute_event(
     kernel: dict[str, Any],
     operation: dict[str, Any],
+    operations: dict[str, dict[str, Any]],
     scenario: dict[str, Any],
     *,
     seed: int,
@@ -185,11 +186,30 @@ def _reference_execute_event(
         assert numeric["minimum"] <= value <= numeric["maximum"]
         return value
 
-    for instruction in operation["body"]:
+    def expanded_body(
+        selected: dict[str, Any], stack: tuple[str, ...] = ()
+    ) -> list[dict[str, Any]]:
+        operation_id = selected["id"]
+        assert operation_id not in stack
+        result: list[dict[str, Any]] = []
+        for instruction in selected["body"]:
+            result.append(instruction)
+            if instruction["node"] == "invoke":
+                result.extend(
+                    expanded_body(
+                        operations[instruction["operation"]],
+                        (*stack, operation_id),
+                    )
+                )
+        return result
+
+    for instruction in expanded_body(operation):
         node = nodes[instruction["node"]]
         assert set(instruction) == set(node["required_members"])
         semantics = node["semantics"]
         operator = semantics["operator"]
+        if operator == "invoke-operation":
+            continue
         if operator == "gameplay-precondition":
             if not _reference_compare(
                 semantics["comparison"],
@@ -298,14 +318,15 @@ def _experiment(
             "rir_identity": rir["content_identity"],
         },
         "runtime": {
-            "profile": "rpg.exact-int64-event-v1",
+            "profile": "standard.exact-int64-event-v1",
             "required_evaluator": {
-                "operation_kinds": ["event-program"],
+                "operation_kinds": ["event-fragment", "event-program"],
                 "instruction_nodes": [
                     "add",
                     "constant",
                     "draw",
                     "if",
+                    "invoke",
                     "less-than-or-equal",
                     "maximum",
                     "multiply",
@@ -321,7 +342,7 @@ def _experiment(
                 ],
                 "numeric_policies": ["exact-int64"],
                 "rng_algorithms": ["splitmix64-v1"],
-                "runtime_profiles": ["rpg.exact-int64-event-v1"],
+                "runtime_profiles": ["standard.exact-int64-event-v1"],
             },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 20260726},
@@ -329,7 +350,7 @@ def _experiment(
         "scenarios": [
             {
                 "id": "one-cast",
-                "operation": "rpg.combat.cast-v1",
+                "operation": "game.combat.cast-v1",
                 "values": [
                     {"name": "actor_mana", "value": 30},
                     {"name": "action_cost", "value": 8},
@@ -473,15 +494,12 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     first_receipt = json.loads(first_stdout)
     first_trace = _member(first_receipt, "event-trace")
     first_metrics = _member(first_receipt, "metric-dataset")
-    assert first_trace["events"][0]["operation"] == "rpg.combat.cast-v1"
+    assert first_trace["events"][0]["operation"] == "game.combat.cast-v1"
     kernel = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))
-    ldb = json.loads(
-        (_AUTHORITY_DIR / "language-bundle.json").read_text(encoding="utf-8")
-    )
+    _loaded_kernel, ldb = experiment_runtime_module.load_authorities()
+    operations = {row["id"]: row for row in ldb["language"]["operations"]}
     operation = next(
-        row
-        for row in ldb["language"]["operations"]
-        if row["id"] == "rpg.combat.cast-v1"
+        row for row in operations.values() if row["id"] == "game.combat.cast-v1"
     )
     state_names = {
         row["symbol"]
@@ -492,6 +510,7 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     reference_event = _reference_execute_event(
         kernel,
         operation,
+        operations,
         first_spec["scenarios"][0],
         seed=first_spec["seed"]["value"],
         state_names=state_names,
@@ -712,7 +731,7 @@ def test_evaluation_refusal_publishes_no_completed_outcome_artifacts(tmp_path, r
     error = json.loads(stdout)["error"]
     assert error["stage"] == "evaluation"
     assert [item["code"] for item in error["diagnostics"]] == [
-        "rpg.evaluation_observation_unavailable"
+        "evaluation.observation_unavailable"
     ]
     assert not out.exists()
     assert "artifact_set" not in error
@@ -770,7 +789,7 @@ def test_predispatch_capability_refusal_publishes_no_terminal_audit(
     error = json.loads(stdout)["error"]
     assert error["stage"] == "resolution"
     assert [item["code"] for item in error["diagnostics"]] == [
-        "rpg.runtime_capability_unsupported"
+        "runtime.capability_unsupported"
     ]
     assert "terminal_audit" not in error
     assert not out.exists()
@@ -849,11 +868,11 @@ def test_evaluator_manifest_binds_the_selected_runtime_profile(tmp_path, run_cli
     receipt = json.loads(stdout)
     evaluator = _member(receipt, "evaluator-capability-manifest")
     runtime = _member(receipt, "resolved-runtime-profile")
-    assert evaluator["runtime_profiles"] == ["rpg.exact-int64-event-v1"]
+    assert evaluator["runtime_profiles"] == ["standard.exact-int64-event-v1"]
     assert runtime["runtime_profile"]["id"] in evaluator["runtime_profiles"]
 
 
-def test_evaluator_manifest_is_fixed_build_provenance_not_model_projection(
+def test_evaluator_manifest_uses_selected_operation_closure_and_build_provenance(
     tmp_path, run_cli, monkeypatch
 ):
     specification = _write_built_experiment(tmp_path, run_cli)
@@ -861,20 +880,16 @@ def test_evaluator_manifest_is_fixed_build_provenance_not_model_projection(
     assert isinstance(checked, experiment_runtime_module.CheckedExperiment)
 
     first = experiment_runtime_module._evaluator_manifest(checked)
-    projected_rir = json.loads(json.dumps(checked.rir))
-    projected_rir["selected_semantics"]["runtime_profiles"] = []
-    projected_rir["selected_semantics"]["operations"] = []
-    second = experiment_runtime_module._evaluator_manifest(
-        replace(checked, rir=projected_rir)
-    )
-
-    assert first.content_identity == second.content_identity
-    assert first.value == second.value
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in checked.rir["selected_semantics"]["operations"]
+    }
     assert set(first.value["instruction_nodes"]) == {
         instruction["node"]
-        for operation in checked.language_bundle["language"]["operations"]
-        if operation.get("operation_kind") == "event-program"
-        for instruction in operation["body"]
+        for scenario in checked.value["scenarios"]
+        for instruction in experiment_runtime_module._expanded_operation_body(
+            operations[scenario["operation"]], operations
+        )
     }
     assert first.value["evaluator_build_identity"] == (
         experiment_runtime_module._evaluator_build_identity()
@@ -1008,12 +1023,12 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
     error = json.loads(stdout)["error"]
     assert error["stage"] == "runtime"
     assert [item["code"] for item in error["diagnostics"]] == [
-        "rpg.runtime_numeric_overflow"
+        "runtime.numeric_overflow"
     ]
     audit = _member(error["terminal_audit"], "runtime-terminal-audit")
     assert audit["committed_trace_prefix"] == []
-    assert audit["refusing_event"]["operation"] == "rpg.combat.cast-v1"
-    assert audit["refusing_event"]["reason"] == "rpg.runtime_numeric_overflow"
+    assert audit["refusing_event"]["operation"] == "game.combat.cast-v1"
+    assert audit["refusing_event"]["reason"] == "runtime.numeric_overflow"
     assert audit["rollback"]["committed"] is False
     assert audit["rollback"]["state_before"] == [
         {"name": "actor_mana", "value": 30},
@@ -1274,7 +1289,7 @@ def test_second_scenario_runtime_refusal_binds_the_exact_scenario(tmp_path, run_
     assert audit["committed_trace_prefix"] == [
         {
             "index": 0,
-            "operation": "rpg.combat.cast-v1",
+            "operation": "game.combat.cast-v1",
             "outcome": {"id": "cast-resolved", "kind": "success"},
         }
     ]

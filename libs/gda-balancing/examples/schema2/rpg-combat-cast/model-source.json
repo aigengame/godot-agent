@@ -11,7 +11,7 @@
       "version": "2.0.0"
     },
     {
-      "id": "game.rpg",
+      "id": "game.combat",
       "version": "1.0.0"
     }
   ],
@@ -20,16 +20,16 @@
       "id": "combat",
       "imports": [
         {
-          "alias": "rpg",
-          "package": "game.rpg",
-          "version": "1.0.0",
-          "symbol": "RpgValue"
+          "alias": "quantity",
+          "package": "core.quantity",
+          "version": "2.0.0",
+          "symbol": "Quantity"
         }
       ],
       "symbols": [
         {
           "symbol": "actor_mana",
-          "type": "rpg",
+          "type": "quantity",
           "role": "state",
           "representation": "Int",
           "kind": "scalar",
@@ -43,7 +43,7 @@
         },
         {
           "symbol": "action_cost",
-          "type": "rpg",
+          "type": "quantity",
           "role": "parameter",
           "representation": "Int",
           "kind": "scalar",
@@ -57,7 +57,7 @@
         },
         {
           "symbol": "accuracy",
-          "type": "rpg",
+          "type": "quantity",
           "role": "parameter",
           "representation": "Int",
           "kind": "scalar",
@@ -71,7 +71,7 @@
         },
         {
           "symbol": "base_damage",
-          "type": "rpg",
+          "type": "quantity",
           "role": "parameter",
           "representation": "Int",
           "kind": "scalar",
@@ -85,7 +85,7 @@
         },
         {
           "symbol": "critical_threshold",
-          "type": "rpg",
+          "type": "quantity",
           "role": "parameter",
           "representation": "Int",
           "kind": "scalar",
@@ -99,7 +99,7 @@
         },
         {
           "symbol": "target_defense",
-          "type": "rpg",
+          "type": "quantity",
           "role": "input",
           "representation": "Int",
           "kind": "scalar",
@@ -113,7 +113,7 @@
         },
         {
           "symbol": "target_health",
-          "type": "rpg",
+          "type": "quantity",
           "role": "state",
           "representation": "Int",
           "kind": "scalar",

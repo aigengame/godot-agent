@@ -846,7 +846,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:613e98782d633d60772ba3850c4caa3049c399b867935399c117d933235c6413",
+  "content_identity": "sha256:7dbc5ee11d19cddbcd21198b44ef115b6d4dda1f186beed35e0c4e2adfc3ef0e",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -1069,6 +1069,9 @@
             "migration",
             "approval"
           ]
+        },
+        "signal": {
+          "type": "non-empty-string"
         }
       },
       "predicate_operations": [
@@ -1248,6 +1251,9 @@
         "stage",
         "input",
         "matched"
+      ],
+      "optional_members": [
+        "signal"
       ]
     },
     "model_program_vector": {
@@ -2494,7 +2500,8 @@
             "operation_kind": {
               "enum": [
                 "pure-expression",
-                "event-program"
+                "event-program",
+                "event-fragment"
               ]
             },
             "owner_type": {
@@ -3854,6 +3861,7 @@
         "binding_source_roots": [
           "source",
           "language",
+          "selected-packages",
           "binding"
         ],
         "term_roots": [
@@ -3911,7 +3919,8 @@
         "root_typing": {
           "source": "model-source-wire-schema",
           "language": "kernel-declared-language-contracts",
-          "binding": "expanded-binding-item"
+          "binding": "expanded-binding-item",
+          "selected-packages": "required-transitive-package-closure"
         }
       },
       "routing_equivalences": [
@@ -4164,7 +4173,8 @@
       ],
       "control_nodes": [
         "draw",
-        "precondition-greater-than-or-equal"
+        "precondition-greater-than-or-equal",
+        "invoke"
       ],
       "event_atomicity": {
         "rng_draws": "buffered",
@@ -4546,6 +4556,25 @@
             "comparison": "greater-than-or-equal",
             "operator": "gameplay-precondition"
           }
+        },
+        {
+          "family": "control",
+          "id": "invoke",
+          "refusals": [],
+          "required_members": [
+            "node",
+            "operation"
+          ],
+          "resource_charge": {
+            "amount": 1,
+            "counter": "event-steps"
+          },
+          "result": {
+            "kind": "composition"
+          },
+          "semantics": {
+            "operator": "invoke-operation"
+          }
         }
       ],
       "numeric": {
@@ -4900,6 +4929,22 @@
             "stream": "boundary"
           },
           "kind": "rng"
+        },
+        {
+          "expect": {
+            "charge": 1,
+            "operator": "invoke-operation",
+            "result_kind": "composition"
+          },
+          "id": "runtime.node.invoke",
+          "input": {
+            "contract-probe": [
+              "node",
+              "operation"
+            ]
+          },
+          "kind": "node",
+          "node": "invoke"
         }
       ]
     },

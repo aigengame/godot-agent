@@ -15,14 +15,18 @@ import pytest
 
 import gda_balancing.schema2.bootstrap as production_bootstrap
 from gda_balancing.schema2.authority import authority_set
+from gda_balancing.schema2.authority_graph import derive_language_index
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:613e98782d633d60772ba3850c4caa3049c399b867935399c117d933235c6413"
+    "sha256:7dbc5ee11d19cddbcd21198b44ef115b6d4dda1f186beed35e0c4e2adfc3ef0e"
 )
 
 
 def _identity(domain: str, artifact: dict[str, Any]) -> str:
+    graph_root = getattr(artifact, "root", None)
+    if domain == "language-definition-bundle-v2" and isinstance(graph_root, dict):
+        artifact = graph_root
     body = {key: value for key, value in artifact.items() if key != "content_identity"}
     encoded = _encoded(body)
     return (
@@ -1067,7 +1071,7 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
         }
         or recipe_format.get("closed") is not True
         or recipe_format.get("binding_source_roots")
-        != ["source", "language", "binding"]
+        != ["source", "language", "selected-packages", "binding"]
         or recipe_format.get("term_roots") != ["source", "language", "binding"]
         or recipe_format.get("predicate_operators") != ["equal"]
         or recipe_format.get("binding")
@@ -1101,6 +1105,7 @@ def _consumer_b_resolution_contract_is_closed(value: Any) -> bool:
         != {
             "source": "model-source-wire-schema",
             "language": "kernel-declared-language-contracts",
+            "selected-packages": "required-transitive-package-closure",
             "binding": "expanded-binding-item",
         }
         or not isinstance(routing_equivalences, list)
@@ -1392,6 +1397,10 @@ def _consumer_b_relation_paths_are_typed(
             representation, payload, origin = "schema", source[0], "source"
         elif term["root"] == "language":
             if term["path"] != ["packages"]:
+                return None
+            return ("package-list", package_release, "language")
+        elif term["root"] == "selected-packages":
+            if term["path"]:
                 return None
             return ("package-list", package_release, "language")
         elif term["root"] == "binding" and term.get("binding") in bindings:
@@ -3182,17 +3191,22 @@ def _consumer_b_reason_is_closed(
     if not isinstance(contract, dict) or not isinstance(reason, dict):
         return False
     predicate = reason.get("predicate")
+    required_reason = contract.get("required_members")
+    optional_reason = contract.get("optional_members", [])
+    member_types_reason = contract.get("member_types")
     if (
         contract.get("closed") is not True
         or contract.get("scalar_equality") != "type-and-canonical-value"
-        or not isinstance(contract.get("required_members"), list)
-        or set(reason) != set(contract["required_members"])
-        or not isinstance(contract.get("member_types"), dict)
-        or set(contract["member_types"])
-        != set(contract["required_members"]) - {"predicate"}
+        or not isinstance(required_reason, list)
+        or not isinstance(optional_reason, list)
+        or not set(required_reason) <= set(reason)
+        or not set(reason) <= set(required_reason) | set(optional_reason)
+        or not isinstance(member_types_reason, dict)
+        or set(member_types_reason)
+        != (set(required_reason) | set(optional_reason)) - {"predicate"}
         or not all(
-            _consumer_b_value_matches(reason[name], contract["member_types"][name], ldb)
-            for name in contract["member_types"]
+            _consumer_b_value_matches(reason[name], member_types_reason[name], ldb)
+            for name in set(reason) - {"predicate"}
         )
         or not isinstance(predicate, dict)
         or not isinstance(contract.get("predicate_schemas"), list)
@@ -3822,8 +3836,60 @@ def _consumer_b_runtime_authority_is_closed(
             return False
     kinds = set(runtime["outcome_contract"]["kinds"])
     policies = set(runtime["outcome_contract"]["state_policies"])
-    for operation in ldb.get("language", {}).get("operations", []):
-        if operation.get("operation_kind") != "event-program":
+    operations = ldb.get("language", {}).get("operations", [])
+    if not isinstance(operations, list):
+        return False
+    operations_by_id = {
+        operation.get("id"): operation
+        for operation in operations
+        if isinstance(operation, dict) and isinstance(operation.get("id"), str)
+    }
+    nodes_by_id = {node["id"]: node for node in nodes if isinstance(node, dict)}
+
+    def referenced_outcomes(
+        operation: dict[str, Any], stack: set[str]
+    ) -> set[str] | None:
+        operation_id = operation.get("id")
+        if not isinstance(operation_id, str) or operation_id in stack:
+            return None
+        body = operation.get("body")
+        if not isinstance(body, list):
+            return None
+        nested_stack = {*stack, operation_id}
+        referenced: set[str] = set()
+        for instruction in body:
+            if not isinstance(instruction, dict):
+                return None
+            node = nodes_by_id.get(instruction.get("node"))
+            if not isinstance(node, dict) or set(instruction) != set(
+                node["required_members"]
+            ):
+                return None
+            outcome = instruction.get("outcome")
+            if isinstance(outcome, str):
+                referenced.add(outcome)
+            if node["semantics"]["operator"] == "invoke-operation":
+                invoked = operations_by_id.get(instruction.get("operation"))
+                if not isinstance(invoked, dict):
+                    return None
+                nested = referenced_outcomes(invoked, nested_stack)
+                if nested is None:
+                    return None
+                referenced.update(nested)
+        return referenced
+
+    for operation in operations:
+        if not isinstance(operation, dict):
+            return False
+        operation_kind = operation.get("operation_kind")
+        if operation_kind not in {"event-program", "event-fragment"}:
+            continue
+        referenced = referenced_outcomes(operation, set())
+        if referenced is None:
+            return False
+        if operation_kind == "event-fragment":
+            if "outcomes" in operation or "default_outcome" in operation:
+                return False
             continue
         outcomes = operation.get("outcomes")
         if not isinstance(outcomes, list) or any(
@@ -3835,9 +3901,6 @@ def _consumer_b_runtime_authority_is_closed(
             return False
         declared = {item["id"]: item for item in outcomes}
         default = operation.get("default_outcome")
-        referenced = {
-            item["outcome"] for item in operation["body"] if "outcome" in item
-        }
         if (
             default not in declared
             or declared[default]["kind"] != "success"
@@ -3907,6 +3970,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             refuse("kernel.member_set_mismatch", "ingress", "language-bundle")
         else:
             coordinates = []
+            coordinates_are_strings = True
             for index, (descriptor, release, byte_size) in enumerate(
                 zip(descriptors, graph_releases, graph_member_sizes, strict=True)
             ):
@@ -3914,8 +3978,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 if (
                     not isinstance(descriptor, dict)
                     or set(descriptor) != expected_descriptor_members
-                    or descriptor.get("artifact_kind")
-                    != release.get("artifact_kind")
+                    or descriptor.get("artifact_kind") != release.get("artifact_kind")
                     or descriptor.get("id") != release.get("id")
                     or descriptor.get("version") != release.get("version")
                     or descriptor.get("content_identity")
@@ -3924,23 +3987,53 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 ):
                     refuse("kernel.binding_mismatch", "ingress", subject)
                     continue
-                coordinates.append((descriptor["id"], descriptor["version"]))
+                if isinstance(descriptor["id"], str) and isinstance(
+                    descriptor["version"], str
+                ):
+                    coordinates.append((descriptor["id"], descriptor["version"]))
+                else:
+                    coordinates_are_strings = False
                 if release.get("content_identity") != _identity_from_kernel(
                     kernel, "domain-package-release-v2", release
                 ):
                     refuse("kernel.identity_mismatch", "ingress", subject)
-            if coordinates != sorted(coordinates):
+            if coordinates_are_strings and coordinates != sorted(coordinates):
                 refuse(
                     "kernel.member_set_mismatch",
                     "ingress",
                     "language-bundle.package_descriptors",
                 )
-            if len(coordinates) != len(set(coordinates)):
+            if coordinates_are_strings and len(coordinates) != len(set(coordinates)):
                 refuse(
                     "kernel.duplicate_identifier",
                     "static",
                     "language-bundle.package_descriptors",
                 )
+            package_ids = {
+                release.get("id")
+                for release in graph_releases
+                if isinstance(release.get("id"), str)
+            }
+            for release in graph_releases:
+                dependencies = release.get("dependencies")
+                package_id = release.get("id")
+                if not isinstance(dependencies, dict) or not isinstance(
+                    package_id, str
+                ):
+                    continue
+                required = dependencies.get("required")
+                optional = dependencies.get("optional")
+                if not isinstance(required, list) or not isinstance(optional, list):
+                    continue
+                if any(
+                    not isinstance(dependency, str) or dependency not in package_ids
+                    for dependency in [*required, *optional]
+                ):
+                    refuse(
+                        "kernel.binding_mismatch",
+                        "ingress",
+                        f"language-bundle.packages.{package_id}.dependencies",
+                    )
             language: dict[str, Any] = {
                 member: {} if member == "quantity" else []
                 for member in kernel["admission"]["required_language_members"]
@@ -4685,6 +4778,12 @@ def _refresh_package_closure_and_reidentify(ldb: dict[str, Any]) -> None:
         return values
 
     for package in ldb["language"]["packages"]:
+        package["vector_definitions"] = [
+            deepcopy(
+                next(vector for vector in ldb["vectors"] if vector["id"] == vector_id)
+            )
+            for vector_id in package["vectors"]
+        ]
         for entry, projection in zip(
             package["semantic_closure"], projections, strict=True
         ):
@@ -4704,10 +4803,15 @@ def _refresh_package_closure_and_reidentify(ldb: dict[str, Any]) -> None:
                 ]
             )
         _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
+
+
+def _reidentify_graph_root(ldb: dict[str, Any]) -> None:
     graph_root = getattr(ldb, "root", None)
     if isinstance(graph_root, dict):
         packages = deepcopy(ldb["language"]["packages"])
         sizes = [len(_encoded(package)) for package in packages]
+        graph_root["resources"] = deepcopy(ldb["resources"])
         graph_root["package_descriptors"] = [
             {
                 "artifact_kind": package["artifact_kind"],
@@ -4725,7 +4829,15 @@ def _refresh_package_closure_and_reidentify(ldb: dict[str, Any]) -> None:
         ldb.package_releases = packages
         ldb.root_byte_size = len(_encoded(graph_root))
         ldb.member_byte_sizes = tuple(sizes)
-        ldb["content_identity"] = graph_root["content_identity"]
+        rebuilt = derive_language_index(
+            graph_root,
+            packages,
+            authority_set()["kernel"]["admission"]["required_language_members"],
+            root_byte_size=ldb.root_byte_size,
+            member_byte_sizes=sizes,
+        )
+        ldb.clear()
+        ldb.update(dict(rebuilt))
         return
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
@@ -4898,6 +5010,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
     meta_format = authority["kernel"]["meta_format"]
 
     assert set(meta_format) == {
+        "admitted_language_index",
         "fact",
         "term",
         "rule",
@@ -5014,7 +5127,7 @@ def test_two_consumers_refuse_an_incomplete_template_admission_profile(member):
     authority = authority_set()
     ldb = authority["language_bundle"]
     ldb["language"]["template_admission_profiles"][0][member].pop()
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5137,7 +5250,7 @@ def test_runtime_program_contract_is_independently_executable_and_profile_bound(
     profile = next(
         item
         for item in authority["language_bundle"]["language"]["runtime_profiles"]
-        if item["id"] == "rpg.exact-int64-event-v1"
+        if item["id"] == "standard.exact-int64-event-v1"
     )
     assert profile["runtime_program_version"] == runtime["version"]
     assert profile["numeric_law"] == runtime["numeric"]["id"]
@@ -5157,7 +5270,7 @@ def test_rpg_operation_declares_its_complete_gameplay_outcome_algebra():
     operation = next(
         item
         for item in authority["language_bundle"]["language"]["operations"]
-        if item["id"] == "rpg.combat.cast-v1"
+        if item["id"] == "game.combat.cast-v1"
     )
 
     assert operation["default_outcome"] == "cast-resolved"
@@ -5175,7 +5288,16 @@ def test_rpg_operation_declares_its_complete_gameplay_outcome_algebra():
         },
     ]
     declared = {item["id"] for item in operation["outcomes"]}
-    referenced = {item["outcome"] for item in operation["body"] if "outcome" in item}
+    operations = {
+        item["id"]: item
+        for item in authority["language_bundle"]["language"]["operations"]
+    }
+    referenced = {
+        instruction["outcome"]
+        for invocation in operation["body"]
+        for instruction in operations[invocation["operation"]]["body"]
+        if "outcome" in instruction
+    }
     assert referenced == declared - {operation["default_outcome"]}
 
 
@@ -5259,7 +5381,7 @@ def test_two_consumers_execute_template_primitive_argument_types(mutation):
             row for row in judgments if row["id"] == "template.admit-source"
         )
         judgment["arguments"]["fact_bindings"][0]["source"] = []
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5292,7 +5414,7 @@ def test_two_consumers_refuse_malformed_template_graph_programs(mutation):
         profile["judgments"].append(profile["judgments"].pop(0))
     else:
         ldb["resources"]["max_template_admission_steps"] = 0
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5318,7 +5440,7 @@ def test_template_role_names_are_ldb_owned_without_a_kernel_change():
         if row["role"] == "documentation"
     )
     documentation["role"] = "genre-extension"
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5331,7 +5453,7 @@ def test_resolution_profile_symbol_mapping_must_name_the_declared_semantic_fact(
     authority = authority_set()
     ldb = authority["language_bundle"]
     ldb["language"]["resolution_profiles"][0]["symbol_fact_member"] = "role"
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5375,7 +5497,7 @@ def test_reidentified_model_program_vector_contract_mutations_are_refused(
         )
         vector["expect"]["relation"]["reference"] = "host.missing"
 
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5521,7 +5643,13 @@ def test_package_release_identity_binds_normative_vector_definitions():
         item for item in ldb["vectors"] if item["id"] == "model.compile.positive"
     )
     vector["expect"]["debug_map_identity"] = "sha256:" + "f" * 64
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    package_vector = next(
+        item
+        for item in package["vector_definitions"]
+        if item["id"] == "model.compile.positive"
+    )
+    package_vector["expect"]["debug_map_identity"] = "sha256:" + "f" * 64
+    _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5529,17 +5657,14 @@ def test_package_release_identity_binds_normative_vector_definitions():
     assert first == second
     assert first["admitted"] is False
     assert any(
-        code == "kernel.vector_mismatch"
-        and subject == "language.packages.core.quantity"
+        code == "kernel.identity_mismatch"
+        and subject == "language-bundle.language.packages.0"
         for _, code, subject in first["diagnostics"]
-    )
+    ), first["diagnostics"]
 
-    package["vector_definitions"] = [
-        deepcopy(next(item for item in ldb["vectors"] if item["id"] == vector_id))
-        for vector_id in package["vectors"]
-    ]
+    package = ldb["language"]["packages"][0]
     package["content_identity"] = _identity("domain-package-release-v2", package)
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _reidentify_graph_root(ldb)
 
     assert package["content_identity"] != old_release_identity
     assert _consumer_a(authority["kernel"], ldb)["admitted"] is True
@@ -5555,7 +5680,7 @@ def test_authority_admission_requires_one_default_resolution_profile():
         if entry["authority_path"] == "language.resolution_profiles":
             entry["definitions"] = deepcopy(ldb["language"]["resolution_profiles"])
     _reidentify_package_release(package)
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5572,7 +5697,14 @@ def test_package_identity_binds_the_complete_exported_definition_closure():
     authority = authority_set()
     ldb = authority["language_bundle"]
     ldb["language"]["operations"][0]["resource_bounds"]["max_steps"] = 2
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    package = ldb["language"]["packages"][0]
+    operation_entry = next(
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
+    )
+    operation_entry["definitions"][0]["resource_bounds"]["max_steps"] = 2
+    _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5581,7 +5713,7 @@ def test_package_identity_binds_the_complete_exported_definition_closure():
     assert first["admitted"] is False
     assert any(
         code == "kernel.identity_mismatch"
-        and subject == "language-bundle.language.packages.0.semantic_identity"
+        and subject == "language-bundle.language.packages.0"
         for _, code, subject in first["diagnostics"]
     )
 
@@ -5597,7 +5729,7 @@ def test_reidentified_package_cannot_hide_a_tampered_embedded_definition():
     )
     operation_entry["definitions"][0]["resource_bounds"]["max_steps"] = 2
     package["content_identity"] = _identity("domain-package-release-v2", package)
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5624,7 +5756,7 @@ def test_coherent_package_semantic_change_changes_the_release_identity():
     )
     operation_entry["definitions"][0]["resource_bounds"]["max_steps"] = 2
     _reidentify_package_release(package)
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5664,7 +5796,7 @@ def test_semantic_closure_cannot_move_a_definition_to_a_non_owner_package():
     for package in (quantity_package, other_package):
         _reidentify_package_release(package)
     ldb["language"]["packages"].append(other_package)
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5692,7 +5824,7 @@ def test_model_lowering_invocation_must_match_the_referenced_rule_contract():
     )
     lowering_entry["definitions"] = deepcopy(language["model_lowerings"])
     _reidentify_package_release(package)
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5724,10 +5856,29 @@ def test_reidentified_ldb_and_package_shapes_remain_closed(mutation):
 
     if mutation == "ldb-artifact-kind":
         ldb["artifact_kind"] = "not-a-bundle"
+        ldb.root["artifact_kind"] = "not-a-bundle"
     elif mutation == "ldb-schema-major":
         ldb["schema_major"] = 3
+        ldb.root["schema_major"] = 3
     elif mutation == "diagnostic-extra-member":
         ldb["diagnostics"][0]["host_semantics"] = True
+        diagnostic_code = ldb["diagnostics"][0]["code"]
+        package = next(
+            candidate
+            for candidate in ldb["language"]["packages"]
+            if diagnostic_code in candidate["exports"]["diagnostics"]
+        )
+        diagnostic_entry = next(
+            entry
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == "diagnostics"
+        )
+        next(
+            row
+            for row in diagnostic_entry["definitions"]
+            if row["code"] == diagnostic_code
+        )["host_semantics"] = True
+        _reidentify_package_release(package)
     elif mutation == "package-id-type":
         package["id"] = 7
     elif mutation == "package-version-type":
@@ -5737,7 +5888,7 @@ def test_reidentified_ldb_and_package_shapes_remain_closed(mutation):
 
     if mutation.startswith("package-"):
         package["content_identity"] = _identity("domain-package-release-v2", package)
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -5751,9 +5902,7 @@ def test_reidentified_package_cannot_reference_an_unowned_vector():
     package = authority["language_bundle"]["language"]["packages"][0]
     package["vectors"][0] = "host.missing"
     package["content_identity"] = _identity("domain-package-release-v2", package)
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    _reidentify_graph_root(authority["language_bundle"])
 
     first = _consumer_a(authority["kernel"], authority["language_bundle"])
     second = _consumer_b(authority["kernel"], authority["language_bundle"])
@@ -5827,70 +5976,96 @@ def test_reidentified_deletion_of_every_law_and_rule_is_refused_by_both_consumer
     for index in range(len(ldb_rules)):
         authority = deepcopy(baseline)
         del authority["language_bundle"]["language"]["rules"][index]
-        authority["language_bundle"]["content_identity"] = _identity(
-            "language-definition-bundle-v2", authority["language_bundle"]
-        )
+        _refresh_package_closure_and_reidentify(authority["language_bundle"])
         first = _consumer_a(authority["kernel"], authority["language_bundle"])
         second = _consumer_b(authority["kernel"], authority["language_bundle"])
         assert first == second
         assert first["admitted"] is False
         assert any(
-            code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"]
-        )
+            code == "kernel.identity_mismatch" for _, code, _ in first["diagnostics"]
+        ), first["diagnostics"]
 
 
 def test_reidentified_duplicate_diagnostic_is_not_hidden_by_set_projection():
     authority = authority_set()
-    authority["language_bundle"]["diagnostics"].append(
-        deepcopy(authority["language_bundle"]["diagnostics"][0])
+    ldb = authority["language_bundle"]
+    diagnostic = deepcopy(ldb["diagnostics"][0])
+    package = next(
+        candidate
+        for candidate in ldb["language"]["packages"]
+        if diagnostic["code"] in candidate["exports"]["diagnostics"]
     )
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
+    package["exports"]["diagnostics"].append(diagnostic["code"])
+    diagnostic_entry = next(
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "diagnostics"
     )
+    diagnostic_entry["definitions"].append(diagnostic)
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["admitted"] is False
     assert (
-        "static",
-        "kernel.duplicate_identifier",
-        "language-bundle.diagnostics",
+        "ingress",
+        "kernel.member_set_mismatch",
+        "language-bundle.language.packages.0",
     ) in first["diagnostics"]
 
 
 def test_reidentified_duplicate_vector_id_is_refused_by_both_consumers():
     authority = authority_set()
-    duplicate = deepcopy(authority["language_bundle"]["vectors"][0])
+    ldb = authority["language_bundle"]
+    duplicate = deepcopy(ldb["vectors"][0])
     duplicate["rule"] = "quantity.lower"
-    authority["language_bundle"]["vectors"].append(duplicate)
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
+    package = next(
+        candidate
+        for candidate in ldb["language"]["packages"]
+        if duplicate["id"] in candidate["vectors"]
     )
+    package["vectors"].append(duplicate["id"])
+    package["vector_definitions"].append(duplicate)
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert (
-        "static",
-        "kernel.duplicate_identifier",
-        "language-bundle.vectors",
+        "ingress",
+        "kernel.member_set_mismatch",
+        "language-bundle.language.packages.0",
     ) in first["diagnostics"]
 
 
 def test_reidentified_open_fact_shape_is_refused_by_both_consumers():
     authority = authority_set()
-    authority["language_bundle"]["vectors"][0]["input"]["facts"][0][
-        "host_semantics"
-    ] = "invented"
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
+    ldb = authority["language_bundle"]
+    vector = next(
+        item
+        for item in ldb["vectors"]
+        if isinstance(item.get("input"), dict) and "facts" in item["input"]
     )
+    vector["input"]["facts"][0]["host_semantics"] = "invented"
+    package = next(
+        candidate
+        for candidate in ldb["language"]["packages"]
+        if vector["id"] in candidate["vectors"]
+    )
+    package_vector = next(
+        item for item in package["vector_definitions"] if item["id"] == vector["id"]
+    )
+    package_vector["input"]["facts"][0]["host_semantics"] = "invented"
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["admitted"] is False
@@ -5902,16 +6077,16 @@ def test_reidentified_open_reason_shape_is_refused_by_both_consumers():
     authority["language_bundle"]["language"]["reasons"][0]["host_predicate"] = (
         "invented"
     )
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    _refresh_package_closure_and_reidentify(authority["language_bundle"])
 
     first = _consumer_a(authority["kernel"], authority["language_bundle"])
     second = _consumer_b(authority["kernel"], authority["language_bundle"])
 
     assert first == second
     assert first["admitted"] is False
-    assert any(code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"])
+    assert any(
+        code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"]
+    ), first["diagnostics"]
 
 
 @pytest.mark.parametrize(
@@ -5935,9 +6110,7 @@ def test_reidentified_package_cannot_hide_an_unowned_reference(path, replacement
         target = target[member]
     target[path[-1]] = replacement
     package["content_identity"] = _identity("domain-package-release-v2", package)
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    _reidentify_graph_root(authority["language_bundle"])
 
     first = _consumer_a(authority["kernel"], authority["language_bundle"])
     second = _consumer_b(authority["kernel"], authority["language_bundle"])
@@ -5954,7 +6127,11 @@ def test_reidentified_package_cannot_hide_an_unowned_reference(path, replacement
     expected_code = (
         "kernel.identity_mismatch"
         if path in semantic_owner_paths
-        else "kernel.vector_mismatch"
+        else (
+            "kernel.binding_mismatch"
+            if path[0] == "dependencies"
+            else "kernel.vector_mismatch"
+        )
     )
     assert any(code == expected_code for _, code, _ in first["diagnostics"])
 
@@ -5962,9 +6139,7 @@ def test_reidentified_package_cannot_hide_an_unowned_reference(path, replacement
 def test_reidentified_rule_phase_mutation_is_refused_by_both_consumers():
     authority = authority_set()
     authority["language_bundle"]["language"]["rules"][0]["phase"] = "host"
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    _refresh_package_closure_and_reidentify(authority["language_bundle"])
 
     first = _consumer_a(authority["kernel"], authority["language_bundle"])
     second = _consumer_b(authority["kernel"], authority["language_bundle"])
@@ -5977,9 +6152,7 @@ def test_reidentified_rule_phase_mutation_is_refused_by_both_consumers():
 def test_reidentified_capability_definition_cannot_omit_its_rule_reference():
     authority = authority_set()
     del authority["language_bundle"]["language"]["capabilities"][0]["rule"]
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    _refresh_package_closure_and_reidentify(authority["language_bundle"])
 
     first = _consumer_a(authority["kernel"], authority["language_bundle"])
     second = _consumer_b(authority["kernel"], authority["language_bundle"])
@@ -6003,7 +6176,7 @@ def test_reidentified_package_cannot_export_an_open_host_operation_definition():
     )
     operation_entry["definitions"].append(deepcopy(language["operations"][-1]))
     _reidentify_package_release(package)
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _reidentify_graph_root(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -6030,16 +6203,31 @@ def test_malformed_quantity_inventory_returns_a_typed_refusal_from_both_consumer
 
 def test_reidentified_fact_enum_drift_is_refused_by_both_consumers():
     authority = authority_set()
-    input_fact = authority["language_bundle"]["vectors"][0]["input"]["facts"][0]
-    expected_fact = authority["language_bundle"]["vectors"][0]["expect"]
+    ldb = authority["language_bundle"]
+    vector = next(
+        item
+        for item in ldb["vectors"]
+        if isinstance(item.get("input"), dict) and "facts" in item["input"]
+    )
+    input_fact = vector["input"]["facts"][0]
+    expected_fact = vector["expect"]
     input_fact["fields"]["role"] = "host-role"
     expected_fact["fields"]["role"] = "host-role"
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
+    package = next(
+        candidate
+        for candidate in ldb["language"]["packages"]
+        if vector["id"] in candidate["vectors"]
     )
+    package_vector = next(
+        item for item in package["vector_definitions"] if item["id"] == vector["id"]
+    )
+    package_vector["input"]["facts"][0]["fields"]["role"] = "host-role"
+    package_vector["expect"]["fields"]["role"] = "host-role"
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["admitted"] is False
@@ -6051,9 +6239,7 @@ def test_reidentified_non_string_variable_term_returns_a_typed_refusal():
     authority["language_bundle"]["language"]["rules"][0]["conclusion"]["fields"][
         "role"
     ]["name"] = {"host": "role"}
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    _refresh_package_closure_and_reidentify(authority["language_bundle"])
 
     first = _consumer_a(authority["kernel"], authority["language_bundle"])
     second = _consumer_b(authority["kernel"], authority["language_bundle"])
@@ -6068,9 +6254,7 @@ def test_reidentified_reason_operand_type_drift_is_refused_by_both_consumers():
     authority["language_bundle"]["language"]["reasons"][1]["predicate"][
         "member_field"
     ] = 42
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    _refresh_package_closure_and_reidentify(authority["language_bundle"])
 
     first = _consumer_a(authority["kernel"], authority["language_bundle"])
     second = _consumer_b(authority["kernel"], authority["language_bundle"])
@@ -6085,9 +6269,7 @@ def test_reidentified_reason_cannot_change_its_inventory_semantics():
     authority["language_bundle"]["language"]["reasons"][0]["predicate"][
         "inventory_path"
     ] = "language.quantity.symbol_roles"
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    _refresh_package_closure_and_reidentify(authority["language_bundle"])
 
     first = _consumer_a(authority["kernel"], authority["language_bundle"])
     second = _consumer_b(authority["kernel"], authority["language_bundle"])
@@ -6102,9 +6284,7 @@ def test_reidentified_reason_cannot_change_its_limit_semantics():
     authority["language_bundle"]["language"]["reasons"][3]["predicate"][
         "limit_path"
     ] = "resources.max_diagnostics"
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    _refresh_package_closure_and_reidentify(authority["language_bundle"])
 
     first = _consumer_a(authority["kernel"], authority["language_bundle"])
     second = _consumer_b(authority["kernel"], authority["language_bundle"])
@@ -6116,16 +6296,25 @@ def test_reidentified_reason_cannot_change_its_limit_semantics():
 
 def test_reidentified_reason_vector_with_non_boolean_outcome_is_a_total_refusal():
     authority = authority_set()
-    reason_vector = next(
-        item for item in authority["language_bundle"]["vectors"] if "reason" in item
-    )
+    ldb = authority["language_bundle"]
+    reason_vector = next(item for item in ldb["vectors"] if "reason" in item)
     reason_vector["matched"] = {"host": True}
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
+    package = next(
+        candidate
+        for candidate in ldb["language"]["packages"]
+        if reason_vector["id"] in candidate["vectors"]
     )
+    package_vector = next(
+        item
+        for item in package["vector_definitions"]
+        if item["id"] == reason_vector["id"]
+    )
+    package_vector["matched"] = {"host": True}
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["admitted"] is False
@@ -6220,7 +6409,7 @@ def test_reidentified_rule_and_reason_shape_drift_is_a_total_refusal(mutation):
         next(iter(rule["conclusion"]["fields"].values()))["tag"] = []
     else:
         next(iter(rule["conclusion"]["fields"].values()))["tag"] = {}
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -6234,7 +6423,6 @@ def test_reidentified_non_object_language_is_a_total_refusal(replacement):
     authority = authority_set()
     ldb = authority["language_bundle"]
     ldb["language"] = replacement
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -6245,19 +6433,26 @@ def test_reidentified_non_object_language_is_a_total_refusal(replacement):
 
 def test_reidentified_wire_schema_token_drift_is_refused_by_both_consumers():
     authority = authority_set()
-    authority["language_bundle"]["language"]["quantity"]["symbol_roles"][-1] = (
-        "host-random"
+    ldb = authority["language_bundle"]
+    package = ldb["language"]["packages"][0]
+    package["exports"]["symbol_roles"][-1] = "host-random"
+    symbol_roles = next(
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.quantity.symbol_roles"
     )
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    symbol_roles["definitions"][-1] = "host-random"
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["admitted"] is False
-    assert any(code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"])
+    assert any(
+        code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"]
+    ), first["diagnostics"]
 
 
 @pytest.mark.parametrize("replacement", [None, False, 0, [], {}])
@@ -6267,7 +6462,7 @@ def test_reidentified_model_source_schema_version_drift_is_refused(replacement):
     ldb["language"]["wire_schemas"][0]["schema"]["properties"]["schema_version"][
         "const"
     ] = replacement
-    ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
+    _refresh_package_closure_and_reidentify(ldb)
 
     first = _consumer_a(authority["kernel"], ldb)
     second = _consumer_b(authority["kernel"], ldb)
@@ -6288,15 +6483,29 @@ def test_reidentified_reason_path_shape_drift_is_a_total_refusal(
     reason_index, member, replacement
 ):
     authority = authority_set()
-    authority["language_bundle"]["language"]["reasons"][reason_index]["predicate"][
-        member
-    ] = replacement
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
+    ldb = authority["language_bundle"]
+    reason_id = ldb["language"]["reasons"][reason_index]["id"]
+    package = next(
+        candidate
+        for candidate in ldb["language"]["packages"]
+        if reason_id in candidate["exports"]["reasons"]
     )
+    reasons = next(
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.reasons"
+    )
+    reason = next(
+        definition
+        for definition in reasons["definitions"]
+        if definition["id"] == reason_id
+    )
+    reason["predicate"][member] = replacement
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["admitted"] is False
@@ -6493,14 +6702,29 @@ def test_current_slice_refuses_not_yet_delivered_operation_definitions():
 
 def test_operation_rule_must_match_every_declared_operation_vector():
     authority = authority_set()
-    operation = authority["language_bundle"]["language"]["operations"][0]
-    operation["rule"] = "quantity.declare"
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
+    ldb = authority["language_bundle"]
+    operation_id = ldb["language"]["operations"][0]["id"]
+    package = next(
+        candidate
+        for candidate in ldb["language"]["packages"]
+        if operation_id in candidate["exports"]["operations"]
     )
+    operations = next(
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.operations"
+    )
+    operation = next(
+        definition
+        for definition in operations["definitions"]
+        if definition["id"] == operation_id
+    )
+    operation["rule"] = "quantity.declare"
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["admitted"] is False
@@ -6509,19 +6733,37 @@ def test_operation_rule_must_match_every_declared_operation_vector():
 
 def test_reidentified_conflicting_duplicate_binding_refuses_in_both_consumers():
     authority = authority_set()
-    rule = authority["language_bundle"]["language"]["rules"][0]
+    ldb = authority["language_bundle"]
+    package = next(
+        candidate
+        for candidate in ldb["language"]["packages"]
+        if "quantity.declare" in candidate["exports"]["language_rules"]
+    )
+    rules = next(
+        entry
+        for entry in package["semantic_closure"]
+        if entry["authority_path"] == "language.rules"
+    )
+    rule = next(
+        definition
+        for definition in rules["definitions"]
+        if definition["id"] == "quantity.declare"
+    )
     rule["premises"].append(deepcopy(rule["premises"][0]))
-    vector = authority["language_bundle"]["vectors"][0]
+    vector = next(
+        candidate
+        for candidate in package["vector_definitions"]
+        if candidate["id"] == "quantity.declare.valid"
+    )
     conflicting_fact = deepcopy(vector["input"]["facts"][0])
     conflicting_fact["fields"]["role"] = "input"
     vector["input"]["facts"].append(conflicting_fact)
     vector["expect"]["fields"]["role"] = "input"
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["admitted"] is False
@@ -6573,14 +6815,28 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
 
     for index in range(len(baseline["language_bundle"]["language"]["rules"])):
         authority = deepcopy(baseline)
-        authority["language_bundle"]["language"]["rules"][index]["conclusion"][
-            "fact_kind"
-        ] += ".changed"
-        authority["language_bundle"]["content_identity"] = _identity(
-            "language-definition-bundle-v2", authority["language_bundle"]
+        ldb = authority["language_bundle"]
+        rule_id = ldb["language"]["rules"][index]["id"]
+        package = next(
+            candidate
+            for candidate in ldb["language"]["packages"]
+            if rule_id in candidate["exports"]["language_rules"]
         )
-        first = _consumer_a(authority["kernel"], authority["language_bundle"])
-        second = _consumer_b(authority["kernel"], authority["language_bundle"])
+        rules = next(
+            entry
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == "language.rules"
+        )
+        rule = next(
+            definition
+            for definition in rules["definitions"]
+            if definition["id"] == rule_id
+        )
+        rule["conclusion"]["fact_kind"] += ".changed"
+        _reidentify_package_release(package)
+        _reidentify_graph_root(ldb)
+        first = _consumer_a(authority["kernel"], ldb)
+        second = _consumer_b(authority["kernel"], ldb)
         assert first == second
         assert any(
             code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"]
@@ -6594,8 +6850,34 @@ def test_old_identity_tamper_and_reidentified_behavior_or_token_mutations_refuse
         collection = authority[owner]
         for part in path:
             collection = collection[part]
-        collection[0]["id"] += ".renamed"
-        _reidentify(authority["kernel"], authority["language_bundle"])
+        if owner == "kernel":
+            collection[0]["id"] += ".renamed"
+            _reidentify(authority["kernel"], authority["language_bundle"])
+        else:
+            ldb = authority["language_bundle"]
+            rule_id = collection[0]["id"]
+            package = next(
+                candidate
+                for candidate in ldb["language"]["packages"]
+                if rule_id in candidate["exports"]["language_rules"]
+            )
+            rules = next(
+                entry
+                for entry in package["semantic_closure"]
+                if entry["authority_path"] == "language.rules"
+            )
+            rule = next(
+                definition
+                for definition in rules["definitions"]
+                if definition["id"] == rule_id
+            )
+            renamed = f"{rule_id}.renamed"
+            package["exports"]["language_rules"][
+                package["exports"]["language_rules"].index(rule_id)
+            ] = renamed
+            rule["id"] = renamed
+            _reidentify_package_release(package)
+            _reidentify_graph_root(ldb)
         first = _consumer_a(authority["kernel"], authority["language_bundle"])
         second = _consumer_b(authority["kernel"], authority["language_bundle"])
         assert first == second
@@ -6628,27 +6910,68 @@ def test_reidentified_kernel_law_operand_mutation_is_refused_by_both_consumers()
 
 
 def test_diagnostic_catalog_missing_extra_and_stage_drift_are_refused():
-    baseline = authority_set()
     mutations = []
 
-    missing = deepcopy(baseline)
-    missing["language_bundle"]["diagnostics"].pop()
+    missing = authority_set()
+    missing_ldb = missing["language_bundle"]
+    missing_code = missing_ldb["diagnostics"][-1]["code"]
+    missing_package = next(
+        package
+        for package in missing_ldb["language"]["packages"]
+        if missing_code in package["exports"]["diagnostics"]
+    )
+    missing_definitions = next(
+        entry["definitions"]
+        for entry in missing_package["semantic_closure"]
+        if entry["authority_path"] == "diagnostics"
+    )
+    missing_package["exports"]["diagnostics"].remove(missing_code)
+    missing_definitions[:] = [
+        definition
+        for definition in missing_definitions
+        if definition["code"] != missing_code
+    ]
+    _reidentify_package_release(missing_package)
+    _reidentify_graph_root(missing_ldb)
     mutations.append(missing)
 
-    extra = deepcopy(baseline)
-    extra["language_bundle"]["diagnostics"].append(
-        {"code": "language.unreachable", "stage": "static"}
+    extra = authority_set()
+    extra_ldb = extra["language_bundle"]
+    extra_package = extra_ldb["language"]["packages"][0]
+    extra_package["exports"]["diagnostics"].append("language.unreachable")
+    extra_definitions = next(
+        entry["definitions"]
+        for entry in extra_package["semantic_closure"]
+        if entry["authority_path"] == "diagnostics"
     )
+    extra_definitions.append({"code": "language.unreachable", "stage": "static"})
+    _reidentify_package_release(extra_package)
+    _reidentify_graph_root(extra_ldb)
     mutations.append(extra)
 
-    drift = deepcopy(baseline)
-    drift["language_bundle"]["diagnostics"][0]["stage"] = "resolution"
+    drift = authority_set()
+    drift_ldb = drift["language_bundle"]
+    drift_code = drift_ldb["diagnostics"][0]["code"]
+    drift_package = next(
+        package
+        for package in drift_ldb["language"]["packages"]
+        if drift_code in package["exports"]["diagnostics"]
+    )
+    drift_definitions = next(
+        entry["definitions"]
+        for entry in drift_package["semantic_closure"]
+        if entry["authority_path"] == "diagnostics"
+    )
+    next(
+        definition
+        for definition in drift_definitions
+        if definition["code"] == drift_code
+    )["stage"] = "resolution"
+    _reidentify_package_release(drift_package)
+    _reidentify_graph_root(drift_ldb)
     mutations.append(drift)
 
     for authority in mutations:
-        authority["language_bundle"]["content_identity"] = _identity(
-            "language-definition-bundle-v2", authority["language_bundle"]
-        )
         first = _consumer_a(authority["kernel"], authority["language_bundle"])
         second = _consumer_b(authority["kernel"], authority["language_bundle"])
         assert first == second
@@ -6666,21 +6989,35 @@ def test_reidentified_deletion_and_behavior_mutation_of_every_reason_refuse():
     for index in range(len(reasons)):
         for mutation in ("delete", "operation"):
             authority = deepcopy(baseline)
-            target = authority["language_bundle"]["language"]["reasons"]
-            if mutation == "delete":
-                del target[index]
-            else:
-                target[index]["predicate"]["operation"] += ".changed"
-            authority["language_bundle"]["content_identity"] = _identity(
-                "language-definition-bundle-v2", authority["language_bundle"]
+            ldb = authority["language_bundle"]
+            reason_id = reasons[index]["id"]
+            package = next(
+                candidate
+                for candidate in ldb["language"]["packages"]
+                if reason_id in candidate["exports"]["reasons"]
             )
-            first = _consumer_a(authority["kernel"], authority["language_bundle"])
-            second = _consumer_b(authority["kernel"], authority["language_bundle"])
+            target = next(
+                entry["definitions"]
+                for entry in package["semantic_closure"]
+                if entry["authority_path"] == "language.reasons"
+            )
+            reason = next(
+                definition for definition in target if definition["id"] == reason_id
+            )
+            if mutation == "delete":
+                package["exports"]["reasons"].remove(reason_id)
+                target.remove(reason)
+            else:
+                reason["predicate"]["operation"] += ".changed"
+            _reidentify_package_release(package)
+            _reidentify_graph_root(ldb)
+            first = _consumer_a(authority["kernel"], ldb)
+            second = _consumer_b(authority["kernel"], ldb)
             assert first == second
             assert first["admitted"] is False
             assert any(
                 code == "kernel.vector_mismatch" for _, code, _ in first["diagnostics"]
-            )
+            ), first["diagnostics"]
 
 
 def test_reidentified_extra_members_cannot_extend_kernel_ldb_or_rule_shapes():
@@ -6715,22 +7052,29 @@ def test_reidentified_extra_members_cannot_extend_kernel_ldb_or_rule_shapes():
 
 def test_two_consumers_agree_on_report_all_cap_and_truncation():
     authority = authority_set()
+    ldb = authority["language_bundle"]
+    package = next(
+        candidate
+        for candidate in ldb["language"]["packages"]
+        if "quantity.declare" in candidate["exports"]["language_rules"]
+    )
     diagnostic_cap = authority["kernel"]["resources"]["max_diagnostics"]
     for index in range(diagnostic_cap + 2):
-        authority["language_bundle"]["vectors"].append(
+        vector_id = f"mutant.{index}"
+        package["vectors"].append(vector_id)
+        package["vector_definitions"].append(
             {
                 "expect": {},
-                "id": f"mutant.{index}",
+                "id": vector_id,
                 "input": {"facts": [], "judgment": "missing"},
                 "rule": "quantity.declare",
             }
         )
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["truncated"] is True
@@ -6739,34 +7083,35 @@ def test_two_consumers_agree_on_report_all_cap_and_truncation():
 
 def test_two_consumers_refuse_the_same_nesting_resource_exhaustion():
     authority = authority_set()
+    ldb = authority["language_bundle"]
+    package = ldb["language"]["packages"][0]
     nested: object = "leaf"
     for _ in range(authority["kernel"]["resources"]["max_nesting_depth"] + 1):
         nested = [nested]
-    authority["language_bundle"]["vectors"][0]["unused_host_payload"] = nested
-    authority["language_bundle"]["content_identity"] = _identity(
-        "language-definition-bundle-v2", authority["language_bundle"]
-    )
+    package["vector_definitions"][0]["unused_host_payload"] = nested
+    _reidentify_package_release(package)
+    _reidentify_graph_root(ldb)
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["diagnostics"] == [
-        ("ingress", "kernel.resource_exhausted", "language-bundle")
+        ("ingress", "kernel.resource_exhausted", "language-bundle.packages.0")
     ]
 
 
 def test_two_consumers_refuse_the_same_noncanonical_integer():
     authority = authority_set()
-    authority["language_bundle"]["resources"]["max_source_bytes"] = 2**63
+    ldb = authority["language_bundle"]
+    ldb.root["resources"]["max_source_bytes"] = 2**63
 
-    first = _consumer_a(authority["kernel"], authority["language_bundle"])
-    second = _consumer_b(authority["kernel"], authority["language_bundle"])
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
 
     assert first == second
     assert first["admitted"] is False
     assert {code for _, code, _ in first["diagnostics"]} == {
         "kernel.identity_mismatch",
-        "kernel.member_set_mismatch",
         "kernel.resource_exhausted",
     }

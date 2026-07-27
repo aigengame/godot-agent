@@ -279,10 +279,10 @@ def experiment_run_handler(
 run_experiment_run = experiment_run_handler()
 
 
-def _conformance_rpg_value(name: str, role: str) -> dict[str, object]:
+def _conformance_quantity(name: str, role: str) -> dict[str, object]:
     return {
         "symbol": name,
-        "type": "rpg",
+        "type": "quantity",
         "role": role,
         "representation": "Int",
         "kind": "scalar",
@@ -304,27 +304,27 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
         },
         "package_requirements": [
             {"id": "core.quantity", "version": "2.0.0"},
-            {"id": "game.rpg", "version": "1.0.0"},
+            {"id": "game.combat", "version": "1.0.0"},
         ],
         "modules": [
             {
                 "id": "combat",
                 "imports": [
                     {
-                        "alias": "rpg",
-                        "package": "game.rpg",
-                        "version": "1.0.0",
-                        "symbol": "RpgValue",
+                        "alias": "quantity",
+                        "package": "core.quantity",
+                        "version": "2.0.0",
+                        "symbol": "Quantity",
                     }
                 ],
                 "symbols": [
-                    _conformance_rpg_value("actor_mana", "state"),
-                    _conformance_rpg_value("action_cost", "parameter"),
-                    _conformance_rpg_value("accuracy", "parameter"),
-                    _conformance_rpg_value("base_damage", "parameter"),
-                    _conformance_rpg_value("critical_threshold", "parameter"),
-                    _conformance_rpg_value("target_defense", "input"),
-                    _conformance_rpg_value("target_health", "state"),
+                    _conformance_quantity("actor_mana", "state"),
+                    _conformance_quantity("action_cost", "parameter"),
+                    _conformance_quantity("accuracy", "parameter"),
+                    _conformance_quantity("base_damage", "parameter"),
+                    _conformance_quantity("critical_threshold", "parameter"),
+                    _conformance_quantity("target_defense", "input"),
+                    _conformance_quantity("target_health", "state"),
                 ],
             }
         ],
@@ -370,14 +370,15 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
             "rir_identity": rir["content_identity"],
         },
         "runtime": {
-            "profile": "rpg.exact-int64-event-v1",
+            "profile": "standard.exact-int64-event-v1",
             "required_evaluator": {
-                "operation_kinds": ["event-program"],
+                "operation_kinds": ["event-fragment", "event-program"],
                 "instruction_nodes": [
                     "add",
                     "constant",
                     "draw",
                     "if",
+                    "invoke",
                     "less-than-or-equal",
                     "maximum",
                     "multiply",
@@ -393,7 +394,7 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
                 ],
                 "numeric_policies": ["exact-int64"],
                 "rng_algorithms": ["splitmix64-v1"],
-                "runtime_profiles": ["rpg.exact-int64-event-v1"],
+                "runtime_profiles": ["standard.exact-int64-event-v1"],
             },
         },
         "seed": {"algorithm": "splitmix64-v1", "value": 1},
@@ -401,7 +402,7 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
         "scenarios": [
             {
                 "id": "one",
-                "operation": "rpg.combat.cast-v1",
+                "operation": "game.combat.cast-v1",
                 "values": [
                     {"name": "actor_mana", "value": 30},
                     {"name": "action_cost", "value": 8},
@@ -462,21 +463,21 @@ _VALID_EXPERIMENT = """{
     "rir_identity": "sha256:fixture"
   },
   "runtime": {
-    "profile": "rpg.exact-int64-event-v1",
+    "profile": "standard.exact-int64-event-v1",
     "required_evaluator": {
-      "operation_kinds": ["event-program"],
+      "operation_kinds": ["event-fragment", "event-program"],
       "instruction_nodes": ["constant"],
       "effects": ["event.commit"],
       "numeric_policies": ["exact-int64"],
       "rng_algorithms": ["splitmix64-v1"],
-      "runtime_profiles": ["rpg.exact-int64-event-v1"]
+      "runtime_profiles": ["standard.exact-int64-event-v1"]
     }
   },
   "seed": {"algorithm": "splitmix64-v1", "value": 1},
   "external_inputs": [],
   "scenarios": [{
     "id": "one",
-    "operation": "rpg.combat.cast-v1",
+    "operation": "game.combat.cast-v1",
     "values": [{"name": "value", "value": 1}],
     "named_streams": [],
     "terminal_condition": {"kind": "event-count", "maximum": 1}

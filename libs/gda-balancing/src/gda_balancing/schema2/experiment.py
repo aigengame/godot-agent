@@ -47,6 +47,7 @@ _SUPPORTED_RUNTIME_OPERATORS = frozenset(
         "integer-maximum",
         "integer-multiply",
         "integer-subtract",
+        "invoke-operation",
         "named-integer-draw",
         "select-value",
         "state-integer-subtract",
@@ -177,6 +178,39 @@ def _runtime_nodes(checked: CheckedExperiment) -> dict[str, dict[str, Any]]:
         row["id"]: row
         for row in cast(list[dict[str, Any]], _runtime_contract(checked)["nodes"])
     }
+
+
+def _expanded_operation_body(
+    operation: dict[str, Any],
+    operations: dict[str, dict[str, Any]],
+    visiting: frozenset[str] = frozenset(),
+) -> list[dict[str, Any]]:
+    """Expand generic Operation composition without package-specific dispatch."""
+    operation_id = cast(str, operation["id"])
+    if operation_id in visiting:
+        raise ValueError("admitted Operation composition is cyclic")
+    nested_visiting = visiting | {operation_id}
+    expanded: list[dict[str, Any]] = []
+    for instruction in cast(list[dict[str, Any]], operation["body"]):
+        expanded.append(instruction)
+        if instruction["node"] != "invoke":
+            continue
+        invoked = operations.get(cast(str, instruction["operation"]))
+        if invoked is None:
+            raise ValueError("admitted Operation composition target is absent")
+        expanded.extend(_expanded_operation_body(invoked, operations, nested_visiting))
+    return expanded
+
+
+def _diagnostic_for_signal(checked: CheckedExperiment, signal: str, stage: str) -> str:
+    matches = [
+        reason["diagnostic"]
+        for reason in checked.language_bundle["language"]["reasons"]
+        if reason.get("signal") == signal and reason.get("stage") == stage
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"admitted Diagnostic signal is not unique: {signal}")
+    return cast(str, matches[0])
 
 
 def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
@@ -389,6 +423,16 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
                 pointer=f"/scenarios/{scenario_index}/operation",
                 message="Scenario operation requires another Runtime profile",
             )
+        try:
+            expanded_body = _expanded_operation_body(operation, operations)
+        except ValueError:
+            return _refusal(
+                stage="resolution",
+                code="language.resolution_binding_mismatch",
+                identity=experiment_identity,
+                pointer=f"/scenarios/{scenario_index}/operation",
+                message="Scenario Operation composition is not closed",
+            )
         outcomes = {
             row["id"]: row
             for row in cast(list[dict[str, Any]], operation.get("outcomes", []))
@@ -396,7 +440,7 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
         }
         referenced_outcomes = {
             instruction["outcome"]
-            for instruction in operation["body"]
+            for instruction in expanded_body
             if "outcome" in instruction
         }
         if (
@@ -411,13 +455,18 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
                 pointer=f"/scenarios/{scenario_index}/operation",
                 message="Scenario operation does not close its typed outcome algebra",
             )
+        required_operation_kinds.update(
+            operations[instruction["operation"]]["operation_kind"]
+            for instruction in expanded_body
+            if instruction["node"] == "invoke"
+        )
         required_operation_kinds.add(operation["operation_kind"])
         required_instruction_nodes.update(
-            instruction["node"] for instruction in operation["body"]
+            instruction["node"] for instruction in expanded_body
         )
         required_effects.update(operation["effects"])
         required_numeric_policies.add(operation["numeric_policy"])
-        if any(instruction["node"] == "draw" for instruction in operation["body"]):
+        if any(instruction["node"] == "draw" for instruction in expanded_body):
             required_rng_algorithms.add(value["seed"]["algorithm"])
         provided = {row["name"] for row in scenario["values"]}
         required = {row["name"] for row in operation["inputs"]}
@@ -431,7 +480,7 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
             )
         draws = {
             instruction["stream"]
-            for instruction in operation["body"]
+            for instruction in expanded_body
             if instruction["node"] == "draw"
         }
         if draws != set(scenario["named_streams"]):
@@ -626,11 +675,16 @@ def _evaluator_build_identity(root: Path | None = None) -> str:
 
 def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
     runtime_contract = _runtime_contract(checked)
+    operations = {
+        row["definition"]["id"]: row["definition"]
+        for row in checked.rir["selected_semantics"]["operations"]
+    }
     reachable_nodes = {
         instruction["node"]
-        for operation in checked.language_bundle["language"]["operations"]
-        if operation.get("operation_kind") == "event-program"
-        for instruction in operation["body"]
+        for scenario in checked.value["scenarios"]
+        for instruction in _expanded_operation_body(
+            operations[scenario["operation"]], operations
+        )
     }
     nodes = sorted(
         row["id"]
@@ -677,7 +731,7 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             "implementation": _EVALUATOR_IMPLEMENTATION,
             "evaluator_build_identity": build_identity,
             "runtime_program_version": runtime_contract["version"],
-            "operation_kinds": ["event-program"],
+            "operation_kinds": ["event-fragment", "event-program"],
             "instruction_nodes": nodes,
             "effects": [
                 "event.commit",
@@ -698,7 +752,7 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
             "implementation_identity": implementation_identity,
             "kernel_identity": checked.kernel["content_identity"],
             "language_bundle_identity": checked.language_bundle["content_identity"],
-            "operation_kinds": ["event-program"],
+            "operation_kinds": ["event-fragment", "event-program"],
             "instruction_nodes": nodes,
             "effects": [
                 "event.commit",
@@ -772,7 +826,9 @@ def _check_evaluator_requirements(
         if not set(required[member]) <= set(available[member]):
             return _refusal(
                 stage="resolution",
-                code="rpg.runtime_capability_unsupported",
+                code=_diagnostic_for_signal(
+                    checked, "capability-unsupported", "resolution"
+                ),
                 identity=checked.content_identity,
                 pointer=f"/runtime/required_evaluator/{member}",
                 message=f"Evaluator does not provide every required {member}",
@@ -944,11 +1000,12 @@ def evaluate_experiment(
             )
         )
         operation = operations[scenario["operation"]]
+        expanded_body = _expanded_operation_body(operation, operations)
         outcomes = {row["id"]: row for row in operation["outcomes"]}
         outcome = operation["default_outcome"]
         draws: list[dict[str, JsonValue]] = []
         event_steps = 0
-        for instruction in operation["body"]:
+        for instruction in expanded_body:
             node_contract = node_contracts[instruction["node"]]
             charge = node_contract["resource_charge"]["amount"]
             total_steps += charge
@@ -961,7 +1018,7 @@ def evaluate_experiment(
                     checked,
                     scenario_id=scenario["id"],
                     scenario_index=scenario_index,
-                    code="rpg.runtime_step_limit_exceeded",
+                    code=_diagnostic_for_signal(checked, "step-limit", "runtime"),
                     message="Runtime program exhausted its exact step bound",
                     events=events,
                     operation=operation["id"],
@@ -969,6 +1026,8 @@ def evaluate_experiment(
                 )
             semantics = node_contract["semantics"]
             operator = semantics["operator"]
+            if operator == "invoke-operation":
+                continue
             if operator == "gameplay-precondition":
                 if not _integer_compare(
                     semantics["comparison"],
@@ -1022,7 +1081,9 @@ def evaluate_experiment(
                         checked,
                         scenario_id=scenario["id"],
                         scenario_index=scenario_index,
-                        code="rpg.runtime_numeric_overflow",
+                        code=_diagnostic_for_signal(
+                            checked, "numeric-overflow", "runtime"
+                        ),
                         message="Exact-int64 operation overflowed its numeric domain",
                         events=events,
                         operation=operation["id"],
@@ -1054,7 +1115,9 @@ def evaluate_experiment(
                         checked,
                         scenario_id=scenario["id"],
                         scenario_index=scenario_index,
-                        code="rpg.runtime_numeric_overflow",
+                        code=_diagnostic_for_signal(
+                            checked, "numeric-overflow", "runtime"
+                        ),
                         message="Exact-int64 state update overflowed its numeric domain",
                         events=events,
                         operation=operation["id"],
@@ -1073,7 +1136,9 @@ def evaluate_experiment(
                         checked,
                         scenario_id=scenario["id"],
                         scenario_index=scenario_index,
-                        code="rpg.runtime_numeric_overflow",
+                        code=_diagnostic_for_signal(
+                            checked, "numeric-overflow", "runtime"
+                        ),
                         message="Exact-int64 state update overflowed its numeric domain",
                         events=events,
                         operation=operation["id"],
@@ -1146,7 +1211,9 @@ def evaluate_experiment(
         if len(matched) != 1:
             return _refusal(
                 stage="evaluation",
-                code="rpg.evaluation_observation_unavailable",
+                code=_diagnostic_for_signal(
+                    checked, "observation-unavailable", "evaluation"
+                ),
                 identity=checked.content_identity,
                 pointer=f"/metrics/{metric['id']}/observation",
                 message="Metric observation did not resolve to exactly one value",

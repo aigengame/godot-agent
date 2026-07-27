@@ -19,6 +19,7 @@ import jsonschema
 import pytest
 from gda_balancing.schema2.bootstrap import admit_authorities
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.schema2.authority_graph import derive_language_index
 from gda_balancing.schema2.surface import descriptor_identity
 
 
@@ -116,6 +117,22 @@ def test_model_check_accepts_all_quantity_roles_without_publishing(tmp_path, run
     assert result["kernel_identity"].startswith("sha256:")
     assert result["language_bundle_identity"].startswith("sha256:")
     assert set(tmp_path.iterdir()) == before
+
+
+def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
+    tmp_path, run_cli
+):
+    source_document = _model_source()
+    source_document["package_requirements"].append(
+        {"id": "game.combat", "version": "1.0.0"}
+    )
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (0, "")
+    assert json.loads(stdout)["checked"] is True
 
 
 def test_in_memory_model_check_reuses_only_a_matching_authority_admission():
@@ -1695,6 +1712,38 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             ),
         )
         _reidentify(package, "domain-package-release-v2")
+    graph_root = getattr(language_bundle, "root", None)
+    if isinstance(graph_root, dict):
+        packages = deepcopy(language_bundle["language"]["packages"])
+        sizes = [len(canonical_bytes(cast(JsonValue, package))) for package in packages]
+        graph_root["resources"] = deepcopy(language_bundle["resources"])
+        graph_root["package_descriptors"] = [
+            {
+                "artifact_kind": package["artifact_kind"],
+                "byte_size": size,
+                "content_identity": package["content_identity"],
+                "id": package["id"],
+                "version": package["version"],
+            }
+            for package, size in zip(packages, sizes, strict=True)
+        ]
+        _reidentify(graph_root, "language-definition-bundle-v2")
+        language_bundle.root = deepcopy(graph_root)
+        language_bundle.package_releases = packages
+        language_bundle.root_byte_size = len(
+            canonical_bytes(cast(JsonValue, graph_root))
+        )
+        language_bundle.member_byte_sizes = tuple(sizes)
+        rebuilt = derive_language_index(
+            graph_root,
+            packages,
+            kernel["admission"]["required_language_members"],
+            root_byte_size=language_bundle.root_byte_size,
+            member_byte_sizes=sizes,
+        )
+        language_bundle.clear()
+        language_bundle.update(dict(rebuilt))
+        return
     _reidentify(language_bundle, "language-definition-bundle-v2")
 
 
@@ -1935,7 +1984,7 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     unreachable = next(
         operation
         for operation in candidate_ldb["language"]["operations"]
-        if operation["id"] == "rpg.combat.cast-v1"
+        if operation["id"] == "game.combat.cast-v1"
     )
     unreachable["resource_bounds"]["max_steps"] += 1
     _reidentify_language_bundle(candidate_ldb)

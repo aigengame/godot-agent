@@ -171,9 +171,7 @@ def test_language_bundle_returns_the_admitted_sealed_graph(run_cli):
     descriptors = authority["language_bundle"]["package_descriptors"]
     releases = authority["package_releases"]
     assert len(descriptors) == len(releases) > 1
-    assert [
-        (item["id"], item["version"]) for item in descriptors
-    ] == sorted(
+    assert [(item["id"], item["version"]) for item in descriptors] == sorted(
         (item["id"], item["version"]) for item in descriptors
     )
     assert [
@@ -205,9 +203,7 @@ def test_package_list_and_exact_get_return_root_declared_children(run_cli):
     list_exit, list_stdout, list_stderr = run_cli(["schema", "get", "package-list"])
     assert (list_exit, list_stderr) == (0, "")
     listing = json.loads(list_stdout)
-    success_schema = json.loads(run_cli(["schema", "get", "--schema"])[1])[
-        "success"
-    ]
+    success_schema = json.loads(run_cli(["schema", "get", "--schema"])[1])["success"]
     jsonschema.validate(listing, success_schema)
     assert listing == {
         "language_bundle_identity": authority["language_bundle"]["content_identity"],
@@ -258,7 +254,9 @@ def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):
         "content_identity",
         "byte_size",
     ]
-    assert set(kernel["meta_format"]["admitted_language_index"]["required_members"]) == {
+    assert set(
+        kernel["meta_format"]["admitted_language_index"]["required_members"]
+    ) == {
         "artifact_kind",
         "artifact_version",
         "schema_major",
@@ -278,6 +276,55 @@ def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):
         "max_ldb_dependency_steps",
         "max_ldb_admission_work",
     } <= set(kernel["resources"])
+
+
+def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    releases = {release["id"]: release for release in authority["package_releases"]}
+    assert {"game.resource", "game.check", "game.combat"} <= set(releases)
+    assert "game.rpg" not in releases
+
+    def definitions(package_id, authority_path):
+        return next(
+            entry["definitions"]
+            for entry in releases[package_id]["semantic_closure"]
+            if entry["authority_path"] == authority_path
+        )
+
+    resource_operations = {
+        item["id"] for item in definitions("game.resource", "language.operations")
+    }
+    check_operations = {
+        item["id"] for item in definitions("game.check", "language.operations")
+    }
+    combat_operations = {
+        item["id"] for item in definitions("game.combat", "language.operations")
+    }
+    assert resource_operations == {"game.resource.spend-v1"}
+    assert check_operations == {
+        "game.check.hit-v1",
+        "game.check.critical-v1",
+    }
+    assert combat_operations == {
+        "game.combat.damage-v1",
+        "game.combat.cast-v1",
+    }
+    cast = next(
+        operation
+        for operation in definitions("game.combat", "language.operations")
+        if operation["id"] == "game.combat.cast-v1"
+    )
+    assert cast["body"] == [
+        {"node": "invoke", "operation": "game.resource.spend-v1"},
+        {"node": "invoke", "operation": "game.check.hit-v1"},
+        {"node": "invoke", "operation": "game.check.critical-v1"},
+        {"node": "invoke", "operation": "game.combat.damage-v1"},
+    ]
+    assert all(item["type"] == "Quantity" for item in cast["inputs"])
+    serialized = json.dumps(authority["package_releases"], sort_keys=True)
+    assert "game.rpg" not in serialized
+    assert "RpgValue" not in serialized
+    assert "rpg." not in serialized
 
 
 def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli):
@@ -640,9 +687,7 @@ def test_bootstrap_refusal_reports_sorted_bounded_diagnostics_at_cli(run_cli):
     ldb = deepcopy(loaded_ldb)
     diagnostic_cap = kernel["resources"]["max_diagnostics"]
     core = next(
-        release
-        for release in ldb.package_releases
-        if release["id"] == "core.quantity"
+        release for release in ldb.package_releases if release["id"] == "core.quantity"
     )
     for index in range(diagnostic_cap + 2):
         vector_id = f"mutant.{index}"

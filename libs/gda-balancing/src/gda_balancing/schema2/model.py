@@ -525,6 +525,39 @@ def _resolution_relations(
     budget: _ResolutionBudget,
 ) -> dict[str, list[dict[str, Any]]]:
     language = _language(language_bundle)
+    available_packages = cast(list[dict[str, Any]], language["packages"])
+    requirements_member = cast(str, profile["requirements_member"])
+    requirement_package_member = cast(str, profile["requirement_package_member"])
+    requirement_version_member = cast(str, profile["requirement_version_member"])
+    by_coordinate = {
+        (package["id"], package["version"]): package for package in available_packages
+    }
+    selected_packages: dict[str, dict[str, Any]] = {}
+    pending = [
+        (
+            requirement[requirement_package_member],
+            requirement[requirement_version_member],
+        )
+        for requirement in cast(list[dict[str, str]], source[requirements_member])
+    ]
+    while pending:
+        coordinate = pending.pop(0)
+        package = by_coordinate.get(coordinate)
+        if package is None or package["id"] in selected_packages:
+            continue
+        selected_packages[package["id"]] = package
+        for dependency_id in cast(list[str], package["dependencies"]["required"]):
+            candidates = [
+                candidate
+                for candidate in available_packages
+                if candidate["id"] == dependency_id
+            ]
+            if len(candidates) == 1:
+                dependency = candidates[0]
+                pending.append((dependency["id"], dependency["version"]))
+    selected_package_values = [
+        selected_packages[package_id] for package_id in sorted(selected_packages)
+    ]
 
     def evaluate_term(
         term: dict[str, Any],
@@ -536,6 +569,9 @@ def _resolution_relations(
             pointer: tuple[object, ...] | None = ()
         elif root == "language":
             value = language
+            pointer = None
+        elif root == "selected-packages":
+            value = selected_package_values
             pointer = None
         elif root == "binding":
             value, pointer = bindings[term["binding"]]
@@ -1690,7 +1726,16 @@ def _runtime_projection(
                     == canonical_bytes(source_value)
                 ]
                 if not matches:
-                    raise ValueError("runtime projection edge did not resolve")
+                    source_label = (
+                        source_row["value"].get("id")
+                        if isinstance(source_row["value"], dict)
+                        else None
+                    )
+                    raise ValueError(
+                        "runtime projection edge did not resolve: "
+                        f"{source_id}->{target_id} for "
+                        f"{source_label or f'{source_id}[{source_index}]'}"
+                    )
                 previous_count = len(selected[target_id])
                 selected[target_id].update(matches)
                 changed = changed or len(selected[target_id]) != previous_count

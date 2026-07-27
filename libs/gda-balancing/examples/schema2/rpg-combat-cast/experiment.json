@@ -2,19 +2,20 @@
   "schema_version": "2.0.0",
   "id": "example.rpg-combat-cast.one-action",
   "version": "1.0.0",
-  "kernel_identity": "sha256:e0fb03bf16ce7f51d2985c507e0c279506a411aa26d8548ee929045f7f13126e",
-  "language_bundle_identity": "sha256:25e2fa77de7197c5f030b994ac80bdabe466ae15d0df5a5764f4bb5bcfa0864b",
+  "kernel_identity": "sha256:7dbc5ee11d19cddbcd21198b44ef115b6d4dda1f186beed35e0c4e2adfc3ef0e",
+  "language_bundle_identity": "sha256:87ff999a6c41f2b5b479276baba088bac0b18d364d8d0679dae1d5c60ccc6c9e",
   "model": {
-    "source_identity": "sha256:9b016aa11d2b84656ca01910680e5207c8d94c0f75b08848194246697aed6492",
-    "build_receipt_identity": "sha256:64370df16270b2e66de8099fff01f1fd626e3481a0ff63bb2700f34a18dcd6b3",
-    "resolved_model_identity": "sha256:6329bf8c923e5d9feda0d079131cc2fb25f4fb63f11a92a850eed4a2703a8dce",
-    "package_lock_identity": "sha256:91d45255e2f91aa7ce630696da3151310725c8493a718b7c91dfd27f526d282c",
-    "rir_identity": "sha256:ca7a5b3a44bc110f77d90eb276c78d7e66de36395f43a6284836a36a34d58982"
+    "source_identity": "sha256:803d4871b840dfb7f60978a887fbe9195231094086cbe26dae086a6d62c3bee3",
+    "build_receipt_identity": "sha256:0eb6ab3f64b1c17e16fc84986ed2addf73666a40f587ed832b7e01b8e882e2b5",
+    "resolved_model_identity": "sha256:6d8cb184bcc7b9b7e5b3b2193b25e0913b4ebc3176e14a1b8f7bf3f7df305e74",
+    "package_lock_identity": "sha256:8c3346c5c312f99aa1e019735b7bf317b2f040794eefca85ca116ccddb889c8f",
+    "rir_identity": "sha256:c731d311a88daaa529e381e74f571a2475da803189900248fa5fbf244e7f47cb"
   },
   "runtime": {
-    "profile": "rpg.exact-int64-event-v1",
+    "profile": "standard.exact-int64-event-v1",
     "required_evaluator": {
       "operation_kinds": [
+        "event-fragment",
         "event-program"
       ],
       "instruction_nodes": [
@@ -22,6 +23,7 @@
         "constant",
         "draw",
         "if",
+        "invoke",
         "less-than-or-equal",
         "maximum",
         "multiply",
@@ -42,7 +44,7 @@
         "splitmix64-v1"
       ],
       "runtime_profiles": [
-        "rpg.exact-int64-event-v1"
+        "standard.exact-int64-event-v1"
       ]
     }
   },
@@ -54,7 +56,7 @@
   "scenarios": [
     {
       "id": "one-cast",
-      "operation": "rpg.combat.cast-v1",
+      "operation": "game.combat.cast-v1",
       "values": [
         {
           "name": "actor_mana",
