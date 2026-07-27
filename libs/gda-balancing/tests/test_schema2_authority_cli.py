@@ -13,7 +13,7 @@ import zipfile
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
-from typing import get_args
+from typing import Any, cast, get_args
 
 import jsonschema
 import pytest
@@ -24,6 +24,10 @@ import gda_balancing.commands.schema as schema_command_module
 from gda_balancing.commands.manifest import MANIFEST
 from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
 from gda_balancing.commands.model import MODEL_BUILD, MODEL_CHECK, MODEL_MIGRATE
+from gda_balancing.commands.package import (
+    package_get_success_schema,
+    package_list_success_schema,
+)
 from gda_balancing.commands.schema import SCHEMA_GET, schema_get_handler
 from gda_balancing.schema2.authority_graph import (
     LanguageBundleGraph,
@@ -331,11 +335,13 @@ def test_package_list_and_exact_get_return_root_declared_children(run_cli):
     _, authority_stdout, _ = run_cli(["schema", "get", "language-bundle"])
     authority = json.loads(authority_stdout)
 
-    list_exit, list_stdout, list_stderr = run_cli(["schema", "get", "package-list"])
+    list_exit, list_stdout, list_stderr = run_cli(["package", "list"])
     assert (list_exit, list_stderr) == (0, "")
     listing = json.loads(list_stdout)
-    success_schema = json.loads(run_cli(["schema", "get", "--schema"])[1])["success"]
-    jsonschema.validate(listing, success_schema)
+    list_success_schema = json.loads(run_cli(["package", "list", "--schema"])[1])[
+        "success"
+    ]
+    jsonschema.validate(listing, list_success_schema)
     assert listing == {
         "language_bundle_identity": authority["language_bundle"]["content_identity"],
         "packages": authority["language_bundle"]["package_descriptors"],
@@ -346,19 +352,50 @@ def test_package_list_and_exact_get_return_root_declared_children(run_cli):
     ):
         get_exit, get_stdout, get_stderr = run_cli(
             [
-                "schema",
-                "get",
                 "package",
-                "--package-id",
+                "get",
+                "--id",
                 descriptor["id"],
-                "--package-version",
+                "--version",
                 descriptor["version"],
             ]
         )
         assert (get_exit, get_stderr) == (0, "")
         retrieved = json.loads(get_stdout)
         assert retrieved == release
-        jsonschema.validate(retrieved, success_schema)
+        get_success_schema = json.loads(run_cli(["package", "get", "--schema"])[1])[
+            "success"
+        ]
+        jsonschema.validate(retrieved, get_success_schema)
+
+
+def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    kernel_meta = authority["kernel"]["meta_format"]
+    release_contract = kernel_meta["package_release"]
+    descriptor_contract = kernel_meta["language_bundle"]["package_descriptor"]
+
+    get_schema = package_get_success_schema()
+    get_properties = cast(dict[str, Any], get_schema["properties"])
+    assert set(get_properties) == set(release_contract["required_members"])
+    assert set(cast(list[str], get_schema["required"])) == set(
+        release_contract["required_members"]
+    )
+    for field, members in release_contract["nested_members"].items():
+        nested = cast(dict[str, Any], get_properties[field])
+        assert set(nested["properties"]) == set(members)
+        assert set(nested["required"]) == set(members)
+
+    list_schema = package_list_success_schema()
+    list_properties = cast(dict[str, Any], list_schema["properties"])
+    packages_schema = cast(dict[str, Any], list_properties["packages"])
+    descriptor_schema = cast(dict[str, Any], packages_schema["items"])
+    assert set(descriptor_schema["properties"]) == set(
+        descriptor_contract["required_members"]
+    )
+    assert set(descriptor_schema["required"]) == set(
+        descriptor_contract["required_members"]
+    )
 
 
 def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
@@ -413,19 +450,18 @@ def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
             text=True,
         )
 
-    source_list = run_cli(["schema", "get", "package-list"])
-    installed_list = installed("schema", "get", "package-list")
+    source_list = run_cli(["package", "list"])
+    installed_list = installed("package", "list")
     assert (installed_list.returncode, installed_list.stderr) == (0, "")
     assert installed_list.stdout == source_list[1]
 
     for descriptor in source_root["package_descriptors"]:
         arguments = (
-            "schema",
-            "get",
             "package",
-            "--package-id",
+            "get",
+            "--id",
             descriptor["id"],
-            "--package-version",
+            "--version",
             descriptor["version"],
         )
         source = run_cli(list(arguments))
@@ -790,6 +826,8 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
         "template list",
         "template get",
         "template instantiate",
+        "package list",
+        "package get",
     }
 
     for path, row in commands.items():
@@ -844,6 +882,17 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                 str(tmp_path / "manifest-template-output"),
                 "--invocation-key",
                 "b" * 64,
+            ]
+        elif path == "package list":
+            argv = ["package", "list"]
+        elif path == "package get":
+            argv = [
+                "package",
+                "get",
+                "--id",
+                "core.quantity",
+                "--version",
+                "2.0.0",
             ]
         else:
             descriptor = {

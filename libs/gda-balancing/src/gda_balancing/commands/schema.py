@@ -10,7 +10,7 @@ shape, executable vectors, or resource contract fails.
 from collections.abc import Callable
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, RootModel, model_validator
+from pydantic import BaseModel, ConfigDict, RootModel
 
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
 from gda_balancing.schema2.authority import AuthorityLoadError, load_authorities
@@ -38,27 +38,9 @@ class SchemaGetInput(BaseModel):
 
     artifact: Literal[
         "language-bundle",
-        "package-list",
-        "package",
         "wire-schema",
         "diagnostic-catalog",
     ]
-    package_id: str | None = None
-    package_version: str | None = None
-
-    @model_validator(mode="after")
-    def close_package_coordinate(self) -> "SchemaGetInput":
-        coordinate_supplied = (
-            self.package_id is not None or self.package_version is not None
-        )
-        if self.artifact == "package":
-            if self.package_id is None or self.package_version is None:
-                raise ValueError("package requires package_id and package_version")
-        elif coordinate_supplied:
-            raise ValueError(
-                "package_id and package_version are only valid for package"
-            )
-        return self
 
 
 class SchemaArtifact(RootModel[dict[str, Any]]):
@@ -106,33 +88,6 @@ def schema_get_handler(
                 }
                 return SchemaArtifact(root=cast(dict[str, Any], public_authorities))
             return SchemaArtifact(root=cast(dict[str, Any], authorities))
-        if inp.artifact in {"package-list", "package"}:
-            root = getattr(ldb, "root", None)
-            package_releases = getattr(ldb, "package_releases", None)
-            if not isinstance(root, dict) or not isinstance(package_releases, list):
-                return ingress_refusal(
-                    "kernel.member_set_mismatch",
-                    "language-bundle",
-                    "the admitted LDB has no sealed package graph",
-                )
-            if inp.artifact == "package-list":
-                return SchemaArtifact(
-                    root={
-                        "language_bundle_identity": root["content_identity"],
-                        "packages": root["package_descriptors"],
-                    }
-                )
-            for release in package_releases:
-                if (
-                    release.get("id") == inp.package_id
-                    and release.get("version") == inp.package_version
-                ):
-                    return SchemaArtifact(root=cast(dict[str, Any], release))
-            return ingress_refusal(
-                "kernel.binding_mismatch",
-                f"{inp.package_id}@{inp.package_version}",
-                "the exact package coordinate is absent from the admitted LDB",
-            )
         if inp.artifact == "wire-schema":
             return SchemaArtifact(root=wire_schema_projection(authorities))
         return SchemaArtifact(root=diagnostic_catalog_projection(authorities))
@@ -220,59 +175,6 @@ def schema_get_success_schema() -> dict[str, object]:
         ],
         "unevaluatedProperties": False,
     }
-    package_properties = {
-        name: {}
-        for name in (
-            "artifact_kind",
-            "capabilities",
-            "content_identity",
-            "dependencies",
-            "exports",
-            "id",
-            "profiles",
-            "runtime_semantic_paths",
-            "semantic_closure",
-            "semantic_identity",
-            "vector_definitions",
-            "vectors",
-            "version",
-        )
-    }
-    package_result = {
-        "type": "object",
-        "properties": package_properties,
-        "required": list(package_properties),
-        "unevaluatedProperties": False,
-    }
-    package_list_result = {
-        "type": "object",
-        "properties": {
-            "language_bundle_identity": identity,
-            "packages": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "artifact_kind": {"const": "domain-package-release"},
-                        "byte_size": {"type": "integer", "minimum": 1},
-                        "content_identity": identity,
-                        "id": {"type": "string", "minLength": 1},
-                        "version": {"type": "string", "minLength": 1},
-                    },
-                    "required": [
-                        "artifact_kind",
-                        "byte_size",
-                        "content_identity",
-                        "id",
-                        "version",
-                    ],
-                    "unevaluatedProperties": False,
-                },
-            },
-        },
-        "required": ["language_bundle_identity", "packages"],
-        "unevaluatedProperties": False,
-    }
     projection_base = {
         "kernel_identity": identity,
         "language_bundle_identity": identity,
@@ -336,8 +238,6 @@ def schema_get_success_schema() -> dict[str, object]:
     return {
         "oneOf": [
             authority_result,
-            package_list_result,
-            package_result,
             wire_projection,
             diagnostic_projection,
         ]
