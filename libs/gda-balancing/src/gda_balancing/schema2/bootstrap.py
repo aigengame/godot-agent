@@ -15,6 +15,7 @@ from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_
 from gda_balancing.schema2.authority_graph import (
     LanguageBundleGraph,
     LanguageBundleIndex,
+    canonical_graph_members,
     derive_language_index,
 )
 from gda_balancing.schema2.template_contract import (
@@ -4282,6 +4283,22 @@ def admit_authorities(
     graph_member_sizes = (
         cast(tuple[int, ...], raw_graph_member_sizes) if is_graph else ()
     )
+    descriptor_order = (
+        kernel.get("meta_format", {})
+        .get("language_bundle", {})
+        .get("package_descriptor", {})
+        .get("canonical_order")
+    )
+    if is_graph and isinstance(descriptor_order, list) and all(
+        isinstance(item, str) for item in descriptor_order
+    ):
+        graph_root, graph_releases, normalized_sizes = canonical_graph_members(
+            graph_root,
+            graph_releases,
+            list(graph_member_sizes),
+            cast(list[str], descriptor_order),
+        )
+        graph_member_sizes = tuple(normalized_sizes)
     identity_source = graph_root if is_graph else language_bundle
     ldb_identity = identity_source.get("content_identity")
     canonical_encoding = kernel.get("canonical_encoding")
@@ -4530,12 +4547,6 @@ def admit_authorities(
                     )
             required_language_members = kernel.get("admission", {}).get(
                 "required_language_members"
-            )
-            descriptor_order = (
-                kernel.get("meta_format", {})
-                .get("language_bundle", {})
-                .get("package_descriptor", {})
-                .get("canonical_order")
             )
             if raw_graph_candidate and found:
                 return _result(

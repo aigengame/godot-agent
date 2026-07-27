@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any
 
 
-def _canonical_graph_members(
+def canonical_graph_members(
     root: dict[str, Any],
     package_releases: list[dict[str, Any]],
     member_byte_sizes: list[int],
@@ -113,7 +113,7 @@ def derive_language_index(
     descriptor_order: list[str],
 ) -> LanguageBundleIndex:
     """Derive the legacy-shaped consumer index from package-owned definitions."""
-    root, package_releases, member_byte_sizes = _canonical_graph_members(
+    root, package_releases, member_byte_sizes = canonical_graph_members(
         root, package_releases, member_byte_sizes, descriptor_order
     )
     language: dict[str, Any] = {}

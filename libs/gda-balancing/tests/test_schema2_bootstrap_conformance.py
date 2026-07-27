@@ -16,6 +16,7 @@ import pytest
 import gda_balancing.schema2.bootstrap as production_bootstrap
 from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.authority_graph import (
+    LanguageBundleGraph,
     LanguageBundleIndex,
     derive_language_index,
 )
@@ -4288,12 +4289,54 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         and isinstance(raw_graph_root_size, int)
         and isinstance(raw_graph_member_sizes, tuple)
     )
+    raw_graph_candidate = is_graph and not isinstance(ldb, LanguageBundleIndex)
     graph_root = cast(dict[str, Any], raw_graph_root) if is_graph else {}
     graph_releases = cast(list[dict[str, Any]], raw_graph_releases) if is_graph else []
     graph_root_size = cast(int, raw_graph_root_size) if is_graph else 0
     graph_member_sizes = (
         cast(tuple[int, ...], raw_graph_member_sizes) if is_graph else ()
     )
+    descriptor_order = (
+        kernel.get("meta_format", {})
+        .get("language_bundle", {})
+        .get("package_descriptor", {})
+        .get("canonical_order")
+    )
+    if is_graph and isinstance(descriptor_order, list) and descriptor_order:
+        descriptors = graph_root.get("package_descriptors")
+        if (
+            isinstance(descriptors, list)
+            and len(descriptors) == len(graph_releases)
+            and len(descriptors) == len(graph_member_sizes)
+            and all(
+                isinstance(descriptor, dict)
+                and all(
+                    isinstance(descriptor.get(name), str) for name in descriptor_order
+                )
+                for descriptor in descriptors
+            )
+        ):
+            members = sorted(
+                zip(
+                    descriptors,
+                    graph_releases,
+                    graph_member_sizes,
+                    strict=True,
+                ),
+                key=lambda member: tuple(
+                    cast(dict[str, Any], member[0])[name] for name in descriptor_order
+                ),
+            )
+            graph_root = deepcopy(graph_root)
+            graph_root["package_descriptors"] = [
+                deepcopy(descriptor) for descriptor, _release, _size in members
+            ]
+            graph_releases = [
+                deepcopy(release) for _descriptor, release, _size in members
+            ]
+            graph_member_sizes = tuple(
+                size for _descriptor, _release, size in members
+            )
     identity_source = graph_root if is_graph else ldb
     if ldb.get("content_identity") != _identity_from_kernel(
         kernel, "language-definition-bundle-v2", identity_source
@@ -4550,7 +4593,25 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 "schema_major": graph_root.get("schema_major"),
                 "vectors": derived_vectors,
             }
-            if expected_index != dict(ldb):
+            if raw_graph_candidate and diagnostics:
+                ordered = sorted(
+                    diagnostics, key=lambda item: (item[0], item[2], item[1])
+                )
+                return {
+                    "admitted": False,
+                    "kernel_identity": kernel.get("content_identity"),
+                    "language_bundle_identity": ldb.get("content_identity"),
+                    "law_ids": [],
+                    "law_projections": [],
+                    "rule_ids": [],
+                    "rule_projections": [],
+                    "diagnostic_projections": [],
+                    "diagnostics": ordered[:cap],
+                    "truncated": len(ordered) > cap,
+                }
+            if raw_graph_candidate:
+                ldb = expected_index
+            elif expected_index != dict(ldb):
                 refuse(
                     "kernel.identity_mismatch",
                     "ingress",
@@ -7858,15 +7919,11 @@ def test_descriptor_transport_order_does_not_change_the_canonical_graph():
     baseline = authority["language_bundle"]
     reordered_root = deepcopy(baseline.root)
     reordered_root["package_descriptors"].reverse()
-    reordered = derive_language_index(
-        reordered_root,
-        list(reversed(baseline.package_releases)),
-        authority["kernel"]["admission"]["required_language_members"],
+    reordered = LanguageBundleGraph(
+        root=reordered_root,
+        package_releases=list(reversed(baseline.package_releases)),
         root_byte_size=baseline.root_byte_size,
         member_byte_sizes=list(reversed(baseline.member_byte_sizes)),
-        descriptor_order=authority["kernel"]["meta_format"]["language_bundle"][
-            "package_descriptor"
-        ]["canonical_order"],
     )
 
     first = _consumer_a(authority["kernel"], reordered)
@@ -7874,10 +7931,10 @@ def test_descriptor_transport_order_does_not_change_the_canonical_graph():
 
     assert first == second
     assert first["admitted"] is True
-    assert reordered.root == baseline.root
-    assert reordered.package_releases == baseline.package_releases
-    assert reordered["content_identity"] == baseline["content_identity"]
-    assert dict(reordered) == dict(baseline)
+    assert reordered.root["package_descriptors"] == list(
+        reversed(baseline.root["package_descriptors"])
+    )
+    assert first["language_bundle_identity"] == baseline["content_identity"]
 
 
 def _graph_metrics(ldb: LanguageBundleIndex) -> dict[str, int]:
