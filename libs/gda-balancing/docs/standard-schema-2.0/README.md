@@ -23,19 +23,20 @@ Quantity slice:
   non-self-hosted Kernel Specification for canonical encoding, identity, admission, closed
   fact/term/rule/reason formats, unique rule selection, binding/substitution, Diagnostic closure,
   and deterministic resource bounds.
-- `src/gda_balancing/schema2/authorities/language-bundle.json` binds that exact Kernel and owns the
-  seven Quantity symbol roles, selected representation/kind/unit/domain/Numeric policy, one closed
-  content-addressed `core.quantity` package release, two executable Quantity rules,
-  post-admission Diagnostic reasons, the admitted Model Source schema-version inventory, one Model
-  Source wire schema bound to that inventory, and their normative vectors.
+- The packaged Language Definition Bundle is the sealed multi-member graph defined by bADR-0023.
+  Its small root manifest binds that exact Kernel and canonical package descriptors; complete child
+  artifacts own `core.quantity`, standard compiler/runtime/experiment/template contracts, tooling
+  contracts, and game-mechanic releases. Admission derives the flat lookup view only after the
+  entire graph passes identity, membership, dependency, resource, and vector checks.
 - The production bootstrap consumer and a separately implemented conformance consumer agree on
   exact identities, law/rule/reason inventories, generated projection identities, positive vectors,
   and old-identity/reidentified deletion/behavior/token mutations. Neither contains a Quantity host
   dispatch fallback.
 - This foundation admits the closed Quantity constructor and Model Source wire-schema envelope.
-  Issue #540 extends the same authority with one bounded `game.rpg` type/component/operation and
-  Runtime profile; other operation and package families remain absent until a vertical slice
-  delivers their declarative Kernel/LDB contracts.
+  Issue #540 exercises one bounded cast by composing `game.resource`, `game.check`, and
+  `game.combat` releases over `core.quantity`; no permanent `game.rpg` type or genre umbrella enters
+  the authority. Other operation and package families remain absent until a vertical slice delivers
+  their declarative Kernel/LDB contracts.
 - `schema get language-bundle|wire-schema|diagnostic-catalog`, `manifest`, per-command `--schema`,
   and `--params-json <json|->` expose the admitted slice through the descriptor-owned 2.x surface.
   Admission failures use bounded, ordered, deduplicated, stage-aware Diagnostics.

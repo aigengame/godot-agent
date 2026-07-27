@@ -39,10 +39,11 @@ global authority for the others (bADR-0012).
 _Avoid_: global source of truth, authority layer
 
 **Language Definition Bundle**:
-The sole immutable language-content authority under one exact `Schema-major Kernel Specification`:
+The sole immutable language-content authority under one exact `Schema-major Kernel Specification`.
+It is one sealed artifact graph: a canonical root manifest owns the exact ordered membership, and
+each root-declared content-addressed child owns one complete package release. Together they own
 grammar, type constructors and rules, operation specifications, post-admission diagnostic codes,
-package manifests, version/capability compatibility, Runtime/Numeric profile definitions, and
-normative vectors. It
+version/capability compatibility, Runtime/Numeric profile definitions, and normative vectors. It
 must carry structured laws sufficient for two independent conforming implementations to derive the
 same observable operation, Numeric, effect, scheduling, refusal, and RNG behavior. Selecting or
 naming host-language primitives is not sufficient: the bundle owns Source-package and collection
@@ -51,9 +52,26 @@ Its admitted package/profile/Operation/Diagnostic graph is closed before use; mi
 fall back to host behavior. Structural language schemas, semantic catalogs,
 registries, evaluator tables, documentation projections, and the language-bound members referenced
 by Command descriptors are generated from it or guarded by reverse conformance; command-surface
-shape remains descriptor-owned. No hand-maintained peer language-content authority is allowed
-(bADR-0012/0021/0022).
-_Avoid_: schema registry, implementation registry, language manifest (partial)
+shape remains descriptor-owned. Admission constructs read-only flat indexes only after it verifies
+the complete graph; those indexes are not packaged or independently edited. No directory scan,
+remote lookup, or hand-maintained peer language-content authority may add a member
+(bADR-0012/0021/0022/0023).
+_Avoid_: schema registry, implementation registry, package directory as authority
+
+**LDB root manifest**:
+The canonical root member of one `Language Definition Bundle`. It binds the exact Kernel identity,
+graph resources, and canonical descriptors for every package-release child. Each descriptor binds
+artifact kind, logical package id/version, canonical content identity, and byte size. The manifest
+is the only membership authority; physical paths and Locators are packaging metadata and do not
+enter semantic identity (bADR-0023).
+_Avoid_: package index (if independently editable), directory listing, remote registry
+
+**Admitted language index**:
+A read-only in-memory projection constructed only after the complete LDB graph is admitted. It
+provides efficient lookup of package-owned types, operations, Diagnostics, profiles, rules, schemas,
+and vectors without serializing a second semantic authority. Its contents are recomputed from the
+exact admitted children and cannot be edited or consumed independently (bADR-0023).
+_Avoid_: language registry, generated authority, cached peer catalog
 
 **Schema-major Kernel Specification**:
 The versioned, non-self-hosted authority that defines bundle structure and interpretation,

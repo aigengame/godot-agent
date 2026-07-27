@@ -89,7 +89,9 @@ distribution contract and a falsifiable definition of genre completeness.
   | `game.spatial` | optional positions, ranges, shapes, movement and spatial queries | generic target-query semantics |
 
   Package names are stable conceptual namespaces; final operation/type inventories live only in the
-  Language Definition Bundle.
+  complete package-release children of the sealed Language Definition Bundle (bADR-0023). A broad
+  `game.rpg` package is not an alias for this map: integrated examples compose the mechanic packages
+  without transferring their state, transition, or observation ownership to a genre umbrella.
 
 - **Target selection is its own typed contract.** A Target query operates over a dynamic entity set
   and declares filters, stable ordering, cardinality, tie-breaking, empty-result behavior, and any

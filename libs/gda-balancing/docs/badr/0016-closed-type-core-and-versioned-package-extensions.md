@@ -79,6 +79,9 @@ therefore requires a small closed type language and a constrained package extens
   Two bundles that bind that coordinate to different content are distinct, non-interchangeable
   language worlds; neither claims global historical uniqueness, and no release-index or
   transparency service is part of Standard Schema 2.0.
+  Under bADR-0023, each release is a root-declared content-addressed child of one sealed LDB graph.
+  The root descriptor binds its logical coordinate, identity, and byte size. A loader cannot discover
+  packages by scanning ambient files, and a post-admission flat index is a derived non-authority.
 
 - **Dependency resolution is deterministic and single-version per package id.** A Resolved Model
   binds one exact version for every package identity. Incompatible majors coexist only under

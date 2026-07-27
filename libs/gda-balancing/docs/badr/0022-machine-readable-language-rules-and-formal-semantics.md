@@ -36,13 +36,15 @@ structured formal judgments, and an honest proof/conformance boundary.
   canonical comparison/identity behavior, and charge events. LDB-facing operation names only bind
   to those primitives; they do not authorize a host `if` branch with undeclared semantics.
 
-- **The Language Definition Bundle is a canonical, content-addressed language-content artifact.**
-  Its manifest binds the exact Schema line, Kernel-Specification identity, bundle format,
-  grammar/AST definitions, core type constructors, Language rules, Operation specifications,
-  Domain-package manifests, post-admission diagnostics, Runtime/Numeric profile definitions,
-  lowering rules, external-standard mappings, and normative vectors.
-  Canonical emission and hashing cover every normative member; changing normative content produces
-  a new bundle identity and compatible or breaking version as applicable.
+- **The Language Definition Bundle is one canonical, content-addressed language-content graph.**
+  Under bADR-0023, its root manifest binds the exact Schema line, Kernel-Specification identity,
+  bundle format, resources, and closed ordered child descriptors. Complete package-release children
+  own grammar/AST definitions, core type constructors, Language rules, Operation specifications,
+  post-admission diagnostics, Runtime/Numeric profile definitions, lowering rules,
+  external-standard mappings, and normative vectors. Canonical child identities and the root graph
+  identity cover every normative member; changing normative content produces a new bundle identity
+  and compatible or breaking version as applicable. Admission-derived flat indexes are not a
+  serialized or independently hashed language authority.
 
 - **Canonical wire identity is a Kernel contract.** The Kernel Specification binds the exact
   domain-separated identity algorithm and canonical encoding rules for strings/Unicode, map and list

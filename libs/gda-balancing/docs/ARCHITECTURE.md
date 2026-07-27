@@ -160,10 +160,12 @@ meta-diagnostics needed to accept or reject an LDB. A list of node names or pros
 not a Kernel Specification.
 
 An exact, immutable **Language Definition Bundle** is the only language-content authority admitted
-under that Kernel. It owns grammar, language types, structured rules, operations, package releases,
-post-admission diagnostics, runtime profile definitions, generated projections, and normative
-vectors. The LDB cannot redefine Kernel laws, and the Kernel does not absorb ordinary language or
-game-domain evolution.
+under that Kernel. Per bADR-0023 it is one sealed artifact graph: a canonical root manifest owns the
+closed package-member inventory, and each content-addressed child owns one complete package release.
+Together they own grammar, language types, structured rules, operations, post-admission diagnostics,
+runtime profile definitions, and normative vectors. Admission may derive read-only flat indexes,
+but no serialized registry or directory listing is a second authority. The LDB cannot redefine
+Kernel laws, and the Kernel does not absorb ordinary language or game-domain evolution.
 
 Compiler, resolver, evaluator, CLI, and storage code are conforming host implementations. They are
 never semantic authorities. Generated JSON Schema, help text, and SDK types are projections of the
@@ -339,7 +341,9 @@ obtained; they are not part of the RIR semantic payload.
 
 Identity follows semantic responsibility rather than file location:
 
-- whole-LDB identity covers the exact admitted language-content inventory;
+- child package identity covers one canonical complete package release;
+- whole-LDB graph identity covers the root's normative content and canonical child descriptors,
+  which bind every child identity and byte size without binding its physical locator;
 - Package Lock identity covers the exact selected dependency closure;
 - RIR payload identity covers reachable normalized model semantics;
 - Resolved Model identity covers the exact build wrapper, including Kernel and whole LDB;

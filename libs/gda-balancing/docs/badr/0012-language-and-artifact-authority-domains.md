@@ -31,8 +31,11 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   - stable post-admission diagnostic-code definitions;
   - package manifests, capabilities, dependencies, and compatibility rules.
   bADR-0022 fixes the Kernel-Specification boundary, canonical bundle, structured-rule meta-format,
-  Semantic kernel, and conformance boundary. A host compiler, evaluator, bootstrap interpreter, or
-  reference implementation conforms to this chain; its source code is never another authority.
+  Semantic kernel, and conformance boundary. bADR-0023 fixes the LDB's physical and identity form:
+  one sealed root manifest plus complete content-addressed package members constitute one exact
+  artifact graph, while post-admission flat indexes are derived non-authorities. A host compiler,
+  evaluator, bootstrap interpreter, or reference implementation conforms to this chain; its source
+  code is never another authority.
   Field-level wire projections remain generated implementation artifacts.
 
 - **Every other language-description surface is a projection or a conforming implementation.**
@@ -62,7 +65,7 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   immutable wrapper binding that payload to the exact Kernel, whole LDB, and Lock identities. The
   wrapper is the execution authority for the exact build it represents, but none of these generated
   artifacts may be edited as a substitute for source. A complete content-addressed Domain package
-  release is normative content inside the LDB, never an ambient peer registry.
+  release is one root-declared child in the sealed LDB graph, never an ambient peer registry.
 
 - **Artifact identity is independent of storage and transport.** Every public artifact has a closed
   envelope that binds its artifact kind, wire-schema identity, content identity, and normative
