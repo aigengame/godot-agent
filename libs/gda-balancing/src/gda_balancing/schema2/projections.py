@@ -51,6 +51,7 @@ def wire_schema_projection(
     authorities = authority_set() if authorities is None else authorities
     kernel = cast(dict[str, JsonValue], authorities["kernel"])
     ldb = cast(dict[str, JsonValue], authorities["language_bundle"])
+    public_ldb = getattr(ldb, "root", ldb)
     schemas: list[JsonValue] = [
         {
             "artifact_kind": "schema-major-kernel",
@@ -58,7 +59,10 @@ def wire_schema_projection(
         },
         {
             "artifact_kind": "language-definition-bundle",
-            "schema": _closed_authority_schema("language-definition-bundle", ldb),
+            "schema": _closed_authority_schema(
+                "language-definition-bundle",
+                cast(dict[str, JsonValue], public_ldb),
+            ),
         },
     ]
     language = cast(dict[str, JsonValue], ldb["language"])

@@ -848,7 +848,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:e0fb03bf16ce7f51d2985c507e0c279506a411aa26d8548ee929045f7f13126e",
+  "content_identity": "sha256:c8696d02863adb8cf2b887747960ba56b126c79f4cca8083d9f02204e785ef54",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2994,23 +2994,23 @@
         "id": {
           "type": "non-empty-string"
         },
+        "runtime_semantic_paths": {
+          "type": "string-list"
+        },
         "semantic_closure": {
           "type": "list"
         },
         "semantic_identity": {
           "type": "non-empty-string"
         },
+        "vector_definitions": {
+          "type": "list"
+        },
         "vectors": {
           "type": "string-list"
         },
         "version": {
           "type": "non-empty-string"
-        },
-        "vector_definitions": {
-          "type": "list"
-        },
-        "runtime_semantic_paths": {
-          "type": "string-list"
         }
       },
       "nested_field_types": {
@@ -3031,6 +3031,12 @@
           }
         },
         "exports": {
+          "artifact_contracts": {
+            "type": "string-list"
+          },
+          "artifact_wire_schemas": {
+            "type": "string-list"
+          },
           "components": {
             "type": "string-list"
           },
@@ -3055,6 +3061,9 @@
           "model_lowerings": {
             "type": "string-list"
           },
+          "model_source_schema_versions": {
+            "type": "string-list"
+          },
           "operations": {
             "type": "string-list"
           },
@@ -3067,10 +3076,16 @@
           "symbol_roles": {
             "type": "string-list"
           },
+          "template_admission_profiles": {
+            "type": "string-list"
+          },
           "types": {
             "type": "list"
           },
           "units": {
+            "type": "string-list"
+          },
+          "wire_schemas": {
             "type": "string-list"
           }
         },
@@ -3096,6 +3111,8 @@
           "required"
         ],
         "exports": [
+          "artifact_contracts",
+          "artifact_wire_schemas",
           "components",
           "conversions",
           "diagnostics",
@@ -3104,12 +3121,15 @@
           "language_rules",
           "model_checks",
           "model_lowerings",
+          "model_source_schema_versions",
           "operations",
           "reasons",
           "representations",
           "symbol_roles",
+          "template_admission_profiles",
           "types",
-          "units"
+          "units",
+          "wire_schemas"
         ],
         "profiles": [
           "numeric",
@@ -3140,6 +3160,21 @@
         ],
         "projections": [
           {
+            "authority_path": "diagnostics",
+            "key_member": "code",
+            "owners_path": "exports.diagnostics"
+          },
+          {
+            "authority_path": "language.artifact_contracts",
+            "key_member": "artifact_kind",
+            "owners_path": "exports.artifact_contracts"
+          },
+          {
+            "authority_path": "language.artifact_wire_schemas",
+            "key_member": "artifact_kind",
+            "owners_path": "exports.artifact_wire_schemas"
+          },
+          {
             "authority_path": "language.capabilities",
             "key_member": "id",
             "owners_path": "capabilities.provided"
@@ -3168,6 +3203,11 @@
             "authority_path": "language.model_lowerings",
             "key_member": "id",
             "owners_path": "exports.model_lowerings"
+          },
+          {
+            "authority_path": "language.model_source_schema_versions",
+            "key_member": null,
+            "owners_path": "exports.model_source_schema_versions"
           },
           {
             "authority_path": "language.operations",
@@ -3225,11 +3265,22 @@
             "owners_path": "profiles.runtime"
           },
           {
-            "authority_path": "diagnostics",
-            "key_member": "code",
-            "owners_path": "exports.diagnostics"
+            "authority_path": "language.template_admission_profiles",
+            "key_member": "id",
+            "owners_path": "exports.template_admission_profiles"
+          },
+          {
+            "authority_path": "language.wire_schemas",
+            "key_member": "artifact_kind",
+            "owners_path": "exports.wire_schemas"
           }
         ]
+      },
+      "semantic_identity_projection": {
+        "domain": "domain-package-semantic-closure-v2",
+        "path_inventory_member": "runtime_semantic_paths",
+        "path_member": "authority_path",
+        "source_member": "semantic_closure"
       },
       "type_export": {
         "field_types": {
@@ -3244,12 +3295,6 @@
           "constructor",
           "id"
         ]
-      },
-      "semantic_identity_projection": {
-        "domain": "domain-package-semantic-closure-v2",
-        "path_inventory_member": "runtime_semantic_paths",
-        "source_member": "semantic_closure",
-        "path_member": "authority_path"
       }
     },
     "resolution_judgment": {

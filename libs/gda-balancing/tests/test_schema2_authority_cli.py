@@ -20,7 +20,8 @@ from gda_balancing.commands.manifest import MANIFEST
 from gda_balancing.commands.experiment import EXPERIMENT_CHECK, EXPERIMENT_RUN
 from gda_balancing.commands.model import MODEL_BUILD, MODEL_CHECK, MODEL_MIGRATE
 from gda_balancing.commands.schema import SCHEMA_GET, schema_get_handler
-from gda_balancing.schema2.canonical import content_identity
+from gda_balancing.schema2.authority_graph import derive_language_index
+from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import (
     ArtifactLocation,
     RefusalStage,
@@ -28,6 +29,42 @@ from gda_balancing.schema2.diagnostics import (
     Schema2RefusalReport,
 )
 from gda_balancing.schema2.surface import schema2_error_envelope_schema
+
+
+def _reidentify_graph(kernel, ldb):
+    root = deepcopy(ldb.root)
+    releases = deepcopy(ldb.package_releases)
+    descriptors = []
+    member_sizes = []
+    for release in releases:
+        body = {
+            key: value for key, value in release.items() if key != "content_identity"
+        }
+        release["content_identity"] = content_identity(
+            "domain-package-release-v2", body
+        )
+        byte_size = len(canonical_bytes(release))
+        member_sizes.append(byte_size)
+        descriptors.append(
+            {
+                "artifact_kind": release["artifact_kind"],
+                "byte_size": byte_size,
+                "content_identity": release["content_identity"],
+                "id": release["id"],
+                "version": release["version"],
+            }
+        )
+    root["package_descriptors"] = descriptors
+    root_body = {key: value for key, value in root.items() if key != "content_identity"}
+    root["content_identity"] = content_identity(
+        "language-definition-bundle-v2", root_body
+    )
+    return derive_language_index(
+        root,
+        releases,
+        kernel["admission"]["required_language_members"],
+        member_byte_sizes=member_sizes,
+    )
 
 
 def test_packaged_authority_loader_refuses_duplicate_object_keys(monkeypatch, run_cli):
@@ -111,18 +148,47 @@ def test_schema_introspection_does_not_read_runtime_authorities(monkeypatch, run
         assert json.loads(stdout)
 
 
-def test_language_bundle_returns_the_admitted_kernel_and_ldb(run_cli):
+def test_language_bundle_returns_the_admitted_sealed_graph(run_cli):
     exit_code, stdout, stderr = run_cli(["schema", "get", "language-bundle"])
 
     assert (exit_code, stderr) == (0, "")
     authority = json.loads(stdout)
-    assert set(authority) == {"kernel", "language_bundle", "admission"}
+    assert set(authority) == {
+        "kernel",
+        "language_bundle",
+        "package_releases",
+        "admission",
+    }
     assert authority["kernel"]["artifact_kind"] == "schema-major-kernel"
     assert authority["language_bundle"]["artifact_kind"] == "language-definition-bundle"
+    assert "language" not in authority["language_bundle"]
     assert (
         authority["language_bundle"]["kernel_identity"]
         == authority["kernel"]["content_identity"]
     )
+    descriptors = authority["language_bundle"]["package_descriptors"]
+    releases = authority["package_releases"]
+    assert len(descriptors) == len(releases) > 1
+    assert [
+        (item["id"], item["version"]) for item in descriptors
+    ] == sorted(
+        (item["id"], item["version"]) for item in descriptors
+    )
+    assert [
+        {
+            "artifact_kind": release["artifact_kind"],
+            "id": release["id"],
+            "version": release["version"],
+            "content_identity": release["content_identity"],
+        }
+        for release in releases
+    ] == [
+        {
+            key: descriptor[key]
+            for key in ("artifact_kind", "id", "version", "content_identity")
+        }
+        for descriptor in descriptors
+    ]
     assert authority["admission"] == {
         "admitted": True,
         "kernel_identity": authority["kernel"]["content_identity"],
@@ -233,14 +299,21 @@ def test_diagnostic_catalog_is_reverse_closed_over_kernel_and_ldb(run_cli):
     assert (exit_code, stderr) == (0, "")
     authority = json.loads(authority_stdout)
     catalog = json.loads(stdout)
+    package_diagnostics = [
+        entry
+        for release in authority["package_releases"]
+        for closure in release["semantic_closure"]
+        if closure["authority_path"] == "diagnostics"
+        for entry in closure["definitions"]
+    ]
     expected = sorted(
         [
             {"authority": owner, "code": entry["code"], "stage": entry["stage"]}
-            for owner, artifact in (
-                ("kernel", authority["kernel"]),
-                ("language-bundle", authority["language_bundle"]),
+            for owner, entries in (
+                ("kernel", authority["kernel"]["diagnostics"]),
+                ("language-bundle", package_diagnostics),
             )
-            for entry in artifact["diagnostics"]
+            for entry in entries
         ],
         key=lambda entry: (entry["stage"], entry["code"], entry["authority"]),
     )
@@ -478,25 +551,27 @@ def test_structured_params_share_binding_and_conflict_with_argv_fields(run_cli):
 
 
 def test_bootstrap_refusal_reports_sorted_bounded_diagnostics_at_cli(run_cli):
-    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
-    kernel = deepcopy(authority["kernel"])
-    ldb = deepcopy(authority["language_bundle"])
+    loaded_kernel, loaded_ldb = authority_module.load_authorities()
+    kernel = deepcopy(loaded_kernel)
+    ldb = deepcopy(loaded_ldb)
     diagnostic_cap = kernel["resources"]["max_diagnostics"]
+    core = next(
+        release
+        for release in ldb.package_releases
+        if release["id"] == "core.quantity"
+    )
     for index in range(diagnostic_cap + 2):
-        ldb["vectors"].append(
+        vector_id = f"mutant.{index}"
+        core["vector_definitions"].append(
             {
                 "expect": {},
-                "id": f"mutant.{index}",
+                "id": vector_id,
                 "input": {"facts": [], "judgment": "missing"},
                 "rule": "quantity.declare",
             }
         )
-
-    # Reidentify only the mutable LDB; the Schema-major Kernel stays exact.
-    ldb_body = {key: value for key, value in ldb.items() if key != "content_identity"}
-    ldb["content_identity"] = content_identity(
-        "language-definition-bundle-v2", ldb_body
-    )
+        core["vectors"].append(vector_id)
+    ldb = _reidentify_graph(kernel, ldb)
 
     descriptor = replace(
         SCHEMA_GET,
@@ -518,17 +593,14 @@ def test_bootstrap_refusal_reports_sorted_bounded_diagnostics_at_cli(run_cli):
 
 
 def test_bootstrap_nesting_cap_refuses_before_static_rule_execution(run_cli):
-    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
-    kernel = authority["kernel"]
-    ldb = authority["language_bundle"]
+    loaded_kernel, loaded_ldb = authority_module.load_authorities()
+    kernel = deepcopy(loaded_kernel)
+    ldb = deepcopy(loaded_ldb)
     nested: object = "leaf"
     for _ in range(kernel["resources"]["max_nesting_depth"] + 1):
         nested = [nested]
-    ldb["vectors"][0]["unused_host_payload"] = nested
-    ldb_body = {key: value for key, value in ldb.items() if key != "content_identity"}
-    ldb["content_identity"] = content_identity(
-        "language-definition-bundle-v2", ldb_body
-    )
+    ldb.package_releases[0]["vector_definitions"][0]["unused_host_payload"] = nested
+    ldb = _reidentify_graph(kernel, ldb)
     descriptor = replace(SCHEMA_GET, handler=schema_get_handler(lambda: (kernel, ldb)))
 
     exit_code, stdout, stderr = run_cli(

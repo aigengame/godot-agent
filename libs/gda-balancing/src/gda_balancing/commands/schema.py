@@ -77,6 +77,18 @@ def schema_get_handler(
             },
         }
         if inp.artifact == "language-bundle":
+            root = getattr(ldb, "root", None)
+            package_releases = getattr(ldb, "package_releases", None)
+            if isinstance(root, dict) and isinstance(package_releases, list):
+                public_authorities = {
+                    "kernel": cast(JsonValue, kernel),
+                    "language_bundle": cast(JsonValue, root),
+                    "package_releases": cast(JsonValue, package_releases),
+                    "admission": authorities["admission"],
+                }
+                return SchemaArtifact(
+                    root=cast(dict[str, Any], public_authorities)
+                )
             return SchemaArtifact(root=cast(dict[str, Any], authorities))
         if inp.artifact == "wire-schema":
             return SchemaArtifact(root=wire_schema_projection(authorities))
@@ -115,9 +127,54 @@ def schema_get_success_schema() -> dict[str, object]:
         "properties": {
             "kernel": {},
             "language_bundle": {},
+            "package_releases": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        name: {}
+                        for name in (
+                            "artifact_kind",
+                            "capabilities",
+                            "content_identity",
+                            "dependencies",
+                            "exports",
+                            "id",
+                            "profiles",
+                            "runtime_semantic_paths",
+                            "semantic_closure",
+                            "semantic_identity",
+                            "vector_definitions",
+                            "vectors",
+                            "version",
+                        )
+                    },
+                    "required": [
+                        "artifact_kind",
+                        "capabilities",
+                        "content_identity",
+                        "dependencies",
+                        "exports",
+                        "id",
+                        "profiles",
+                        "runtime_semantic_paths",
+                        "semantic_closure",
+                        "semantic_identity",
+                        "vector_definitions",
+                        "vectors",
+                        "version",
+                    ],
+                    "unevaluatedProperties": False,
+                },
+            },
             "admission": admission,
         },
-        "required": ["kernel", "language_bundle", "admission"],
+        "required": [
+            "kernel",
+            "language_bundle",
+            "package_releases",
+            "admission",
+        ],
         "unevaluatedProperties": False,
     }
     projection_base = {

@@ -18,7 +18,7 @@ from gda_balancing.schema2.authority import authority_set
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:e0fb03bf16ce7f51d2985c507e0c279506a411aa26d8548ee929045f7f13126e"
+    "sha256:c8696d02863adb8cf2b887747960ba56b126c79f4cca8083d9f02204e785ef54"
 )
 
 
@@ -3863,12 +3863,125 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         or kernel.get("content_identity") != _SUPPORTED_KERNEL_IDENTITY
     ):
         refuse("kernel.identity_mismatch", "ingress", "kernel")
+    graph_root = getattr(ldb, "root", None)
+    graph_releases = getattr(ldb, "package_releases", None)
+    graph_member_sizes = getattr(ldb, "member_byte_sizes", None)
+    is_graph = (
+        isinstance(graph_root, dict)
+        and isinstance(graph_releases, list)
+        and isinstance(graph_member_sizes, tuple)
+    )
+    identity_source = graph_root if is_graph else ldb
     if ldb.get("content_identity") != _identity_from_kernel(
-        kernel, "language-definition-bundle-v2", ldb
+        kernel, "language-definition-bundle-v2", identity_source
     ):
         refuse("kernel.identity_mismatch", "ingress", "language-bundle")
     if ldb.get("kernel_identity") != kernel.get("content_identity"):
         refuse("kernel.binding_mismatch", "ingress", "language-bundle.kernel_identity")
+    if is_graph:
+        descriptors = graph_root.get("package_descriptors")
+        expected_root_members = {
+            "artifact_kind",
+            "artifact_version",
+            "content_identity",
+            "kernel_identity",
+            "package_descriptors",
+            "resources",
+            "schema_major",
+        }
+        expected_descriptor_members = {
+            "artifact_kind",
+            "byte_size",
+            "content_identity",
+            "id",
+            "version",
+        }
+        if (
+            set(graph_root) != expected_root_members
+            or not isinstance(descriptors, list)
+            or len(descriptors) != len(graph_releases)
+            or len(descriptors) != len(graph_member_sizes)
+        ):
+            refuse("kernel.member_set_mismatch", "ingress", "language-bundle")
+        else:
+            coordinates = []
+            for index, (descriptor, release, byte_size) in enumerate(
+                zip(descriptors, graph_releases, graph_member_sizes, strict=True)
+            ):
+                subject = f"language-bundle.package_descriptors.{index}"
+                if (
+                    not isinstance(descriptor, dict)
+                    or set(descriptor) != expected_descriptor_members
+                    or descriptor.get("artifact_kind")
+                    != release.get("artifact_kind")
+                    or descriptor.get("id") != release.get("id")
+                    or descriptor.get("version") != release.get("version")
+                    or descriptor.get("content_identity")
+                    != release.get("content_identity")
+                    or descriptor.get("byte_size") != byte_size
+                ):
+                    refuse("kernel.binding_mismatch", "ingress", subject)
+                    continue
+                coordinates.append((descriptor["id"], descriptor["version"]))
+                if release.get("content_identity") != _identity_from_kernel(
+                    kernel, "domain-package-release-v2", release
+                ):
+                    refuse("kernel.identity_mismatch", "ingress", subject)
+            if coordinates != sorted(coordinates):
+                refuse(
+                    "kernel.member_set_mismatch",
+                    "ingress",
+                    "language-bundle.package_descriptors",
+                )
+            if len(coordinates) != len(set(coordinates)):
+                refuse(
+                    "kernel.duplicate_identifier",
+                    "static",
+                    "language-bundle.package_descriptors",
+                )
+            language: dict[str, Any] = {
+                member: {} if member == "quantity" else []
+                for member in kernel["admission"]["required_language_members"]
+            }
+            derived_diagnostics: list[Any] = []
+            derived_vectors: list[Any] = []
+            for release in graph_releases:
+                for entry in release.get("semantic_closure", []):
+                    authority_path = entry.get("authority_path")
+                    definitions = entry.get("definitions")
+                    if not isinstance(authority_path, str) or not isinstance(
+                        definitions, list
+                    ):
+                        continue
+                    if authority_path == "diagnostics":
+                        derived_diagnostics.extend(deepcopy(definitions))
+                        continue
+                    if not authority_path.startswith("language."):
+                        continue
+                    segments = authority_path.split(".")[1:]
+                    target = language
+                    for segment in segments[:-1]:
+                        target = target.setdefault(segment, {})
+                    target.setdefault(segments[-1], []).extend(deepcopy(definitions))
+                derived_vectors.extend(deepcopy(release.get("vector_definitions", [])))
+            language["packages"] = deepcopy(graph_releases)
+            expected_index = {
+                "artifact_kind": graph_root.get("artifact_kind"),
+                "artifact_version": graph_root.get("artifact_version"),
+                "content_identity": graph_root.get("content_identity"),
+                "diagnostics": derived_diagnostics,
+                "kernel_identity": graph_root.get("kernel_identity"),
+                "language": language,
+                "resources": deepcopy(graph_root.get("resources")),
+                "schema_major": graph_root.get("schema_major"),
+                "vectors": derived_vectors,
+            }
+            if expected_index != dict(ldb):
+                refuse(
+                    "kernel.identity_mismatch",
+                    "ingress",
+                    "language-bundle.admitted-index",
+                )
 
     kernel_members = {
         "admission",
@@ -3921,7 +4034,16 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         refuse("kernel.member_set_mismatch", "ingress", "language-bundle")
 
     limits = kernel["resources"]
-    for subject, artifact in (("kernel", kernel), ("language-bundle", ldb)):
+    resource_artifacts = [("kernel", kernel)]
+    if is_graph:
+        resource_artifacts.append(("language-bundle", graph_root))
+        resource_artifacts.extend(
+            (f"language-bundle.packages.{index}", package)
+            for index, package in enumerate(graph_releases)
+        )
+    else:
+        resource_artifacts.append(("language-bundle", ldb))
+    for subject, artifact in resource_artifacts:
         depth, members = _shape(artifact)
         try:
             encoded_size = len(_encoded(artifact))
@@ -4524,6 +4646,15 @@ def _consumer_a(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
 
 def _reidentify(kernel: dict[str, Any], ldb: dict[str, Any]) -> None:
     kernel["content_identity"] = _identity("schema-major-kernel-v2", kernel)
+    graph_root = getattr(ldb, "root", None)
+    if isinstance(graph_root, dict):
+        graph_root["kernel_identity"] = kernel["content_identity"]
+        graph_root["content_identity"] = _identity(
+            "language-definition-bundle-v2", graph_root
+        )
+        ldb["kernel_identity"] = graph_root["kernel_identity"]
+        ldb["content_identity"] = graph_root["content_identity"]
+        return
     ldb["kernel_identity"] = kernel["content_identity"]
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
@@ -4566,6 +4697,28 @@ def _refresh_package_closure_and_reidentify(ldb: dict[str, Any]) -> None:
                 ]
             )
         _reidentify_package_release(package)
+    graph_root = getattr(ldb, "root", None)
+    if isinstance(graph_root, dict):
+        packages = deepcopy(ldb["language"]["packages"])
+        sizes = [len(_encoded(package)) for package in packages]
+        graph_root["package_descriptors"] = [
+            {
+                "artifact_kind": package["artifact_kind"],
+                "byte_size": size,
+                "content_identity": package["content_identity"],
+                "id": package["id"],
+                "version": package["version"],
+            }
+            for package, size in zip(packages, sizes, strict=True)
+        ]
+        graph_root["content_identity"] = _identity(
+            "language-definition-bundle-v2", graph_root
+        )
+        ldb.root = deepcopy(graph_root)
+        ldb.package_releases = packages
+        ldb.member_byte_sizes = tuple(sizes)
+        ldb["content_identity"] = graph_root["content_identity"]
+        return
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
 
@@ -4623,9 +4776,9 @@ def test_two_consumers_refuse_unilateral_embedded_artifact_binding_drift(mutatio
     assert first == second
     assert first["admitted"] is False
     assert (
-        "static",
-        "kernel.vector_mismatch",
-        "language.embedded-artifact-bindings",
+        "ingress",
+        "kernel.identity_mismatch",
+        "language-bundle.admitted-index",
     ) in first["diagnostics"]
 
 

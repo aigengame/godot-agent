@@ -12,6 +12,7 @@ from typing import Any, cast
 import jsonschema
 
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
+from gda_balancing.schema2.authority_graph import derive_language_index
 from gda_balancing.schema2.template_contract import (
     TEMPLATE_ARGUMENT_TYPES,
     TEMPLATE_PRIMITIVE_CHARGES,
@@ -44,7 +45,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:e0fb03bf16ce7f51d2985c507e0c279506a411aa26d8548ee929045f7f13126e"
+    "sha256:c8696d02863adb8cf2b887747960ba56b126c79f4cca8083d9f02204e785ef54"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -3843,13 +3844,22 @@ def admit_authorities(
         found.add(AdmissionDiagnostic(code=code, stage=stage, subject=subject))
 
     kernel_identity = kernel.get("content_identity")
-    ldb_identity = language_bundle.get("content_identity")
+    graph_root = getattr(language_bundle, "root", None)
+    graph_releases = getattr(language_bundle, "package_releases", None)
+    graph_member_sizes = getattr(language_bundle, "member_byte_sizes", None)
+    is_graph = (
+        isinstance(graph_root, dict)
+        and isinstance(graph_releases, list)
+        and isinstance(graph_member_sizes, tuple)
+    )
+    identity_source = graph_root if is_graph else language_bundle
+    ldb_identity = identity_source.get("content_identity")
     canonical_encoding = kernel.get("canonical_encoding")
     computed_kernel_identity = _safe_artifact_identity(
         _KERNEL_DOMAIN, kernel, canonical_encoding
     )
     computed_ldb_identity = _safe_artifact_identity(
-        _LDB_DOMAIN, language_bundle, canonical_encoding
+        _LDB_DOMAIN, identity_source, canonical_encoding
     )
     if (
         not isinstance(kernel_identity, str)
@@ -3865,6 +3875,144 @@ def admit_authorities(
             "ingress",
             "language-bundle.kernel_identity",
         )
+    if is_graph:
+        root_members = {
+            "artifact_kind",
+            "artifact_version",
+            "content_identity",
+            "kernel_identity",
+            "package_descriptors",
+            "resources",
+            "schema_major",
+        }
+        descriptor_members = {
+            "artifact_kind",
+            "byte_size",
+            "content_identity",
+            "id",
+            "version",
+        }
+        descriptors = graph_root.get("package_descriptors")
+        if (
+            set(graph_root) != root_members
+            or graph_root.get("artifact_kind") != "language-definition-bundle"
+            or graph_root.get("artifact_version") != "2.0.0"
+            or graph_root.get("schema_major") != 2
+            or not isinstance(descriptors, list)
+            or len(descriptors) != len(graph_releases)
+            or len(descriptors) != len(graph_member_sizes)
+        ):
+            refuse("kernel.member_set_mismatch", "ingress", "language-bundle")
+        else:
+            coordinates: list[tuple[str, str]] = []
+            for index, (descriptor, release, byte_size) in enumerate(
+                zip(descriptors, graph_releases, graph_member_sizes, strict=True)
+            ):
+                subject = f"language-bundle.package_descriptors.{index}"
+                if (
+                    not isinstance(descriptor, dict)
+                    or set(descriptor) != descriptor_members
+                    or not isinstance(release, dict)
+                    or descriptor.get("artifact_kind")
+                    != release.get("artifact_kind")
+                    or descriptor.get("id") != release.get("id")
+                    or descriptor.get("version") != release.get("version")
+                    or descriptor.get("content_identity")
+                    != release.get("content_identity")
+                    or descriptor.get("byte_size") != byte_size
+                ):
+                    refuse("kernel.binding_mismatch", "ingress", subject)
+                    continue
+                coordinate = (str(descriptor["id"]), str(descriptor["version"]))
+                coordinates.append(coordinate)
+                if release.get("content_identity") != _safe_artifact_identity(
+                    "domain-package-release-v2", release, canonical_encoding
+                ):
+                    refuse("kernel.identity_mismatch", "ingress", subject)
+            if coordinates != sorted(coordinates):
+                refuse(
+                    "kernel.member_set_mismatch",
+                    "ingress",
+                    "language-bundle.package_descriptors",
+                )
+            if len(coordinates) != len(set(coordinates)):
+                refuse(
+                    "kernel.duplicate_identifier",
+                    "static",
+                    "language-bundle.package_descriptors",
+                )
+            available = {package_id for package_id, _version in coordinates}
+            dependency_graph: dict[str, set[str]] = {}
+            for release in graph_releases:
+                package_id = str(release.get("id", ""))
+                dependencies = release.get("dependencies")
+                required = (
+                    dependencies.get("required")
+                    if isinstance(dependencies, dict)
+                    else None
+                )
+                if not isinstance(required, list) or not all(
+                    isinstance(item, str) for item in required
+                ):
+                    refuse(
+                        "kernel.member_set_mismatch",
+                        "ingress",
+                        f"language-bundle.packages.{package_id}.dependencies",
+                    )
+                    continue
+                dependency_graph[package_id] = set(required)
+                if not set(required) <= available:
+                    refuse(
+                        "kernel.binding_mismatch",
+                        "ingress",
+                        f"language-bundle.packages.{package_id}.dependencies",
+                    )
+
+            visiting: set[str] = set()
+            visited: set[str] = set()
+
+            def cyclic(package_id: str) -> bool:
+                if package_id in visiting:
+                    return True
+                if package_id in visited:
+                    return False
+                visiting.add(package_id)
+                has_cycle = any(
+                    cyclic(dependency)
+                    for dependency in sorted(dependency_graph.get(package_id, set()))
+                    if dependency in dependency_graph
+                )
+                visiting.remove(package_id)
+                visited.add(package_id)
+                return has_cycle
+
+            if any(cyclic(package_id) for package_id in sorted(dependency_graph)):
+                refuse(
+                    "kernel.binding_mismatch",
+                    "ingress",
+                    "language-bundle.package-dependencies",
+                )
+            required_language_members = kernel.get("admission", {}).get(
+                "required_language_members"
+            )
+            if isinstance(required_language_members, list):
+                try:
+                    expected_index = derive_language_index(
+                        graph_root,
+                        graph_releases,
+                        required_language_members,
+                        member_byte_sizes=list(graph_member_sizes),
+                    )
+                except ValueError:
+                    expected_index = None
+                if expected_index is None or dict(expected_index) != dict(
+                    language_bundle
+                ):
+                    refuse(
+                        "kernel.identity_mismatch",
+                        "ingress",
+                        "language-bundle.admitted-index",
+                    )
     if set(kernel) != _KERNEL_MEMBERS:
         refuse("kernel.member_set_mismatch", "ingress", "kernel")
     if any(item.subject == "kernel" for item in found):
@@ -3922,7 +4070,16 @@ def admit_authorities(
     if not isinstance(max_members, int) or max_members < 1:
         max_members = 256
         refuse("kernel.resource_exhausted", "ingress", "kernel.resources")
-    for subject, artifact in (("kernel", kernel), ("language-bundle", language_bundle)):
+    resource_artifacts = [("kernel", kernel)]
+    if is_graph:
+        resource_artifacts.append(("language-bundle", graph_root))
+        resource_artifacts.extend(
+            (f"language-bundle.packages.{index}", package)
+            for index, package in enumerate(graph_releases)
+        )
+    else:
+        resource_artifacts.append(("language-bundle", language_bundle))
+    for subject, artifact in resource_artifacts:
         depth, largest_collection = _resource_shape(artifact)
         if depth > max_depth or largest_collection > max_members:
             refuse("kernel.resource_exhausted", "ingress", subject)
