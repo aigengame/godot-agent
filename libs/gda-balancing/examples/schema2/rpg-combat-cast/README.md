@@ -95,6 +95,13 @@ The source requires two Domain packages:
 - `game.rpg@1.0.0` supplies `RpgValue`, the RPG runtime profile, and
   `rpg.combat.cast-v1`.
 
+`game.rpg` declares `core.quantity` as a dependency, but the current resolver's
+capability-provider judgment is still seeded from the Model Source's root requirements rather than
+the complete selected package graph. This example therefore lists `core.quantity` explicitly as a
+temporary implementation workaround. Keep both requirements until the open transitive-capability
+resolution gate is closed; the intended architecture still requires capability selection over the
+complete selected graph.
+
 Its symbols demonstrate three lifecycle roles:
 
 | Role | Symbols in this example | Meaning |
@@ -441,7 +448,7 @@ The tutorial crosses several Standard Schema 2.0 boundaries:
 | Schema-major Kernel Specification | The small, versioned foundation: canonical identity, irreducible numeric/RNG laws, Event-transition primitives, and rules for admitting an LDB |
 | Language Definition Bundle (LDB) | The complete language content under that Kernel: schemas, types, packages, operations, profiles, diagnostics, and machine-readable rules |
 | Model Source Package | Your editable game numeric definitions and dependency requirements |
-| Package Lock | The exact transitive package/capability/operation closure selected for one build |
+| Package Lock | The exact selected package dependency closure and the capability, operation, and profile bindings recorded for this build; the current transitive-capability limitation is noted above |
 | RIR semantic payload | The canonical executable meaning of the selected, reachable model semantics |
 | Resolved Model | The immutable execution authority binding Kernel, LDB, Lock, and RIR identities |
 | Experiment Specification | The scenario and evaluation authority: exact Model bindings, inputs, seed, Metrics, targets, and acceptance |
