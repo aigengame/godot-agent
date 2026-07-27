@@ -358,22 +358,30 @@ _Avoid_: formula script, anonymous callback, first-class function, Event program
 **Formula binding**:
 The exact, statically resolved association between a Model Source Formula declaration and a typed
 formula call site used by a `derived` Symbol or an Operation Formula slot. It fixes the selected
-formula before Runtime and cannot introduce dynamic formula lookup or host callback semantics
-(bADR-0022).
+formula before Runtime and carries the LDB-derived transitive refusal/resource/termination
+contract for the complete reachable Formula and pure-Operation call graph. It cannot introduce
+dynamic formula lookup or host callback semantics (bADR-0022).
 _Avoid_: function pointer, runtime formula selection, evaluator hook
 
 **Formula slot**:
 A named, exactly-one customization point in an Operation specification with an explicit Formula
-signature and evaluation context. A selected Operation requires one compatible Model Source
-Formula binding for every declared slot; neither the package nor evaluator supplies a fallback
-(bADR-0022).
+signature, evaluation context, permitted refusal set, and deterministic resource budget. A selected
+Operation requires one compatible Model Source Formula binding whose complete transitive contract
+fits every declared slot; neither the package nor evaluator supplies a fallback (bADR-0022).
 _Avoid_: optional callback, formula hook, package default
+
+**Formula evaluation site**:
+One statically resolved read or call of a Formula binding with a stable identity, explicit operand
+sources, one lifecycle context, and its complete transitive refusal/resource contract. Multiple
+sites may reference one Formula declaration; a `derived` Symbol read from different lifecycle
+contexts lowers to distinct sites rather than one ambient evaluation mode (bADR-0022).
+_Avoid_: dynamic call, formula invocation hook, implicit read context
 
 **Formula evaluation context**:
 The exact lifecycle boundary and typed value environment in which a Formula binding is evaluated.
 Initialization, Event, observation, and Effect capture/re-evaluation contexts select committed
-Snapshots and explicit operands without giving the Formula ambient state or timing authority
-(bADR-0014/0017/0022).
+Snapshots or the pre-Snapshot Initialization frame plus explicit operands without giving the
+Formula ambient state or timing authority (bADR-0014/0017/0022).
 _Avoid_: formula mode, ambient evaluation environment, live formula
 
 **Core Extension Invariance**:
@@ -1001,7 +1009,7 @@ _Avoid_: event handler (implementation term), tick mutation, transaction batch
 The invocation-level atomic boundary that makes one immutable receipt and every artifact it
 identifies visible together, or none visible. It is distinct from Event-transaction atomicity and
 from any filesystem, object-store, or transport implementation; stdout/stderr delivery is ordered
-after commit and is not a participant. A runtime refusal after dispatch begins must publish a
+after commit and is not a participant. A runtime refusal after Event dispatch begins must publish a
 separately typed terminal-audit artifact set through this boundary, but never a partial
 Evaluation/Metric/Evidence success set (bADR-0015/0021).
 _Avoid_: atomic file write, output directory, event transaction
@@ -1014,24 +1022,32 @@ member names or boundaries and is non-conforming. Publication receipts and retri
 complete manifest and every member (bADR-0012/0015/0018).
 _Avoid_: file list, concatenated checksum, output directory manifest
 
+**Initialization frame**:
+The immutable pre-Snapshot value environment assembled from the exact Experiment inputs, constants,
+parameters, and declared initial base state after Runtime admission. Initialization Formula sites
+read this frame to derive and validate Snapshot 0. It is discarded on refusal and never
+misidentified as a committed Snapshot, Event, or terminal-audit member (bADR-0014/0022).
+_Avoid_: initial Snapshot, initialization Event, mutable setup state
+
 **Snapshot boundary**:
-The semantic state boundary before the first event and after every committed Event transaction.
-The full state exists conceptually at each boundary; traces may store a canonical state hash and
-materialize full state only at declared checkpoints without changing semantics (bADR-0014).
+The semantic state boundary committed after successful initialization and after every committed
+Event transaction. The pre-Snapshot Initialization frame is not a Snapshot. The full state exists
+conceptually at each boundary; traces may store a canonical state hash and materialize full state
+only at declared checkpoints without changing semantics (bADR-0014).
 _Avoid_: save point, frame snapshot, periodic dump
 
 **Runtime refusal**:
 The deterministic terminal result when execution cannot legally continue after successful static
-validation — for example an event targets a past phase, an event budget is exhausted, or a runtime
-operation violates its declared domain. The current Event transaction is rolled back, its children
-are discarded, prior commits remain represented by the terminal audit, and the run stops
-(bADR-0014). It is a `runtime`-stage typed refusal: exit 2 on stdout. Once runtime dispatch begins,
-it must carry a
-receipt for one complete, separately typed terminal-audit artifact set that committed atomically
-and is retrievable and verifiable. A Resolved Runtime profile admission refusal before dispatch
-carries no terminal audit. Failure to publish the required set before commit is an `internal`
-command outcome, not a Runtime-refusal envelope with a fake receipt; failure after commit leaves the
-set recoverable by its durable invocation identity (bADR-0015/0021).
+validation — for example initialization cannot lawfully create Snapshot 0, an Event targets a past
+phase, an Event budget is exhausted, or a Runtime Operation violates its declared domain. A refusal
+during atomic initialization discards the Initialization frame and publishes no Snapshot, Event,
+trace, or terminal audit. After Event dispatch begins, the current Event transaction is rolled
+back, its children are discarded, prior commits remain represented by one complete, atomically
+committed terminal-audit artifact set, and the run stops (bADR-0014). Both are `runtime`-stage typed
+refusals with exit 2 on stdout; only the post-dispatch variant carries the retrievable terminal-audit
+receipt. Failure to publish a required post-dispatch set before commit is an `internal` command
+outcome, while failure after commit leaves the set recoverable by its durable invocation identity
+(bADR-0015/0021).
 _Avoid_: crash, validation refusal, skipped event
 
 **Named random stream**:

@@ -127,22 +127,43 @@ structured formal judgments, and an honest proof/conformance boundary.
   slot has no optional cardinality, package Formula fallback, evaluator default, or host behavior;
   templates express defaults only as ordinary starter Model Source declarations and bindings.
 
-- **Formula evaluation timing belongs to the binding context, never the Formula declaration.**
-  Every Formula binding fixes one typed value environment and lifecycle boundary. A `derived`
-  Symbol is an immutable Formula-defined value evaluated when read in that context; its statically
-  resolved dependency graph must be acyclic, and it is never a writable state slot. Initialization
-  reads the initial committed Snapshot formed after exact Experiment inputs are admitted. An Event
-  call site reads that Event's committed pre-event Snapshot and cannot observe buffered writes.
-  Observation reads the committed Snapshot after the transition queue for that logical time is
-  drained. Effect `snapshot` capture evaluates once at its declared capture Event and retains the
-  result; Effect `live` re-evaluates at each declared lifecycle Event against that Event's
-  pre-event Snapshot. `live` never means visibility of uncommitted writes. Constant folding,
-  caching, and inlining are non-semantic optimizations and must preserve these observations.
+- **Formula closure spans Formula and pure-Operation edges.** LDB rules derive one finite reachable
+  graph from each Formula evaluation site, including Formula-to-Formula calls, calls to pure
+  Operations, and every selected Operation-slot edge back to its bound Formula. The same judgment
+  derives the closed refusal set, deterministic resource-charge upper bound, and a decreasing
+  termination measure. A mixed Formula/Operation cycle, undeclared or widened refusal, or charge
+  exceeding the surrounding Formula slot/Operation/context budget refuses before Typed HIR. Typed
+  HIR and canonical RIR carry the exact closure; Runtime admission recomputes or
+  reverse-conformance-checks it against the selected LDB/package release before execution.
+
+- **Formula evaluation timing belongs to the evaluation-site context, never the Formula
+  declaration.**
+  Every Formula **evaluation site** fixes one Formula declaration binding, typed operand source,
+  lifecycle boundary, and transitive contract. A `derived` Symbol is a read-only computed Symbol,
+  not a stored or build-time-materialized value. Each read lowers to an explicit evaluation site;
+  sites in different lifecycle contexts remain distinct even when they reference one declaration.
+  Initialization reads the immutable pre-Snapshot Initialization frame built from admitted exact
+  Experiment inputs and declared initial base values. Successful initialization atomically commits
+  Snapshot 0; refusal before that commit follows bADR-0014/0015's pre-Event Runtime path with no
+  fabricated Event, Snapshot, rollback, or terminal audit. An Event site reads that Event's
+  committed pre-event Snapshot and cannot observe buffered writes. Observation reads the committed
+  Snapshot after the transition queue for that logical time is drained. Effect `snapshot` capture
+  evaluates once at its declared capture Event and retains the result; Effect `live` reevaluates at
+  each declared lifecycle Event against that Event's pre-event Snapshot. `live` never means
+  visibility of uncommitted writes.
+
+  Repeating the same evaluation-site identity with the same Initialization-frame or Snapshot
+  identity, canonical explicit operand values, and Numeric profile must return the same value or
+  refusal. An implementation may cache only under that complete key. A different Snapshot identity
+  requires a fresh semantic evaluation even when an optimization reuses a proven-equivalent
+  internal result. Constant folding, caching, and inlining are non-semantic optimizations and must
+  preserve these observations.
 
 - **Model explanation preserves the expression/control/effect boundary.** Its closed
-  `formula_explanations` section projects each selected, reachable Formula binding, evaluation
-  context, explicit operand source, dependency, type, kind, unit, Numeric profile, expression node,
-  and result. Its closed `operation_explanations` section projects selected, reachable control and
+  `formula_explanations` section projects each selected, reachable Formula declaration, evaluation
+  site/binding identity, context, explicit operand source, mixed call-graph dependency, transitive
+  refusal/resource contract, type, kind, unit, Numeric profile, expression node, and result. Its
+  closed `operation_explanations` section projects selected, reachable control and
   effect nodes, RNG streams/draws, guards, exhaustive outcomes, and commit/rollback policy, and
   refers to Formula binding identities when an Operation calls one. The projection rules and schema
   are generated from or reverse-conformance-checked against the exact LDB language content. Human
@@ -348,6 +369,12 @@ structured formal judgments, and an honest proof/conformance boundary.
   purity/effects/resource bounds, Quantity support shapes, Experiment selectors, and acceptance.
   Independent consumers must produce the same typed Diagnostic before partial HIR/RIR/Evaluation;
   a reidentified but semantically inconsistent RIR projection must fail runtime admission.
+- Create a Formula/pure-Operation mixed cycle, widen one derived refusal set, overflow one
+  Formula-slot resource budget, or truncate/reidentify the RIR Formula closure. Independent
+  consumers must issue the same pre-HIR or Runtime-admission refusal. Read one derived Symbol before
+  and after a state-changing Event and again during post-transition observation; same-site reads
+  under one Snapshot agree, while the new Snapshot is reevaluated under its distinct site/context
+  identity.
 - Execute at least one expression, effect, and control node, including named draw and a typed
   precondition outcome. Delete, move between families, or reidentify-mutate each selected node and
   require the same admission/refusal behavior across independent consumers; host support alone

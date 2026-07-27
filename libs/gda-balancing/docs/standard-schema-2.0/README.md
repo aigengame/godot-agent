@@ -238,8 +238,10 @@ PRD #534 remains open until a later implementation/specification PR supplies and
 2. exhaustive machine rules for grammar, resolution, types/effects, evaluation, runtime steps, and
    HIR-to-RIR lowering;
 3. RIR semantic normal form with a separately identified Debug Map and independent-lowerer vectors;
-4. closed Formula declaration, Formula-slot binding, evaluation-context, Debug Map, and mandatory
-   Model-explanation contracts, including exact build/inspect/publication behavior;
+4. closed Formula declaration, evaluation-site/slot binding, mixed call-graph
+   refusal/resource/termination closure, Initialization-frame and Snapshot-context behavior, Debug
+   Map, and mandatory Model-explanation contracts, including exact build/inspect/publication
+   behavior;
 5. closed AST, Typed HIR, RIR semantic payload, Resolved Model wrapper, package/lock/capability,
    content-identified Runtime profile definition, Resolved Runtime
    profile, Experiment, Metrics, Evaluation run, Replay comparison, Cross-evaluator comparison,

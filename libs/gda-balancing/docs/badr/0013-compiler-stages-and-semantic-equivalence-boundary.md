@@ -92,13 +92,14 @@ an explicit boundary for lowering equivalence.
   immutable, content-addressed `model-explanation` companion that binds the exact Model Source, RIR
   semantic payload, Debug Map, and projection schema/version. It contains separate closed
   `formula_explanations` and `operation_explanations` sections defined by bADR-0022; the latter
-  references exact Formula bindings rather than restating their expression semantics. Omitted,
-  extra, duplicate, or stale node bindings make the projection invalid. The artifact and any
-  wording or presentation revision have their own identity and cannot affect RIR semantic-payload
-  identity, Resolved Model identity, execution, or semantic equivalence. Model explanation
-  generation, validation, or publication failure prevents the complete build-success artifact set
-  from committing; invocation recovery restores that same complete set rather than regenerating
-  the projection.
+  references exact Formula evaluation-site/binding identities rather than restating their
+  expression semantics. Formula entries include the transitive refusal/resource contract derived
+  for each site. Omitted, extra, duplicate, or stale node bindings make the projection invalid. The
+  artifact and any wording or presentation revision have their own identity and cannot affect RIR
+  semantic-payload identity, Resolved Model identity, execution, or semantic equivalence. Model
+  explanation generation, validation, or publication failure prevents the complete build-success
+  artifact set from committing; invocation recovery restores that same complete set rather than
+  regenerating the projection.
 
 - **EIR is evaluator-specific and non-normative.** An evaluator may lower RIR into specialized
   layouts, schedules, kernels, bytecode, or other plans. EIR is not a stable Standard Schema

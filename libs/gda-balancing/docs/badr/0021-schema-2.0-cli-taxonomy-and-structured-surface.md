@@ -122,12 +122,15 @@ structured-params adapter part of the first vertical tracer.
   index immutable. Input artifacts are never mutated, and direct/symlink aliasing of any input/output
   member is a usage error.
 
-- **Refusal publication is separate from success publication.** A pre-runtime refusal publishes no
-  command success artifacts. After runtime dispatch, bADR-0014/0015 requires one separately typed
-  terminal-audit artifact set; the command commits that entire refusal-only set and its locator
-  receipt before emitting the exit-2 envelope. It cannot reuse the success artifact-set type,
-  expose a partial Evaluation run/Metric dataset/Evidence set, or return an unresolvable digest as a
-  receipt.
+- **Refusal publication is separate from success publication.** A pre-Runtime refusal publishes no
+  command success artifacts. Initialization happens at stage `runtime` but before Event dispatch:
+  its refusal publishes no Snapshot, Event, trace, success artifact, or terminal audit. After Event
+  dispatch, bADR-0014/0015 requires one separately typed terminal-audit artifact set; the command
+  commits that entire refusal-only set and its locator receipt before emitting the exit-2 envelope.
+  A Command descriptor declares both reachable Runtime variants and cannot make their
+  `terminal_audit` field optional by accident. Neither variant can reuse the success artifact-set
+  type, expose a partial Evaluation run/Metric dataset/Evidence set, or return an unresolvable
+  digest as a receipt.
 
 - **Artifact commit and result-envelope delivery are ordered, not one cross-transport
   transaction.** The publication transaction covers the durable artifact set, locator index, and
@@ -155,11 +158,13 @@ structured-params adapter part of the first vertical tracer.
 - **Every `model build` publishes and `model inspect` renders the non-semantic Model
   explanation.** The build-success artifact set and Build receipt must contain one exact
   `model-explanation`; an empty Formula or Operation section is valid when the selected RIR has no
-  corresponding nodes. Generation, validation, or publication failure leaves no partial success
-  set. `model inspect` retrieves that exact companion and may emit a deterministic indented JSON
-  view for direct reading; it never regenerates the projection. Presentation whitespace is not
-  part of the stored canonical artifact bytes or content identity, and `inspect` cannot
-  reconstruct, edit, or execute Model Source from the projection.
+  corresponding nodes. Its Formula entries bind exact evaluation sites and their transitive
+  refusal/resource closure rather than only source expression text. Generation, validation, or
+  publication failure leaves no partial success set. `model inspect` retrieves that exact companion
+  and may emit a deterministic indented JSON view for direct reading; it never regenerates the
+  projection. Presentation whitespace is not part of the stored canonical artifact bytes or
+  content identity, and `inspect` cannot reconstruct, edit, or execute Model Source from the
+  projection.
 
 - **`version` reports distinct identities.** It returns the toolkit package version, supported
   Standard Schema lines, Language Definition Bundle versions, and command-surface version without
@@ -227,6 +232,9 @@ structured-params adapter part of the first vertical tracer.
 - Inject runtime refusal after committed events and assert exactly one complete terminal-audit set
   is retrievable while no success artifact member or success-set receipt is visible. Repeat with
   concurrent readers and crash-recovery fixtures under each standardized store adapter.
+- Inject initialization refusal before Snapshot 0 and assert the same descriptor emits stage
+  `runtime` without a `terminal_audit` field or any Event/Snapshot/trace/success artifact. The
+  post-dispatch Runtime variant must still require its exact terminal-audit receipt.
 - Fail publication before commit and assert `internal_error`, exit 4, and no visible set. Fail or
   crash after commit but before/during stdout delivery and assert the set remains retrievable by its
   caller-known Invocation key and retry of the original command re-emits the recorded envelope

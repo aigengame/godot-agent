@@ -75,7 +75,8 @@ refusal payload stage-aware and artifact-aware.
   - `source` for package/module identity plus a source span;
   - `artifact` for content identity plus an artifact-native pointer;
   - `symbol` for a canonical symbol identity, optionally with its declaration source;
-  - `runtime` for run, event, and Snapshot-boundary identities.
+  - `runtime` for run, Initialization-frame, Formula evaluation-site, Event, and Snapshot-boundary
+    identities.
   No implementation may fabricate a JSON Pointer for a non-JSON location. Diagnostic codes and
   location identities are normative; message wording is not an automation key.
 
@@ -86,9 +87,9 @@ refusal payload stage-aware and artifact-aware.
   the location-kind order above, canonical location key, then code; duplicates are removed by
   `(code, primary location, related locations)`. `truncated` records cap exhaustion.
 
-- **Terminal audit is referenced, retrievable, and never accidental success.** Once dispatch has
-  begun, a runtime refusal atomically publishes a separately typed terminal-audit artifact set and
-  returns its content-identity/locator receipt. The set identifies the ordered committed trace
+- **Terminal audit is referenced, retrievable, and never accidental success.** Once Event dispatch
+  has begun, a runtime refusal atomically publishes a separately typed terminal-audit artifact set
+  and returns its content-identity/locator receipt. The set identifies the ordered committed trace
   prefix, last committed Snapshot, refusing event, rollback facts, Diagnostic, Resolved Runtime
   profile, and exact reproduction identities. It is committed as one refusal-only publication
   under bADR-0021. Only after commit does the command emit the category-`refusal` envelope on stdout
@@ -99,6 +100,15 @@ refusal payload stage-aware and artifact-aware.
   authority/build/profile prerequisites needed to resolve every audit reference, but those members
   do not convert the set into a command-success outcome and it may never include partial
   Evaluation/Metric/Replay/Evidence artifacts.
+
+- **Initialization refusal is a pre-Event Runtime variant, not a fabricated terminal audit.**
+  Initialization may begin only after the exact Runtime inputs and reproduction identities exist,
+  but Snapshot 0 and the first Event do not yet exist. If an initialization Formula or resource
+  bound refuses, the command returns a `runtime`-stage refusal without `terminal_audit`; its
+  Diagnostic binds the exact Initialization-frame and Formula evaluation-site provenance. No
+  Event, rollback fact, Snapshot, trace, Evaluation, Metric, comparison, or Evidence artifact is
+  published. The descriptor must distinguish this reachable pre-Event variant from the
+  post-dispatch Runtime variant whose terminal-audit receipt is mandatory.
 
 - **Publication/delivery failure has explicit command semantics.** If terminal-audit publication
   fails before commit, no Runtime-refusal envelope can truthfully carry a receipt; the command emits
@@ -187,6 +197,9 @@ refusal payload stage-aware and artifact-aware.
 - Inject a runtime fault after dispatch and assert that exit 2 carries one resolving
   `terminal_audit` receipt, the separately typed artifact set verifies by content identity, and no
   success artifact set is visible. Faults before dispatch must not claim terminal audit.
+- Trigger an initialization Formula refusal after Runtime inputs bind but before Snapshot 0 and
+  Event dispatch. Assert exit 2 on stdout with stage `runtime`, exact frame/site provenance, no
+  `terminal_audit`, no Event/Snapshot/trace artifact, and no success/Verdict/Evidence publication.
 - Validate the terminal-audit artifact itself, not only its set membership: require the committed
   trace prefix, last Snapshot, refusing event, rollback facts, complete Diagnostic location,
   Resolved Runtime profile, and exact reproduction identities, with negative vectors for every

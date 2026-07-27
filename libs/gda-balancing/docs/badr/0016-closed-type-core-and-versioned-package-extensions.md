@@ -140,7 +140,8 @@ therefore requires a small closed type language and a constrained package extens
   as an opaque extension for a later evaluator to reinterpret.
 
 - **Operation specifications close the extension's semantic surface.** Every operation declares a
-  complete named formal-port signature and result, unit/kind rules, purity, deterministic resource
+  complete named formal-port signature and result, unit/kind rules, purity, declared refusals,
+  deterministic resource
   bounds, permitted Numeric profiles, and runtime effects: state reads/writes, emitted signals,
   scheduled/canceled events, and Named random streams. Every nested invocation has one stable call
   site and binds the callee's exact formal-port set once to caller ports, lexical locals, literals,
@@ -151,19 +152,25 @@ therefore requires a small closed type language and a constrained package extens
 
 - **Formula slots make game-owned numeric policy explicit.** An Operation may declare zero or more
   named Formula slots, each with one closed typed parameter/result contract and one declared
-  evaluation context. A selected Operation requires its Model Source to bind exactly one compatible
-  named Formula to every declared slot. Missing or duplicate bindings, incompatible signatures,
-  and bindings to effectful or unreachable declarations refuse before HIR. An Operation, package,
-  template, compiler, or evaluator cannot supply an optional fallback or host default. Template
-  defaults are ordinary Formula declarations and bindings in the editable starter Model Source.
+  evaluation context, permitted refusal set, and deterministic resource-charge budget. A selected
+  Operation requires its Model Source to bind exactly one compatible named Formula to every declared
+  slot. LDB rules derive the complete reachable Formula/pure-Operation call graph, refusal closure,
+  charge bound, and termination measure for that binding; the closure must be a subset of the
+  slot's permitted refusals and budget. Missing or duplicate bindings, incompatible signatures,
+  widened refusals, resource overflow, mixed-graph cycles, and bindings to effectful or unreachable
+  declarations refuse before HIR. An Operation, package, template, compiler, or evaluator cannot
+  supply an optional fallback or host default. Template defaults are ordinary Formula declarations
+  and bindings in the editable starter Model Source.
 
 - **Operation closure is checked before RIR and revalidated before execution.** Closed Kernel-node
   shapes reject even unknown fields on known nodes. Static judgments derive parameter use,
   reachable result tags/payload types, state reads/writes, signal/event/cancel/random effects, and
-  resource counts, then require exact agreement with the selected release's declared signature,
-  kind/unit/Numeric rules, purity, effects, and bounds. Runtime admission compares the complete RIR
-  Operation projection to that exact selected release and rejects an LDB-present but Lock-unselected
-  operation. Reidentifying a partial or inconsistent artifact cannot make it executable.
+  resource counts, plus every Formula/pure-Operation transitive refusal, charge, and termination
+  edge, then require exact agreement with the selected release's declared signature,
+  kind/unit/Numeric rules, purity, effects, refusals, and bounds. Runtime admission compares the
+  complete RIR Operation and Formula-closure projection to that exact selected release and rejects
+  an LDB-present but Lock-unselected operation. Reidentifying a partial or inconsistent artifact
+  cannot make it executable.
 
 - **Model invocation closes the reusable Operation interface without duplicating it.** Model Source
   owns named, typed symbols and value policies plus entrypoints that explicitly bind those symbols
@@ -321,8 +328,11 @@ therefore requires a small closed type language and a constrained package extens
   execution.
 - Mutate a selected Operation's Formula-slot name, signature, evaluation context, or cardinality;
   omit or duplicate one Model Source binding; bind an incompatible, effectful, cyclic, or
-  unreachable Formula; and attempt a package/evaluator fallback. Independent compilers must emit
-  the same pre-HIR refusal, while a valid exact-one binding must be explicit in HIR and RIR.
+  unreachable Formula; widen the transitive refusal set; exceed a declared resource-charge bound;
+  create a Formula → pure Operation → Formula cycle; and attempt a package/evaluator fallback.
+  Independent compilers must emit the same pre-HIR refusal, while a valid exact-one binding and its
+  complete closure must be explicit in HIR and RIR. Reidentify a widened or truncated RIR closure
+  and require Runtime admission refusal.
 - Exercise every admitted constructor, including nested Record/List/Map/Quantity/Distribution
   shapes, at Kernel-law and Operation boundaries. Both must accept or refuse identically; an
   unknown, partially checked, or host-native value cannot cross either boundary.

@@ -45,6 +45,18 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   commits them together and creates the next Snapshot boundary. An event cannot observe its own
   buffered writes unless an operation explicitly defines a local accumulator.
 
+- **Initialization is atomic and precedes Event dispatch.** After exact Experiment inputs and the
+  Resolved Runtime profile are admitted, initialization constructs one immutable
+  **Initialization frame** from constants, parameters, inputs, and declared initial base state.
+  Initialization Formula evaluation sites read only that frame and explicit operands; it is not a
+  committed Snapshot and no Event exists. Successful initialization validates all initial values
+  and atomically commits Snapshot 0, after which Event dispatch may begin. A Formula refusal or
+  resource exhaustion before that commit is a `runtime`-stage pre-Event refusal: the entire frame
+  is discarded, no Snapshot/Event/trace/Evaluation/Metric artifact becomes visible, and no
+  terminal-audit receipt is fabricated. The refusal envelope retains the exact reproduction,
+  Formula evaluation-site, frame, and Diagnostic provenance needed to retry or diagnose the same
+  attempt.
+
 - **Signals are intra-transaction facts, not Runtime events.** An emitted Signal has a nominal
   type and payload. The Model Source Package authors game-specific subscriptions; static
   resolution validates each subscriber against Language Definition Bundle signal/effect laws and
@@ -67,10 +79,11 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   boundary; neither a successful Event nor an atomic file rename proves an atomically published
   command result.
 
-- **Runtime refusal rolls back only the current event and terminates the run.** Its buffered writes,
-  RNG draws, emitted Signals, child events, and cancellations are discarded. Earlier committed
-  snapshots remain valid. The refusal produces a separately typed **terminal-audit artifact set**
-  identifying the ordered committed trace prefix, last committed Snapshot, refusing event,
+- **Runtime refusal after Event dispatch rolls back only the current event and terminates the
+  run.** Its buffered writes, RNG draws, emitted Signals, child events, and cancellations are
+  discarded. Earlier committed snapshots remain valid. The refusal produces a separately typed
+  **terminal-audit artifact set** identifying the ordered committed trace prefix, last committed
+  Snapshot, refusing event,
   rollback facts,
   Diagnostic, Resolved Runtime profile, and exact reproduction identities. The invocation publishes
   that set
@@ -293,6 +306,9 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 - Inject a fault after an event has buffered writes, RNG draws, Signals, cancellations, and
   children; assert all are rolled back, prior commits remain, and exactly one retrievable
   terminal-audit artifact set becomes visible with no completed success artifact.
+- Trigger one initialization Formula refusal before Snapshot 0 commits. Assert a `runtime`-stage
+  refusal with exact Initialization-frame and Formula-site provenance, no Event/rollback claim, no
+  Snapshot/trace/terminal audit, and no completed Evaluation/Metric artifact.
 - Commit a resource reservation, then execute a later compensating interruption whose current
   Event exceeds a deterministic budget. Assert the prior reservation Snapshot and trace remain,
   only the current buffers are rolled back, and the terminal audit identifies the first refusing

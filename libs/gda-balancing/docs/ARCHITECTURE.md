@@ -298,18 +298,24 @@ is never a peer semantic authority.
 
 Domain-package Operations declare zero or more typed **Formula slots**. For every slot on a selected
 Operation, Model Source binds exactly one compatible Formula; missing, duplicate, or incompatible
-bindings refuse before HIR. Packages, templates, compilers, and evaluators provide no optional
-fallback. A template default is an ordinary Formula and binding copied into the editable starter
-source. This separates reusable mechanic/control/effect law, which remains Operation-owned, from a
-game's numeric design policy, which remains Model-Source-owned.
+bindings refuse before HIR. LDB rules traverse the complete Formula and pure-Operation call graph,
+reject mixed cycles, and derive the transitive refusal set, deterministic charge bound, and
+termination measure. A concrete binding must fit its slot and surrounding Operation contract;
+HIR/RIR carry that exact closure and Runtime admission revalidates it. Packages, templates,
+compilers, and evaluators provide no optional fallback. A template default is an ordinary Formula
+and binding copied into the editable starter source. This separates reusable
+mechanic/control/effect law, which remains Operation-owned, from a game's numeric design policy,
+which remains Model-Source-owned.
 
 Formula evaluation uses one timing model across derived values and Operations. A Formula itself has
-no lifecycle timing. Its binding/call site declares the context: initialization reads the initial
-committed Snapshot after Experiment inputs; an Event reads that Event's pre-event Snapshot and
-cannot observe buffered writes; observation reads the post-transition committed Snapshot; a
-snapshot Effect evaluates once and captures; and a live Effect reevaluates at each declared
-lifecycle Event against that Event's pre-event Snapshot. Optimization cannot change those
-observations.
+no lifecycle timing. Every read/call lowers to an identified evaluation site with explicit operands
+and context. A `derived` Symbol is read-only computed data, not stored state: repeated reads at one
+site under the same frame/Snapshot, operands, and Numeric profile agree; a new Snapshot is a new
+semantic evaluation. Initialization reads an immutable pre-Snapshot frame and commits Snapshot 0
+only after all initialization succeeds; an Event reads that Event's pre-event Snapshot and cannot
+observe buffered writes; observation reads the post-transition committed Snapshot; a snapshot
+Effect evaluates once and captures; and a live Effect reevaluates at each declared lifecycle Event
+against that Event's pre-event Snapshot. Optimization cannot change those observations.
 
 The Kernel owns a small closed operation vocabulary sufficient to interpret those rules. The LDB
 uses it to define complete language and Domain-package operations. Every operation definition must
@@ -641,7 +647,8 @@ One execution instance follows a closed lifecycle:
 
 1. `instantiated` binds exact RIR, Experiment, Resolved Runtime profile, inputs, and seed without
    creating mutable state;
-2. `initializing` creates and validates the first Snapshot boundary;
+2. `initializing` evaluates against an immutable pre-Snapshot Initialization frame and atomically
+   creates and validates Snapshot 0;
 3. `event` dispatches the atomic events at the current logical time;
 4. `step` advances to the next declared observation or logical boundary;
 5. `terminated` seals terminal trace, Snapshot, Metrics, and evidence identities; and
@@ -667,6 +674,12 @@ Dispatching **each queued event** is one atomic transaction over the latest comm
 Writes, signals, child events, cancellations, and RNG changes remain buffered until that event
 commits; refusal discards that event's buffers.
 
+Initialization is a distinct atomic pre-Event boundary. A refusal while deriving or validating
+Snapshot 0 discards the whole Initialization frame and returns a `runtime`-stage refusal with exact
+Formula-site/frame provenance. Because no Event or committed Snapshot exists, it publishes no
+terminal audit and cannot claim rollback facts. Only successful initialization begins Event
+dispatch.
+
 Each state slot has one final write, either directly or through an admitted reducer. Reads and
 writes follow explicit snapshot boundaries; iteration order and tie-breaking are never inherited
 from a host container. RNG uses named streams so unrelated features cannot perturb each other's
@@ -691,11 +704,16 @@ The architecture keeps three ideas separate:
   pipeline stage; and
 - a **Verdict** is an Experiment-level judgment under declared acceptance intent.
 
-If a refusal occurs after runtime dispatch, the invocation atomically publishes a separate,
+If a refusal occurs after Event dispatch, the invocation atomically publishes a separate,
 retrievable, and verifiable **terminal-audit artifact set**. bADR-0015 exclusively owns that set's
 closed member and binding contract. At the architecture level, it is a refusal-only publication: it
 must not publish fabricated or half-complete Evaluation, Metric, Replay, or Evidence success
 artifacts, and admission failures before dispatch have no terminal audit.
+
+An initialization refusal occurs after Runtime inputs bind but before Event dispatch. It is a
+`runtime`-stage refusal with no terminal-audit receipt, Snapshot, trace, Evaluation, or Metric
+artifact. This is not an admission failure and does not weaken the post-dispatch terminal-audit
+requirement.
 
 Event-transaction atomicity and artifact-publication atomicity are distinct invariants. Both must be
 fault-injected and verified independently.
