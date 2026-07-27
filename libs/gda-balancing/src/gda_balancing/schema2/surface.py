@@ -35,6 +35,7 @@ _ADMITTED_KEYWORDS = (
     "title",
     "type",
     "unevaluatedProperties",
+    "uniqueItems",
 )
 
 _PROFILE_BODY: dict[str, JsonValue] = {
