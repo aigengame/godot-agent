@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable
 from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Any, Iterator, TypeAlias, cast
 
@@ -21,6 +22,7 @@ from gda_balancing.envelope import UnreadableInputError, UsageError
 from gda_balancing.path_contracts import reject_input_aliasing
 from gda_balancing.descriptors import ArtifactSetMemberSpec
 from gda_balancing.schema2.authority import load_authorities
+from gda_balancing.schema2.authority_graph import LanguageBundleIndex
 from gda_balancing.schema2.bootstrap import (
     BOOTSTRAP_REFUSAL_CATALOG,
     BootstrapAdmission,
@@ -48,6 +50,13 @@ _ANCHOR_KEY_ENV = "GDA_BALANCING_ANCHOR_KEY"
 _RelationBindings: TypeAlias = dict[str, tuple[Any, tuple[object, ...] | None]]
 
 
+@cache
+def _descriptor_language_bundle() -> LanguageBundleIndex:
+    """Admit the packaged graph once while assembling static command descriptors."""
+    _, language_bundle = load_authorities()
+    return language_bundle
+
+
 def _normalized_absolute_path(value: str) -> Path:
     path = Path(os.path.abspath(os.path.expanduser(value)))
     for alias in (Path("/tmp"), Path("/var")):
@@ -67,7 +76,7 @@ def refusal_catalog_for_stages(
 ) -> tuple[tuple[str, str], ...]:
     """Project only the LDB refusals reachable by one command family."""
     if language_bundle is None:
-        _, language_bundle = load_authorities()
+        language_bundle = _descriptor_language_bundle()
     return BOOTSTRAP_REFUSAL_CATALOG + tuple(
         (cast(str, item["code"]), cast(str, item["stage"]))
         for item in cast(list[dict[str, Any]], language_bundle["diagnostics"])
@@ -81,7 +90,7 @@ def refusal_catalog_for_reasons(
 ) -> tuple[tuple[str, str], ...]:
     """Project one command's reachable semantic reasons through the current LDB."""
     if language_bundle is None:
-        _, language_bundle = load_authorities()
+        language_bundle = _descriptor_language_bundle()
     requested = tuple(reason_ids)
     if len(set(requested)) != len(requested):
         raise ValueError("a command refusal catalog cannot contain duplicate reasons")
