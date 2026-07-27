@@ -115,7 +115,7 @@ collapsed or ignored.
 
 This slice confirms one configure/build/check/run/inspect/edit/rerun loop and one independent
 evaluator witness only. It closes no Genre coverage row or general evaluator-conformance claim. Its
-dogfooding observations and the remaining transitive-capability resolution gate are recorded in
+dogfooding observations and remaining product/architecture gate are recorded in
 [`ARCHITECTURE.md`](../ARCHITECTURE.md); downstream tracer work remains subject to the human
 product/architecture decision on #540.
 
