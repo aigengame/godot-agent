@@ -133,10 +133,11 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   contract requires continuity, or decreasing sequence numbers are refusals. Wall-clock arrival
   order and thread scheduling are never semantic inputs.
 
-- **A Snapshot boundary exists initially and after every successful event.** The semantic snapshot
-  includes all persistent state and scheduler state required to resume deterministically. Evidence
-  may record a canonical hash at every boundary and materialize full snapshots only at declared
-  checkpoints; storage optimization cannot change the conceptual boundary or replay trace.
+- **Snapshot 0 exists only after successful initialization; later boundaries follow every
+  successful event.** The semantic snapshot includes all persistent state and scheduler state
+  required to resume deterministically. Evidence may record a canonical hash at every boundary and
+  materialize full snapshots only at declared checkpoints; storage optimization cannot change the
+  conceptual boundary or replay trace.
 
 - **Fairness is explicit and bounded.** FIFO holds within equal time, phase, and priority. There is
   no promise that a lower priority event preempts a finite higher priority chain. Deterministic
@@ -172,6 +173,10 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
   admission derives that identity from the selected LDB definition and binds it into the Resolved
   Runtime profile alongside the Evaluator Capability Manifest identity. Neither authority artifact
   refers back to the generated profile, so the three identities are distinct and acyclic.
+  Formula caching cannot bypass it: every dynamic evaluation, including a cache hit, applies the
+  same LDB-derived charge vector to the current resource ledger before returning a cached or freshly
+  computed semantic result. Resource exhaustion therefore occurs at the same evaluation boundary
+  with caching enabled or disabled.
 
 - **Evaluator capability is explicit implementation provenance, not semantic authority.** Each
   evaluator build publishes an immutable **Evaluator Capability Manifest** naming the exact Kernel
@@ -303,6 +308,9 @@ scheduling freedom. PRD #534 makes that runtime contract a human decision gate.
 - Cover every scheduler edge and budget with positive and refusal vectors: phase/priority/FIFO
   order, backward scheduling, cancellation, queue/event/zero-time exhaustion, undeclared streams,
   and primitive/effect-profile incompatibility.
+- Run the same repeated Formula reads with caching forced on and off at one near-exhausted resource
+  budget. Require identical charge events, value/non-resource-refusal sequence, and exact
+  resource-exhaustion boundary; a cache hit that skips or double-applies charge fails conformance.
 - Inject a fault after an event has buffered writes, RNG draws, Signals, cancellations, and
   children; assert all are rolled back, prior commits remain, and exactly one retrievable
   terminal-audit artifact set becomes visible with no completed success artifact.

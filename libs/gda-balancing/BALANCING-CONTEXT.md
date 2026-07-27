@@ -372,9 +372,12 @@ _Avoid_: optional callback, formula hook, package default
 
 **Formula evaluation site**:
 One statically resolved read or call of a Formula binding with a stable identity, explicit operand
-sources, one lifecycle context, and its complete transitive refusal/resource contract. Multiple
-sites may reference one Formula declaration; a `derived` Symbol read from different lifecycle
-contexts lowers to distinct sites rather than one ambient evaluation mode (bADR-0022).
+sources, one lifecycle context, and its complete transitive refusal/resource contract. Every
+dynamic evaluation, including a cache hit, replays the site's deterministic charge vector against
+the current Runtime resource ledger; a cache can reuse the pure result but never skip accounting or
+cache resource exhaustion independently of that ledger. Multiple sites may reference one Formula
+declaration; a `derived` Symbol read from different lifecycle contexts lowers to distinct sites
+rather than one ambient evaluation mode (bADR-0022).
 _Avoid_: dynamic call, formula invocation hook, implicit read context
 
 **Formula evaluation context**:

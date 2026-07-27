@@ -310,12 +310,15 @@ which remains Model-Source-owned.
 Formula evaluation uses one timing model across derived values and Operations. A Formula itself has
 no lifecycle timing. Every read/call lowers to an identified evaluation site with explicit operands
 and context. A `derived` Symbol is read-only computed data, not stored state: repeated reads at one
-site under the same frame/Snapshot, operands, and Numeric profile agree; a new Snapshot is a new
-semantic evaluation. Initialization reads an immutable pre-Snapshot frame and commits Snapshot 0
-only after all initialization succeeds; an Event reads that Event's pre-event Snapshot and cannot
-observe buffered writes; observation reads the post-transition committed Snapshot; a snapshot
-Effect evaluates once and captures; and a live Effect reevaluates at each declared lifecycle Event
-against that Event's pre-event Snapshot. Optimization cannot change those observations.
+site under the same frame/Snapshot, operands, and Numeric profile derive the same pure result and
+deterministic charge vector; a new Snapshot is a new semantic evaluation. A cache may reuse the pure
+result, but every dynamic evaluation still applies that charge to the current Runtime resource
+ledger, so caching cannot move or remove resource exhaustion. Initialization reads an immutable
+pre-Snapshot frame and commits Snapshot 0 only after all initialization succeeds; an Event reads
+that Event's pre-event Snapshot and cannot observe buffered writes; observation reads the
+post-transition committed Snapshot; a snapshot Effect evaluates once and captures; and a live
+Effect reevaluates at each declared lifecycle Event against that Event's pre-event Snapshot.
+Optimization cannot change result or charge observations.
 
 The Kernel owns a small closed operation vocabulary sufficient to interpret those rules. The LDB
 uses it to define complete language and Domain-package operations. Every operation definition must

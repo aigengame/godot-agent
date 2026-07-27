@@ -153,11 +153,15 @@ structured formal judgments, and an honest proof/conformance boundary.
   visibility of uncommitted writes.
 
   Repeating the same evaluation-site identity with the same Initialization-frame or Snapshot
-  identity, canonical explicit operand values, and Numeric profile must return the same value or
-  refusal. An implementation may cache only under that complete key. A different Snapshot identity
-  requires a fresh semantic evaluation even when an optimization reuses a proven-equivalent
-  internal result. Constant folding, caching, and inlining are non-semantic optimizations and must
-  preserve these observations.
+  identity, canonical explicit operand values, and Numeric profile derives the same pure semantic
+  value or non-resource refusal and the same deterministic charge vector. Each dynamic evaluation,
+  including a cache hit, applies that charge vector to the current Runtime resource ledger before
+  returning the semantic result. Insufficient remaining budget produces resource exhaustion at that
+  exact evaluation boundary. A cache may reuse only the pure result under the complete semantic key;
+  it cannot cache the mutable ledger or a resource-exhaustion outcome independently of that ledger.
+  A different Snapshot identity is a distinct semantic evaluation even when an optimization reuses
+  a proven-equivalent internal result. Constant folding, caching, and inlining are non-semantic
+  optimizations and must preserve both result and charge observations.
 
 - **Model explanation preserves the expression/control/effect boundary.** Its closed
   `formula_explanations` section projects each selected, reachable Formula declaration, evaluation
@@ -375,6 +379,9 @@ structured formal judgments, and an honest proof/conformance boundary.
   and after a state-changing Event and again during post-transition observation; same-site reads
   under one Snapshot agree, while the new Snapshot is reevaluated under its distinct site/context
   identity.
+- Execute repeated reads at a budget boundary with Formula-result caching forced on and off. The
+  value/non-resource-refusal sequence, charge events, and exact resource-exhaustion site must be
+  identical; cached evaluation cannot skip, defer, or double-apply the derived charge vector.
 - Execute at least one expression, effect, and control node, including named draw and a typed
   precondition outcome. Delete, move between families, or reidentify-mutate each selected node and
   require the same admission/refusal behavior across independent consumers; host support alone
