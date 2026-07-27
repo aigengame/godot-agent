@@ -45,7 +45,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:7dbc5ee11d19cddbcd21198b44ef115b6d4dda1f186beed35e0c4e2adfc3ef0e"
+    "sha256:9661372889e4edf9bbddfe16d42c2154303297f7913298ed23f1f230a8b2b57f"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -321,6 +321,336 @@ def _package_is_closed(
             )
             for item in exported_types
         )
+    )
+
+
+_PACKAGE_VECTOR_CATEGORIES = (
+    "positive",
+    "negative",
+    "boundary",
+    "semantic-mutation",
+    "dependency",
+    "outcome",
+    "refusal",
+    "deterministic-rng",
+    "effects",
+    "rollback-replay",
+    "resource",
+)
+_PACKAGE_VECTOR_KIND_MEMBERS = {
+    "package-contract": {
+        "id",
+        "probe_members",
+        "required_members",
+    },
+    "operation-contract": {
+        "id",
+        "probe_members",
+        "required_members",
+    },
+    "runtime-scenario": {
+        "expect_members",
+        "id",
+        "input_members",
+        "required_members",
+        "rng_draw_members",
+        "state_value_members",
+    },
+}
+
+
+def _package_vector_contract_is_closed(contract: Any) -> bool:
+    if (
+        not isinstance(contract, dict)
+        or set(contract)
+        != {
+            "categories",
+            "closed",
+            "kinds",
+            "operation_probe_roots",
+            "package_probe_roots",
+        }
+        or contract.get("closed") is not True
+        or contract.get("categories") != list(_PACKAGE_VECTOR_CATEGORIES)
+        or contract.get("operation_probe_roots")
+        != [
+            "body",
+            "default_outcome",
+            "effects",
+            "outcomes",
+            "refusals",
+            "resource_bounds",
+        ]
+        or contract.get("package_probe_roots")
+        != ["capabilities", "dependencies", "exports", "profiles"]
+        or not isinstance(contract.get("kinds"), list)
+    ):
+        return False
+    kinds = {
+        item.get("id"): item
+        for item in contract["kinds"]
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    if set(kinds) != set(_PACKAGE_VECTOR_KIND_MEMBERS):
+        return False
+    expected_members = {
+        "package-contract": {
+            "category",
+            "expect",
+            "id",
+            "kind",
+            "probe",
+        },
+        "operation-contract": {
+            "category",
+            "expect",
+            "id",
+            "kind",
+            "operation",
+            "probe",
+        },
+        "runtime-scenario": {
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind",
+            "operation",
+        },
+    }
+    for kind_id, kind in kinds.items():
+        if set(kind) != _PACKAGE_VECTOR_KIND_MEMBERS[kind_id] or kind.get(
+            "required_members"
+        ) != sorted(expected_members[kind_id]):
+            return False
+    return (
+        kinds["package-contract"].get("probe_members") == ["path"]
+        and kinds["operation-contract"].get("probe_members") == ["path"]
+        and kinds["runtime-scenario"].get("input_members")
+        == ["seed", "state_names", "values"]
+        and kinds["runtime-scenario"].get("expect_members")
+        == ["outcome", "rng_draws", "state_after"]
+        and kinds["runtime-scenario"].get("rng_draw_members")
+        == ["candidate_hex", "index", "stream", "value"]
+        and kinds["runtime-scenario"].get("state_value_members") == ["name", "value"]
+    )
+
+
+def _canonical_equal(left: Any, right: Any) -> bool:
+    try:
+        return canonical_bytes(cast(JsonValue, left)) == canonical_bytes(
+            cast(JsonValue, right)
+        )
+    except (TypeError, ValueError, UnicodeEncodeError):
+        return False
+
+
+def _signed_int64(value: Any) -> bool:
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and -(2**63) <= value <= 2**63 - 1
+    )
+
+
+def _package_evidence_vectors_are_closed(
+    package: dict[str, Any],
+    contract: Any,
+) -> bool:
+    if not _package_vector_contract_is_closed(contract):
+        return False
+    vector_ids = package.get("vectors")
+    vectors = package.get("vector_definitions")
+    if (
+        not isinstance(vector_ids, list)
+        or not isinstance(vectors, list)
+        or vector_ids
+        != [vector.get("id") for vector in vectors if isinstance(vector, dict)]
+        or len(vector_ids) != len(set(vector_ids))
+    ):
+        return False
+    kinds = {
+        item["id"]: item
+        for item in contract["kinds"]
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    categories = set(contract["categories"])
+    operations_entry = next(
+        (
+            item
+            for item in cast(list[dict[str, Any]], package.get("semantic_closure"))
+            if item.get("authority_path") == "language.operations"
+        ),
+        None,
+    )
+    if not isinstance(operations_entry, dict) or not isinstance(
+        operations_entry.get("definitions"), list
+    ):
+        return False
+    operations = {
+        operation.get("id"): operation
+        for operation in operations_entry["definitions"]
+        if isinstance(operation, dict) and isinstance(operation.get("id"), str)
+    }
+    if any(
+        not isinstance(operation.get("vectors"), list)
+        for operation in operations.values()
+    ):
+        return False
+    evidence_ids: set[str] = set()
+    for vector in vectors:
+        if not isinstance(vector, dict) or "kind" not in vector:
+            continue
+        kind_id = vector.get("kind")
+        kind = kinds.get(kind_id)
+        if (
+            not isinstance(kind_id, str)
+            or not isinstance(kind, dict)
+            or set(vector) != set(kind["required_members"])
+            or not isinstance(vector.get("id"), str)
+            or not vector["id"]
+            or vector.get("category") not in categories
+        ):
+            return False
+        evidence_ids.add(vector["id"])
+        if kind_id == "package-contract":
+            probe = vector.get("probe")
+            if (
+                not isinstance(probe, dict)
+                or set(probe) != set(kind["probe_members"])
+                or not isinstance(probe.get("path"), str)
+                or probe["path"].split(".", 1)[0] not in contract["package_probe_roots"]
+            ):
+                return False
+            declared, observed = _exact_path_value(package, probe["path"])
+            if not declared or not _canonical_equal(observed, vector.get("expect")):
+                return False
+            continue
+        operation = operations.get(vector.get("operation"))
+        if not isinstance(operation, dict):
+            return False
+        if kind_id == "operation-contract":
+            probe = vector.get("probe")
+            if (
+                not isinstance(probe, dict)
+                or set(probe) != set(kind["probe_members"])
+                or not isinstance(probe.get("path"), str)
+                or probe["path"].split(".", 1)[0]
+                not in contract["operation_probe_roots"]
+            ):
+                return False
+            declared, observed = _exact_path_value(operation, probe["path"])
+            if not declared or not _canonical_equal(observed, vector.get("expect")):
+                return False
+            continue
+        if operation.get("operation_kind") != "event-program":
+            return False
+        inp = vector.get("input")
+        expect = vector.get("expect")
+        if (
+            not isinstance(inp, dict)
+            or set(inp) != set(kind["input_members"])
+            or not _signed_int64(inp.get("seed"))
+            or not isinstance(inp.get("state_names"), list)
+            or inp["state_names"] != sorted(set(inp["state_names"]))
+            or not all(isinstance(name, str) and name for name in inp["state_names"])
+            or not isinstance(inp.get("values"), list)
+            or not isinstance(expect, dict)
+            or set(expect) != set(kind["expect_members"])
+            or not isinstance(expect.get("outcome"), str)
+            or not isinstance(expect.get("state_after"), list)
+            or not isinstance(expect.get("rng_draws"), list)
+        ):
+            return False
+        values = inp["values"]
+        value_names = [item.get("name") for item in values if isinstance(item, dict)]
+        operation_inputs = [
+            item.get("name")
+            for item in cast(list[dict[str, Any]], operation.get("inputs"))
+            if isinstance(item, dict)
+        ]
+        if (
+            not all(
+                isinstance(item, dict)
+                and set(item) == {"name", "value"}
+                and isinstance(item.get("name"), str)
+                and item["name"]
+                and _signed_int64(item.get("value"))
+                for item in values
+            )
+            or value_names != operation_inputs
+            or not set(inp["state_names"]) <= set(value_names)
+        ):
+            return False
+        state_after = expect["state_after"]
+        if (
+            not all(
+                isinstance(item, dict)
+                and set(item) == set(kind["state_value_members"])
+                and isinstance(item.get("name"), str)
+                and _signed_int64(item.get("value"))
+                for item in state_after
+            )
+            or [item["name"] for item in state_after] != inp["state_names"]
+        ):
+            return False
+        draws = expect["rng_draws"]
+        if not all(
+            isinstance(item, dict)
+            and set(item) == set(kind["rng_draw_members"])
+            and isinstance(item.get("candidate_hex"), str)
+            and len(item["candidate_hex"]) == 16
+            and all(
+                character in "0123456789abcdef" for character in item["candidate_hex"]
+            )
+            and isinstance(item.get("stream"), str)
+            and item["stream"]
+            and isinstance(item.get("index"), int)
+            and not isinstance(item["index"], bool)
+            and item["index"] >= 0
+            and _signed_int64(item.get("value"))
+            for item in draws
+        ):
+            return False
+        outcomes = operation.get("outcomes")
+        if not isinstance(outcomes, list) or expect["outcome"] not in {
+            item.get("id") for item in outcomes if isinstance(item, dict)
+        }:
+            return False
+
+    operation_evidence_ids = {
+        vector["id"]
+        for vector in vectors
+        if isinstance(vector, dict)
+        and vector.get("kind") in {"operation-contract", "runtime-scenario"}
+    }
+    referenced = {
+        vector_id
+        for operation in operations.values()
+        for vector_id in cast(list[str], operation["vectors"])
+        if vector_id in evidence_ids
+    }
+    return referenced == operation_evidence_ids
+
+
+def _package_evidence_vector_header_is_closed(
+    vector: dict[str, Any],
+    contract: Any,
+) -> bool:
+    if not _package_vector_contract_is_closed(contract):
+        return False
+    kinds = {
+        item["id"]: item
+        for item in contract["kinds"]
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    kind = kinds.get(vector.get("kind"))
+    return (
+        isinstance(kind, dict)
+        and set(vector) == set(kind["required_members"])
+        and isinstance(vector.get("id"), str)
+        and bool(vector["id"])
+        and vector.get("category") in contract["categories"]
     )
 
 
@@ -966,6 +1296,13 @@ def _reference_contracts_close(
             "target_key_member",
             "target_value_member",
         }
+        alternative_contract = {
+            "alternatives",
+            "owners",
+            "references_member",
+            "targets",
+            "target_key_member",
+        }
         invocation_contract = {
             "equal_members",
             "owner_key_member",
@@ -1008,6 +1345,59 @@ def _reference_contracts_close(
                     owner.get(member)
                     != targets_by_key[owner[owner_key_member]].get(member)
                     for member in equal_members
+                )
+                for owner in owners
+            ):
+                return False
+            continue
+        if set(contract) == alternative_contract:
+            owners = _path_values(authorities, contract["owners"])
+            targets = _path_values(authorities, contract["targets"])
+            alternatives = contract["alternatives"]
+            references_member = contract["references_member"]
+            target_key_member = contract["target_key_member"]
+            if (
+                not _path_is_declared(authorities, contract["owners"])
+                or not _path_is_declared(authorities, contract["targets"])
+                or not isinstance(alternatives, list)
+                or not alternatives
+                or not all(
+                    isinstance(item, dict)
+                    and set(item) == {"owner_member", "target_member"}
+                    and all(
+                        isinstance(item.get(member), str) and item[member]
+                        for member in ("owner_member", "target_member")
+                    )
+                    for item in alternatives
+                )
+                or not isinstance(references_member, str)
+                or not references_member
+                or not isinstance(target_key_member, str)
+                or not target_key_member
+            ):
+                return False
+            target_rows = [
+                target
+                for target in targets
+                if isinstance(target, dict) and target_key_member in target
+            ]
+            target_keys = [target[target_key_member] for target in target_rows]
+            if len(target_keys) != len(set(target_keys)):
+                return False
+            targets_by_key = dict(zip(target_keys, target_rows, strict=True))
+            if any(
+                not isinstance(owner, dict)
+                or not isinstance(owner.get(references_member), list)
+                or any(
+                    reference not in targets_by_key
+                    or not any(
+                        alternative["owner_member"] in owner
+                        and alternative["target_member"] in targets_by_key[reference]
+                        and owner[alternative["owner_member"]]
+                        == targets_by_key[reference][alternative["target_member"]]
+                        for alternative in alternatives
+                    )
+                    for reference in owner[references_member]
                 )
                 for owner in owners
             ):
@@ -3851,6 +4241,10 @@ def _vector_header_is_closed(
             )
             and isinstance(vector.get("input"), dict)
         )
+    if "kind" in vector:
+        return _package_evidence_vector_header_is_closed(
+            vector, meta_format.get("package_vector")
+        )
     if "category" in vector:
         return _model_program_vector_is_closed(vector, meta_format, language_bundle)
     return False
@@ -4212,8 +4606,19 @@ def admit_authorities(
         if isinstance(raw_meta_format, dict)
         else None
     )
+    package_vector_contract = (
+        raw_meta_format.get("package_vector")
+        if isinstance(raw_meta_format, dict)
+        else None
+    )
     admitted_packages: list[dict[str, Any]] = []
     semantic_projection_mismatch = False
+    if not _package_vector_contract_is_closed(package_vector_contract):
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "kernel.meta_format.package_vector",
+        )
     if not isinstance(packages, list):
         refuse(
             "kernel.member_set_mismatch", "ingress", "language-bundle.language.packages"
@@ -4237,6 +4642,10 @@ def admit_authorities(
                     "ingress",
                     f"{subject}.semantic_identity",
                 )
+            if not _package_evidence_vectors_are_closed(
+                package, package_vector_contract
+            ):
+                refuse("kernel.vector_mismatch", "static", f"{subject}.vectors")
         semantic_projection_mismatch = len(admitted_packages) == len(
             packages
         ) and not _package_semantic_projections_are_exact(
@@ -4376,7 +4785,7 @@ def admit_authorities(
             "static",
             "language-bundle.vectors",
         )
-    program_vectors = [item for item in ldb_vectors if "category" in item]
+    program_vectors = [item for item in ldb_vectors if "source_fixture" in item]
     program_contract = meta_format.get("model_program_vector")
     expected_categories = (
         program_contract.get("categories")

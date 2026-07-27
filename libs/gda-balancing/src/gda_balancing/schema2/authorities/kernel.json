@@ -326,11 +326,19 @@
           ],
           "correlations": [
             {
-              "owner_value_member": "rule",
+              "alternatives": [
+                {
+                  "owner_member": "rule",
+                  "target_member": "rule"
+                },
+                {
+                  "owner_member": "id",
+                  "target_member": "operation"
+                }
+              ],
               "owners": "language_bundle.language.operations",
               "references_member": "vectors",
               "target_key_member": "id",
-              "target_value_member": "rule",
               "targets": "language_bundle.vectors"
             },
             {
@@ -846,7 +854,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:7dbc5ee11d19cddbcd21198b44ef115b6d4dda1f186beed35e0c4e2adfc3ef0e",
+  "content_identity": "sha256:9661372889e4edf9bbddfe16d42c2154303297f7913298ed23f1f230a8b2b57f",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3306,6 +3314,96 @@
           "id"
         ]
       }
+    },
+    "package_vector": {
+      "categories": [
+        "positive",
+        "negative",
+        "boundary",
+        "semantic-mutation",
+        "dependency",
+        "outcome",
+        "refusal",
+        "deterministic-rng",
+        "effects",
+        "rollback-replay",
+        "resource"
+      ],
+      "closed": true,
+      "kinds": [
+        {
+          "id": "package-contract",
+          "probe_members": [
+            "path"
+          ],
+          "required_members": [
+            "category",
+            "expect",
+            "id",
+            "kind",
+            "probe"
+          ]
+        },
+        {
+          "id": "operation-contract",
+          "probe_members": [
+            "path"
+          ],
+          "required_members": [
+            "category",
+            "expect",
+            "id",
+            "kind",
+            "operation",
+            "probe"
+          ]
+        },
+        {
+          "expect_members": [
+            "outcome",
+            "rng_draws",
+            "state_after"
+          ],
+          "id": "runtime-scenario",
+          "input_members": [
+            "seed",
+            "state_names",
+            "values"
+          ],
+          "required_members": [
+            "category",
+            "expect",
+            "id",
+            "input",
+            "kind",
+            "operation"
+          ],
+          "rng_draw_members": [
+            "candidate_hex",
+            "index",
+            "stream",
+            "value"
+          ],
+          "state_value_members": [
+            "name",
+            "value"
+          ]
+        }
+      ],
+      "operation_probe_roots": [
+        "body",
+        "default_outcome",
+        "effects",
+        "outcomes",
+        "refusals",
+        "resource_bounds"
+      ],
+      "package_probe_roots": [
+        "capabilities",
+        "dependencies",
+        "exports",
+        "profiles"
+      ]
     },
     "resolution_judgment": {
       "closed": true,

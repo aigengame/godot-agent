@@ -498,6 +498,34 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
     kernel = json.loads((_AUTHORITY_DIR / "kernel.json").read_text(encoding="utf-8"))
     _loaded_kernel, ldb = experiment_runtime_module.load_authorities()
     operations = {row["id"]: row for row in ldb["language"]["operations"]}
+    combat = next(
+        package
+        for package in ldb["language"]["packages"]
+        if package["id"] == "game.combat"
+    )
+    combat_vectors = {
+        vector["id"]: vector
+        for vector in combat["vector_definitions"]
+        if vector.get("kind") == "runtime-scenario"
+    }
+
+    def vector_projection(event):
+        return {
+            "outcome": event["outcome"]["id"],
+            "rng_draws": [
+                {
+                    member: draw[member]
+                    for member in ("candidate_hex", "index", "stream", "value")
+                }
+                for draw in event["rng_draws"]
+            ],
+            "state_after": event["state_after"],
+        }
+
+    assert (
+        vector_projection(first_trace["events"][0])
+        == combat_vectors["game.combat.cast.positive"]["expect"]
+    )
     operation = next(
         row for row in operations.values() if row["id"] == "game.combat.cast-v1"
     )
@@ -575,6 +603,10 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         tuned_trace["content_identity"] != first_trace["content_identity"]
         and tuned_metrics["content_identity"] != first_metrics["content_identity"]
     )
+    assert (
+        vector_projection(tuned_trace["events"][0])
+        == combat_vectors["game.combat.cast.tuned-damage"]["expect"]
+    )
 
 
 def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator():
@@ -619,6 +651,80 @@ def test_kernel_runtime_contract_vectors_and_rng_execute_in_reference_evaluator(
             "accepted": draw["accepted"],
             "value": draw["value"],
         } == vector["expect"]
+
+
+def test_package_runtime_scenario_vectors_execute_in_independent_reference_evaluator():
+    kernel, ldb = experiment_runtime_module.load_authorities()
+    operations = {row["id"]: row for row in ldb["language"]["operations"]}
+    combat = next(
+        package
+        for package in ldb["language"]["packages"]
+        if package["id"] == "game.combat"
+    )
+    vectors = [
+        vector
+        for vector in combat["vector_definitions"]
+        if vector.get("kind") == "runtime-scenario"
+    ]
+    assert {vector["category"] for vector in vectors} == {
+        "positive",
+        "negative",
+        "semantic-mutation",
+        "outcome",
+        "rollback-replay",
+    }
+
+    observed = {}
+    for vector in vectors:
+        operation = operations[vector["operation"]]
+        scenario = {
+            "id": vector["id"],
+            "operation": vector["operation"],
+            "values": vector["input"]["values"],
+        }
+        event = _reference_execute_event(
+            kernel,
+            operation,
+            operations,
+            scenario,
+            seed=vector["input"]["seed"],
+            state_names=set(vector["input"]["state_names"]),
+        )
+        projection = {
+            "outcome": event["outcome"]["id"],
+            "rng_draws": [
+                {
+                    member: draw[member]
+                    for member in ("candidate_hex", "index", "stream", "value")
+                }
+                for draw in event["rng_draws"]
+            ],
+            "state_after": event["state_after"],
+        }
+        assert projection == vector["expect"]
+        replay = _reference_execute_event(
+            kernel,
+            operation,
+            operations,
+            scenario,
+            seed=vector["input"]["seed"],
+            state_names=set(vector["input"]["state_names"]),
+        )
+        assert replay == event
+        observed[vector["id"]] = projection
+
+    assert (
+        observed["game.combat.cast.positive"]["rng_draws"]
+        == observed["game.combat.cast.tuned-damage"]["rng_draws"]
+    )
+    assert (
+        observed["game.combat.cast.positive"]["state_after"]
+        != observed["game.combat.cast.tuned-damage"]["state_after"]
+    )
+    assert observed["game.combat.cast.miss-rollback"]["state_after"] == [
+        {"name": "actor_mana", "value": 30},
+        {"name": "target_health", "value": 100},
+    ]
 
 
 def test_completed_negative_judgment_publishes_only_typed_verdict_set(

@@ -327,6 +327,63 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
     assert "rpg." not in serialized
 
 
+def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    contract = authority["kernel"]["meta_format"]["package_vector"]
+    required_categories = {
+        "positive",
+        "negative",
+        "boundary",
+        "semantic-mutation",
+        "dependency",
+        "outcome",
+        "refusal",
+        "deterministic-rng",
+        "effects",
+        "rollback-replay",
+        "resource",
+    }
+    assert contract["closed"] is True
+    assert set(contract["categories"]) == required_categories
+    assert {item["id"] for item in contract["kinds"]} == {
+        "package-contract",
+        "operation-contract",
+        "runtime-scenario",
+    }
+
+    releases = {release["id"]: release for release in authority["package_releases"]}
+    vectors = []
+    for package_id in ("game.resource", "game.check", "game.combat"):
+        package = releases[package_id]
+        assert package["vectors"]
+        assert [item["id"] for item in package["vector_definitions"]] == package[
+            "vectors"
+        ]
+        owned_operations = {
+            item["id"]: item
+            for item in next(
+                entry["definitions"]
+                for entry in package["semantic_closure"]
+                if entry["authority_path"] == "language.operations"
+            )
+        }
+        referenced = {
+            vector_id
+            for operation in owned_operations.values()
+            for vector_id in operation["vectors"]
+        }
+        assert referenced <= set(package["vectors"])
+        assert all(operation["vectors"] for operation in owned_operations.values())
+        for vector in package["vector_definitions"]:
+            if vector["kind"] != "package-contract":
+                assert vector["operation"] in owned_operations
+                assert vector["id"] in owned_operations[vector["operation"]]["vectors"]
+        vectors.extend(package["vector_definitions"])
+
+    assert len({item["id"] for item in vectors}) == len(vectors)
+    assert {item["category"] for item in vectors} == required_categories
+
+
 def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli):
     _, authority_stdout, _ = run_cli(["schema", "get", "language-bundle"])
     exit_code, stdout, stderr = run_cli(["schema", "get", "wire-schema"])
