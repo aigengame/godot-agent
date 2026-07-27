@@ -4373,9 +4373,11 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 dependencies = release.get("dependencies")
                 package_id = release.get("id")
                 package_version = release.get("version")
-                if not isinstance(dependencies, dict) or not isinstance(
-                    package_id, str
-                ) or not isinstance(package_version, str):
+                if (
+                    not isinstance(dependencies, dict)
+                    or not isinstance(package_id, str)
+                    or not isinstance(package_version, str)
+                ):
                     continue
                 required = dependencies.get("required")
                 optional = dependencies.get("optional")
@@ -7770,9 +7772,7 @@ def test_two_consumers_refuse_a_closed_dependency_cycle():
         for package in ldb["language"]["packages"]
         if package["id"] == "game.check"
     )
-    check["dependencies"]["required"].append(
-        {"id": "game.combat", "version": "1.0.0"}
-    )
+    check["dependencies"]["required"].append({"id": "game.combat", "version": "1.0.0"})
     _reidentify_package_release(check)
     _reidentify_graph_root(ldb)
 

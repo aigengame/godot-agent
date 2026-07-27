@@ -179,9 +179,7 @@ def package_list_success_schema() -> dict[str, object]:
 
 
 def package_get_success_schema() -> dict[str, object]:
-    properties: dict[str, object] = {
-        name: {} for name in PACKAGE_RELEASE_MEMBERS
-    }
+    properties: dict[str, object] = {name: {} for name in PACKAGE_RELEASE_MEMBERS}
     for field, members in PACKAGE_RELEASE_NESTED_MEMBERS.items():
         properties[field] = {
             "type": "object",

@@ -135,9 +135,7 @@ def test_invalid_raw_graph_never_constructs_a_derived_index(monkeypatch):
     admission = bootstrap_module.admit_authorities(kernel, candidate)
 
     assert admission.admitted is False
-    assert {item.code for item in admission.diagnostics} == {
-        "kernel.binding_mismatch"
-    }
+    assert {item.code for item in admission.diagnostics} == {"kernel.binding_mismatch"}
     assert "language" not in candidate
 
 
@@ -645,8 +643,7 @@ def test_package_dependencies_are_closed_exact_coordinates(run_cli):
     assert dependency_fields["optional"]["items"] == dependency_contract
 
     coordinates = {
-        (release["id"], release["version"])
-        for release in authority["package_releases"]
+        (release["id"], release["version"]) for release in authority["package_releases"]
     }
     for release in authority["package_releases"]:
         for dependency in [

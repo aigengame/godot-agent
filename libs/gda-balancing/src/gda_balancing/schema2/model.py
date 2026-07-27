@@ -96,9 +96,7 @@ def refusal_catalog_for_reasons(
         raise ValueError("a command refusal catalog cannot contain duplicate reasons")
     reasons = {
         cast(str, item["id"]): item
-        for item in cast(
-            list[dict[str, Any]], language_bundle["language"]["reasons"]
-        )
+        for item in cast(list[dict[str, Any]], language_bundle["language"]["reasons"])
     }
     diagnostics = {
         cast(str, item["code"]): cast(str, item["stage"])
