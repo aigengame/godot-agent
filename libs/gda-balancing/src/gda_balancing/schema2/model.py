@@ -546,15 +546,10 @@ def _resolution_relations(
         if package is None or package["id"] in selected_packages:
             continue
         selected_packages[package["id"]] = package
-        for dependency_id in cast(list[str], package["dependencies"]["required"]):
-            candidates = [
-                candidate
-                for candidate in available_packages
-                if candidate["id"] == dependency_id
-            ]
-            if len(candidates) == 1:
-                dependency = candidates[0]
-                pending.append((dependency["id"], dependency["version"]))
+        for dependency in cast(
+            list[dict[str, str]], package["dependencies"]["required"]
+        ):
+            pending.append((dependency["id"], dependency["version"]))
     selected_package_values = [
         selected_packages[package_id] for package_id in sorted(selected_packages)
     ]
@@ -1388,20 +1383,24 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
                 raise ValueError("one package id resolved to conflicting releases")
             continue
         selected[package["id"]] = package
-        for dependency_id in sorted(package["dependencies"]["required"]):
-            candidates = [
-                candidate
-                for (candidate_id, _version), candidate in available.items()
-                if candidate_id == dependency_id
-            ]
-            if len(candidates) != 1:
-                raise ValueError("required dependency does not resolve uniquely")
-            dependency = candidates[0]
+        for dependency_constraint in sorted(
+            package["dependencies"]["required"],
+            key=lambda item: (item["id"], item["version"]),
+        ):
+            dependency = available.get(
+                (
+                    dependency_constraint["id"],
+                    dependency_constraint["version"],
+                )
+            )
+            if dependency is None:
+                raise ValueError("required dependency coordinate is unavailable")
             dependency_edges.append(
                 {
                     "from_package": package["id"],
                     "kind": "required",
                     "to_package": dependency["id"],
+                    "to_version": dependency["version"],
                 }
             )
             pending.append({"id": dependency["id"], "version": dependency["version"]})
@@ -1513,6 +1512,7 @@ def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
         key=lambda edge: (
             cast(str, edge["from_package"]),
             cast(str, edge["to_package"]),
+            cast(str, edge["to_version"]),
         )
     )
     selected_types: list[dict[str, JsonValue]] = [

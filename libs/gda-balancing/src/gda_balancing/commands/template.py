@@ -1324,23 +1324,26 @@ def _minimal_release(
     ]
     if len(package_matches) != 1:
         raise ValueError("minimal Template package is unavailable or ambiguous")
-    packages_by_id = {
-        cast(str, package["id"]): package
+    packages_by_coordinate = {
+        (cast(str, package["id"]), cast(str, package["version"])): package
         for package in packages
         if isinstance(package.get("id"), str)
+        and isinstance(package.get("version"), str)
     }
-    selected_ids = {"core.quantity"}
-    pending = ["core.quantity"]
+    selected_coordinates = {("core.quantity", "2.0.0")}
+    pending = [("core.quantity", "2.0.0")]
     while pending:
-        package_id = pending.pop()
-        package = packages_by_id[package_id]
+        coordinate = pending.pop()
+        package = packages_by_coordinate[coordinate]
         dependencies = cast(dict[str, JsonValue], package["dependencies"])
-        for dependency in cast(list[str], dependencies["required"]):
-            if dependency not in selected_ids:
-                selected_ids.add(dependency)
-                pending.append(dependency)
+        for dependency in cast(list[dict[str, str]], dependencies["required"]):
+            dependency_coordinate = (dependency["id"], dependency["version"])
+            if dependency_coordinate not in selected_coordinates:
+                selected_coordinates.add(dependency_coordinate)
+                pending.append(dependency_coordinate)
     selected_packages = [
-        packages_by_id[package_id] for package_id in sorted(selected_ids)
+        packages_by_coordinate[coordinate]
+        for coordinate in sorted(selected_coordinates)
     ]
     starter: dict[str, JsonValue] = {
         "schema_version": "2.0.0",

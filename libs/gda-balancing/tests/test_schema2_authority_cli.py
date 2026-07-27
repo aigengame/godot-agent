@@ -611,9 +611,84 @@ def test_standard_compiler_owns_generic_model_admission_contracts(run_cli):
     }
     assert compiler["exports"]["model_checks"] == []
     assert compiler["exports"]["model_lowerings"] == []
-    assert quantity["dependencies"]["required"] == ["standard.compiler"]
+    assert quantity["dependencies"]["required"] == [
+        {"id": "standard.compiler", "version": "1.0.0"}
+    ]
     assert quantity["exports"]["model_checks"]
     assert quantity["exports"]["model_lowerings"] == ["quantity.model-lowering"]
+
+
+def test_package_dependencies_are_closed_exact_coordinates(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    dependency_contract = authority["kernel"]["meta_format"][
+        "package_dependency_constraint"
+    ]
+    assert dependency_contract == {
+        "closed": True,
+        "field_types": {
+            "id": {"type": "non-empty-string"},
+            "version": {"type": "non-empty-string"},
+        },
+        "required_members": ["id", "version"],
+        "type": "closed-object",
+    }
+    dependency_fields = authority["kernel"]["meta_format"]["package_release"][
+        "nested_field_types"
+    ]["dependencies"]
+    assert dependency_fields["required"]["items"] == dependency_contract
+    assert dependency_fields["optional"]["items"] == dependency_contract
+
+    coordinates = {
+        (release["id"], release["version"])
+        for release in authority["package_releases"]
+    }
+    for release in authority["package_releases"]:
+        for dependency in [
+            *release["dependencies"]["required"],
+            *release["dependencies"]["optional"],
+        ]:
+            assert set(dependency) == {"id", "version"}
+            assert (dependency["id"], dependency["version"]) in coordinates
+
+    schema_package = next(
+        release
+        for release in authority["package_releases"]
+        if release["id"] == "standard.schema"
+    )
+    wire_definitions = next(
+        entry["definitions"]
+        for entry in schema_package["semantic_closure"]
+        if entry["authority_path"] == "language.artifact_wire_schemas"
+    )
+    lock_schema = next(
+        item["schema"]
+        for item in wire_definitions
+        if item["artifact_kind"] == "package-lock"
+    )
+    edge_schema = lock_schema["properties"]["dependency_edges"]["items"]
+    assert set(edge_schema["required"]) == {
+        "from_package",
+        "kind",
+        "to_package",
+        "to_version",
+    }
+
+    quantity = next(
+        release
+        for release in authority["package_releases"]
+        if release["id"] == "core.quantity"
+    )
+    admitted_oracles = [
+        vector["expect"]["lock_oracle"]
+        for vector in quantity["vector_definitions"]
+        if vector.get("expect", {}).get("outcome") == "admitted"
+    ]
+    assert admitted_oracles
+    assert all(
+        set(edge) == {"from_package", "kind", "to_package", "to_version"}
+        for oracle in admitted_oracles
+        for edge in oracle["dependency_edges"]
+    )
 
 
 def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):

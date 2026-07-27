@@ -386,15 +386,8 @@ def _reference_check_source(
         if package is None or package["id"] in selected_packages:
             continue
         selected_packages[package["id"]] = package
-        for dependency_id in package["dependencies"]["required"]:
-            candidates = [
-                candidate
-                for candidate in available_packages
-                if candidate["id"] == dependency_id
-            ]
-            if len(candidates) == 1:
-                dependency = candidates[0]
-                pending.append((dependency["id"], dependency["version"]))
+        for dependency in package["dependencies"]["required"]:
+            pending.append((dependency["id"], dependency["version"]))
     selected_package_values = [
         selected_packages[package_id] for package_id in sorted(selected_packages)
     ]
@@ -781,19 +774,19 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
             assert previous["semantic_identity"] == package["semantic_identity"]
             continue
         selected[package["id"]] = package
-        for dependency_id in sorted(package["dependencies"]["required"]):
-            candidates = [
-                candidate
-                for (candidate_id, _), candidate in available.items()
-                if candidate_id == dependency_id
+        for dependency_constraint in sorted(
+            package["dependencies"]["required"],
+            key=lambda item: (item["id"], item["version"]),
+        ):
+            dependency = available[
+                (dependency_constraint["id"], dependency_constraint["version"])
             ]
-            assert len(candidates) == 1
-            dependency = candidates[0]
             dependency_edges.append(
                 {
                     "from_package": package["id"],
                     "kind": "required",
                     "to_package": dependency["id"],
+                    "to_version": dependency["version"],
                 }
             )
             pending.append({"id": dependency["id"], "version": dependency["version"]})
@@ -875,7 +868,13 @@ def _reference_package_lock(checked: CheckedModel) -> dict[str, Any]:
         ],
         key=lambda item: item["id"],
     )
-    dependency_edges.sort(key=lambda item: (item["from_package"], item["to_package"]))
+    dependency_edges.sort(
+        key=lambda item: (
+            item["from_package"],
+            item["to_package"],
+            item["to_version"],
+        )
+    )
     types = sorted(
         [
             {**exported_type, "package": package["id"]}

@@ -593,8 +593,10 @@
               "targets": {
                 "capabilities.provided": "language_bundle.language.capabilities.id",
                 "capabilities.required": "language_bundle.language.capabilities.id",
-                "dependencies.optional": "language_bundle.language.packages.id",
-                "dependencies.required": "language_bundle.language.packages.id",
+                "dependencies.optional.id": "language_bundle.language.packages.id",
+                "dependencies.optional.version": "language_bundle.language.packages.version",
+                "dependencies.required.id": "language_bundle.language.packages.id",
+                "dependencies.required.version": "language_bundle.language.packages.version",
                 "exports.components": "language_bundle.language.components.id",
                 "exports.conversions": "language_bundle.language.conversions.id",
                 "exports.diagnostics": "language_bundle.diagnostics.code",
@@ -854,7 +856,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:57d4aaab8230a64f22baba930ae03298b938aa18e93b25052bd79340fd583699",
+  "content_identity": "sha256:d8f392593fdfff1bb8d131014409e2bdbcf9e72f94f9702674c1fd1ff10de810",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -3004,6 +3006,22 @@
         ]
       }
     },
+    "package_dependency_constraint": {
+      "closed": true,
+      "field_types": {
+        "id": {
+          "type": "non-empty-string"
+        },
+        "version": {
+          "type": "non-empty-string"
+        }
+      },
+      "required_members": [
+        "id",
+        "version"
+      ],
+      "type": "closed-object"
+    },
     "package_release": {
       "closed": true,
       "field_types": {
@@ -3046,10 +3064,42 @@
         },
         "dependencies": {
           "optional": {
-            "type": "string-list"
+            "items": {
+              "closed": true,
+              "field_types": {
+                "id": {
+                  "type": "non-empty-string"
+                },
+                "version": {
+                  "type": "non-empty-string"
+                }
+              },
+              "required_members": [
+                "id",
+                "version"
+              ],
+              "type": "closed-object"
+            },
+            "type": "list-of"
           },
           "required": {
-            "type": "string-list"
+            "items": {
+              "closed": true,
+              "field_types": {
+                "id": {
+                  "type": "non-empty-string"
+                },
+                "version": {
+                  "type": "non-empty-string"
+                }
+              },
+              "required_members": [
+                "id",
+                "version"
+              ],
+              "type": "closed-object"
+            },
+            "type": "list-of"
           }
         },
         "exports": {
@@ -3709,6 +3759,10 @@
               {
                 "subject": "dependency",
                 "target": "package"
+              },
+              {
+                "subject": "dependency_version",
+                "target": "version"
               }
             ],
             "cardinality": "exactly-one",
@@ -3892,7 +3946,8 @@
           "id": "selected_dependencies",
           "fields": [
             "owner",
-            "dependency"
+            "dependency",
+            "dependency_version"
           ],
           "pointer_fields": []
         },

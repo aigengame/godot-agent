@@ -49,7 +49,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:57d4aaab8230a64f22baba930ae03298b938aa18e93b25052bd79340fd583699"
+    "sha256:d8f392593fdfff1bb8d131014409e2bdbcf9e72f94f9702674c1fd1ff10de810"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -4374,10 +4374,11 @@ def admit_authorities(
                     "static",
                     "language-bundle.package_descriptors",
                 )
-            available = {package_id for package_id, _version in coordinates}
-            dependency_graph: dict[str, set[str]] = {}
+            available = set(coordinates)
+            dependency_graph: dict[tuple[str, str], set[tuple[str, str]]] = {}
             for release in graph_releases:
                 package_id = str(release.get("id", ""))
+                package_version = str(release.get("version", ""))
                 dependencies = release.get("dependencies")
                 required = (
                     dependencies.get("required")
@@ -4392,7 +4393,15 @@ def admit_authorities(
                 if (
                     not isinstance(required, list)
                     or not isinstance(optional, list)
-                    or not all(isinstance(item, str) for item in [*required, *optional])
+                    or not all(
+                        isinstance(item, dict)
+                        and set(item) == {"id", "version"}
+                        and isinstance(item["id"], str)
+                        and bool(item["id"])
+                        and isinstance(item["version"], str)
+                        and bool(item["version"])
+                        for item in [*required, *optional]
+                    )
                 ):
                     refuse(
                         "kernel.member_set_mismatch",
@@ -4400,34 +4409,42 @@ def admit_authorities(
                         f"language-bundle.packages.{package_id}.dependencies",
                     )
                     continue
-                dependency_graph[package_id] = set(required)
-                if not set([*required, *optional]) <= available:
+                required_coordinates = {
+                    (item["id"], item["version"]) for item in required
+                }
+                all_coordinates = {
+                    (item["id"], item["version"]) for item in [*required, *optional]
+                }
+                dependency_graph[(package_id, package_version)] = required_coordinates
+                if len(all_coordinates) != len([*required, *optional]) or not (
+                    all_coordinates <= available
+                ):
                     refuse(
                         "kernel.binding_mismatch",
                         "ingress",
                         f"language-bundle.packages.{package_id}.dependencies",
                     )
 
-            visiting: set[str] = set()
-            visited: set[str] = set()
+            visiting: set[tuple[str, str]] = set()
+            visited: set[tuple[str, str]] = set()
 
-            def cyclic(package_id: str) -> bool:
-                if package_id in visiting:
+            def cyclic(coordinate: tuple[str, str]) -> bool:
+                if coordinate in visiting:
                     return True
-                if package_id in visited:
+                if coordinate in visited:
                     return False
-                visiting.add(package_id)
+                visiting.add(coordinate)
                 has_cycle = any(
                     cyclic(dependency)
-                    for dependency in sorted(dependency_graph.get(package_id, set()))
+                    for dependency in sorted(dependency_graph.get(coordinate, set()))
                     if dependency in dependency_graph
                 )
-                visiting.remove(package_id)
-                visited.add(package_id)
+                visiting.remove(coordinate)
+                visited.add(coordinate)
                 return has_cycle
 
             has_dependency_cycle = any(
-                cyclic(package_id) for package_id in sorted(dependency_graph)
+                cyclic(coordinate) for coordinate in sorted(dependency_graph)
             )
             if has_dependency_cycle:
                 refuse(
@@ -4465,28 +4482,28 @@ def admit_authorities(
                 )
                 dependency_depth = 0
                 if not has_dependency_cycle:
-                    depth_by_package: dict[str, int] = {}
+                    depth_by_package: dict[tuple[str, str], int] = {}
 
-                    def dependency_depth_of(package_id: str) -> int:
-                        known = depth_by_package.get(package_id)
+                    def dependency_depth_of(coordinate: tuple[str, str]) -> int:
+                        known = depth_by_package.get(coordinate)
                         if known is not None:
                             return known
                         depth = 1 + max(
                             (
                                 dependency_depth_of(dependency)
                                 for dependency in sorted(
-                                    dependency_graph.get(package_id, set())
+                                    dependency_graph.get(coordinate, set())
                                 )
                             ),
                             default=0,
                         )
-                        depth_by_package[package_id] = depth
+                        depth_by_package[coordinate] = depth
                         return depth
 
                     dependency_depth = max(
                         (
-                            dependency_depth_of(package_id)
-                            for package_id in sorted(dependency_graph)
+                            dependency_depth_of(coordinate)
+                            for coordinate in sorted(dependency_graph)
                         ),
                         default=0,
                     )

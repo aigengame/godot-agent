@@ -22,7 +22,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:57d4aaab8230a64f22baba930ae03298b938aa18e93b25052bd79340fd583699"
+    "sha256:d8f392593fdfff1bb8d131014409e2bdbcf9e72f94f9702674c1fd1ff10de810"
 )
 
 
@@ -4367,53 +4367,73 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     "static",
                     "language-bundle.package_descriptors",
                 )
-            package_ids = {package_id for package_id, _version in coordinates}
-            dependency_graph: dict[str, set[str]] = {}
+            package_coordinates = set(coordinates)
+            dependency_graph: dict[tuple[str, str], set[tuple[str, str]]] = {}
             for release in graph_releases:
                 dependencies = release.get("dependencies")
                 package_id = release.get("id")
+                package_version = release.get("version")
                 if not isinstance(dependencies, dict) or not isinstance(
                     package_id, str
-                ):
+                ) or not isinstance(package_version, str):
                     continue
                 required = dependencies.get("required")
                 optional = dependencies.get("optional")
                 if not isinstance(required, list) or not isinstance(optional, list):
                     continue
                 if all(
-                    isinstance(dependency, str) for dependency in [*required, *optional]
-                ):
-                    dependency_graph[package_id] = set(required)
-                if any(
-                    not isinstance(dependency, str) or dependency not in package_ids
+                    isinstance(dependency, dict)
+                    and set(dependency) == {"id", "version"}
+                    and isinstance(dependency["id"], str)
+                    and bool(dependency["id"])
+                    and isinstance(dependency["version"], str)
+                    and bool(dependency["version"])
                     for dependency in [*required, *optional]
                 ):
+                    dependency_graph[(package_id, package_version)] = {
+                        (dependency["id"], dependency["version"])
+                        for dependency in required
+                    }
+                if any(
+                    not isinstance(dependency, dict)
+                    or set(dependency) != {"id", "version"}
+                    or (dependency.get("id"), dependency.get("version"))
+                    not in package_coordinates
+                    for dependency in [*required, *optional]
+                ) or len(
+                    {
+                        (dependency["id"], dependency["version"])
+                        for dependency in [*required, *optional]
+                        if isinstance(dependency, dict)
+                        and set(dependency) == {"id", "version"}
+                    }
+                ) != len([*required, *optional]):
                     refuse(
                         "kernel.binding_mismatch",
                         "ingress",
                         f"language-bundle.packages.{package_id}.dependencies",
                     )
 
-            visiting: set[str] = set()
-            visited: set[str] = set()
+            visiting: set[tuple[str, str]] = set()
+            visited: set[tuple[str, str]] = set()
 
-            def cyclic(package_id: str) -> bool:
-                if package_id in visiting:
+            def cyclic(coordinate: tuple[str, str]) -> bool:
+                if coordinate in visiting:
                     return True
-                if package_id in visited:
+                if coordinate in visited:
                     return False
-                visiting.add(package_id)
+                visiting.add(coordinate)
                 has_cycle = any(
                     cyclic(dependency)
-                    for dependency in sorted(dependency_graph.get(package_id, set()))
+                    for dependency in sorted(dependency_graph.get(coordinate, set()))
                     if dependency in dependency_graph
                 )
-                visiting.remove(package_id)
-                visited.add(package_id)
+                visiting.remove(coordinate)
+                visited.add(coordinate)
                 return has_cycle
 
             has_dependency_cycle = any(
-                cyclic(package_id) for package_id in sorted(dependency_graph)
+                cyclic(coordinate) for coordinate in sorted(dependency_graph)
             )
             if has_dependency_cycle:
                 refuse(
@@ -4448,26 +4468,26 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 )
                 dependency_depth = 0
                 if not has_dependency_cycle:
-                    depths: dict[str, int] = {}
+                    depths: dict[tuple[str, str], int] = {}
 
-                    def depth_of(package_id: str) -> int:
-                        known = depths.get(package_id)
+                    def depth_of(coordinate: tuple[str, str]) -> int:
+                        known = depths.get(coordinate)
                         if known is not None:
                             return known
                         depth = 1 + max(
                             (
                                 depth_of(dependency)
                                 for dependency in sorted(
-                                    dependency_graph.get(package_id, set())
+                                    dependency_graph.get(coordinate, set())
                                 )
                             ),
                             default=0,
                         )
-                        depths[package_id] = depth
+                        depths[coordinate] = depth
                         return depth
 
                     dependency_depth = max(
-                        (depth_of(package_id) for package_id in dependency_graph),
+                        (depth_of(coordinate) for coordinate in dependency_graph),
                         default=0,
                     )
                 graph_work = _work(graph_root) + sum(
@@ -5543,6 +5563,7 @@ def test_kernel_meta_format_and_ldb_rules_are_structured_for_independent_executi
         "language_bundle",
         "language_definitions",
         "model_program_vector",
+        "package_dependency_constraint",
         "package_release",
         "package_vector",
         "resolution_judgment",
@@ -6126,7 +6147,7 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     assert package["semantic_identity"] == expected_package["semantic_identity"]
     assert package["dependencies"] == {
         "optional": [],
-        "required": ["standard.compiler"],
+        "required": [{"id": "standard.compiler", "version": "1.0.0"}],
     }
     assert package["capabilities"]["required"] == []
     assert package["exports"]["components"] == ["quantity.symbol"]
@@ -6716,8 +6737,14 @@ def test_reidentified_open_reason_shape_is_refused_by_both_consumers():
         (("profiles", "runtime"), ["host.invented"]),
         (("capabilities", "provided"), ["host.invented"]),
         (("capabilities", "required"), ["host.invented"]),
-        (("dependencies", "required"), ["host.invented"]),
-        (("dependencies", "optional"), ["host.invented"]),
+        (
+            ("dependencies", "required"),
+            [{"id": "host.invented", "version": "1.0.0"}],
+        ),
+        (
+            ("dependencies", "optional"),
+            [{"id": "host.invented", "version": "1.0.0"}],
+        ),
     ],
 )
 def test_reidentified_package_cannot_hide_an_unowned_reference(path, replacement):
@@ -7743,7 +7770,9 @@ def test_two_consumers_refuse_a_closed_dependency_cycle():
         for package in ldb["language"]["packages"]
         if package["id"] == "game.check"
     )
-    check["dependencies"]["required"].append("game.combat")
+    check["dependencies"]["required"].append(
+        {"id": "game.combat", "version": "1.0.0"}
+    )
     _reidentify_package_release(check)
     _reidentify_graph_root(ldb)
 
@@ -7770,6 +7799,7 @@ def test_two_consumers_refuse_a_closed_dependency_cycle():
         ("size-mismatch", "kernel.binding_mismatch"),
         ("coordinate-mismatch", "kernel.binding_mismatch"),
         ("unresolved-dependency", "kernel.binding_mismatch"),
+        ("wrong-dependency-version", "kernel.binding_mismatch"),
         ("same-coordinate-different-content", "kernel.duplicate_identifier"),
     ),
 )
@@ -7788,7 +7818,9 @@ def test_two_consumers_refuse_adversarial_graph_membership_and_binding(
     elif mutation in {"duplicate", "same-coordinate-different-content"}:
         duplicate = deepcopy(ldb.package_releases[-1])
         if mutation == "same-coordinate-different-content":
-            duplicate["dependencies"]["optional"].append("game.check")
+            duplicate["dependencies"]["optional"].append(
+                {"id": "game.check", "version": "1.0.0"}
+            )
             _reidentify_package_release(duplicate)
         ldb["language"]["packages"].append(duplicate)
         _reidentify_graph_root(ldb)
@@ -7804,7 +7836,12 @@ def test_two_consumers_refuse_adversarial_graph_membership_and_binding(
         ldb.root["package_descriptors"][0]["id"] = "core.substituted"
     else:
         package = ldb["language"]["packages"][0]
-        package["dependencies"]["required"].append("host.missing")
+        if mutation == "wrong-dependency-version":
+            package["dependencies"]["required"][0]["version"] = "9.0.0"
+        else:
+            package["dependencies"]["required"].append(
+                {"id": "host.missing", "version": "1.0.0"}
+            )
         _reidentify_package_release(package)
         _reidentify_graph_root(ldb)
 
@@ -7845,20 +7882,23 @@ def test_descriptor_transport_order_does_not_change_the_canonical_graph():
 
 def _graph_metrics(ldb: LanguageBundleIndex) -> dict[str, int]:
     dependencies = {
-        package["id"]: package["dependencies"]["required"]
+        (package["id"], package["version"]): {
+            (dependency["id"], dependency["version"])
+            for dependency in package["dependencies"]["required"]
+        }
         for package in ldb.package_releases
     }
-    depths: dict[str, int] = {}
+    depths: dict[tuple[str, str], int] = {}
 
-    def depth_of(package_id: str) -> int:
-        known = depths.get(package_id)
+    def depth_of(coordinate: tuple[str, str]) -> int:
+        known = depths.get(coordinate)
         if known is not None:
             return known
         depth = 1 + max(
-            (depth_of(dependency) for dependency in dependencies[package_id]),
+            (depth_of(dependency) for dependency in dependencies[coordinate]),
             default=0,
         )
-        depths[package_id] = depth
+        depths[coordinate] = depth
         return depth
 
     return {
@@ -7892,7 +7932,7 @@ def test_two_consumers_agree_at_and_above_each_graph_resource_boundary(
     observed = _graph_metrics(baseline["language_bundle"])[limit_name]
 
     for limit, admitted in ((observed, True), (observed - 1, False)):
-        authority = authority_set()
+        authority = deepcopy(baseline)
         authority["kernel"]["resources"][limit_name] = limit
         _reidentify(authority["kernel"], authority["language_bundle"])
         kernel_identity = authority["kernel"]["content_identity"]

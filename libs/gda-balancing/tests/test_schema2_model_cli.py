@@ -2035,7 +2035,7 @@ def test_non_rpg_package_is_consumed_without_a_kernel_or_host_extension(
     package["version"] = "1.0.0"
     package["dependencies"] = {
         "optional": [],
-        "required": ["core.quantity"],
+        "required": [{"id": "core.quantity", "version": "2.0.0"}],
     }
     package["capabilities"] = {
         "provided": ["genre.economy.discount"],
