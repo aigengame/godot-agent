@@ -843,7 +843,29 @@ The human product/architecture gate on #540 must accept, condition, or reopen th
 or #541–#545 proceeds. In particular, accepting the product loop does not silently waive the open
 transitive-capability resolution gap.
 
-### 12.6 Architecture consequence
+### 12.6 Sealed orthogonal LDB dogfooding
+
+Issue #592 replaced the near-limit monolithic LDB with the sealed graph required by bADR-0023. Its
+observations are deliberately separated from the #540 product findings:
+
+| Classification | Observation | Narrowest owner and disposition |
+| --- | --- | --- |
+| Confirmed—narrowly | One root-declared graph can admit complete package releases, expose byte-identical source/wheel `package list|get` results, and derive the consumer index only after the entire graph passes membership, coordinate, identity, dependency, resource, and vector checks. | bADR-0023, Kernel graph meta-format, and bootstrap consumers; retained |
+| Refined—adopted | The first loader derived a flat index before admitting the raw graph, which made an invalid candidate observable in memory. Loading now keeps the raw graph distinct and permits index construction only after successful atomic admission. | Authority loader and both bootstrap consumers; implementation/conformance updated |
+| Refined—adopted | Bare dependency ids were insufficient once the LDB became a versioned package graph. Every required/optional dependency now binds an exact `{id, version}` coordinate, and Package Lock edges retain the selected target version. | bADR-0016, Kernel package meta-format, resolver, and Lock contract; authority/conformance updated |
+| Refined—adopted | Reusing `schema get` for packages obscured the accepted resource taxonomy, while handwritten command schemas risked becoming peer package definitions. Public access is now `package list|get`, and exhaustive reverse conformance binds its success schemas to the Kernel package meta-format. | bADR-0021 command surface and descriptor schemas; implementation/conformance updated |
+| Refined—adopted | Stage-wide refusal projection advertised outcomes a command could not reach. Model, Template, and Experiment descriptors now publish exact semantic-reason projections, and every non-bootstrap advertised code has package-owned vector evidence. | bADR-0015/0021 refusal catalogs; descriptor and reverse-evidence tests updated |
+| Refined—adopted | Re-admitting the complete sealed graph separately for every static command descriptor pushed cold CLI startup beyond the special-file nonblocking gate. Descriptor assembly now shares one already-admitted read-only projection; command execution still performs its own authority admission. | Non-authoritative descriptor construction and operability gate; implementation updated |
+| Confirmed—narrowly | A non-RPG economy Event package added after the Kernel and host implementation were fixed reaches Package Lock, canonical RIR, the unchanged evaluator, Event trace, Snapshot, and Metric without a genre-selected compiler/evaluator branch. | Bounded Core Extension Invariance witness; retained as conformance evidence |
+| Gap-opened | The bounded economy witness is not the public Extension Invariance Receipt required by bADR-0016/0017: it does not freeze two independent build identities, derive and exhaustively rename the reachable Non-Kernel Authority Token Inventory, or publish the independently validated receipt. | Later cross-genre conformance/coverage work; the architectural invariant remains mandatory |
+| Authored-example only | `game.resource`, `game.check`, and `game.combat` are orthogonal owners for the committed cast, and removing `game.rpg`/`RpgValue` prevents that example from defining the core. This one composition does not prove RPG or Roguelike package completeness. | #540 example and package map; retain without generalizing |
+
+The graph split also rebases #590: Formula schemas, rules, operations, diagnostics, and vectors must
+live in complete root-declared package releases, and any Formula edit that changes a child must
+reidentify that child, the sealed root, and every downstream exact binding. Formula behavior remains
+out of scope for #592.
+
+### 12.7 Architecture consequence
 
 The four disposable rounds validated one RPG vertical path, selected orthogonality/identity
 mechanisms, and the bounded executable Kernel/LDB authority boundary, but issue #540 overturned the
