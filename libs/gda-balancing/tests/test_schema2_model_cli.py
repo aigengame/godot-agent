@@ -19,7 +19,10 @@ import jsonschema
 import pytest
 from gda_balancing.schema2.bootstrap import admit_authorities
 from gda_balancing.schema2.canonical import JsonValue, canonical_bytes, content_identity
-from gda_balancing.schema2.authority_graph import derive_language_index
+from gda_balancing.schema2.authority_graph import (
+    LanguageBundleIndex,
+    derive_language_index,
+)
 from gda_balancing.schema2.surface import descriptor_identity
 
 
@@ -1659,6 +1662,7 @@ def _reidentify(artifact: dict, domain: str) -> None:
 
 
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
+    assert isinstance(language_bundle, LanguageBundleIndex)
     kernel, _ = model_module.load_authorities()
     projections = kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
@@ -2111,12 +2115,16 @@ def test_non_rpg_package_is_consumed_without_a_kernel_or_host_extension(
     assert isinstance(checked, model_module.CheckedModel)
     artifacts = model_module.lower_checked_model(checked)
 
-    assert [package["id"] for package in artifacts["package-lock"]["packages"]] == [
+    package_lock = cast(dict[str, Any], artifacts["package-lock"])
+    lock_packages = cast(list[dict[str, Any]], package_lock["packages"])
+    assert [package["id"] for package in lock_packages] == [
         "core.quantity",
         "genre.economy",
         "standard.compiler",
     ]
-    operations = artifacts["rir-semantic-payload"]["selected_semantics"]["operations"]
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    selected = cast(dict[str, Any], rir["selected_semantics"])
+    operations = cast(list[dict[str, Any]], selected["operations"])
     assert any(
         row["definition"]["id"] == "genre.economy.discount-v1" for row in operations
     )

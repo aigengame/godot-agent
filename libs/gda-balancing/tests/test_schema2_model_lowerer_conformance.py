@@ -9,8 +9,12 @@ from typing import Any, cast
 
 import gda_balancing.schema2.model as model_module
 import jsonschema
-from gda_balancing.schema2.bootstrap import admit_authorities
 from gda_balancing.schema2.authority import load_authorities
+from gda_balancing.schema2.authority_graph import (
+    LanguageBundleIndex,
+    derive_language_index,
+)
+from gda_balancing.schema2.bootstrap import admit_authorities
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import (
     CheckedModel,
@@ -160,6 +164,7 @@ def _exact_path(root: Any, dotted: str) -> Any:
 
 
 def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
+    assert isinstance(language_bundle, LanguageBundleIndex)
     kernel, _ = load_authorities()
     projections = kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
@@ -204,14 +209,43 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             "domain-package-release-v2",
             {key: value for key, value in package.items() if key != "content_identity"},
         )
-    language_bundle["content_identity"] = _reference_content_identity(
-        "language-definition-bundle-v2",
-        {
-            key: value
-            for key, value in language_bundle.items()
-            if key != "content_identity"
-        },
+    packages = sorted(
+        deepcopy(language_bundle["language"]["packages"]),
+        key=lambda package: (package["id"], package["version"]),
     )
+    member_sizes = [len(_reference_encoded(package)) for package in packages]
+    root = deepcopy(language_bundle.root)
+    root["resources"] = deepcopy(language_bundle["resources"])
+    root["package_descriptors"] = [
+        {
+            "artifact_kind": package["artifact_kind"],
+            "byte_size": size,
+            "content_identity": package["content_identity"],
+            "id": package["id"],
+            "version": package["version"],
+        }
+        for package, size in zip(packages, member_sizes, strict=True)
+    ]
+    root["content_identity"] = _reference_content_identity(
+        "language-definition-bundle-v2",
+        {key: value for key, value in root.items() if key != "content_identity"},
+    )
+    rebuilt = derive_language_index(
+        root,
+        packages,
+        kernel["admission"]["required_language_members"],
+        root_byte_size=len(_reference_encoded(root)),
+        member_byte_sizes=member_sizes,
+        descriptor_order=kernel["meta_format"]["language_bundle"]["package_descriptor"][
+            "canonical_order"
+        ],
+    )
+    language_bundle.root = deepcopy(rebuilt.root)
+    language_bundle.package_releases = deepcopy(rebuilt.package_releases)
+    language_bundle.root_byte_size = rebuilt.root_byte_size
+    language_bundle.member_byte_sizes = rebuilt.member_byte_sizes
+    language_bundle.clear()
+    language_bundle.update(dict(rebuilt))
 
 
 def _reference_reason_matches(
@@ -331,12 +365,47 @@ def _reference_check_source(
         base_steps += 1
 
     relations: dict[str, list[dict[str, dict[str, str]]]] = {}
+    available_packages = language["packages"]
+    requirements_member = profile["requirements_member"]
+    requirement_package_member = profile["requirement_package_member"]
+    requirement_version_member = profile["requirement_version_member"]
+    packages_by_coordinate = {
+        (package["id"], package["version"]): package for package in available_packages
+    }
+    selected_packages: dict[str, dict[str, Any]] = {}
+    pending = [
+        (
+            requirement[requirement_package_member],
+            requirement[requirement_version_member],
+        )
+        for requirement in source[requirements_member]
+    ]
+    while pending:
+        coordinate = pending.pop(0)
+        package = packages_by_coordinate.get(coordinate)
+        if package is None or package["id"] in selected_packages:
+            continue
+        selected_packages[package["id"]] = package
+        for dependency_id in package["dependencies"]["required"]:
+            candidates = [
+                candidate
+                for candidate in available_packages
+                if candidate["id"] == dependency_id
+            ]
+            if len(candidates) == 1:
+                dependency = candidates[0]
+                pending.append((dependency["id"], dependency["version"]))
+    selected_package_values = [
+        selected_packages[package_id] for package_id in sorted(selected_packages)
+    ]
 
     def read_term(term: dict[str, Any], environment: dict[str, Any]) -> Any:
         if term["root"] == "source":
             value: Any = source
         elif term["root"] == "language":
             value = language
+        elif term["root"] == "selected-packages":
+            value = selected_package_values
         elif term["root"] == "binding":
             value = environment[term["binding"]]
         else:
@@ -956,11 +1025,15 @@ def _reference_runtime_projection(
         else:
             rows = []
             for closure in lock["package_semantic_closures"]:
-                entry = next(
+                entries = [
                     entry
                     for entry in closure["definitions"]
                     if entry["authority_path"] == source["authority_path"]
-                )
+                ]
+                assert len(entries) <= 1
+                if not entries:
+                    continue
+                entry = entries[0]
                 for definition in entry["definitions"]:
                     consume()
                     rows.append(
@@ -1243,8 +1316,13 @@ def _lock_oracle(lock: dict[str, Any]) -> dict[str, Any]:
 
 def test_permanent_model_program_vectors_close_both_compiler_pipelines(tmp_path):
     kernel, language_bundle = load_authorities()
-    vectors = [item for item in language_bundle["vectors"] if "category" in item]
-    package = language_bundle["language"]["packages"][0]
+    vectors = [item for item in language_bundle["vectors"] if "source_fixture" in item]
+    vector_ids = {item["id"] for item in vectors}
+    package = next(
+        package
+        for package in language_bundle["language"]["packages"]
+        if vector_ids <= set(package["vectors"])
+    )
     assert {item["category"] for item in vectors} == {
         "positive",
         "negative",
@@ -1643,7 +1721,12 @@ def test_model_source_routing_follows_the_selected_ldb_profile_without_host_toke
     profile = language["resolution_profiles"][0]
     old_profile_id = profile["id"]
     profile["id"] = "renamed-exact-import-resolution-v1"
-    language["packages"][0]["profiles"]["resolution"] = [profile["id"]]
+    profile_owner = next(
+        package
+        for package in language["packages"]
+        if old_profile_id in package["profiles"]["resolution"]
+    )
+    profile_owner["profiles"]["resolution"] = [profile["id"]]
     profile["manifest_id_path"] = "header.model_key"
     profile["manifest_entry_module_path"] = "header.start_module"
     profile["requirements_member"] = "dependencies"
@@ -1992,7 +2075,7 @@ def test_independent_frontends_follow_a_renamed_model_check_reason_without_host_
     path = tmp_path / "renamed-check-reason.json"
     source = _source([_symbol("same", "state"), _symbol("same", "output")])
     _write_source(path, source)
-    old_reason = "quantity.reason.duplicate-symbol"
+    old_reason = "model.reason.duplicate-symbol"
     old_diagnostic = "language.duplicate_symbol"
     kernel, candidate_ldb, new_diagnostic = _renamed_reason_authorities(
         old_reason, old_diagnostic

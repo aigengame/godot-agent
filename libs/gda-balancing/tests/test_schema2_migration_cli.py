@@ -15,7 +15,11 @@ import pytest
 from gda_balancing.descriptors import RefusalDetailSpec
 from gda_balancing.schema.funnel.preflight import MAX_DOCUMENT_BYTES
 from gda_balancing.schema.version import STRUCTURAL_SCHEMA_ID
-from gda_balancing.schema2.canonical import content_identity
+from gda_balancing.schema2.authority_graph import (
+    LanguageBundleIndex,
+    derive_language_index,
+)
+from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.migration import MAX_SOURCE_OBSERVATION_BYTES
 from gda_balancing.schema2.model import verify_artifact
 
@@ -33,6 +37,26 @@ def _source_bytes_identity(data: bytes) -> str:
     return (
         "sha256:"
         + hashlib.sha256(b"gda-balancing:design-document-source-v1:" + data).hexdigest()
+    )
+
+
+def _language_index(authority: dict[str, Any]) -> LanguageBundleIndex:
+    kernel = cast(dict[str, Any], authority["kernel"])
+    root = cast(dict[str, Any], authority["language_bundle"])
+    releases = cast(list[dict[str, Any]], authority["package_releases"])
+    member_sizes = [len(canonical_bytes(cast(Any, release))) for release in releases]
+    return derive_language_index(
+        root,
+        releases,
+        cast(list[str], kernel["admission"]["required_language_members"]),
+        root_byte_size=len(canonical_bytes(cast(Any, root))),
+        member_byte_sizes=member_sizes,
+        descriptor_order=cast(
+            list[str],
+            kernel["meta_format"]["language_bundle"]["package_descriptor"][
+                "canonical_order"
+            ],
+        ),
     )
 
 
@@ -140,6 +164,7 @@ def test_model_migrate_publishes_a_buildable_source_and_audit_report(
     converter = report["converter_specification"]
     assert report["converter_identity"] == converter["content_identity"]
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    language_bundle = _language_index(authority)
     assert report["kernel_identity"] == authority["kernel"]["content_identity"]
     assert (
         report["language_bundle_identity"]
@@ -147,15 +172,15 @@ def test_model_migrate_publishes_a_buildable_source_and_audit_report(
     )
     assert verify_artifact(
         cast(dict[str, Any], converter),
-        authority["language_bundle"],
+        language_bundle,
     )
-    assert verify_artifact(report, authority["language_bundle"])
+    assert verify_artifact(report, language_bundle)
     tampered_report = deepcopy(report)
     tampered_report["converter_specification"]["mapping_rules"][0]["report_mapping"] = (
         "forged mapping"
     )
-    _reidentify_artifact(tampered_report, authority["language_bundle"])
-    assert verify_artifact(tampered_report, authority["language_bundle"]) is False
+    _reidentify_artifact(tampered_report, language_bundle)
+    assert verify_artifact(tampered_report, language_bundle) is False
     assert report["mappings"] == [
         {
             "source_pointer": "/schema_version",
@@ -417,9 +442,10 @@ def test_model_migrate_refusal_emits_an_auditable_report_without_a_source(
     ]
     assert report["refusals"] == error["diagnostics"]
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    language_bundle = _language_index(authority)
     report_schema = next(
         item["schema"]
-        for item in authority["language_bundle"]["language"]["artifact_wire_schemas"]
+        for item in language_bundle["language"]["artifact_wire_schemas"]
         if item["artifact_kind"] == "migration-refusal-report"
     )
     jsonschema.validate(report, report_schema)
@@ -432,13 +458,13 @@ def test_model_migrate_refusal_emits_an_auditable_report_without_a_source(
     assert report["converter_identity"] == converter["content_identity"]
     assert verify_artifact(
         cast(dict[str, Any], converter),
-        authority["language_bundle"],
+        language_bundle,
     )
-    assert verify_artifact(report, authority["language_bundle"])
+    assert verify_artifact(report, language_bundle)
     tampered_report = deepcopy(report)
     tampered_report["converter_identity"] = "sha256:" + "0" * 64
-    _reidentify_artifact(tampered_report, authority["language_bundle"])
-    assert verify_artifact(tampered_report, authority["language_bundle"]) is False
+    _reidentify_artifact(tampered_report, language_bundle)
+    assert verify_artifact(tampered_report, language_bundle) is False
     assert output.exists() is False
 
 
@@ -907,9 +933,10 @@ def test_converter_identity_covers_the_reported_defaults_and_warnings(
     report = _member(json.loads(stdout), "migration-report")
     specification = cast(dict[str, Any], report["converter_specification"])
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    language_bundle = _language_index(authority)
     contract = next(
         item
-        for item in authority["language_bundle"]["language"]["artifact_contracts"]
+        for item in language_bundle["language"]["artifact_contracts"]
         if item["artifact_kind"] == "source-converter-specification"
     )
     identity_body = {
@@ -922,8 +949,8 @@ def test_converter_identity_covers_the_reported_defaults_and_warnings(
         contract["identity_domain"], identity_body
     )
     assert report["converter_identity"] == specification["content_identity"]
-    assert verify_artifact(specification, authority["language_bundle"])
-    assert verify_artifact(report, authority["language_bundle"])
+    assert verify_artifact(specification, language_bundle)
+    assert verify_artifact(report, language_bundle)
     assert specification["source_observation"] == {
         "regular_file_only": True,
         "max_bytes": MAX_SOURCE_OBSERVATION_BYTES,
@@ -937,11 +964,11 @@ def test_converter_identity_covers_the_reported_defaults_and_warnings(
     tampered_report["converter_specification"]["mapping_rules"][0]["report_mapping"] = (
         "forged mapping"
     )
-    _reidentify_artifact(tampered_report, authority["language_bundle"])
-    assert verify_artifact(tampered_report, authority["language_bundle"]) is False
+    _reidentify_artifact(tampered_report, language_bundle)
+    assert verify_artifact(tampered_report, language_bundle) is False
     report_schemas = {
         item["artifact_kind"]: item["schema"]
-        for item in authority["language_bundle"]["language"]["artifact_wire_schemas"]
+        for item in language_bundle["language"]["artifact_wire_schemas"]
         if item["artifact_kind"] in {"migration-report", "migration-refusal-report"}
     }
     for schema in report_schemas.values():

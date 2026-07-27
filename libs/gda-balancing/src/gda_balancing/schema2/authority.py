@@ -9,7 +9,7 @@ import json
 import re
 from copy import deepcopy
 from importlib.resources import files
-from typing import Any
+from typing import Any, cast
 
 from gda_balancing.schema2.authority_graph import (
     LanguageBundleIndex,
@@ -164,6 +164,9 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
             subject="kernel.resources",
             message="kernel graph resource bounds are invalid",
         )
+    root_limit = cast(int, root_limit)
+    child_limit = cast(int, child_limit)
+    package_limit = cast(int, package_limit)
     root, root_size = _load(
         "language-bundle.json",
         "language-bundle",

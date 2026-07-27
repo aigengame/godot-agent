@@ -386,11 +386,10 @@ def _package_vector_contract_is_closed(contract: Any) -> bool:
         or not isinstance(contract.get("kinds"), list)
     ):
         return False
-    kinds = {
-        item.get("id"): item
-        for item in contract["kinds"]
-        if isinstance(item, dict) and isinstance(item.get("id"), str)
-    }
+    kinds: dict[str, dict[str, Any]] = {}
+    for item in contract["kinds"]:
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            kinds[cast(str, item["id"])] = item
     if set(kinds) != set(_PACKAGE_VECTOR_KIND_MEMBERS):
         return False
     expected_members = {
@@ -4260,15 +4259,21 @@ def admit_authorities(
         found.add(AdmissionDiagnostic(code=code, stage=stage, subject=subject))
 
     kernel_identity = kernel.get("content_identity")
-    graph_root = getattr(language_bundle, "root", None)
-    graph_releases = getattr(language_bundle, "package_releases", None)
-    graph_root_size = getattr(language_bundle, "root_byte_size", None)
-    graph_member_sizes = getattr(language_bundle, "member_byte_sizes", None)
+    raw_graph_root = getattr(language_bundle, "root", None)
+    raw_graph_releases = getattr(language_bundle, "package_releases", None)
+    raw_graph_root_size = getattr(language_bundle, "root_byte_size", None)
+    raw_graph_member_sizes = getattr(language_bundle, "member_byte_sizes", None)
     is_graph = (
-        isinstance(graph_root, dict)
-        and isinstance(graph_releases, list)
-        and isinstance(graph_root_size, int)
-        and isinstance(graph_member_sizes, tuple)
+        isinstance(raw_graph_root, dict)
+        and isinstance(raw_graph_releases, list)
+        and isinstance(raw_graph_root_size, int)
+        and isinstance(raw_graph_member_sizes, tuple)
+    )
+    graph_root = cast(dict[str, Any], raw_graph_root) if is_graph else {}
+    graph_releases = cast(list[dict[str, Any]], raw_graph_releases) if is_graph else []
+    graph_root_size = cast(int, raw_graph_root_size) if is_graph else 0
+    graph_member_sizes = (
+        cast(tuple[int, ...], raw_graph_member_sizes) if is_graph else ()
     )
     identity_source = graph_root if is_graph else language_bundle
     ldb_identity = identity_source.get("content_identity")
@@ -4447,6 +4452,7 @@ def admit_authorities(
                     "kernel.resources",
                 )
             else:
+                typed_graph_limits = cast(dict[str, int], graph_limits)
                 dependency_steps = sum(
                     len(dependencies) for dependencies in dependency_graph.values()
                 )
@@ -4481,17 +4487,17 @@ def admit_authorities(
                     _resource_work(release) for release in graph_releases
                 )
                 if (
-                    graph_root_size > graph_limits["max_ldb_root_bytes"]
+                    graph_root_size > typed_graph_limits["max_ldb_root_bytes"]
                     or any(
-                        size > graph_limits["max_ldb_child_bytes"]
+                        size > typed_graph_limits["max_ldb_child_bytes"]
                         for size in graph_member_sizes
                     )
                     or graph_root_size + sum(graph_member_sizes)
-                    > graph_limits["max_ldb_total_bytes"]
-                    or len(graph_releases) > graph_limits["max_ldb_package_count"]
-                    or dependency_depth > graph_limits["max_ldb_dependency_depth"]
-                    or dependency_steps > graph_limits["max_ldb_dependency_steps"]
-                    or graph_work > graph_limits["max_ldb_admission_work"]
+                    > typed_graph_limits["max_ldb_total_bytes"]
+                    or len(graph_releases) > typed_graph_limits["max_ldb_package_count"]
+                    or dependency_depth > typed_graph_limits["max_ldb_dependency_depth"]
+                    or dependency_steps > typed_graph_limits["max_ldb_dependency_steps"]
+                    or graph_work > typed_graph_limits["max_ldb_admission_work"]
                 ):
                     refuse(
                         "kernel.resource_exhausted",
@@ -4507,17 +4513,20 @@ def admit_authorities(
                 .get("package_descriptor", {})
                 .get("canonical_order")
             )
-            if isinstance(required_language_members, list) and isinstance(
-                descriptor_order, list
+            if (
+                isinstance(required_language_members, list)
+                and all(isinstance(item, str) for item in required_language_members)
+                and isinstance(descriptor_order, list)
+                and all(isinstance(item, str) for item in descriptor_order)
             ):
                 try:
                     expected_index = derive_language_index(
                         graph_root,
                         graph_releases,
-                        required_language_members,
+                        cast(list[str], required_language_members),
                         root_byte_size=graph_root_size,
                         member_byte_sizes=list(graph_member_sizes),
-                        descriptor_order=descriptor_order,
+                        descriptor_order=cast(list[str], descriptor_order),
                     )
                 except ValueError:
                     expected_index = None

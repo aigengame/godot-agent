@@ -8,14 +8,17 @@ not shared helper behavior.
 import hashlib
 import json
 from copy import deepcopy
-from typing import Any
+from typing import Any, cast
 
 import jsonschema
 import pytest
 
 import gda_balancing.schema2.bootstrap as production_bootstrap
 from gda_balancing.schema2.authority import authority_set
-from gda_balancing.schema2.authority_graph import derive_language_index
+from gda_balancing.schema2.authority_graph import (
+    LanguageBundleIndex,
+    derive_language_index,
+)
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
@@ -369,11 +372,10 @@ def _consumer_b_package_vector_contract_is_closed(contract: Any) -> bool:
         or not isinstance(contract.get("kinds"), list)
     ):
         return False
-    kinds = {
-        item.get("id"): item
-        for item in contract["kinds"]
-        if isinstance(item, dict) and isinstance(item.get("id"), str)
-    }
+    kinds: dict[str, dict[str, Any]] = {}
+    for item in contract["kinds"]:
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            kinds[cast(str, item["id"])] = item
     if set(kinds) != set(_CONSUMER_B_PACKAGE_VECTOR_KIND_MEMBERS):
         return False
     expected_members = {
@@ -4276,15 +4278,21 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
         or kernel.get("content_identity") != _SUPPORTED_KERNEL_IDENTITY
     ):
         refuse("kernel.identity_mismatch", "ingress", "kernel")
-    graph_root = getattr(ldb, "root", None)
-    graph_releases = getattr(ldb, "package_releases", None)
-    graph_root_size = getattr(ldb, "root_byte_size", None)
-    graph_member_sizes = getattr(ldb, "member_byte_sizes", None)
+    raw_graph_root = getattr(ldb, "root", None)
+    raw_graph_releases = getattr(ldb, "package_releases", None)
+    raw_graph_root_size = getattr(ldb, "root_byte_size", None)
+    raw_graph_member_sizes = getattr(ldb, "member_byte_sizes", None)
     is_graph = (
-        isinstance(graph_root, dict)
-        and isinstance(graph_releases, list)
-        and isinstance(graph_root_size, int)
-        and isinstance(graph_member_sizes, tuple)
+        isinstance(raw_graph_root, dict)
+        and isinstance(raw_graph_releases, list)
+        and isinstance(raw_graph_root_size, int)
+        and isinstance(raw_graph_member_sizes, tuple)
+    )
+    graph_root = cast(dict[str, Any], raw_graph_root) if is_graph else {}
+    graph_releases = cast(list[dict[str, Any]], raw_graph_releases) if is_graph else []
+    graph_root_size = cast(int, raw_graph_root_size) if is_graph else 0
+    graph_member_sizes = (
+        cast(tuple[int, ...], raw_graph_member_sizes) if is_graph else ()
     )
     identity_source = graph_root if is_graph else ldb
     if ldb.get("content_identity") != _identity_from_kernel(
@@ -4434,6 +4442,7 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
             ):
                 refuse("kernel.resource_exhausted", "ingress", "kernel.resources")
             else:
+                typed_graph_limits = cast(dict[str, int], graph_limits)
                 dependency_steps = sum(
                     len(dependencies) for dependencies in dependency_graph.values()
                 )
@@ -4465,17 +4474,17 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     _work(release) for release in graph_releases
                 )
                 if (
-                    graph_root_size > graph_limits["max_ldb_root_bytes"]
+                    graph_root_size > typed_graph_limits["max_ldb_root_bytes"]
                     or any(
-                        size > graph_limits["max_ldb_child_bytes"]
+                        size > typed_graph_limits["max_ldb_child_bytes"]
                         for size in graph_member_sizes
                     )
                     or graph_root_size + sum(graph_member_sizes)
-                    > graph_limits["max_ldb_total_bytes"]
-                    or len(graph_releases) > graph_limits["max_ldb_package_count"]
-                    or dependency_depth > graph_limits["max_ldb_dependency_depth"]
-                    or dependency_steps > graph_limits["max_ldb_dependency_steps"]
-                    or graph_work > graph_limits["max_ldb_admission_work"]
+                    > typed_graph_limits["max_ldb_total_bytes"]
+                    or len(graph_releases) > typed_graph_limits["max_ldb_package_count"]
+                    or dependency_depth > typed_graph_limits["max_ldb_dependency_depth"]
+                    or dependency_steps > typed_graph_limits["max_ldb_dependency_steps"]
+                    or graph_work > typed_graph_limits["max_ldb_admission_work"]
                 ):
                     refuse(
                         "kernel.resource_exhausted",
@@ -5253,7 +5262,7 @@ def _consumer_a(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
 def _reidentify(kernel: dict[str, Any], ldb: dict[str, Any]) -> None:
     kernel["content_identity"] = _identity("schema-major-kernel-v2", kernel)
     graph_root = getattr(ldb, "root", None)
-    if isinstance(graph_root, dict):
+    if isinstance(ldb, LanguageBundleIndex) and isinstance(graph_root, dict):
         graph_root["kernel_identity"] = kernel["content_identity"]
         graph_root["content_identity"] = _identity(
             "language-definition-bundle-v2", graph_root
@@ -5266,7 +5275,7 @@ def _reidentify(kernel: dict[str, Any], ldb: dict[str, Any]) -> None:
     ldb["content_identity"] = _identity("language-definition-bundle-v2", ldb)
 
 
-def _refresh_package_closure_and_reidentify(ldb: dict[str, Any]) -> None:
+def _refresh_package_closure_and_reidentify(ldb: LanguageBundleIndex) -> None:
     kernel = authority_set()["kernel"]
     projections = kernel["meta_format"]["package_release"]["semantic_closure"][
         "projections"
@@ -5313,7 +5322,7 @@ def _refresh_package_closure_and_reidentify(ldb: dict[str, Any]) -> None:
     _reidentify_graph_root(ldb)
 
 
-def _reidentify_graph_root(ldb: dict[str, Any]) -> None:
+def _reidentify_graph_root(ldb: LanguageBundleIndex) -> None:
     graph_root = getattr(ldb, "root", None)
     if isinstance(graph_root, dict):
         packages = deepcopy(ldb["language"]["packages"])
@@ -7834,7 +7843,7 @@ def test_descriptor_transport_order_does_not_change_the_canonical_graph():
     assert dict(reordered) == dict(baseline)
 
 
-def _graph_metrics(ldb: dict[str, Any]) -> dict[str, int]:
+def _graph_metrics(ldb: LanguageBundleIndex) -> dict[str, int]:
     dependencies = {
         package["id"]: package["dependencies"]["required"]
         for package in ldb.package_releases

@@ -53,9 +53,7 @@ class SchemaGetInput(BaseModel):
         )
         if self.artifact == "package":
             if self.package_id is None or self.package_version is None:
-                raise ValueError(
-                    "package requires package_id and package_version"
-                )
+                raise ValueError("package requires package_id and package_version")
         elif coordinate_supplied:
             raise ValueError(
                 "package_id and package_version are only valid for package"
@@ -106,9 +104,7 @@ def schema_get_handler(
                     "package_releases": cast(JsonValue, package_releases),
                     "admission": authorities["admission"],
                 }
-                return SchemaArtifact(
-                    root=cast(dict[str, Any], public_authorities)
-                )
+                return SchemaArtifact(root=cast(dict[str, Any], public_authorities))
             return SchemaArtifact(root=cast(dict[str, Any], authorities))
         if inp.artifact in {"package-list", "package"}:
             root = getattr(ldb, "root", None)
@@ -257,9 +253,7 @@ def schema_get_success_schema() -> dict[str, object]:
                 "items": {
                     "type": "object",
                     "properties": {
-                        "artifact_kind": {
-                            "const": "domain-package-release"
-                        },
+                        "artifact_kind": {"const": "domain-package-release"},
                         "byte_size": {"type": "integer", "minimum": 1},
                         "content_identity": identity,
                         "id": {"type": "string", "minLength": 1},
