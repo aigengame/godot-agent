@@ -45,7 +45,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9661372889e4edf9bbddfe16d42c2154303297f7913298ed23f1f230a8b2b57f"
+    "sha256:57d4aaab8230a64f22baba930ae03298b938aa18e93b25052bd79340fd583699"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -4340,7 +4340,11 @@ def admit_authorities(
                 ):
                     refuse("kernel.binding_mismatch", "ingress", subject)
                     continue
-                coordinate = (str(descriptor["id"]), str(descriptor["version"]))
+                if not isinstance(descriptor["id"], str) or not isinstance(
+                    descriptor["version"], str
+                ):
+                    continue
+                coordinate = (descriptor["id"], descriptor["version"])
                 coordinates.append(coordinate)
                 if release.get("content_identity") != _safe_artifact_identity(
                     "domain-package-release-v2", release, canonical_encoding
@@ -4497,7 +4501,15 @@ def admit_authorities(
             required_language_members = kernel.get("admission", {}).get(
                 "required_language_members"
             )
-            if isinstance(required_language_members, list):
+            descriptor_order = (
+                kernel.get("meta_format", {})
+                .get("language_bundle", {})
+                .get("package_descriptor", {})
+                .get("canonical_order")
+            )
+            if isinstance(required_language_members, list) and isinstance(
+                descriptor_order, list
+            ):
                 try:
                     expected_index = derive_language_index(
                         graph_root,
@@ -4505,6 +4517,7 @@ def admit_authorities(
                         required_language_members,
                         root_byte_size=graph_root_size,
                         member_byte_sizes=list(graph_member_sizes),
+                        descriptor_order=descriptor_order,
                     )
                 except ValueError:
                     expected_index = None

@@ -62,8 +62,9 @@ _Avoid_: schema registry, implementation registry, package directory as authorit
 The canonical root member of one `Language Definition Bundle`. It binds the exact Kernel identity,
 graph resources, and canonical descriptors for every package-release child. Each descriptor binds
 artifact kind, logical package id/version, canonical content identity, and byte size. The manifest
-is the only membership authority; physical paths and Locators are packaging metadata and do not
-enter semantic identity (bADR-0023).
+is the only membership authority. Descriptor transport order is normalized by the Kernel-declared
+`id`, then `version` order; physical paths and Locators are packaging metadata and do not enter
+semantic identity (bADR-0023).
 _Avoid_: package index (if independently editable), directory listing, remote registry
 
 **Admitted language index**:

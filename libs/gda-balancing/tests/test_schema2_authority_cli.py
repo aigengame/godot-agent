@@ -6,8 +6,13 @@ importing implementation-private registries.
 """
 
 import json
-from dataclasses import replace
+import os
+import subprocess
+import sys
+import zipfile
 from copy import deepcopy
+from dataclasses import replace
+from pathlib import Path
 from typing import get_args
 
 import jsonschema
@@ -66,6 +71,9 @@ def _reidentify_graph(kernel, ldb):
         kernel["admission"]["required_language_members"],
         root_byte_size=root_byte_size,
         member_byte_sizes=member_sizes,
+        descriptor_order=kernel["meta_format"]["language_bundle"]["package_descriptor"][
+            "canonical_order"
+        ],
     )
 
 
@@ -136,6 +144,75 @@ def test_authority_decode_failure_is_a_typed_ingress_refusal(run_cli):
     assert {item["code"] for item in error["diagnostics"]} == {
         "kernel.member_set_mismatch"
     }
+
+
+def _authority_resource_bytes() -> dict[str, bytes]:
+    root = Path(authority_module.__file__).parent / "authorities"
+    return {
+        str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*.json")
+    }
+
+
+def test_authority_loader_identity_is_independent_of_physical_member_location(
+    monkeypatch, tmp_path
+):
+    baseline_kernel, baseline_ldb = authority_module.load_authorities()
+    logical_members = _authority_resource_bytes()
+    relocated: dict[str, Path] = {}
+    blob_dir = tmp_path / "arbitrary-transport-layout"
+    blob_dir.mkdir()
+    for index, (logical_name, data) in enumerate(sorted(logical_members.items())):
+        physical_path = blob_dir / f"member-{index}.blob"
+        physical_path.write_bytes(data)
+        relocated[logical_name] = physical_path
+
+    class RelocatedResource:
+        def __init__(self, logical_name=""):
+            self.logical_name = logical_name
+
+        def joinpath(self, *parts):
+            name = "/".join((*self.logical_name.split("/"), *parts)).lstrip("/")
+            return RelocatedResource(name)
+
+        def read_bytes(self):
+            return relocated[self.logical_name].read_bytes()
+
+    monkeypatch.setattr(authority_module, "files", lambda _package: RelocatedResource())
+
+    kernel, ldb = authority_module.load_authorities()
+
+    assert kernel == baseline_kernel
+    assert ldb.root == baseline_ldb.root
+    assert ldb.package_releases == baseline_ldb.package_releases
+    assert dict(ldb) == dict(baseline_ldb)
+
+
+def test_authority_loader_refuses_an_unreadable_declared_child(monkeypatch):
+    logical_members = _authority_resource_bytes()
+    unreadable = "packages/core.quantity@2.0.0.json"
+
+    class UnreadableResource:
+        def __init__(self, logical_name=""):
+            self.logical_name = logical_name
+
+        def joinpath(self, *parts):
+            name = "/".join((*self.logical_name.split("/"), *parts)).lstrip("/")
+            return UnreadableResource(name)
+
+        def read_bytes(self):
+            if self.logical_name == unreadable:
+                raise OSError("injected unreadable member")
+            return logical_members[self.logical_name]
+
+    monkeypatch.setattr(
+        authority_module, "files", lambda _package: UnreadableResource()
+    )
+
+    with pytest.raises(authority_module.AuthorityLoadError) as caught:
+        authority_module.load_authorities()
+
+    assert caught.value.code == "kernel.member_set_mismatch"
+    assert caught.value.subject == "language-bundle.package_descriptors.0"
 
 
 def test_schema_introspection_does_not_read_runtime_authorities(monkeypatch, run_cli):
@@ -230,6 +307,79 @@ def test_package_list_and_exact_get_return_root_declared_children(run_cli):
         jsonschema.validate(retrieved, success_schema)
 
 
+def test_built_wheel_ships_only_the_declared_authority_graph_and_runs_it(
+    tmp_path, run_cli
+):
+    package_root = Path(__file__).resolve().parents[1]
+    authority_root = package_root / "src" / "gda_balancing" / "schema2" / "authorities"
+    source_root = json.loads((authority_root / "language-bundle.json").read_text())
+    expected_members = {
+        "gda_balancing/schema2/authorities/kernel.json",
+        "gda_balancing/schema2/authorities/language-bundle.json",
+        *{
+            "gda_balancing/schema2/authorities/packages/"
+            f"{descriptor['id']}@{descriptor['version']}.json"
+            for descriptor in source_root["package_descriptors"]
+        },
+    }
+    built = subprocess.run(
+        ["uv", "build", "--wheel", "--out-dir", str(tmp_path)],
+        cwd=package_root,
+        capture_output=True,
+        text=True,
+    )
+    assert built.returncode == 0, built.stdout + built.stderr
+    wheels = sorted(tmp_path.glob("gda_balancing-*.whl"))
+    assert len(wheels) == 1
+    wheel = wheels[0]
+
+    with zipfile.ZipFile(wheel) as archive:
+        shipped_members = {
+            name
+            for name in archive.namelist()
+            if name.startswith("gda_balancing/schema2/authorities/")
+            and name.endswith(".json")
+        }
+        assert shipped_members == expected_members
+        for member in expected_members:
+            source_path = package_root / "src" / member
+            assert archive.read(member) == source_path.read_bytes()
+
+    environment = {
+        **os.environ,
+        "PYTHONPATH": str(wheel),
+    }
+
+    def installed(*arguments):
+        return subprocess.run(
+            [sys.executable, "-m", "gda_balancing", *arguments],
+            cwd=tmp_path,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+
+    source_list = run_cli(["schema", "get", "package-list"])
+    installed_list = installed("schema", "get", "package-list")
+    assert (installed_list.returncode, installed_list.stderr) == (0, "")
+    assert installed_list.stdout == source_list[1]
+
+    for descriptor in source_root["package_descriptors"]:
+        arguments = (
+            "schema",
+            "get",
+            "package",
+            "--package-id",
+            descriptor["id"],
+            "--package-version",
+            descriptor["version"],
+        )
+        source = run_cli(list(arguments))
+        from_wheel = installed(*arguments)
+        assert (from_wheel.returncode, from_wheel.stderr) == (0, "")
+        assert from_wheel.stdout == source[1]
+
+
 def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     kernel = authority["kernel"]
@@ -253,6 +403,10 @@ def test_kernel_closes_the_root_descriptor_index_and_graph_limits(run_cli):
         "version",
         "content_identity",
         "byte_size",
+    ]
+    assert root_contract["package_descriptor"]["canonical_order"] == [
+        "id",
+        "version",
     ]
     assert set(
         kernel["meta_format"]["admitted_language_index"]["required_members"]
@@ -325,6 +479,51 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
     assert "game.rpg" not in serialized
     assert "RpgValue" not in serialized
     assert "rpg." not in serialized
+
+
+def test_standard_compiler_owns_generic_model_admission_contracts(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    releases = {release["id"]: release for release in authority["package_releases"]}
+    compiler = releases["standard.compiler"]
+    quantity = releases["core.quantity"]
+
+    def definitions(package, authority_path):
+        return next(
+            entry["definitions"]
+            for entry in package["semantic_closure"]
+            if entry["authority_path"] == authority_path
+        )
+
+    compiler_diagnostics = {
+        item["code"] for item in definitions(compiler, "diagnostics")
+    }
+    quantity_diagnostics = {
+        item["code"] for item in definitions(quantity, "diagnostics")
+    }
+    assert {
+        "language.duplicate_symbol",
+        "language.name_ambiguity",
+        "language.package_version_unavailable",
+        "language.resolution_ambiguity",
+        "language.resolution_binding_mismatch",
+        "language.resolved_authority_mismatch",
+        "language.resource_exhausted",
+        "language.source_contract_mismatch",
+        "language.source_parse_failure",
+        "language.source_too_large",
+        "language.unresolved_name",
+    } <= compiler_diagnostics
+    assert not compiler_diagnostics & quantity_diagnostics
+    assert compiler["profiles"] == {
+        "numeric": [],
+        "resolution": ["exact-import-resolution-v1"],
+        "runtime": ["compile.exact-int64"],
+    }
+    assert compiler["exports"]["model_checks"] == []
+    assert compiler["exports"]["model_lowerings"] == []
+    assert quantity["dependencies"]["required"] == ["standard.compiler"]
+    assert quantity["exports"]["model_checks"]
+    assert quantity["exports"]["model_lowerings"] == ["quantity.model-lowering"]
 
 
 def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
@@ -613,7 +812,11 @@ def test_manifest_and_per_command_schema_are_one_descriptor_projection(
                     ]
                 )
         result_exit, result_stdout, result_stderr = run_cli(argv)
-        assert (result_exit, result_stderr) == (0, "")
+        assert (result_exit, result_stderr) == (0, ""), (
+            path,
+            result_stdout,
+            result_stderr,
+        )
         jsonschema.validate(json.loads(result_stdout), row["schema"]["success"])
 
 

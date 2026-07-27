@@ -20,8 +20,10 @@ admission boundary.
 
 - **The LDB is one sealed multi-member artifact graph.** One canonical root manifest binds the
   exact Kernel identity, LDB resources, and a canonically ordered set of child descriptors. The
-  manifest is the only membership authority. Loaders never scan directories, registries, entry
-  points, or network locations to discover semantic members.
+  Kernel declares descriptor order as package `id`, then `version`; loaders normalize transport
+  order before deriving identity or indexes. The manifest is the only membership authority.
+  Loaders never scan directories, registries, entry points, or network locations to discover
+  semantic members.
 
 - **Each child is one complete Domain-package release.** A descriptor binds the child's artifact
   kind, logical package id and version, canonical content identity, and canonical byte size. Every
@@ -61,8 +63,9 @@ admission boundary.
 - **The initial RPG tracer uses mechanic packages, not a genre umbrella.** `game.resource`,
   `game.check`, and `game.combat` own their bADR-0017 mechanics independently. The example composes
   them and uses `core.quantity.Quantity` directly. `game.rpg`, `rpg.value`, and `RpgValue` are
-  retired before Schema 2.0 release. Runtime, compiler, Experiment, and observation semantics remain
-  with their standard owners rather than moving under a game package.
+  retired before Schema 2.0 release. Generic Model admission, resolution, and compile-profile
+  semantics belong to `standard.compiler`; Runtime, Experiment, and observation semantics remain
+  with their corresponding standard owners rather than moving under a core or game package.
 
 - **The change is clean-forward.** The unpublished single-file Schema 2.0 form has no compatibility
   reader, fallback, dual authority, or migration path. Formula authoring remains owned by #590 and

@@ -108,10 +108,7 @@ def _load(
             subject=subject,
             message=f"packaged authority {name} is unreadable: {err}",
         ) from err
-    if (
-        len(data) > max_bytes
-        or _raw_nesting_depth(data) > _BOOTSTRAP_MAX_NESTING_DEPTH
-    ):
+    if len(data) > max_bytes or _raw_nesting_depth(data) > _BOOTSTRAP_MAX_NESTING_DEPTH:
         raise AuthorityLoadError(
             code="kernel.resource_exhausted",
             subject=subject,
@@ -174,9 +171,7 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
     )
     descriptors = root.get("package_descriptors")
     if not isinstance(descriptors, list) or not (
-        1
-        <= len(descriptors)
-        <= min(package_limit, _BOOTSTRAP_MAX_PACKAGE_MEMBERS)
+        1 <= len(descriptors) <= min(package_limit, _BOOTSTRAP_MAX_PACKAGE_MEMBERS)
     ):
         raise AuthorityLoadError(
             code="kernel.resource_exhausted",
@@ -211,6 +206,20 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
             subject="kernel.admission.required_language_members",
             message="kernel does not declare the admitted language index members",
         )
+    descriptor_order = (
+        kernel.get("meta_format", {})
+        .get("language_bundle", {})
+        .get("package_descriptor", {})
+        .get("canonical_order")
+    )
+    if not isinstance(descriptor_order, list) or not all(
+        isinstance(item, str) for item in descriptor_order
+    ):
+        raise AuthorityLoadError(
+            code="kernel.member_set_mismatch",
+            subject="kernel.meta_format.language_bundle.package_descriptor",
+            message="kernel does not declare the package descriptor order",
+        )
     try:
         index = derive_language_index(
             root,
@@ -218,6 +227,7 @@ def load_authorities() -> tuple[dict[str, Any], LanguageBundleIndex]:
             required_language_members,
             root_byte_size=root_size,
             member_byte_sizes=member_byte_sizes,
+            descriptor_order=descriptor_order,
         )
     except ValueError as err:
         raise AuthorityLoadError(

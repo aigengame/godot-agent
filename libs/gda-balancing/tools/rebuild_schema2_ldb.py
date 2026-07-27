@@ -61,13 +61,18 @@ def _build(
     semantic_domain = kernel["meta_format"]["package_release"]["semantic_closure"][
         "domain"
     ]
+    descriptor_order = kernel["meta_format"]["language_bundle"]["package_descriptor"][
+        "canonical_order"
+    ]
+    if not isinstance(descriptor_order, list) or not descriptor_order:
+        raise ValueError("the Kernel declares no package descriptor order")
     packages: list[dict[str, Any]] = []
     for path in declared_paths:
         package = json.loads(path.read_text())
         package["semantic_identity"] = _semantic_identity(package, semantic_domain)
         package["content_identity"] = _identity(_PACKAGE_DOMAIN, package)
         packages.append(package)
-    packages.sort(key=lambda item: (item["id"], item["version"]))
+    packages.sort(key=lambda item: tuple(item[name] for name in descriptor_order))
 
     package_bytes: dict[Path, bytes] = {}
     rebuilt_descriptors: list[dict[str, Any]] = []
@@ -103,9 +108,7 @@ def main() -> None:
         authority_dir / "language-bundle.json": root_bytes,
         **package_bytes,
     }
-    drift = [
-        path for path, data in expected.items() if path.read_bytes() != data
-    ]
+    drift = [path for path, data in expected.items() if path.read_bytes() != data]
     if args.check:
         if drift:
             raise SystemExit(

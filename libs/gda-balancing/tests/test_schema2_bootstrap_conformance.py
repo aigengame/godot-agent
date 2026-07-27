@@ -19,7 +19,7 @@ from gda_balancing.schema2.authority_graph import derive_language_index
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:9661372889e4edf9bbddfe16d42c2154303297f7913298ed23f1f230a8b2b57f"
+    "sha256:57d4aaab8230a64f22baba930ae03298b938aa18e93b25052bd79340fd583699"
 )
 
 
@@ -230,6 +230,19 @@ def _shape(value: Any) -> tuple[int, int]:
             members = max(members, len(current))
             stack.extend((item, current_depth + 1) for item in current)
     return depth, members
+
+
+def _work(value: Any) -> int:
+    work = 0
+    stack = [value]
+    while stack:
+        current = stack.pop()
+        work += 1
+        if isinstance(current, dict):
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+    return work
 
 
 def _consumer_b_package_is_closed(
@@ -4346,11 +4359,8 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                     "static",
                     "language-bundle.package_descriptors",
                 )
-            package_ids = {
-                release.get("id")
-                for release in graph_releases
-                if isinstance(release.get("id"), str)
-            }
+            package_ids = {package_id for package_id, _version in coordinates}
+            dependency_graph: dict[str, set[str]] = {}
             for release in graph_releases:
                 dependencies = release.get("dependencies")
                 package_id = release.get("id")
@@ -4362,6 +4372,10 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                 optional = dependencies.get("optional")
                 if not isinstance(required, list) or not isinstance(optional, list):
                     continue
+                if all(
+                    isinstance(dependency, str) for dependency in [*required, *optional]
+                ):
+                    dependency_graph[package_id] = set(required)
                 if any(
                     not isinstance(dependency, str) or dependency not in package_ids
                     for dependency in [*required, *optional]
@@ -4370,6 +4384,103 @@ def _consumer_b(kernel: dict[str, Any], ldb: dict[str, Any]) -> dict[str, Any]:
                         "kernel.binding_mismatch",
                         "ingress",
                         f"language-bundle.packages.{package_id}.dependencies",
+                    )
+
+            visiting: set[str] = set()
+            visited: set[str] = set()
+
+            def cyclic(package_id: str) -> bool:
+                if package_id in visiting:
+                    return True
+                if package_id in visited:
+                    return False
+                visiting.add(package_id)
+                has_cycle = any(
+                    cyclic(dependency)
+                    for dependency in sorted(dependency_graph.get(package_id, set()))
+                    if dependency in dependency_graph
+                )
+                visiting.remove(package_id)
+                visited.add(package_id)
+                return has_cycle
+
+            has_dependency_cycle = any(
+                cyclic(package_id) for package_id in sorted(dependency_graph)
+            )
+            if has_dependency_cycle:
+                refuse(
+                    "kernel.binding_mismatch",
+                    "ingress",
+                    "language-bundle.package-dependencies",
+                )
+
+            graph_limit_names = {
+                "max_ldb_root_bytes",
+                "max_ldb_child_bytes",
+                "max_ldb_total_bytes",
+                "max_ldb_package_count",
+                "max_ldb_dependency_depth",
+                "max_ldb_dependency_steps",
+                "max_ldb_admission_work",
+            }
+            graph_resources = kernel.get("resources")
+            graph_limits = (
+                {name: graph_resources.get(name) for name in graph_limit_names}
+                if isinstance(graph_resources, dict)
+                else {}
+            )
+            if set(graph_limits) != graph_limit_names or not all(
+                isinstance(value, int) and value > 0 for value in graph_limits.values()
+            ):
+                refuse("kernel.resource_exhausted", "ingress", "kernel.resources")
+            else:
+                dependency_steps = sum(
+                    len(dependencies) for dependencies in dependency_graph.values()
+                )
+                dependency_depth = 0
+                if not has_dependency_cycle:
+                    depths: dict[str, int] = {}
+
+                    def depth_of(package_id: str) -> int:
+                        known = depths.get(package_id)
+                        if known is not None:
+                            return known
+                        depth = 1 + max(
+                            (
+                                depth_of(dependency)
+                                for dependency in sorted(
+                                    dependency_graph.get(package_id, set())
+                                )
+                            ),
+                            default=0,
+                        )
+                        depths[package_id] = depth
+                        return depth
+
+                    dependency_depth = max(
+                        (depth_of(package_id) for package_id in dependency_graph),
+                        default=0,
+                    )
+                graph_work = _work(graph_root) + sum(
+                    _work(release) for release in graph_releases
+                )
+                if (
+                    graph_root_size > graph_limits["max_ldb_root_bytes"]
+                    or any(
+                        size > graph_limits["max_ldb_child_bytes"]
+                        for size in graph_member_sizes
+                    )
+                    or graph_root_size + sum(graph_member_sizes)
+                    > graph_limits["max_ldb_total_bytes"]
+                    or len(graph_releases) > graph_limits["max_ldb_package_count"]
+                    or dependency_depth > graph_limits["max_ldb_dependency_depth"]
+                    or dependency_steps > graph_limits["max_ldb_dependency_steps"]
+                    or graph_work > graph_limits["max_ldb_admission_work"]
+                ):
+                    refuse(
+                        "kernel.resource_exhausted",
+                        "ingress",
+                        "language-bundle",
                     )
             language: dict[str, Any] = {
                 member: {} if member == "quantity" else []
@@ -5231,7 +5342,14 @@ def _reidentify_graph_root(ldb: dict[str, Any]) -> None:
             authority_set()["kernel"]["admission"]["required_language_members"],
             root_byte_size=ldb.root_byte_size,
             member_byte_sizes=sizes,
+            descriptor_order=authority_set()["kernel"]["meta_format"][
+                "language_bundle"
+            ]["package_descriptor"]["canonical_order"],
         )
+        ldb.root = deepcopy(rebuilt.root)
+        ldb.package_releases = deepcopy(rebuilt.package_releases)
+        ldb.root_byte_size = rebuilt.root_byte_size
+        ldb.member_byte_sizes = rebuilt.member_byte_sizes
         ldb.clear()
         ldb.update(dict(rebuilt))
         return
@@ -5997,12 +6115,15 @@ def test_quantity_package_is_complete_content_addressed_and_uses_canonical_terms
     expected_package = deepcopy(package)
     _reidentify_package_release(expected_package)
     assert package["semantic_identity"] == expected_package["semantic_identity"]
-    assert package["dependencies"] == {"optional": [], "required": []}
+    assert package["dependencies"] == {
+        "optional": [],
+        "required": ["standard.compiler"],
+    }
     assert package["capabilities"]["required"] == []
     assert package["exports"]["components"] == ["quantity.symbol"]
     assert package["exports"]["conversions"] == ["quantity.identity"]
     assert package["exports"]["operations"] == ["quantity.identity"]
-    assert package["profiles"]["runtime"] == ["compile.exact-int64"]
+    assert package["profiles"]["runtime"] == []
     assert package["exports"]["types"]
     assert package["vectors"]
     assert [item["id"] for item in package["vector_definitions"]] == package["vectors"]
@@ -6158,7 +6279,11 @@ def test_authority_admission_requires_one_default_resolution_profile():
     ldb = authority["language_bundle"]
     profile = ldb["language"]["resolution_profiles"][0]
     profile["default"] = False
-    package = ldb["language"]["packages"][0]
+    package = next(
+        candidate
+        for candidate in ldb["language"]["packages"]
+        if profile["id"] in candidate["profiles"]["resolution"]
+    )
     for entry in package["semantic_closure"]:
         if entry["authority_path"] == "language.resolution_profiles":
             entry["definitions"] = deepcopy(ldb["language"]["resolution_profiles"])
@@ -7599,3 +7724,182 @@ def test_two_consumers_refuse_the_same_noncanonical_integer():
         "kernel.identity_mismatch",
         "kernel.resource_exhausted",
     }
+
+
+def test_two_consumers_refuse_a_closed_dependency_cycle():
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+    check = next(
+        package
+        for package in ldb["language"]["packages"]
+        if package["id"] == "game.check"
+    )
+    check["dependencies"]["required"].append("game.combat")
+    _reidentify_package_release(check)
+    _reidentify_graph_root(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert (
+        "ingress",
+        "kernel.binding_mismatch",
+        "language-bundle.package-dependencies",
+    ) in first["diagnostics"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    (
+        ("missing", "kernel.member_set_mismatch"),
+        ("extra", "kernel.member_set_mismatch"),
+        ("duplicate", "kernel.duplicate_identifier"),
+        ("substituted", "kernel.binding_mismatch"),
+        ("digest-mismatch", "kernel.binding_mismatch"),
+        ("size-mismatch", "kernel.binding_mismatch"),
+        ("coordinate-mismatch", "kernel.binding_mismatch"),
+        ("unresolved-dependency", "kernel.binding_mismatch"),
+        ("same-coordinate-different-content", "kernel.duplicate_identifier"),
+    ),
+)
+def test_two_consumers_refuse_adversarial_graph_membership_and_binding(
+    mutation, expected_code
+):
+    authority = authority_set()
+    ldb = authority["language_bundle"]
+
+    if mutation == "missing":
+        ldb.package_releases.pop()
+        ldb.member_byte_sizes = ldb.member_byte_sizes[:-1]
+    elif mutation == "extra":
+        ldb.package_releases.append(deepcopy(ldb.package_releases[-1]))
+        ldb.member_byte_sizes += (ldb.member_byte_sizes[-1],)
+    elif mutation in {"duplicate", "same-coordinate-different-content"}:
+        duplicate = deepcopy(ldb.package_releases[-1])
+        if mutation == "same-coordinate-different-content":
+            duplicate["dependencies"]["optional"].append("game.check")
+            _reidentify_package_release(duplicate)
+        ldb["language"]["packages"].append(duplicate)
+        _reidentify_graph_root(ldb)
+    elif mutation == "substituted":
+        ldb.package_releases[0] = deepcopy(ldb.package_releases[-1])
+    elif mutation == "digest-mismatch":
+        ldb.root["package_descriptors"][0]["content_identity"] = "sha256:" + "0" * 64
+    elif mutation == "size-mismatch":
+        ldb.member_byte_sizes = (ldb.member_byte_sizes[0] + 1,) + tuple(
+            ldb.member_byte_sizes[1:]
+        )
+    elif mutation == "coordinate-mismatch":
+        ldb.root["package_descriptors"][0]["id"] = "core.substituted"
+    else:
+        package = ldb["language"]["packages"][0]
+        package["dependencies"]["required"].append("host.missing")
+        _reidentify_package_release(package)
+        _reidentify_graph_root(ldb)
+
+    first = _consumer_a(authority["kernel"], ldb)
+    second = _consumer_b(authority["kernel"], ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(code == expected_code for _, code, _ in first["diagnostics"])
+
+
+def test_descriptor_transport_order_does_not_change_the_canonical_graph():
+    authority = authority_set()
+    baseline = authority["language_bundle"]
+    reordered_root = deepcopy(baseline.root)
+    reordered_root["package_descriptors"].reverse()
+    reordered = derive_language_index(
+        reordered_root,
+        list(reversed(baseline.package_releases)),
+        authority["kernel"]["admission"]["required_language_members"],
+        root_byte_size=baseline.root_byte_size,
+        member_byte_sizes=list(reversed(baseline.member_byte_sizes)),
+        descriptor_order=authority["kernel"]["meta_format"]["language_bundle"][
+            "package_descriptor"
+        ]["canonical_order"],
+    )
+
+    first = _consumer_a(authority["kernel"], reordered)
+    second = _consumer_b(authority["kernel"], reordered)
+
+    assert first == second
+    assert first["admitted"] is True
+    assert reordered.root == baseline.root
+    assert reordered.package_releases == baseline.package_releases
+    assert reordered["content_identity"] == baseline["content_identity"]
+    assert dict(reordered) == dict(baseline)
+
+
+def _graph_metrics(ldb: dict[str, Any]) -> dict[str, int]:
+    dependencies = {
+        package["id"]: package["dependencies"]["required"]
+        for package in ldb.package_releases
+    }
+    depths: dict[str, int] = {}
+
+    def depth_of(package_id: str) -> int:
+        known = depths.get(package_id)
+        if known is not None:
+            return known
+        depth = 1 + max(
+            (depth_of(dependency) for dependency in dependencies[package_id]),
+            default=0,
+        )
+        depths[package_id] = depth
+        return depth
+
+    return {
+        "max_ldb_root_bytes": ldb.root_byte_size,
+        "max_ldb_child_bytes": max(ldb.member_byte_sizes),
+        "max_ldb_total_bytes": ldb.root_byte_size + sum(ldb.member_byte_sizes),
+        "max_ldb_package_count": len(ldb.package_releases),
+        "max_ldb_dependency_depth": max(map(depth_of, dependencies)),
+        "max_ldb_dependency_steps": sum(map(len, dependencies.values())),
+        "max_ldb_admission_work": _work(ldb.root)
+        + sum(_work(package) for package in ldb.package_releases),
+    }
+
+
+@pytest.mark.parametrize(
+    "limit_name",
+    (
+        "max_ldb_root_bytes",
+        "max_ldb_child_bytes",
+        "max_ldb_total_bytes",
+        "max_ldb_package_count",
+        "max_ldb_dependency_depth",
+        "max_ldb_dependency_steps",
+        "max_ldb_admission_work",
+    ),
+)
+def test_two_consumers_agree_at_and_above_each_graph_resource_boundary(
+    monkeypatch, limit_name
+):
+    baseline = authority_set()
+    observed = _graph_metrics(baseline["language_bundle"])[limit_name]
+
+    for limit, admitted in ((observed, True), (observed - 1, False)):
+        authority = authority_set()
+        authority["kernel"]["resources"][limit_name] = limit
+        _reidentify(authority["kernel"], authority["language_bundle"])
+        kernel_identity = authority["kernel"]["content_identity"]
+        monkeypatch.setattr(
+            production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel_identity
+        )
+        monkeypatch.setitem(globals(), "_SUPPORTED_KERNEL_IDENTITY", kernel_identity)
+
+        first = _consumer_a(authority["kernel"], authority["language_bundle"])
+        second = _consumer_b(authority["kernel"], authority["language_bundle"])
+
+        assert first == second
+        assert first["admitted"] is admitted
+        if not admitted:
+            assert (
+                "ingress",
+                "kernel.resource_exhausted",
+                "language-bundle",
+            ) in first["diagnostics"]

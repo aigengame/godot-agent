@@ -25,9 +25,9 @@ Quantity slice:
   and deterministic resource bounds.
 - The packaged Language Definition Bundle is the sealed multi-member graph defined by bADR-0023.
   Its small root manifest binds that exact Kernel and canonical package descriptors; complete child
-  artifacts own `core.quantity`, standard compiler/runtime/experiment/template contracts, tooling
-  contracts, and game-mechanic releases. Admission derives the flat lookup view only after the
-  entire graph passes identity, membership, dependency, resource, and vector checks.
+  artifacts own `core.quantity`, `standard.compiler`, standard runtime/experiment/template
+  contracts, tooling contracts, and game-mechanic releases. Admission derives the flat lookup view
+  only after the entire graph passes identity, membership, dependency, resource, and vector checks.
 - The production bootstrap consumer and a separately implemented conformance consumer agree on
   exact identities, law/rule/reason inventories, generated projection identities, positive vectors,
   and old-identity/reidentified deletion/behavior/token mutations. Neither contains a Quantity host

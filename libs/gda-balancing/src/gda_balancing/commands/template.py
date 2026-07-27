@@ -1316,14 +1316,32 @@ def _minimal_release(
     kernel_identity = cast(str, kernel["content_identity"])
     language_bundle_identity = cast(str, language_bundle["content_identity"])
     language = cast(dict[str, JsonValue], language_bundle["language"])
+    packages = cast(list[dict[str, JsonValue]], language["packages"])
     package_matches = [
         package
-        for package in cast(list[dict[str, JsonValue]], language["packages"])
+        for package in packages
         if (package.get("id"), package.get("version")) == ("core.quantity", "2.0.0")
     ]
     if len(package_matches) != 1:
         raise ValueError("minimal Template package is unavailable or ambiguous")
-    package_identity = cast(str, package_matches[0]["content_identity"])
+    packages_by_id = {
+        cast(str, package["id"]): package
+        for package in packages
+        if isinstance(package.get("id"), str)
+    }
+    selected_ids = {"core.quantity"}
+    pending = ["core.quantity"]
+    while pending:
+        package_id = pending.pop()
+        package = packages_by_id[package_id]
+        dependencies = cast(dict[str, JsonValue], package["dependencies"])
+        for dependency in cast(list[str], dependencies["required"]):
+            if dependency not in selected_ids:
+                selected_ids.add(dependency)
+                pending.append(dependency)
+    selected_packages = [
+        packages_by_id[package_id] for package_id in sorted(selected_ids)
+    ]
     starter: dict[str, JsonValue] = {
         "schema_version": "2.0.0",
         "manifest": {
@@ -1402,10 +1420,11 @@ def _minimal_release(
                 "schema_version": "2.0.0",
                 "packages": [
                     {
-                        "id": "core.quantity",
-                        "version": "2.0.0",
-                        "content_identity": package_identity,
+                        "id": package["id"],
+                        "version": package["version"],
+                        "content_identity": package["content_identity"],
                     }
+                    for package in selected_packages
                 ],
             },
         ),

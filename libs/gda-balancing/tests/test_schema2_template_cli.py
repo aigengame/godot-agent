@@ -21,6 +21,7 @@ from gda_balancing.commands.template import (
     template_instantiate_handler,
 )
 from gda_balancing.schema2.authority import authority_set
+from gda_balancing.schema2.authority_graph import derive_language_index
 from gda_balancing.schema2.canonical import canonical_bytes, content_identity
 from gda_balancing.schema2.diagnostics import Schema2RefusalReport
 from gda_balancing.schema2.model import (
@@ -61,6 +62,104 @@ def _replace_json_value(value: Any, old: Any, new: Any) -> Any:
     if isinstance(value, list):
         return [_replace_json_value(item, old, new) for item in value]
     return new if value == old else value
+
+
+def _reidentify_language_bundle(kernel, language_bundle):
+    projections = kernel["meta_format"]["package_release"]["semantic_closure"][
+        "projections"
+    ]
+
+    def path_values(root, dotted):
+        values = [root]
+        for segment in dotted.split("."):
+            selected = []
+            for value in values:
+                if not isinstance(value, dict) or segment not in value:
+                    continue
+                child = value[segment]
+                selected.extend(child if isinstance(child, list) else [child])
+            values = selected
+        return values
+
+    for package in language_bundle["language"]["packages"]:
+        package["vector_definitions"] = [
+            deepcopy(
+                next(
+                    vector
+                    for vector in language_bundle["vectors"]
+                    if vector["id"] == vector_id
+                )
+            )
+            for vector_id in package["vectors"]
+        ]
+        for entry, projection in zip(
+            package["semantic_closure"], projections, strict=True
+        ):
+            definitions = path_values(language_bundle, entry["authority_path"])
+            owners = path_values(package, projection["owners_path"])
+            key_member = projection["key_member"]
+            entry["definitions"] = deepcopy(
+                [
+                    definition
+                    for definition in definitions
+                    if (
+                        definition.get(key_member)
+                        if key_member is not None and isinstance(definition, dict)
+                        else definition
+                    )
+                    in owners
+                ]
+            )
+        runtime_paths = set(package["runtime_semantic_paths"])
+        package["semantic_identity"] = content_identity(
+            "domain-package-semantic-closure-v2",
+            [
+                entry
+                for entry in package["semantic_closure"]
+                if entry["authority_path"] in runtime_paths
+            ],
+        )
+        package["content_identity"] = content_identity(
+            "domain-package-release-v2",
+            {key: value for key, value in package.items() if key != "content_identity"},
+        )
+
+    packages = sorted(
+        deepcopy(language_bundle["language"]["packages"]),
+        key=lambda package: (package["id"], package["version"]),
+    )
+    sizes = [len(canonical_bytes(package)) for package in packages]
+    root = deepcopy(language_bundle.root)
+    root["package_descriptors"] = [
+        {
+            "artifact_kind": package["artifact_kind"],
+            "byte_size": size,
+            "content_identity": package["content_identity"],
+            "id": package["id"],
+            "version": package["version"],
+        }
+        for package, size in zip(packages, sizes, strict=True)
+    ]
+    root["content_identity"] = content_identity(
+        "language-definition-bundle-v2",
+        {key: value for key, value in root.items() if key != "content_identity"},
+    )
+    rebuilt = derive_language_index(
+        root,
+        packages,
+        kernel["admission"]["required_language_members"],
+        root_byte_size=len(canonical_bytes(root)),
+        member_byte_sizes=sizes,
+        descriptor_order=kernel["meta_format"]["language_bundle"]["package_descriptor"][
+            "canonical_order"
+        ],
+    )
+    language_bundle.root = deepcopy(rebuilt.root)
+    language_bundle.package_releases = deepcopy(rebuilt.package_releases)
+    language_bundle.root_byte_size = rebuilt.root_byte_size
+    language_bundle.member_byte_sizes = rebuilt.member_byte_sizes
+    language_bundle.clear()
+    language_bundle.update(dict(rebuilt))
 
 
 class _ReferenceBudgetExhausted(Exception):
@@ -775,7 +874,7 @@ def test_template_list_exposes_the_packaged_content_addressed_release(run_cli):
                 "id": "standard.quantity-minimal",
                 "version": "2.0.0",
                 "content_identity": (
-                    "sha256:590864466cc30b7fba6f52e494f12a773745604a622ee8adf87dcbf8975baac8"
+                    "sha256:dfffdec7edc519fccfe6e70e1b602b35724fbe5f79090a199a0221d82bb7c2e7"
                 ),
             }
         ]
@@ -891,7 +990,6 @@ def test_every_template_member_is_admitted_by_the_exact_kernel_and_ldb(
         )[1]
     )
     members = {item["logical_name"]: item for item in release["members"]}
-    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     schemas = {
         item["artifact_kind"]: item["schema"]
         for item in json.loads(run_cli(["schema", "get", "wire-schema"])[1])["schemas"]
@@ -910,7 +1008,7 @@ def test_every_template_member_is_admitted_by_the_exact_kernel_and_ldb(
     assert run_cli(["model", "check", str(source)])[0] == 0
     starter_identity = content_identity("model-source-package-v2", starter)
 
-    language = authority["language_bundle"]["language"]
+    language = authority_set()["language_bundle"]["language"]
     package_inventory = {
         (item["id"], item["version"], item["content_identity"])
         for item in language["packages"]
@@ -1625,14 +1723,7 @@ def test_template_instantiation_uses_the_ldb_owned_source_role_name(
         profile["judgments"], "source", "starter"
     )
     old_ldb_identity = language_bundle["content_identity"]
-    language_bundle["content_identity"] = content_identity(
-        "language-definition-bundle-v2",
-        {
-            key: value
-            for key, value in language_bundle.items()
-            if key != "content_identity"
-        },
-    )
+    _reidentify_language_bundle(kernel, language_bundle)
     release = json.loads(
         run_cli(
             [
@@ -1691,14 +1782,7 @@ def test_template_vector_expected_value_uses_canonical_equality(run_cli, monkeyp
     judgment["arguments"]["expected_path"] = ["value"]
     judgment["arguments"]["expected_value"] = True
     old_ldb_identity = language_bundle["content_identity"]
-    language_bundle["content_identity"] = content_identity(
-        "language-definition-bundle-v2",
-        {
-            key: value
-            for key, value in language_bundle.items()
-            if key != "content_identity"
-        },
-    )
+    _reidentify_language_bundle(kernel, language_bundle)
     release = json.loads(
         run_cli(
             [

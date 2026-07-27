@@ -854,7 +854,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:9661372889e4edf9bbddfe16d42c2154303297f7913298ed23f1f230a8b2b57f",
+  "content_identity": "sha256:57d4aaab8230a64f22baba930ae03298b938aa18e93b25052bd79340fd583699",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2107,6 +2107,10 @@
         }
       },
       "package_descriptor": {
+        "canonical_order": [
+          "id",
+          "version"
+        ],
         "closed": true,
         "field_types": {
           "artifact_kind": {

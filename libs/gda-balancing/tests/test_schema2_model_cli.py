@@ -1532,14 +1532,20 @@ def test_package_lock_closes_the_selected_semantic_graph_without_provenance(
     artifact_dir = _artifact_directory(json.loads(built[1]))
 
     lock = json.loads((artifact_dir / "package-lock.json").read_text())
-    assert lock["packages"] == [
-        {
-            "id": "core.quantity",
-            "version": "2.0.0",
-            "content_identity": lock["packages"][0]["content_identity"],
-            "semantic_identity": lock["packages"][0]["semantic_identity"],
-        }
+    assert [(package["id"], package["version"]) for package in lock["packages"]] == [
+        ("core.quantity", "2.0.0"),
+        ("standard.compiler", "1.0.0"),
     ]
+    assert all(
+        set(package)
+        == {
+            "id",
+            "version",
+            "content_identity",
+            "semantic_identity",
+        }
+        for package in lock["packages"]
+    )
     assert lock["semantic_identity"].startswith("sha256:")
     assert lock["capability_bindings"]
     assert lock["types"]
@@ -1715,6 +1721,7 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
     graph_root = getattr(language_bundle, "root", None)
     if isinstance(graph_root, dict):
         packages = deepcopy(language_bundle["language"]["packages"])
+        packages.sort(key=lambda package: (package["id"], package["version"]))
         sizes = [len(canonical_bytes(cast(JsonValue, package))) for package in packages]
         graph_root["resources"] = deepcopy(language_bundle["resources"])
         graph_root["package_descriptors"] = [
@@ -1740,7 +1747,14 @@ def _reidentify_language_bundle(language_bundle: dict[str, Any]) -> None:
             kernel["admission"]["required_language_members"],
             root_byte_size=language_bundle.root_byte_size,
             member_byte_sizes=sizes,
+            descriptor_order=kernel["meta_format"]["language_bundle"][
+                "package_descriptor"
+            ]["canonical_order"],
         )
+        language_bundle.root = deepcopy(rebuilt.root)
+        language_bundle.package_releases = deepcopy(rebuilt.package_releases)
+        language_bundle.root_byte_size = rebuilt.root_byte_size
+        language_bundle.member_byte_sizes = rebuilt.member_byte_sizes
         language_bundle.clear()
         language_bundle.update(dict(rebuilt))
         return
@@ -1987,6 +2001,12 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
         if operation["id"] == "game.combat.cast-v1"
     )
     unreachable["resource_bounds"]["max_steps"] += 1
+    resource_vector = next(
+        vector
+        for vector in candidate_ldb["vectors"]
+        if vector["id"] == "game.combat.cast.resource-bound"
+    )
+    resource_vector["expect"] += 1
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True
     candidate = replace(checked, language_bundle=candidate_ldb)
@@ -1996,6 +2016,116 @@ def test_unreachable_runtime_operation_does_not_change_rir_semantics(tmp_path):
     assert original["rir-semantic-payload"] == mutated["rir-semantic-payload"]
     assert original["package-lock"] == mutated["package-lock"]
     assert original["resolved-model"] != mutated["resolved-model"]
+
+
+def test_non_rpg_package_is_consumed_without_a_kernel_or_host_extension(
+    tmp_path, monkeypatch
+):
+    kernel, baseline_ldb = model_module.load_authorities()
+    candidate_ldb = deepcopy(baseline_ldb)
+    language = candidate_ldb["language"]
+    package = deepcopy(
+        next(item for item in language["packages"] if item["id"] == "standard.compiler")
+    )
+    package["id"] = "genre.economy"
+    package["version"] = "1.0.0"
+    package["dependencies"] = {
+        "optional": [],
+        "required": ["core.quantity"],
+    }
+    package["capabilities"] = {
+        "provided": ["genre.economy.discount"],
+        "required": ["quantity.lower"],
+    }
+    package["exports"] = {name: [] for name in package["exports"]}
+    package["exports"]["operations"] = ["genre.economy.discount-v1"]
+    package["profiles"] = {"numeric": [], "resolution": [], "runtime": []}
+    package["runtime_semantic_paths"] = [
+        "language.capabilities",
+        "language.operations",
+    ]
+    for entry in package["semantic_closure"]:
+        entry["definitions"] = []
+    operation = {
+        "body": [
+            {
+                "left": "price",
+                "node": "subtract",
+                "right": "discount",
+                "target": "result",
+            }
+        ],
+        "effects": [],
+        "id": "genre.economy.discount-v1",
+        "inputs": [
+            {"name": "price", "type": "Quantity"},
+            {"name": "discount", "type": "Quantity"},
+        ],
+        "kind_rules": {"inputs": "preserve", "result": "preserve"},
+        "numeric_policy": "exact-int64",
+        "operation_kind": "pure-expression",
+        "owner_type": "Quantity",
+        "purity": "pure",
+        "refusals": [],
+        "resource_bounds": {"max_steps": 1},
+        "result": "Quantity",
+        "rule": "quantity.lower",
+        "runtime_profile": "compile.exact-int64",
+        "unit_rules": {"inputs": "preserve", "result": "preserve"},
+        "vectors": ["genre.economy.discount.body"],
+        "version": "1.0.0",
+    }
+    vector = {
+        "category": "positive",
+        "expect": operation["body"],
+        "id": "genre.economy.discount.body",
+        "kind": "operation-contract",
+        "operation": operation["id"],
+        "probe": {"path": "body"},
+    }
+    package["vectors"] = [vector["id"]]
+    package["vector_definitions"] = [deepcopy(vector)]
+    language["capabilities"].append(
+        {"id": "genre.economy.discount", "rule": "quantity.lower"}
+    )
+    language["operations"].append(operation)
+    candidate_ldb["vectors"].append(vector)
+    language["packages"].append(package)
+    _reidentify_language_bundle(candidate_ldb)
+    assert admit_authorities(kernel, candidate_ldb).admitted is True
+    assert kernel == model_module.load_authorities()[0]
+    assert baseline_ldb == model_module.load_authorities()[1]
+
+    source_document = _model_source()
+    source_document["package_requirements"] = [
+        {"id": "core.quantity", "version": "2.0.0"},
+        {"id": "genre.economy", "version": "1.0.0"},
+    ]
+    source = tmp_path / "model-source.json"
+    source.write_text(json.dumps(source_document), encoding="utf-8")
+    monkeypatch.setattr(
+        model_module, "load_authorities", lambda: (kernel, candidate_ldb)
+    )
+
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+
+    assert [package["id"] for package in artifacts["package-lock"]["packages"]] == [
+        "core.quantity",
+        "genre.economy",
+        "standard.compiler",
+    ]
+    operations = artifacts["rir-semantic-payload"]["selected_semantics"]["operations"]
+    assert any(
+        row["definition"]["id"] == "genre.economy.discount-v1" for row in operations
+    )
+    host_sources = (
+        Path(model_module.__file__),
+        Path(model_command_module.__file__),
+        Path(model_module.__file__).with_name("experiment.py"),
+    )
+    assert all("genre.economy" not in path.read_text() for path in host_sources)
 
 
 @pytest.mark.parametrize(

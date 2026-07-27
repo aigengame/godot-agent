@@ -342,8 +342,9 @@ obtained; they are not part of the RIR semantic payload.
 Identity follows semantic responsibility rather than file location:
 
 - child package identity covers one canonical complete package release;
-- whole-LDB graph identity covers the root's normative content and canonical child descriptors,
-  which bind every child identity and byte size without binding its physical locator;
+- whole-LDB graph identity covers the root's normative content and child descriptors normalized by
+  the Kernel-declared `id`, then `version` order; descriptors bind every child identity and byte
+  size without binding transport order or physical locator;
 - Package Lock identity covers the exact selected dependency closure;
 - RIR payload identity covers reachable normalized model semantics;
 - Resolved Model identity covers the exact build wrapper, including Kernel and whole LDB;
@@ -830,7 +831,7 @@ classified by the same vocabulary used above:
 | Refined—adopted | The first Metric dataset carried values but not the complete definition, window/time, dimensions, replication, missing/censoring, provenance, data version, partition, ordering, and ingestion binding required by bADR-0018. Those fields and definition identities are now mandatory even in this one-scenario slice. | Experiment Metric contract and Metric-dataset wire schema; machine authority updated |
 | Refined—adopted | Duplicate JSON keys were collapsed by host decoding, non-empty external inputs were silently ignored, a multi-scenario refusal named the first scenario, and an Operation step budget accumulated across scenarios. Canonical ingress now rejects duplicate keys, unsupported external inputs refuse explicitly, terminal audit retains the exact scenario, and per-Event/per-run budgets have separate scopes. | Canonical ingress, Experiment admission, and Runtime accounting; implementation/conformance updated |
 | Confirmed—narrowly | A second evaluator that shares only the Kernel/LDB authorities independently executes the committed cast and agrees exactly on typed outcome, facts, state, and RNG trace. It validates every runtime-node contract vector and executes every RNG vector; nodes outside the cast are not claimed as independently executed semantics. | Bounded differential witness for `rpg.combat.cast-v1`; retained as a test, not generalized |
-| Open gate | The current resolver selects the transitive package closure, but capability-provider judgment is still seeded from root requirements. The committed example therefore declares both `game.rpg` and its `core.quantity` dependency explicitly. This is an implementation mismatch with bADR-0016's complete-selected-graph rule, not a reason to weaken that rule. | Model resolution judgment; fix and add a transitive-capability vector before downstream work relies on implicit capability closure |
+| Open gate | The current resolver selects the transitive package closure, but import binding is still seeded from root requirements. The committed example therefore declares both `game.combat` and the `core.quantity` package from which it directly imports `Quantity`; `game.check`, `game.resource`, `standard.runtime`, and `standard.compiler` are selected transitively. This is an implementation mismatch with bADR-0016's complete-selected-graph rule, not a reason to weaken that rule. | Model resolution judgment; fix and add a transitive-import vector before downstream work relies on implicit import closure |
 | Authored-example only | The chosen cast formula, starting values, targets, and two Metrics make this feedback loop useful; they do not establish that the package inventory or abstraction is RPG-complete. | Example/Experiment; retain without generalizing |
 
 The public outcome algebra is also confirmed for this slice: completed success and negative Verdict
