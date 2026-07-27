@@ -377,8 +377,8 @@ structured formal judgments, and an honest proof/conformance boundary.
   Formula-slot resource budget, or truncate/reidentify the RIR Formula closure. Independent
   consumers must issue the same pre-HIR or Runtime-admission refusal. Read one derived Symbol before
   and after a state-changing Event and again during post-transition observation; same-site reads
-  under one Snapshot agree, while the new Snapshot is reevaluated under its distinct site/context
-  identity.
+  under one Snapshot agree, while the same site/context is reevaluated under the distinct new
+  Snapshot identity.
 - Execute repeated reads at a budget boundary with Formula-result caching forced on and off. The
   value/non-resource-refusal sequence, charge events, and exact resource-exhaustion site must be
   identical; cached evaluation cannot skip, defer, or double-apply the derived charge vector.
