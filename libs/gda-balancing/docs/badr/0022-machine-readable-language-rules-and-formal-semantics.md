@@ -99,6 +99,56 @@ structured formal judgments, and an honest proof/conformance boundary.
   The LDB Operation declares one exhaustive typed outcome algebra with a default outcome and an
   explicit commit/rollback policy for every alternative; an evaluator may not invent outcome ids.
 
+- **Model Source formulas enter Operations only through static typed bindings.** A Formula
+  declaration is a Model Source-owned pure expression with explicit named inputs and one annotated
+  result. An Operation specification may expose typed formula call sites while retaining ownership
+  of its control, effects, RNG, outcomes, and commit/rollback policy. Resolution binds each call
+  site to one exact Formula declaration, validates input/result type, kind, unit, Numeric profile,
+  and purity, and makes the binding explicit in Typed HIR and canonical RIR. Runtime dispatch
+  evaluates only that resolved binding with the call site's explicit operands; it cannot perform
+  dynamic formula lookup, invoke a host callback, or reinterpret the Formula as a user-authored
+  Event program.
+
+- **Formula declarations are module-level named language declarations, not first-class values.**
+  Each declaration has a stable source name, explicit typed parameters, one result contract, and a
+  structured pure-expression body. A `derived` Symbol or Operation formula call site selects it
+  through ordinary static name resolution. Formula-to-Formula calls form one statically resolved
+  acyclic dependency graph; recursion and dynamic selection are refused before HIR. Anonymous or
+  inline expressions may exist only as Authoring-AST sugar that resolution expands into the same
+  named Formula/binding model before Typed HIR. They create no alternative typing, identity,
+  evaluation, or explanation rules.
+
+- **Every declared Operation Formula slot has exactly-one binding.** An Operation may declare zero
+  or more named slots, each with one explicit Formula signature and evaluation context. Selecting
+  that Operation requires the Model Source to bind exactly one compatible Formula declaration to
+  every slot. Missing, duplicate, type, kind, unit, Numeric-profile, purity, or context-incompatible
+  bindings refuse before Typed HIR. A package-owned computation that is not a declared slot remains
+  part of the immutable Operation body and requires a new package release to change. A declared
+  slot has no optional cardinality, package Formula fallback, evaluator default, or host behavior;
+  templates express defaults only as ordinary starter Model Source declarations and bindings.
+
+- **Formula evaluation timing belongs to the binding context, never the Formula declaration.**
+  Every Formula binding fixes one typed value environment and lifecycle boundary. A `derived`
+  Symbol is an immutable Formula-defined value evaluated when read in that context; its statically
+  resolved dependency graph must be acyclic, and it is never a writable state slot. Initialization
+  reads the initial committed Snapshot formed after exact Experiment inputs are admitted. An Event
+  call site reads that Event's committed pre-event Snapshot and cannot observe buffered writes.
+  Observation reads the committed Snapshot after the transition queue for that logical time is
+  drained. Effect `snapshot` capture evaluates once at its declared capture Event and retains the
+  result; Effect `live` re-evaluates at each declared lifecycle Event against that Event's
+  pre-event Snapshot. `live` never means visibility of uncommitted writes. Constant folding,
+  caching, and inlining are non-semantic optimizations and must preserve these observations.
+
+- **Model explanation preserves the expression/control/effect boundary.** Its closed
+  `formula_explanations` section projects each selected, reachable Formula binding, evaluation
+  context, explicit operand source, dependency, type, kind, unit, Numeric profile, expression node,
+  and result. Its closed `operation_explanations` section projects selected, reachable control and
+  effect nodes, RNG streams/draws, guards, exhaustive outcomes, and commit/rollback policy, and
+  refers to Formula binding identities when an Operation calls one. The projection rules and schema
+  are generated from or reverse-conformance-checked against the exact LDB language content. Human
+  wording may explain those facts but cannot merge node families, add semantics, or replace the
+  RIR/Debug Map bindings required by bADR-0013.
+
 - **Domain operations are machine-defined compositions whenever possible.** An Operation
   specification may give semantics as a typed kernel AST plus declared effects/resource bounds.
   An operation that cannot be reduced to existing kernel composition is an irreducible kernel

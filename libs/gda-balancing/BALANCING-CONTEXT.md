@@ -199,10 +199,18 @@ spans, AST/HIR identities, lowering traces, and diagnostic provenance. It may ch
 changing an equivalent RIR and cannot affect compilation or runtime behavior (bADR-0013/0022).
 _Avoid_: RIR metadata, semantic provenance, embedded source map
 
+**Model explanation**:
+A mandatory, separately identified, non-semantic JSON companion published with every successful
+Model build and bound to one exact Model Source, RIR semantic payload, and Debug Map. Its closed
+Formula and Operation sections make the resolved model inspectable without becoming executable
+authority or an editable substitute for Model Source (bADR-0013/0021/0022).
+_Avoid_: decompiled model, executable explanation, generated source
+
 **Build receipt**:
 A separately identified, non-semantic provenance artifact binding the Model Source Package,
 Schema-major Kernel Specification, Language Definition Bundle, Package Lock, Resolved Model,
-compiler/tool identity, Resolution receipt, optional Debug Map, and publication facts for one build.
+compiler/tool identity, Resolution receipt, Debug Map, Model explanation, and publication facts for
+one build.
 Compiler and resolver implementation identities belong in provenance receipts and never
 participate in RIR or Resolved Model content identity, so independent conforming tools can produce
 the same semantic artifacts (bADR-0013).
@@ -339,6 +347,34 @@ or `rate` composed separately. A role constrains ownership and lifecycle; it nev
 numeric type. Domain roles are versioned package terms and never infer representation, nominal kind,
 unit/dimension, support, or Numeric policy; `rate` does not define its own denominator (bADR-0016).
 _Avoid_: attribute type, variable kind (ambiguous), numeric subtype
+
+**Formula declaration**:
+A module-level, Model Source-owned named pure computation with explicitly typed parameters, one
+result contract, and a structured expression body. It is statically resolved rather than passed,
+stored, or selected as a Runtime value, and never owns Event control, state transition, RNG,
+gameplay outcome, or commit/rollback behavior (bADR-0022).
+_Avoid_: formula script, anonymous callback, first-class function, Event program
+
+**Formula binding**:
+The exact, statically resolved association between a Model Source Formula declaration and a typed
+formula call site used by a `derived` Symbol or an Operation Formula slot. It fixes the selected
+formula before Runtime and cannot introduce dynamic formula lookup or host callback semantics
+(bADR-0022).
+_Avoid_: function pointer, runtime formula selection, evaluator hook
+
+**Formula slot**:
+A named, exactly-one customization point in an Operation specification with an explicit Formula
+signature and evaluation context. A selected Operation requires one compatible Model Source
+Formula binding for every declared slot; neither the package nor evaluator supplies a fallback
+(bADR-0022).
+_Avoid_: optional callback, formula hook, package default
+
+**Formula evaluation context**:
+The exact lifecycle boundary and typed value environment in which a Formula binding is evaluated.
+Initialization, Event, observation, and Effect capture/re-evaluation contexts select committed
+Snapshots and explicit operands without giving the Formula ambient state or timing authority
+(bADR-0014/0017/0022).
+_Avoid_: formula mode, ambient evaluation environment, live formula
 
 **Core Extension Invariance**:
 The Standard Schema 2.0 promise that a later game genre can add Model Source, complete Domain

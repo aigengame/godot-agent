@@ -47,6 +47,12 @@ distribution contract and a falsifiable definition of genre completeness.
   `profile` remains reserved away from Genre template because Runtime/Numeric profile definitions have
   different authority and compatibility semantics.
 
+- **Template Formula defaults are ordinary starter-source bindings.** When a selected Operation
+  declares an exactly-one Formula slot under bADR-0022, the starter Model Source may provide the
+  default Formula declaration and binding. Instantiation materializes both into the game-owned
+  Model Source; the package, template machinery, compiler, and evaluator provide no fallback if a
+  required binding is absent or invalid.
+
 - **Template-release admission is Kernel-defined and LDB-selected.** The Kernel owns the closed
   Schema-major artifact-graph primitive specification: typed arguments and result effects,
   evaluation law and order, failure behavior, canonical comparison/identity consequences, and

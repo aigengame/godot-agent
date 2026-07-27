@@ -152,6 +152,15 @@ structured-params adapter part of the first vertical tracer.
   claims, and `migrate` attempts bADR-0019's limited conversion. `read`, `show`, `validate`, `format`,
   `simulate`, `tune`, and other synonyms cannot enter the 2.x tree without amending this record.
 
+- **Every `model build` publishes and `model inspect` renders the non-semantic Model
+  explanation.** The build-success artifact set and Build receipt must contain one exact
+  `model-explanation`; an empty Formula or Operation section is valid when the selected RIR has no
+  corresponding nodes. Generation, validation, or publication failure leaves no partial success
+  set. `model inspect` retrieves that exact companion and may emit a deterministic indented JSON
+  view for direct reading; it never regenerates the projection. Presentation whitespace is not
+  part of the stored canonical artifact bytes or content identity, and `inspect` cannot
+  reconstruct, edit, or execute Model Source from the projection.
+
 - **`version` reports distinct identities.** It returns the toolkit package version, supported
   Standard Schema lines, Language Definition Bundle versions, and command-surface version without
   conflating them. Schema 2.0 still does not imply product version 2.0.0.

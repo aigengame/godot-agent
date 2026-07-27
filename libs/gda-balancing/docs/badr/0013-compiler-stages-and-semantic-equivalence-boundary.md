@@ -79,14 +79,26 @@ an explicit boundary for lowering equivalence.
   bADR-0022 makes these observations and the lowering relation structured Language rules in the
   Language Definition Bundle.
 
-- **Diagnostic provenance is a separate Debug Map.** A compiler may emit one immutable,
+- **Diagnostic provenance is a separate Debug Map.** Every successful build emits one immutable,
   content-addressed Debug Map that binds the exact RIR semantic-payload identity to source spans,
   AST/HIR identities,
   lowering-rule applications, and diagnostic locations. The map is a build companion for tooling,
   not part of RIR, execution authority, semantic equivalence, or the Resolved Model identity. A
   source-only change may therefore change the Debug Map while leaving byte-identical RIR. A
-  separately identified Build receipt binds source, compiler/tool, Resolved Model, Debug Map, and
-  publication facts without entering either RIR or Resolved Model identity.
+  separately identified Build receipt binds source, compiler/tool, Resolved Model, Debug Map, Model
+  explanation, and publication facts without entering either RIR or Resolved Model identity.
+
+- **Human inspection uses a separate Model explanation.** Every successful build publishes one
+  immutable, content-addressed `model-explanation` companion that binds the exact Model Source, RIR
+  semantic payload, Debug Map, and projection schema/version. It contains separate closed
+  `formula_explanations` and `operation_explanations` sections defined by bADR-0022; the latter
+  references exact Formula bindings rather than restating their expression semantics. Omitted,
+  extra, duplicate, or stale node bindings make the projection invalid. The artifact and any
+  wording or presentation revision have their own identity and cannot affect RIR semantic-payload
+  identity, Resolved Model identity, execution, or semantic equivalence. Model explanation
+  generation, validation, or publication failure prevents the complete build-success artifact set
+  from committing; invocation recovery restores that same complete set rather than regenerating
+  the projection.
 
 - **EIR is evaluator-specific and non-normative.** An evaluator may lower RIR into specialized
   layouts, schedules, kernels, bytecode, or other plans. EIR is not a stable Standard Schema
@@ -140,8 +152,10 @@ an explicit boundary for lowering equivalence.
 - RIR semantic payload and Resolved Model each need a canonical encoding, distinct content-identity
   law, compatibility contract, and normative
   vectors. These are public Standard Schema surfaces.
-- Debug Map needs its own closed schema and identity law; build receipts may bind it without making
-  its provenance fields semantic or changing the Resolved Model identity.
+- Debug Map needs its own closed schema and identity law; every build receipt binds it without
+  making its provenance fields semantic or changing the Resolved Model identity.
+- Model explanation needs one closed schema, exact RIR/Debug Map projection rules, and an identity
+  law separate from RIR and Resolved Model; every build receipt binds it as a mandatory companion.
 - Build receipt needs a closed non-semantic provenance schema and must never participate in the
   Resolved Model content-identity function.
 - EIR may evolve with an evaluator without a Schema version bump, provided its behavior remains
@@ -175,6 +189,12 @@ an explicit boundary for lowering equivalence.
 - Reidentify a coherent but wrong Operation table, Runtime-profile definition, Diagnostic catalog,
   reason mapping, or comparison-policy projection. Runtime admission must reject it against the
   exact admitted LDB rather than trusting internal consistency or the new identity.
+- Omit, mutate, or stale-bind the mandatory Debug Map or either closed Model explanation section.
+  Model build must refuse before publishing a successful artifact set; no partial Resolved Model,
+  Debug Map, Model explanation, manifest, or receipt may become visible.
+- Inject failure before and after the atomic build publication boundary. Pre-commit failure exposes
+  no successful member, while retry after a committed response-delivery failure recovers the same
+  Debug Map and Model explanation identities and bytes without regenerating either projection.
 - An evaluator that did not build the RIR must execute it using only the RIR and its exact public
   dependencies; deleting the Debug Map cannot change execution, Metrics, trace, or refusal behavior.
 

@@ -290,6 +290,27 @@ unbounded iteration are forbidden. Unit conversion is explicit, and persistent m
 through declared transitions. Host callbacks, ambient RNG, implicit conversions, and
 implementation-defined iteration are outside the language.
 
+Model Source owns module-level named **Formula declarations** with typed parameters, result, and a
+structured pure body. Formula names resolve statically, calls form an acyclic graph, and formulas
+are neither first-class values nor dynamic callbacks. Inline expression syntax, if admitted, is
+only Authoring-AST sugar normalized to the same declaration-and-binding form before HIR; infix text
+is never a peer semantic authority.
+
+Domain-package Operations declare zero or more typed **Formula slots**. For every slot on a selected
+Operation, Model Source binds exactly one compatible Formula; missing, duplicate, or incompatible
+bindings refuse before HIR. Packages, templates, compilers, and evaluators provide no optional
+fallback. A template default is an ordinary Formula and binding copied into the editable starter
+source. This separates reusable mechanic/control/effect law, which remains Operation-owned, from a
+game's numeric design policy, which remains Model-Source-owned.
+
+Formula evaluation uses one timing model across derived values and Operations. A Formula itself has
+no lifecycle timing. Its binding/call site declares the context: initialization reads the initial
+committed Snapshot after Experiment inputs; an Event reads that Event's pre-event Snapshot and
+cannot observe buffered writes; observation reads the post-transition committed Snapshot; a
+snapshot Effect evaluates once and captures; and a live Effect reevaluates at each declared
+lifecycle Event against that Event's pre-event Snapshot. Optimization cannot change those
+observations.
+
 The Kernel owns a small closed operation vocabulary sufficient to interpret those rules. The LDB
 uses it to define complete language and Domain-package operations. Every operation definition must
 declare its inputs, result, effects, refusals, numeric behavior, lowering, evaluation, and vectors.
@@ -367,6 +388,14 @@ The public compilation pipeline is:
 The **Debug Map** is separate from RIR semantics so that source locations and explanatory provenance
 can change without changing model meaning. Resolution and build receipts record how an artifact was
 obtained; they are not part of the RIR semantic payload.
+
+Every successful build also publishes a mandatory, separately identified **Model explanation**
+derived from the exact RIR and Debug Map. Its closed `formula_explanations` section renders
+Formula declarations, bindings, operands, result types, and evaluation contexts; its closed
+`operation_explanations` section renders Operation control/effect/outcome/commit boundaries and
+references the exact Formula binding identities instead of restating their expression semantics.
+It is inspection data, not execution authority. Model explanation generation, validation, and
+publication are part of the same atomic build-success artifact set.
 
 ### 6.1.1 Resolved invocation graph
 
@@ -769,6 +798,12 @@ need not publish an artifact set or accept an Invocation key. Local filesystem p
 production storage adapters must satisfy the same observable contract, but their trust boundaries
 and durability guarantees remain explicit.
 
+Every successful `model build` set includes its Debug Map and Model explanation, and its Build
+receipt and artifact-set framing bind both exact identities. If either projection cannot be
+generated, validated, or committed, the command publishes no partial success. `model inspect`
+retrieves and pretty-renders the stored Model explanation; it never regenerates meaning from source
+or RIR. Presentation whitespace is non-canonical and cannot change artifact identity.
+
 ## 11. Quality attributes and current confidence
 
 The architecture is designed around six quality attributes. The current rating distinguishes design
@@ -1048,8 +1083,11 @@ ordering/deduplication, and explicit truncation before aggregation runs.
 Implement one production vertical slice through the public CLI and durable artifact path. It must
 close all 12 `Tracer` rows in the genre coverage matrix with Golden scenarios and normative vectors.
 Within this gate, product-feedback slices exercise the public Model/Experiment path before the proof
-infrastructure they expose is hardened. PRD #534 and its linked issues own the live slice sequence
-and acceptance criteria; row closure remains governed by the matrix's closure rules.
+infrastructure they expose is hardened. The current feedback sequence is #540's scalar RPG combat
+loop, #590's Model-Source Formula authoring and explanation loop, then #585's structurally different
+Roguelike reward/build loop. These slices consume and challenge permanent artifacts but do not close
+a coverage row by themselves. PRD #534 and its linked issues own the live acceptance criteria; row
+closure remains governed by the matrix's closure rules.
 
 ### Gate 4 — full RPG coverage
 
@@ -1133,7 +1171,7 @@ Use this map when a macro statement needs its detailed decision or live acceptan
 | Area | Detailed decision | Acceptance/evidence surface |
 | --- | --- | --- |
 | Authority domains and artifact ownership | [bADR-0012](badr/0012-language-and-artifact-authority-domains.md) | PRD #534 authority criteria |
-| Compiler stages, RIR, Debug Map, EIR | [bADR-0013](badr/0013-compiler-stages-and-semantic-equivalence-boundary.md) | Kernel/LDB and independent-lowerer vectors |
+| Compiler stages, RIR, Debug Map, Model explanation, EIR | [bADR-0013](badr/0013-compiler-stages-and-semantic-equivalence-boundary.md) | Kernel/LDB, Formula/explanation, and independent-lowerer vectors |
 | Deterministic atomic runtime and profiles | [bADR-0014](badr/0014-deterministic-atomic-event-runtime.md) | Runtime, refusal, Replay, and fault vectors |
 | Outcomes, refusals, diagnostics, terminal audit | [bADR-0015](badr/0015-invocation-outcomes-and-diagnostic-locations.md) | Diagnostic catalogs and publication vectors |
 | Closed core and package extension | [bADR-0016](badr/0016-closed-type-core-and-versioned-package-extensions.md) | Package and orthogonality vectors |

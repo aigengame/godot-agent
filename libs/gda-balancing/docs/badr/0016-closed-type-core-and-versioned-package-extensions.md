@@ -149,6 +149,14 @@ therefore requires a small closed type language and a constrained package extens
   Specification amendment and conformance path in bADR-0022. Host evaluator code is a conforming
   implementation only.
 
+- **Formula slots make game-owned numeric policy explicit.** An Operation may declare zero or more
+  named Formula slots, each with one closed typed parameter/result contract and one declared
+  evaluation context. A selected Operation requires its Model Source to bind exactly one compatible
+  named Formula to every declared slot. Missing or duplicate bindings, incompatible signatures,
+  and bindings to effectful or unreachable declarations refuse before HIR. An Operation, package,
+  template, compiler, or evaluator cannot supply an optional fallback or host default. Template
+  defaults are ordinary Formula declarations and bindings in the editable starter Model Source.
+
 - **Operation closure is checked before RIR and revalidated before execution.** Closed Kernel-node
   shapes reject even unknown fields on known nodes. Static judgments derive parameter use,
   reachable result tags/payload types, state reads/writes, signal/event/cancel/random effects, and
@@ -311,6 +319,10 @@ therefore requires a small closed type language and a constrained package extens
   over-supply, duplicate assignment, raw-Operation selection, and symbol renaming. Both independent
   consumers must derive the same call graph and identities or the same bounded refusal before
   execution.
+- Mutate a selected Operation's Formula-slot name, signature, evaluation context, or cardinality;
+  omit or duplicate one Model Source binding; bind an incompatible, effectful, cyclic, or
+  unreachable Formula; and attempt a package/evaluator fallback. Independent compilers must emit
+  the same pre-HIR refusal, while a valid exact-one binding must be explicit in HIR and RIR.
 - Exercise every admitted constructor, including nested Record/List/Map/Quantity/Distribution
   shapes, at Kernel-law and Operation boundaries. Both must accept or refuse identically; an
   unknown, partially checked, or host-native value cannot cross either boundary.

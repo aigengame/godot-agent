@@ -7,7 +7,10 @@ acceptance criteria, and live completion status. These documents do not by thems
 language, runtime, CLI, or genre templates implemented. Issues #538, #539, #540, #553, #554, and
 #592 now supply the permanent authority, Model-build tracer, first minimal Template release,
 limited clean-forward source migration, sealed LDB graph, and bounded RPG loop described below.
-All broader delivery claims remain bounded by PRD #534 and the coverage matrix.
+Issue #590 is the next implementation gate: it must add Model-Source-owned Formula
+declarations/bindings and the mandatory Model explanation before #585 tests the same public path
+with a Roguelike-shaped loop. #590 is specified but not delivered by this document; all broader
+delivery claims remain bounded by PRD #534 and the coverage matrix.
 
 The current artifact is [`genre-coverage.md`](genre-coverage.md): the open RPG/Roguelike
 requirements-to-operations matrix used to judge the future Language Definition Bundle and vertical
@@ -235,14 +238,16 @@ PRD #534 remains open until a later implementation/specification PR supplies and
 2. exhaustive machine rules for grammar, resolution, types/effects, evaluation, runtime steps, and
    HIR-to-RIR lowering;
 3. RIR semantic normal form with a separately identified Debug Map and independent-lowerer vectors;
-4. closed AST, Typed HIR, RIR semantic payload, Resolved Model wrapper, package/lock/capability,
+4. closed Formula declaration, Formula-slot binding, evaluation-context, Debug Map, and mandatory
+   Model-explanation contracts, including exact build/inspect/publication behavior;
+5. closed AST, Typed HIR, RIR semantic payload, Resolved Model wrapper, package/lock/capability,
    content-identified Runtime profile definition, Resolved Runtime
    profile, Experiment, Metrics, Evaluation run, Replay comparison, Cross-evaluator comparison,
    Evidence, artifact-envelope, receipt, and publication schemas;
-5. exact Numeric-profile and RNG/stream/sampling laws, including draw consumption and bias policy;
-6. descriptor-derived closed decoding/default/channel contracts and refusal-stage/code membership;
-7. executable fixture inputs with canonical outcomes/refusals for every required vector; and
-8. public-CLI closure of every `Tracer` row before broader RPG/Roguelike support claims.
+6. exact Numeric-profile and RNG/stream/sampling laws, including draw consumption and bias policy;
+7. descriptor-derived closed decoding/default/channel contracts and refusal-stage/code membership;
+8. executable fixture inputs with canonical outcomes/refusals for every required vector; and
+9. public-CLI closure of every `Tracer` row before broader RPG/Roguelike support claims.
 
 Acceptance of the architecture PR and its bADRs authorizes that permanent Gate 2/3 work. The open
 #534 criteria are delivery and claim gates evaluated by the resulting artifacts and vectors; they
