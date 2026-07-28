@@ -1459,23 +1459,9 @@ def _assignment_policy(
     if not isinstance(policy, dict):
         raise ValueError("the admitted lowering has no Symbol assignment policy")
     rows = policy.get("roles")
-    inventory_members = (
-        "model_value_modes",
-        "required_experiment_modes",
-        "optional_experiment_modes",
-    )
     if (
         not isinstance(rows, list)
         or not rows
-        or any(
-            not isinstance(policy.get(member), list)
-            or any(
-                not isinstance(mode, str) or not mode
-                for mode in policy[member]
-            )
-            or len(policy[member]) != len(set(policy[member]))
-            for member in inventory_members
-        )
         or policy.get("scenario_target_cardinality")
         != "one-per-resolved-actual"
         or policy.get("duplicate_actual_policy") != "collapse"
@@ -1485,10 +1471,26 @@ def _assignment_policy(
             or not isinstance(row.get("modes"), list)
             or not row["modes"]
             or any(
-                not isinstance(mode, str) or not mode
+                not isinstance(mode, dict)
+                or not isinstance(mode.get("id"), str)
+                or not mode["id"]
+                or mode.get("initialization_source")
+                not in {
+                    "execution",
+                    "experiment",
+                    "model",
+                    "model-with-experiment-override",
+                    "named-random-stream",
+                    "resolved-model",
+                }
+                or mode.get("value_member") not in {"forbidden", "required"}
+                or mode.get("experiment_cardinality")
+                not in {"forbidden", "optional", "required"}
+                or not isinstance(mode.get("override"), bool)
                 for mode in row["modes"]
             )
-            or len(row["modes"]) != len(set(row["modes"]))
+            or len(row["modes"])
+            != len({mode["id"] for mode in row["modes"]})
             or not isinstance(row.get("entrypoint_operand_access"), list)
             or any(
                 access not in {"read", "read-write", "write"}
@@ -1506,16 +1508,41 @@ def _assignment_policy(
         raise ValueError("the admitted Symbol assignment policy repeats a role")
     if expected_roles is not None and set(by_role) != expected_roles:
         raise ValueError("the admitted Symbol assignment policy is not total")
-    model_modes = set(cast(list[str], policy["model_value_modes"]))
-    required_modes = set(cast(list[str], policy["required_experiment_modes"]))
-    optional_modes = set(cast(list[str], policy["optional_experiment_modes"]))
-    if (
-        model_modes & required_modes
-        or required_modes & optional_modes
-        or not optional_modes <= model_modes
+    if any(
+        not _assignment_mode_is_coherent(mode)
+        for row in rows
+        for mode in cast(list[dict[str, Any]], row["modes"])
     ):
-        raise ValueError("the admitted Symbol assignment mode ownership overlaps")
+        raise ValueError("the admitted Symbol assignment mode ownership is incomplete")
     return policy
+
+
+def _assignment_mode_is_coherent(mode: dict[str, Any]) -> bool:
+    source = mode.get("initialization_source")
+    value_member = mode.get("value_member")
+    cardinality = mode.get("experiment_cardinality")
+    override = mode.get("override")
+    return (
+        source == "model"
+        and value_member == "required"
+        and cardinality == "forbidden"
+        and override is False
+    ) or (
+        source == "experiment"
+        and value_member == "forbidden"
+        and cardinality == "required"
+        and override is False
+    ) or (
+        source == "model-with-experiment-override"
+        and value_member == "required"
+        and cardinality == "optional"
+        and override is True
+    ) or (
+        source in {"execution", "named-random-stream", "resolved-model"}
+        and value_member == "forbidden"
+        and cardinality == "forbidden"
+        and override is False
+    )
 
 
 def _assignment_policy_by_role(
@@ -1524,6 +1551,26 @@ def _assignment_policy_by_role(
     rows = cast(list[dict[str, Any]], policy["roles"])
     by_role = {cast(str, row["role"]): row for row in rows}
     return by_role
+
+
+def _assignment_mode_for_declaration(
+    declaration: dict[str, Any],
+    assignment_policy: dict[str, Any],
+) -> dict[str, Any] | None:
+    role = declaration.get("role")
+    value_policy = declaration.get("value_policy")
+    if not isinstance(role, str) or not isinstance(value_policy, dict):
+        return None
+    row = _assignment_policy_by_role(assignment_policy).get(role)
+    mode_id = value_policy.get("mode")
+    if row is None or not isinstance(mode_id, str):
+        return None
+    matches = [
+        mode
+        for mode in cast(list[dict[str, Any]], row["modes"])
+        if mode["id"] == mode_id
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _exact_operation_coordinate(
@@ -1562,21 +1609,13 @@ def _value_policy_is_valid(
     declaration: dict[str, Any],
     assignment_policy: dict[str, Any],
 ) -> bool:
-    assignment_by_role = _assignment_policy_by_role(assignment_policy)
-    role = declaration.get("role")
     value_policy = declaration.get("value_policy")
-    if (
-        not isinstance(role, str)
-        or not isinstance(value_policy, dict)
-    ):
+    if not isinstance(value_policy, dict):
         return False
-    policy_row = assignment_by_role.get(role)
-    if policy_row is None:
+    mode = _assignment_mode_for_declaration(declaration, assignment_policy)
+    if mode is None:
         return False
-    mode = value_policy.get("mode")
-    if mode not in policy_row.get("modes", []):
-        return False
-    if mode in assignment_policy["model_value_modes"]:
+    if mode["value_member"] == "required":
         value = value_policy.get("value")
         if (
             set(value_policy) != {"mode", "value"}
@@ -1642,26 +1681,23 @@ def _symbol_initialization_contract(
     target_identity: str,
 ) -> tuple[dict[str, JsonValue] | None, dict[str, JsonValue] | None]:
     value_policy = cast(dict[str, Any], declaration["value_policy"])
-    mode = cast(str, value_policy["mode"])
-    required_modes = cast(
-        list[str], assignment_policy["required_experiment_modes"]
-    )
-    optional_modes = cast(
-        list[str], assignment_policy["optional_experiment_modes"]
-    )
-    model_modes = cast(list[str], assignment_policy["model_value_modes"])
+    mode = _assignment_mode_for_declaration(declaration, assignment_policy)
+    if mode is None:
+        raise ValueError("Symbol has no total assignment-policy mode")
+    source = cast(str, mode["initialization_source"])
+    cardinality = cast(str, mode["experiment_cardinality"])
     target: dict[str, JsonValue] | None = None
-    if mode in required_modes or mode in optional_modes:
+    if cardinality != "forbidden":
         target = {
             "target": resolved_symbol,
             "target_identity": target_identity,
             "owner": "experiment",
             "initialization_source": "scenario-assignment",
-            "cardinality": "required" if mode in required_modes else "optional",
-            "override": mode in optional_modes,
+            "cardinality": cardinality,
+            "override": cast(bool, mode["override"]),
         }
     initializer: dict[str, JsonValue] | None = None
-    if mode in model_modes:
+    if source in {"model", "model-with-experiment-override"}:
         initializer = {
             "target": resolved_symbol,
             "target_identity": target_identity,
@@ -1756,7 +1792,7 @@ def _resolved_entrypoints(
                 f"entrypoint arguments do not exactly close formal ports: {entrypoint_id}"
             )
         resolved_arguments: list[dict[str, JsonValue]] = []
-        aliases: dict[str, list[str]] = {}
+        aliases: dict[str, list[tuple[str, str]]] = {}
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
         initializers: dict[str, dict[str, JsonValue]] = {}
         for formal, source_argument in zip(
@@ -1805,7 +1841,9 @@ def _resolved_entrypoints(
                     **operand_body,
                     "identity": operand_identity,
                 }
-                aliases.setdefault(operand_identity, []).append(access)
+                aliases.setdefault(operand_identity, []).append(
+                    (cast(str, formal["id"]), access)
+                )
                 target, initializer = _symbol_initialization_contract(
                     declaration,
                     assignment_policy,
@@ -1858,11 +1896,7 @@ def _resolved_entrypoints(
                     },
                 )
             )
-        if any(
-            len(accesses) > 1 and any(access != "read" for access in accesses)
-            for accesses in aliases.values()
-        ):
-            raise ValueError("entrypoint has an illegal writable actual-target alias")
+        alias_rows = _resolved_alias_rows(operation, aliases)
         source_result = cast(dict[str, Any], source_entrypoint["result"])
         if source_result["kind"] == "discard":
             if operation["result"]["discardable"] is not True:
@@ -1906,6 +1940,7 @@ def _resolved_entrypoints(
                 "id": entrypoint_id,
                 "operation": exact_operation,
                 "arguments": resolved_arguments,
+                "aliases": alias_rows,
                 "result": resolved_result,
                 "effects": operation["effects"],
                 "refusals": operation["refusals"],
@@ -1941,30 +1976,53 @@ def _operation_contract_matches(
     )
 
 
-def _composition_policy(lowering: dict[str, Any]) -> dict[str, str]:
-    policy = lowering.get("composition_policy")
-    expected = {
-        "effects": "callee-subset-of-caller-declaration",
-        "refusals": "callee-subset-of-caller-declaration",
-        "resources": "transitive-charge-within-caller-bound",
+def _resolved_alias_rows(
+    operation: dict[str, Any],
+    aliases: dict[str, list[tuple[str, str]]],
+) -> list[dict[str, JsonValue]]:
+    policy = cast(dict[str, Any], operation["alias_policy"])
+    writable_groups = cast(list[dict[str, Any]], policy["writable_groups"])
+    groups = {
+        frozenset(cast(list[str], group["ports"])): cast(str, group["semantics"])
+        for group in writable_groups
     }
-    if policy != expected:
+    rows: list[dict[str, JsonValue]] = []
+    for actual_identity, uses in aliases.items():
+        if len(uses) < 2:
+            continue
+        ports = [name for name, _access in uses]
+        if all(access == "read" for _name, access in uses):
+            alias_policy = cast(str, policy["read_only"])
+        else:
+            alias_policy = groups.get(frozenset(ports), "")
+            if not alias_policy:
+                raise ValueError("Operation does not admit this writable alias set")
+        rows.append(
+            {
+                "actual_operand_identity": actual_identity,
+                "ports": cast(JsonValue, ports),
+                "policy": alias_policy,
+            }
+        )
+    return rows
+
+
+def _composition_policy(lowering: dict[str, Any]) -> dict[str, Any]:
+    policy = lowering.get("composition_policy")
+    if not isinstance(policy, dict):
         raise ValueError("the admitted lowering has no closed composition policy")
-    return cast(dict[str, str], policy)
+    return policy
 
 
 def _resolved_call_sites(
     kernel: dict[str, Any],
     selected_semantics: dict[str, Any],
-    composition_policy: dict[str, str],
+    composition_policy: dict[str, Any],
 ) -> list[dict[str, JsonValue]]:
     """Resolve LDB-authored nested calls without flattening caller/callee names."""
-    if composition_policy != {
-        "effects": "callee-subset-of-caller-declaration",
-        "refusals": "callee-subset-of-caller-declaration",
-        "resources": "transitive-charge-within-caller-bound",
-    }:
-        raise ValueError("nested-call composition policy is not admitted")
+    effect_policy = cast(dict[str, str], composition_policy["effects"])
+    refusal_policy = cast(dict[str, str], composition_policy["refusals"])
+    resource_policy = cast(dict[str, str], composition_policy["resources"])
     package_versions = {
         row["id"]: row["version"]
         for row in cast(list[dict[str, str]], selected_semantics["packages"])
@@ -2165,19 +2223,7 @@ def _resolved_call_sites(
                         },
                     )
                 )
-            alias_rows: list[dict[str, JsonValue]] = []
-            for actual_identity, uses in aliases.items():
-                if len(uses) < 2:
-                    continue
-                if any(access != "read" for _name, access in uses):
-                    raise ValueError("nested call has an illegal writable alias")
-                alias_rows.append(
-                    {
-                        "actual_operand_identity": actual_identity,
-                        "ports": [name for name, _access in uses],
-                        "policy": "read-only-share",
-                    }
-                )
+            alias_rows = _resolved_alias_rows(child, aliases)
             authored_result = cast(dict[str, Any], instruction["result"])
             if authored_result["kind"] == "discard":
                 if child["result"]["discardable"] is not True:
@@ -2250,17 +2296,26 @@ def _resolved_call_sites(
             child_effects, child_refusals, child_charge = operation_closure(
                 child_row, (*stack, parent_key)
             )
-            if (
-                not child_effects <= set(cast(list[str], operation["effects"]))
-                or not child_refusals
-                <= set(cast(list[str], operation["refusals"]))
+            if effect_policy["containment"] == (
+                "callee-subset-of-caller-declaration"
+            ) and not child_effects <= set(cast(list[str], operation["effects"])):
+                raise ValueError(
+                    "nested Operation effect closure exceeds caller declaration"
+                )
+            if refusal_policy["containment"] == (
+                "callee-subset-of-caller-declaration"
+            ) and not child_refusals <= set(
+                cast(list[str], operation["refusals"])
             ):
                 raise ValueError(
-                    "nested Operation closure exceeds caller declaration"
+                    "nested Operation refusal closure exceeds caller declaration"
                 )
-            effects.update(child_effects)
-            refusals.update(child_refusals)
-            charge += child_charge
+            if effect_policy["aggregation"] == "union":
+                effects.update(child_effects)
+            if refusal_policy["aggregation"] == "union":
+                refusals.update(child_refusals)
+            if resource_policy["aggregation"] == "sum":
+                charge += child_charge
             call_body = cast(
                 dict[str, JsonValue],
                 {
@@ -2287,7 +2342,11 @@ def _resolved_call_sites(
                     ),
                 }
             )
-        if charge > operation["resource_bounds"]["max_steps"]:
+        if (
+            resource_policy["containment"]
+            == "transitive-charge-within-caller-bound"
+            and charge > operation["resource_bounds"]["max_steps"]
+        ):
             raise ValueError("Operation transitive resource charge exceeds its bound")
         closure_cache[parent_key] = effects, refusals, charge
         return effects, refusals, charge
@@ -3055,7 +3114,7 @@ def _resolved_entrypoint_graph_is_admitted(
         arguments = entrypoint.get("arguments")
         if not isinstance(arguments, list) or len(arguments) != len(formal_ports):
             return False
-        aliases: dict[str, list[str]] = {}
+        aliases: dict[str, list[tuple[str, str]]] = {}
         scenario_targets: dict[str, dict[str, JsonValue]] = {}
         initializers: dict[str, dict[str, JsonValue]] = {}
         expected_arguments: list[dict[str, JsonValue]] = []
@@ -3114,7 +3173,9 @@ def _resolved_entrypoint_graph_is_admitted(
                     **operand_body,
                     "identity": operand_identity,
                 }
-                aliases.setdefault(operand_identity, []).append(access)
+                aliases.setdefault(operand_identity, []).append(
+                    (cast(str, formal["id"]), access)
+                )
                 target, initializer = _symbol_initialization_contract(
                     declaration,
                     assignment_policy,
@@ -3161,13 +3222,12 @@ def _resolved_entrypoint_graph_is_admitted(
                     },
                 )
             )
-        if (
-            arguments != expected_arguments
-            or any(
-                len(accesses) > 1
-                and any(access != "read" for access in accesses)
-                for accesses in aliases.values()
-            )
+        try:
+            expected_aliases = _resolved_alias_rows(operation, aliases)
+        except ValueError:
+            return False
+        if arguments != expected_arguments or entrypoint.get("aliases") != (
+            expected_aliases
         ):
             return False
         result = entrypoint.get("result")
@@ -3222,6 +3282,7 @@ def _resolved_entrypoint_graph_is_admitted(
                 "id": entrypoint["id"],
                 "operation": exact_operation,
                 "arguments": expected_arguments,
+                "aliases": cast(JsonValue, expected_aliases),
                 "result": expected_result,
                 "effects": operation["effects"],
                 "refusals": operation["refusals"],

@@ -49,7 +49,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:1545a30391520638c0aa20faf082649d51a0b89fa023f5d84be5f55856657d3d"
+    "sha256:e46517292d57ba960b48c3b4a6ad9fed993a18f689c645c4efd2fa8d470077fc"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -3973,6 +3973,409 @@ def _language_definitions_are_closed(
     return True
 
 
+def _assignment_mode_contract_is_coherent(mode: dict[str, Any]) -> bool:
+    source = mode.get("initialization_source")
+    value_member = mode.get("value_member")
+    cardinality = mode.get("experiment_cardinality")
+    override = mode.get("override")
+    return (
+        source == "model"
+        and value_member == "required"
+        and cardinality == "forbidden"
+        and override is False
+    ) or (
+        source == "experiment"
+        and value_member == "forbidden"
+        and cardinality == "required"
+        and override is False
+    ) or (
+        source == "model-with-experiment-override"
+        and value_member == "required"
+        and cardinality == "optional"
+        and override is True
+    ) or (
+        source in {"execution", "named-random-stream", "resolved-model"}
+        and value_member == "forbidden"
+        and cardinality == "forbidden"
+        and override is False
+    )
+
+
+def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
+    language = language_bundle.get("language")
+    if not isinstance(language, dict):
+        return False
+    lowerings = language.get("model_lowerings")
+    quantity = language.get("quantity")
+    wire_schemas = language.get("wire_schemas")
+    if (
+        not isinstance(lowerings, list)
+        or len(lowerings) != 1
+        or not isinstance(quantity, dict)
+        or not isinstance(quantity.get("symbol_roles"), list)
+        or not isinstance(wire_schemas, list)
+    ):
+        return False
+    policy = lowerings[0].get("assignment_policy")
+    if not isinstance(policy, dict) or not isinstance(policy.get("roles"), list):
+        return False
+    rows = cast(list[dict[str, Any]], policy["roles"])
+    by_role = {
+        row.get("role"): row
+        for row in rows
+        if isinstance(row, dict) and isinstance(row.get("role"), str)
+    }
+    if len(by_role) != len(rows) or set(by_role) != set(quantity["symbol_roles"]):
+        return False
+    declared_mode_ids: set[str] = set()
+    for row in rows:
+        modes = row.get("modes")
+        accesses = row.get("entrypoint_operand_access")
+        if (
+            not isinstance(modes, list)
+            or not modes
+            or not isinstance(accesses, list)
+            or any(
+                not isinstance(mode, dict)
+                or not isinstance(mode.get("id"), str)
+                or not mode["id"]
+                or not _assignment_mode_contract_is_coherent(mode)
+                for mode in modes
+            )
+            or len({mode["id"] for mode in modes}) != len(modes)
+            or any(access not in {"read", "read-write", "write"} for access in accesses)
+            or (
+                accesses
+                and any(
+                    mode["initialization_source"] == "execution" for mode in modes
+                )
+            )
+        ):
+            return False
+        declared_mode_ids.update(cast(str, mode["id"]) for mode in modes)
+    model_source_schemas = [
+        item["schema"]
+        for item in wire_schemas
+        if isinstance(item, dict)
+        and item.get("artifact_kind") == "model-source-package"
+        and isinstance(item.get("schema"), dict)
+    ]
+    if len(model_source_schemas) != 1:
+        return False
+    try:
+        schema_modes = set(
+            model_source_schemas[0]["properties"]["modules"]["items"]["properties"][
+                "symbols"
+            ]["items"]["properties"]["value_policy"]["properties"]["mode"]["enum"]
+        )
+    except (KeyError, TypeError):
+        return False
+    return schema_modes == declared_mode_ids
+
+
+def _operation_value_contract_matches(
+    actual: dict[str, Any], formal: dict[str, Any]
+) -> bool:
+    return actual.get("type") == formal.get("type") and all(
+        actual.get(member) == formal.get(member)
+        for member in (
+            "representation",
+            "kind",
+            "unit",
+            "domain",
+            "numeric_policy",
+        )
+    )
+
+
+def _operation_alias_policy_is_closed(operation: dict[str, Any]) -> bool:
+    inputs = operation.get("inputs")
+    policy = operation.get("alias_policy")
+    if not isinstance(inputs, list) or not isinstance(policy, dict):
+        return False
+    ports = {
+        item.get("id"): item
+        for item in inputs
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
+    groups = policy.get("writable_groups")
+    if (
+        policy.get("read_only") != "share"
+        or not isinstance(groups, list)
+        or len(ports) != len(inputs)
+    ):
+        return False
+    seen: set[frozenset[str]] = set()
+    for group in groups:
+        group_ports = group.get("ports") if isinstance(group, dict) else None
+        if (
+            not isinstance(group_ports, list)
+            or len(group_ports) < 2
+            or len(group_ports) != len(set(group_ports))
+            or not set(group_ports) <= set(ports)
+            or group.get("semantics") != "operation-body-order"
+            or all(ports[port].get("access") == "read" for port in group_ports)
+            or frozenset(group_ports) in seen
+        ):
+            return False
+        seen.add(frozenset(group_ports))
+    return True
+
+
+def _operation_aliases_are_admitted(
+    operation: dict[str, Any],
+    aliases: dict[str, list[tuple[str, str]]],
+) -> bool:
+    groups = {
+        frozenset(group["ports"])
+        for group in cast(
+            list[dict[str, Any]], operation["alias_policy"]["writable_groups"]
+        )
+    }
+    return all(
+        len(uses) < 2
+        or all(access == "read" for _port, access in uses)
+        or frozenset(port for port, _access in uses) in groups
+        for uses in aliases.values()
+    )
+
+
+def _operation_composition_diagnostic_subjects(
+    language_bundle: dict[str, Any],
+) -> tuple[str, ...]:
+    language = language_bundle.get("language")
+    if not isinstance(language, dict) or not isinstance(
+        language.get("packages"), list
+    ):
+        return ("language.operations",)
+    operations: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
+    for package in cast(list[dict[str, Any]], language["packages"]):
+        package_id = package.get("id")
+        version = package.get("version")
+        closure = package.get("semantic_closure")
+        if (
+            not isinstance(package_id, str)
+            or not isinstance(version, str)
+            or not isinstance(closure, list)
+        ):
+            return ("language.operations",)
+        for entry in closure:
+            if (
+                not isinstance(entry, dict)
+                or entry.get("authority_path") != "language.operations"
+            ):
+                continue
+            definitions = entry.get("definitions")
+            if not isinstance(definitions, list):
+                return (f"language.operations.{package_id}@{version}",)
+            for operation in definitions:
+                if (
+                    not isinstance(operation, dict)
+                    or not isinstance(operation.get("id"), str)
+                ):
+                    return (f"language.operations.{package_id}@{version}",)
+                key = (package_id, version, cast(str, operation["id"]))
+                if key in operations:
+                    return (f"language.operations.{package_id}@{version}",)
+                operations[key] = (f"{package_id}@{version}", operation)
+    if not all(
+        _operation_alias_policy_is_closed(operation)
+        for _owner, operation in operations.values()
+    ):
+        return ("language.operations.alias-policy",)
+
+    cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
+    found: set[str] = set()
+
+    def refuse(owner: str, operation: dict[str, Any], site: str, member: str) -> None:
+        found.add(
+            f"language.operations.{owner}.{operation['id']}.body.{site}.{member}"
+        )
+
+    def close(
+        key: tuple[str, str, str],
+        stack: tuple[tuple[str, str, str], ...],
+    ) -> tuple[set[str], set[str], int] | None:
+        if key in stack:
+            owner, operation = operations[key]
+            refuse(owner, operation, "cycle", "operation")
+            return None
+        if key in cache:
+            return cache[key]
+        owner, operation = operations[key]
+        parent_ports = {
+            item["id"]: item
+            for item in cast(list[dict[str, Any]], operation["inputs"])
+        }
+        parent_outcomes = {
+            item["id"]
+            for item in cast(list[dict[str, Any]], operation.get("outcomes", []))
+        }
+        locals_: dict[str, dict[str, Any]] = {}
+        effects = set(cast(list[str], operation["effects"]))
+        refusals = set(cast(list[str], operation["refusals"]))
+        charge = 0
+        seen_sites: set[str] = set()
+        for instruction in cast(list[dict[str, Any]], operation["body"]):
+            charge += 1
+            if instruction.get("node") != "invoke":
+                continue
+            site = instruction.get("site")
+            if not isinstance(site, str) or not site or site in seen_sites:
+                refuse(owner, operation, str(site), "site")
+                return None
+            seen_sites.add(site)
+            child_ref = instruction.get("operation")
+            if not isinstance(child_ref, dict):
+                refuse(owner, operation, site, "operation")
+                return None
+            child_key = (
+                child_ref.get("package"),
+                child_ref.get("version"),
+                child_ref.get("id"),
+            )
+            if child_key not in operations:
+                refuse(owner, operation, site, "operation")
+                return None
+            _child_owner, child = operations[
+                cast(tuple[str, str, str], child_key)
+            ]
+            child_ports = cast(list[dict[str, Any]], child["inputs"])
+            arguments = instruction.get("arguments")
+            if (
+                not isinstance(arguments, list)
+                or [item.get("port") for item in arguments]
+                != [item["id"] for item in child_ports]
+            ):
+                refuse(owner, operation, site, "arguments")
+                return None
+            aliases: dict[str, list[tuple[str, str]]] = {}
+            for formal, argument in zip(child_ports, arguments, strict=True):
+                operand = argument.get("operand")
+                if not isinstance(operand, dict):
+                    refuse(owner, operation, site, "arguments")
+                    return None
+                kind = operand.get("kind")
+                if kind == "port":
+                    operand_port = operand.get("port")
+                    actual = (
+                        parent_ports.get(operand_port)
+                        if isinstance(operand_port, str)
+                        else None
+                    )
+                    if (
+                        actual is None
+                        or not _operation_value_contract_matches(actual, formal)
+                        or (
+                            formal["access"] in {"read-write", "write"}
+                            and actual["access"] not in {"read-write", "write"}
+                        )
+                    ):
+                        refuse(owner, operation, site, "arguments")
+                        return None
+                    alias_key = f"port:{operand['port']}"
+                elif kind == "local":
+                    operand_local = operand.get("local")
+                    actual = (
+                        locals_.get(operand_local)
+                        if isinstance(operand_local, str)
+                        else None
+                    )
+                    if (
+                        actual is None
+                        or formal["access"] != "read"
+                        or not _operation_value_contract_matches(actual, formal)
+                    ):
+                        refuse(owner, operation, site, "arguments")
+                        return None
+                    alias_key = f"local:{operand['local']}"
+                elif kind == "literal":
+                    literal = operand.get("literal")
+                    if (
+                        formal["access"] != "read"
+                        or isinstance(literal, bool)
+                        or not isinstance(literal, int)
+                    ):
+                        refuse(owner, operation, site, "arguments")
+                        return None
+                    alias_key = f"literal:{operand['literal']}"
+                else:
+                    refuse(owner, operation, site, "arguments")
+                    return None
+                aliases.setdefault(alias_key, []).append(
+                    (cast(str, formal["id"]), cast(str, formal["access"]))
+                )
+            if not _operation_aliases_are_admitted(child, aliases):
+                refuse(owner, operation, site, "aliases")
+                return None
+            result = instruction.get("result")
+            if not isinstance(result, dict):
+                refuse(owner, operation, site, "result")
+                return None
+            if result.get("kind") == "discard":
+                if child["result"].get("discardable") is not True:
+                    refuse(owner, operation, site, "result")
+                    return None
+            elif result.get("kind") == "local":
+                name = result.get("name")
+                if not isinstance(name, str) or not name or name in locals_:
+                    refuse(owner, operation, site, "result")
+                    return None
+                locals_[name] = cast(dict[str, Any], child["result"])
+            elif result.get("kind") == "operation-result":
+                if not _operation_value_contract_matches(
+                    cast(dict[str, Any], child["result"]),
+                    cast(dict[str, Any], operation["result"]),
+                ):
+                    refuse(owner, operation, site, "result")
+                    return None
+            else:
+                refuse(owner, operation, site, "result")
+                return None
+            outcomes = instruction.get("outcomes")
+            child_outcomes = [
+                item["id"]
+                for item in cast(list[dict[str, Any]], child.get("outcomes", []))
+            ]
+            if (
+                not isinstance(outcomes, list)
+                or [item.get("outcome") for item in outcomes] != child_outcomes
+                or any(
+                    item.get("action", {}).get("kind") == "propagate"
+                    and item["action"].get("outcome") not in parent_outcomes
+                    for item in outcomes
+                )
+            ):
+                refuse(owner, operation, site, "outcomes")
+                return None
+            child_closure = close(
+                cast(tuple[str, str, str], child_key), (*stack, key)
+            )
+            if child_closure is None:
+                return None
+            child_effects, child_refusals, child_charge = child_closure
+            if not child_effects <= set(cast(list[str], operation["effects"])):
+                refuse(owner, operation, site, "effects")
+                return None
+            if not child_refusals <= set(cast(list[str], operation["refusals"])):
+                refuse(owner, operation, site, "refusals")
+                return None
+            effects.update(child_effects)
+            refusals.update(child_refusals)
+            charge += child_charge
+        if charge > operation["resource_bounds"]["max_steps"]:
+            found.add(
+                f"language.operations.{owner}.{operation['id']}.resource_bounds"
+            )
+            return None
+        cache[key] = effects, refusals, charge
+        return cache[key]
+
+    for key in sorted(operations):
+        close(key, ())
+    return tuple(sorted(found))
+
+
 def _fact_schemas(
     meta_format: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
@@ -5052,8 +5455,20 @@ def admit_authorities(
 
     language = cast(dict[str, Any], language_bundle.get("language", {}))
     meta_format = cast(dict[str, Any], kernel.get("meta_format", {}))
-    if not _language_definitions_are_closed(language_bundle, meta_format):
+    definitions_are_closed = _language_definitions_are_closed(
+        language_bundle, meta_format
+    )
+    if not definitions_are_closed:
         refuse("kernel.vector_mismatch", "static", "language.definitions")
+    if not _assignment_policy_is_total(language_bundle):
+        refuse(
+            "kernel.vector_mismatch",
+            "static",
+            "language.definitions.assignment-policy",
+        )
+    if definitions_are_closed:
+        for subject in _operation_composition_diagnostic_subjects(language_bundle):
+            refuse("kernel.vector_mismatch", "static", subject)
     if not _runtime_authority_is_closed(kernel, language_bundle):
         refuse("kernel.vector_mismatch", "static", "language.runtime")
     if not _embedded_artifact_bindings_are_closed(language_bundle):

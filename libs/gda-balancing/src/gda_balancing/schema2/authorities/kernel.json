@@ -858,7 +858,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:1545a30391520638c0aa20faf082649d51a0b89fa023f5d84be5f55856657d3d",
+  "content_identity": "sha256:e46517292d57ba960b48c3b4a6ad9fed993a18f689c645c4efd2fa8d470077fc",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -2457,10 +2457,146 @@
               "type": "object"
             },
             "assignment_policy": {
-              "type": "canonical-value"
+              "field_types": {
+                "duplicate_actual_policy": {
+                  "const": "collapse"
+                },
+                "id": {
+                  "type": "non-empty-string"
+                },
+                "roles": {
+                  "items": {
+                    "field_types": {
+                      "entrypoint_operand_access": {
+                        "type": "string-list"
+                      },
+                      "entrypoint_result": {
+                        "type": "boolean"
+                      },
+                      "modes": {
+                        "items": {
+                          "field_types": {
+                            "experiment_cardinality": {
+                              "enum": [
+                                "forbidden",
+                                "optional",
+                                "required"
+                              ]
+                            },
+                            "id": {
+                              "type": "non-empty-string"
+                            },
+                            "initialization_source": {
+                              "enum": [
+                                "execution",
+                                "experiment",
+                                "model",
+                                "model-with-experiment-override",
+                                "named-random-stream",
+                                "resolved-model"
+                              ]
+                            },
+                            "override": {
+                              "type": "boolean"
+                            },
+                            "value_member": {
+                              "enum": [
+                                "forbidden",
+                                "required"
+                              ]
+                            }
+                          },
+                          "required_members": [
+                            "id",
+                            "initialization_source",
+                            "value_member",
+                            "experiment_cardinality",
+                            "override"
+                          ],
+                          "type": "closed-object"
+                        },
+                        "type": "list-of"
+                      },
+                      "role": {
+                        "type": "non-empty-string"
+                      }
+                    },
+                    "required_members": [
+                      "role",
+                      "modes",
+                      "entrypoint_operand_access",
+                      "entrypoint_result"
+                    ],
+                    "type": "closed-object"
+                  },
+                  "type": "list-of"
+                },
+                "scenario_target_cardinality": {
+                  "const": "one-per-resolved-actual"
+                }
+              },
+              "required_members": [
+                "id",
+                "roles",
+                "scenario_target_cardinality",
+                "duplicate_actual_policy"
+              ],
+              "type": "closed-object"
             },
             "composition_policy": {
-              "type": "canonical-value"
+              "field_types": {
+                "effects": {
+                  "field_types": {
+                    "aggregation": {
+                      "const": "union"
+                    },
+                    "containment": {
+                      "const": "callee-subset-of-caller-declaration"
+                    }
+                  },
+                  "required_members": [
+                    "aggregation",
+                    "containment"
+                  ],
+                  "type": "closed-object"
+                },
+                "refusals": {
+                  "field_types": {
+                    "aggregation": {
+                      "const": "union"
+                    },
+                    "containment": {
+                      "const": "callee-subset-of-caller-declaration"
+                    }
+                  },
+                  "required_members": [
+                    "aggregation",
+                    "containment"
+                  ],
+                  "type": "closed-object"
+                },
+                "resources": {
+                  "field_types": {
+                    "aggregation": {
+                      "const": "sum"
+                    },
+                    "containment": {
+                      "const": "transitive-charge-within-caller-bound"
+                    }
+                  },
+                  "required_members": [
+                    "aggregation",
+                    "containment"
+                  ],
+                  "type": "closed-object"
+                }
+              },
+              "required_members": [
+                "effects",
+                "refusals",
+                "resources"
+              ],
+              "type": "closed-object"
             }
           },
           "required_members": [
@@ -2484,6 +2620,36 @@
           "field_types": {
             "body": {
               "type": "canonical-value"
+            },
+            "alias_policy": {
+              "field_types": {
+                "read_only": {
+                  "const": "share"
+                },
+                "writable_groups": {
+                  "items": {
+                    "field_types": {
+                      "ports": {
+                        "type": "string-list"
+                      },
+                      "semantics": {
+                        "const": "operation-body-order"
+                      }
+                    },
+                    "required_members": [
+                      "ports",
+                      "semantics"
+                    ],
+                    "type": "closed-object"
+                  },
+                  "type": "list-of"
+                }
+              },
+              "required_members": [
+                "read_only",
+                "writable_groups"
+              ],
+              "type": "closed-object"
             },
             "effects": {
               "type": "string-list"
@@ -2594,6 +2760,7 @@
             "effects",
             "refusals",
             "resource_bounds",
+            "alias_policy",
             "body",
             "rule",
             "vectors"

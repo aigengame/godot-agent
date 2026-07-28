@@ -2376,6 +2376,128 @@ def test_nested_call_rejects_undeclared_child_closure_widening(
         )
 
 
+def test_authority_admission_rejects_an_orphan_assignment_mode():
+    baseline = model_module.check_model_source_value(_model_source())
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    assignment_policy = candidate_ldb["language"]["model_lowerings"][0][
+        "assignment_policy"
+    ]
+    parameter = next(
+        row for row in assignment_policy["roles"] if row["role"] == "parameter"
+    )
+    parameter["modes"].append("orphan-source")
+    mode_schema = candidate_ldb["language"]["wire_schemas"][0]["schema"][
+        "properties"
+    ]["modules"]["items"]["properties"]["symbols"]["items"]["properties"][
+        "value_policy"
+    ]["properties"]["mode"]
+    mode_schema["enum"].append("orphan-source")
+    _reidentify_language_bundle(candidate_ldb)
+
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert admission.admitted is False
+    assert any(
+        diagnostic.subject == "language.definitions.assignment-policy"
+        for diagnostic in admission.diagnostics
+    )
+
+
+def test_authority_admission_rejects_operation_closure_at_the_package_site():
+    baseline = model_module.check_model_source_value(
+        json.loads(
+            (
+                Path(__file__).parents[1]
+                / "examples/schema2/rpg-combat-cast/model-source.json"
+            ).read_text(encoding="utf-8")
+        )
+    )
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    child = next(
+        operation
+        for operation in candidate_ldb["language"]["operations"]
+        if operation["id"] == "game.check.hit-v1"
+    )
+    child["effects"].append("hidden.child-effect")
+    _reidentify_language_bundle(candidate_ldb)
+
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+
+    assert admission.admitted is False
+    assert any(
+        diagnostic.subject
+        == "language.operations.game.combat@1.0.0.game.combat.cast-v1.body.hit-check.effects"
+        for diagnostic in admission.diagnostics
+    )
+
+
+def test_ordered_writable_alias_is_declared_by_the_selected_operation_contract():
+    source_value = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "examples/schema2/rpg-combat-cast/model-source.json"
+        ).read_text(encoding="utf-8")
+    )
+    baseline = model_module.check_model_source_value(source_value)
+    assert isinstance(baseline, model_module.CheckedModel)
+    candidate_ldb = deepcopy(baseline.language_bundle)
+    assert all(
+        operation["alias_policy"]["read_only"] == "share"
+        and isinstance(operation["alias_policy"]["writable_groups"], list)
+        for operation in candidate_ldb["language"]["operations"]
+    )
+    damage = next(
+        operation
+        for operation in candidate_ldb["language"]["operations"]
+        if operation["id"] == "game.combat.damage-v1"
+    )
+    damage["alias_policy"]["writable_groups"] = [
+        {
+            "ports": ["mitigation", "target_health"],
+            "semantics": "operation-body-order",
+        }
+    ]
+    cast_operation = next(
+        operation
+        for operation in candidate_ldb["language"]["operations"]
+        if operation["id"] == "game.combat.cast-v1"
+    )
+    damage_call = next(
+        instruction
+        for instruction in cast_operation["body"]
+        if instruction.get("site") == "apply-damage"
+    )
+    mitigation = next(
+        argument
+        for argument in damage_call["arguments"]
+        if argument["port"] == "mitigation"
+    )
+    mitigation["operand"]["port"] = "target_health"
+    _reidentify_language_bundle(candidate_ldb)
+    admission = admit_authorities(baseline.kernel, candidate_ldb)
+    assert admission.admitted is True
+
+    checked = model_module.check_model_source_value(
+        source_value,
+        kernel=baseline.kernel,
+        language_bundle=candidate_ldb,
+        authority_admission=admission,
+    )
+
+    assert isinstance(checked, model_module.CheckedModel)
+    rir = model_module.lower_checked_model(checked)["rir-semantic-payload"]
+    alias = next(
+        alias
+        for call_site in cast(list[dict[str, Any]], rir["call_sites"])
+        if call_site["site"] == "apply-damage"
+        for alias in call_site["aliases"]
+    )
+    assert alias["ports"] == ["mitigation", "target_health"]
+    assert alias["policy"] == "operation-body-order"
+
+
 def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
     example = (
         Path(__file__).parents[1]
@@ -2499,7 +2621,7 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
         ),
     ),
 )
-def test_symbol_assignment_semantics_follow_the_admitted_ldb_mode_inventories(
+def test_symbol_assignment_semantics_follow_the_admitted_per_role_mode_contracts(
     old_mode,
     authority_mode,
     operand_symbol,
@@ -2538,23 +2660,16 @@ def test_symbol_assignment_semantics_follow_the_admitted_ldb_mode_inventories(
     assignment_policy = lowering["assignment_policy"]
     for row in assignment_policy["roles"]:
         row["modes"] = [
-            authority_mode if mode == old_mode else mode
+            {**mode, "id": authority_mode} if mode["id"] == old_mode else mode
             for mode in row["modes"]
         ]
-    inventory_member = (
-        "model_value_modes"
-        if old_mode == "model-fixed"
-        else "required_experiment_modes"
-    )
-    assignment_policy[inventory_member] = [
-        authority_mode if mode == old_mode else mode
-        for mode in assignment_policy[inventory_member]
-    ]
     source_schema = candidate_ldb["language"]["wire_schemas"][0]["schema"]
     mode_schema = source_schema["properties"]["modules"]["items"]["properties"][
         "symbols"
     ]["items"]["properties"]["value_policy"]["properties"]["mode"]
-    mode_schema["enum"].append(authority_mode)
+    mode_schema["enum"] = [
+        authority_mode if mode == old_mode else mode for mode in mode_schema["enum"]
+    ]
     for symbol in _symbols(source_value):
         if symbol["value_policy"]["mode"] == old_mode:
             symbol["value_policy"]["mode"] = authority_mode

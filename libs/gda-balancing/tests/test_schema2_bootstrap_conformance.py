@@ -24,7 +24,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:1545a30391520638c0aa20faf082649d51a0b89fa023f5d84be5f55856657d3d"
+    "sha256:e46517292d57ba960b48c3b4a6ad9fed993a18f689c645c4efd2fa8d470077fc"
 )
 
 
