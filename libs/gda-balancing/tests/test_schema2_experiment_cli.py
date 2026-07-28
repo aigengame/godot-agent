@@ -426,6 +426,148 @@ def _write_built_experiment(tmp_path, run_cli, *, base_damage=24):
     return spec_path
 
 
+def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
+    tmp_path, run_cli
+):
+    source_value = _rpg_model_source()
+    symbols = source_value["modules"][0]["symbols"]
+    symbols[:] = [
+        symbol for symbol in symbols if symbol["symbol"] != "target_defense"
+    ]
+    symbols.extend(
+        [
+            _rpg_value("hit_defense", "input"),
+            _rpg_value("damage_mitigation", "input"),
+            _rpg_value("damage_dealt", "output"),
+        ]
+    )
+    for symbol in symbols:
+        symbol["value_policy"] = {
+            "mode": (
+                "experiment-required"
+                if symbol["role"] not in {"derived", "output", "random"}
+                else "none"
+            )
+        }
+    source_value["entrypoints"] = [
+        {
+            "id": "combat.cast",
+            "operation": {
+                "package": "game.combat",
+                "version": "1.0.0",
+                "id": "game.combat.cast-v1",
+            },
+            "arguments": [
+                {
+                    "port": port,
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": symbol,
+                    },
+                }
+                for port, symbol in (
+                    ("actor_resource", "actor_mana"),
+                    ("action_cost", "action_cost"),
+                    ("accuracy", "accuracy"),
+                    ("base_damage", "base_damage"),
+                    ("critical_threshold", "critical_threshold"),
+                    ("hit_defense", "hit_defense"),
+                    ("damage_mitigation", "damage_mitigation"),
+                    ("target_health", "target_health"),
+                )
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "combat",
+                "symbol": "damage_dealt",
+            },
+        }
+    ]
+    source = tmp_path / "explicit-bindings-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    build_exit, build_stdout, build_stderr = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "resolved-model.json"),
+            "--invocation-key",
+            "a" * 64,
+        ]
+    )
+
+    assert (build_exit, build_stderr) == (0, ""), build_stdout
+    build_receipt = json.loads(build_stdout)
+    build_record = _member(build_receipt, "build-receipt")
+    specification = _experiment(
+        kernel_identity=build_record["kernel_identity"],
+        language_bundle_identity=build_record["language_bundle_identity"],
+        source_identity=content_identity("model-source-package-v2", source_value),
+        build_receipt=build_receipt,
+        base_damage=24,
+    )
+    resolved_target = lambda name: {
+        "model": "example.rpg-combat-cast",
+        "module": "combat",
+        "name": name,
+    }
+    specification["scenarios"] = [
+        {
+            "id": "one-cast",
+            "entrypoint": "combat.cast",
+            "assignments": [
+                {"target": resolved_target(name), "value": value}
+                for name, value in (
+                    ("actor_mana", 30),
+                    ("action_cost", 8),
+                    ("accuracy", 85),
+                    ("base_damage", 24),
+                    ("critical_threshold", 0),
+                    ("damage_mitigation", 1),
+                    ("hit_defense", 6),
+                    ("target_health", 100),
+                )
+            ],
+            "named_streams": ["critical", "hit"],
+            "terminal_condition": {"kind": "event-count", "maximum": 1},
+        }
+    ]
+    specification["metrics"][0]["observation"]["member"] = "damage_dealt"
+    spec_path = tmp_path / "explicit-bindings-experiment.json"
+    spec_path.write_text(json.dumps(specification), encoding="utf-8")
+
+    run_exit, run_stdout, run_stderr = run_cli(
+        [
+            "experiment",
+            "run",
+            str(spec_path),
+            "--out",
+            str(tmp_path / "evaluation.json"),
+            "--invocation-key",
+            "b" * 64,
+        ]
+    )
+
+    assert (run_exit, run_stderr) == (0, ""), run_stdout
+    receipt = json.loads(run_stdout)
+    trace = _member(receipt, "event-trace")
+    event = trace["events"][0]
+    facts = {
+        row["name"]: row["integer"]
+        for row in event["facts"]
+        if row["kind"] == "integer"
+    }
+    assert facts["hit_defense"] == 6
+    assert facts["damage_mitigation"] == 1
+    assert facts["damage_dealt"] == 23
+    assert event["state_after"] == [
+        {"name": "actor_mana", "value": 22},
+        {"name": "target_health", "value": 77},
+    ]
+
+
 def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, run_cli):
     source_value = json.loads(
         (_EXAMPLE_DIR / "model-source.json").read_text(encoding="utf-8")

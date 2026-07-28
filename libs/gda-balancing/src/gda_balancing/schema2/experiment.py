@@ -149,6 +149,11 @@ def _unique_rows(rows: list[dict[str, Any]], member: str) -> bool:
     return len(values) == len(set(values))
 
 
+def _unique_canonical_rows(rows: list[dict[str, Any]], member: str) -> bool:
+    values = [canonical_bytes(cast(JsonValue, row[member])) for row in rows]
+    return len(values) == len(set(values))
+
+
 def _artifact(
     checked: CheckedExperiment,
     artifact_kind: str,
@@ -195,7 +200,8 @@ def _expanded_operation_body(
         expanded.append(instruction)
         if instruction["node"] != "invoke":
             continue
-        invoked = operations.get(cast(str, instruction["operation"]))
+        operation_ref = cast(dict[str, Any], instruction["operation"])
+        invoked = operations.get(cast(str, operation_ref["id"]))
         if invoked is None:
             raise ValueError("admitted Operation composition target is absent")
         expanded.extend(_expanded_operation_body(invoked, operations, nested_visiting))
@@ -296,7 +302,7 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
         )
     for scenario_index, scenario in enumerate(value["scenarios"]):
         if (
-            not _unique_rows(scenario["values"], "name")
+            not _unique_canonical_rows(scenario["assignments"], "target")
             or len(scenario["named_streams"]) != len(set(scenario["named_streams"]))
             or scenario["terminal_condition"]["maximum"] != 1
         ):
@@ -306,7 +312,7 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
                 identity=experiment_identity,
                 pointer=f"/scenarios/{scenario_index}",
                 message=(
-                    "The deterministic-event-v1 slice requires unique values, "
+                    "The deterministic-event-v1 slice requires unique assignments, "
                     "unique streams, and one terminal Event"
                 ),
             )
@@ -389,8 +395,12 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
     operations = {
         row["definition"]["id"]: row["definition"] for row in selected["operations"]
     }
+    entrypoints = {row["id"]: row for row in rir["entrypoints"]}
     runtime_profiles = {row["id"]: row for row in selected["runtime_profiles"]}
-    declarations = {row["symbol"]: row for row in rir["declarations"]}
+    declarations = {
+        canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
+        for row in rir["declarations"]
+    }
     required_profile = value["runtime"]["profile"]
     if required_profile not in runtime_profiles:
         return _refusal(
@@ -406,22 +416,31 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
     required_numeric_policies: set[str] = set()
     required_rng_algorithms: set[str] = set()
     for scenario_index, scenario in enumerate(value["scenarios"]):
-        operation = operations.get(scenario["operation"])
+        entrypoint = entrypoints.get(scenario["entrypoint"])
+        if entrypoint is None:
+            return _refusal(
+                stage="resolution",
+                code="language.resolution_binding_mismatch",
+                identity=experiment_identity,
+                pointer=f"/scenarios/{scenario_index}/entrypoint",
+                message="Scenario entrypoint is absent from the selected RIR",
+            )
+        operation = operations.get(entrypoint["operation"]["id"])
         if operation is None:
             return _refusal(
                 stage="resolution",
                 code="language.resolution_binding_mismatch",
                 identity=experiment_identity,
-                pointer=f"/scenarios/{scenario_index}/operation",
-                message="Scenario operation is absent from the selected RIR",
+                pointer=f"/scenarios/{scenario_index}/entrypoint",
+                message="Scenario entrypoint Operation is absent from the selected RIR",
             )
         if operation["runtime_profile"] != required_profile:
             return _refusal(
                 stage="resolution",
                 code="language.resolution_binding_mismatch",
                 identity=experiment_identity,
-                pointer=f"/scenarios/{scenario_index}/operation",
-                message="Scenario operation requires another Runtime profile",
+                pointer=f"/scenarios/{scenario_index}/entrypoint",
+                message="Scenario entrypoint requires another Runtime profile",
             )
         try:
             expanded_body = _expanded_operation_body(operation, operations)
@@ -430,33 +449,11 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
                 stage="resolution",
                 code="language.resolution_binding_mismatch",
                 identity=experiment_identity,
-                pointer=f"/scenarios/{scenario_index}/operation",
+                pointer=f"/scenarios/{scenario_index}/entrypoint",
                 message="Scenario Operation composition is not closed",
             )
-        outcomes = {
-            row["id"]: row
-            for row in cast(list[dict[str, Any]], operation.get("outcomes", []))
-            if isinstance(row, dict) and isinstance(row.get("id"), str)
-        }
-        referenced_outcomes = {
-            instruction["outcome"]
-            for instruction in expanded_body
-            if "outcome" in instruction
-        }
-        if (
-            operation.get("default_outcome") not in outcomes
-            or outcomes[operation["default_outcome"]].get("kind") != "success"
-            or referenced_outcomes != outcomes.keys() - {operation["default_outcome"]}
-        ):
-            return _refusal(
-                stage="resolution",
-                code="language.resolution_binding_mismatch",
-                identity=experiment_identity,
-                pointer=f"/scenarios/{scenario_index}/operation",
-                message="Scenario operation does not close its typed outcome algebra",
-            )
         required_operation_kinds.update(
-            operations[instruction["operation"]]["operation_kind"]
+            operations[instruction["operation"]["id"]]["operation_kind"]
             for instruction in expanded_body
             if instruction["node"] == "invoke"
         )
@@ -468,15 +465,31 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
         required_numeric_policies.add(operation["numeric_policy"])
         if any(instruction["node"] == "draw" for instruction in expanded_body):
             required_rng_algorithms.add(value["seed"]["algorithm"])
-        provided = {row["name"] for row in scenario["values"]}
-        required = {row["name"] for row in operation["inputs"]}
-        if provided != required or not provided <= declarations.keys():
+        contract_targets = cast(
+            list[dict[str, Any]],
+            entrypoint["scenario_input_contract"]["targets"],
+        )
+        allowed = {
+            canonical_bytes(cast(JsonValue, row["target"])): row
+            for row in contract_targets
+            if row["owner"] == "experiment"
+        }
+        provided = {
+            canonical_bytes(cast(JsonValue, row["target"])): row
+            for row in scenario["assignments"]
+        }
+        required = {
+            key
+            for key, row in allowed.items()
+            if row["cardinality"] == "required"
+        }
+        if not required <= provided.keys() or not provided.keys() <= allowed.keys():
             return _refusal(
                 stage="static",
                 code="language.source_contract_mismatch",
                 identity=experiment_identity,
-                pointer=f"/scenarios/{scenario_index}/values",
-                message="Scenario values do not exactly close the operation inputs",
+                pointer=f"/scenarios/{scenario_index}/assignments",
+                message="Scenario assignments do not close the Scenario Input Contract",
             )
         draws = {
             instruction["stream"]
@@ -491,16 +504,18 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
                 pointer=f"/scenarios/{scenario_index}/named_streams",
                 message="Scenario Named streams do not exactly close operation draws",
             )
-        for row in scenario["values"]:
-            declaration = declarations[row["name"]]
+        for row in scenario["assignments"]:
+            declaration = declarations[
+                canonical_bytes(cast(JsonValue, row["target"]))
+            ]
             domain = declaration["domain"]
             if not domain["minimum"] <= row["value"] <= domain["maximum"]:
                 return _refusal(
                     stage="static",
                     code="language.invalid_domain",
                     identity=experiment_identity,
-                    pointer=f"/scenarios/{scenario_index}/values",
-                    message="Scenario value is outside its declared domain",
+                    pointer=f"/scenarios/{scenario_index}/assignments",
+                    message="Scenario assignment is outside its declared domain",
                 )
     expected_requirements = {
         "operation_kinds": required_operation_kinds,
@@ -679,11 +694,13 @@ def _evaluator_manifest(checked: CheckedExperiment) -> PublicationMember:
         row["definition"]["id"]: row["definition"]
         for row in checked.rir["selected_semantics"]["operations"]
     }
+    entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
     reachable_nodes = {
         instruction["node"]
         for scenario in checked.value["scenarios"]
         for instruction in _expanded_operation_body(
-            operations[scenario["operation"]], operations
+            operations[entrypoints[scenario["entrypoint"]]["operation"]["id"]],
+            operations,
         )
     }
     nodes = sorted(
@@ -972,7 +989,11 @@ def evaluate_experiment(
         row["definition"]["id"]: row["definition"]
         for row in checked.rir["selected_semantics"]["operations"]
     }
-    declarations = {row["symbol"]: row for row in checked.rir["declarations"]}
+    entrypoints = {row["id"]: row for row in checked.rir["entrypoints"]}
+    declarations = {
+        canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
+        for row in checked.rir["declarations"]
+    }
     runtime_contract = _runtime_contract(checked)
     numeric = cast(dict[str, Any], runtime_contract["numeric"])
     node_contracts = _runtime_nodes(checked)
@@ -986,8 +1007,22 @@ def evaluate_experiment(
     total_steps = 0
     runtime_limit = checked.language_bundle["resources"]["max_runtime_steps"]
     for scenario_index, scenario in enumerate(checked.value["scenarios"]):
-        variables = {row["name"]: row["value"] for row in scenario["values"]}
-        state = _scenario_state(scenario, declarations)
+        actual_values: dict[str, Any] = {}
+        for declaration in declarations.values():
+            value_policy = cast(dict[str, Any], declaration["value_policy"])
+            if value_policy["mode"] in {"model-fixed", "experiment-override"}:
+                actual_values[declaration["symbol"]] = value_policy["value"]
+        for assignment in scenario["assignments"]:
+            declaration = declarations[
+                canonical_bytes(cast(JsonValue, assignment["target"]))
+            ]
+            actual_values[declaration["symbol"]] = assignment["value"]
+        state = {
+            declaration["symbol"]: cast(int, actual_values[declaration["symbol"]])
+            for declaration in declarations.values()
+            if declaration["role"] == "state"
+            and declaration["symbol"] in actual_values
+        }
         before = dict(state)
         snapshots.append(
             cast(
@@ -999,161 +1034,237 @@ def evaluate_experiment(
                 },
             )
         )
-        operation = operations[scenario["operation"]]
-        expanded_body = _expanded_operation_body(operation, operations)
+        entrypoint = entrypoints[scenario["entrypoint"]]
+        operation = operations[entrypoint["operation"]["id"]]
         outcomes = {row["id"]: row for row in operation["outcomes"]}
-        outcome = operation["default_outcome"]
         draws: list[dict[str, JsonValue]] = []
-        event_steps = 0
-        for instruction in expanded_body:
-            node_contract = node_contracts[instruction["node"]]
-            charge = node_contract["resource_charge"]["amount"]
-            total_steps += charge
-            event_steps += charge
-            if (
-                total_steps > runtime_limit
-                or event_steps > operation["resource_bounds"]["max_steps"]
-            ):
-                return _runtime_refusal_outcome(
-                    checked,
-                    scenario_id=scenario["id"],
-                    scenario_index=scenario_index,
-                    code=_diagnostic_for_signal(checked, "step-limit", "runtime"),
-                    message="Runtime program exhausted its exact step bound",
-                    events=events,
-                    operation=operation["id"],
-                    state_before=before,
-                )
-            semantics = node_contract["semantics"]
-            operator = semantics["operator"]
-            if operator == "invoke-operation":
-                continue
-            if operator == "gameplay-precondition":
-                if not _integer_compare(
-                    semantics["comparison"],
-                    variables[instruction["left"]],
-                    variables[instruction["right"]],
+        call_trace: list[dict[str, JsonValue]] = []
+
+        def execute_operation(
+            selected_operation: dict[str, Any],
+            arguments: dict[str, Any],
+            state_references: dict[str, str],
+            call_path: tuple[str, ...],
+        ) -> tuple[str, Any]:
+            nonlocal total_steps
+            operation_before = dict(state)
+            variables = dict(arguments)
+            outcome = selected_operation["default_outcome"]
+            operation_steps = 0
+            for instruction in selected_operation["body"]:
+                node_contract = node_contracts[instruction["node"]]
+                charge = node_contract["resource_charge"]["amount"]
+                total_steps += charge
+                operation_steps += charge
+                if (
+                    total_steps > runtime_limit
+                    or operation_steps
+                    > selected_operation["resource_bounds"]["max_steps"]
                 ):
-                    outcome = instruction["outcome"]
-                    break
-            elif operator == "named-integer-draw":
-                value, index, candidate, accepted = rng.draw(
-                    instruction["stream"],
-                    instruction["minimum"],
-                    instruction["maximum"],
-                )
-                variables[instruction["target"]] = value
-                draws.append(
-                    {
-                        "stream": instruction["stream"],
-                        "index": index,
-                        "candidate_hex": f"{candidate:016x}",
-                        "accepted": accepted,
-                        "minimum": instruction["minimum"],
-                        "maximum": instruction["maximum"],
-                        "value": value,
-                    }
-                )
-            elif operator == "integer-literal":
-                variables[instruction["target"]] = instruction["literal"]
-            elif operator == "copy-value":
-                variables[instruction["target"]] = variables[instruction["value"]]
-            elif operator in {
-                "integer-add",
-                "integer-subtract",
-                "integer-multiply",
-                "integer-maximum",
-            }:
-                left = variables[instruction["left"]]
-                right = variables[instruction["right"]]
-                if operator == "integer-add":
-                    result = left + right
-                elif operator == "integer-subtract":
-                    result = left - right
-                elif operator == "integer-multiply":
-                    result = left * right
-                else:
-                    result = max(left, right)
-                try:
+                    raise RuntimeError("step-limit")
+                semantics = node_contract["semantics"]
+                operator = semantics["operator"]
+                if operator == "invoke-operation":
+                    child = operations[instruction["operation"]["id"]]
+                    child_arguments: dict[str, Any] = {}
+                    child_state_references: dict[str, str] = {}
+                    for binding in instruction["arguments"]:
+                        actual = binding["operand"]
+                        if actual["kind"] == "port":
+                            child_arguments[binding["port"]] = variables[
+                                actual["port"]
+                            ]
+                            if actual["port"] in state_references:
+                                child_state_references[binding["port"]] = (
+                                    state_references[actual["port"]]
+                                )
+                        elif actual["kind"] == "local":
+                            child_arguments[binding["port"]] = variables[
+                                actual["local"]
+                            ]
+                        else:
+                            child_arguments[binding["port"]] = actual["literal"]
+                    child_outcome, child_result = execute_operation(
+                        child,
+                        child_arguments,
+                        child_state_references,
+                        (*call_path, instruction["site"]),
+                    )
+                    call_trace.append(
+                        {
+                            "site": "/".join((*call_path, instruction["site"])),
+                            "operation": child["id"],
+                            "outcome": child_outcome,
+                        }
+                    )
+                    result_binding = instruction["result"]
+                    if result_binding["kind"] == "local":
+                        variables[result_binding["name"]] = child_result
+                    for binding in instruction["arguments"]:
+                        actual = binding["operand"]
+                        if (
+                            actual["kind"] == "port"
+                            and actual["port"] in state_references
+                        ):
+                            variables[actual["port"]] = state[
+                                state_references[actual["port"]]
+                            ]
+                    mapping = next(
+                        row
+                        for row in instruction["outcomes"]
+                        if row["outcome"] == child_outcome
+                    )
+                    if mapping["action"]["kind"] == "propagate":
+                        outcome = mapping["action"]["outcome"]
+                        break
+                    continue
+                if operator == "gameplay-precondition":
+                    if not _integer_compare(
+                        semantics["comparison"],
+                        variables[instruction["left"]],
+                        variables[instruction["right"]],
+                    ):
+                        outcome = instruction["outcome"]
+                        break
+                elif operator == "named-integer-draw":
+                    value, index, candidate, accepted = rng.draw(
+                        instruction["stream"],
+                        instruction["minimum"],
+                        instruction["maximum"],
+                    )
+                    variables[instruction["target"]] = value
+                    draws.append(
+                        {
+                            "stream": instruction["stream"],
+                            "index": index,
+                            "candidate_hex": f"{candidate:016x}",
+                            "accepted": accepted,
+                            "minimum": instruction["minimum"],
+                            "maximum": instruction["maximum"],
+                            "value": value,
+                        }
+                    )
+                elif operator == "integer-literal":
+                    variables[instruction["target"]] = instruction["literal"]
+                elif operator == "copy-value":
+                    variables[instruction["target"]] = variables[instruction["value"]]
+                elif operator in {
+                    "integer-add",
+                    "integer-subtract",
+                    "integer-multiply",
+                    "integer-maximum",
+                }:
+                    left = variables[instruction["left"]]
+                    right = variables[instruction["right"]]
+                    result = (
+                        left + right
+                        if operator == "integer-add"
+                        else left - right
+                        if operator == "integer-subtract"
+                        else left * right
+                        if operator == "integer-multiply"
+                        else max(left, right)
+                    )
                     variables[instruction["target"]] = _admit_numeric(result, numeric)
-                except OverflowError:
-                    return _runtime_refusal_outcome(
-                        checked,
-                        scenario_id=scenario["id"],
-                        scenario_index=scenario_index,
-                        code=_diagnostic_for_signal(
-                            checked, "numeric-overflow", "runtime"
-                        ),
-                        message="Exact-int64 operation overflowed its numeric domain",
-                        events=events,
-                        operation=operation["id"],
-                        state_before=before,
+                elif operator == "integer-compare":
+                    variables[instruction["target"]] = _integer_compare(
+                        semantics["comparison"],
+                        variables[instruction["left"]],
+                        variables[instruction["right"]],
                     )
-            elif operator == "integer-compare":
-                left = variables[instruction["left"]]
-                right = variables[instruction["right"]]
-                variables[instruction["target"]] = _integer_compare(
-                    semantics["comparison"], left, right
-                )
-            elif operator == "select-value":
-                variables[instruction["target"]] = variables[
-                    instruction[
-                        "when_true"
-                        if variables[instruction["condition"]]
-                        else "when_false"
+                elif operator == "select-value":
+                    variables[instruction["target"]] = variables[
+                        instruction[
+                            "when_true"
+                            if variables[instruction["condition"]]
+                            else "when_false"
+                        ]
                     ]
+                elif operator in {"state-integer-subtract", "state-write"}:
+                    formal = instruction["symbol"]
+                    actual = state_references[formal]
+                    value = (
+                        state[actual] - variables[instruction["value"]]
+                        if operator == "state-integer-subtract"
+                        else variables[instruction["value"]]
+                    )
+                    state[actual] = _admit_numeric(value, numeric)
+                    variables[formal] = state[actual]
+                else:
+                    raise ValueError(
+                        f"admitted evaluator lacks runtime operator {operator}"
+                    )
+            outcome_definition = next(
+                row
+                for row in selected_operation["outcomes"]
+                if row["id"] == outcome
+            )
+            if outcome_definition["state_policy"] == "rollback":
+                state.clear()
+                state.update(operation_before)
+            result_source = selected_operation["result"]["source"]
+            result = (
+                variables[result_source["name"]]
+                if result_source["kind"] == "local"
+                and outcome_definition["kind"] == "success"
+                else None
+            )
+            return cast(str, outcome), result
+
+        root_arguments: dict[str, Any] = {}
+        root_state_references: dict[str, str] = {}
+        for binding in entrypoint["arguments"]:
+            resolved_operand = binding["operand"]
+            if resolved_operand["kind"] == "symbol":
+                declaration = declarations[
+                    canonical_bytes(cast(JsonValue, resolved_operand["symbol"]))
                 ]
-            elif operator == "state-integer-subtract":
-                symbol = instruction["symbol"]
-                try:
-                    state[symbol] = _admit_numeric(
-                        state[symbol] - variables[instruction["value"]],
-                        numeric,
-                    )
-                except OverflowError:
-                    return _runtime_refusal_outcome(
-                        checked,
-                        scenario_id=scenario["id"],
-                        scenario_index=scenario_index,
-                        code=_diagnostic_for_signal(
-                            checked, "numeric-overflow", "runtime"
-                        ),
-                        message="Exact-int64 state update overflowed its numeric domain",
-                        events=events,
-                        operation=operation["id"],
-                        state_before=before,
-                    )
-                variables[symbol] = state[symbol]
-            elif operator == "state-write":
-                symbol = instruction["symbol"]
-                try:
-                    state[symbol] = _admit_numeric(
-                        variables[instruction["value"]],
-                        numeric,
-                    )
-                except OverflowError:
-                    return _runtime_refusal_outcome(
-                        checked,
-                        scenario_id=scenario["id"],
-                        scenario_index=scenario_index,
-                        code=_diagnostic_for_signal(
-                            checked, "numeric-overflow", "runtime"
-                        ),
-                        message="Exact-int64 state update overflowed its numeric domain",
-                        events=events,
-                        operation=operation["id"],
-                        state_before=before,
-                    )
-                variables[symbol] = state[symbol]
+                root_arguments[binding["port"]["name"]] = actual_values[
+                    declaration["symbol"]
+                ]
+                if declaration["role"] == "state":
+                    root_state_references[binding["port"]["name"]] = declaration[
+                        "symbol"
+                    ]
             else:
-                raise ValueError(
-                    f"admitted evaluator lacks runtime operator {operator}"
-                )
+                root_arguments[binding["port"]["name"]] = resolved_operand["value"]
+        try:
+            outcome, root_result = execute_operation(
+                operation,
+                root_arguments,
+                root_state_references,
+                (cast(str, entrypoint["id"]),),
+            )
+        except RuntimeError:
+            return _runtime_refusal_outcome(
+                checked,
+                scenario_id=scenario["id"],
+                scenario_index=scenario_index,
+                code=_diagnostic_for_signal(checked, "step-limit", "runtime"),
+                message="Runtime program exhausted its exact step bound",
+                events=events,
+                operation=operation["id"],
+                state_before=before,
+            )
+        except OverflowError:
+            return _runtime_refusal_outcome(
+                checked,
+                scenario_id=scenario["id"],
+                scenario_index=scenario_index,
+                code=_diagnostic_for_signal(
+                    checked, "numeric-overflow", "runtime"
+                ),
+                message="Exact-int64 operation overflowed its numeric domain",
+                events=events,
+                operation=operation["id"],
+                state_before=before,
+            )
+        for name, value in state.items():
+            actual_values[name] = value
         outcome_definition = outcomes[outcome]
-        if outcome_definition["state_policy"] == "rollback":
-            state = before
-            for name, value in before.items():
-                variables[name] = value
+        if outcome_definition["kind"] == "success":
+            result_symbol = entrypoint["result"]["symbol"]["name"]
+            actual_values[result_symbol] = root_result
         typed_outcome = {
             "id": outcome,
             "kind": outcome_definition["kind"],
@@ -1164,7 +1275,7 @@ def evaluate_experiment(
                 "index": len(events),
                 "operation": operation["id"],
                 "outcome": typed_outcome,
-                "facts": _value_rows(variables),
+                "facts": _value_rows(actual_values),
                 "state_before": _int_rows(before),
                 "state_after": _int_rows(state),
                 "rng_draws": draws,

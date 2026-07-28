@@ -579,9 +579,7 @@
             {
               "owners": "language_bundle.language.operations",
               "targets": {
-                "inputs.type": "language_bundle.language.packages.exports.types.id",
                 "numeric_policy": "language_bundle.language.quantity.numeric_policies.id",
-                "result": "language_bundle.language.packages.exports.types.id",
                 "rule": "language_bundle.language.rules.id",
                 "runtime_profile": "language_bundle.language.runtime_profiles.id",
                 "vectors": "language_bundle.vectors.id"
@@ -860,7 +858,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:177ca2141288503b4f0fcad0573333a347eb1fbcd0b02bf8e220362c7291ca13",
+  "content_identity": "sha256:d1e6f19fb375798f2199f71fc8d4d69ffee8ecdf1d132ca4ec5497e7126bea00",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -967,6 +965,9 @@
           "domain_kind": {
             "type": "inventory-member",
             "path": "language.quantity.domains"
+          },
+          "value_policy": {
+            "type": "canonical-value"
           }
         }
       },
@@ -2235,7 +2236,8 @@
                 "properties",
                 "required",
                 "type",
-                "unevaluatedProperties"
+                "unevaluatedProperties",
+                "oneOf"
               ],
               "dialect": "https://json-schema.org/draft/2020-12/schema",
               "keyword_type_requirements": {
@@ -2453,6 +2455,9 @@
             },
             "runtime_projection": {
               "type": "object"
+            },
+            "assignment_policy": {
+              "type": "canonical-value"
             }
           },
           "required_members": [
@@ -2464,7 +2469,8 @@
             "runtime_projection",
             "output_member",
             "output_equalities",
-            "resolution_profile"
+            "resolution_profile",
+            "assignment_policy"
           ]
         },
         "model_source_schema_versions": {
@@ -2482,22 +2488,7 @@
               "type": "non-empty-string"
             },
             "inputs": {
-              "items": {
-                "field_types": {
-                  "name": {
-                    "type": "non-empty-string"
-                  },
-                  "type": {
-                    "type": "non-empty-string"
-                  }
-                },
-                "required_members": [
-                  "name",
-                  "type"
-                ],
-                "type": "closed-object"
-              },
-              "type": "list-of"
+              "type": "canonical-value"
             },
             "kind_rules": {
               "field_types": {
@@ -2548,7 +2539,7 @@
               "type": "closed-object"
             },
             "result": {
-              "type": "non-empty-string"
+              "type": "canonical-value"
             },
             "rule": {
               "type": "non-empty-string"
@@ -2919,7 +2910,8 @@
                 "properties",
                 "required",
                 "type",
-                "unevaluatedProperties"
+                "unevaluatedProperties",
+                "oneOf"
               ],
               "dialect": "https://json-schema.org/draft/2020-12/schema",
               "keyword_type_requirements": {
@@ -4751,7 +4743,11 @@
           "refusals": [],
           "required_members": [
             "node",
-            "operation"
+            "site",
+            "operation",
+            "arguments",
+            "result",
+            "outcomes"
           ],
           "resource_charge": {
             "amount": 1,
@@ -5128,13 +5124,49 @@
           "input": {
             "contract-probe": [
               "node",
-              "operation"
+              "site",
+              "operation",
+              "arguments",
+              "result",
+              "outcomes"
             ]
           },
           "kind": "node",
           "node": "invoke"
         }
-      ]
+      ],
+      "invocation_contract": {
+        "closed": true,
+        "version": "resolved-operation-binding-v1",
+        "identity_domains": {
+          "actual_operand": "actual-operation-operand-v2",
+          "call_site": "operation-call-site-v2",
+          "entrypoint": "model-entrypoint-v2",
+          "formal_port": "operation-formal-port-v2",
+          "outcome": "operation-outcome-v2",
+          "result": "operation-result-v2"
+        },
+        "argument_evaluation_order": "formal-port-declaration-order",
+        "operand_kinds": [
+          "port",
+          "local",
+          "literal"
+        ],
+        "result_binding_kinds": [
+          "local",
+          "operation-result",
+          "discard"
+        ],
+        "outcome_actions": [
+          "continue",
+          "propagate"
+        ],
+        "outcome_mapping": "exactly-once-and-exhaustive",
+        "scope": "lexical-call-frame",
+        "ambient_capture": "forbidden",
+        "resource_charge": "invoke-plus-transitive-callee-steps",
+        "runtime_refusal": "propagate-with-call-site"
+      }
     },
     "admitted_language_index": {
       "closed": true,

@@ -24,7 +24,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:177ca2141288503b4f0fcad0573333a347eb1fbcd0b02bf8e220362c7291ca13"
+    "sha256:d1e6f19fb375798f2199f71fc8d4d69ffee8ecdf1d132ca4ec5497e7126bea00"
 )
 
 
@@ -688,7 +688,7 @@ def _consumer_b_package_evidence_vectors_are_closed(
         values = inp["values"]
         value_names = [item.get("name") for item in values if isinstance(item, dict)]
         operation_inputs = [
-            item.get("name")
+            item.get("id")
             for item in operation.get("inputs", [])
             if isinstance(item, dict)
         ]

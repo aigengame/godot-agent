@@ -1002,11 +1002,16 @@ def _check_model_source_bytes(
     )
     try:
         lock, declarations, admitted_lowering, _source_rows = _lowering_inputs(checked)
-        _runtime_projection(
+        selected_semantics = _runtime_projection(
             lock,
             declarations,
             admitted_lowering,
             _runtime_projection_budget(kernel, ldb),
+        )
+        _resolved_entrypoints(
+            checked,
+            cast(list[dict[str, Any]], declarations),
+            selected_semantics,
         )
     except _RuntimeProjectionResourceExhausted:
         resource_reason = _unique_reason(
@@ -1020,6 +1025,18 @@ def _check_model_source_bytes(
             source_identity,
             "",
             "Model Source runtime projection exhausted its admitted step budget",
+            ldb,
+        )
+    except (KeyError, TypeError, ValueError) as err:
+        source_contract_reason = reason_by_id(
+            ldb,
+            cast(str, profile["structural_reason"]),
+        )
+        return _refusal(
+            cast(str, source_contract_reason["diagnostic"]),
+            source_identity,
+            "/entrypoints",
+            f"Model entrypoint resolution failed: {err}",
             ldb,
         )
     return checked
@@ -1413,6 +1430,304 @@ def _resolved_source_symbols(
             item[0]["resolved_symbol"]["name"],
         ),
     )
+
+
+def _assignment_policy_by_role(lowering: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    policy = lowering.get("assignment_policy")
+    rows = policy.get("roles") if isinstance(policy, dict) else None
+    if (
+        not isinstance(rows, list)
+        or not rows
+        or any(
+            not isinstance(row, dict)
+            or not isinstance(row.get("role"), str)
+            or not isinstance(row.get("modes"), list)
+            or not isinstance(row.get("experiment_assignable"), bool)
+            for row in rows
+        )
+    ):
+        raise ValueError("the admitted lowering has no total Symbol assignment policy")
+    by_role = {row["role"]: row for row in rows}
+    if len(by_role) != len(rows):
+        raise ValueError("the admitted Symbol assignment policy repeats a role")
+    return by_role
+
+
+def _exact_operation_coordinate(
+    operation_row: dict[str, Any],
+    package_versions: dict[str, str],
+) -> dict[str, str]:
+    package = cast(str, operation_row["package"])
+    return {
+        "package": package,
+        "version": package_versions[package],
+        "id": cast(str, operation_row["definition"]["id"]),
+    }
+
+
+def _value_contract_matches(
+    declaration: dict[str, Any],
+    contract: dict[str, Any],
+) -> bool:
+    expected_type = contract.get("type")
+    return (
+        isinstance(expected_type, dict)
+        and declaration.get("type_identity")
+        == {
+            "package": expected_type.get("package"),
+            "version": expected_type.get("version"),
+            "symbol": expected_type.get("id"),
+        }
+        and all(
+            declaration.get(member) == contract.get(member)
+            for member in ("representation", "kind", "unit", "numeric_policy")
+        )
+    )
+
+
+def _resolved_entrypoints(
+    checked: CheckedModel,
+    declarations: list[dict[str, Any]],
+    selected_semantics: dict[str, Any],
+) -> list[dict[str, JsonValue]]:
+    """Resolve Source entrypoint bindings once; downstream consumers use only this graph."""
+    lowering = _model_lowering(checked.language_bundle)
+    assignment_by_role = _assignment_policy_by_role(lowering)
+    package_versions = {
+        row["id"]: row["version"]
+        for row in cast(list[dict[str, str]], selected_semantics["packages"])
+    }
+    operation_rows = cast(
+        list[dict[str, Any]], selected_semantics["operations"]
+    )
+    operations = {
+        (
+            row["package"],
+            package_versions[row["package"]],
+            row["definition"]["id"],
+        ): row
+        for row in operation_rows
+    }
+    declarations_by_source = {
+        (
+            cast(dict[str, str], declaration["resolved_symbol"])["module"],
+            cast(dict[str, str], declaration["resolved_symbol"])["name"],
+        ): declaration
+        for declaration in declarations
+    }
+    domains = cast(
+        dict[str, str],
+        checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
+            "identity_domains"
+        ],
+    )
+    entrypoints: list[dict[str, JsonValue]] = []
+    seen_entrypoints: set[str] = set()
+    for source_entrypoint in cast(
+        list[dict[str, Any]], checked.source["entrypoints"]
+    ):
+        entrypoint_id = cast(str, source_entrypoint["id"])
+        if entrypoint_id in seen_entrypoints:
+            raise ValueError(f"duplicate Model entrypoint: {entrypoint_id}")
+        seen_entrypoints.add(entrypoint_id)
+        operation_ref = cast(dict[str, str], source_entrypoint["operation"])
+        operation_row = operations.get(
+            (
+                operation_ref["package"],
+                operation_ref["version"],
+                operation_ref["id"],
+            )
+        )
+        if operation_row is None:
+            raise ValueError(f"entrypoint Operation is not selected: {entrypoint_id}")
+        operation = cast(dict[str, Any], operation_row["definition"])
+        exact_operation = _exact_operation_coordinate(
+            operation_row, package_versions
+        )
+        formal_ports = cast(list[dict[str, Any]], operation["inputs"])
+        source_arguments = cast(
+            list[dict[str, Any]], source_entrypoint["arguments"]
+        )
+        argument_names = [row["port"] for row in source_arguments]
+        formal_names = [row["id"] for row in formal_ports]
+        if argument_names != formal_names:
+            raise ValueError(
+                f"entrypoint arguments do not exactly close formal ports: {entrypoint_id}"
+            )
+        resolved_arguments: list[dict[str, JsonValue]] = []
+        aliases: dict[str, list[str]] = {}
+        scenario_targets: dict[str, dict[str, JsonValue]] = {}
+        for formal, source_argument in zip(
+            formal_ports, source_arguments, strict=True
+        ):
+            formal_identity = content_identity(
+                domains["formal_port"],
+                cast(
+                    JsonValue,
+                    {"operation": exact_operation, "name": formal["id"]},
+                ),
+            )
+            source_operand = cast(dict[str, Any], source_argument["operand"])
+            if source_operand["kind"] == "symbol":
+                declaration = declarations_by_source.get(
+                    (source_operand["module"], source_operand["symbol"])
+                )
+                if declaration is None:
+                    raise ValueError(
+                        f"entrypoint Symbol operand is unresolved: {entrypoint_id}"
+                    )
+                if not _value_contract_matches(declaration, formal):
+                    raise ValueError(
+                        f"entrypoint Symbol is incompatible with port {formal['id']}"
+                    )
+                access = cast(str, formal["access"])
+                role = cast(str, declaration["role"])
+                if access in {"read-write", "write"} and role != "state":
+                    raise ValueError(
+                        f"entrypoint writable port requires state: {formal['id']}"
+                    )
+                resolved_symbol = cast(
+                    dict[str, JsonValue], declaration["resolved_symbol"]
+                )
+                operand_body = cast(
+                    dict[str, JsonValue],
+                    {"kind": "symbol", "symbol": resolved_symbol},
+                )
+                operand_identity = content_identity(
+                    domains["actual_operand"], cast(JsonValue, operand_body)
+                )
+                resolved_operand = {
+                    **operand_body,
+                    "identity": operand_identity,
+                }
+                aliases.setdefault(operand_identity, []).append(access)
+                value_policy = cast(dict[str, Any], declaration["value_policy"])
+                policy_row = assignment_by_role.get(role)
+                mode = value_policy.get("mode")
+                if (
+                    policy_row is None
+                    or mode not in policy_row["modes"]
+                    or (
+                        mode in {"model-fixed", "experiment-override"}
+                        and (
+                            set(value_policy) != {"mode", "value"}
+                            or not isinstance(value_policy.get("value"), int)
+                            or isinstance(value_policy.get("value"), bool)
+                        )
+                    )
+                    or (
+                        mode
+                        not in {"model-fixed", "experiment-override"}
+                        and set(value_policy) != {"mode"}
+                    )
+                ):
+                    raise ValueError(
+                        f"Symbol assignment policy is invalid for role {role}"
+                    )
+                if mode in {"experiment-required", "experiment-override"}:
+                    target_identity = content_identity(
+                        domains["actual_operand"],
+                        cast(JsonValue, operand_body),
+                    )
+                    target = {
+                        "target": resolved_symbol,
+                        "target_identity": target_identity,
+                        "owner": "experiment",
+                        "cardinality": (
+                            "required"
+                            if mode == "experiment-required"
+                            else "optional"
+                        ),
+                        "override": mode == "experiment-override",
+                    }
+                    previous = scenario_targets.get(target_identity)
+                    if previous is not None and previous != target:
+                        raise ValueError(
+                            "one actual target derived conflicting assignment contracts"
+                        )
+                    scenario_targets[target_identity] = cast(
+                        dict[str, JsonValue], target
+                    )
+            elif source_operand["kind"] == "literal":
+                if formal["access"] != "read":
+                    raise ValueError("literal operand cannot bind a writable port")
+                value = source_operand["value"]
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise ValueError("literal operand is outside exact Int64")
+                operand_body = {"kind": "literal", "value": value}
+                resolved_operand = {
+                    **operand_body,
+                    "identity": content_identity(
+                        domains["actual_operand"], cast(JsonValue, operand_body)
+                    ),
+                }
+            else:
+                raise ValueError("entrypoint operand kind is not admitted")
+            resolved_arguments.append(
+                cast(
+                    dict[str, JsonValue],
+                    {
+                        "port": {
+                            "identity": formal_identity,
+                            "operation": exact_operation,
+                            "name": formal["id"],
+                        },
+                        "operand": resolved_operand,
+                        "access": formal["access"],
+                    },
+                )
+            )
+        if any(
+            len(accesses) > 1 and any(access != "read" for access in accesses)
+            for accesses in aliases.values()
+        ):
+            raise ValueError("entrypoint has an illegal writable actual-target alias")
+        source_result = cast(dict[str, Any], source_entrypoint["result"])
+        result_declaration = declarations_by_source.get(
+            (source_result["module"], source_result["symbol"])
+        )
+        if (
+            result_declaration is None
+            or result_declaration.get("role") != "output"
+            or not _value_contract_matches(result_declaration, operation["result"])
+        ):
+            raise ValueError("entrypoint result must bind one compatible output Symbol")
+        result_symbol = cast(
+            dict[str, JsonValue], result_declaration["resolved_symbol"]
+        )
+        result_body = cast(
+            dict[str, JsonValue],
+            {"kind": "symbol", "symbol": result_symbol},
+        )
+        resolved_result = {
+            **result_body,
+            "identity": content_identity(domains["result"], result_body),
+        }
+        entrypoint_body = cast(
+            dict[str, JsonValue],
+            {
+                "id": entrypoint_id,
+                "operation": exact_operation,
+                "arguments": resolved_arguments,
+                "result": resolved_result,
+                "effects": operation["effects"],
+                "refusals": operation["refusals"],
+                "resource_bounds": operation["resource_bounds"],
+                "scenario_input_contract": {
+                    "targets": sorted(
+                        scenario_targets.values(),
+                        key=lambda row: cast(str, row["target_identity"]),
+                    )
+                },
+            },
+        )
+        entrypoints.append(
+            {
+                **entrypoint_body,
+                "identity": content_identity(domains["entrypoint"], entrypoint_body),
+            }
+        )
+    return sorted(entrypoints, key=lambda row: cast(str, row["id"]))
 
 
 def _package_lock(checked: CheckedModel) -> dict[str, JsonValue]:
@@ -1976,6 +2291,12 @@ def _value_matches_fact_contract(
             and not isinstance(value["maximum"], bool)
             and -(2**63) <= value["minimum"] <= value["maximum"] <= 2**63 - 1
         )
+    if value_type == "canonical-value":
+        try:
+            canonical_bytes(cast(JsonValue, value))
+        except (TypeError, ValueError):
+            return False
+        return True
     if value_type == "closed-object":
         required = contract.get("required_members")
         field_types = contract.get("field_types")
@@ -2239,20 +2560,24 @@ def lower_checked_model(checked: CheckedModel) -> dict[str, dict[str, JsonValue]
         checked.language_bundle, cast(str, lowering["resolution_profile"])
     )
     output_member = cast(str, lowering["output_member"])
+    selected_semantics = _runtime_projection(
+        lock,
+        declarations,
+        lowering,
+        _runtime_projection_budget(checked.kernel, checked.language_bundle),
+    )
+    entrypoints = _resolved_entrypoints(
+        checked,
+        cast(list[dict[str, Any]], declarations),
+        selected_semantics,
+    )
     rir = _identified_artifact(
         checked.language_bundle,
         "rir-semantic-payload",
         {
             output_member: cast(JsonValue, declarations),
-            "selected_semantics": cast(
-                JsonValue,
-                _runtime_projection(
-                    lock,
-                    declarations,
-                    lowering,
-                    _runtime_projection_budget(checked.kernel, checked.language_bundle),
-                ),
-            ),
+            "entrypoints": cast(JsonValue, entrypoints),
+            "selected_semantics": cast(JsonValue, selected_semantics),
         },
     )
     resolved = _identified_artifact(

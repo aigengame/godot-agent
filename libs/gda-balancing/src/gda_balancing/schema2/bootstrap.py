@@ -49,7 +49,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:177ca2141288503b4f0fcad0573333a347eb1fbcd0b02bf8e220362c7291ca13"
+    "sha256:d1e6f19fb375798f2199f71fc8d4d69ffee8ecdf1d132ca4ec5497e7126bea00"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -663,7 +663,7 @@ def _package_evidence_vectors_are_closed(
         values = inp["values"]
         value_names = [item.get("name") for item in values if isinstance(item, dict)]
         operation_inputs = [
-            item.get("name")
+            item.get("id")
             for item in cast(list[dict[str, Any]], operation.get("inputs"))
             if isinstance(item, dict)
         ]
@@ -5777,6 +5777,7 @@ def _runtime_authority_is_closed(
             "named_rng",
             "event_atomicity",
             "outcome_contract",
+            "invocation_contract",
             "vectors",
         }
         or runtime.get("closed") is not True
@@ -5841,6 +5842,7 @@ def _runtime_authority_is_closed(
     rng = runtime.get("named_rng")
     event = runtime.get("event_atomicity")
     outcomes = runtime.get("outcome_contract")
+    invocation = runtime.get("invocation_contract")
     if (
         not isinstance(numeric, dict)
         or numeric
@@ -5881,6 +5883,28 @@ def _runtime_authority_is_closed(
             "kinds": ["success", "gameplay-alternative"],
             "state_policies": ["commit", "rollback"],
             "operation_members": ["outcomes", "default_outcome"],
+        }
+        or invocation
+        != {
+            "closed": True,
+            "version": "resolved-operation-binding-v1",
+            "identity_domains": {
+                "actual_operand": "actual-operation-operand-v2",
+                "call_site": "operation-call-site-v2",
+                "entrypoint": "model-entrypoint-v2",
+                "formal_port": "operation-formal-port-v2",
+                "outcome": "operation-outcome-v2",
+                "result": "operation-result-v2",
+            },
+            "argument_evaluation_order": "formal-port-declaration-order",
+            "operand_kinds": ["port", "local", "literal"],
+            "result_binding_kinds": ["local", "operation-result", "discard"],
+            "outcome_actions": ["continue", "propagate"],
+            "outcome_mapping": "exactly-once-and-exhaustive",
+            "scope": "lexical-call-frame",
+            "ambient_capture": "forbidden",
+            "resource_charge": "invoke-plus-transitive-callee-steps",
+            "runtime_refusal": "propagate-with-call-site",
         }
     ):
         return False
@@ -5955,7 +5979,19 @@ def _runtime_authority_is_closed(
             if "outcome" in instruction:
                 referenced.add(str(instruction["outcome"]))
             if node["semantics"]["operator"] == "invoke-operation":
-                invoked = operations_by_id.get(instruction.get("operation"))
+                operation_ref = instruction.get("operation")
+                if (
+                    not isinstance(operation_ref, dict)
+                    or set(operation_ref) != {"package", "version", "id"}
+                    or not all(
+                        isinstance(operation_ref.get(member), str)
+                        and operation_ref[member]
+                        for member in ("package", "version", "id")
+                    )
+                ):
+                    visiting.remove(operation_id)
+                    return None
+                invoked = operations_by_id.get(operation_ref["id"])
                 if not isinstance(invoked, dict):
                     visiting.remove(operation_id)
                     return None
@@ -5963,7 +5999,65 @@ def _runtime_authority_is_closed(
                 if nested is None:
                     visiting.remove(operation_id)
                     return None
-                referenced.update(nested)
+                arguments = instruction.get("arguments")
+                formal_ports = invoked.get("inputs")
+                result_binding = instruction.get("result")
+                mappings = instruction.get("outcomes")
+                callee_outcomes = invoked.get("outcomes")
+                if (
+                    not isinstance(arguments, list)
+                    or not isinstance(formal_ports, list)
+                    or not all(
+                        isinstance(argument, dict)
+                        and set(argument) == {"port", "operand"}
+                        and isinstance(argument.get("port"), str)
+                        and isinstance(argument.get("operand"), dict)
+                        and argument["operand"].get("kind")
+                        in set(invocation["operand_kinds"])
+                        for argument in arguments
+                    )
+                    or [argument["port"] for argument in arguments]
+                    != [port.get("id") for port in formal_ports]
+                    or not isinstance(result_binding, dict)
+                    or result_binding.get("kind")
+                    not in set(invocation["result_binding_kinds"])
+                    or not isinstance(mappings, list)
+                    or not isinstance(callee_outcomes, list)
+                    or [mapping.get("outcome") for mapping in mappings]
+                    != [outcome.get("id") for outcome in callee_outcomes]
+                ):
+                    visiting.remove(operation_id)
+                    return None
+                if (
+                    result_binding["kind"] == "discard"
+                    and not invoked.get("result", {}).get("discardable")
+                ):
+                    visiting.remove(operation_id)
+                    return None
+                for mapping in mappings:
+                    action = mapping.get("action")
+                    if (
+                        not isinstance(mapping, dict)
+                        or set(mapping) != {"outcome", "action"}
+                        or not isinstance(action, dict)
+                        or action.get("kind")
+                        not in set(invocation["outcome_actions"])
+                        or (
+                            action["kind"] == "continue"
+                            and set(action) != {"kind"}
+                        )
+                        or (
+                            action["kind"] == "propagate"
+                            and (
+                                set(action) != {"kind", "outcome"}
+                                or not isinstance(action.get("outcome"), str)
+                            )
+                        )
+                    ):
+                        visiting.remove(operation_id)
+                        return None
+                    if action["kind"] == "propagate":
+                        referenced.add(action["outcome"])
         visiting.remove(operation_id)
         return referenced
 
@@ -5973,13 +6067,51 @@ def _runtime_authority_is_closed(
         operation_kind = operation.get("operation_kind")
         if operation_kind not in {"event-program", "event-fragment"}:
             continue
+        inputs = operation.get("inputs")
+        result = operation.get("result")
+        if (
+            not isinstance(inputs, list)
+            or len({item.get("id") for item in inputs if isinstance(item, dict)})
+            != len(inputs)
+            or any(
+                not isinstance(item, dict)
+                or set(item)
+                != {
+                    "id",
+                    "type",
+                    "representation",
+                    "kind",
+                    "unit",
+                    "domain",
+                    "numeric_policy",
+                    "access",
+                }
+                or not isinstance(item.get("id"), str)
+                or item.get("access") not in {"read", "read-write", "write"}
+                for item in inputs
+            )
+            or not isinstance(result, dict)
+            or set(result)
+            != {
+                "id",
+                "type",
+                "representation",
+                "kind",
+                "unit",
+                "domain",
+                "numeric_policy",
+                "access",
+                "discardable",
+                "source",
+            }
+            or result.get("access") != "read"
+            or not isinstance(result.get("discardable"), bool)
+            or not isinstance(result.get("source"), dict)
+        ):
+            return False
         referenced = operation_outcomes(operation, set())
         if referenced is None:
             return False
-        if operation_kind == "event-fragment":
-            if "outcomes" in operation or "default_outcome" in operation:
-                return False
-            continue
         declared = operation.get("outcomes")
         default = operation.get("default_outcome")
         if (
