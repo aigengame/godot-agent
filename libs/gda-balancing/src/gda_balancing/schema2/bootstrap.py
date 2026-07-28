@@ -4169,6 +4169,7 @@ def _literal_typing_profiles_are_closed(
     language = language_bundle.get("language")
     if not isinstance(language, dict) or contract != expected_contract:
         return False
+    literal_contract = cast(dict[str, Any], contract)
     profiles = language.get("literal_typing_profiles")
     packages = language.get("packages")
     operations = language.get("operations")
@@ -4220,13 +4221,17 @@ def _literal_typing_profiles_are_closed(
             )
         )
     ]
-    match_members = cast(list[str], contract["match_members"])
+    match_members = cast(list[str], literal_contract["match_members"])
     for profile in profiles:
+        profile_id = profile.get("id") if isinstance(profile, dict) else None
+        profile_owners = (
+            owners.get(profile_id, []) if isinstance(profile_id, str) else []
+        )
         if (
             not isinstance(profile, dict)
             or profile.get("source_kind") != "integer"
-            or not isinstance(profile.get("id"), str)
-            or len(owners.get(cast(str, profile.get("id")), [])) != 1
+            or not isinstance(profile_id, str)
+            or len(profile_owners) != 1
             or type(profile.get("minimum")) is not int
             or type(profile.get("maximum")) is not int
             or profile["minimum"] > profile["maximum"]
@@ -4237,7 +4242,7 @@ def _literal_typing_profiles_are_closed(
             or not isinstance(profile.get("type"), dict)
         ):
             return False
-        owner = owners[cast(str, profile["id"])][0]
+        owner = profile_owners[0]
         owner_exports = cast(dict[str, Any], owner["exports"])
         exported_types = owner_exports.get("types")
         type_ref = cast(dict[str, Any], profile["type"])

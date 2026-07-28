@@ -2354,7 +2354,7 @@ def test_resolved_model_admission_rejects_reidentified_literal_context_tamper(
     checked = model_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
     original = model_module.lower_checked_model(checked)
-    artifacts = {
+    artifacts: dict[str, Any] = {
         name: deepcopy(original[name])
         for name in (
             "package-lock",
@@ -2362,15 +2362,15 @@ def test_resolved_model_admission_rejects_reidentified_literal_context_tamper(
             "resolved-model",
         )
     }
-    operand = artifacts["rir-semantic-payload"]["entrypoints"][0]["arguments"][0][
-        "operand"
-    ]
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    entrypoint = cast(dict[str, Any], rir["entrypoints"][0])
+    argument = cast(dict[str, Any], entrypoint["arguments"][0])
+    operand = cast(dict[str, Any], argument["operand"])
     operand["context_type"]["id"] = "forged.literal-profile"
-    _reidentify(artifacts["rir-semantic-payload"], "rir-semantic-payload-v2")
-    artifacts["resolved-model"]["rir_identity"] = artifacts["rir-semantic-payload"][
-        "content_identity"
-    ]
-    _reidentify(artifacts["resolved-model"], "resolved-model-v2")
+    _reidentify(rir, "rir-semantic-payload-v2")
+    resolved_model = cast(dict[str, Any], artifacts["resolved-model"])
+    resolved_model["rir_identity"] = rir["content_identity"]
+    _reidentify(resolved_model, "resolved-model-v2")
 
     admission = model_module.admit_resolved_model(artifacts)
 
@@ -2429,13 +2429,15 @@ def test_literal_profile_reidentity_changes_rir_semantics(tmp_path, monkeypatch)
     changed_checked = model_module.check_model_source(str(source))
     assert isinstance(changed_checked, model_module.CheckedModel)
     changed = model_module.lower_checked_model(changed_checked)
-    changed_operand = changed["rir-semantic-payload"]["entrypoints"][0]["arguments"][0][
-        "operand"
-    ]
+    changed_rir = cast(dict[str, Any], changed["rir-semantic-payload"])
+    changed_entrypoint = cast(dict[str, Any], changed_rir["entrypoints"][0])
+    changed_argument = cast(dict[str, Any], changed_entrypoint["arguments"][0])
+    changed_operand = cast(dict[str, Any], changed_argument["operand"])
 
-    assert changed_operand["context_type"]["id"] == profile["id"]
+    changed_context_type = cast(dict[str, Any], changed_operand["context_type"])
+    assert changed_context_type["id"] == profile["id"]
     assert (
-        changed["rir-semantic-payload"]["content_identity"]
+        changed_rir["content_identity"]
         != original["rir-semantic-payload"]["content_identity"]
     )
 
