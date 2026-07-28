@@ -1375,10 +1375,12 @@ def _minimal_release(
                         "domain_kind": "closed-interval",
                         "domain": {"minimum": 0, "maximum": 100},
                         "numeric_policy": "exact-int64",
+                        "value_policy": {"mode": "experiment-required"},
                     }
                 ],
             }
         ],
+        "entrypoints": [],
     }
     starter_identity = content_identity("model-source-package-v2", starter)
     experiment_id = "standard.quantity-minimal.experiment"

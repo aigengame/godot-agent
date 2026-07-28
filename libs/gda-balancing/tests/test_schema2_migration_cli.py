@@ -153,10 +153,12 @@ def test_model_migrate_publishes_a_buildable_source_and_audit_report(
                         "domain_kind": "closed-interval",
                         "domain": {"minimum": 100, "maximum": 100},
                         "numeric_policy": "exact-int64",
+                        "value_policy": {"mode": "model-fixed", "value": 100},
                     }
                 ],
             }
         ],
+        "entrypoints": [],
     }
     report = _member(receipt, "migration-report")
     manifest = json.loads(Path(receipt["manifest_locator"]).read_text(encoding="utf-8"))
@@ -279,6 +281,7 @@ def test_model_migrate_preserves_an_unmodified_integral_direct_attribute(
             "domain_kind": "closed-interval",
             "domain": {"minimum": 25, "maximum": 25},
             "numeric_policy": "exact-int64",
+            "value_policy": {"mode": "model-fixed", "value": 25},
         }
     ]
     receipt = json.loads(stdout)

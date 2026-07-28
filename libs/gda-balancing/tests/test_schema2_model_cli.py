@@ -2578,16 +2578,15 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
         "lowered-by-ldb"
     )
     lowering = candidate_ldb["language"]["model_lowerings"][0]
+    modes_by_id = {
+        mode["id"]: deepcopy(mode)
+        for row in lowering["assignment_policy"]["roles"]
+        for mode in row["modes"]
+    }
     lowering["assignment_policy"]["roles"].append(
         {
             "role": "lowered-by-ldb",
-            "modes": [
-                "experiment-override",
-                "experiment-required",
-                "model-fixed",
-                "named-stream",
-                "none",
-            ],
+            "modes": [modes_by_id[mode] for mode in sorted(modes_by_id)],
             "entrypoint_operand_access": [],
             "entrypoint_result": False,
         }
@@ -2872,6 +2871,7 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
     for entry in package["semantic_closure"]:
         entry["definitions"] = []
     operation = {
+        "alias_policy": {"read_only": "share", "writable_groups": []},
             "body": [
                 {
                     "node": "subtract-state",

@@ -451,6 +451,7 @@ def migrate_design_source(
                 }
             ],
         ),
+        "entrypoints": cast(JsonValue, []),
     }
     if len(canonical_bytes(source)) > max_source_bytes:
         return _migration_failure(
@@ -493,6 +494,7 @@ def _quantity_symbol(name: str, role: str, value: int) -> dict[str, JsonValue]:
         "domain_kind": "closed-interval",
         "domain": {"minimum": value, "maximum": value},
         "numeric_policy": "exact-int64",
+        "value_policy": {"mode": "model-fixed", "value": value},
     }
 
 

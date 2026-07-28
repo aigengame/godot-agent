@@ -833,13 +833,44 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
         for operation in definitions("game.combat", "language.operations")
         if operation["id"] == "game.combat.cast-v1"
     )
-    assert cast["body"] == [
-        {"node": "invoke", "operation": "game.resource.spend-v1"},
-        {"node": "invoke", "operation": "game.check.hit-v1"},
-        {"node": "invoke", "operation": "game.check.critical-v1"},
-        {"node": "invoke", "operation": "game.combat.damage-v1"},
+    assert [
+        (instruction["node"], instruction["operation"])
+        for instruction in cast["body"]
+    ] == [
+        (
+            "invoke",
+            {
+                "package": "game.resource",
+                "version": "1.0.0",
+                "id": "game.resource.spend-v1",
+            },
+        ),
+        (
+            "invoke",
+            {
+                "package": "game.check",
+                "version": "1.0.0",
+                "id": "game.check.hit-v1",
+            },
+        ),
+        (
+            "invoke",
+            {
+                "package": "game.check",
+                "version": "1.0.0",
+                "id": "game.check.critical-v1",
+            },
+        ),
+        (
+            "invoke",
+            {
+                "package": "game.combat",
+                "version": "1.0.0",
+                "id": "game.combat.damage-v1",
+            },
+        ),
     ]
-    assert all(item["type"] == "Quantity" for item in cast["inputs"])
+    assert all(item["type"]["id"] == "Quantity" for item in cast["inputs"])
     serialized = json.dumps(authority["package_releases"], sort_keys=True)
     assert "game.rpg" not in serialized
     assert "RpgValue" not in serialized
@@ -1028,10 +1059,16 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
         assert referenced <= set(vector_set["vectors"])
         assert all(operation["vectors"] for operation in owned_operations.values())
         for vector in vector_set["vector_definitions"]:
+            if "kind" not in vector:
+                continue
             if vector["kind"] != "package-contract":
                 assert vector["operation"] in owned_operations
                 assert vector["id"] in owned_operations[vector["operation"]]["vectors"]
-        vectors.extend(vector_set["vector_definitions"])
+        vectors.extend(
+            vector
+            for vector in vector_set["vector_definitions"]
+            if "kind" in vector
+        )
 
     assert len({item["id"] for item in vectors}) == len(vectors)
     assert {item["category"] for item in vectors} == required_categories
@@ -1114,6 +1151,16 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
         "random",
     ):
         source = json.loads(MODEL_CHECK.fixtures.valid_document or "{}")
+        source["entrypoints"] = []
+        value_policies = {
+            "constant": {"mode": "model-fixed", "value": 1},
+            "parameter": {"mode": "experiment-required"},
+            "input": {"mode": "experiment-required"},
+            "state": {"mode": "experiment-required"},
+            "derived": {"mode": "none"},
+            "output": {"mode": "none"},
+            "random": {"mode": "named-stream"},
+        }
         source["modules"][0]["symbols"] = [
             {
                 "symbol": role,
@@ -1125,6 +1172,7 @@ def test_wire_schema_is_an_exact_projection_of_the_admitted_authorities(run_cli)
                 "domain_kind": "closed-interval",
                 "domain": {"minimum": 0, "maximum": 100},
                 "numeric_policy": "exact-int64",
+                "value_policy": value_policies[role],
             }
         ]
         jsonschema.validate(

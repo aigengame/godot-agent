@@ -463,7 +463,7 @@ def _prepare_valid_experiment(root: Path, token: int) -> str:
                 "assignments": [
                     {
                         "target": {
-                            "model": "example.rpg-combat-cast",
+                            "model": "conformance.rpg-combat",
                             "module": "combat",
                             "name": name,
                         },
