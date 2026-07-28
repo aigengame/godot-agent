@@ -161,11 +161,14 @@ not a Kernel Specification.
 
 An exact, immutable **Language Definition Bundle** is the only language-content authority admitted
 under that Kernel. Per bADR-0023 it is one sealed artifact graph: a canonical root manifest owns the
-closed package-member inventory, and each content-addressed child owns one complete package release.
-Together they own grammar, language types, structured rules, operations, post-admission diagnostics,
-runtime profile definitions, and normative vectors. Admission may derive read-only flat indexes,
-but no serialized registry or directory listing is a second authority. The LDB cannot redefine
-Kernel laws, and the Kernel does not absorb ordinary language or game-domain evolution.
+closed Package Release inventory, and each descriptor binds one Package Release manifest. Each
+release is a sealed one-level aggregate: the manifest owns its runtime language semantics and binds
+exactly one package-owned conformance-vector child. The two authority JSON members live in one
+package-specific directory, including an empty vector child when necessary. Together the releases
+own grammar, language types, structured rules, operations, post-admission diagnostics, runtime
+profile definitions, and normative vectors. Admission may derive read-only flat indexes, but no
+serialized registry or directory listing is a second authority. The LDB cannot redefine Kernel
+laws, and the Kernel does not absorb ordinary language or game-domain evolution.
 
 Compiler, resolver, evaluator, CLI, and storage code are conforming host implementations. They are
 never semantic authorities. Generated JSON Schema, help text, and SDK types are projections of the
@@ -341,10 +344,14 @@ obtained; they are not part of the RIR semantic payload.
 
 Identity follows semantic responsibility rather than file location:
 
-- child package identity covers one canonical complete package release;
+- vector-set identity covers one canonical package-owned conformance-vector child;
+- Package Release content identity covers its canonical manifest, including the exact vector-child
+  artifact kind, identity, and byte size;
+- Package Release semantic identity covers only its runtime semantic closure, so a vector-only
+  change does not pretend that selected runtime semantics changed;
 - whole-LDB graph identity covers the root's normative content and child descriptors normalized by
-  the Kernel-declared `id`, then `version` order; descriptors bind every child identity and byte
-  size without binding transport order or physical locator;
+  the Kernel-declared `id`, then `version` order; descriptors bind every Package Release manifest
+  identity and byte size without binding transport order or physical locator;
 - Package Lock identity covers the exact selected dependency closure;
 - RIR payload identity covers reachable normalized model semantics;
 - Resolved Model identity covers the exact build wrapper, including Kernel and whole LDB;
@@ -855,6 +862,8 @@ observations are deliberately separated from the #540 product findings:
 | Refined—adopted | Reusing `schema get` for packages obscured the accepted resource taxonomy, while handwritten command schemas risked becoming peer package definitions. Public access is now `package list|get`, and exhaustive reverse conformance binds its success schemas to the Kernel package meta-format. | bADR-0021 command surface and descriptor schemas; implementation/conformance updated |
 | Refined—adopted | Stage-wide refusal projection advertised outcomes a command could not reach. Model, Template, and Experiment descriptors now publish exact semantic-reason projections, and every non-bootstrap advertised code has package-owned vector evidence. | bADR-0015/0021 refusal catalogs; descriptor and reverse-evidence tests updated |
 | Refined—adopted | Re-admitting the complete sealed graph separately for every static command descriptor pushed cold CLI startup beyond the special-file nonblocking gate. Descriptor assembly now shares one already-admitted read-only projection; command execution still performs its own authority admission. | Non-authoritative descriptor construction and operability gate; implementation updated |
+| Refined—adopted | Package semantic ownership was correct, but physically inlining normative vectors beside runtime semantic closure made the largest Package Release manifests another growth monolith and blurred semantics versus executable evidence. Each Package Release is now a sealed one-level aggregate in its own directory: the manifest binds one separately identified conformance-vector child, including a closed empty child. | bADR-0016/0023, Kernel package/vector-set meta-format, loader, package CLI, and packaging checks; authority/conformance updated |
+| Confirmed—narrowly | A vector-only mutation propagates through vector-set, Package Release content, whole-LDB, and downstream exact identities while preserving Package Release semantic identity and selected runtime semantic payload bytes. Missing, extra, substituted, malformed, digest/size/coordinate-mismatched, and over-limit children are refused before index derivation by both consumers. | Identity and admission contract for the one-level aggregate; retained |
 | Confirmed—narrowly | A non-RPG economy Event package added after the Kernel and host implementation were fixed reaches Package Lock, canonical RIR, the unchanged evaluator, Event trace, Snapshot, and Metric without a genre-selected compiler/evaluator branch. | Bounded Core Extension Invariance witness; retained as conformance evidence |
 | Gap-opened | The bounded economy witness is not the public Extension Invariance Receipt required by bADR-0016/0017: it does not freeze two independent build identities, derive and exhaustively rename the reachable Non-Kernel Authority Token Inventory, or publish the independently validated receipt. | Later cross-genre conformance/coverage work; the architectural invariant remains mandatory |
 | Authored-example only | `game.resource`, `game.check`, and `game.combat` are orthogonal owners for the committed cast, and removing `game.rpg`/`RpgValue` prevents that example from defining the core. This one composition does not prove RPG or Roguelike package completeness. | #540 example and package map; retain without generalizing |

@@ -38,13 +38,14 @@ structured formal judgments, and an honest proof/conformance boundary.
 
 - **The Language Definition Bundle is one canonical, content-addressed language-content graph.**
   Under bADR-0023, its root manifest binds the exact Schema line, Kernel-Specification identity,
-  bundle format, resources, and closed ordered child descriptors. Complete package-release children
-  own grammar/AST definitions, core type constructors, Language rules, Operation specifications,
-  post-admission diagnostics, Runtime/Numeric profile definitions, lowering rules,
-  external-standard mappings, and normative vectors. Canonical child identities and the root graph
-  identity cover every normative member; changing normative content produces a new bundle identity
-  and compatible or breaking version as applicable. Admission-derived flat indexes are not a
-  serialized or independently hashed language authority.
+  bundle format, resources, and closed ordered Package Release descriptors. Each complete release
+  is a sealed one-level aggregate: its manifest owns grammar/AST definitions, core type
+  constructors, Language rules, Operation specifications, post-admission diagnostics,
+  Runtime/Numeric profile definitions, lowering rules, and external-standard mappings, while one
+  bound package-owned conformance-vector child closes its normative vectors. Canonical vector-set,
+  Package Release, and root identities cover every normative member; changing normative content
+  produces the corresponding new identities and compatible or breaking version as applicable.
+  Admission-derived flat indexes are not a serialized or independently hashed language authority.
 
 - **Canonical wire identity is a Kernel contract.** The Kernel Specification binds the exact
   domain-separated identity algorithm and canonical encoding rules for strings/Unicode, map and list
@@ -238,7 +239,8 @@ structured formal judgments, and an honest proof/conformance boundary.
   gates. It deliberately contains no placeholder bundle: #534 remains open until a closed bootstrap
   schema, exhaustive rules, artifact shapes, profiles, and executable vectors are supplied together.
 - A minimal bundle can start with only the kernel and RPG-tracer packages, then add packages through
-  versioned manifests and conformance vectors without changing the core grammar.
+  versioned manifests and their bound conformance-vector children without changing the core
+  grammar.
 - Compiler diagnostics can identify the exact Language rule and source/artifact locations that
   caused a refusal or lowering.
 - Formal-spec work now has bounded deliverables: resolution rules, type/effect rules, pure/sample

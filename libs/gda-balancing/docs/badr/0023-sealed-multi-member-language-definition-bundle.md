@@ -9,7 +9,10 @@ The first permanent Schema 2.0 slices packaged every language definition and Dom
 the Kernel's 262,144-byte ingress limit after one bounded RPG path. It also serialized package
 semantic closures beside reverse-conformance-checked flat registries. The duplication was guarded,
 but it made the physical artifact scale with every package and made broad package ownership such as
-`game.rpg` easier to hide.
+`game.rpg` easier to hide. Splitting packages exposed a second scaling defect: package-owned
+normative vectors were semantically owned by each release but physically inlined beside its runtime
+semantic closure. The largest package files were already dominated by evidence rather than
+executable language semantics.
 
 Source-file splitting alone does not fix either problem. Reassembling the fragments into the same
 monolith retains the size limit, while treating fragments as independent peer authorities breaks
@@ -25,41 +28,60 @@ admission boundary.
   Loaders never scan directories, registries, entry points, or network locations to discover
   semantic members.
 
-- **Each child is one complete Domain-package release.** A descriptor binds the child's artifact
-  kind, logical package id and version, canonical content identity, and canonical byte size. Every
-  package artifact remains complete under bADR-0016: exact `{id, version}` dependency coordinates,
-  capabilities, types,
-  components, operations, conversions, Diagnostics, profiles, rules/bodies, resources, and
-  executable vectors belong to that one release identity.
+- **Each root child is one complete Domain-package release manifest.** A root descriptor binds the
+  manifest's artifact kind, logical package id and version, canonical content identity, and
+  canonical byte size. The Package Release is a sealed one-level aggregate represented by exactly
+  two authority JSON members: the manifest and one package-owned
+  `package-conformance-vector-set`. The manifest closes exact `{id, version}` dependency
+  coordinates, capabilities, types, components, operations, conversions, Diagnostics, profiles,
+  rules/bodies, resources, and a descriptor for that exact vector child. The child binds the owning
+  package id/version and closes the ordered vector id inventory and definitions, including a closed
+  empty set. The vector set is not independently versioned, selected, published, discovered, or
+  treated as a peer authority.
 
-- **Identity has three distinct layers.** Child identity covers the canonical child artifact. Root
-  graph identity covers the root's normative members and canonical descriptor set; descriptors bind
-  every child identity and size. Downstream exact identities bind the root graph identity according
-  to their existing contracts. A physical locator or path is packaging metadata and never enters
-  semantic identity. Descriptor reordering or physical relocation cannot change graph identity;
-  changing one child must change that child and the root graph identities.
+- **Each package has one independent physical directory.** The dot-separated package id maps to one
+  hyphenated directory under `packages/`. For coordinate `game.combat@1.0.0`, the directory is
+  `packages/game-combat/` and contains exactly
+  `game.combat@1.0.0.json` plus
+  `game.combat@1.0.0.conformance-vectors.json`. Directory names and locators are distribution
+  metadata, not semantic membership or identity authority. Loaders follow only root and manifest
+  descriptors; source/wheel inventory checks reject missing or undeclared directory members.
+
+- **Identity separates evidence, release content, and runtime semantics.** Vector-set identity
+  covers the canonical evidence child. Package Release content identity covers the manifest,
+  including its exact vector-child descriptor. Package Release semantic identity covers only its
+  runtime semantic closure. Root graph identity covers the root's normative members and canonical
+  Package Release descriptors; downstream exact identities bind that root according to their
+  existing contracts. A vector-only change therefore changes vector-set, Package Release content,
+  root-LDB, and downstream exact identities while preserving Package Release semantic identity and
+  selected runtime semantic payload bytes. Descriptor reordering, physical relocation, directory
+  naming, and Locators never enter semantic identity.
 
 - **Admission is atomic and closed.** Before exposing any admitted language, both independent
-  bootstrap consumers verify root and child canonical encoding, identities, sizes, coordinates,
-  exact membership, uniqueness, dependency closure, acyclicity, resource bounds, package
-  completeness, vectors, and cross-package references. Missing, unreadable, extra, duplicate,
-  substituted, mismatched, unresolved, cyclic, or over-limit input produces a deterministic typed
-  refusal. No partial package set or derived index becomes visible.
+  bootstrap consumers verify root, Package Release manifest, and vector-child canonical encoding,
+  identities, sizes, coordinates, exact membership, uniqueness, dependency closure, acyclicity,
+  resource bounds, package completeness, vector ownership, and cross-package references. Missing,
+  unreadable, extra, duplicate, substituted, malformed, digest/size/coordinate-mismatched,
+  unresolved, cyclic, or over-limit input produces a deterministic typed refusal. No partial
+  package set or derived index becomes visible.
 
-- **Resource accounting is graph-aware.** The Kernel bounds root bytes, per-child bytes, aggregate
-  graph bytes, member count, nesting depth, dependency depth, and admission work. Boundary and
-  boundary-plus-one vectors cover each limit. A larger package inventory never bypasses bounded
-  observation by moving bytes out of the root file.
+- **Resource accounting is graph-aware.** The Kernel bounds root bytes, each JSON child, aggregate
+  bytes per Package Release, total graph bytes, package count, package-member count, nesting depth,
+  collection size, dependency depth/steps, and admission work. Boundary and boundary-plus-one
+  vectors cover each limit. Splitting evidence from semantics never bypasses bounded observation by
+  moving bytes out of a manifest.
 
 - **Flat language indexes are derived non-authorities.** After successful graph admission, a
   consumer may construct read-only indexes for operations, types, Diagnostics, profiles, rules,
   schemas, and vectors. Those indexes are deterministic projections of the admitted children. They
   are not packaged, independently hashed, edited, or consumed without graph admission.
 
-- **Public retrieval exposes the exact graph.** The public surface retrieves the root manifest,
-  lists its descriptors, and retrieves one canonical child by exact logical coordinate. Source-tree
-  and installed-wheel executions expose byte-identical members. A build fails if a declared child
-  is absent from the distribution or an undeclared file is treated as active language content.
+- **Public retrieval exposes the exact graph.** `schema get language-bundle` exposes the admitted
+  root, Package Release manifests, and vector sets. `package list` enumerates root-declared
+  coordinates; `package get` retrieves either the exact release manifest or its
+  `conformance-vectors` member without regenerating or merging bytes. Source-tree and installed-wheel
+  executions expose byte-identical members. A build fails if either declared member is absent or an
+  undeclared JSON file appears in a package directory.
 
 - **The initial RPG tracer uses mechanic packages, not a genre umbrella.** `game.resource`,
   `game.check`, and `game.combat` own their bADR-0017 mechanics independently. The example composes
@@ -87,8 +109,8 @@ admission boundary.
 
 - Kernel admission and packaged authority loading become graph-aware.
 - The root stays small as Domain packages grow; aggregate limits remain explicit.
-- Package ownership and conformance evidence become physically inspectable without becoming peer
-  authorities.
+- Package runtime semantics and conformance evidence become separately bounded and inspectable
+  without becoming peer authorities.
 - Consumers use one admission-produced view instead of serialized global registries.
 - Adding a package still changes the whole-LDB and Resolved Model wrapper identities. If the package
   is unselected and introduces no ambiguity, the selected Package Lock and RIR semantic payload
@@ -96,11 +118,12 @@ admission boundary.
 
 ## Validation
 
-- Mutate, delete, substitute, duplicate, reorder, relocate, or add a child and assert the specified
-  identity or refusal result.
-- Exercise root, child, aggregate, count, depth, and admission-work limits at and above the bound.
-- Build and install the wheel, then compare root and child bytes with the source-tree public
-  retrieval results.
+- Mutate, delete, substitute, duplicate, reorder, relocate, or add a manifest/vector child and
+  assert the specified identity or refusal result.
+- Exercise root, JSON-child, Package Release aggregate, graph aggregate, count, depth, and
+  admission-work limits at and above the bound.
+- Build and install the wheel, then compare root, manifest, and vector-child bytes with source-tree
+  public retrieval results.
 - Add a non-RPG package witness without changing Kernel primitives, core constructors, runtime
   phases, compiler/evaluator dispatch, or host capability code.
 - Run the #540 configure/build/check/run/inspect/edit/rerun loop using the admitted

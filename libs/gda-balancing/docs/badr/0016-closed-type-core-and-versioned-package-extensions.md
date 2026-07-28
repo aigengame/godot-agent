@@ -66,23 +66,29 @@ therefore requires a small closed type language and a constrained package extens
   Additional behavior composes as a separate component and explicit operations over imported
   contracts.
 
-- **Every Domain package release is one complete, immutable artifact in the Language Definition
-  Bundle.** Its content identity covers the namespaced package id; semantic version; required and
+- **Every Domain package release is one complete, immutable one-level aggregate in the Language
+  Definition Bundle.** Its manifest content identity covers the namespaced package id; semantic
+  version; required and
   optional dependency coordinates, each with an exact package id and version in the current 2.0
   contract;
   provided and required capabilities; exported types, components, operations, conversions, and
   diagnostics; supported Numeric/Runtime profiles; complete Operation specifications/bodies; and
-  normative vectors. Splitting those facts across peer registries is prohibited. Package contents
-  cannot exist in an evaluator registry without appearing under this exact release identity.
+  one exact conformance-vector child descriptor. That child binds the owning coordinate and closes
+  the package's normative vectors. Both JSON members live in one package-specific directory and are
+  jointly required; splitting them into peer registries or independently publishable artifacts is
+  prohibited. Package contents cannot exist in an evaluator registry without appearing under this
+  exact release identity.
   Duplicate `(package id, version)` entries with different content are refused within one admitted
   bundle. Across different LDB identities, `(package id, version)` is only a logical coordinate:
   package-release content identity plus the owning LDB identity determines the exact release.
   Two bundles that bind that coordinate to different content are distinct, non-interchangeable
   language worlds; neither claims global historical uniqueness, and no release-index or
   transparency service is part of Standard Schema 2.0.
-  Under bADR-0023, each release is a root-declared content-addressed child of one sealed LDB graph.
-  The root descriptor binds its logical coordinate, identity, and byte size. A loader cannot discover
-  packages by scanning ambient files, and a post-admission flat index is a derived non-authority.
+  Under bADR-0023, each release manifest is a root-declared content-addressed child of one sealed
+  LDB graph and binds exactly one package-owned conformance-vector child. The root descriptor binds
+  the logical coordinate, manifest identity, and manifest byte size; the manifest binds the vector
+  child's kind, identity, and byte size. A loader cannot discover packages or vector children by
+  scanning ambient files, and a post-admission flat index is a derived non-authority.
 
 - **Dependency resolution is deterministic and single-version per package id.** A Resolved Model
   binds one exact version for every package identity. Each package-release dependency names an
@@ -217,8 +223,10 @@ therefore requires a small closed type language and a constrained package extens
 
 - **Every package ships executable conformance evidence.** Positive, negative, boundary,
   compatibility, deterministic replay, and declared-effect vectors are required before a package
-  enters the Language Definition Bundle. The resolver and reference evaluator discover vectors
-  through the manifest, not a parallel test registry.
+  enters the Language Definition Bundle. The Package Release manifest binds exactly one
+  package-owned conformance-vector set, including a closed empty set when no vectors are currently
+  required. The resolver and reference evaluator derive vectors from admitted vector children, not
+  from inline manifest fields or a parallel test registry.
 
 - **This decision supersedes the conflicting 2.x portions of bADR-0001, bADR-0002, and
   bADR-0003.** It replaces the fixed root/reserved-section extension model, attribute-specific core

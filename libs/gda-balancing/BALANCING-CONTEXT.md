@@ -40,14 +40,17 @@ _Avoid_: global source of truth, authority layer
 
 **Language Definition Bundle**:
 The sole immutable language-content authority under one exact `Schema-major Kernel Specification`.
-It is one sealed artifact graph: a canonical root manifest owns the exact ordered membership, and
-each root-declared content-addressed child owns one complete package release. Together they own
-grammar, type constructors and rules, operation specifications, post-admission diagnostic codes,
-version/capability compatibility, Runtime/Numeric profile definitions, and normative vectors. It
-must carry structured laws sufficient for two independent conforming implementations to derive the
-same observable operation, Numeric, effect, scheduling, refusal, and RNG behavior. Selecting or
-naming host-language primitives is not sufficient: the bundle owns Source-package and collection
-selection plus the ordered parse, resolution, type/effect, Diagnostic, and HIR-to-RIR judgments.
+It is one sealed artifact graph: a canonical root manifest owns the exact ordered package
+membership, and each root-declared descriptor binds one complete `Domain package release`. A
+release is a sealed one-level aggregate whose manifest owns runtime language semantics and binds
+exactly one package-owned `Package conformance vector set`; both JSON members live in one
+package-specific directory. Together the releases own grammar, type constructors and rules,
+operation specifications, post-admission diagnostic codes, version/capability compatibility,
+Runtime/Numeric profile definitions, and normative vectors. It must carry structured laws
+sufficient for two independent conforming implementations to derive the same observable operation,
+Numeric, effect, scheduling, refusal, and RNG behavior. Selecting or naming host-language
+primitives is not sufficient: the bundle owns Source-package and collection selection plus the
+ordered parse, resolution, type/effect, Diagnostic, and HIR-to-RIR judgments.
 Its admitted package/profile/Operation/Diagnostic graph is closed before use; missing content cannot
 fall back to host behavior. Structural language schemas, semantic catalogs,
 registries, evaluator tables, documentation projections, and the language-bound members referenced
@@ -60,12 +63,24 @@ _Avoid_: schema registry, implementation registry, package directory as authorit
 
 **LDB root manifest**:
 The canonical root member of one `Language Definition Bundle`. It binds the exact Kernel identity,
-graph resources, and canonical descriptors for every package-release child. Each descriptor binds
-artifact kind, logical package id/version, canonical content identity, and byte size. The manifest
-is the only membership authority. Descriptor transport order is normalized by the Kernel-declared
-`id`, then `version` order; physical paths and Locators are packaging metadata and do not enter
-semantic identity (bADR-0023).
+graph resources, and canonical descriptors for every Package Release manifest. Each descriptor
+binds artifact kind, logical package id/version, canonical content identity, and byte size; the
+Package Release manifest then binds its exact conformance-vector child. The root manifest is the
+only package-membership authority. Descriptor transport order is normalized by the Kernel-declared
+`id`, then `version` order; physical paths, package-directory names, and Locators are packaging
+metadata and do not enter semantic identity (bADR-0023).
 _Avoid_: package index (if independently editable), directory listing, remote registry
+
+**Package conformance vector set**:
+The one immutable evidence child owned and bound by a `Domain package release`. It binds the exact
+owning package id/version and closes the ordered ids and definitions of that package's normative
+vectors, including a closed empty set when the package currently owns none. Its own canonical
+identity and byte size are bound by the Package Release manifest; it is not independently
+versioned, selected, published, discovered, or treated as a peer language authority. A vector-only
+change reidentifies this child, the owning Package Release content identity, the whole LDB, and
+downstream exact wrappers, but does not change the Package Release semantic identity when runtime
+semantics are byte-identical (bADR-0016/0023).
+_Avoid_: test fixture registry, vector package, independently publishable evidence package
 
 **Admitted language index**:
 A read-only in-memory projection constructed only after the complete LDB graph is admitted. It
@@ -199,14 +214,16 @@ candidate/capability ambiguity and the selected closure is otherwise identical (
 _Avoid_: dependency config, package manifest, lock authority
 
 **Domain package release**:
-One immutable, content-addressed, namespaced package artifact admitted by a Language Definition
-Bundle. It closes metadata and semantic version, dependencies/capabilities, exported Quantity
-kinds/units/profiles/types, complete Operation contracts and bodies, Diagnostics, and normative
-vectors under one release identity; Package Lock binds that exact identity. Reusing one package
-id/version for different content is refused within an admitted bundle. Across different LDB
+One immutable, content-addressed, namespaced, one-level aggregate admitted by a Language Definition
+Bundle. Its package-specific directory contains exactly two authority JSON members: one Package
+Release manifest and one bound `Package conformance vector set`. The manifest closes metadata and
+semantic version, dependencies/capabilities, exported Quantity kinds/units/profiles/types, complete
+Operation contracts and bodies, Diagnostics, and the vector-child descriptor; the child closes the
+package's normative vectors. Package Lock binds the exact manifest content identity. Reusing one
+package id/version for different content is refused within an admitted bundle. Across different LDB
 identities, that logical coordinate may bind different release content; the package-release content
 identity plus owning LDB identity distinguishes those non-interchangeable language worlds. Standard
-Schema 2.0 claims no global release-history registry (bADR-0016).
+Schema 2.0 claims no global release-history registry (bADR-0016/0023).
 _Avoid_: package registry entry, evaluator plugin, split operation registry
 
 **Resolution receipt**:

@@ -24,22 +24,28 @@ Quantity slice:
   fact/term/rule/reason formats, unique rule selection, binding/substitution, Diagnostic closure,
   and deterministic resource bounds.
 - The packaged Language Definition Bundle is the sealed multi-member graph defined by bADR-0023.
-  Its small root manifest binds that exact Kernel and canonical package descriptors; complete child
-  artifacts own `core.quantity`, `standard.compiler`, standard runtime/experiment/template
-  contracts, tooling contracts, and game-mechanic releases. Admission derives the flat lookup view
-  only after the entire graph passes identity, membership, dependency, resource, and vector checks.
+  Its small root manifest binds that exact Kernel and canonical Package Release descriptors. Each
+  package occupies one hyphenated directory and is a sealed one-level aggregate of exactly two
+  authority JSON members: a Package Release manifest plus its bound package-owned conformance-vector
+  set, including an empty set where applicable. These releases own `core.quantity`,
+  `standard.compiler`, standard runtime/experiment/template contracts, tooling contracts, and
+  game-mechanic semantics/evidence without creating peer authorities. Admission derives the flat
+  lookup view only after the entire graph passes manifest/vector identity, membership, coordinate,
+  dependency, resource, and vector-closure checks.
 - The production bootstrap consumer and a separately implemented conformance consumer agree on
-  exact identities, law/rule/reason inventories, generated projection identities, positive vectors,
-  and old-identity/reidentified deletion/behavior/token mutations. Neither contains a Quantity host
-  dispatch fallback.
+  exact root/manifest/vector-set identities, law/rule/reason inventories, generated projection
+  identities, positive vectors, and old-identity/reidentified
+  deletion/behavior/token/member mutations. Neither contains a Quantity host dispatch fallback.
 - This foundation admits the closed Quantity constructor and Model Source wire-schema envelope.
   Issue #540 exercises one bounded cast by composing `game.resource`, `game.check`, and
   `game.combat` releases over `core.quantity`; no permanent `game.rpg` type or genre umbrella enters
   the authority. Other operation and package families remain absent until a vertical slice delivers
   their declarative Kernel/LDB contracts.
-- `schema get language-bundle|wire-schema|diagnostic-catalog`, `manifest`, per-command `--schema`,
-  and `--params-json <json|->` expose the admitted slice through the descriptor-owned 2.x surface.
-  Admission failures use bounded, ordered, deduplicated, stage-aware Diagnostics.
+- `schema get language-bundle|wire-schema|diagnostic-catalog`, `package list|get`, `manifest`,
+  per-command `--schema`, and `--params-json <json|->` expose the admitted slice through the
+  descriptor-owned 2.x surface. `package get` retrieves either the exact release manifest or its
+  exact `conformance-vectors` member without merging the two. Admission failures use bounded,
+  ordered, deduplicated, stage-aware Diagnostics.
 
 Issue #539 extends that authority through `model check|build`: one authored Quantity Model Source
 resolves to an exact Package Lock, canonical RIR, Resolved Model, provenance companions, and one
