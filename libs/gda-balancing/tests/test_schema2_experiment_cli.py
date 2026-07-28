@@ -281,9 +281,7 @@ def _reference_execute_event(
         state_targets = set(state_names)
         display_names = {name: name for name in legacy_variables}
     cells = {name: {"value": value} for name, value in variables.items()}
-    state_cells = {
-        name: cells[name] for name in state_targets if name in cells
-    }
+    state_cells = {name: cells[name] for name in state_targets if name in cells}
     before = {name: cell["value"] for name, cell in state_cells.items()}
     rng_states: dict[str, int] = {}
     rng_indices: dict[str, int] = {}
@@ -494,8 +492,7 @@ def _reference_execute_event(
             for port in operation["inputs"]
         ]
         root_frame = {
-            row["port"]: cells[row["operand"]["symbol"]]
-            for row in root_arguments
+            row["port"]: cells[row["operand"]["symbol"]] for row in root_arguments
         }
     else:
         root_frame = {}
@@ -733,14 +730,12 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
 ):
     source_value = _rpg_model_source()
     symbols = source_value["modules"][0]["symbols"]
-    symbols[:] = [
-        symbol for symbol in symbols if symbol["symbol"] != "target_defense"
-    ]
+    symbols[:] = [symbol for symbol in symbols if symbol["symbol"] != "target_defense"]
     symbols.extend(
         [
             _rpg_value("hit_defense", "input"),
             _rpg_value("damage_mitigation", "input"),
-            ]
+        ]
     )
     for symbol in symbols:
         symbol["value_policy"] = {
@@ -809,12 +804,14 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
         build_receipt=build_receipt,
         base_damage=24,
     )
+
     def resolved_target(name):
         return {
             "model": "example.rpg-combat-cast",
             "module": "combat",
             "name": name,
         }
+
     specification["scenarios"] = [
         {
             "id": "one-cast",
@@ -866,9 +863,9 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
     assert facts["damage_dealt"] == 23
     assert event["entrypoint"] == {
         "id": "combat.cast",
-        "identity": _member(build_receipt, "rir-semantic-payload")["entrypoints"][
-            0
-        ]["identity"],
+        "identity": _member(build_receipt, "rir-semantic-payload")["entrypoints"][0][
+            "identity"
+        ],
     }
     assert [row["operation"]["id"] for row in event["calls"]] == [
         "game.resource.spend-v1",
@@ -937,16 +934,12 @@ def test_scenario_assignments_exactly_close_the_entrypoint_contract(
         assignments.append(deepcopy(assignments[0]))
     specification.write_text(json.dumps(value), encoding="utf-8")
 
-    exit_code, stdout, stderr = run_cli(
-        ["experiment", "check", str(specification)]
-    )
+    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
     assert error["stage"] == "static"
-    assert error["diagnostics"][0]["primary"]["pointer"] == (
-        "/scenarios/0/assignments"
-    )
+    assert error["diagnostics"][0]["primary"]["pointer"] == ("/scenarios/0/assignments")
 
 
 def test_experiment_cannot_select_a_raw_ldb_operation(tmp_path, run_cli):
@@ -957,9 +950,7 @@ def test_experiment_cannot_select_a_raw_ldb_operation(tmp_path, run_cli):
     scenario["operation"] = "game.combat.cast-v1"
     specification.write_text(json.dumps(value), encoding="utf-8")
 
-    exit_code, stdout, stderr = run_cli(
-        ["experiment", "check", str(specification)]
-    )
+    exit_code, stdout, stderr = run_cli(["experiment", "check", str(specification)])
 
     assert (exit_code, stderr) == (2, "")
     error = json.loads(stdout)["error"]
@@ -1171,10 +1162,7 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
     defense["symbol"] = "renamed_defense"
     for argument in renamed["entrypoints"][0]["arguments"]:
         operand = argument["operand"]
-        if (
-            operand["kind"] == "symbol"
-            and operand["symbol"] == "target_defense"
-        ):
+        if operand["kind"] == "symbol" and operand["symbol"] == "target_defense":
             operand["symbol"] = "renamed_defense"
 
     def build_and_run(
@@ -1207,9 +1195,7 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
         specification = _experiment(
             kernel_identity=build_record["kernel_identity"],
             language_bundle_identity=build_record["language_bundle_identity"],
-            source_identity=content_identity(
-                "model-source-package-v2", source_value
-            ),
+            source_identity=content_identity("model-source-package-v2", source_value),
             build_receipt=build_receipt,
             base_damage=24,
         )
@@ -1221,9 +1207,7 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
             )
             assignment["target"]["name"] = "renamed_defense"
         specification_path = tmp_path / f"{label}-experiment.json"
-        specification_path.write_text(
-            json.dumps(specification), encoding="utf-8"
-        )
+        specification_path.write_text(json.dumps(specification), encoding="utf-8")
         exit_code, stdout, stderr = run_cli(
             [
                 "experiment",
@@ -1252,8 +1236,8 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
     baseline_build, baseline_spec, _baseline_receipt, baseline_artifacts = (
         build_and_run("baseline", baseline, "4" * 64, "6" * 64)
     )
-    renamed_build, renamed_spec, _renamed_receipt, renamed_artifacts = (
-        build_and_run("renamed", renamed, "5" * 64, "7" * 64)
+    renamed_build, renamed_spec, _renamed_receipt, renamed_artifacts = build_and_run(
+        "renamed", renamed, "5" * 64, "7" * 64
     )
     baseline_rir = _member(baseline_build, "rir-semantic-payload")
     renamed_rir = _member(renamed_build, "rir-semantic-payload")
@@ -1266,8 +1250,7 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
         declaration = next(
             row
             for row in rir["declarations"]
-            if row["resolved_symbol"]["name"]
-            in {"target_defense", "renamed_defense"}
+            if row["resolved_symbol"]["name"] in {"target_defense", "renamed_defense"}
         )
         entrypoint = next(
             row for row in rir["entrypoints"] if row["id"] == "combat.cast"
@@ -1275,8 +1258,7 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
         operands = {
             argument["operand"]["identity"]
             for argument in entrypoint["arguments"]
-            if argument["port"]["name"]
-            in {"hit_defense", "damage_mitigation"}
+            if argument["port"]["name"] in {"hit_defense", "damage_mitigation"}
         }
         return declaration["resolved_symbol"], operands
 
@@ -1290,10 +1272,9 @@ def test_symbol_rename_reidentifies_the_exact_experiment_and_downstream_chain(
         and baseline_resolved["content_identity"]
         != renamed_resolved["content_identity"]
     )
-    assert (
-        experiment_runtime_module.experiment_input_identity(baseline_spec)
-        != experiment_runtime_module.experiment_input_identity(renamed_spec)
-    )
+    assert experiment_runtime_module.experiment_input_identity(
+        baseline_spec
+    ) != experiment_runtime_module.experiment_input_identity(renamed_spec)
     assert all(
         baseline_artifacts[name]["content_identity"]
         != renamed_artifacts[name]["content_identity"]
@@ -2267,15 +2248,9 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
         )
         audit = _member(error["terminal_audit"], "runtime-terminal-audit")
         assert audit["refusing_event"]["entrypoint"]["id"] == "combat.cast"
-        assert audit["refusing_event"]["entrypoint"]["identity"].startswith(
-            "sha256:"
-        )
-        assert audit["refusing_event"]["call_path"] == (
-            "combat.cast/spend-resource"
-        )
-        assert audit["refusing_event"]["call_site_identity"].startswith(
-            "sha256:"
-        )
+        assert audit["refusing_event"]["entrypoint"]["identity"].startswith("sha256:")
+        assert audit["refusing_event"]["call_path"] == ("combat.cast/spend-resource")
+        assert audit["refusing_event"]["call_site_identity"].startswith("sha256:")
         assert audit["diagnostic"] == {
             "stage": "runtime",
             **error["diagnostics"][0],

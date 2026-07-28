@@ -3979,25 +3979,30 @@ def _assignment_mode_contract_is_coherent(mode: dict[str, Any]) -> bool:
     cardinality = mode.get("experiment_cardinality")
     override = mode.get("override")
     return (
-        source == "model"
-        and value_member == "required"
-        and cardinality == "forbidden"
-        and override is False
-    ) or (
-        source == "experiment"
-        and value_member == "forbidden"
-        and cardinality == "required"
-        and override is False
-    ) or (
-        source == "model-with-experiment-override"
-        and value_member == "required"
-        and cardinality == "optional"
-        and override is True
-    ) or (
-        source in {"execution", "named-random-stream", "resolved-model"}
-        and value_member == "forbidden"
-        and cardinality == "forbidden"
-        and override is False
+        (
+            source == "model"
+            and value_member == "required"
+            and cardinality == "forbidden"
+            and override is False
+        )
+        or (
+            source == "experiment"
+            and value_member == "forbidden"
+            and cardinality == "required"
+            and override is False
+        )
+        or (
+            source == "model-with-experiment-override"
+            and value_member == "required"
+            and cardinality == "optional"
+            and override is True
+        )
+        or (
+            source in {"execution", "named-random-stream", "resolved-model"}
+            and value_member == "forbidden"
+            and cardinality == "forbidden"
+            and override is False
+        )
     )
 
 
@@ -4060,9 +4065,7 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
             or any(access not in {"read", "read-write", "write"} for access in accesses)
             or (
                 accesses
-                and any(
-                    mode["initialization_source"] == "execution" for mode in modes
-                )
+                and any(mode["initialization_source"] == "execution" for mode in modes)
             )
         ):
             return False
@@ -4078,9 +4081,11 @@ def _assignment_policy_is_total(language_bundle: dict[str, Any]) -> bool:
         return False
     try:
         schema_modes = set(
-            model_source_schemas[0]["properties"][modules_member]["items"]["properties"][
-                symbols_member
-            ]["items"]["properties"]["value_policy"]["properties"]["mode"]["enum"]
+            model_source_schemas[0]["properties"][modules_member]["items"][
+                "properties"
+            ][symbols_member]["items"]["properties"]["value_policy"]["properties"][
+                "mode"
+            ]["enum"]
         )
     except (KeyError, TypeError):
         return False
@@ -4158,9 +4163,7 @@ def _operation_composition_diagnostic_subjects(
     language_bundle: dict[str, Any],
 ) -> tuple[str, ...]:
     language = language_bundle.get("language")
-    if not isinstance(language, dict) or not isinstance(
-        language.get("packages"), list
-    ):
+    if not isinstance(language, dict) or not isinstance(language.get("packages"), list):
         return ("language.operations",)
     operations: dict[tuple[str, str, str], tuple[str, dict[str, Any]]] = {}
     for package in cast(list[dict[str, Any]], language["packages"]):
@@ -4183,9 +4186,8 @@ def _operation_composition_diagnostic_subjects(
             if not isinstance(definitions, list):
                 return (f"language.operations.{package_id}@{version}",)
             for operation in definitions:
-                if (
-                    not isinstance(operation, dict)
-                    or not isinstance(operation.get("id"), str)
+                if not isinstance(operation, dict) or not isinstance(
+                    operation.get("id"), str
                 ):
                     return (f"language.operations.{package_id}@{version}",)
                 key = (package_id, version, cast(str, operation["id"]))
@@ -4202,9 +4204,7 @@ def _operation_composition_diagnostic_subjects(
     found: set[str] = set()
 
     def refuse(owner: str, operation: dict[str, Any], site: str, member: str) -> None:
-        found.add(
-            f"language.operations.{owner}.{operation['id']}.body.{site}.{member}"
-        )
+        found.add(f"language.operations.{owner}.{operation['id']}.body.{site}.{member}")
 
     def close(
         key: tuple[str, str, str],
@@ -4218,8 +4218,7 @@ def _operation_composition_diagnostic_subjects(
             return cache[key]
         owner, operation = operations[key]
         parent_ports = {
-            item["id"]: item
-            for item in cast(list[dict[str, Any]], operation["inputs"])
+            item["id"]: item for item in cast(list[dict[str, Any]], operation["inputs"])
         }
         parent_outcomes = {
             item["id"]
@@ -4251,16 +4250,12 @@ def _operation_composition_diagnostic_subjects(
             if child_key not in operations:
                 refuse(owner, operation, site, "operation")
                 return None
-            _child_owner, child = operations[
-                cast(tuple[str, str, str], child_key)
-            ]
+            _child_owner, child = operations[cast(tuple[str, str, str], child_key)]
             child_ports = cast(list[dict[str, Any]], child["inputs"])
             arguments = instruction.get("arguments")
-            if (
-                not isinstance(arguments, list)
-                or [item.get("port") for item in arguments]
-                != [item["id"] for item in child_ports]
-            ):
+            if not isinstance(arguments, list) or [
+                item.get("port") for item in arguments
+            ] != [item["id"] for item in child_ports]:
                 refuse(owner, operation, site, "arguments")
                 return None
             aliases: dict[str, list[tuple[str, str]]] = {}
@@ -4362,9 +4357,7 @@ def _operation_composition_diagnostic_subjects(
             ):
                 refuse(owner, operation, site, "outcomes")
                 return None
-            child_closure = close(
-                cast(tuple[str, str, str], child_key), (*stack, key)
-            )
+            child_closure = close(cast(tuple[str, str, str], child_key), (*stack, key))
             if child_closure is None:
                 return None
             child_effects, child_refusals, child_charge = child_closure
@@ -4378,9 +4371,7 @@ def _operation_composition_diagnostic_subjects(
             refusals.update(child_refusals)
             charge += child_charge
         if charge > operation["resource_bounds"]["max_steps"]:
-            found.add(
-                f"language.operations.{owner}.{operation['id']}.resource_bounds"
-            )
+            found.add(f"language.operations.{owner}.{operation['id']}.resource_bounds")
             return None
         cache[key] = effects, refusals, charge
         return cache[key]
@@ -6458,10 +6449,9 @@ def _runtime_authority_is_closed(
                 ):
                     visiting.remove(operation_id)
                     return None
-                if (
-                    result_binding["kind"] == "discard"
-                    and not invoked.get("result", {}).get("discardable")
-                ):
+                if result_binding["kind"] == "discard" and not invoked.get(
+                    "result", {}
+                ).get("discardable"):
                     visiting.remove(operation_id)
                     return None
                 for mapping in mappings:
@@ -6470,12 +6460,8 @@ def _runtime_authority_is_closed(
                         not isinstance(mapping, dict)
                         or set(mapping) != {"outcome", "action"}
                         or not isinstance(action, dict)
-                        or action.get("kind")
-                        not in set(invocation["outcome_actions"])
-                        or (
-                            action["kind"] == "continue"
-                            and set(action) != {"kind"}
-                        )
+                        or action.get("kind") not in set(invocation["outcome_actions"])
+                        or (action["kind"] == "continue" and set(action) != {"kind"})
                         or (
                             action["kind"] == "propagate"
                             and (

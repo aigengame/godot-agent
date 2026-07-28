@@ -834,8 +834,7 @@ def test_game_mechanics_are_orthogonal_packages_composed_by_operation(run_cli):
         if operation["id"] == "game.combat.cast-v1"
     )
     assert [
-        (instruction["node"], instruction["operation"])
-        for instruction in cast["body"]
+        (instruction["node"], instruction["operation"]) for instruction in cast["body"]
     ] == [
         (
             "invoke",
@@ -1065,9 +1064,7 @@ def test_game_mechanics_ship_closed_owned_evidence_vectors(run_cli):
                 assert vector["operation"] in owned_operations
                 assert vector["id"] in owned_operations[vector["operation"]]["vectors"]
         vectors.extend(
-            vector
-            for vector in vector_set["vector_definitions"]
-            if "kind" in vector
+            vector for vector in vector_set["vector_definitions"] if "kind" in vector
         )
 
     assert len({item["id"] for item in vectors}) == len(vectors)

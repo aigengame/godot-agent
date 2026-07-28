@@ -3702,16 +3702,10 @@ def _consumer_b_assignment_policy_is_total(ldb: dict[str, Any]) -> bool:
                 for mode in modes
             )
             or len({mode["id"] for mode in modes}) != len(modes)
-            or any(
-                access not in {"read", "read-write", "write"}
-                for access in accesses
-            )
+            or any(access not in {"read", "read-write", "write"} for access in accesses)
             or (
                 accesses
-                and any(
-                    mode["initialization_source"] == "execution"
-                    for mode in modes
-                )
+                and any(mode["initialization_source"] == "execution" for mode in modes)
             )
         ):
             return False
@@ -4434,8 +4428,7 @@ def _consumer_b_runtime_authority_is_closed(
         or invocation_contract.get("ambient_capture") != "forbidden"
         or invocation_contract.get("argument_evaluation_order")
         != "formal-port-declaration-order"
-        or invocation_contract.get("outcome_mapping")
-        != "exactly-once-and-exhaustive"
+        or invocation_contract.get("outcome_mapping") != "exactly-once-and-exhaustive"
         or invocation_contract.get("resource_charge")
         != "invoke-plus-transitive-callee-steps"
         or set(invocation_contract.get("operand_kinds", []))
@@ -4499,10 +4492,11 @@ def _consumer_b_runtime_authority_is_closed(
                 referenced.add(outcome)
             if node["semantics"]["operator"] == "invoke-operation":
                 operation_ref = instruction.get("operation")
-                if (
-                    not isinstance(operation_ref, dict)
-                    or set(operation_ref) != {"package", "version", "id"}
-                ):
+                if not isinstance(operation_ref, dict) or set(operation_ref) != {
+                    "package",
+                    "version",
+                    "id",
+                }:
                     return None
                 invoked = operations_by_id.get(operation_ref["id"])
                 if not isinstance(invoked, dict):
@@ -4540,10 +4534,8 @@ def _consumer_b_runtime_authority_is_closed(
                     return None
                 for mapping in mappings:
                     action = mapping.get("action")
-                    if (
-                        not isinstance(action, dict)
-                        or action.get("kind")
-                        not in set(invocation_contract["outcome_actions"])
+                    if not isinstance(action, dict) or action.get("kind") not in set(
+                        invocation_contract["outcome_actions"]
                     ):
                         return None
                     if action["kind"] == "propagate":
@@ -6418,9 +6410,9 @@ def test_rpg_operation_declares_its_complete_gameplay_outcome_algebra():
         if mapping["action"]["kind"] == "propagate"
     }
     assert referenced == declared - {operation["default_outcome"]}
-    assert {
-        invocation["operation"]["id"] for invocation in operation["body"]
-    } <= set(operations)
+    assert {invocation["operation"]["id"] for invocation in operation["body"]} <= set(
+        operations
+    )
 
 
 @pytest.mark.parametrize(

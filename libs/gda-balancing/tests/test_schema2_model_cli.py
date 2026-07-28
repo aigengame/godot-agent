@@ -158,9 +158,7 @@ def test_model_check_rejects_an_invalid_value_policy_on_an_unused_symbol(
 ):
     source_value = _model_source()
     output = next(
-        row
-        for row in source_value["modules"][0]["symbols"]
-        if row["role"] == "output"
+        row for row in source_value["modules"][0]["symbols"] if row["role"] == "output"
     )
     output["value_policy"] = {"mode": "experiment-required"}
     source = tmp_path / "invalid-unused-value-policy.json"
@@ -171,9 +169,7 @@ def test_model_check_rejects_an_invalid_value_policy_on_an_unused_symbol(
     assert (exit_code, stderr) == (2, "")
     diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
     assert diagnostic["code"] == "language.source_contract_mismatch"
-    assert diagnostic["primary"]["pointer"] == (
-        "/modules/0/symbols/5/value_policy"
-    )
+    assert diagnostic["primary"]["pointer"] == ("/modules/0/symbols/5/value_policy")
 
 
 def test_model_check_refuses_conflicting_transitive_dependency_versions(
@@ -2069,9 +2065,7 @@ def test_resolved_model_admission_recomputes_entrypoint_binding_identities(
         ]
     )
     assert built[0] == 0, built
-    artifacts = _published_semantic_artifacts(
-        _artifact_directory(json.loads(built[1]))
-    )
+    artifacts = _published_semantic_artifacts(_artifact_directory(json.loads(built[1])))
     assert model_module.admit_resolved_model(artifacts).admitted is True
 
     operand = artifacts["rir-semantic-payload"]["entrypoints"][0]["arguments"][0][
@@ -2209,8 +2203,7 @@ def test_model_entrypoint_rejects_every_incompatible_formal_value_axis(
     incompatible,
 ):
     source = (
-        Path(__file__).parents[1]
-        / "examples/schema2/rpg-combat-cast/model-source.json"
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
     checked = model_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
@@ -2293,7 +2286,9 @@ def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path
         source.write_text(json.dumps(source_value), encoding="utf-8")
         checked = model_module.check_model_source(str(source))
         assert isinstance(checked, model_module.CheckedModel)
-        return cast(dict[str, dict[str, Any]], model_module.lower_checked_model(checked))
+        return cast(
+            dict[str, dict[str, Any]], model_module.lower_checked_model(checked)
+        )
 
     baseline = _model_source()
     baseline["entrypoints"] = [
@@ -2328,9 +2323,7 @@ def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path
         if row["symbol"] == "parameter_value"
     )
     parameter["symbol"] = "renamed_parameter"
-    renamed["entrypoints"][0]["arguments"][0]["operand"]["symbol"] = (
-        "renamed_parameter"
-    )
+    renamed["entrypoints"][0]["arguments"][0]["operand"]["symbol"] = "renamed_parameter"
     rebound = deepcopy(baseline)
     rebound["entrypoints"][0]["arguments"][0]["operand"]["symbol"] = "input_value"
 
@@ -2346,36 +2339,47 @@ def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path
         name: value["rir-semantic-payload"]["entrypoints"][0]
         for name, value in artifacts.items()
     }
-    assert len(
-        {
-            entrypoint["arguments"][0]["port"]["identity"]
-            for entrypoint in entrypoints.values()
-        }
-    ) == 1
-    assert len(
-        {
-            entrypoint["arguments"][0]["operand"]["identity"]
-            for entrypoint in entrypoints.values()
-        }
-    ) == 3
-    assert len(
-        {
-            value["rir-semantic-payload"]["content_identity"]
-            for value in artifacts.values()
-        }
-    ) == 3
-    assert len(
-        {
-            value["resolved-model"]["content_identity"]
-            for value in artifacts.values()
-        }
-    ) == 3
+    assert (
+        len(
+            {
+                entrypoint["arguments"][0]["port"]["identity"]
+                for entrypoint in entrypoints.values()
+            }
+        )
+        == 1
+    )
+    assert (
+        len(
+            {
+                entrypoint["arguments"][0]["operand"]["identity"]
+                for entrypoint in entrypoints.values()
+            }
+        )
+        == 3
+    )
+    assert (
+        len(
+            {
+                value["rir-semantic-payload"]["content_identity"]
+                for value in artifacts.values()
+            }
+        )
+        == 3
+    )
+    assert (
+        len(
+            {
+                value["resolved-model"]["content_identity"]
+                for value in artifacts.values()
+            }
+        )
+        == 3
+    )
 
 
 def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
     source = (
-        Path(__file__).parents[1]
-        / "examples/schema2/rpg-combat-cast/model-source.json"
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
     checked = model_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
@@ -2388,9 +2392,7 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
         if row["definition"]["id"] == "game.combat.cast-v1"
     )
     hit_call = next(
-        row
-        for row in cast_operation["body"]
-        if row.get("site") == "hit-check"
+        row for row in cast_operation["body"] if row.get("site") == "hit-check"
     )
     second_hit_call = deepcopy(hit_call)
     second_hit_call["site"] = "mitigation-hit-check"
@@ -2414,9 +2416,7 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
         ),
     )
     hit_sites = [
-        row
-        for row in call_sites
-        if row["operation"]["id"] == "game.check.hit-v1"
+        row for row in call_sites if row["operation"]["id"] == "game.check.hit-v1"
     ]
 
     assert [row["site"] for row in hit_sites] == [
@@ -2424,16 +2424,19 @@ def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
         "mitigation-hit-check",
     ]
     assert len({cast(str, row["identity"]) for row in hit_sites}) == 2
-    assert len(
-        {
-            next(
-                cast(str, argument["operand"]["identity"])
-                for argument in row["arguments"]
-                if argument["port"]["name"] == "defense"
-            )
-            for row in hit_sites
-        }
-    ) == 2
+    assert (
+        len(
+            {
+                next(
+                    cast(str, argument["operand"]["identity"])
+                    for argument in row["arguments"]
+                    if argument["port"]["name"] == "defense"
+                )
+                for row in hit_sites
+            }
+        )
+        == 2
+    )
 
 
 @pytest.mark.parametrize(
@@ -2448,8 +2451,7 @@ def test_nested_call_rejects_undeclared_child_closure_widening(
     hidden_value,
 ):
     source = (
-        Path(__file__).parents[1]
-        / "examples/schema2/rpg-combat-cast/model-source.json"
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
     checked = model_module.check_model_source(str(source))
     assert isinstance(checked, model_module.CheckedModel)
@@ -2492,11 +2494,11 @@ def test_authority_admission_rejects_an_orphan_assignment_mode():
             "override": False,
         }
     )
-    mode_schema = candidate_ldb["language"]["wire_schemas"][0]["schema"][
+    mode_schema = candidate_ldb["language"]["wire_schemas"][0]["schema"]["properties"][
+        "modules"
+    ]["items"]["properties"]["symbols"]["items"]["properties"]["value_policy"][
         "properties"
-    ]["modules"]["items"]["properties"]["symbols"]["items"]["properties"][
-        "value_policy"
-    ]["properties"]["mode"]
+    ]["mode"]
     mode_schema["enum"].append("orphan-source")
     _reidentify_language_bundle(candidate_ldb)
 
@@ -2639,8 +2641,8 @@ def test_package_admission_closes_every_operation_composition_axis(
             operation["body"] = deepcopy(recursive_body)
     _reidentify_language_bundle(candidate_ldb)
 
-    composition_subjects = (
-        bootstrap_module._operation_composition_diagnostic_subjects(candidate_ldb)
+    composition_subjects = bootstrap_module._operation_composition_diagnostic_subjects(
+        candidate_ldb
     )
     admission = admit_authorities(baseline.kernel, candidate_ldb)
 
@@ -2744,8 +2746,7 @@ def test_ordered_writable_alias_is_declared_by_the_selected_operation_contract()
 
 def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
     example = (
-        Path(__file__).parents[1]
-        / "examples/schema2/rpg-combat-cast/model-source.json"
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
     source_value = json.loads(example.read_text(encoding="utf-8"))
     source_value["entrypoints"] = [
@@ -3116,17 +3117,17 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
         entry["definitions"] = []
     operation = {
         "alias_policy": {"read_only": "share", "writable_groups": []},
-            "body": [
-                {
-                    "node": "subtract-state",
-                    "symbol": "account_balance",
-                    "value": "price",
-                },
-                {
-                    "node": "copy",
-                    "target": "remaining_balance",
-                    "value": "account_balance",
-                },
+        "body": [
+            {
+                "node": "subtract-state",
+                "symbol": "account_balance",
+                "value": "price",
+            },
+            {
+                "node": "copy",
+                "target": "remaining_balance",
+                "value": "account_balance",
+            },
         ],
         "default_outcome": "purchase-complete",
         "effects": [
@@ -3134,37 +3135,37 @@ def test_non_rpg_package_reaches_evaluator_without_kernel_or_host_extension(
             "metric.observe",
             "snapshot.commit",
         ],
-            "id": "genre.economy.purchase-v1",
-            "inputs": [
-                {
-                    "access": "read-write",
-                    "domain": {"kind": "actual"},
-                    "id": "account_balance",
-                    "kind": "scalar",
-                    "numeric_policy": "exact-int64",
-                    "representation": "Int",
-                    "type": {
-                        "id": "Quantity",
-                        "package": "core.quantity",
-                        "version": "2.0.0",
-                    },
-                    "unit": "1",
+        "id": "genre.economy.purchase-v1",
+        "inputs": [
+            {
+                "access": "read-write",
+                "domain": {"kind": "actual"},
+                "id": "account_balance",
+                "kind": "scalar",
+                "numeric_policy": "exact-int64",
+                "representation": "Int",
+                "type": {
+                    "id": "Quantity",
+                    "package": "core.quantity",
+                    "version": "2.0.0",
                 },
-                {
-                    "access": "read",
-                    "domain": {"kind": "actual"},
-                    "id": "price",
-                    "kind": "scalar",
-                    "numeric_policy": "exact-int64",
-                    "representation": "Int",
-                    "type": {
-                        "id": "Quantity",
-                        "package": "core.quantity",
-                        "version": "2.0.0",
-                    },
-                    "unit": "1",
+                "unit": "1",
+            },
+            {
+                "access": "read",
+                "domain": {"kind": "actual"},
+                "id": "price",
+                "kind": "scalar",
+                "numeric_policy": "exact-int64",
+                "representation": "Int",
+                "type": {
+                    "id": "Quantity",
+                    "package": "core.quantity",
+                    "version": "2.0.0",
                 },
-            ],
+                "unit": "1",
+            },
+        ],
         "kind_rules": {"inputs": "preserve", "result": "preserve"},
         "numeric_policy": "exact-int64",
         "operation_kind": "event-program",

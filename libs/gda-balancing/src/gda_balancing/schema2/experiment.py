@@ -353,9 +353,7 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
                 identity=experiment_identity,
                 pointer=(
                     f"/scenarios/{scenario_index}/assignments"
-                    if not _unique_canonical_rows(
-                        scenario["assignments"], "target"
-                    )
+                    if not _unique_canonical_rows(scenario["assignments"], "target")
                     else f"/scenarios/{scenario_index}"
                 ),
                 message=(
@@ -526,9 +524,7 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
             for row in scenario["assignments"]
         }
         required = {
-            key
-            for key, row in allowed.items()
-            if row["cardinality"] == "required"
+            key for key, row in allowed.items() if row["cardinality"] == "required"
         }
         if not required <= provided.keys() or not provided.keys() <= allowed.keys():
             return _refusal(
@@ -552,9 +548,7 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
                 message="Scenario Named streams do not exactly close operation draws",
             )
         for row in scenario["assignments"]:
-            declaration = declarations[
-                canonical_bytes(cast(JsonValue, row["target"]))
-            ]
+            declaration = declarations[canonical_bytes(cast(JsonValue, row["target"]))]
             domain = declaration["domain"]
             if not domain["minimum"] <= row["value"] <= domain["maximum"]:
                 return _refusal(
@@ -1129,8 +1123,7 @@ def evaluate_experiment(
         state: dict[bytes, int] = {
             identity: cast(int, actual_values[identity])
             for identity, declaration in declarations.items()
-            if declaration["role"] == "state"
-            and identity in actual_values
+            if declaration["role"] == "state" and identity in actual_values
         }
         before = dict(state)
         snapshots.append(
@@ -1192,9 +1185,7 @@ def evaluate_experiment(
                     for binding in instruction["arguments"]:
                         actual = binding["operand"]
                         if actual["kind"] == "port":
-                            child_arguments[binding["port"]] = variables[
-                                actual["port"]
-                            ]
+                            child_arguments[binding["port"]] = variables[actual["port"]]
                             if actual["port"] in state_references:
                                 child_state_references[binding["port"]] = (
                                     state_references[actual["port"]]
@@ -1235,9 +1226,7 @@ def evaluate_experiment(
                                 }
                                 for row in resolved_call_site["arguments"]
                             ],
-                            "result_identity": resolved_call_site["result"][
-                                "identity"
-                            ],
+                            "result_identity": resolved_call_site["result"]["identity"],
                         }
                     )
                     result_binding = instruction["result"]
@@ -1356,9 +1345,7 @@ def evaluate_experiment(
                         f"admitted evaluator lacks runtime operator {operator}"
                     )
             outcome_definition = next(
-                row
-                for row in selected_operation["outcomes"]
-                if row["id"] == outcome
+                row for row in selected_operation["outcomes"] if row["id"] == outcome
             )
             if outcome_definition["state_policy"] == "rollback":
                 state.clear()
@@ -1377,13 +1364,9 @@ def evaluate_experiment(
         for binding in entrypoint["arguments"]:
             resolved_operand = binding["operand"]
             if resolved_operand["kind"] == "symbol":
-                identity = canonical_bytes(
-                    cast(JsonValue, resolved_operand["symbol"])
-                )
+                identity = canonical_bytes(cast(JsonValue, resolved_operand["symbol"]))
                 declaration = declarations[identity]
-                root_arguments[binding["port"]["name"]] = actual_values[
-                    identity
-                ]
+                root_arguments[binding["port"]["name"]] = actual_values[identity]
                 if declaration["role"] == "state":
                     root_state_references[binding["port"]["name"]] = identity
             else:
@@ -1416,8 +1399,7 @@ def evaluate_experiment(
                 call_path=fault.call_path,
                 call_site_identity=fault.call_site_identity,
                 state_before={
-                    display_names[identity]: value
-                    for identity, value in before.items()
+                    display_names[identity]: value for identity, value in before.items()
                 },
             )
         for identity, value in state.items():
@@ -1465,10 +1447,7 @@ def evaluate_experiment(
         )
         scenario_outputs[scenario["id"]] = (
             event,
-            {
-                display_names[identity]: value
-                for identity, value in state.items()
-            },
+            {display_names[identity]: value for identity, value in state.items()},
             outcome,
         )
 

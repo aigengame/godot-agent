@@ -1146,9 +1146,9 @@ def _reference_entrypoints(
         ): declaration
         for declaration in declarations
     }
-    domains = checked.kernel["meta_format"]["runtime_program"][
-        "invocation_contract"
-    ]["identity_domains"]
+    domains = checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
+        "identity_domains"
+    ]
     assert policy["duplicate_actual_policy"] == "collapse"
     assert policy["scenario_target_cardinality"] == "one-per-resolved-actual"
     resolved_entrypoints = []
@@ -1169,9 +1169,7 @@ def _reference_entrypoints(
         if operation_row is None:
             raise ValueError("entrypoint Operation is not selected")
         operation = operation_row["definition"]
-        exact_operation = _reference_exact_operation(
-            operation_row, package_versions
-        )
+        exact_operation = _reference_exact_operation(operation_row, package_versions)
         formals = operation["inputs"]
         authored_arguments = source_entrypoint["arguments"]
         if [row["port"] for row in authored_arguments] != [
@@ -1189,11 +1187,8 @@ def _reference_entrypoints(
                 declaration = declarations_by_source.get(
                     (operand["module"], operand["symbol"])
                 )
-                if (
-                    declaration is None
-                    or not _reference_value_contract_matches(
-                        declaration, formal
-                    )
+                if declaration is None or not _reference_value_contract_matches(
+                    declaration, formal
                 ):
                     raise ValueError("entrypoint Symbol is incompatible")
                 access = formal["access"]
@@ -1209,9 +1204,7 @@ def _reference_entrypoints(
                     **operand_body,
                     "identity": operand_identity,
                 }
-                aliases.setdefault(operand_identity, []).append(
-                    (formal["id"], access)
-                )
+                aliases.setdefault(operand_identity, []).append((formal["id"], access))
                 value_policy = declaration["value_policy"]
                 mode = _reference_assignment_mode(declaration, roles)
                 if mode["experiment_cardinality"] != "forbidden":
@@ -1294,9 +1287,7 @@ def _reference_entrypoints(
             }
         result = {
             **result_body,
-            "identity": _reference_content_identity(
-                domains["result"], result_body
-            ),
+            "identity": _reference_content_identity(domains["result"], result_body),
         }
         body = {
             "id": entrypoint_id,
@@ -1321,9 +1312,7 @@ def _reference_entrypoints(
         resolved_entrypoints.append(
             {
                 **body,
-                "identity": _reference_content_identity(
-                    domains["entrypoint"], body
-                ),
+                "identity": _reference_content_identity(domains["entrypoint"], body),
             }
         )
     return sorted(resolved_entrypoints, key=lambda row: row["id"])
@@ -1366,9 +1355,9 @@ def _reference_call_sites(
         ): row
         for row in operation_rows
     }
-    domains = checked.kernel["meta_format"]["runtime_program"][
-        "invocation_contract"
-    ]["identity_domains"]
+    domains = checked.kernel["meta_format"]["runtime_program"]["invocation_contract"][
+        "identity_domains"
+    ]
     rows = []
     cache: dict[tuple[str, str, str], tuple[set[str], set[str], int]] = {}
 
@@ -1376,9 +1365,7 @@ def _reference_call_sites(
         operation_row: dict[str, Any],
         stack: tuple[tuple[str, str, str], ...],
     ) -> tuple[set[str], set[str], int]:
-        parent_ref = _reference_exact_operation(
-            operation_row, package_versions
-        )
+        parent_ref = _reference_exact_operation(operation_row, package_versions)
         parent_key = (
             parent_ref["package"],
             parent_ref["version"],
@@ -1390,9 +1377,7 @@ def _reference_call_sites(
             return cache[parent_key]
         operation = operation_row["definition"]
         parent_ports = {row["id"]: row for row in operation["inputs"]}
-        parent_outcomes = {
-            row["id"] for row in operation.get("outcomes", [])
-        }
+        parent_outcomes = {row["id"] for row in operation.get("outcomes", [])}
         local_contracts: dict[str, dict[str, Any]] = {}
         effects = set(operation["effects"])
         refusals = set(operation["refusals"])
@@ -1417,9 +1402,7 @@ def _reference_call_sites(
             if child_row is None:
                 raise ValueError("nested Operation is not selected")
             child = child_row["definition"]
-            exact_child = _reference_exact_operation(
-                child_row, package_versions
-            )
+            exact_child = _reference_exact_operation(child_row, package_versions)
             child_ports = child["inputs"]
             authored_arguments = instruction["arguments"]
             if [row["port"] for row in authored_arguments] != [
@@ -1428,18 +1411,14 @@ def _reference_call_sites(
                 raise ValueError("nested arguments do not close formal ports")
             aliases: dict[str, list[tuple[str, str]]] = {}
             arguments = []
-            for formal, authored in zip(
-                child_ports, authored_arguments, strict=True
-            ):
+            for formal, authored in zip(child_ports, authored_arguments, strict=True):
                 formal_body = {"operation": exact_child, "name": formal["id"]}
                 operand = authored["operand"]
                 if operand["kind"] == "port":
                     contract = parent_ports.get(operand["port"])
                     if (
                         contract is None
-                        or not _reference_operation_contract_matches(
-                            contract, formal
-                        )
+                        or not _reference_operation_contract_matches(contract, formal)
                         or (
                             formal["access"] in {"read-write", "write"}
                             and contract["access"] not in {"read-write", "write"}
@@ -1463,9 +1442,7 @@ def _reference_call_sites(
                     if (
                         contract is None
                         or formal["access"] != "read"
-                        or not _reference_operation_contract_matches(
-                            contract, formal
-                        )
+                        or not _reference_operation_contract_matches(contract, formal)
                     ):
                         raise ValueError("nested local operand is incompatible")
                     operand_body = {
@@ -1538,9 +1515,7 @@ def _reference_call_sites(
                 "binding": authored_result,
             }
             result = {
-                "identity": _reference_content_identity(
-                    domains["result"], result_body
-                ),
+                "identity": _reference_content_identity(domains["result"], result_body),
                 "binding": authored_result,
             }
             authored_outcomes = instruction["outcomes"]
@@ -1607,14 +1582,11 @@ def _reference_call_sites(
             rows.append(
                 {
                     **body,
-                    "identity": _reference_content_identity(
-                        domains["call_site"], body
-                    ),
+                    "identity": _reference_content_identity(domains["call_site"], body),
                 }
             )
         if (
-            resource_policy["containment"]
-            == "transitive-charge-within-caller-bound"
+            resource_policy["containment"] == "transitive-charge-within-caller-bound"
             and charge > operation["resource_bounds"]["max_steps"]
         ):
             raise ValueError("transitive resource charge exceeds caller bound")
@@ -2140,8 +2112,7 @@ def test_independent_lowerers_mutually_consume_byte_identical_rir(tmp_path):
 
 def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
     path = (
-        Path(__file__).parents[1]
-        / "examples/schema2/rpg-combat-cast/model-source.json"
+        Path(__file__).parents[1] / "examples/schema2/rpg-combat-cast/model-source.json"
     )
     source = cast(
         dict[str, Any],
@@ -2156,9 +2127,7 @@ def test_independent_lowerers_close_the_rpg_entrypoint_and_nested_call_graph():
     production = lower_checked_model(checked)
     reference = _reference_semantic_artifacts(reference_checked)
 
-    assert production["rir-semantic-payload"] == reference[
-        "rir-semantic-payload"
-    ]
+    assert production["rir-semantic-payload"] == reference["rir-semantic-payload"]
     rir = reference["rir-semantic-payload"]
     assert len(cast(list[Any], rir["entrypoints"])) == 1
     assert len(cast(list[Any], rir["call_sites"])) == 4
