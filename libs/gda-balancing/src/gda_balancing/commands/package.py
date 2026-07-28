@@ -1,9 +1,22 @@
 """Standard Schema 2.0 package inventory commands (bADR-0021/0023)."""
 
+import re
 from collections.abc import Callable
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    ValidationInfo,
+    field_validator,
+)
+from pydantic.json_schema import (
+    DEFAULT_REF_TEMPLATE,
+    GenerateJsonSchema,
+    JsonSchemaMode,
+)
 
 from gda_balancing.descriptors import CommandDescriptor, ConformanceFixtures
 from gda_balancing.schema2.authority import (
@@ -19,6 +32,30 @@ from gda_balancing.schema2.diagnostics import (
 )
 
 
+def _package_coordinate_contracts() -> dict[str, dict[str, Any]]:
+    kernel, _language_bundle = load_descriptor_authorities()
+    field_types = (
+        kernel.get("meta_format", {})
+        .get("language_bundle", {})
+        .get("package_descriptor", {})
+        .get("field_types")
+    )
+    if not isinstance(field_types, dict):
+        raise ValueError("Kernel package-coordinate contracts are absent")
+    contracts: dict[str, dict[str, Any]] = {}
+    for name in ("id", "version"):
+        contract = field_types.get(name)
+        if (
+            not isinstance(contract, dict)
+            or contract.get("type") != "non-empty-string"
+            or not isinstance(contract.get("pattern"), str)
+            or not contract["pattern"]
+        ):
+            raise ValueError(f"Kernel package-coordinate contract is invalid: {name}")
+        contracts[name] = contract
+    return contracts
+
+
 class PackageListInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -29,6 +66,47 @@ class PackageGetInput(BaseModel):
     id: str = Field(min_length=1)
     version: str = Field(min_length=1)
     member: Literal["release", "conformance-vectors"] = "release"
+
+    @field_validator("id", "version")
+    @classmethod
+    def _validate_kernel_coordinate(cls, value: str, info: ValidationInfo) -> str:
+        field_name = info.field_name
+        if field_name not in {"id", "version"}:
+            raise ValueError("package-coordinate validator reached an unknown field")
+        try:
+            contract = _package_coordinate_contracts()[field_name]
+        except AuthorityLoadError:
+            return value
+        if re.fullmatch(cast(str, contract["pattern"]), value) is None:
+            raise ValueError(f"value does not match the Kernel {field_name} contract")
+        return value
+
+    @classmethod
+    def model_json_schema(
+        cls,
+        by_alias: bool = True,
+        ref_template: str = DEFAULT_REF_TEMPLATE,
+        schema_generator: type[GenerateJsonSchema] = GenerateJsonSchema,
+        mode: JsonSchemaMode = "validation",
+        *,
+        union_format: Literal["any_of", "primitive_type_array"] = "any_of",
+    ) -> dict[str, Any]:
+        schema = super().model_json_schema(
+            by_alias=by_alias,
+            ref_template=ref_template,
+            schema_generator=schema_generator,
+            mode=mode,
+            union_format=union_format,
+        )
+        properties = schema.get("properties")
+        if not isinstance(properties, dict):
+            raise ValueError("PackageGetInput schema has no properties")
+        for name, contract in _package_coordinate_contracts().items():
+            field_schema = properties.get(name)
+            if not isinstance(field_schema, dict):
+                raise ValueError(f"PackageGetInput schema has no {name} field")
+            field_schema["pattern"] = contract["pattern"]
+        return schema
 
 
 class PackageArtifact(RootModel[dict[str, Any]]):

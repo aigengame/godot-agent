@@ -562,6 +562,29 @@ def test_package_command_schemas_reverse_conform_to_kernel_meta_format(run_cli):
     )
 
 
+def test_package_get_input_projects_kernel_coordinate_patterns(run_cli):
+    authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
+    coordinate_contracts = authority["kernel"]["meta_format"]["language_bundle"][
+        "package_descriptor"
+    ]["field_types"]
+    command_schema = json.loads(run_cli(["package", "get", "--schema"])[1])
+    input_properties = command_schema["input"]["properties"]
+
+    assert input_properties["id"]["pattern"] == coordinate_contracts["id"]["pattern"]
+    assert (
+        input_properties["version"]["pattern"]
+        == coordinate_contracts["version"]["pattern"]
+    )
+
+    exit_code, stdout, stderr = run_cli(
+        ["package", "get", "--id", "game/combat", "--version", "1.0.0"]
+    )
+
+    assert (exit_code, stdout) == (3, "")
+    error = json.loads(stderr)["error"]
+    assert (error["category"], error["code"]) == ("usage", "invalid_argument")
+
+
 def test_package_get_schema_rejects_values_forbidden_by_kernel_meta_format(run_cli):
     authority = json.loads(run_cli(["schema", "get", "language-bundle"])[1])
     release = authority["package_releases"][0]

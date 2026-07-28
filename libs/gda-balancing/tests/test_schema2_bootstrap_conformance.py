@@ -532,32 +532,41 @@ def _consumer_b_package_vector_set_is_closed(
         "vector_definitions",
         "vectors",
     }
-    expected_field_types = {
+    fixed_field_types = {
         "artifact_kind": {"const": "package-conformance-vector-set"},
         "content_identity": {"type": "non-empty-string"},
-        "package_id": {
-            "pattern": r"^[a-z0-9]+(?:\.[a-z0-9]+)*$",
-            "type": "non-empty-string",
-        },
-        "package_version": {
-            "pattern": r"^[0-9]+\.[0-9]+\.[0-9]+$",
-            "type": "non-empty-string",
-        },
         "vector_definitions": {"type": "list"},
         "vectors": {"type": "string-list"},
     }
+    field_types = contract.get("field_types") if isinstance(contract, dict) else None
+    coordinate_contracts = (
+        [field_types.get("package_id"), field_types.get("package_version")]
+        if isinstance(field_types, dict)
+        else []
+    )
     return (
         isinstance(contract, dict)
         and contract.get("closed") is True
         and contract.get("required_members") == sorted(expected_members)
-        and contract.get("field_types") == expected_field_types
+        and isinstance(field_types, dict)
+        and set(field_types) == expected_members
+        and all(
+            field_types[name] == expected
+            for name, expected in fixed_field_types.items()
+        )
+        and all(
+            isinstance(item, dict)
+            and item.get("type") == "non-empty-string"
+            and isinstance(item.get("pattern"), str)
+            and bool(item["pattern"])
+            for item in coordinate_contracts
+        )
         and set(vector_set) == expected_members
         and all(
-            _consumer_b_value_matches(
-                vector_set[name], expected_field_types[name], vector_set
-            )
+            _consumer_b_value_matches(vector_set[name], field_types[name], vector_set)
             for name in expected_members
         )
+        and len(vector_set["vectors"]) == len(set(vector_set["vectors"]))
     )
 
 
@@ -6621,6 +6630,33 @@ def test_two_consumers_project_kernel_package_coordinate_patterns():
         "kernel.binding_mismatch",
         "kernel.member_set_mismatch",
     }
+
+
+def test_two_consumers_follow_a_mutated_kernel_coordinate_pattern(monkeypatch):
+    authority = authority_set()
+    kernel = authority["kernel"]
+    ldb = authority["language_bundle"]
+    kernel["meta_format"]["package_conformance_vector_set"]["field_types"][
+        "package_id"
+    ]["pattern"] = r"^game\.[a-z0-9]+$"
+    _reidentify(kernel, ldb)
+    monkeypatch.setattr(
+        production_bootstrap, "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
+    )
+    monkeypatch.setitem(
+        globals(), "_SUPPORTED_KERNEL_IDENTITY", kernel["content_identity"]
+    )
+
+    first = _consumer_a(kernel, ldb)
+    second = _consumer_b(kernel, ldb)
+
+    assert first == second
+    assert first["admitted"] is False
+    assert any(
+        code == "kernel.vector_mismatch"
+        and subject == "language-bundle.language.packages.0.vectors"
+        for _stage, code, subject in first["diagnostics"]
+    )
 
 
 @pytest.mark.parametrize(
