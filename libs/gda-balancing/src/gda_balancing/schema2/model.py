@@ -1000,6 +1000,19 @@ def _check_model_source_bytes(
         kernel=kernel,
         language_bundle=ldb,
     )
+    invalid_policy_pointer = _invalid_source_value_policy_pointer(source, ldb)
+    if invalid_policy_pointer is not None:
+        source_contract_reason = reason_by_id(
+            ldb,
+            cast(str, profile["structural_reason"]),
+        )
+        return _refusal(
+            cast(str, source_contract_reason["diagnostic"]),
+            source_identity,
+            invalid_policy_pointer,
+            "Model Symbol does not close the LDB assignment policy",
+            ldb,
+        )
     try:
         lock, declarations, admitted_lowering, _source_rows = _lowering_inputs(checked)
         selected_semantics = _runtime_projection(
@@ -1491,12 +1504,13 @@ def _value_policy_is_valid(
 ) -> bool:
     role = declaration.get("role")
     value_policy = declaration.get("value_policy")
-    policy_row = assignment_by_role.get(role)
     if (
         not isinstance(role, str)
         or not isinstance(value_policy, dict)
-        or policy_row is None
     ):
+        return False
+    policy_row = assignment_by_role.get(role)
+    if policy_row is None:
         return False
     mode = value_policy.get("mode")
     if mode not in policy_row.get("modes", []):
@@ -1523,6 +1537,32 @@ def _value_policy_is_valid(
             return False
         return True
     return set(value_policy) == {"mode"}
+
+
+def _invalid_source_value_policy_pointer(
+    source: dict[str, Any],
+    language_bundle: dict[str, Any],
+) -> str | None:
+    assignment_by_role = _assignment_policy_by_role(
+        _model_lowering(language_bundle)
+    )
+    for module_index, module in enumerate(
+        cast(list[dict[str, Any]], source["modules"])
+    ):
+        for symbol_index, symbol in enumerate(
+            cast(list[dict[str, Any]], module["symbols"])
+        ):
+            if not _value_policy_is_valid(symbol, assignment_by_role):
+                return _pointer(
+                    (
+                        "modules",
+                        module_index,
+                        "symbols",
+                        symbol_index,
+                        "value_policy",
+                    )
+                )
+    return None
 
 
 def _resolved_entrypoints(
@@ -2820,18 +2860,30 @@ def _resolved_entrypoint_graph_is_admitted(
             "identity_domains"
         ],
     )
-    ids = [row.get("id") for row in entrypoints if isinstance(row, dict)]
+    if any(
+        not isinstance(row, dict) or not isinstance(row.get("id"), str)
+        for row in entrypoints
+    ):
+        return False
+    ids = cast(list[str], [row["id"] for row in entrypoints])
     if len(ids) != len(entrypoints) or ids != sorted(ids) or len(ids) != len(set(ids)):
         return False
     for entrypoint in entrypoints:
         operation_ref = entrypoint.get("operation")
-        if not isinstance(operation_ref, dict):
+        if (
+            not isinstance(operation_ref, dict)
+            or not all(
+                isinstance(operation_ref.get(member), str)
+                for member in ("package", "version", "id")
+            )
+        ):
             return False
+        exact_operation_ref = cast(dict[str, str], operation_ref)
         operation_row = operations.get(
             (
-                operation_ref.get("package"),
-                operation_ref.get("version"),
-                operation_ref.get("id"),
+                exact_operation_ref["package"],
+                exact_operation_ref["version"],
+                exact_operation_ref["id"],
             )
         )
         if operation_row is None:
@@ -2866,10 +2918,21 @@ def _resolved_entrypoint_graph_is_admitted(
                 return False
             if operand.get("kind") == "symbol":
                 symbol = operand.get("symbol")
-                if not isinstance(symbol, dict):
+                if (
+                    not isinstance(symbol, dict)
+                    or not all(
+                        isinstance(symbol.get(member), str)
+                        for member in ("model", "module", "name")
+                    )
+                ):
                     return False
+                exact_symbol = cast(dict[str, str], symbol)
                 declaration = declarations_by_symbol.get(
-                    (symbol.get("model"), symbol.get("module"), symbol.get("name"))
+                    (
+                        exact_symbol["model"],
+                        exact_symbol["module"],
+                        exact_symbol["name"],
+                    )
                 )
                 if (
                     declaration is None
@@ -2957,13 +3020,20 @@ def _resolved_entrypoint_graph_is_admitted(
             result_body = cast(dict[str, JsonValue], {"kind": "discard"})
         elif result.get("kind") == "symbol":
             result_symbol = result.get("symbol")
-            if not isinstance(result_symbol, dict):
+            if (
+                not isinstance(result_symbol, dict)
+                or not all(
+                    isinstance(result_symbol.get(member), str)
+                    for member in ("model", "module", "name")
+                )
+            ):
                 return False
+            exact_result_symbol = cast(dict[str, str], result_symbol)
             result_declaration = declarations_by_symbol.get(
                 (
-                    result_symbol.get("model"),
-                    result_symbol.get("module"),
-                    result_symbol.get("name"),
+                    exact_result_symbol["model"],
+                    exact_result_symbol["module"],
+                    exact_result_symbol["name"],
                 )
             )
             if (

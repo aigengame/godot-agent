@@ -140,12 +140,14 @@ therefore requires a small closed type language and a constrained package extens
   as an opaque extension for a later evaluator to reinterpret.
 
 - **Operation specifications close the extension's semantic surface.** Every operation declares a
-  complete type signature, unit/kind rules, purity, deterministic resource bounds, permitted
-  Numeric profiles, and runtime effects: state reads/writes, emitted signals, scheduled/canceled
-  events, and Named random streams. Reducible domain semantics and diagnostic codes belong to the
-  Language Definition Bundle; an irreducible primitive follows the Schema-major Kernel Specification
-  amendment and conformance path in bADR-0022. Host evaluator code is a conforming implementation
-  only.
+  complete named formal-port signature and result, unit/kind rules, purity, deterministic resource
+  bounds, permitted Numeric profiles, and runtime effects: state reads/writes, emitted signals,
+  scheduled/canceled events, and Named random streams. Every nested invocation has one stable call
+  site and binds the callee's exact formal-port set once to caller ports, lexical locals, literals,
+  or another Kernel-admitted expression. Reducible domain semantics and diagnostic codes belong to
+  the Language Definition Bundle; an irreducible primitive follows the Schema-major Kernel
+  Specification amendment and conformance path in bADR-0022. Host evaluator code is a conforming
+  implementation only.
 
 - **Operation closure is checked before RIR and revalidated before execution.** Closed Kernel-node
   shapes reject even unknown fields on known nodes. Static judgments derive parameter use,
@@ -154,6 +156,15 @@ therefore requires a small closed type language and a constrained package extens
   kind/unit/Numeric rules, purity, effects, and bounds. Runtime admission compares the complete RIR
   Operation projection to that exact selected release and rejects an LDB-present but Lock-unselected
   operation. Reidentifying a partial or inconsistent artifact cannot make it executable.
+
+- **Model invocation closes the reusable Operation interface without duplicating it.** Model Source
+  owns named, typed symbols and value policies plus entrypoints that explicitly bind those symbols
+  to exact Operation formal ports and bind or discard results. RIR resolves each actual operand and
+  call site to canonical identities and derives the Scenario Input Contract from reachable symbols.
+  Experiment scenarios select an entrypoint and assign that contract exactly once per member; they
+  cannot select a raw Operation or repeat its port declarations. Equal source names are never a
+  binding rule. Read-only aliasing is explicit; writable aliasing is refused unless the Operation
+  contract explicitly admits it.
 
 - **Expected gameplay branches use closed discriminated outcomes.** An operation whose declared
   game semantics can complete as `reserved`, `insufficient`, `immune`, `interrupted`, or another
@@ -291,6 +302,11 @@ therefore requires a small closed type language and a constrained package extens
   variants and payloads, kind/unit/Numeric rules, purity, effects, and resource-bound shape/type/
   value. Each malformed release must produce a typed refusal before RIR rather than a host
   exception, and a consistently reidentified RIR projection must still fail runtime admission.
+- Exercise missing, extra, duplicate, unknown, aliased, and type-incompatible formal bindings at
+  nested Operation call sites and Model entrypoints. Exercise Scenario Input under-supply,
+  over-supply, duplicate assignment, raw-Operation selection, and symbol renaming. Both independent
+  consumers must derive the same call graph and identities or the same bounded refusal before
+  execution.
 - Exercise every admitted constructor, including nested Record/List/Map/Quantity/Distribution
   shapes, at Kernel-law and Operation boundaries. Both must accept or refuse identically; an
   unknown, partially checked, or host-native value cannot cross either boundary.

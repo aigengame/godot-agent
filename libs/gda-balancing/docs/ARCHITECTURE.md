@@ -285,6 +285,14 @@ uses it to define complete language and Domain-package operations. Every operati
 declare its inputs, result, effects, refusals, numeric behavior, lowering, evaluation, and vectors.
 A host function bearing the same name is not an operation definition.
 
+Operation composition is explicit and directional. An LDB Operation is the sole authority for its
+named formal ports. Every nested call binds the callee's complete formal-port set to caller ports,
+caller locals, literals, or another Kernel-admitted expression; equality of display names has no
+semantic force. A Model Source entrypoint then binds one exact Operation's ports to resolved Model
+symbols and binds or explicitly discards its result. Experiment scenarios may select only those
+entrypoints and assign the generated Scenario Input Contract; they cannot select an LDB Operation
+or repeat its port schema.
+
 `math.equation` is reserved for a possible future algebraic/continuous subset and is refused by the
 initial 2.0 LDB. It cannot be approximated through evaluator-specific behavior.
 
@@ -341,6 +349,27 @@ The public compilation pipeline is:
 The **Debug Map** is separate from RIR semantics so that source locations and explanatory provenance
 can change without changing model meaning. Resolution and build receipts record how an artifact was
 obtained; they are not part of the RIR semantic payload.
+
+### 6.1.1 Resolved invocation graph
+
+Typed HIR closes every invocation before RIR:
+
+1. the LDB owns each Operation's formal ports, result/outcomes, body, and nested call sites;
+2. Model Source owns symbols, their initialization policies, and entrypoints that bind those
+   symbols to one exact Operation interface;
+3. lowering resolves every formal-to-actual edge to canonical symbol/local/literal identities,
+   rejects missing, extra, duplicate, unknown, incompatible, cyclic, or illegally writable
+   bindings, and derives the reachable effect/refusal/resource closure;
+4. RIR records the exact entrypoint and call-site graph plus its generated Scenario Input Contract;
+5. an Experiment selects one entrypoint and totally assigns that contract; and
+6. runtime and any private EIR consume those identities without name lookup or ambient capture.
+
+Renaming a Model symbol while updating its entrypoint and Scenario assignments is an authored
+semantic change: the actual-operand, call-site, RIR, and Resolved-Model identities change. Reusing
+one symbol for two compatible read-only ports is explicit aliasing, not duplication. A writable
+alias is legal only when the selected Operation contract explicitly admits it. Formula evaluation
+under #590 may introduce another Kernel-admitted expression operand, but it does not replace or
+weaken the same entrypoint/call-site closure.
 
 ### 6.2 Identity layers
 
@@ -609,7 +638,7 @@ fault-injected and verified independently.
 An Experiment Specification owns everything that turns a model into a testable question:
 
 - scenarios and external inputs;
-- selectors and parameter assignments;
+- exact Model-entrypoint selection and total assignments to its generated Scenario Input Contract;
 - exact model/runtime compatibility binding;
 - metric definitions and observation points;
 - statistical method, sample plan, and uncertainty policy;
@@ -839,6 +868,9 @@ classified by the same vocabulary used above:
 | Refined—adopted | Evaluator-capability mismatch happens before Event dispatch, so publishing a Runtime terminal audit or Resolved Runtime profile falsely implied execution. It is now a plain `resolution` refusal with no artifact set; only a refusal after Event dispatch may publish terminal audit. | bADR-0014/0015 staging and command outcome contract; implementation updated |
 | Refined—adopted | The first Metric dataset carried values but not the complete definition, window/time, dimensions, replication, missing/censoring, provenance, data version, partition, ordering, and ingestion binding required by bADR-0018. Those fields and definition identities are now mandatory even in this one-scenario slice. | Experiment Metric contract and Metric-dataset wire schema; machine authority updated |
 | Refined—adopted | Duplicate JSON keys were collapsed by host decoding, non-empty external inputs were silently ignored, a multi-scenario refusal named the first scenario, and an Operation step budget accumulated across scenarios. Canonical ingress now rejects duplicate keys, unsupported external inputs refuse explicitly, terminal audit retains the exact scenario, and per-Event/per-run budgets have separate scopes. | Canonical ingress, Experiment admission, and Runtime accounting; implementation/conformance updated |
+| Refined—adopted | The first cast selected a raw LDB Operation while Model symbols, Operation inputs, and scenario values repeated equal names. That made the host's same-name lookup an undeclared peer binding authority and could not express one defense symbol feeding distinct hit and mitigation ports. Operations now own formal ports, Model Source owns explicit entrypoint bindings, RIR owns resolved call-site identities plus the derived Scenario Input Contract, and Experiment owns only total assignments to that contract. | bADR-0012/0013/0016/0022 invocation-authority chain; machine authority, tutorial, runtime, and both consumers updated |
+| Refined—adopted | Nested Operation execution initially shared one ambient value map, so caller locals and same-named model values could be captured across call boundaries. Runtime now creates lexical call frames from the RIR's exact formal-to-actual bindings and traces entrypoint, call-site, operation, outcome, operand, and result identities. RIR admission independently rederives the graph so coherent identity rewriting cannot bless a tampered binding. | Kernel invoke law, LDB call sites, RIR/runtime admission, and trace provenance; machine authority and conformance updated |
+| Confirmed—narrowly | One Model symbol intentionally supplies the cast's two compatible read-only defense ports, while distinct resource/health symbols remain distinct and a source-symbol rename reidentifies the actual operand, call site, RIR, and Resolved Model. Under/over/duplicate assignments, unknown ports, incompatible or writable aliases, cycles, and raw-Operation Experiment selection refuse before execution. | Explicit-binding and Scenario Input conformance vectors for the committed cast; retained |
 | Confirmed—narrowly | A second evaluator that shares only the Kernel/LDB authorities independently executes the committed cast and agrees exactly on typed outcome, facts, state, and RNG trace. It validates every runtime-node contract vector and executes every RNG vector; nodes outside the cast are not claimed as independently executed semantics. | Bounded differential witness for `rpg.combat.cast-v1`; retained as a test, not generalized |
 | Authored-example only | The chosen cast formula, starting values, targets, and two Metrics make this feedback loop useful; they do not establish that the package inventory or abstraction is RPG-complete. | Example/Experiment; retain without generalizing |
 

@@ -689,11 +689,12 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
         build_receipt=build_receipt,
         base_damage=24,
     )
-    resolved_target = lambda name: {
-        "model": "example.rpg-combat-cast",
-        "module": "combat",
-        "name": name,
-    }
+    def resolved_target(name):
+        return {
+            "model": "example.rpg-combat-cast",
+            "module": "combat",
+            "name": name,
+        }
     specification["scenarios"] = [
         {
             "id": "one-cast",
@@ -1569,8 +1570,12 @@ def test_numeric_overflow_rolls_back_the_entire_current_event(tmp_path, run_cli)
     ]
     audit = _member(error["terminal_audit"], "runtime-terminal-audit")
     assert audit["committed_trace_prefix"] == []
-    assert audit["refusing_event"]["operation"] == "game.combat.cast-v1"
+    assert audit["refusing_event"]["operation"] == "game.combat.damage-v1"
     assert audit["refusing_event"]["reason"] == "runtime.numeric_overflow"
+    assert audit["refusing_event"]["entrypoint"]["id"] == "combat.cast"
+    assert audit["refusing_event"]["entrypoint"]["identity"].startswith("sha256:")
+    assert audit["refusing_event"]["call_path"] == "combat.cast/apply-damage"
+    assert audit["refusing_event"]["call_site_identity"].startswith("sha256:")
     assert audit["rollback"]["committed"] is False
     assert audit["rollback"]["state_before"] == [
         {"name": "actor_mana", "value": 30},
@@ -1955,9 +1960,19 @@ def test_postcommit_delivery_failure_recovers_every_outcome_without_rerunning(
         error = recovered["error"]
         assert error["stage"] == "runtime"
         assert error["diagnostics"][0]["primary"]["pointer"] == (
-            "/scenarios/0/operation"
+            "/scenarios/0/entrypoint"
         )
         audit = _member(error["terminal_audit"], "runtime-terminal-audit")
+        assert audit["refusing_event"]["entrypoint"]["id"] == "combat.cast"
+        assert audit["refusing_event"]["entrypoint"]["identity"].startswith(
+            "sha256:"
+        )
+        assert audit["refusing_event"]["call_path"] == (
+            "combat.cast/spend-resource"
+        )
+        assert audit["refusing_event"]["call_site_identity"].startswith(
+            "sha256:"
+        )
         assert audit["diagnostic"] == {
             "stage": "runtime",
             **error["diagnostics"][0],

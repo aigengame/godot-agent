@@ -48,10 +48,14 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
 
 - **Authored facts are divided into three non-overlapping authority domains:**
   1. The **Model Source Package** is the sole editable authority for a game's model definitions and
-     declared dependency requirements. It contains an authored manifest and model modules.
+     declared dependency requirements. It contains an authored manifest, model modules, symbols
+     with value policies, and Model entrypoints that bind those symbols to exact LDB Operation
+     interfaces.
   2. The **Experiment Specification** is the authority for scenarios, model inputs, metrics,
-     targets, observation/calibration policy, and other evaluation intent. It references an exact
-     resolved-model identity or an explicit compatibility contract and cannot redefine the model.
+     targets, observation/calibration policy, and other evaluation intent. Each scenario selects a
+     Model entrypoint and totally assigns its generated Scenario Input Contract. It references an
+     exact resolved-model identity or an explicit compatibility contract and cannot redefine the
+     model, select a raw LDB Operation, or invent a model input.
   3. The **Approval Record** is the immutable governance authority for one approval decision. It
      binds the exact model, experiment, evidence, evaluator, policy, and attestation identities and
      cannot mutate or copy their owned facts.
@@ -148,6 +152,12 @@ them to redefine another domain. PRD #534 makes closing this chain the first hum
   exactly one Resolved Model before execution and publish a final binding receipt containing the
   selector, resolver identity, selected exact identity, and review disposition. Zero or multiple
   matches are `resolution` refusals; silent or in-place rebinding is prohibited.
+
+- **Invocation authority is a one-way chain.** The LDB Operation is the sole authority for formal
+  ports and reusable behavior. Model Source symbols are game-owned actual operands, and a Model
+  entrypoint owns their explicit binding to one exact Operation interface. RIR derives the resolved
+  call graph and Scenario Input Contract. Experiment assigns only those derived symbol identities.
+  No layer copies a peer input declaration or infers a binding from equal names.
 
 - **Schema and product versions remain independent.** “Standard Schema 2.0” identifies the
   language/specification major. It does not imply a `gda-balancing` 2.0.0 release; product version

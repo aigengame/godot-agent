@@ -5908,6 +5908,7 @@ def _runtime_authority_is_closed(
         }
     ):
         return False
+    assert isinstance(invocation, dict)
     vectors = runtime.get("vectors")
     if (
         not isinstance(vectors, list)

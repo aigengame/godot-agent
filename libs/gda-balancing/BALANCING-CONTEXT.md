@@ -151,8 +151,10 @@ _Avoid_: Experiment Specification (after build), executable experiment, experime
 **Experiment Specification**:
 The authored authority for scenarios, Metric definitions, targets, sampling/replication design,
 observation and discrepancy models, calibration policy, train/holdout partition, acceptance rule,
-and drift policy. It references an exact `Resolved Model` identity or a declared compatibility
-contract and may bind inputs, but it cannot redefine the model. Exact Resolved-Model binding is
+and drift policy. Each scenario selects one exact `Model entrypoint` and assigns every member of
+that entrypoint's generated `Scenario Input Contract` exactly once; it cannot select a raw LDB
+Operation, invent an input name, or redefine a formal port or model symbol. It references an exact
+`Resolved Model` identity or a declared compatibility contract. Exact Resolved-Model binding is
 immutable; compatibility binding may compare RIR semantic payloads but must resolve to one exact
 Resolved Model before execution and produce an identified
 final-binding receipt. Changing RIR semantics therefore creates a new Experiment Specification
@@ -172,11 +174,13 @@ _Avoid_: approval flag, approved model, sign-off note
 **RIR semantic payload**:
 The immutable canonical semantic normal form produced after Typed HIR. It contains only selected,
 reachable facts that can affect specified observable behavior: resolved symbols and types,
-operation bodies/signatures/effects/results, state and event semantics, and other admitted runtime
-fragments. Source order, aliases, comments, spans, AST/HIR identities, lowering traces, diagnostic
-provenance, and unselected Language Definition Bundle inventory are excluded. If an unused package
-is added to the bundle without changing resolution ambiguity or the selected closure, this payload
-and its content identity remain byte-identical (bADR-0013/0016).
+operation bodies/signatures/effects/results, resolved Model entrypoints, exact Operation call sites,
+formal-to-actual operand identities, the generated Scenario Input Contract, state and event
+semantics, and other admitted runtime fragments. Source order, aliases, comments, spans, AST/HIR
+identities, lowering traces, diagnostic provenance, and unselected Language Definition Bundle
+inventory are excluded. If an unused package is added to the bundle without changing resolution
+ambiguity or the selected closure, this payload and its content identity remain byte-identical
+(bADR-0013/0016).
 _Avoid_: Resolved Model (the authority wrapper), compiled source tree, evaluator plan
 
 **Resolved Model**:
@@ -382,10 +386,49 @@ _Avoid_: feature flag, optional behavior, duck-typed extension
 
 **Operation specification**:
 The Language Definition Bundle entry that gives a versioned operation its complete static and
-runtime contract: type signature, unit rules, purity, resource bounds, Numeric profiles, and
-declared reads, writes, emitted signals, scheduled events, and Named random streams. An evaluator
-implements this contract; its host-language function is not the authority (bADR-0012/0016).
+runtime contract: named `Formal port`s and result, unit rules, purity, resource bounds, Numeric
+profiles, declared reads, writes, emitted signals, scheduled events, Named random streams, and a
+body whose nested calls use explicit port-to-operand bindings. An evaluator implements this
+contract; its host-language function is not the authority (bADR-0012/0016).
 _Avoid_: function registration, evaluator hook, opcode documentation
+
+**Formal port**:
+A named, typed input declared once by an LDB `Operation specification`. The formal port is the sole
+authority for that Operation's reusable consumption interface. Model symbols, caller locals, and
+literals do not redefine it; an `Operation call site` binds each required formal port exactly once
+to one compatible `Actual operand` (bADR-0016/0022).
+_Avoid_: model input name, scenario variable, argument copied into every consumer
+
+**Actual operand**:
+The explicit value source bound to one `Formal port` at one `Operation call site`: a resolved Model
+symbol, a caller-local result, a literal, or another Kernel-admitted expression. Its identity is
+derived from the owning authority and binding position. Equal display names are never binding
+proof, and one actual may intentionally feed multiple compatible ports (bADR-0013/0022).
+_Avoid_: implicit same-name lookup, ambient variable, parameter declaration
+
+**Operation call site**:
+One statically bounded invocation of an exact versioned Operation from a Model entrypoint or another
+Operation body. It owns a stable site id, exact formal-to-actual bindings, result/outcome binding,
+and resolved effect/refusal/resource closure. Typed HIR resolves it before RIR; RIR identifies it;
+an EIR may optimize it but must preserve the same bindings and observable provenance. It is distinct
+from a Formula evaluation site, which issue #590 may add as another expression-shaped actual
+operand without changing this call contract (bADR-0013/0016/0022).
+_Avoid_: dynamic dispatch, operation name alone, evaluator callback
+
+**Model entrypoint**:
+An authored Model Source declaration that binds one exact LDB Operation's formal ports to the
+model's resolved symbols and binds or explicitly discards its result. It is the only Experiment-
+selectable execution root. Its identity changes when the selected Operation, any formal-to-symbol
+binding, result binding, or reachable semantic closure changes (bADR-0012/0013).
+_Avoid_: raw operation selector, scenario operation, implicit main
+
+**Scenario Input Contract**:
+The generated, ordered set of exact resolved Model-symbol identities required to initialize one
+`Model entrypoint`, derived from its reachable actual operands and each symbol's authored value
+policy. An Experiment scenario must assign every required member exactly once and no other member;
+it references identities and supplies values but does not own or duplicate symbol declarations or
+Operation formal ports (bADR-0012/0013/0022).
+_Avoid_: scenario values by name, operation parameter list, Experiment-owned model schema
 
 **Discriminated gameplay outcome**:
 A closed Enum/Record result returned when declared game semantics complete with one expected

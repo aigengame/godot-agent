@@ -78,6 +78,18 @@ def _symbol(name: str, role: str) -> dict[str, Any]:
         "domain_kind": "closed-interval",
         "domain": {"minimum": 0, "maximum": 100},
         "numeric_policy": "exact-int64",
+        "value_policy": {
+            "mode": (
+                "model-fixed"
+                if role == "constant"
+                else "experiment-required"
+                if role in {"parameter", "input", "state"}
+                else "named-stream"
+                if role == "random"
+                else "none"
+            ),
+            **({"value": 1} if role == "constant" else {}),
+        },
     }
 
 
@@ -90,6 +102,7 @@ def _source(symbols: list[dict[str, Any]]) -> dict[str, Any]:
             "entry_module": "main",
         },
         "package_requirements": [{"id": "core.quantity", "version": "2.0.0"}],
+        "entrypoints": [],
         "modules": [
             {
                 "id": "main",
@@ -108,7 +121,10 @@ def _source(symbols: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _write_source(path: Path, source: dict[str, Any]) -> None:
-    path.write_text(json.dumps(source), encoding="utf-8")
+    path.write_text(
+        json.dumps(source, separators=(",", ":")),
+        encoding="utf-8",
+    )
 
 
 def _reference_select(root: Any, selector: list[str]) -> list[Any]:
@@ -1006,6 +1022,8 @@ def _reference_rir(
         "rir-semantic-payload",
         {
             lowering["output_member"]: declarations,
+            "entrypoints": [],
+            "call_sites": [],
             "selected_semantics": _reference_runtime_projection(
                 checked, lock, declarations, lowering
             ),

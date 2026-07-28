@@ -24,10 +24,11 @@ The example models one `game.combat.cast-v1` event. A character spends mana, rol
 critical outcome, deals damage after defense, and updates the target's health. The files are:
 
 - [`model-source.json`](model-source.json): the editable numeric model. It declares symbols such
-  as mana, damage, defense, and health, their roles and domains, and its package requirements.
+  as mana, damage, defense, and health, their roles and domains, its package requirements, and the
+  `combat.cast` entrypoint that explicitly binds those symbols to Operation ports.
 - [`experiment.json`](experiment.json): one exact scenario and evaluation policy. It binds the
-  built Model artifacts, supplies scenario values and a seed, and defines the Metrics and
-  acceptance targets.
+  built Model artifacts, selects `combat.cast`, assigns its generated Scenario Input Contract,
+  supplies a seed, and defines the Metrics and acceptance targets.
 
 This is a beginner-oriented product-feedback slice, not proof of general RPG or Roguelike
 coverage.
@@ -113,6 +114,19 @@ All seven values use exact signed-64-bit integer semantics and an admitted range
 The Model Source owns these definitions; it does not contain a scenario, seed, Metric target, or
 runtime result.
 
+The Model Source also owns the `combat.cast` entrypoint. `game.combat.cast-v1` is the reusable LDB
+Operation and therefore owns formal ports such as `hit_defense` and `damage_mitigation`. The
+entrypoint binds both of those read-only ports explicitly to the one game-owned
+`target_defense` symbol; matching names are neither required nor used for resolution. The
+Experiment later assigns the resolved symbol once. This is deliberate DRY:
+
+```text
+LDB Operation formal ports
+    -> Model entrypoint binds game-owned symbols
+        -> RIR derives exact call sites and Scenario Input Contract
+            -> Experiment assigns only those contract members
+```
+
 ## 3. Build the Resolved Model and RIR
 
 Build the model and save the returned artifact-set receipt:
@@ -178,11 +192,13 @@ actor_mana = actor_mana - action_cost
 ## 4. Check the Experiment Specification
 
 The companion [`experiment.json`](experiment.json) binds the exact source, Build receipt,
-Resolved Model, Package Lock, and RIR identities produced by the build. It also owns:
+Resolved Model, Package Lock, and RIR identities produced by the build. Its `one-cast` scenario
+selects the `combat.cast` Model entrypoint and assigns all seven required symbol identities exactly
+once. It also owns:
 
 - the `standard.exact-int64-event-v1` Runtime profile request;
 - the effective RNG algorithm and seed;
-- the `one-cast` scenario values and Named random streams;
+- the `one-cast` Scenario Input assignments and Named random streams;
 - the `damage_dealt` and `target_health_remaining` Metrics;
 - their target ranges and the all-Metrics acceptance policy.
 
@@ -205,9 +221,9 @@ A successful check reports:
 }
 ```
 
-This stage verifies structure, exact authority and Model bindings, operation inputs, Named streams,
-Runtime profile requirements, and Metric definitions. It does not execute the combat Event and
-does not publish an artifact set.
+This stage verifies structure, exact authority and Model bindings, entrypoint selection, complete
+Scenario Input assignment, Named streams, Runtime profile requirements, and Metric definitions. It
+does not execute the combat Event and does not publish an artifact set.
 
 ## 5. Run and inspect the Experiment
 
@@ -260,7 +276,9 @@ Inspect the combat transition:
 
 ```sh
 jq '.events[] | {
+  entrypoint,
   operation,
+  calls,
   outcome,
   rng_draws,
   state_before,
@@ -297,8 +315,8 @@ hit/critical branches can legitimately produce the same damage and health.
 Create a working copy that raises `base_damage` from `24` to `40`:
 
 ```sh
-jq '(.scenarios[0].values[]
-  | select(.name == "base_damage")
+jq '(.scenarios[0].assignments[]
+  | select(.target.name == "base_damage")
   | .value) = 40' \
   examples/schema2/rpg-combat-cast/experiment.json \
   > "$GDA_BALANCING_TUTORIAL_ROOT/experiment-damage-40.json"

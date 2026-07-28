@@ -83,9 +83,29 @@ class RuntimeRefusalOutcome:
     committed_trace_prefix: tuple[dict[str, JsonValue], ...]
     last_state: dict[str, int]
     refusing_event_index: int
+    refusing_entrypoint_id: str
+    refusing_entrypoint_identity: str
     refusing_operation: str
+    refusing_call_path: str
+    refusing_call_site_identity: str | None
     state_before: dict[str, int]
     state_after: dict[str, int]
+
+
+class _RuntimeExecutionFault(Exception):
+    def __init__(
+        self,
+        *,
+        signal: str,
+        operation: str,
+        call_path: tuple[str, ...],
+        call_site_identity: str | None,
+    ) -> None:
+        super().__init__(signal)
+        self.signal = signal
+        self.operation = operation
+        self.call_path = call_path
+        self.call_site_identity = call_site_identity
 
 
 def _raw_identity(data: bytes) -> str:
@@ -965,7 +985,13 @@ def runtime_terminal_audit_members(
                 "last_snapshot": _int_rows(outcome.last_state),
                 "refusing_event": {
                     "index": outcome.refusing_event_index,
+                    "entrypoint": {
+                        "id": outcome.refusing_entrypoint_id,
+                        "identity": outcome.refusing_entrypoint_identity,
+                    },
                     "operation": outcome.refusing_operation,
+                    "call_path": outcome.refusing_call_path,
+                    "call_site_identity": outcome.refusing_call_site_identity,
                     "reason": diagnostic.code,
                 },
                 "rollback": {
@@ -1008,14 +1034,18 @@ def _runtime_refusal_outcome(
     code: str,
     message: str,
     events: list[dict[str, JsonValue]],
+    entrypoint_id: str,
+    entrypoint_identity: str,
     operation: str,
+    call_path: tuple[str, ...],
+    call_site_identity: str | None,
     state_before: dict[str, int],
 ) -> RuntimeRefusalOutcome:
     report = _refusal(
         stage="runtime",
         code=code,
         identity=checked.content_identity,
-        pointer=f"/scenarios/{scenario_index}/operation",
+        pointer=f"/scenarios/{scenario_index}/entrypoint",
         message=message,
     )
     return RuntimeRefusalOutcome(
@@ -1032,7 +1062,11 @@ def _runtime_refusal_outcome(
         ),
         last_state=dict(state_before),
         refusing_event_index=len(events),
+        refusing_entrypoint_id=entrypoint_id,
+        refusing_entrypoint_identity=entrypoint_identity,
         refusing_operation=operation,
+        refusing_call_path="/".join(call_path),
+        refusing_call_site_identity=call_site_identity,
         state_before=dict(state_before),
         state_after=dict(state_before),
     )
@@ -1085,7 +1119,7 @@ def evaluate_experiment(
         for assignment in scenario["assignments"]:
             identity = canonical_bytes(cast(JsonValue, assignment["target"]))
             actual_values[identity] = assignment["value"]
-        state = {
+        state: dict[bytes, int] = {
             identity: cast(int, actual_values[identity])
             for identity, declaration in declarations.items()
             if declaration["role"] == "state"
@@ -1115,10 +1149,11 @@ def evaluate_experiment(
             arguments: dict[str, Any],
             state_references: dict[str, bytes],
             call_path: tuple[str, ...],
+            call_site_identity: str | None,
         ) -> tuple[str, Any]:
             nonlocal event_steps, total_steps
-            operation_before = dict(state)
-            variables = dict(arguments)
+            operation_before: dict[bytes, int] = dict(state)
+            variables: dict[str, Any] = dict(arguments)
             outcome = selected_operation["default_outcome"]
             operation_steps = 0
             for instruction in selected_operation["body"]:
@@ -1133,11 +1168,19 @@ def evaluate_experiment(
                     or operation_steps
                     > selected_operation["resource_bounds"]["max_steps"]
                 ):
-                    raise RuntimeError("step-limit")
+                    raise _RuntimeExecutionFault(
+                        signal="step-limit",
+                        operation=selected_operation["id"],
+                        call_path=call_path,
+                        call_site_identity=call_site_identity,
+                    )
                 semantics = node_contract["semantics"]
                 operator = semantics["operator"]
                 if operator == "invoke-operation":
                     child = operations[instruction["operation"]["id"]]
+                    resolved_call_site = call_sites[
+                        (selected_operation["id"], instruction["site"])
+                    ]
                     child_arguments: dict[str, Any] = {}
                     child_state_references: dict[str, bytes] = {}
                     for binding in instruction["arguments"]:
@@ -1161,10 +1204,8 @@ def evaluate_experiment(
                         child_arguments,
                         child_state_references,
                         (*call_path, instruction["site"]),
+                        resolved_call_site["identity"],
                     )
-                    resolved_call_site = call_sites[
-                        (selected_operation["id"], instruction["site"])
-                    ]
                     resolved_outcome = next(
                         row
                         for row in resolved_call_site["outcomes"]
@@ -1261,7 +1302,17 @@ def evaluate_experiment(
                         if operator == "integer-multiply"
                         else max(left, right)
                     )
-                    variables[instruction["target"]] = _admit_numeric(result, numeric)
+                    try:
+                        variables[instruction["target"]] = _admit_numeric(
+                            result, numeric
+                        )
+                    except OverflowError as error:
+                        raise _RuntimeExecutionFault(
+                            signal="numeric-overflow",
+                            operation=selected_operation["id"],
+                            call_path=call_path,
+                            call_site_identity=call_site_identity,
+                        ) from error
                 elif operator == "integer-compare":
                     variables[instruction["target"]] = _integer_compare(
                         semantics["comparison"],
@@ -1284,7 +1335,15 @@ def evaluate_experiment(
                         if operator == "state-integer-subtract"
                         else variables[instruction["value"]]
                     )
-                    state[actual] = _admit_numeric(value, numeric)
+                    try:
+                        state[actual] = _admit_numeric(value, numeric)
+                    except OverflowError as error:
+                        raise _RuntimeExecutionFault(
+                            signal="numeric-overflow",
+                            operation=selected_operation["id"],
+                            call_path=call_path,
+                            call_site_identity=call_site_identity,
+                        ) from error
                     variables[formal] = state[actual]
                 else:
                     raise ValueError(
@@ -1329,32 +1388,27 @@ def evaluate_experiment(
                 root_arguments,
                 root_state_references,
                 (cast(str, entrypoint["id"]),),
+                None,
             )
-        except RuntimeError:
+        except _RuntimeExecutionFault as fault:
+            code = _diagnostic_for_signal(checked, fault.signal, "runtime")
+            message = (
+                "Runtime program exhausted its exact step bound"
+                if fault.signal == "step-limit"
+                else "Exact-int64 operation overflowed its numeric domain"
+            )
             return _runtime_refusal_outcome(
                 checked,
                 scenario_id=scenario["id"],
                 scenario_index=scenario_index,
-                code=_diagnostic_for_signal(checked, "step-limit", "runtime"),
-                message="Runtime program exhausted its exact step bound",
+                code=code,
+                message=message,
                 events=events,
-                operation=operation["id"],
-                state_before={
-                    display_names[identity]: value
-                    for identity, value in before.items()
-                },
-            )
-        except OverflowError:
-            return _runtime_refusal_outcome(
-                checked,
-                scenario_id=scenario["id"],
-                scenario_index=scenario_index,
-                code=_diagnostic_for_signal(
-                    checked, "numeric-overflow", "runtime"
-                ),
-                message="Exact-int64 operation overflowed its numeric domain",
-                events=events,
-                operation=operation["id"],
+                entrypoint_id=entrypoint["id"],
+                entrypoint_identity=entrypoint["identity"],
+                operation=fault.operation,
+                call_path=fault.call_path,
+                call_site_identity=fault.call_site_identity,
                 state_before={
                     display_names[identity]: value
                     for identity, value in before.items()
@@ -1420,7 +1474,7 @@ def evaluate_experiment(
         observation = metric["observation"]
         matched: list[tuple[str, int]] = []
         for scenario in checked.value["scenarios"]:
-            event, state, outcome = scenario_outputs[scenario["id"]]
+            event, metric_state, outcome = scenario_outputs[scenario["id"]]
             if observation["source"] == "event":
                 if outcome != observation["name"]:
                     continue
@@ -1434,7 +1488,7 @@ def evaluate_experiment(
                 expected_name = observation["name"]
                 if expected_name not in {"terminal", f"{scenario['id']}:terminal"}:
                     continue
-                value = state.get(observation["member"])
+                value = metric_state.get(observation["member"])
             if isinstance(value, int):
                 matched.append((scenario["id"], value))
         if len(matched) != 1:

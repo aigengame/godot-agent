@@ -152,6 +152,29 @@ def test_model_check_resolves_capabilities_from_transitive_package_dependencies(
     assert json.loads(stdout)["checked"] is True
 
 
+def test_model_check_rejects_an_invalid_value_policy_on_an_unused_symbol(
+    tmp_path, run_cli
+):
+    source_value = _model_source()
+    output = next(
+        row
+        for row in source_value["modules"][0]["symbols"]
+        if row["role"] == "output"
+    )
+    output["value_policy"] = {"mode": "experiment-required"}
+    source = tmp_path / "invalid-unused-value-policy.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    diagnostic = json.loads(stdout)["error"]["diagnostics"][0]
+    assert diagnostic["code"] == "language.source_contract_mismatch"
+    assert diagnostic["primary"]["pointer"] == (
+        "/modules/0/symbols/5/value_policy"
+    )
+
+
 def test_model_check_refuses_conflicting_transitive_dependency_versions(
     tmp_path, monkeypatch
 ):
@@ -2209,6 +2232,111 @@ def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path
     ) == 3
 
 
+def test_one_operation_can_resolve_at_multiple_sites_with_distinct_bindings():
+    source = (
+        Path(__file__).parents[1]
+        / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    checked = model_module.check_model_source(str(source))
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    selected = deepcopy(cast(dict[str, Any], rir["selected_semantics"]))
+    cast_operation = next(
+        row["definition"]
+        for row in selected["operations"]
+        if row["definition"]["id"] == "game.combat.cast-v1"
+    )
+    hit_call = next(
+        row
+        for row in cast_operation["body"]
+        if row.get("site") == "hit-check"
+    )
+    second_hit_call = deepcopy(hit_call)
+    second_hit_call["site"] = "mitigation-hit-check"
+    defense_binding = next(
+        row for row in second_hit_call["arguments"] if row["port"] == "defense"
+    )
+    defense_binding["operand"]["port"] = "damage_mitigation"
+    cast_operation["body"].insert(
+        cast_operation["body"].index(hit_call) + 1,
+        second_hit_call,
+    )
+
+    call_sites = cast(
+        list[dict[str, Any]],
+        model_module._resolved_call_sites(checked.kernel, selected),
+    )
+    hit_sites = [
+        row
+        for row in call_sites
+        if row["operation"]["id"] == "game.check.hit-v1"
+    ]
+
+    assert [row["site"] for row in hit_sites] == [
+        "hit-check",
+        "mitigation-hit-check",
+    ]
+    assert len({cast(str, row["identity"]) for row in hit_sites}) == 2
+    assert len(
+        {
+            next(
+                cast(str, argument["operand"]["identity"])
+                for argument in row["arguments"]
+                if argument["port"]["name"] == "defense"
+            )
+            for row in hit_sites
+        }
+    ) == 2
+
+
+def test_model_entrypoint_can_explicitly_discard_a_discardable_result(tmp_path):
+    example = (
+        Path(__file__).parents[1]
+        / "examples/schema2/rpg-combat-cast/model-source.json"
+    )
+    source_value = json.loads(example.read_text(encoding="utf-8"))
+    source_value["entrypoints"] = [
+        {
+            "id": "resource.spend",
+            "operation": {
+                "package": "game.resource",
+                "version": "1.0.0",
+                "id": "game.resource.spend-v1",
+            },
+            "arguments": [
+                {
+                    "port": "resource",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "actor_mana",
+                    },
+                },
+                {
+                    "port": "cost",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "combat",
+                        "symbol": "action_cost",
+                    },
+                },
+            ],
+            "result": {"kind": "discard"},
+        }
+    ]
+    source = tmp_path / "discardable-entrypoint.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    checked = model_module.check_model_source(str(source))
+
+    assert isinstance(checked, model_module.CheckedModel)
+    artifacts = model_module.lower_checked_model(checked)
+    rir = cast(dict[str, Any], artifacts["rir-semantic-payload"])
+    entrypoints = cast(list[dict[str, Any]], rir["entrypoints"])
+    assert entrypoints[0]["result"]["kind"] == "discard"
+
+
 def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields(
     tmp_path,
 ):
@@ -2240,6 +2368,20 @@ def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields
         "items"
     ]["properties"]["symbols"]["items"]["properties"]["role"]["enum"].append(
         "lowered-by-ldb"
+    )
+    lowering = candidate_ldb["language"]["model_lowerings"][0]
+    lowering["assignment_policy"]["roles"].append(
+        {
+            "role": "lowered-by-ldb",
+            "modes": [
+                "experiment-override",
+                "experiment-required",
+                "model-fixed",
+                "named-stream",
+                "none",
+            ],
+            "experiment_assignable": True,
+        }
     )
     _reidentify_language_bundle(candidate_ldb)
     assert admit_authorities(checked.kernel, candidate_ldb).admitted is True

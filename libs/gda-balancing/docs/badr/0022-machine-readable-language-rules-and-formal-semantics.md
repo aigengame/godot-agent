@@ -82,10 +82,11 @@ structured formal judgments, and an honest proof/conformance boundary.
 
 - **The Semantic kernel is intentionally small and closed.** Its operation set and observable laws
   are fixed by the Kernel Specification. It contains literals, typed reads,
-  versioned calls, conditionals, non-shadowing local bindings, statically bounded aggregates,
-  lookup, named-stream sampling, and the transition/event primitives required by bADR-0014.
+  versioned calls with exact named port-to-operand bindings, conditionals, non-shadowing lexical
+  local bindings, statically bounded aggregates, lookup, named-stream sampling, and the
+  transition/event primitives required by bADR-0014.
   Recursion, user-defined loops, unbounded collection traversal, reflection, dynamic operation
-  lookup, host callbacks, and ambient state are not kernel features.
+  lookup, host callbacks, ambient state, and same-name argument capture are not kernel features.
 
 - **Runtime-program node families are closed and exhaustive.** The Kernel classifies every admitted
   node as an expression, effect, or control node and fixes its fields, evaluation position, result
@@ -115,10 +116,20 @@ structured formal judgments, and an honest proof/conformance boundary.
   selected Operation, and runtime admission revalidates that projection against the exact selected
   package release and Lock.
 
+- **Call resolution is total and lexical.** Every Operation call site binds every required callee
+  formal port exactly once and binds no unknown or duplicate port. Actual operands are caller ports,
+  lexical caller locals, literals, or Kernel-admitted expressions; caller-local scope does not leak
+  across sibling calls or into the host. Static admission checks type/access compatibility,
+  result/outcome handling, acyclic bounded nesting, effects, refusals, and resource closure. Model
+  entrypoints apply the same law to resolved Model symbols and bind or explicitly discard their
+  results. Successful lowering gives every actual operand and call site a stable identity.
+
 - **Experiment selection and acceptance semantics are language judgments.** The LDB supplies closed
-  typing/evaluation laws for exact-model input overrides, event-sequence references, Metric
-  selectors, empty/missing behavior, and acceptance expressions. Implementations may optimize
-  those judgments but cannot replace them with scenario conditionals or post-hoc host decisions.
+  typing/evaluation laws for exact Model-entrypoint selection, total assignment of the generated
+  Scenario Input Contract, event-sequence references, Metric selectors, empty/missing behavior, and
+  acceptance expressions. An Experiment cannot select a raw LDB Operation or assign an undeclared
+  symbol. Implementations may optimize those judgments but cannot replace them with name matching,
+  scenario conditionals, or post-hoc host decisions.
 
 - **Name resolution is explicit and deterministic.** Packages contain named modules. Imports are
   selective or explicitly aliased; wildcard imports are forbidden. A declaration or local binding
