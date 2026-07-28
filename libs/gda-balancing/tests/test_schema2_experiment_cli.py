@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -214,6 +215,8 @@ def _reference_execute_event(
     state_names: set[str],
     root_arguments: list[dict[str, Any]] | None = None,
     result_target: str | None = None,
+    resolved_entrypoint: dict[str, Any] | None = None,
+    resolved_call_sites: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     runtime = kernel["meta_format"]["runtime_program"]
     numeric = runtime["numeric"]
@@ -230,6 +233,11 @@ def _reference_execute_event(
     rng_states: dict[str, int] = {}
     rng_indices: dict[str, int] = {}
     draws: list[dict[str, Any]] = []
+    calls: list[dict[str, Any]] = []
+    call_sites = {
+        (row["parent_operation"]["id"], row["site"]): row
+        for row in (resolved_call_sites or [])
+    }
 
     def exact(value: int) -> int:
         assert numeric["minimum"] <= value <= numeric["maximum"]
@@ -239,6 +247,7 @@ def _reference_execute_event(
         selected: dict[str, Any],
         arguments: dict[str, dict[str, Any]],
         stack: tuple[str, ...] = (),
+        path: tuple[str, ...] = (),
     ) -> tuple[str, Any]:
         assert selected["id"] not in stack
         locals_: dict[str, dict[str, Any]] = {}
@@ -275,7 +284,36 @@ def _reference_execute_event(
                     child,
                     child_arguments,
                     (*stack, selected["id"]),
+                    (*path, instruction["site"]),
                 )
+                if resolved_call_sites is not None:
+                    call_site = call_sites[(selected["id"], instruction["site"])]
+                    outcome_row = next(
+                        row
+                        for row in call_site["outcomes"]
+                        if row["outcome"] == child_outcome
+                    )
+                    calls.append(
+                        {
+                            "call_site_identity": call_site["identity"],
+                            "site": "/".join((*path, instruction["site"])),
+                            "operation": call_site["operation"],
+                            "outcome": {
+                                "id": child_outcome,
+                                "identity": outcome_row["identity"],
+                            },
+                            "arguments": [
+                                {
+                                    "formal_port_identity": row["port"]["identity"],
+                                    "actual_operand_identity": row["operand"][
+                                        "identity"
+                                    ],
+                                }
+                                for row in call_site["arguments"]
+                            ],
+                            "result_identity": call_site["result"]["identity"],
+                        }
+                    )
                 result_binding = instruction["result"]
                 if result_binding["kind"] == "local":
                     write_local(result_binding["name"], child_result)
@@ -387,7 +425,11 @@ def _reference_execute_event(
     root_frame = {
         row["port"]: cells[row["operand"]["symbol"]] for row in root_arguments
     }
-    outcome, result = execute(operation, root_frame)
+    outcome, result = execute(
+        operation,
+        root_frame,
+        path=((resolved_entrypoint["id"],) if resolved_entrypoint else ()),
+    )
     if result_target is not None:
         cells[result_target] = {"value": result}
     outcome_definition = next(
@@ -397,7 +439,7 @@ def _reference_execute_event(
         for name, value in before.items():
             state_cells[name]["value"] = value
     facts = {name: cell["value"] for name, cell in cells.items()}
-    return {
+    event = {
         "operation": operation["id"],
         "outcome": {
             "id": outcome,
@@ -413,6 +455,13 @@ def _reference_execute_event(
         ],
         "rng_draws": draws,
     }
+    if resolved_entrypoint is not None:
+        event["entrypoint"] = {
+            "id": resolved_entrypoint["id"],
+            "identity": resolved_entrypoint["identity"],
+        }
+        event["calls"] = calls
+    return event
 
 
 def _experiment(
@@ -694,10 +743,111 @@ def test_public_experiment_uses_resolved_entrypoint_bindings_not_shared_names(
     assert facts["hit_defense"] == 6
     assert facts["damage_mitigation"] == 1
     assert facts["damage_dealt"] == 23
+    assert event["entrypoint"] == {
+        "id": "combat.cast",
+        "identity": _member(build_receipt, "rir-semantic-payload")["entrypoints"][
+            0
+        ]["identity"],
+    }
+    assert [row["operation"]["id"] for row in event["calls"]] == [
+        "game.resource.spend-v1",
+        "game.check.hit-v1",
+        "game.check.critical-v1",
+        "game.combat.damage-v1",
+    ]
+    assert all(
+        row["call_site_identity"].startswith("sha256:")
+        and row["result_identity"].startswith("sha256:")
+        and all(
+            argument["formal_port_identity"].startswith("sha256:")
+            and argument["actual_operand_identity"].startswith("sha256:")
+            for argument in row["arguments"]
+        )
+        for row in event["calls"]
+    )
     assert event["state_after"] == [
         {"name": "actor_mana", "value": 22},
         {"name": "target_health", "value": 77},
     ]
+
+
+def test_model_entrypoint_refuses_conflicting_writable_actual_aliases(
+    tmp_path, run_cli
+):
+    source_value = _rpg_model_source()
+    target_health = next(
+        row
+        for row in source_value["entrypoints"][0]["arguments"]
+        if row["port"] == "target_health"
+    )
+    target_health["operand"]["symbol"] = "actor_mana"
+    source = tmp_path / "writable-alias-model.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/entrypoints"
+
+
+@pytest.mark.parametrize("mutation", ("under", "over", "duplicate"))
+def test_scenario_assignments_exactly_close_the_entrypoint_contract(
+    tmp_path, run_cli, mutation
+):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    assignments = value["scenarios"][0]["assignments"]
+    if mutation == "under":
+        assignments.pop()
+    elif mutation == "over":
+        assignments.append(
+            {
+                "target": {
+                    "model": "example.rpg-combat-cast",
+                    "module": "combat",
+                    "name": "damage_dealt",
+                },
+                "value": 1,
+            }
+        )
+    else:
+        assignments.append(deepcopy(assignments[0]))
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification)]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == (
+        "/scenarios/0/assignments"
+    )
+
+
+def test_experiment_cannot_select_a_raw_ldb_operation(tmp_path, run_cli):
+    specification = _write_built_experiment(tmp_path, run_cli)
+    value = json.loads(specification.read_text(encoding="utf-8"))
+    scenario = value["scenarios"][0]
+    scenario.pop("entrypoint")
+    scenario["operation"] = "game.combat.cast-v1"
+    specification.write_text(json.dumps(value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(
+        ["experiment", "check", str(specification)]
+    )
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    pointer = error["diagnostics"][0]["primary"]["pointer"]
+    assert pointer in {
+        "/scenarios/0/entrypoint",
+        "/scenarios/0/operation",
+    }
 
 
 def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, run_cli):
@@ -811,6 +961,10 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         for row in module["symbols"]
         if row["role"] == "state"
     }
+    rir = _member(build_receipt, "rir-semantic-payload")
+    resolved_entrypoint = next(
+        row for row in rir["entrypoints"] if row["id"] == "combat.cast"
+    )
     reference_event = _reference_execute_event(
         kernel,
         operation,
@@ -820,6 +974,8 @@ def test_public_rpg_tuning_loop_changes_trace_and_metric_explainably(tmp_path, r
         state_names=state_names,
         root_arguments=source_value["entrypoints"][0]["arguments"],
         result_target=source_value["entrypoints"][0]["result"]["symbol"],
+        resolved_entrypoint=resolved_entrypoint,
+        resolved_call_sites=rir["call_sites"],
     )
     assert {
         key: value for key, value in first_trace["events"][0].items() if key != "index"

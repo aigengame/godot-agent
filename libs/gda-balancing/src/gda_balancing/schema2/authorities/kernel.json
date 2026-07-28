@@ -858,7 +858,7 @@
     ],
     "whitespace": "none"
   },
-  "content_identity": "sha256:d1e6f19fb375798f2199f71fc8d4d69ffee8ecdf1d132ca4ec5497e7126bea00",
+  "content_identity": "sha256:a89236b3a4212dfd5ab3e08e5f9b254ebfed969859c08a699b36127773dce8d6",
   "diagnostics": [
     {
       "code": "kernel.identity_mismatch",
@@ -5150,7 +5150,8 @@
         "operand_kinds": [
           "port",
           "local",
-          "literal"
+          "literal",
+          "expression"
         ],
         "result_binding_kinds": [
           "local",

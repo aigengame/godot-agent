@@ -144,6 +144,27 @@ def _pointer(parts: Any) -> str:
     return "/" + "/".join(encoded) if encoded else ""
 
 
+def _schema_error_pointer(error: jsonschema.ValidationError) -> str:
+    parts = list(error.absolute_path)
+    if error.validator == "required" and isinstance(error.instance, dict):
+        missing = [
+            member
+            for member in cast(list[str], error.validator_value)
+            if member not in error.instance
+        ]
+        if missing:
+            parts.append(sorted(missing)[0])
+    elif error.validator in {"additionalProperties", "unevaluatedProperties"} and (
+        isinstance(error.instance, dict)
+        and isinstance(error.schema, dict)
+        and isinstance(error.schema.get("properties"), dict)
+    ):
+        extras = set(error.instance) - set(error.schema["properties"])
+        if extras:
+            parts.append(sorted(extras)[0])
+    return _pointer(parts)
+
+
 def _unique_rows(rows: list[dict[str, Any]], member: str) -> bool:
     values = [row[member] for row in rows]
     return len(values) == len(set(values))
@@ -263,7 +284,7 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
             stage="static",
             code="language.source_contract_mismatch",
             identity=experiment_identity,
-            pointer=_pointer(schema_error.absolute_path),
+            pointer=_schema_error_pointer(schema_error),
             message=schema_error.message,
         )
     if (
@@ -310,7 +331,13 @@ def check_experiment(path: str) -> CheckedExperiment | Schema2RefusalReport:
                 stage="static",
                 code="language.source_contract_mismatch",
                 identity=experiment_identity,
-                pointer=f"/scenarios/{scenario_index}",
+                pointer=(
+                    f"/scenarios/{scenario_index}/assignments"
+                    if not _unique_canonical_rows(
+                        scenario["assignments"], "target"
+                    )
+                    else f"/scenarios/{scenario_index}"
+                ),
                 message=(
                     "The deterministic-event-v1 slice requires unique assignments, "
                     "unique streams, and one terminal Event"
@@ -645,6 +672,41 @@ def _value_rows(values: dict[str, Any]) -> list[dict[str, JsonValue]]:
 
 def _int_rows(values: dict[str, int]) -> list[dict[str, JsonValue]]:
     return [{"name": name, "value": values[name]} for name in sorted(values)]
+
+
+def _resolved_display_names(
+    declarations: dict[bytes, dict[str, Any]],
+) -> dict[bytes, str]:
+    counts: dict[str, int] = {}
+    for declaration in declarations.values():
+        name = cast(str, declaration["symbol"])
+        counts[name] = counts.get(name, 0) + 1
+    result: dict[bytes, str] = {}
+    for identity, declaration in declarations.items():
+        symbol = cast(dict[str, str], declaration["resolved_symbol"])
+        name = cast(str, declaration["symbol"])
+        result[identity] = (
+            name
+            if counts[name] == 1
+            else f"{symbol['model']}:{symbol['module']}:{symbol['name']}"
+        )
+    return result
+
+
+def _resolved_int_rows(
+    values: dict[bytes, int],
+    display_names: dict[bytes, str],
+) -> list[dict[str, JsonValue]]:
+    projected = {display_names[key]: value for key, value in values.items()}
+    return _int_rows(projected)
+
+
+def _resolved_value_rows(
+    values: dict[bytes, Any],
+    display_names: dict[bytes, str],
+) -> list[dict[str, JsonValue]]:
+    projected = {display_names[key]: value for key, value in values.items()}
+    return _value_rows(projected)
 
 
 def _metric_definition_identity(metric: dict[str, Any]) -> str:
@@ -994,6 +1056,14 @@ def evaluate_experiment(
         canonical_bytes(cast(JsonValue, row["resolved_symbol"])): row
         for row in checked.rir["declarations"]
     }
+    display_names = _resolved_display_names(declarations)
+    call_sites = {
+        (
+            cast(dict[str, str], row["parent_operation"])["id"],
+            row["site"],
+        ): row
+        for row in checked.rir["call_sites"]
+    }
     runtime_contract = _runtime_contract(checked)
     numeric = cast(dict[str, Any], runtime_contract["numeric"])
     node_contracts = _runtime_nodes(checked)
@@ -1007,21 +1077,19 @@ def evaluate_experiment(
     total_steps = 0
     runtime_limit = checked.language_bundle["resources"]["max_runtime_steps"]
     for scenario_index, scenario in enumerate(checked.value["scenarios"]):
-        actual_values: dict[str, Any] = {}
-        for declaration in declarations.values():
+        actual_values: dict[bytes, Any] = {}
+        for identity, declaration in declarations.items():
             value_policy = cast(dict[str, Any], declaration["value_policy"])
             if value_policy["mode"] in {"model-fixed", "experiment-override"}:
-                actual_values[declaration["symbol"]] = value_policy["value"]
+                actual_values[identity] = value_policy["value"]
         for assignment in scenario["assignments"]:
-            declaration = declarations[
-                canonical_bytes(cast(JsonValue, assignment["target"]))
-            ]
-            actual_values[declaration["symbol"]] = assignment["value"]
+            identity = canonical_bytes(cast(JsonValue, assignment["target"]))
+            actual_values[identity] = assignment["value"]
         state = {
-            declaration["symbol"]: cast(int, actual_values[declaration["symbol"]])
-            for declaration in declarations.values()
+            identity: cast(int, actual_values[identity])
+            for identity, declaration in declarations.items()
             if declaration["role"] == "state"
-            and declaration["symbol"] in actual_values
+            and identity in actual_values
         }
         before = dict(state)
         snapshots.append(
@@ -1030,7 +1098,7 @@ def evaluate_experiment(
                 {
                     "index": len(snapshots),
                     "name": f"{scenario['id']}:initial",
-                    "values": _int_rows(state),
+                    "values": _resolved_int_rows(state, display_names),
                 },
             )
         )
@@ -1039,14 +1107,16 @@ def evaluate_experiment(
         outcomes = {row["id"]: row for row in operation["outcomes"]}
         draws: list[dict[str, JsonValue]] = []
         call_trace: list[dict[str, JsonValue]] = []
+        event_steps = 0
+        root_step_limit = operation["resource_bounds"]["max_steps"]
 
         def execute_operation(
             selected_operation: dict[str, Any],
             arguments: dict[str, Any],
-            state_references: dict[str, str],
+            state_references: dict[str, bytes],
             call_path: tuple[str, ...],
         ) -> tuple[str, Any]:
-            nonlocal total_steps
+            nonlocal event_steps, total_steps
             operation_before = dict(state)
             variables = dict(arguments)
             outcome = selected_operation["default_outcome"]
@@ -1055,9 +1125,11 @@ def evaluate_experiment(
                 node_contract = node_contracts[instruction["node"]]
                 charge = node_contract["resource_charge"]["amount"]
                 total_steps += charge
+                event_steps += charge
                 operation_steps += charge
                 if (
                     total_steps > runtime_limit
+                    or event_steps > root_step_limit
                     or operation_steps
                     > selected_operation["resource_bounds"]["max_steps"]
                 ):
@@ -1067,7 +1139,7 @@ def evaluate_experiment(
                 if operator == "invoke-operation":
                     child = operations[instruction["operation"]["id"]]
                     child_arguments: dict[str, Any] = {}
-                    child_state_references: dict[str, str] = {}
+                    child_state_references: dict[str, bytes] = {}
                     for binding in instruction["arguments"]:
                         actual = binding["operand"]
                         if actual["kind"] == "port":
@@ -1090,11 +1162,35 @@ def evaluate_experiment(
                         child_state_references,
                         (*call_path, instruction["site"]),
                     )
+                    resolved_call_site = call_sites[
+                        (selected_operation["id"], instruction["site"])
+                    ]
+                    resolved_outcome = next(
+                        row
+                        for row in resolved_call_site["outcomes"]
+                        if row["outcome"] == child_outcome
+                    )
                     call_trace.append(
                         {
                             "site": "/".join((*call_path, instruction["site"])),
-                            "operation": child["id"],
-                            "outcome": child_outcome,
+                            "call_site_identity": resolved_call_site["identity"],
+                            "operation": resolved_call_site["operation"],
+                            "outcome": {
+                                "id": child_outcome,
+                                "identity": resolved_outcome["identity"],
+                            },
+                            "arguments": [
+                                {
+                                    "formal_port_identity": row["port"]["identity"],
+                                    "actual_operand_identity": row["operand"][
+                                        "identity"
+                                    ],
+                                }
+                                for row in resolved_call_site["arguments"]
+                            ],
+                            "result_identity": resolved_call_site["result"][
+                                "identity"
+                            ],
                         }
                     )
                     result_binding = instruction["result"]
@@ -1212,20 +1308,19 @@ def evaluate_experiment(
             return cast(str, outcome), result
 
         root_arguments: dict[str, Any] = {}
-        root_state_references: dict[str, str] = {}
+        root_state_references: dict[str, bytes] = {}
         for binding in entrypoint["arguments"]:
             resolved_operand = binding["operand"]
             if resolved_operand["kind"] == "symbol":
-                declaration = declarations[
-                    canonical_bytes(cast(JsonValue, resolved_operand["symbol"]))
-                ]
+                identity = canonical_bytes(
+                    cast(JsonValue, resolved_operand["symbol"])
+                )
+                declaration = declarations[identity]
                 root_arguments[binding["port"]["name"]] = actual_values[
-                    declaration["symbol"]
+                    identity
                 ]
                 if declaration["role"] == "state":
-                    root_state_references[binding["port"]["name"]] = declaration[
-                        "symbol"
-                    ]
+                    root_state_references[binding["port"]["name"]] = identity
             else:
                 root_arguments[binding["port"]["name"]] = resolved_operand["value"]
         try:
@@ -1244,7 +1339,10 @@ def evaluate_experiment(
                 message="Runtime program exhausted its exact step bound",
                 events=events,
                 operation=operation["id"],
-                state_before=before,
+                state_before={
+                    display_names[identity]: value
+                    for identity, value in before.items()
+                },
             )
         except OverflowError:
             return _runtime_refusal_outcome(
@@ -1257,14 +1355,22 @@ def evaluate_experiment(
                 message="Exact-int64 operation overflowed its numeric domain",
                 events=events,
                 operation=operation["id"],
-                state_before=before,
+                state_before={
+                    display_names[identity]: value
+                    for identity, value in before.items()
+                },
             )
-        for name, value in state.items():
-            actual_values[name] = value
+        for identity, value in state.items():
+            actual_values[identity] = value
         outcome_definition = outcomes[outcome]
-        if outcome_definition["kind"] == "success":
-            result_symbol = entrypoint["result"]["symbol"]["name"]
-            actual_values[result_symbol] = root_result
+        if (
+            outcome_definition["kind"] == "success"
+            and entrypoint["result"]["kind"] == "symbol"
+        ):
+            result_identity = canonical_bytes(
+                cast(JsonValue, entrypoint["result"]["symbol"])
+            )
+            actual_values[result_identity] = root_result
         typed_outcome = {
             "id": outcome,
             "kind": outcome_definition["kind"],
@@ -1274,10 +1380,15 @@ def evaluate_experiment(
             {
                 "index": len(events),
                 "operation": operation["id"],
+                "entrypoint": {
+                    "id": entrypoint["id"],
+                    "identity": entrypoint["identity"],
+                },
+                "calls": call_trace,
                 "outcome": typed_outcome,
-                "facts": _value_rows(actual_values),
-                "state_before": _int_rows(before),
-                "state_after": _int_rows(state),
+                "facts": _resolved_value_rows(actual_values, display_names),
+                "state_before": _resolved_int_rows(before, display_names),
+                "state_after": _resolved_int_rows(state, display_names),
                 "rng_draws": draws,
             },
         )
@@ -1288,11 +1399,18 @@ def evaluate_experiment(
                 {
                     "index": len(snapshots),
                     "name": f"{scenario['id']}:terminal",
-                    "values": _int_rows(state),
+                    "values": _resolved_int_rows(state, display_names),
                 },
             )
         )
-        scenario_outputs[scenario["id"]] = (event, state, outcome)
+        scenario_outputs[scenario["id"]] = (
+            event,
+            {
+                display_names[identity]: value
+                for identity, value in state.items()
+            },
+            outcome,
+        )
 
     samples: list[dict[str, JsonValue]] = []
     metric_definition_identities: list[str] = []

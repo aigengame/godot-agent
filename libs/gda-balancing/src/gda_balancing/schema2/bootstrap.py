@@ -49,7 +49,7 @@ BOOTSTRAP_REFUSAL_CATALOG = (
     ("kernel.vector_mismatch", "static"),
 )
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:d1e6f19fb375798f2199f71fc8d4d69ffee8ecdf1d132ca4ec5497e7126bea00"
+    "sha256:a89236b3a4212dfd5ab3e08e5f9b254ebfed969859c08a699b36127773dce8d6"
 )
 _SUPPORTED_CANONICAL_PROFILE: dict[str, Any] = {
     "array_order": "preserve",
@@ -5897,7 +5897,7 @@ def _runtime_authority_is_closed(
                 "result": "operation-result-v2",
             },
             "argument_evaluation_order": "formal-port-declaration-order",
-            "operand_kinds": ["port", "local", "literal"],
+            "operand_kinds": ["port", "local", "literal", "expression"],
             "result_binding_kinds": ["local", "operation-result", "discard"],
             "outcome_actions": ["continue", "propagate"],
             "outcome_mapping": "exactly-once-and-exhaustive",

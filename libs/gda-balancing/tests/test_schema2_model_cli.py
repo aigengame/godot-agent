@@ -2002,6 +2002,213 @@ def test_resolved_model_admission_rejects_coherently_reidentified_invalid_declar
         assert admission.diagnostics == ("language.resolved_authority_mismatch",)
 
 
+def test_resolved_model_admission_recomputes_entrypoint_binding_identities(
+    tmp_path, run_cli
+):
+    source_value = _model_source()
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / "entrypoint-model-source.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+    built = run_cli(
+        [
+            "model",
+            "build",
+            str(source),
+            "--out",
+            str(tmp_path / "published-model"),
+            "--invocation-key",
+            "5" * 64,
+        ]
+    )
+    assert built[0] == 0, built
+    artifacts = _published_semantic_artifacts(
+        _artifact_directory(json.loads(built[1]))
+    )
+    assert model_module.admit_resolved_model(artifacts).admitted is True
+
+    operand = artifacts["rir-semantic-payload"]["entrypoints"][0]["arguments"][0][
+        "operand"
+    ]
+    operand["identity"] = "sha256:" + ("0" * 64)
+    _reidentify(artifacts["rir-semantic-payload"], "rir-semantic-payload-v2")
+    artifacts["resolved-model"]["rir_identity"] = artifacts["rir-semantic-payload"][
+        "content_identity"
+    ]
+    _reidentify(artifacts["resolved-model"], "resolved-model-v2")
+
+    admission = model_module.admit_resolved_model(artifacts)
+
+    assert admission.admitted is False
+    assert admission.diagnostics == ("language.resolved_authority_mismatch",)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("missing", "extra", "duplicate", "unknown"),
+)
+def test_model_entrypoint_arguments_must_exactly_close_formal_ports(
+    tmp_path, run_cli, mutation
+):
+    source_value = _model_source()
+    arguments = [
+        {
+            "port": "value",
+            "operand": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "parameter_value",
+            },
+        }
+    ]
+    if mutation == "missing":
+        arguments.clear()
+    elif mutation == "extra":
+        arguments.append(
+            {
+                "port": "extra",
+                "operand": {"kind": "literal", "value": 1},
+            }
+        )
+    elif mutation == "duplicate":
+        arguments.append(deepcopy(arguments[0]))
+    else:
+        arguments[0]["port"] = "unknown"
+    source_value["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": arguments,
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    source = tmp_path / f"{mutation}-entrypoint.json"
+    source.write_text(json.dumps(source_value), encoding="utf-8")
+
+    exit_code, stdout, stderr = run_cli(["model", "check", str(source)])
+
+    assert (exit_code, stderr) == (2, "")
+    error = json.loads(stdout)["error"]
+    assert error["stage"] == "static"
+    assert error["diagnostics"][0]["primary"]["pointer"] == "/entrypoints"
+
+
+def test_symbol_rename_and_binding_change_reidentify_the_resolved_graph(tmp_path):
+    def lower(source_value: dict[str, Any], name: str) -> dict[str, dict[str, Any]]:
+        source = tmp_path / f"{name}.json"
+        source.write_text(json.dumps(source_value), encoding="utf-8")
+        checked = model_module.check_model_source(str(source))
+        assert isinstance(checked, model_module.CheckedModel)
+        return cast(dict[str, dict[str, Any]], model_module.lower_checked_model(checked))
+
+    baseline = _model_source()
+    baseline["entrypoints"] = [
+        {
+            "id": "quantity.identity",
+            "operation": {
+                "package": "core.quantity",
+                "version": "2.0.0",
+                "id": "quantity.identity",
+            },
+            "arguments": [
+                {
+                    "port": "value",
+                    "operand": {
+                        "kind": "symbol",
+                        "module": "main",
+                        "symbol": "parameter_value",
+                    },
+                }
+            ],
+            "result": {
+                "kind": "symbol",
+                "module": "main",
+                "symbol": "output_value",
+            },
+        }
+    ]
+    renamed = deepcopy(baseline)
+    parameter = next(
+        row
+        for row in renamed["modules"][0]["symbols"]
+        if row["symbol"] == "parameter_value"
+    )
+    parameter["symbol"] = "renamed_parameter"
+    renamed["entrypoints"][0]["arguments"][0]["operand"]["symbol"] = (
+        "renamed_parameter"
+    )
+    rebound = deepcopy(baseline)
+    rebound["entrypoints"][0]["arguments"][0]["operand"]["symbol"] = "input_value"
+
+    artifacts = {
+        name: lower(value, name)
+        for name, value in (
+            ("baseline", baseline),
+            ("renamed", renamed),
+            ("rebound", rebound),
+        )
+    }
+    entrypoints = {
+        name: value["rir-semantic-payload"]["entrypoints"][0]
+        for name, value in artifacts.items()
+    }
+    assert len(
+        {
+            entrypoint["arguments"][0]["port"]["identity"]
+            for entrypoint in entrypoints.values()
+        }
+    ) == 1
+    assert len(
+        {
+            entrypoint["arguments"][0]["operand"]["identity"]
+            for entrypoint in entrypoints.values()
+        }
+    ) == 3
+    assert len(
+        {
+            value["rir-semantic-payload"]["content_identity"]
+            for value in artifacts.values()
+        }
+    ) == 3
+    assert len(
+        {
+            value["resolved-model"]["content_identity"]
+            for value in artifacts.values()
+        }
+    ) == 3
+
+
 def test_lowerer_executes_the_admitted_ldb_rule_instead_of_copying_source_fields(
     tmp_path,
 ):

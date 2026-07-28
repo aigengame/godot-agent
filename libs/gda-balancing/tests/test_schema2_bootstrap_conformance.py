@@ -24,7 +24,7 @@ from gda_balancing.schema2.authority_graph import (
 from gda_balancing.schema2.bootstrap import admit_authorities
 
 _SUPPORTED_KERNEL_IDENTITY = (
-    "sha256:d1e6f19fb375798f2199f71fc8d4d69ffee8ecdf1d132ca4ec5497e7126bea00"
+    "sha256:a89236b3a4212dfd5ab3e08e5f9b254ebfed969859c08a699b36127773dce8d6"
 )
 
 
@@ -4329,7 +4329,7 @@ def _consumer_b_runtime_authority_is_closed(
         or invocation_contract.get("resource_charge")
         != "invoke-plus-transitive-callee-steps"
         or set(invocation_contract.get("operand_kinds", []))
-        != {"port", "local", "literal"}
+        != {"port", "local", "literal", "expression"}
         or set(invocation_contract.get("result_binding_kinds", []))
         != {"local", "operation-result", "discard"}
         or set(invocation_contract.get("outcome_actions", []))
