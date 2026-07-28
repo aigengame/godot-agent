@@ -423,11 +423,13 @@ binding, result binding, or reachable semantic closure changes (bADR-0012/0013).
 _Avoid_: raw operation selector, scenario operation, implicit main
 
 **Scenario Input Contract**:
-The generated, ordered set of exact resolved Model-symbol identities required to initialize one
-`Model entrypoint`, derived from its reachable actual operands and each symbol's authored value
-policy. An Experiment scenario must assign every required member exactly once and no other member;
-it references identities and supplies values but does not own or duplicate symbol declarations or
-Operation formal ports (bADR-0012/0013/0022).
+The generated, ordered initialization contract for one `Model entrypoint`, derived from its
+reachable actual operands and the LDB-owned total Symbol assignment policy. It records exact
+resolved Model-symbol identities, Model-owned value-policy initializers, Experiment-owned required
+inputs, and optional Experiment overrides of explicit Model defaults. An Experiment scenario must
+assign every required member exactly once, may assign an exported optional member at most once, and
+cannot assign anything else. It references identities and supplies values but does not own or
+duplicate symbol declarations or Operation formal ports (bADR-0012/0013/0022).
 _Avoid_: scenario values by name, operation parameter list, Experiment-owned model schema
 
 **Discriminated gameplay outcome**:

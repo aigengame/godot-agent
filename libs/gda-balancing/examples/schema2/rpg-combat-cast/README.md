@@ -118,7 +118,10 @@ The Model Source also owns the `combat.cast` entrypoint. `game.combat.cast-v1` i
 Operation and therefore owns formal ports such as `hit_defense` and `damage_mitigation`. The
 entrypoint binds both of those read-only ports explicitly to the one game-owned
 `target_defense` symbol; matching names are neither required nor used for resolution. The
-Experiment later assigns the resolved symbol once. This is deliberate DRY:
+LDB assignment policy marks that Symbol as a required Experiment input, so RIR exports one exact
+target even though two ports consume it; the Experiment assigns that target once. A Model-fixed
+value would instead appear as a Model initializer, and an admitted override mode would expose one
+optional Experiment target over that explicit default. This is deliberate DRY:
 
 ```text
 LDB Operation formal ports

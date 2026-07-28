@@ -120,9 +120,12 @@ structured formal judgments, and an honest proof/conformance boundary.
   formal port exactly once and binds no unknown or duplicate port. Actual operands are caller ports,
   lexical caller locals, literals, or Kernel-admitted expressions; caller-local scope does not leak
   across sibling calls or into the host. Static admission checks type/access compatibility,
-  result/outcome handling, acyclic bounded nesting, effects, refusals, and resource closure. Model
-  entrypoints apply the same law to resolved Model symbols and bind or explicitly discard their
-  results. Successful lowering gives every actual operand and call site a stable identity.
+  result/outcome handling, acyclic bounded nesting, callee effect/refusal containment, and
+  transitive resource closure under the selected LDB composition policy. Model entrypoints apply
+  the LDB's total Symbol assignment policy to resolved Model symbols: the policy owns legal
+  role/access/result combinations, value ownership, required/optional Experiment modes, and
+  actual-target collapse. Successful lowering gives every actual operand and call site a stable
+  identity and emits Model initializers and Experiment targets in the Scenario Input Contract.
 
 - **Experiment selection and acceptance semantics are language judgments.** The LDB supplies closed
   typing/evaluation laws for exact Model-entrypoint selection, total assignment of the generated
